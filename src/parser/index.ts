@@ -1498,6 +1498,13 @@ export class StataParser {
    */
   private skipContinuation(): boolean {
     if (this.check('CONTINUATION')) {
+      const continuation_token = this.peek();
+      // Validate continuation token is properly formed
+      if (!continuation_token.value || continuation_token.value.trim() !== '///') {
+        // Malformed continuation - don't advance
+        return false;
+      }
+      
       this.advance(); // consume continuation
       if (!this.isAtEnd() && this.check('STATEMENT_TERMINATOR')) {
         this.advance(); // skip newline after continuation
