@@ -468,7 +468,18 @@ export class StataParser {
     const value_start_pos = this.current;
     let paren_depth = 0;
     
-    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+      // Handle continuation tokens - skip them and continue parsing
+      if (this.skipContinuation()) {
+        continue;
+      }
+
+      // Stop at comments (but not continuations - handled above)
+      const token_type = this.peek().type;
+      if (token_type === 'COMMENT_LINE' || token_type === 'COMMENT_BLOCK') {
+        break;
+      }
+
       const token = this.advance();
       
       // Track parenthesis depth for error checking
@@ -1482,6 +1493,21 @@ export class StataParser {
   }
 
   /**
+   * Skip continuation token and its following statement terminator.
+   * Returns true if a continuation was skipped, false otherwise.
+   */
+  private skipContinuation(): boolean {
+    if (this.check('CONTINUATION')) {
+      this.advance(); // consume continuation
+      if (this.check('STATEMENT_TERMINATOR')) {
+        this.advance(); // skip newline after continuation
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Check if the given operator value is a comparison operator.
    * Comparison operators: ==, !=, ~=, <, >, <=, >=
    * Note: ~= may be tokenized as two separate tokens (~ and =)
@@ -1562,12 +1588,13 @@ export class StataParser {
     let needs_space = false;
     
     while (!this.check('LBRACE') && !this.isAtEnd()) {
-      // Stop at statement terminator unless preceded by continuation
+      // Handle continuation tokens - skip them and continue parsing
+      if (this.skipContinuation()) {
+        continue;
+      }
+
+      // Stop at statement terminator
       if (this.check('STATEMENT_TERMINATOR')) {
-        if (this.current > 0 && this.tokens[this.current - 1].type === 'CONTINUATION') {
-          this.advance(); // skip newline after continuation
-          continue;
-        }
         break;
       }
       
@@ -1799,12 +1826,13 @@ export class StataParser {
     let needs_space = false;
     
     while (!this.check('LBRACE') && !this.isAtEnd()) {
-      // Stop at statement terminator unless preceded by continuation
+      // Handle continuation tokens - skip them and continue parsing
+      if (this.skipContinuation()) {
+        continue;
+      }
+
+      // Stop at statement terminator
       if (this.check('STATEMENT_TERMINATOR')) {
-        if (this.current > 0 && this.tokens[this.current - 1].type === 'CONTINUATION') {
-          this.advance(); // skip newline after continuation
-          continue;
-        }
         break;
       }
       
@@ -2143,6 +2171,11 @@ export class StataParser {
     while (!this.isAtEnd()) {
       const token = this.peek();
 
+      // Handle continuation tokens - skip them and continue parsing
+      if (this.skipContinuation()) {
+        continue;
+      }
+
       // Track parenthesis depth
       if (token.type === 'LPAREN') {
         paren_depth++;
@@ -2166,8 +2199,8 @@ export class StataParser {
         }
       }
 
-      // Stop at trivia (comments)
-      if (this.isTrivia()) {
+      // Stop at comments (but not continuations - handled above)
+      if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
         break;
       }
 
