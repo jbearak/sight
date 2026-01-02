@@ -829,13 +829,50 @@ export class StataLexer {
         const macro_start_column = this.column;
         this.advance(); // consume $
         if (this.peek() === '{') {
-          // ${name} form
+          // ${name} form - track nested braces and local macros
           this.advance(); // consume {
-          while (this.peek() !== '}' && this.peek() !== '\n' && !this.isAtEnd()) {
+          let brace_depth = 1;
+          let local_depth = 0;
+          
+          while (!this.isAtEnd() && brace_depth > 0) {
+            const my_char = this.peek();
+            
+            if (my_char === '\n') {
+              break; // Stop at newline
+            }
+            
+            // Track local macro nesting
+            if (my_char === '`') {
+              local_depth++;
+              this.advance();
+              continue;
+            }
+            
+            if (my_char === "'" && local_depth > 0) {
+              local_depth--;
+              this.advance();
+              continue;
+            }
+            
+            // Track brace nesting (only when not inside a local macro)
+            if (my_char === '{' && local_depth === 0) {
+              brace_depth++;
+              this.advance();
+              continue;
+            }
+            
+            if (my_char === '}' && local_depth === 0) {
+              brace_depth--;
+              if (brace_depth > 0) {
+                this.advance();
+                continue;
+              }
+              // brace_depth == 0, consume final } and exit
+              this.advance();
+              break;
+            }
+            
             this.advance();
-          }
-          if (this.peek() === '}') {
-            this.advance(); // consume }
           }
         } else {
           // $name form - consume word characters
@@ -991,13 +1028,50 @@ export class StataLexer {
         const macro_start_column = this.column;
         this.advance(); // consume $
         if (this.peek() === '{') {
-          // ${name} form
+          // ${name} form - track nested braces and local macros
           this.advance(); // consume {
-          while (this.peek() !== '}' && this.peek() !== '\n' && !this.isAtEnd()) {
+          let brace_depth = 1;
+          let local_depth = 0;
+          
+          while (!this.isAtEnd() && brace_depth > 0) {
+            const my_char = this.peek();
+            
+            if (my_char === '\n') {
+              break; // Stop at newline
+            }
+            
+            // Track local macro nesting
+            if (my_char === '`') {
+              local_depth++;
+              this.advance();
+              continue;
+            }
+            
+            if (my_char === "'" && local_depth > 0) {
+              local_depth--;
+              this.advance();
+              continue;
+            }
+            
+            // Track brace nesting (only when not inside a local macro)
+            if (my_char === '{' && local_depth === 0) {
+              brace_depth++;
+              this.advance();
+              continue;
+            }
+            
+            if (my_char === '}' && local_depth === 0) {
+              brace_depth--;
+              if (brace_depth > 0) {
+                this.advance();
+                continue;
+              }
+              // brace_depth == 0, consume final } and exit
+              this.advance();
+              break;
+            }
+            
             this.advance();
-          }
-          if (this.peek() === '}') {
-            this.advance(); // consume }
           }
         } else {
           // $name form - consume word characters
@@ -1110,11 +1184,12 @@ export class StataLexer {
 
   private scanGlobalMacroRef(startLine: number, startColumn: number): Token {
     if (this.peek() === '{') {
-      // ${name} form
+      // ${name} form - track nested braces and local macros
       this.advance(); // consume {
-      let found_closing_brace = false;
+      let brace_depth = 1;
+      let local_depth = 0;
       
-      while (!this.isAtEnd()) {
+      while (!this.isAtEnd() && brace_depth > 0) {
         const my_char = this.peek();
         
         // Stop at newline - incomplete macro syntax
@@ -1125,21 +1200,45 @@ export class StataLexer {
             code: LexerErrorCode.UNBALANCED_QUOTES,
           };
           this.errors.push(my_error);
-          found_closing_brace = true; // Mark as found to exit loop
           break;
         }
         
-        if (my_char === '}') {
-          this.advance(); // consume }
-          found_closing_brace = true;
+        // Track local macro nesting (backtick opens, apostrophe closes)
+        if (my_char === '`') {
+          local_depth++;
+          this.advance();
+          continue;
+        }
+        
+        if (my_char === "'" && local_depth > 0) {
+          local_depth--;
+          this.advance();
+          continue;
+        }
+        
+        // Track brace nesting (only when not inside a local macro)
+        if (my_char === '{' && local_depth === 0) {
+          brace_depth++;
+          this.advance();
+          continue;
+        }
+        
+        if (my_char === '}' && local_depth === 0) {
+          brace_depth--;
+          if (brace_depth > 0) {
+            this.advance();
+            continue;
+          }
+          // brace_depth == 0, consume final } and exit
+          this.advance();
           break;
         }
         
         this.advance();
       }
       
-      // If we reached EOF without closing brace, emit diagnostic
-      if (!found_closing_brace && this.isAtEnd()) {
+      // If we reached EOF without closing all braces, emit diagnostic
+      if (brace_depth > 0 && this.isAtEnd()) {
         const my_error: LexerError = {
           message: 'Incomplete macro expression: expected \'}\' or closing quote',
           range: this.makeRange(startLine, startColumn, this.line, this.column),

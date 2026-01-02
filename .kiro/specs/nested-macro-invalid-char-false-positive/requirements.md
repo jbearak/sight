@@ -50,7 +50,18 @@ This document specifies requirements for fixing a false positive diagnostic wher
 4. WHEN the Analyzer encounters a braced global macro reference like `${foo.bar}`, THE Analyzer SHALL produce an "Invalid character in macro name" diagnostic
 5. WHEN the Analyzer encounters a braced global macro reference like `${my var}`, THE Analyzer SHALL produce an "Invalid character in macro name" diagnostic
 
-### Requirement 4: Defer to Lexer for Unbalanced Nesting
+### Requirement 4: Lexer Brace-Depth Tracking for Nested Global Macros
+
+**User Story:** As a Stata developer, I want the lexer to correctly tokenize nested braced global macros like `${one${two}}`, so that the entire expression is captured as a single token.
+
+#### Acceptance Criteria
+
+1. WHEN the Lexer encounters a braced global macro reference containing nested braced globals like `${one${two}}`, THE Lexer SHALL track brace depth and consume all characters until the outermost closing brace
+2. WHEN the Lexer encounters a braced global macro reference containing nested local macros like `${one`two'}`, THE Lexer SHALL track both brace depth and backtick/apostrophe nesting
+3. WHEN the Lexer encounters a deeply nested braced global macro like `${a${b${c}}}`, THE Lexer SHALL correctly consume all nested braces and return a single MACRO_REF_GLOBAL token
+4. WHEN the Lexer tokenizes `${one${two}}`, THE Lexer SHALL NOT leave any orphan `}` characters in the token stream
+
+### Requirement 5: Defer to Lexer for Unbalanced Nesting
 
 **User Story:** As a Stata developer, I want the LSP to properly handle malformed nested macros, so that I receive appropriate diagnostics for syntax errors.
 

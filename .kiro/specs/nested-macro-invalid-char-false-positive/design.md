@@ -2,15 +2,39 @@
 
 ## Overview
 
-This design addresses a false positive diagnostic where nested Stata macro references like `` `one`two'' `` or `${one${two}}` are incorrectly flagged as "Invalid character in macro name". The fix adds detection logic to recognize nested macro patterns within macro reference tokens and suppress the invalid character diagnostic for these valid Stata constructs.
+This design addresses two related issues with nested Stata macro references:
 
-The core insight is that the current `has_invalid_macro_char()` function checks if the extracted macro name contains only `[A-Za-z0-9_]` characters. For nested macros, the extracted content includes backticks, apostrophes, `$`, and `{`/`}` characters from the inner macro references, which fail this check. The solution is to detect nested macro patterns before applying the invalid character check.
+1. **Analyzer false positive** (original issue): Nested macro references like `` `one`two'' `` or `${one${two}}` were incorrectly flagged as "Invalid character in macro name" by the analyzer.
+
+2. **Lexer tokenization bug** (newly discovered): The lexer's `scanGlobalMacroRef()` method doesn't track nested brace depth. When tokenizing `${one${two}}`, it stops at the first `}` (from the inner macro), leaving the outer `}` as an orphan token that triggers a parser error "unexpected closing brace - no matching opening brace".
+
+The fix requires changes to both the lexer (brace-depth tracking) and the analyzer (nested macro detection).
 
 ## Architecture
 
-The fix is localized to the `Analyzer` class in `src/analyzer/index.ts`. No changes are needed to the lexer, parser, or other components.
+The fix spans two components:
+
+1. **Lexer** (`src/lexer/index.ts`): Update `scanGlobalMacroRef()` to track brace depth and backtick/apostrophe nesting
+2. **Analyzer** (`src/analyzer/index.ts`): Add `contains_nested_macro()` to detect nested patterns and suppress invalid character diagnostics
 
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Lexer                                    │
+│                                                                  │
+│  scanGlobalMacroRef()                                           │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ Track brace_depth for ${...} nesting              [FIX] │    │
+│  │ Track local_depth for `...' nesting within braces [FIX] │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│       │                                                          │
+│       ▼                                                          │
+│  Return complete MACRO_REF_GLOBAL token                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Analyzer                                 │
 │                                                                  │
@@ -26,7 +50,7 @@ The fix is localized to the `Analyzer` class in `src/analyzer/index.ts`. No chan
 │       │                                                          │
 │       ▼                                                          │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │ contains_nested_macro() ──► Skip if nested macro  [NEW] │    │
+│  │ contains_nested_macro() ──► Skip if nested macro        │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │       │                                                          │
 │       ▼                                                          │
@@ -37,9 +61,94 @@ The fix is localized to the `Analyzer` class in `src/analyzer/index.ts`. No chan
 
 ## Components and Interfaces
 
-### New Method: `contains_nested_macro()`
+### Lexer Fix: Updated `scanGlobalMacroRef()`
 
-A new private method will be added to the `Analyzer` class to detect nested macro patterns.
+The `scanGlobalMacroRef()` method needs to track both brace depth and local macro nesting:
+
+```typescript
+private scanGlobalMacroRef(startLine: number, startColumn: number): Token {
+    if (this.peek() === '{') {
+        // ${name} form - track nested braces and local macros
+        this.advance(); // consume {
+        let brace_depth = 1;
+        let local_depth = 0;
+        
+        while (!this.isAtEnd() && brace_depth > 0) {
+            const my_char = this.peek();
+            
+            // Stop at newline - incomplete macro syntax
+            if (my_char === '\n') {
+                const my_error: LexerError = {
+                    message: 'Incomplete macro expression: expected \'}\' or closing quote',
+                    range: this.makeRange(startLine, startColumn, this.line, this.column),
+                    code: LexerErrorCode.UNBALANCED_QUOTES,
+                };
+                this.errors.push(my_error);
+                break;
+            }
+            
+            // Track local macro nesting
+            if (my_char === '`') {
+                local_depth++;
+                this.advance();
+                continue;
+            }
+            
+            if (my_char === "'" && local_depth > 0) {
+                local_depth--;
+                this.advance();
+                continue;
+            }
+            
+            // Track brace nesting (only when not inside a local macro)
+            if (my_char === '{' && local_depth === 0) {
+                brace_depth++;
+                this.advance();
+                continue;
+            }
+            
+            if (my_char === '}' && local_depth === 0) {
+                brace_depth--;
+                if (brace_depth > 0) {
+                    this.advance();
+                    continue;
+                }
+                // brace_depth == 0, consume final } and exit
+                this.advance();
+                break;
+            }
+            
+            this.advance();
+        }
+        
+        // If we reached EOF without closing all braces, emit diagnostic
+        if (brace_depth > 0 && this.isAtEnd()) {
+            const my_error: LexerError = {
+                message: 'Incomplete macro expression: expected \'}\' or closing quote',
+                range: this.makeRange(startLine, startColumn, this.line, this.column),
+                code: LexerErrorCode.UNBALANCED_QUOTES,
+            };
+            this.errors.push(my_error);
+        }
+    } else {
+        // $name form - unchanged
+        while (this.isAlphaNumeric(this.peek()) || this.peek() === '_') {
+            this.advance();
+        }
+    }
+
+    const value = this.source.substring(this.position_to_offset(startLine, startColumn), this.position);
+    return {
+        type: 'MACRO_REF_GLOBAL',
+        value,
+        range: this.makeRange(startLine, startColumn, this.line, this.column),
+    };
+}
+```
+
+### Analyzer: Method `contains_nested_macro()`
+
+A private method in the `Analyzer` class to detect nested macro patterns:
 
 ```typescript
 /**
@@ -78,7 +187,7 @@ private contains_nested_macro(content: string): boolean {
 
 ### Modified Token Processing Flow
 
-The existing token processing in `collect_token_diagnostics()` will be updated to check for nested macros before checking for invalid characters:
+The existing token processing in `collect_token_diagnostics()` checks for nested macros before checking for invalid characters:
 
 ```typescript
 if (token.type === 'MACRO_REF_LOCAL') {
@@ -114,8 +223,6 @@ Similar changes for `MACRO_REF_GLOBAL` tokens.
 
 No new data models are required. The fix uses the existing `Token` type and diagnostic structures.
 
-
-
 ## Correctness Properties
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system—essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
@@ -148,11 +255,23 @@ No new data models are required. The fix uses the existing `Token` type and diag
 
 *For any* macro reference with unbalanced delimiters (unmatched backticks/apostrophes or braces), the system SHALL produce at most one diagnostic (from the lexer), and the Analyzer SHALL NOT produce an additional "Invalid character in macro name" diagnostic.
 
-**Validates: Requirements 4.1, 4.2, 4.3**
+**Validates: Requirements 5.1, 5.2, 5.3**
+
+### Property 6: Lexer Brace-Depth Tracking
+
+*For any* braced global macro reference containing nested braces like `${a${b}}` or `${a${b${c}}}`, the lexer SHALL return a single MACRO_REF_GLOBAL token containing the entire expression including all nested braces.
+
+**Validates: Requirements 4.1, 4.3, 4.4**
+
+### Property 7: Lexer Mixed Nesting
+
+*For any* braced global macro reference containing nested local macros like `${a`b'}`, the lexer SHALL correctly track both brace depth and backtick/apostrophe nesting, returning a single complete token.
+
+**Validates: Requirements 4.2**
 
 ## Error Handling
 
-1. **Unbalanced nesting**: The lexer already handles unbalanced backticks/apostrophes by emitting "Incomplete macro expression: expected closing quote". The analyzer should not add redundant diagnostics.
+1. **Unbalanced nesting**: The lexer handles unbalanced backticks/apostrophes by emitting "Incomplete macro expression: expected closing quote". The analyzer should not add redundant diagnostics.
 
 2. **Empty macro names**: If `extract_local_macro_name()` or `extract_global_macro_name()` returns `null` or empty string, skip all validation (existing behavior).
 
