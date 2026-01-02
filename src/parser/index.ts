@@ -1537,6 +1537,10 @@ export class StataParser {
     if (token.type === 'OPERATOR' && this.isLogicalOperator(token.value)) {
       return true;
     }
+    // Arithmetic operators are valid (arithmetic in RHS, e.g., `if x == y + 1`)
+    if (token.type === 'OPERATOR' && this.isArithmeticOperator(token.value)) {
+      return true;
+    }
     // 'in' keyword is valid (for if-qualifiers followed by in-qualifiers)
     if (token.type === 'WORD' && token.value === 'in') {
       return true;
