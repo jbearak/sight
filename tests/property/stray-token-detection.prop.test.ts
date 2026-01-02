@@ -138,7 +138,7 @@ describe('Stray Token Detection Property Tests', () => {
   });
 
   /**
-   * Property 2b: Valid Arithmetic Expressions
+   * Property 2b: Valid Arithmetic Expressions (LHS)
    * Arithmetic operators in comparisons should not trigger stray token detection.
    * 
    * Feature: stray-token-in-condition, Property 2b: Valid Arithmetic Expressions
@@ -158,6 +158,37 @@ describe('Stray Token Detection Property Tests', () => {
           
           if (errors.length > 0) {
             console.log('Unexpected STRAY_TOKEN_IN_CONDITION for arithmetic expression:', source);
+            return false;
+          }
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * Property 2c: Valid Arithmetic Expressions (RHS)
+   * Arithmetic operators on the right-hand side of comparisons should not trigger stray token detection.
+   * 
+   * Feature: stray-token-in-condition, Property 2c: Valid Arithmetic Expressions (RHS)
+   * Validates: Requirements 3.4
+   */
+  it('should not flag arithmetic on RHS of comparisons', async () => {
+    fc.assert(
+      fc.asyncProperty(
+        arbitrary_operand(),
+        arbitrary_comparison_operator(),
+        arbitrary_operand(),
+        arbitrary_arithmetic_operator(),
+        arbitrary_operand(),
+        async (my_lhs, my_comp_op, my_rhs, my_arith_op, my_arith_rhs) => {
+          const source = `gen x = 1 if (${my_lhs} ${my_comp_op} ${my_rhs} ${my_arith_op} ${my_arith_rhs})`;
+          const errors = get_errors_by_code(source, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+          
+          if (errors.length > 0) {
+            console.log('Unexpected STRAY_TOKEN_IN_CONDITION for RHS arithmetic expression:', source);
             return false;
           }
           
