@@ -106,7 +106,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -d bin ]; then
-            (cd bin && for file in sight-*; do sha256sum -c "$file.sha256"; done)
+            (cd bin && for file in sight-*; do 
+              if [[ "$file" != *.sha256 ]]; then
+                sha256sum -c "$file.sha256"
+              fi
+            done)
           fi
           (cd dist && sha256sum -c sight-server.js.sha256)
           if ls client/*.vsix.sha256 >/dev/null 2>&1; then
