@@ -11,7 +11,7 @@
  * Feature: stray-token-in-condition
  */
 
-import { describe, it } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { ParseErrorCode } from '../../src/types';
 import {
@@ -218,26 +218,16 @@ describe('Stray Token Detection Property Tests', () => {
           const source = `gen x = 1 if ${my_lhs} ${my_op} ${my_rhs} ${my_stray}`;
           const errors = get_errors_by_code(source, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
-          if (errors.length === 0) {
-            console.log('Expected STRAY_TOKEN_IN_CONDITION for:', source);
-            return false;
-          }
+          // Ensure at least one stray token error is detected
+          expect(errors.length).toBeGreaterThan(0);
           
           const my_error = errors[0];
           
           // Check that message contains the stray token text
-          if (!my_error.message.includes(my_stray)) {
-            console.log(`Message should contain token '${my_stray}':`, my_error.message);
-            return false;
-          }
+          expect(my_error.message).toContain(my_stray);
           
           // Check that message suggests & or |
-          if (!my_error.message.includes("'&'") && !my_error.message.includes("'|'")) {
-            console.log('Message should suggest & or |:', my_error.message);
-            return false;
-          }
-          
-          return true;
+          expect(my_error.message.includes("'&'") || my_error.message.includes("'|'")).toBe(true);
         }
       ),
       { numRuns: 100 }
