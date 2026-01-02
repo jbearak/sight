@@ -1,6 +1,6 @@
 {
   "name": "sight-language-server",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "workspaces": [
     "client"
@@ -8,7 +8,7 @@
   "description": "Language Server Protocol implementation for Stata",
   "main": "dist/cli.js",
   "bin": {
-    "sight-language-server": "dist/cli.js"
+    "sight-language-server": "dist/sight-server.js"
   },
   "scripts": {
     "build": "tsc && cp -r src/command-database/caches dist/command-database/ && cd client && npm run compile && npm run copy-server && cd ..",
