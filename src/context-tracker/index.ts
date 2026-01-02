@@ -255,8 +255,6 @@ export class ContextTracker implements IContextTracker {
 
     this.sorted_ranges_cache = my_sorted_ranges;
     return my_sorted_ranges;
-
-    return my_sorted_ranges;
   }
 
   get_context_range_at_position(position: Position): ContextRange | undefined {
