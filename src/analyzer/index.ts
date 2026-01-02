@@ -2244,6 +2244,16 @@ export class SemanticAnalyzer {
                     continue;
                 }
                 
+                // Skip nested macro references - they contain valid macro syntax characters
+                if (macro_name && this.contains_nested_macro(macro_name)) {
+                    continue;
+                }
+                
+                // Skip unbalanced macro expressions - the lexer already reports these
+                if (macro_name && this.is_unbalanced_local_macro(macro_name)) {
+                    continue;
+                }
+                
                 // Check for invalid characters in local macro reference
                 if (macro_name && this.has_invalid_macro_char(macro_name)) {
                     diagnostics.push({
@@ -2268,6 +2278,16 @@ export class SemanticAnalyzer {
                 // Extract macro name from $name or ${name} format
                 const macro_name = this.extract_global_macro_name(token.value);
                 const is_braced = token.value.startsWith('${');
+                
+                // Skip unbalanced braced global expressions - the lexer already reports these
+                if (is_braced && !token.value.endsWith('}')) {
+                    continue;
+                }
+                
+                // Skip nested macro references - they contain valid macro syntax characters
+                if (is_braced && macro_name && this.contains_nested_macro(macro_name)) {
+                    continue;
+                }
                 
                 // Check for invalid characters in braced global macro reference
                 if (is_braced && macro_name && this.has_invalid_macro_char(macro_name)) {
@@ -2299,6 +2319,81 @@ export class SemanticAnalyzer {
      */
     private has_invalid_macro_char(name: string): boolean {
         return !/^[A-Za-z0-9_]*$/.test(name);
+    }
+
+    /**
+     * Check if a macro name content contains nested macro references.
+     * Nested macros use backtick-apostrophe pairs for locals or ${} for globals.
+     * 
+     * Examples of nested patterns:
+     * - `one`two'' → content is "one`two'" (contains nested local)
+     * - ${one${two}} → content is "one${two}" (contains nested global)
+     * - ${one`two'} → content is "one`two'" (contains nested local in global)
+     * - $one`two' → content is "one`two'" (contains nested local in unbraced global)
+     * 
+     * Note: Due to lexer limitations with nested braced globals, the content may
+     * have incomplete nesting (e.g., "a${a" instead of "a${a}"). We detect the
+     * presence of nested macro syntax markers rather than requiring complete pairs.
+     * 
+     * @param content The extracted macro name content (without outer delimiters)
+     * @returns true if the content contains nested macro syntax
+     */
+    private contains_nested_macro(content: string): boolean {
+        // Check for nested local macro: backtick followed eventually by apostrophe
+        if (content.includes('`') && content.includes("'")) {
+            return true;
+        }
+        
+        // Check for nested braced global macro: ${
+        // Note: We only check for ${ because the lexer may not capture the closing }
+        // when there are nested braced globals (it stops at the first })
+        if (content.includes('${')) {
+            return true;
+        }
+        
+        // Check for nested unbraced global macro: $identifier
+        // Match $[A-Za-z_][A-Za-z0-9_]* pattern
+        if (/\$[A-Za-z_][A-Za-z0-9_]*/.test(content)) {
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Check if a local macro content represents an unbalanced macro expression.
+     * An unbalanced local macro has backticks that don't have matching apostrophes.
+     * 
+     * Examples of unbalanced patterns:
+     * - `one`two' → content is "one`two" (backtick without matching apostrophe)
+     * - `a`b`c'' → content is "a`b`c'" (2 backticks, 1 apostrophe - unbalanced)
+     * 
+     * The lexer already reports these as "Incomplete macro expression" errors,
+     * so we should not produce additional INVALID_MACRO_CHAR diagnostics.
+     * 
+     * @param content The extracted macro name content (without outer delimiters)
+     * @returns true if the content has unbalanced backticks/apostrophes
+     */
+    private is_unbalanced_local_macro(content: string): boolean {
+        // Count backticks and apostrophes
+        let backtick_count = 0;
+        let apostrophe_count = 0;
+        
+        for (const char of content) {
+            if (char === '`') {
+                backtick_count++;
+            } else if (char === "'") {
+                apostrophe_count++;
+            }
+        }
+        
+        // If there are backticks but they don't match apostrophes, it's unbalanced
+        // A balanced nested macro would have equal counts (e.g., `a`b'' has content "a`b'" with 1 backtick and 1 apostrophe)
+        if (backtick_count > 0 && backtick_count !== apostrophe_count) {
+            return true;
+        }
+        
+        return false;
     }
 
     /**
