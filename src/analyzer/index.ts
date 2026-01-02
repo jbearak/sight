@@ -2239,6 +2239,11 @@ export class SemanticAnalyzer {
                 // Extract macro name from `name' format
                 const macro_name = this.extract_local_macro_name(token.value);
                 
+                // Skip stored result references like `r(values)' - they are valid Stata syntax
+                if (macro_name && this.is_stored_result_reference(macro_name)) {
+                    continue;
+                }
+                
                 // Check for invalid characters in local macro reference
                 if (macro_name && this.has_invalid_macro_char(macro_name)) {
                     diagnostics.push({
@@ -2294,6 +2299,23 @@ export class SemanticAnalyzer {
      */
     private has_invalid_macro_char(name: string): boolean {
         return !/^[A-Za-z0-9_]*$/.test(name);
+    }
+
+    /**
+     * Check if a string is a stored result reference.
+     * Stored results use the format r(...), e(...), c(...), or s(...)
+     * with optional matrix subscripts [...].
+     * Case-sensitive: only lowercase r/e/c/s are valid.
+     * 
+     * Examples:
+     * - r(values) - return values
+     * - e(N) - estimation results
+     * - c(current_date) - system constants
+     * - s(macros) - string scalars
+     * - r(table)[1,2] - matrix subscript
+     */
+    private is_stored_result_reference(content: string): boolean {
+        return /^[recs]\(.*\)(\[.*\])?$/.test(content);
     }
 
     /**
