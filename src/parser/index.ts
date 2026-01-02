@@ -2294,12 +2294,7 @@ export class StataParser {
       }
 
       // Handle continuation tokens - skip them and continue parsing
-      if (token.type === 'CONTINUATION') {
-        this.advance(); // consume continuation
-        // Skip the following statement terminator if present
-        if (this.check('STATEMENT_TERMINATOR')) {
-          this.advance();
-        }
+      if (this.skipContinuation()) {
         continue;
       }
 
