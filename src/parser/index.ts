@@ -1499,7 +1499,7 @@ export class StataParser {
   private skipContinuation(): boolean {
     if (this.check('CONTINUATION')) {
       this.advance(); // consume continuation
-      if (this.check('STATEMENT_TERMINATOR')) {
+      if (!this.isAtEnd() && this.check('STATEMENT_TERMINATOR')) {
         this.advance(); // skip newline after continuation
       }
       return true;
