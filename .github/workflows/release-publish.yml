@@ -1,0 +1,136 @@
+name: Release Publish
+
+"on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.2.3)'
+        required: true
+        type: string
+      publish_vscode:
+        description: 'Publish to VS Code Marketplace + OpenVSX'
+        required: false
+        type: boolean
+        default: true
+
+# Serialize by tag so retries/second runs don't collide.
+concurrency:
+  group: release-publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+# Default token permissions. We elevate for GitHub Release creation only.
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    # IMPORTANT: configure this Environment in GitHub with required reviewers,
+    # and store publish tokens as *environment secrets*.
+    environment: release
+
+    steps:
+      - name: Checkout tag
+        # Pinned action SHA for supply-chain safety.
+        # How to update:
+        #  1) Pick the desired tag in the action repo Releases page.
+        #  2) Resolve tag -> commit SHA via GitHub API:
+        #     https://api.github.com/repos/<OWNER>/<REPO>/git/ref/tags/<TAG>
+        #     If object.type="tag", dereference:
+        #     https://api.github.com/repos/<OWNER>/<REPO>/git/tags/<SHA_FROM_REF>
+        #
+        #     GitHub CLI examples:
+        #       gh api repos/<OWNER>/<REPO>/git/ref/tags/<TAG>
+        #       # if object.type == "tag":
+        #       gh api repos/<OWNER>/<REPO>/git/tags/<SHA_FROM_REF>
+        #  3) Replace the SHA in the uses: line; keep the trailing "# vX" comment.
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Validate tag + version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          the_tag='${{ inputs.tag }}'
+
+          # Basic format validation
+          if [[ ! "$the_tag" =~ ^v[0-9] ]]; then
+            echo "ERROR: tag must start with 'v' and a digit (e.g., v1.2.3). Got: $the_tag" >&2
+            exit 1
+          fi
+          if [[ "$the_tag" =~ [[:space:]] ]]; then
+            echo "ERROR: tag must not contain whitespace. Got: $the_tag" >&2
+            exit 1
+          fi
+
+          # Confirm tag exists in the checked-out repo
+          if ! git rev-parse -q --verify "refs/tags/$the_tag" >/dev/null; then
+            echo "ERROR: tag does not exist in this repository: $the_tag" >&2
+            exit 1
+          fi
+
+          # Confirm tag matches root package.json version (strip leading v)
+          the_pkg_version=$(node -p "require('./package.json').version")
+          the_expected_tag="v${the_pkg_version}"
+          if [[ "$the_tag" != "$the_expected_tag" ]]; then
+            echo "ERROR: tag/version mismatch. tag=$the_tag package.json=$the_pkg_version (expected tag $the_expected_tag)" >&2
+            exit 1
+          fi
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Download build artifacts
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-${{ inputs.tag }}
+
+      - name: Verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d bin ]; then
+            (cd bin && for file in sight-*; do sha256sum -c "$file.sha256"; done)
+          fi
+          (cd dist && sha256sum -c sight-server.js.sha256)
+          if ls client/*.vsix.sha256 >/dev/null 2>&1; then
+            (cd client && sha256sum -c *.vsix.sha256)
+          fi
+
+      - name: Publish to VS Code Marketplace
+        if: ${{ inputs.publish_vscode }}
+        run: |
+          cd client
+          npx vsce publish --pat ${{ secrets.VSCE_TOKEN }}
+        env:
+          VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
+
+      - name: Publish to OpenVSX Registry
+        if: ${{ inputs.publish_vscode }}
+        run: |
+          cd client
+          npx ovsx publish --pat ${{ secrets.OVSX_TOKEN }}
+        env:
+          OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+
+      - name: Create GitHub Release
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: Release ${{ inputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            bin/sight-*
+            dist/sight-server.js
+            dist/sight-server.js.sha256
+            client/*.vsix
+            client/*.vsix.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://kiro.dev/schemas/lsp.json",
+  "servers": {
+    "sight": {
+      "command": "sight-language-server",
+      "args": ["--stdio"],
+      "fileExtensions": [".do", ".ado", ".doh", ".mata"],
+      "rootMarkers": [".sight.json", "package.json"],
+      "initializationOptions": {
+        "diagnostics": {
+          "enabled": true
+        },
+        "crossFile": {
+          "indexWorkspace": true
+        }
+      }
+    },
+    "typescript": {
+      "command": "typescript-language-server",
+      "args": ["--stdio"],
+      "fileExtensions": [".ts", ".tsx", ".js", ".jsx"],
+      "rootMarkers": ["tsconfig.json", "package.json"]
+    }
+  }
+}

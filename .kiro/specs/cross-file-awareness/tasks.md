@@ -1,0 +1,331 @@
+# Implementation Plan: Cross-File Awareness
+
+## Overview
+
+This implementation plan breaks down the cross-file awareness feature into discrete coding tasks. The approach is incremental: we build the directive parser first, then scope resolution, then enhance each provider. Property-based tests are included alongside implementation to catch errors early.
+
+## Tasks
+
+- [x] 1. Add new types for cross-file awareness
+  - [x] 1.1 Add directive types to src/types/index.ts
+    - Add `Directive`, `CallSite`, `DirectiveParseResult` interfaces
+    - Add `ScalarSymbol`, `MatrixSymbol` interfaces
+    - Add `ExtendedSymbolTable` interface extending `SymbolTable`
+    - _Requirements: 1.3, 1.4, 2.1, 2.2, 2.3, 2.4_
+  - [x] 1.2 Add scope resolution types to src/types/index.ts
+    - Add `ScopeChainEntry`, `ResolvedScope` interfaces
+    - Add `ScopeResolverConfig` interface
+    - _Requirements: 3.1, 3.2, 3.3_
+  - [x] 1.3 Add configuration types to src/types/index.ts
+    - Add `CrossFileConfig` interface
+    - Add `DiagnosticSeverityConfig` interface
+    - _Requirements: 11.5, 11.6_
+
+- [x] 2. Implement Directive Parser
+  - [x] 2.1 Create src/directive-parser/index.ts with DirectiveParser class
+    - Implement `parse()` method to extract directives from file header
+    - Stop parsing at first non-comment, non-blank line
+    - Support both `*` and `//` comment styles
+    - _Requirements: 2.1, 2.2, 2.6_
+  - [x] 2.2 Implement call site parameter parsing
+    - Parse `line=<number>` parameter
+    - Parse `match="<string>"` parameter
+    - Implement precedence (match > line)
+    - _Requirements: 2.3, 2.4, 2.5_
+  - [x] 2.3 Implement path resolution
+    - Implement `resolve_path()` for relative paths
+    - Handle `..`, `.`, and platform separators
+    - Normalize paths to absolute form
+    - _Requirements: 2.9, 2.10_
+  - [x] 2.4 Implement match string lookup
+    - Implement `find_match_line()` to scan parent file
+    - Return line number of first occurrence
+    - Handle not-found case
+    - _Requirements: 2.4, 2.12_
+  - [x] 2.5 Write property tests for directive parsing
+    - **Property 1: Directive Parsing Round-Trip**
+    - **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
+  - [x] 2.6 Write property tests for directive location constraint
+    - **Property 2: Directive Location Constraint**
+    - **Validates: Requirements 2.6**
+  - [x] 2.7 Write property tests for path resolution
+    - **Property 3: Path Resolution Correctness**
+    - **Validates: Requirements 2.9, 2.10**
+
+- [x] 3. Checkpoint - Directive Parser Complete
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 4. Implement Scope Resolver
+  - [x] 4.1 Create src/scope-resolver/index.ts with ScopeResolver class
+    - Implement basic structure with visited set for cycle detection
+    - Implement `resolve()` method skeleton
+    - _Requirements: 2.14, 3.1_
+  - [x] 4.2 Implement recursive directive following
+    - Follow directive chain recursively
+    - Read parent files and parse their directives
+    - Build scope chain entries
+    - _Requirements: 2.13, 3.7_
+  - [x] 4.3 Implement cycle detection
+    - Track visited files during resolution
+    - Detect cycles and emit diagnostic with path
+    - Provide partial scope from non-cyclic branches
+    - _Requirements: 2.14, 2.15, 12.4_
+  - [x] 4.4 Implement inheritance rules
+    - Implement `apply_inheritance_rules()` method
+    - `done-by`: exclude locals
+    - `included-by`: include all symbols
+    - _Requirements: 3.2, 3.3_
+  - [x] 4.5 Implement call site filtering
+    - Implement `filter_by_call_site()` method
+    - Include only symbols defined on or before call site line
+    - Default to end-of-file when call site unknown
+    - _Requirements: 3.4, 3.5_
+  - [x] 4.6 Implement shadowing
+    - Implement `merge_with_shadowing()` method
+    - Current file shadows ancestors
+    - Nearer ancestors shadow distant ones
+    - _Requirements: 3.8, 3.9_
+  - [x] 4.7 Implement multi-parent union
+    - Handle multiple directives in same file
+    - Union inherited symbols from all parents
+    - Handle same-parent precedence (included-by > done-by)
+    - _Requirements: 2.7, 2.8, 3.6_
+  - [x] 4.8 Write property tests for cycle detection
+    - **Property 5: Cycle Detection Completeness**
+    - **Validates: Requirements 2.14, 2.15, 12.4**
+  - [x] 4.9 Write property tests for inheritance rules
+    - **Property 6: Inheritance Rule Correctness**
+    - **Validates: Requirements 3.2, 3.3**
+  - [x] 4.10 Write property tests for call site filtering
+    - **Property 7: Call Site Filtering**
+    - **Validates: Requirements 3.4, 3.5**
+  - [x] 4.11 Write property tests for shadowing
+    - **Property 8: Shadowing Semantics**
+    - **Validates: Requirements 3.8, 3.9**
+  - [x] 4.12 Write property tests for multi-parent union
+    - **Property 9: Multi-Parent Union**
+    - **Validates: Requirements 2.7, 3.6**
+
+- [x] 5. Checkpoint - Scope Resolver Complete
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 6. Enhance Workspace Indexer
+  - [x] 6.1 Extend WorkspaceIndexer to parse directives
+    - Add directive_parser field
+    - Extract directives during file indexing
+    - Store directives in IndexedFile
+    - _Requirements: 4.1, 4.2, 4.3_
+  - [x] 6.2 Add scalar and matrix symbol extraction
+    - Parse `scalar <name> =` definitions
+    - Parse `matrix <name> =` and `matrix define <name> =` definitions
+    - Store in extended symbol table
+    - _Requirements: 1.3, 1.4_
+  - [x] 6.3 Implement get_reachable_symbols method
+    - Use scope resolver to build scope chain
+    - Return filtered symbols based on directives
+    - _Requirements: 4.9_
+  - [x] 6.4 Implement find_symbol_definitions method
+    - Search across all indexed files
+    - Return all definition locations for a symbol
+    - _Requirements: 6.3, 4.8_
+  - [x] 6.5 Handle file lifecycle events
+    - Update index on file save
+    - Remove symbols on file delete
+    - Update paths on file rename
+    - Handle atomic saves (temp file swap)
+    - _Requirements: 4.5, 4.6, 4.7, 12.6, 12.7_
+  - [x] 6.6 Write property tests for index lifecycle
+    - **Property 12: Index Lifecycle Consistency**
+    - **Validates: Requirements 4.5, 4.6, 4.7, 12.6, 12.7**
+
+- [x] 7. Checkpoint - Enhanced Indexer Complete
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 8. Enhance Completion Provider
+  - [x] 8.1 Integrate scope resolver into completion provider
+    - Add scope_resolver field to CompletionProvider
+    - Resolve scope before generating completions
+    - _Requirements: 5.1_
+  - [x] 8.2 Implement directive-based filtering
+    - Filter completions to reachable symbols when directives present
+    - Include all workspace symbols when no directives
+    - _Requirements: 4.9, 4.10, 11.5_
+  - [x] 8.3 Implement completion ranking
+    - Rank by scope proximity: current > direct include > parent > distant
+    - Set sortText based on ranking
+    - _Requirements: 5.6_
+  - [x] 8.4 Add source file annotation
+    - Annotate cross-file symbols with source file path
+    - Include in completion item detail
+    - _Requirements: 5.2, 5.3_
+  - [x] 8.5 Write property tests for completion filtering
+    - **Property 13: Completion Filtering by Directives**
+    - **Validates: Requirements 4.9, 4.10, 11.5**
+  - [x] 8.6 Write property tests for completion ranking
+    - **Property 14: Completion Ranking Order**
+    - **Validates: Requirements 5.6**
+
+- [x] 9. Enhance Definition Provider
+  - [x] 9.1 Integrate scope resolver into definition provider
+    - Add scope_resolver and workspace_indexer fields
+    - Search scope chain for definitions
+    - _Requirements: 6.1_
+  - [x] 9.2 Implement cross-file navigation
+    - Return definition location in other files
+    - Handle file URI construction
+    - _Requirements: 6.2_
+  - [x] 9.3 Handle multiple definitions
+    - Return array when symbol defined in multiple files
+    - Include all definition locations
+    - _Requirements: 6.3_
+  - [x] 9.4 Write property tests for go-to-definition
+    - **Property 15: Go-to-Definition Correctness**
+    - **Validates: Requirements 6.1, 6.2, 6.3**
+
+- [x] 10. Enhance Hover Provider
+  - [x] 10.1 Integrate scope resolver into hover provider
+    - Add scope_resolver field to HoverProvider
+    - Search scope chain for symbol info
+    - _Requirements: 7.1_
+  - [x] 10.2 Build hover content with cross-file info
+    - Include symbol type and definition site
+    - Include source file for cross-file symbols
+    - _Requirements: 7.1_
+  - [x] 10.3 Display program signatures
+    - Extract signature from program symbol
+    - Format for hover display
+    - _Requirements: 7.2_
+  - [x] 10.4 Write property tests for hover information
+    - **Property 16: Hover Information Correctness**
+    - **Validates: Requirements 7.1, 7.2**
+
+- [x] 11. Enhance Diagnostics Provider
+  - [x] 11.1 Integrate scope resolver into diagnostics provider
+    - Add scope_resolver field
+    - Use resolved scope for undefined symbol detection
+    - _Requirements: 8.1_
+  - [x] 11.2 Implement undefined symbol detection with cross-file scope
+    - Check symbol references against resolved scope
+    - Emit warning for undefined symbols
+    - _Requirements: 8.1_
+  - [x] 11.3 Implement out-of-scope detection
+    - Detect symbols defined after inferred call site
+    - Emit info diagnostic
+    - _Requirements: 8.2_
+  - [x] 11.4 Add directive-related diagnostics
+    - Emit warning for missing files
+    - Emit warning for circular dependencies with path
+    - Emit warning for match string not found
+    - _Requirements: 8.3, 8.4, 2.11, 2.12_
+  - [x] 11.5 Implement configurable severity
+    - Read severity config from settings
+    - Apply configured severity to diagnostics
+    - Support 'off' to disable specific diagnostics
+    - _Requirements: 8.6, 11.6_
+  - [x] 11.6 Write property tests for undefined symbol detection
+    - **Property 17: Undefined Symbol Detection**
+    - **Validates: Requirements 8.1**
+
+- [x] 12. Checkpoint - Enhanced Providers Complete
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 13. Implement Configuration
+  - [x] 13.1 Add configuration reading from initialization options
+    - Parse cross-file config from init options
+    - Apply defaults for missing values
+    - _Requirements: 11.1_
+  - [x] 13.2 Add configuration reading from .stata-lsp.json
+    - Read config file from workspace root
+    - Parse and validate config
+    - _Requirements: 11.2_
+  - [x] 13.3 Implement configuration precedence
+    - Init options override file config
+    - Ignore nested config files
+    - _Requirements: 11.3, 11.4_
+  - [x] 13.4 Write property tests for configuration precedence
+    - **Property 18: Configuration Precedence**
+    - **Validates: Requirements 11.3**
+
+- [x] 14. Implement Error Handling
+  - [x] 14.1 Handle encoding errors
+    - Skip files with encoding errors
+    - Log warning
+    - _Requirements: 12.1_
+  - [x] 14.2 Handle file read errors
+    - Emit diagnostic for unreadable files
+    - Continue with available scope
+    - _Requirements: 12.2_
+  - [x] 14.3 Handle max files limit
+    - Stop indexing at limit
+    - Log info message
+    - _Requirements: 12.3_
+  - [x] 14.4 Handle malformed directives
+    - Skip malformed directives
+    - Emit diagnostic
+    - Continue processing
+    - _Requirements: 12.5_
+  - [x] 14.5 Write property tests for error resilience
+    - **Property 19: Error Resilience**
+    - **Validates: Requirements 12.1, 12.2, 12.5**
+
+- [x] 15. Wire Components Together
+  - [x] 15.1 Update server.ts to create and wire components
+    - Create DirectiveParser, ScopeResolver instances
+    - Pass to enhanced providers
+    - _Requirements: All_
+  - [x] 15.2 Update document store to trigger scope resolution
+    - Resolve scope on document open/change
+    - Cache resolved scope
+    - Debounce re-resolution on rapid changes
+    - _Requirements: 4.4_
+  - [x] 15.3 Update server handlers to use enhanced providers
+    - Use enhanced completion, definition, hover, diagnostics
+    - Pass resolved scope to providers
+    - _Requirements: All_
+
+- [x] 16. Add .mata File Support
+  - [x] 16.1 Extend file discovery to include .mata files
+    - Add .mata to file extension filter
+    - _Requirements: 4.1, 10.2_
+  - [x] 16.2 Implement basic Mata function name extraction
+    - Parse Mata function definitions (name only, no body analysis)
+    - Store in index
+    - _Requirements: 10.4_
+  - [x] 16.3 Write property tests for file type equivalence
+    - **Property 20: File Type Equivalence**
+    - **Validates: Requirements 10.1**
+
+- [x] 17. Update Documentation
+  - [x] 17.1 Update README.md with configuration options
+    - Document all cross-file config options
+    - Include examples
+    - _Requirements: 11.7_
+  - [x] 17.2 Add directive usage examples to README.md
+    - Document @lsp-done-by and @lsp-included-by syntax
+    - Include match= and line= parameters
+    - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [x] 18. Final Checkpoint
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 19. Integration Tests
+  - [x] 19.1 Write integration tests for multi-file scope resolution
+    - Create test workspace with directive chains
+    - Verify scope resolution across files
+    - _Requirements: 14.2_
+  - [x] 19.2 Write integration tests for cross-file navigation
+    - Test go-to-definition across files
+    - Test hover across files
+    - _Requirements: 14.2_
+  - [x] 19.3 Write integration tests for completion filtering
+    - Test completion with and without directives
+    - Verify filtering and ranking
+    - _Requirements: 14.2_
+
+## Notes
+
+- All tasks are required for comprehensive implementation
+- Each task references specific requirements for traceability
+- Checkpoints ensure incremental validation
+- Property tests validate universal correctness properties
+- Unit tests validate specific examples and edge cases

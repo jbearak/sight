@@ -1,0 +1,50 @@
+# Source files
+src/
+tests/
+scripts/
+
+# Development files
+.test-cache-monotonicity/
+.tmp/
+.kiro/
+*.test.ts
+*.test.js
+tsconfig.json
+tsconfig.tsbuildinfo
+bun.lock
+.DS_Store
+
+# Build artifacts (keep only bundled server)
+bin/
+dist/*.d.ts
+dist/*.d.ts.map
+dist/*.js.map
+dist/*/
+!dist/sight-server.js
+
+# VS Code extension
+client/
+
+# Documentation and config (keep README, LICENSE)
+AGENTS.md
+COMMENT_NORMALIZATION.md
+setup.sh
+*.json
+!package.json
+*.do
+*.bun-build
+
+# Git and CI
+.git/
+.github/
+.gitignore
+.eslintrc.cjs
+
+# IDE
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

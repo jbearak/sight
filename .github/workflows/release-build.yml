@@ -1,0 +1,79 @@
+name: Release Build
+
+"on":
+  push:
+    tags:
+      - 'v*'
+
+# Releases should be strictly serialized per tag.
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: false
+
+# Default token permissions: read-only. We do not publish and do not create
+# releases in this workflow.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Pinned action SHA for supply-chain safety.
+      # How to update:
+      #  1) Pick the desired tag in the action repo Releases page (e.g. https://github.com/actions/checkout/releases).
+      #  2) Resolve tag -> commit SHA via GitHub API:
+      #     https://api.github.com/repos/actions/checkout/git/ref/tags/<TAG>
+      #     If it returns object.type="tag" (annotated tag), dereference:
+      #     https://api.github.com/repos/actions/checkout/git/tags/<SHA_FROM_REF>
+      #
+      #     GitHub CLI examples:
+      #       gh api repos/actions/checkout/git/ref/tags/<TAG>
+      #       # if object.type == "tag":
+      #       gh api repos/actions/checkout/git/tags/<SHA_FROM_REF>
+      #  3) Replace the SHA below; keep the trailing comment with the major tag (e.g. "# v4").
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      # Build once, publish many.
+      - name: Build binaries
+        run: bun run build:binary
+
+      - name: Build bundle for npm
+        run: bun run build:npm
+
+      - name: Build VS Code extension
+        run: bun run package
+
+      - name: Calculate checksums
+        run: |
+          cd bin
+          for file in sight-*; do
+            sha256sum "$file" > "$file.sha256"
+          done
+          cd ../dist
+          sha256sum sight-server.js > sight-server.js.sha256
+          cd ../client
+          if [ -f *.vsix ]; then
+            sha256sum *.vsix > "$(basename *.vsix).sha256"
+          fi
+
+      - name: Upload release artifacts
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ github.ref_name }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            bin/sight-*
+            dist/sight-server.js
+            dist/sight-server.js.sha256
+            client/*.vsix
+            client/*.vsix.sha256

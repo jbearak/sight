@@ -1,0 +1,216 @@
+---
+name: CI
+
+"on":
+  pull_request:
+  workflow_dispatch:
+
+# Avoid wasting CI minutes by canceling older runs of the same PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+      client: ${{ steps.filter.outputs.client }}
+      binaries: ${{ steps.filter.outputs.binaries }}
+      formula: ${{ steps.filter.outputs.formula }}
+    steps:
+      # Pinned action SHAs for supply-chain safety.
+      # How to update:
+      #  1) Pick the desired tag in the action repo Releases page (e.g. https://github.com/actions/checkout/releases).
+      #  2) Resolve tag -> commit SHA via GitHub API:
+      #     https://api.github.com/repos/<OWNER>/<REPO>/git/ref/tags/<TAG>
+      #     If object.type="tag" (annotated tag), dereference:
+      #     https://api.github.com/repos/<OWNER>/<REPO>/git/tags/<SHA_FROM_REF>
+      #
+      #     GitHub CLI examples:
+      #       gh api repos/<OWNER>/<REPO>/git/ref/tags/<TAG>
+      #       # if object.type == "tag":
+      #       gh api repos/<OWNER>/<REPO>/git/tags/<SHA_FROM_REF>
+      #  3) Replace the SHA in uses: lines; keep the trailing "# vX" comments.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
+        with:
+          filters: |
+            # "server" is the base set that should run tests/typecheck.
+            server:
+              - 'package.json'
+              - 'bun.lock'
+              - 'tsconfig*.json'
+              - '.eslintrc.cjs'
+              - 'src/**'
+              - 'scripts/**'
+              - 'tests/**'
+
+            # Client packaging depends on both client/ and the server bundle.
+            client:
+              - 'client/**'
+              - 'src/**'
+              - 'package.json'
+              - 'bun.lock'
+              - 'client/package.json'
+              - 'client/bun.lock'
+
+            # Binaries are built from the server source + binary build scripts.
+            binaries:
+              - 'src/**'
+              - 'package.json'
+              - 'bun.lock'
+              - 'scripts/build-binary.ts'
+              - 'scripts/install.ts'
+              - 'scripts/uninstall.ts'
+
+            formula:
+              - 'Formula/**'
+              - 'scripts/test-formula.ts'
+              - 'scripts/release.ts'
+
+  verify:
+    name: Verify (typecheck + tests)
+    needs: changes
+    if: >-
+      needs.changes.outputs.server == 'true' ||
+      needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          node-version: "22"
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Tests
+        run: bun test
+
+  npm-package:
+    name: NPM package
+    needs: [changes, verify]
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          node-version: "20"
+      - name: Build npm package
+        run: bun run build:npm
+      - name: Test package creation
+        run: npm pack --dry-run
+      - name: Test global installation
+        run: |
+          npm install -g .
+          sight-language-server --version
+          sight-language-server --help
+      - name: Test LSP protocol
+        shell: bash
+        run: |
+          cat <<'EOF' | timeout 5s sight-language-server --stdio || true
+          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
+          EOF
+
+  vscode-extension:
+    name: VS Code extension
+    needs: [changes, verify]
+    if: needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          node-version: "20"
+      - name: Build extension
+        run: bun run package
+      - name: Validate extension package
+        run: |
+          cd client
+          ls -la *.vsix
+          npx vsce ls *.vsix
+      - name: Validate extension manifest
+        run: |
+          cd client
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            if (!pkg.engines?.vscode) throw new Error('Missing VS Code engine');
+            console.log('Extension:', pkg.displayName);
+            console.log('Version:', pkg.version);
+            console.log('Publisher:', pkg.publisher);
+          "
+
+  binaries:
+    name: Binary artifacts
+    needs: [changes, verify]
+    if: needs.changes.outputs.binaries == 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          node-version: "20"
+      - name: Build current platform binary
+        run: bun run build:current
+      - name: Test binary execution
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Windows) BINARY="bin/sight-windows-x64.exe";;
+            macOS)   BINARY="bin/sight-darwin-arm64";;
+            *)       BINARY="bin/sight-linux-x64";;
+          esac
+
+          chmod +x "$BINARY" 2>/dev/null || true
+          "$BINARY" --version
+          "$BINARY" --help
+      - name: Test LSP stdio
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Windows) BINARY="bin/sight-windows-x64.exe";;
+            macOS)   BINARY="bin/sight-darwin-arm64";;
+            *)       BINARY="bin/sight-linux-x64";;
+          esac
+
+          cat <<'EOF' | timeout 5s "$BINARY" --stdio || true
+          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
+          EOF
+
+  homebrew:
+    name: Homebrew formula
+    needs: [changes, verify]
+    if: needs.changes.outputs.formula == 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          node-version: "20"
+      - name: Build binaries
+        run: bun run build:binary
+      - name: Test formula syntax
+        shell: bash
+        run: |
+          if command -v brew >/dev/null 2>&1; then
+            brew audit --strict Formula/sight-language-server.rb
+          else
+            echo "Homebrew not available, skipping audit"
+          fi
+      - name: Test formula installation
+        if: runner.os == 'macOS'
+        run: bun scripts/test-formula.ts

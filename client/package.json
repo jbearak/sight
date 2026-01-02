@@ -1,0 +1,207 @@
+{
+    "name": "sight-client",
+    "displayName": "Sight - Stata Language Server",
+    "description": "Language support for Stata using LSP",
+    "version": "0.1.0",
+    "publisher": "jbearak",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/jbearak/sight"
+    },
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "main": "./dist/extension",
+    "contributes": {
+        "languages": [
+            {
+                "id": "stata",
+                "aliases": [
+                    "Stata",
+                    "stata"
+                ],
+                "extensions": [
+                    ".do",
+                    ".ado",
+                    ".mata"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "stata",
+                "scopeName": "source.stata",
+                "path": "./syntaxes/stata.tmLanguage.json"
+            }
+        ],
+        "configuration": {
+            "title": "Sight Language Server",
+            "properties": {
+                "sight.diagnostics.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable or disable all diagnostics"
+                },
+                "sight.diagnostics.severity.undefinedMacro": {
+                    "type": "string",
+                    "enum": ["error", "warning", "information", "hint", "off"],
+                    "default": "warning",
+                    "description": "Severity level for undefined macro references",
+                    "enumDescriptions": [
+                        "Show as error",
+                        "Show as warning",
+                        "Show as information",
+                        "Show as hint",
+                        "Disable this diagnostic"
+                    ]
+                },
+                "sight.diagnostics.severity.undefinedVariable": {
+                    "type": "string",
+                    "enum": ["error", "warning", "information", "hint", "off"],
+                    "default": "information",
+                    "description": "Severity level for undefined variable references",
+                    "enumDescriptions": [
+                        "Show as error",
+                        "Show as warning",
+                        "Show as information",
+                        "Show as hint",
+                        "Disable this diagnostic"
+                    ]
+                },
+                "sight.diagnostics.severity.styleWarnings": {
+                    "type": "string",
+                    "enum": ["error", "warning", "information", "hint", "off"],
+                    "default": "hint",
+                    "description": "Severity level for style warnings",
+                    "enumDescriptions": [
+                        "Show as error",
+                        "Show as warning",
+                        "Show as information",
+                        "Show as hint",
+                        "Disable this diagnostic"
+                    ]
+                },
+                "sight.diagnostics.undefinedVariableEnabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable checking for undefined variables"
+                },
+                "sight.formatting.indentSize": {
+                    "type": "number",
+                    "default": 4,
+                    "minimum": 1,
+                    "description": "Number of spaces or tab stops for indentation"
+                },
+                "sight.formatting.indentStyle": {
+                    "type": "string",
+                    "enum": ["spaces", "tabs"],
+                    "default": "spaces",
+                    "description": "Use spaces or tabs for indentation",
+                    "enumDescriptions": [
+                        "Use spaces for indentation",
+                        "Use tabs for indentation"
+                    ]
+                },
+                "sight.formatting.lineWidth": {
+                    "type": "number",
+                    "default": 80,
+                    "minimum": 40,
+                    "description": "Maximum line width for formatting"
+                },
+                "sight.formatting.preferredCommentStyle": {
+                    "type": "string",
+                    "enum": ["//", "*", "/* */"],
+                    "default": "//",
+                    "description": "Preferred comment style for normalization",
+                    "enumDescriptions": [
+                        "Use // for line comments",
+                        "Use * for line comments",
+                        "Use /* */ for block comments"
+                    ]
+                },
+                "sight.formatting.normalizeCommentStyle": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Normalize comment styles during formatting"
+                },
+                "sight.formatting.commentLineWidth": {
+                    "type": "number",
+                    "default": 72,
+                    "minimum": 40,
+                    "description": "Maximum line width for comments"
+                },
+                "sight.indexing.maxFileSizeBytes": {
+                    "type": "number",
+                    "default": 500000,
+                    "description": "Maximum file size in bytes for indexing (default ~500KB)"
+                },
+                "sight.indexWorkspace": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable workspace-wide symbol indexing"
+                },
+                "sight.adoPaths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Additional paths to search for ADO files"
+                }
+            }
+        },
+        "commands": [
+            {
+                "command": "sight.resetDepthColors",
+                "title": "Sight: Reset Depth Colors Configuration"
+            },
+            {
+                "command": "sight.resetConflictDismissal",
+                "title": "Sight: Reset Conflict Dismissal"
+            }
+        ],
+        "configurationDefaults": {
+            "[stata]": {
+                "editor.quickSuggestions": {
+                    "other": "on",
+                    "comments": "off",
+                    "strings": "on"
+                },
+                "editor.wordBasedSuggestions": "off",
+                "editor.suggest.localityBonus": true
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "bun run bundle && bun run copy-server",
+        "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --outfile=dist/extension.js --external:vscode --minify",
+        "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/",
+        "compile": "bun run bundle",
+        "watch": "tsc -watch -p ./",
+        "pretest": "bun run compile && bun run lint",
+        "lint": "eslint src --ext ts",
+        "test": "bun ./out/test/runTest.js",
+        "package": "vsce package",
+        "publish:vscode": "vsce publish",
+        "publish:ovsx": "ovsx publish",
+        "publish:all": "npm run publish:vscode && npm run publish:ovsx",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^8.1.0"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.75.0",
+        "@types/node": "^16.11.7",
+        "@vscode/vsce": "^3.2.1",
+        "ovsx": "^0.8.3",
+        "typescript": "^4.9.4",
+        "eslint": "^8.31.0",
+        "@typescript-eslint/parser": "^5.48.1",
+        "@typescript-eslint/eslint-plugin": "^5.48.1"
+    }
+}

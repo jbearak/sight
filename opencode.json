@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": {
+    "sight": {
+      "command": ["sight-language-server", "--stdio"],
+      "extensions": [".do", ".ado", ".doh", ".mata"]
+    },
+    "typescript": {
+      "command": ["typescript-language-server", "--stdio"],
+      "extensions": [".ts", ".tsx", ".js", ".jsx"]
+    }
+  }
+}

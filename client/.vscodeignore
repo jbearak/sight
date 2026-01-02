@@ -1,0 +1,27 @@
+# Development files
+.vscode/**
+node_modules/**
+src/**
+tsconfig.json
+bun.lock
+**/*.ts
+**/*.map
+
+# Parent directory - exclude everything from parent
+../**
+
+# Test and build artifacts
+**/*.test.ts
+**/*.spec.ts
+tests/**
+
+# Git
+.git/**
+.gitignore
+
+# Documentation and misc
+*.md
+!README.md
+
+# Old VSIX files
+*.vsix

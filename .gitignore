@@ -1,0 +1,21 @@
+node_modules/
+dist/
+bin/
+coverage/
+*.bun-build
+.*.bun-build
+*.log
+.DS_Store
+# VS Code - ignore personal settings but keep shared config
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.tsbuildinfo
+*.vsix
+client/server/
+.tmp/
+.kiro/specs/do-command-arguments/scratch.do
+.kiro/specs/c-local-cross-file-support/scratch.do
+scratch.do

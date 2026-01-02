@@ -1,0 +1,54 @@
+---
+name: "Setup Bun + Node + deps"
+description: |
+  Checkout-independent setup: installs Bun, Node, and project dependencies
+
+inputs:
+  node-version:
+    description: "Node.js version (LTS recommended for CI stability)"
+    required: false
+    default: "22"
+  registry-url:
+    description: "Optional npm registry-url for publishing"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Bun
+      # Pinned action SHA for supply-chain safety.
+      # Tag v2 -> commit 4bc047ad259df6fc24a6c9b0f9a0cb08cf17571c
+      uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17571c # v2
+      with:
+        bun-version: latest
+
+    - name: Setup Node.js
+      # Pinned action SHA for supply-chain safety.
+      # Tag v4 -> commit 49933ea5288caeca8642d1e84afbd3f7d6820020
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        registry-url: ${{ inputs.registry-url }}
+
+    # Bun installs into node_modules, so caching speeds up all jobs.
+    # We key off both root + client lockfiles because this repo is a workspace.
+    - name: Cache dependencies
+      # Pinned action SHA for supply-chain safety.
+      # Tag v4 -> commit 5a3ec84eff668545956fd18022155c47e93e2684
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      with:
+        path: |
+          node_modules
+          client/node_modules
+          ~/.bun/install/cache
+        key: >-
+          bun-${{ runner.os }}-${{ inputs.node-version }}-
+          ${{ hashFiles('bun.lock', 'client/bun.lock') }}
+        restore-keys: |
+          bun-${{ runner.os }}-${{ inputs.node-version }}-
+          bun-${{ runner.os }}-
+
+    - name: Install dependencies
+      shell: bash
+      run: bun install
