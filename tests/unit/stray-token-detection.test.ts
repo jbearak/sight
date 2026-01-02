@@ -229,6 +229,70 @@ describe('Split Literal Detection', () => {
   });
 });
 
+describe('String Literal Macro Suppression (no false positives)', () => {
+  describe('Double-quoted strings with local macros', () => {
+    it('should NOT flag local macro in double-quoted string: x == 1 & y == "`macro\'"', () => {
+      const errors = get_errors_by_code('gen x = 1 if x == 1 & y == "`macro\'"', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should NOT flag local macro in parenthesized condition', () => {
+      const errors = get_errors_by_code('gen x = 1 if (x == 1 & y == "`macro\'")', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(0);
+    });
+  });
+
+  describe('Double-quoted strings with global macros', () => {
+    it('should NOT flag global macro in double-quoted string: x == 1 & y == "$macro"', () => {
+      const errors = get_errors_by_code('gen x = 1 if x == 1 & y == "$macro"', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should NOT flag global macro in parenthesized condition', () => {
+      const errors = get_errors_by_code('gen x = 1 if (x == 1 & y == "$macro")', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(0);
+    });
+  });
+
+  describe('Compound strings with macros', () => {
+    it('should NOT flag local macro in compound string: x == `"`macro\'"\'', () => {
+      const errors = get_errors_by_code('gen x = 1 if x == `"`macro\'"\'', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should NOT flag global macro in compound string: x == `"$macro"\'', () => {
+      const errors = get_errors_by_code('gen x = 1 if x == `"$macro"\'', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(0);
+    });
+  });
+
+  describe('Bug report case', () => {
+    it('should NOT flag the exact bug report case: x == 1 & program == "`program\'" & level == "births"', () => {
+      const errors = get_errors_by_code('gen x = 1 if x == 1 & program == "`program\'" & level == "births"', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should NOT flag bug report case in parenthesized condition', () => {
+      const errors = get_errors_by_code('gen x = 1 if (x == 1 & program == "`program\'" & level == "births")', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(0);
+    });
+  });
+
+  describe('Regression: genuine stray tokens still detected', () => {
+    it('should still detect stray token: x == 1 oops', () => {
+      const errors = get_errors_by_code('gen x = 1 if x == 1 oops', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBe(1);
+      expect(errors[0].message).toContain('oops');
+    });
+
+    it('should still detect stray token with missing logical operator: x == 1 y == 2', () => {
+      const errors = get_errors_by_code('gen x = 1 if x == 1 y == 2', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
+      expect(errors.length).toBeGreaterThanOrEqual(1);
+      expect(errors[0].message).toContain('y');
+    });
+  });
+});
+
 describe('Diagnostic Message Quality', () => {
   it('should include token text in message', () => {
     const errors = get_errors_by_code('gen x = 1 if y == 0 unexpected', ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
