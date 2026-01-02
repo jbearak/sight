@@ -84,12 +84,22 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Download build artifacts
-        # Pinned action SHA for supply-chain safety (see note above).
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: release-${{ inputs.tag }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          # Find the successful build run for this tag
+          BUILD_RUN_ID=$(gh run list --workflow=release-build.yml --status=success --limit=10 --json databaseId,headBranch | jq -r ".[] | select(.headBranch == \"${{ inputs.tag }}\") | .databaseId" | head -1)
+          
+          if [ -z "$BUILD_RUN_ID" ]; then
+            echo "ERROR: No successful build run found for tag ${{ inputs.tag }}"
+            exit 1
+          fi
+          
+          echo "Downloading artifacts from build run: $BUILD_RUN_ID"
+          gh run download "$BUILD_RUN_ID" --name "release-${{ inputs.tag }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify checksums
         shell: bash
