@@ -11,7 +11,7 @@
  * Feature: stray-token-in-condition
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, it } from 'bun:test';
 import * as fc from 'fast-check';
 import { ParseErrorCode } from '../../src/types';
 import {
@@ -82,7 +82,6 @@ describe('Stray Token Detection Property Tests', () => {
           const errors_unparens = get_errors_by_code(source_unparens, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
           if (errors_unparens.length === 0) {
-            console.log('Expected STRAY_TOKEN_IN_CONDITION for:', source_unparens);
             return false;
           }
           
@@ -91,7 +90,6 @@ describe('Stray Token Detection Property Tests', () => {
           const errors_parens = get_errors_by_code(source_parens, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
           if (errors_parens.length === 0) {
-            console.log('Expected STRAY_TOKEN_IN_CONDITION for:', source_parens);
             return false;
           }
           
@@ -126,7 +124,6 @@ describe('Stray Token Detection Property Tests', () => {
           const errors = get_errors_by_code(source, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
           if (errors.length > 0) {
-            console.log('Unexpected STRAY_TOKEN_IN_CONDITION for valid expression:', source);
             return false;
           }
           
@@ -157,7 +154,6 @@ describe('Stray Token Detection Property Tests', () => {
           const errors = get_errors_by_code(source, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
           if (errors.length > 0) {
-            console.log('Unexpected STRAY_TOKEN_IN_CONDITION for arithmetic expression:', source);
             return false;
           }
           
@@ -188,7 +184,6 @@ describe('Stray Token Detection Property Tests', () => {
           const errors = get_errors_by_code(source, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
           if (errors.length > 0) {
-            console.log('Unexpected STRAY_TOKEN_IN_CONDITION for RHS arithmetic expression:', source);
             return false;
           }
           
@@ -219,15 +214,23 @@ describe('Stray Token Detection Property Tests', () => {
           const errors = get_errors_by_code(source, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
           // Ensure at least one stray token error is detected
-          expect(errors.length).toBeGreaterThan(0);
+          if (errors.length === 0) {
+            return false;
+          }
           
           const my_error = errors[0];
           
           // Check that message contains the stray token text
-          expect(my_error.message).toContain(my_stray);
+          if (!my_error.message.includes(my_stray)) {
+            return false;
+          }
           
           // Check that message suggests & or |
-          expect(my_error.message.includes("'&'") || my_error.message.includes("'|'")).toBe(true);
+          if (!my_error.message.includes("'&'") && !my_error.message.includes("'|'")) {
+            return false;
+          }
+          
+          return true;
         }
       ),
       { numRuns: 100 }
@@ -253,14 +256,12 @@ describe('Stray Token Detection Property Tests', () => {
           const errors = get_errors_by_code(source, ParseErrorCode.SPLIT_LITERAL_IN_CONDITION);
           
           if (errors.length === 0) {
-            console.log('Expected SPLIT_LITERAL_IN_CONDITION for:', source);
             return false;
           }
           
           // Check that message suggests the combined form
           const my_error = errors[0];
           if (!my_error.message.includes(`.${my_num}`)) {
-            console.log(`Message should suggest '.${my_num}':`, my_error.message);
             return false;
           }
           
@@ -282,21 +283,18 @@ describe('Stray Token Detection Property Tests', () => {
     fc.assert(
       fc.asyncProperty(
         arbitrary_variable_name(),
-        fc.constantFrom('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-                        'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'),
+        fc.integer({ min: 0, max: 25 }).map((i) => String.fromCharCode('a'.charCodeAt(0) + i)),
         async (my_var, my_letter) => {
           const source = `gen x = 1 if ${my_var} != . ${my_letter}`;
           const errors = get_errors_by_code(source, ParseErrorCode.SPLIT_LITERAL_IN_CONDITION);
           
           if (errors.length === 0) {
-            console.log('Expected SPLIT_LITERAL_IN_CONDITION for:', source);
             return false;
           }
           
           // Check that message mentions extended missing value
           const my_error = errors[0];
           if (!my_error.message.includes('extended missing')) {
-            console.log('Message should mention extended missing value:', my_error.message);
             return false;
           }
           
@@ -329,7 +327,6 @@ ${my_rhs} ${my_stray}`;
           const errors = get_errors_by_code(source, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
           if (errors.length === 0) {
-            console.log('Expected STRAY_TOKEN_IN_CONDITION across continuation:', source);
             return false;
           }
           
@@ -359,7 +356,6 @@ ${my_num}`;
           const errors = get_errors_by_code(source, ParseErrorCode.SPLIT_LITERAL_IN_CONDITION);
           
           if (errors.length === 0) {
-            console.log('Expected SPLIT_LITERAL_IN_CONDITION across continuation:', source);
             return false;
           }
           

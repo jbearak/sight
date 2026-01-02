@@ -2,8 +2,10 @@
  * Property-based tests for extended missing value tokenization.
  *
  * Tests the following properties:
+ * 2. Uppercase Dot-Letter Sequences Produce WORD Tokens (.A-.Z)
  * 3. Whitespace Prevents Extended Missing Value Tokenization
  * 4. Decimal Number Tokenization Preserved
+ * 5. Multi-Letter Dot Sequences Tokenization (.ab, .abc produce WORD tokens)
  * 6. No False Positive Split Literal for Extended Missing Values
  *
  * Feature: extended-missing-value-tokenization
@@ -114,6 +116,76 @@ describe('Extended Missing Value - Split Literal and Backward Compatibility', ()
             // (that would indicate split tokenization)
             expect(my_next_token?.value).not.toBe(my_letter);
           }
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * Feature: extended-missing-value-tokenization
+   * Property 2: Uppercase Dot-Letter Sequences Produce WORD Tokens
+   * For any uppercase letter C in A through Z, when the lexer tokenizes the string `.C`,
+   * it SHALL produce a single WORD token with value `.C` (not a NUMBER token, since only
+   * lowercase `.a`-`.z` are valid extended missing values).
+   * Validates: Requirements 1.2
+   */
+  test('Property 2: uppercase dot-letter sequences .A through .Z produce WORD tokens', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 25 }).map((my_i) => String.fromCharCode('A'.charCodeAt(0) + my_i)),
+        (my_letter) => {
+          const my_input = '.' + my_letter;
+          const my_result = lexer.tokenize(my_input);
+
+          // Filter out whitespace and EOF tokens
+          const the_non_trivial_tokens = my_result.tokens.filter(
+            (my_token) =>
+              my_token.type !== 'WHITESPACE' &&
+              my_token.type !== 'EOF' &&
+              my_token.type !== 'STATEMENT_TERMINATOR'
+          );
+
+          // Should produce a single WORD token (not NUMBER)
+          expect(the_non_trivial_tokens.length).toBe(1);
+          expect(the_non_trivial_tokens[0].type).toBe('WORD');
+          expect(the_non_trivial_tokens[0].value).toBe(my_input);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * Feature: extended-missing-value-tokenization
+   * Property 5: Multi-Letter Dot Sequences Tokenization
+   * For any string of two or more letters s, when the lexer tokenizes the string `.s`,
+   * it SHALL produce a single WORD token with value `.s`.
+   * Validates: Requirements 1.5
+   */
+  test('Property 5: multi-letter dot sequences produce WORD tokens', () => {
+    fc.assert(
+      fc.property(
+        fc.stringOf(
+          fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'),
+          { minLength: 2, maxLength: 5 }
+        ),
+        (my_letters) => {
+          const my_input = '.' + my_letters;
+          const my_result = lexer.tokenize(my_input);
+
+          // Filter out whitespace and EOF tokens
+          const the_non_trivial_tokens = my_result.tokens.filter(
+            (my_token) =>
+              my_token.type !== 'WHITESPACE' &&
+              my_token.type !== 'EOF' &&
+              my_token.type !== 'STATEMENT_TERMINATOR'
+          );
+
+          // Should produce a single WORD token (not NUMBER)
+          expect(the_non_trivial_tokens.length).toBe(1);
+          expect(the_non_trivial_tokens[0].type).toBe('WORD');
+          expect(the_non_trivial_tokens[0].value).toBe(my_input);
         }
       ),
       { numRuns: 100 }

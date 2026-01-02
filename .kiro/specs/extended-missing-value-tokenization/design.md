@@ -58,7 +58,7 @@ private scanExtendedMissingOrWord(startLine: number, startColumn: number): Token
   const after_next = this.peekNext();
   
   // Check if it's a single letter followed by non-alphanumeric
-  if (this.isAlpha(next_char) && !this.isAlphaNumeric(after_next)) {
+  if (this.isAlpha(next_char) && !this.isAlphaNumeric(after_next) && after_next !== '_') {
     this.advance(); // consume the letter
     const value = '.' + next_char;
     

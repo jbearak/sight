@@ -247,6 +247,6 @@ describe('Diagnostic Message Quality', () => {
     expect(errors.length).toBe(1);
     // The range should be small (just the token), not the entire condition
     const range = errors[0].range;
-    expect(range.end.character - range.start.character).toBeLessThanOrEqual(10);
+    expect(range.end.character - range.start.character).toBe(5); // 'extra' is 5 chars
   });
 });
