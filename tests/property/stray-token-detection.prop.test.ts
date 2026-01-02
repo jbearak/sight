@@ -219,8 +219,8 @@ describe('Stray Token Detection Property Tests', () => {
           const errors = get_errors_by_code(source, ParseErrorCode.STRAY_TOKEN_IN_CONDITION);
           
           if (errors.length === 0) {
-            // No error to check
-            return true;
+            console.log('Expected STRAY_TOKEN_IN_CONDITION for:', source);
+            return false;
           }
           
           const my_error = errors[0];
