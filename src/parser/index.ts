@@ -2300,6 +2300,10 @@ export class StataParser {
           if (token.value === '=' && prev_token && prev_token.type === 'OPERATOR' && prev_token.value === '~') {
             // This is the = part of ~=, transition to AFTER_COMPARE
             state_stack[state_stack.length - 1] = 'AFTER_COMPARE';
+          } else if (token.value === '~') {
+            // Handle ~ operator - could be part of ~= or standalone negation
+            // Don't transition to AFTER_COMPARE yet, wait for potential =
+            // If not followed by =, it's treated as negation in next iteration
           } else if (this.isComparisonOperator(token.value) && token.value !== '~') {
             state_stack[state_stack.length - 1] = 'AFTER_COMPARE';
           } else if (this.isLogicalOperator(token.value)) {
@@ -2519,6 +2523,10 @@ export class StataParser {
           if (token.value === '=' && prev_token && prev_token.type === 'OPERATOR' && prev_token.value === '~') {
             // This is the = part of ~=, transition to AFTER_COMPARE
             state_stack[state_stack.length - 1] = 'AFTER_COMPARE';
+          } else if (token.value === '~') {
+            // Handle ~ operator - could be part of ~= or standalone negation
+            // Don't transition to AFTER_COMPARE yet, wait for potential =
+            // If not followed by =, it's treated as negation in next iteration
           } else if (this.isComparisonOperator(token.value) && token.value !== '~') {
             state_stack[state_stack.length - 1] = 'AFTER_COMPARE';
           } else if (this.isLogicalOperator(token.value)) {
