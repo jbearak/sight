@@ -2254,6 +2254,11 @@ export class SemanticAnalyzer {
                     continue;
                 }
                 
+                // Skip expression evaluation macros - they use `=expr' syntax
+                if (macro_name && this.is_expression_evaluation(macro_name)) {
+                    continue;
+                }
+                
                 // Check for invalid characters in local macro reference
                 if (macro_name && this.has_invalid_macro_char(macro_name)) {
                     diagnostics.push({
@@ -2411,6 +2416,25 @@ export class SemanticAnalyzer {
      */
     private is_stored_result_reference(content: string): boolean {
         return /^[recs]\(.*\)(\[.*\])?$/.test(content);
+    }
+
+    /**
+     * Check if a local macro content represents an expression evaluation.
+     * Expression evaluation macros use the `=expr' syntax where the content
+     * starts with '=' followed by any valid Stata expression.
+     * 
+     * Examples:
+     * - `=1+2' → content is "=1+2" (arithmetic expression)
+     * - `=uchar(65533)' → content is "=uchar(65533)" (function call)
+     * - `=string(varname)' → content is "=string(varname)" (function call)
+     * - `=`a' + `b'' → content is "=`a' + `b'" (expression with nested macros)
+     * - `=r(table)[1,1]' → content is "=r(table)[1,1]" (matrix subscript)
+     * 
+     * @param content The extracted macro name content (without outer delimiters)
+     * @returns true if the content is an expression evaluation (starts with =)
+     */
+    private is_expression_evaluation(content: string): boolean {
+        return content.startsWith('=');
     }
 
     /**
