@@ -102,6 +102,22 @@ This implementation adds diagnostic detection for stray tokens after comparison 
 - [x] 11. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
+- [x] 12. Refactor: Extract shared state machine logic
+  - [x] 12.1 Create helper method `parseQualifierExpressionWithStrayDetection()`
+    - Extract the ~150 lines of duplicated state machine logic from `parseIfQualifierExpression()` and `parseInQualifierExpression()`
+    - Parameterize by qualifier type (`'if' | 'in'`) for error messages
+    - Parameterize whether to stop at `in` keyword (true for if-qualifier, false for in-qualifier)
+    - _Requirements: Code quality improvement_
+  - [x] 12.2 Update `parseIfQualifierExpression()` to use helper
+    - Call the shared helper with `qualifier_type='if'` and `stop_at_in=true`
+    - _Requirements: Code quality improvement_
+  - [x] 12.3 Update `parseInQualifierExpression()` to use helper
+    - Call the shared helper with `qualifier_type='in'` and `stop_at_in=false`
+    - _Requirements: Code quality improvement_
+  - [x] 12.4 Verify all existing tests still pass
+    - Run full test suite to ensure refactoring doesn't break behavior
+    - _Requirements: Code quality improvement_
+
 ## Notes
 
 - All tasks are required for comprehensive testing
