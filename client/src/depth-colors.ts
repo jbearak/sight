@@ -33,15 +33,13 @@ export {
  */
 export function isDarkTheme(): boolean {
     try {
-        const theme_kind = window.activeColorTheme?.kind;
-        if (theme_kind === undefined) {
-            // Fallback to dark theme if VS Code not fully initialized
+        if (!window.activeColorTheme) {
             return true;
         }
+        const theme_kind = window.activeColorTheme.kind;
         return theme_kind === ColorThemeKind.Dark || 
                theme_kind === ColorThemeKind.HighContrast;
-    } catch (error) {
-        // Fallback to dark theme if theme detection fails
+    } catch {
         return true;
     }
 }
