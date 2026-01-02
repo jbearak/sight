@@ -63,8 +63,17 @@ export interface ThemeTokenColorCustomizations {
 export interface TokenColorCustomizations {
     '[*Dark*]'?: ThemeTokenColorCustomizations;
     '[*Light*]'?: ThemeTokenColorCustomizations;
+    '[*]'?: ThemeTokenColorCustomizations;  // Universal fallback
     textMateRules?: TextMateRule[];
     [key: string]: ThemeTokenColorCustomizations | TextMateRule[] | undefined;
+}
+
+/**
+ * Check if a TextMateRule is a depth color rule (string or macro depth).
+ */
+export function isDepthColorRule(rule: TextMateRule): boolean {
+    return rule.scope.includes(STRING_SCOPE_PREFIX) || 
+           rule.scope.includes(MACRO_SCOPE_PREFIX);
 }
 
 /**
@@ -131,9 +140,12 @@ export function buildDepthColorRules(
 
 /**
  * Merge depth color rules with existing tokenColorCustomizations.
+ * @param existing - Existing token color customizations
+ * @param universal_rules - Optional rules for the top-level textMateRules (applies to all themes)
  */
 export function mergeDepthColors(
-    existing: TokenColorCustomizations | undefined
+    existing: TokenColorCustomizations | undefined,
+    universal_rules?: TextMateRule[]
 ): TokenColorCustomizations {
     const result: TokenColorCustomizations = existing ? { ...existing } : {};
 
@@ -160,6 +172,17 @@ export function mergeDepthColors(
             ...light_rules
         ]
     };
+
+    // Add universal fallback rules to top-level textMateRules (applies to ALL themes)
+    // This is the key fix: top-level textMateRules work for themes that don't match
+    // [*Dark*] or [*Light*] patterns (e.g., "Monokai", "Dracula", "Nord")
+    if (universal_rules && universal_rules.length > 0) {
+        const existing_top_level = result.textMateRules || [];
+        result.textMateRules = [
+            ...existing_top_level,
+            ...universal_rules
+        ];
+    }
 
     return result;
 }

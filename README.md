@@ -130,13 +130,18 @@ This enables editors to apply distinct styling to each nesting level, improving 
 
 #### Automatic Color Configuration
 
-On first activation, the extension automatically adds colors for each nesting depth to your VS Code settings.
+On first activation, the extension automatically adds colors for each nesting depth to your VS Code settings. These colors work with **all VS Code themes**, including:
+
+- Themes with "Dark" or "Light" in their names (e.g., "Dark+", "Light+")
+- Themes without these keywords (e.g., "Monokai", "Dracula", "Nord", "Solarized")
+
+The extension detects your current theme type (dark or light) and applies appropriate colors automatically. When you switch themes, the colors update to match.
 
 > VS Code's architecture requires `editor.tokenColorCustomizations` to be present in your settings file for custom syntax scopes to have colors. Extensions cannot provide default colors for custom scopes through their manifest - the colors must exist in `settings.json` or all nesting levels would appear identical.
 
-The extension provides separate color palettes optimized for dark and light themes using VS Code's theme selectors (`[*Dark*]` and `[*Light*]`), so colors automatically adapt when you switch themes.
-
 You can customize these colors by opening your VS Code settings and modifying the `editor.tokenColorCustomizations` section.
+
+To reset depth colors to defaults, use the command palette: **Sight: Reset Depth Colors**
 
 #### Default Nesting Colors
 
@@ -164,12 +169,12 @@ You can customize these colors by opening your VS Code settings and modifying th
 
 #### Customizing Nesting Colors
 
-You can override the default colors in your VS Code settings. The extension uses theme selectors (`[*Dark*]` and `[*Light*]`) to provide theme-appropriate colors. To customize, you can target specific themes or all themes:
+You can override the default colors in your VS Code settings. The extension automatically detects your theme type and applies colors to the current theme. To customize colors for specific themes, you can use theme selectors:
 
 ```json
 {
   "editor.tokenColorCustomizations": {
-    "[*Dark*]": {
+    "[Monokai]": {
       "textMateRules": [
         {
           "scope": "string.quoted.compound.depth1.stata",
@@ -181,15 +186,19 @@ You can override the default colors in your VS Code settings. The extension uses
         }
       ]
     },
+    "[*Dark*]": {
+      "textMateRules": [
+        {
+          "scope": "string.quoted.compound.depth1.stata",
+          "settings": { "foreground": "#CE9178" }
+        }
+      ]
+    },
     "[*Light*]": {
       "textMateRules": [
         {
           "scope": "string.quoted.compound.depth1.stata",
           "settings": { "foreground": "#B22222" }
-        },
-        {
-          "scope": "variable.other.macro.local.depth1.stata",
-          "settings": { "foreground": "#000080" }
         }
       ]
     }
