@@ -15,6 +15,7 @@ import { get_line_text, get_line_count, compute_line_offsets } from '../utils/li
  */
 export class ContextTracker implements IContextTracker {
   private context_ranges: ContextRange[] = [];
+  private sorted_ranges_cache: ContextRange[] | null = null;
   private context_stack: LanguageContext[] = [LanguageContext.STATA];
   private document_content: string = '';
   private diagnostics: ContextDiagnostic[] = [];
@@ -41,6 +42,7 @@ export class ContextTracker implements IContextTracker {
     // that can be used to detect context blocks
     
     this.context_ranges = [];
+    this.sorted_ranges_cache = null;
     this.context_stack = [LanguageContext.STATA];
     let my_current_range: Partial<ContextRange> | null = null;
     let my_current_context = LanguageContext.STATA;
@@ -234,6 +236,9 @@ export class ContextTracker implements IContextTracker {
   }
 
   get_all_context_ranges(): ContextRange[] {
+    if (this.sorted_ranges_cache !== null) {
+      return this.sorted_ranges_cache;
+    }
     // Sort ranges by (start.line, start.character) for binary search
     const my_sorted_ranges = [...this.context_ranges].sort(
       (my_a, my_b) => {
@@ -247,6 +252,9 @@ export class ContextTracker implements IContextTracker {
 
     // Debug assertion: verify sorted invariant in development
     this.assert_ranges_sorted(my_sorted_ranges);
+
+    this.sorted_ranges_cache = my_sorted_ranges;
+    return my_sorted_ranges;
 
     return my_sorted_ranges;
   }
