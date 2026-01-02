@@ -11,7 +11,7 @@ name: Release Publish
         description: 'Publish to VS Code Marketplace + OpenVSX'
         required: false
         type: boolean
-        default: true
+        default: false
 
 # Serialize by tag so retries/second runs don't collide.
 concurrency:
@@ -109,13 +109,13 @@ jobs:
         env:
           VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
 
-      - name: Publish to OpenVSX Registry
-        if: ${{ inputs.publish_vscode }}
-        run: |
-          cd client
-          npx ovsx publish --pat ${{ secrets.OVSX_TOKEN }}
-        env:
-          OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+      # - name: Publish to OpenVSX Registry
+      #   if: ${{ inputs.publish_vscode }}
+      #   run: |
+      #     cd client
+      #     npx ovsx publish --pat ${{ secrets.OVSX_TOKEN }}
+      #   env:
+      #     OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
 
       - name: Create GitHub Release
         # Pinned action SHA for supply-chain safety (see note above).
