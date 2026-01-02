@@ -118,18 +118,20 @@ jobs:
       #     OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
 
       - name: Create GitHub Release
-        shell: bash
-        run: |
-          set -euo pipefail
-          
-          # Create release with GitHub CLI
-          gh release create "${{ inputs.tag }}" \
-            --title "Release ${{ inputs.tag }}" \
-            --generate-notes \
-            bin/sight-* \
-            dist/sight-server.js \
-            dist/sight-server.js.sha256 \
-            client/*.vsix \
+        # Pinned action SHA for supply-chain safety.
+        # Tag v2.5.0 -> commit a06a81a03ee405af7f2048a818ed3f03bbf83c7b
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: Release ${{ inputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            bin/sight-*
+            dist/sight-server.js
+            dist/sight-server.js.sha256
+            client/*.vsix
             client/*.vsix.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
