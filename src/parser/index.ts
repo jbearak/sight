@@ -36,6 +36,10 @@ export class StataParser {
   private context_tracker: ContextTracker | null = null;
   private inside_program: boolean = false;
 
+  // Regex patterns for nested compound string delimiters
+  private static readonly OPENING_DELIMITER_PATTERN = /^(`")+$/;
+  private static readonly CLOSING_DELIMITER_PATTERN = /^("')+$/;
+
   parse(tokens: Token[], context_tracker?: ContextTracker): ParseResult {
     this.tokens = tokens;
     this.current = 0;
@@ -2237,6 +2241,55 @@ export class StataParser {
   }
 
   /**
+   * Check if a STRING token is just a string delimiter.
+   * This indicates a string with embedded macros, where the
+   * lexer splits the string into delimiter + macro + delimiter
+   * tokens.
+   * 
+   * Stata string delimiters:
+   * - Double-quoted: " (opening), " (closing)
+   * - Compound: `" (opening), "' (closing)
+   * - Nested compound: `"`" (opening), "'"' (closing), etc.
+   * 
+   * A STRING token is delimiter-only if it:
+   * - Starts with `" or " (opening)
+   * - Ends with "' or " (closing)
+   * - Contains no other content between the delimiters
+   */
+  private isStringDelimiterOnly(token: Token): boolean {
+    if (token.type !== 'STRING') {
+      return false;
+    }
+    
+    const token_value = token.value;
+    
+    // Check for simple double-quote delimiter
+    if (token_value === '"') {
+      return true;
+    }
+    
+    // Check for compound string opening delimiter: `"
+    if (token_value === '`"') {
+      return true;
+    }
+    
+    // Check for compound string closing delimiter: "'
+    if (token_value === `"'`) {
+      return true;
+    }
+    
+    // Check for nested compound string delimiters
+    // Opening: `"`", `"`"`", etc. (pattern: (`")+)
+    // Closing: "'"', "'"'"', etc. (pattern: ("')+)
+    if (StataParser.OPENING_DELIMITER_PATTERN.test(token_value) ||
+        StataParser.CLOSING_DELIMITER_PATTERN.test(token_value)) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
    * Shared helper for parsing qualifier expressions with stray token detection.
    * Used by both parseIfQualifierExpression and parseInQualifierExpression.
    * 
@@ -2263,6 +2316,11 @@ export class StataParser {
     
     // Track previous non-whitespace token for split literal detection
     let prev_token: Token | null = null;
+
+    // Track string context for embedded macro handling
+    // This handles both double-quoted ("...") and compound (`"..."') strings
+    // When we encounter a delimiter-only STRING token, we toggle this flag
+    let in_string_context = false;
 
     while (!this.isAtEnd()) {
       const token = this.peek();
@@ -2318,11 +2376,20 @@ export class StataParser {
         break;
       }
 
+      // Track string context - toggle when encountering delimiter-only STRING tokens
+      // A STRING token that is just a delimiter indicates entering/exiting
+      // a string with embedded macros
+      const is_delimiter_only = this.isStringDelimiterOnly(token);
+      if (is_delimiter_only) {
+        in_string_context = !in_string_context;
+      }
+
       // Get current state for this paren level
       const current_state = state_stack[state_stack.length - 1];
 
-      // Stray token and split literal detection
-      if (current_state === 'AFTER_RHS' && token.type !== 'LPAREN' && token.type !== 'RPAREN') {
+      // Stray token and split literal detection - skip if in string context or if this is a delimiter-only STRING
+      // We also skip delimiter-only STRING tokens because they are part of the string literal structure
+      if (current_state === 'AFTER_RHS' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && !in_string_context && !is_delimiter_only) {
         // Check for split literal patterns first
         if (prev_token && this.detectSplitLiteral(prev_token, token)) {
           // Split literal diagnostic already emitted by detectSplitLiteral
