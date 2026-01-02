@@ -2410,7 +2410,7 @@ export class StataParser {
     }
     
     // Check for `a .` pattern (identifier followed by dot)
-    // Only trigger if prev_token is a single-char identifier (not a longer word)
+    // Triggers for any word followed by a dot (e.g., `var .` or `x .`)
     if (prev_token.type === 'WORD' && prev_token.value !== '.' && is_current_dot) {
       this.addError(
         `Split literal detected: '${prev_token.value} ${current_token.value}' - the '.' may be stray or part of a split literal`,
