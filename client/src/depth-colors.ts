@@ -33,10 +33,10 @@ export {
  */
 export function isDarkTheme(): boolean {
     try {
-        if (!window.activeColorTheme) {
+        const theme_kind = window.activeColorTheme?.kind;
+        if (theme_kind === undefined || theme_kind === null) {
             return true;
         }
-        const theme_kind = window.activeColorTheme.kind;
         return theme_kind === ColorThemeKind.Dark || 
                theme_kind === ColorThemeKind.HighContrast;
     } catch {
