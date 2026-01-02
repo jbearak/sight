@@ -141,7 +141,7 @@ export function buildDepthColorRules(
 /**
  * Merge depth color rules with existing tokenColorCustomizations.
  * @param existing - Existing token color customizations
- * @param universal_rules - Optional rules for the universal [*] selector (from runtime theme detection)
+ * @param universal_rules - Optional rules for the top-level textMateRules (applies to all themes)
  */
 export function mergeDepthColors(
     existing: TokenColorCustomizations | undefined,
@@ -173,16 +173,15 @@ export function mergeDepthColors(
         ]
     };
 
-    // Add universal fallback rules if provided
+    // Add universal fallback rules to top-level textMateRules (applies to ALL themes)
+    // This is the key fix: top-level textMateRules work for themes that don't match
+    // [*Dark*] or [*Light*] patterns (e.g., "Monokai", "Dracula", "Nord")
     if (universal_rules && universal_rules.length > 0) {
-        const existing_universal = result['[*]'] as ThemeTokenColorCustomizations | undefined;
-        result['[*]'] = {
-            ...existing_universal,
-            textMateRules: [
-                ...(existing_universal?.textMateRules || []),
-                ...universal_rules
-            ]
-        };
+        const existing_top_level = result.textMateRules || [];
+        result.textMateRules = [
+            ...existing_top_level,
+            ...universal_rules
+        ];
     }
 
     return result;

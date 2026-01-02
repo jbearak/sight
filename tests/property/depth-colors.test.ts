@@ -282,7 +282,7 @@ describe('Depth Color Properties', () => {
         // For any VS Code theme (regardless of name), when the extension activates
         // and no existing depth color rules are present, the Depth_Color_System
         // should add depth color rules that will be applied to that theme.
-        it('Property 1: universal selector receives depth color rules when provided', () => {
+        it('Property 1: top-level textMateRules receives depth color rules when provided', () => {
             fc.assert(
                 fc.property(
                     // Generate random existing customizations (possibly empty)
@@ -303,14 +303,13 @@ describe('Depth Color Properties', () => {
                         
                         const result = mergeDepthColors(existing, universal_rules);
                         
-                        // Universal selector should have depth color rules
-                        const universal_section = result['[*]'];
-                        expect(universal_section).toBeDefined();
-                        expect(universal_section?.textMateRules).toBeDefined();
-                        expect(universal_section?.textMateRules?.length).toBeGreaterThan(0);
+                        // Top-level textMateRules should have depth color rules
+                        const top_level_rules = result.textMateRules;
+                        expect(top_level_rules).toBeDefined();
+                        expect(top_level_rules?.length).toBeGreaterThan(0);
                         
                         // All universal rules should be depth color rules
-                        const has_depth_rules = universal_section?.textMateRules?.some(
+                        const has_depth_rules = top_level_rules?.some(
                             rule => isDepthColorRule(rule)
                         );
                         expect(has_depth_rules).toBe(true);
@@ -386,9 +385,9 @@ describe('Depth Color Properties', () => {
                     // Generate random existing universal rules (simulating dark theme state)
                     fc.array(arbitrary_depth_rule, { minLength: 1, maxLength: 12 }),
                     (existing_universal_rules) => {
-                        // Start with dark theme universal rules
+                        // Start with dark theme universal rules in top-level textMateRules
                         const existing: TokenColorCustomizations = {
-                            '[*]': { textMateRules: existing_universal_rules }
+                            textMateRules: existing_universal_rules
                         };
                         
                         // Simulate theme change: filter out depth rules
@@ -399,13 +398,11 @@ describe('Depth Color Properties', () => {
                         // Add new light theme rules (simulating what updateUniversalFallbackColors does)
                         const light_rules = buildDepthColorRules(LIGHT_STRING_COLORS, LIGHT_MACRO_COLORS);
                         const updated: TokenColorCustomizations = {
-                            '[*]': {
-                                textMateRules: [...filtered_rules, ...light_rules]
-                            }
+                            textMateRules: [...filtered_rules, ...light_rules]
                         };
                         
                         // Verify light colors are now present
-                        const result_rules = updated['[*]']?.textMateRules || [];
+                        const result_rules = updated.textMateRules || [];
                         const string_rules = result_rules.filter(r => r.scope.includes('string.quoted.compound.depth'));
                         
                         // At least some string rules should have light colors
@@ -424,9 +421,9 @@ describe('Depth Color Properties', () => {
                 fc.property(
                     fc.array(arbitrary_depth_rule, { minLength: 1, maxLength: 12 }),
                     (existing_universal_rules) => {
-                        // Start with light theme universal rules
+                        // Start with light theme universal rules in top-level textMateRules
                         const existing: TokenColorCustomizations = {
-                            '[*]': { textMateRules: existing_universal_rules }
+                            textMateRules: existing_universal_rules
                         };
                         
                         // Simulate theme change: filter out depth rules
@@ -437,13 +434,11 @@ describe('Depth Color Properties', () => {
                         // Add new dark theme rules
                         const dark_rules = buildDepthColorRules(DARK_STRING_COLORS, DARK_MACRO_COLORS);
                         const updated: TokenColorCustomizations = {
-                            '[*]': {
-                                textMateRules: [...filtered_rules, ...dark_rules]
-                            }
+                            textMateRules: [...filtered_rules, ...dark_rules]
                         };
                         
                         // Verify dark colors are now present
-                        const result_rules = updated['[*]']?.textMateRules || [];
+                        const result_rules = updated.textMateRules || [];
                         const string_rules = result_rules.filter(r => r.scope.includes('string.quoted.compound.depth'));
                         
                         // At least some string rules should have dark colors

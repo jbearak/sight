@@ -64,11 +64,25 @@ export function buildUniversalDepthColorRules(): TextMateRule[] {
 }
 
 /**
+ * Check if the top-level textMateRules has depth color rules.
+ * Top-level rules apply to all themes (universal fallback).
+ */
+function hasTopLevelDepthColorRules(customizations: TokenColorCustomizations | undefined): boolean {
+    if (!customizations) return false;
+    const top_level_rules = customizations.textMateRules;
+    if (!top_level_rules) return false;
+    return top_level_rules.some(rule => isDepthColorRule(rule));
+}
+
+/**
  * Configure depth colors in user settings if not already present.
  * 
  * This function checks if depth color rules actually exist in user settings,
  * and adds them if missing. This ensures colors are always configured,
  * even if the user's settings were reset or the extension was reinstalled.
+ * 
+ * It also ensures the top-level textMateRules has rules for themes that don't
+ * match [*Dark*] or [*Light*] patterns.
  */
 export async function configureDepthColors(
     _context: vscode.ExtensionContext,
@@ -86,9 +100,31 @@ export async function configureDepthColors(
         const current_customizations = config.get<TokenColorCustomizations>('tokenColorCustomizations');
         log(`Current customizations: ${JSON.stringify(current_customizations)}`);
 
+        const has_any_depth_rules = hasDepthColorRules(current_customizations);
+        const has_top_level_rules = hasTopLevelDepthColorRules(current_customizations);
+        
+        // If we have depth rules but no top-level rules, we need to add top-level rules
+        // This handles the case where user has old config with only [*Dark*]/[*Light*]
+        if (has_any_depth_rules && !has_top_level_rules) {
+            log('Depth rules exist but no top-level rules, adding universal fallback...');
+            const universal_rules = buildUniversalDepthColorRules();
+            const updated = { ...current_customizations } as TokenColorCustomizations;
+            updated.textMateRules = [
+                ...(updated.textMateRules || []),
+                ...universal_rules
+            ];
+            await config.update(
+                'tokenColorCustomizations',
+                updated,
+                vscode.ConfigurationTarget.Global
+            );
+            log('Added top-level universal fallback rules');
+            return;
+        }
+
         // Check if depth color rules actually exist in settings
-        if (hasDepthColorRules(current_customizations)) {
-            log('Depth color rules already exist in settings, skipping');
+        if (has_any_depth_rules) {
+            log('Depth color rules already exist in settings (including top-level), skipping');
             return;
         }
 
@@ -150,10 +186,9 @@ export async function resetDepthColors(
                 );
             }
             
-            // Remove our depth color rules from universal fallback
-            const universal_section = current_customizations['[*]'];
-            if (universal_section?.textMateRules) {
-                universal_section.textMateRules = universal_section.textMateRules.filter(
+            // Remove our depth color rules from top-level textMateRules (universal fallback)
+            if (current_customizations.textMateRules) {
+                current_customizations.textMateRules = current_customizations.textMateRules.filter(
                     rule => !rule.scope.includes('depth') || !rule.scope.includes('.stata')
                 );
             }
@@ -205,7 +240,7 @@ export function registerThemeChangeHandler(
 
 /**
  * Update only the universal fallback colors based on current theme.
- * Removes existing universal depth rules and adds new ones.
+ * Removes existing top-level depth rules and adds new ones.
  */
 export async function updateUniversalFallbackColors(
     output_channel?: vscode.OutputChannel
@@ -220,24 +255,20 @@ export async function updateUniversalFallbackColors(
         const config = vscode.workspace.getConfiguration('editor');
         const current = config.get<TokenColorCustomizations>('tokenColorCustomizations') || {};
         
-        // Remove existing universal depth rules
-        const universal_section = current['[*]'] as ThemeTokenColorCustomizations | undefined;
+        // Remove existing top-level depth rules
         let filtered_rules: TextMateRule[] = [];
-        if (universal_section?.textMateRules) {
-            filtered_rules = universal_section.textMateRules.filter(
+        if (current.textMateRules) {
+            filtered_rules = current.textMateRules.filter(
                 rule => !isDepthColorRule(rule)
             );
         }
         
         // Add new rules based on current theme
         const new_rules = buildUniversalDepthColorRules();
-        current['[*]'] = {
-            ...universal_section,
-            textMateRules: [
-                ...filtered_rules,
-                ...new_rules
-            ]
-        };
+        current.textMateRules = [
+            ...filtered_rules,
+            ...new_rules
+        ];
         
         await config.update(
             'tokenColorCustomizations',
