@@ -18,10 +18,14 @@ describe('Context Tracker Validation Property Tests', () => {
    * Validates: Requirements 3.1, 3.2, 3.3
    */
   it('should accept valid blocks ending with end', () => {
+    // Filter out strings that would be parsed as block terminators
+    const safe_content = fc.string({ minLength: 1, maxLength: 20 }).filter(
+      (s) => !/^(end|mata|python)\b/.test(s.trim())
+    );
     fc.assert(
       fc.property(
         fc.oneof(fc.constant('mata'), fc.constant('python')),
-        fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 3 }),
+        fc.array(safe_content, { minLength: 0, maxLength: 3 }),
         (block_type, content_lines) => {
           let my_document = `${block_type}\n`;
           for (const my_line of content_lines) {
