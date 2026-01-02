@@ -11,7 +11,7 @@ name: Release Publish
         description: 'Publish to VS Code Marketplace + OpenVSX'
         required: false
         type: boolean
-        default: true
+        default: false
 
 # Serialize by tag so retries/second runs don't collide.
 concurrency:
@@ -84,17 +84,33 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Download build artifacts
-        # Pinned action SHA for supply-chain safety (see note above).
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: release-${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          # Find the successful build run for this tag
+          BUILD_RUN_ID=$(gh run list --workflow=release-build.yml --status=success --limit=10 --json databaseId,headBranch | jq -r ".[] | select(.headBranch == \"${{ inputs.tag }}\") | .databaseId" | head -1)
+          
+          if [ -z "$BUILD_RUN_ID" ]; then
+            echo "ERROR: No successful build run found for tag ${{ inputs.tag }}"
+            exit 1
+          fi
+          
+          echo "Downloading artifacts from build run: $BUILD_RUN_ID"
+          gh run download "$BUILD_RUN_ID" --name "release-${{ inputs.tag }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify checksums
         shell: bash
         run: |
           set -euo pipefail
           if [ -d bin ]; then
-            (cd bin && for file in sight-*; do sha256sum -c "$file.sha256"; done)
+            (cd bin && for file in sight-*; do 
+              if [[ "$file" != *.sha256 ]]; then
+                sha256sum -c "$file.sha256"
+              fi
+            done)
           fi
           (cd dist && sha256sum -c sight-server.js.sha256)
           if ls client/*.vsix.sha256 >/dev/null 2>&1; then
@@ -109,22 +125,23 @@ jobs:
         env:
           VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
 
-      - name: Publish to OpenVSX Registry
-        if: ${{ inputs.publish_vscode }}
-        run: |
-          cd client
-          npx ovsx publish --pat ${{ secrets.OVSX_TOKEN }}
-        env:
-          OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+      # - name: Publish to OpenVSX Registry
+      #   if: ${{ inputs.publish_vscode }}
+      #   run: |
+      #     cd client
+      #     npx ovsx publish --pat ${{ secrets.OVSX_TOKEN }}
+      #   env:
+      #     OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
 
       - name: Create GitHub Release
-        # Pinned action SHA for supply-chain safety (see note above).
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        # Pinned action SHA for supply-chain safety.
+        # Tag v2.5.0 -> commit a06a81a03ee405af7f2048a818ed3f03bbf83c7b
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           tag_name: ${{ inputs.tag }}
           name: Release ${{ inputs.tag }}
           draft: false
-          prerelease: false
+          prerelease: true
           generate_release_notes: true
           files: |
             bin/sight-*
