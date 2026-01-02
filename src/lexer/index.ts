@@ -488,6 +488,11 @@ export class StataLexer {
       return this.scanNumber(startLine, startColumn);
     }
 
+    // Handle extended missing values (.a through .z) and invalid dot-letter sequences
+    if (char === '.' && this.isAlpha(this.peek())) {
+      return this.scanExtendedMissingOrWord(startLine, startColumn);
+    }
+
     // Handle words (identifiers, keywords, commands)
     if (this.isAlpha(char) || char === '_') {
       return this.scanWord(startLine, startColumn);
@@ -1188,6 +1193,44 @@ export class StataLexer {
       value,
       range: this.makeRange(startLine, startColumn, this.line, this.column),
     };
+  }
+
+  /**
+   * Handle dot followed by letter(s) for extended missing values.
+   * - Lowercase single letter (.a-.z) → NUMBER token (valid extended missing)
+   * - Uppercase single letter (.A-.Z) → WORD token (invalid, parser will report error)
+   * - Multiple letters (.ab, .abc, .Abc) → single WORD token (invalid)
+   */
+  private scanExtendedMissingOrWord(startLine: number, startColumn: number): Token {
+    // At this point, we've consumed the '.' and peek() is a letter
+    const next_char = this.peek();
+    const after_next = this.peekNext();
+
+    // Check if it's a single letter followed by non-alphanumeric
+    if (this.isAlpha(next_char) && !this.isAlphaNumeric(after_next) && after_next !== '_') {
+      this.advance(); // consume the letter
+      const value = '.' + next_char;
+
+      // Lowercase single letter = valid extended missing value (NUMBER)
+      if (next_char >= 'a' && next_char <= 'z') {
+        return this.makeToken('NUMBER', value, startLine, startColumn);
+      }
+
+      // Uppercase single letter = invalid (WORD, parser will report error)
+      return this.makeToken('WORD', value, startLine, startColumn);
+    }
+
+    // Multiple letters after dot = consume all as single WORD token
+    // e.g., ".ab", ".abc", ".Abc"
+    while (this.isAlphaNumeric(this.peek()) || this.peek() === '_') {
+      this.advance();
+    }
+
+    const value = this.source.substring(
+      this.position_to_offset(startLine, startColumn),
+      this.position
+    );
+    return this.makeToken('WORD', value, startLine, startColumn);
   }
 
   private scanWord(startLine: number, startColumn: number): Token {

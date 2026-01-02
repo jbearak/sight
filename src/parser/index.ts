@@ -1481,6 +1481,77 @@ export class StataParser {
     return type === 'COMMENT_LINE' || type === 'COMMENT_BLOCK' || type === 'CONTINUATION';
   }
 
+  /**
+   * Check if the given operator value is a comparison operator.
+   * Comparison operators: ==, !=, ~=, <, >, <=, >=
+   * Note: ~= may be tokenized as two separate tokens (~ and =)
+   */
+  private isComparisonOperator(value: string): boolean {
+    return value === '==' || value === '!=' || value === '~=' ||
+           value === '<' || value === '>' || value === '<=' || value === '>=' ||
+           value === '~'; // ~ alone can be part of ~= (handled in state machine)
+  }
+
+  /**
+   * Check if the given operator value is a logical operator.
+   * Logical operators: &, |
+   */
+  private isLogicalOperator(value: string): boolean {
+    return value === '&' || value === '|';
+  }
+
+  /**
+   * Check if the given operator value is an arithmetic operator.
+   * Arithmetic operators: +, -, *, /, ^
+   */
+  private isArithmeticOperator(value: string): boolean {
+    return value === '+' || value === '-' || value === '*' || value === '/' || value === '^';
+  }
+
+  /**
+   * Check if the given token is valid after a comparison expression.
+   * Valid tokens: ), {, &, |, comma, terminator, 'in' keyword, trivia
+   */
+  private isValidAfterComparison(token: Token): boolean {
+    // Closing paren is valid (end of parenthesized expression)
+    if (token.type === 'RPAREN') {
+      return true;
+    }
+    // Opening brace is valid (brace-style blocks like `if x == y { ... }`)
+    if (token.type === 'LBRACE') {
+      return true;
+    }
+    // Comma is valid (end of condition before options)
+    if (token.type === 'COMMA') {
+      return true;
+    }
+    // Statement terminator is valid (end of statement)
+    if (token.type === 'STATEMENT_TERMINATOR') {
+      return true;
+    }
+    // EOF is valid
+    if (token.type === 'EOF') {
+      return true;
+    }
+    // Logical operators are valid (compound expressions)
+    if (token.type === 'OPERATOR' && this.isLogicalOperator(token.value)) {
+      return true;
+    }
+    // Arithmetic operators are valid (arithmetic in RHS, e.g., `if x == y + 1`)
+    if (token.type === 'OPERATOR' && this.isArithmeticOperator(token.value)) {
+      return true;
+    }
+    // 'in' keyword is valid (for if-qualifiers followed by in-qualifiers)
+    if (token.type === 'WORD' && token.value === 'in') {
+      return true;
+    }
+    // Trivia (comments, continuations) is valid
+    if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK' || token.type === 'CONTINUATION') {
+      return true;
+    }
+    return false;
+  }
+
   private parseIfStatement(): ControlFlowNode {
     const ifToken = this.advance(); // consume 'if'
 
@@ -2126,75 +2197,32 @@ export class StataParser {
   }
 
   /**
-   * Parse an if qualifier expression, stopping at statement terminator, comma, or 'in' keyword.
-   * Tracks parenthesis depth to handle nested expressions.
-   * Returns the expression as a trimmed string.
+   * Shared helper for parsing qualifier expressions with stray token detection.
+   * Used by both parseIfQualifierExpression and parseInQualifierExpression.
+   * 
+   * @param qualifier_type - 'if' or 'in' for error messages
+   * @param stop_at_in - Whether to stop at the 'in' keyword (true for if-qualifiers)
+   * @param check_empty - Whether to check for empty expression (true for if-qualifiers)
+   * @returns The parsed expression as a trimmed string
    */
-  parseIfQualifierExpression(): string {
+  private parseQualifierExpressionWithStrayDetection(
+    qualifier_type: 'if' | 'in',
+    stop_at_in: boolean,
+    check_empty: boolean
+  ): string {
     let expression = '';
     let paren_depth = 0;
     const start_token = this.peek();
 
-    while (!this.isAtEnd()) {
-      const token = this.peek();
-
-      // Track parenthesis depth
-      if (token.type === 'LPAREN') {
-        paren_depth++;
-      } else if (token.type === 'RPAREN') {
-        paren_depth--;
-        if (paren_depth < 0) {
-          this.addError('Unbalanced parentheses in if qualifier', token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
-          paren_depth = 0;
-        }
-      }
-
-      // Stop at top-level terminators
-      if (paren_depth === 0) {
-        if (token.type === 'STATEMENT_TERMINATOR' || token.type === 'COMMA') {
-          break;
-        }
-        // Stop at 'in' keyword
-        if (token.type === 'WORD' && token.value === 'in') {
-          break;
-        }
-      }
-
-      // Stop at trivia (comments)
-      if (this.isTrivia()) {
-        break;
-      }
-
-      const tokenValue = this.advance().value;
-      if (token.type === 'WHITESPACE') {
-        expression += ' ';
-      } else {
-        expression += tokenValue;
-      }
-    }
-
-    // Check for unbalanced parentheses and empty expression
-    if (paren_depth > 0) {
-      this.addError('Unbalanced parentheses in if qualifier: missing closing parenthesis', start_token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
-    }
+    // State machine for stray token detection at each paren level
+    // States: INITIAL, AFTER_OPERAND, AFTER_COMPARE, AFTER_RHS
+    type ExpressionState = 'INITIAL' | 'AFTER_OPERAND' | 'AFTER_COMPARE' | 'AFTER_RHS';
     
-    const trimmed_expression = expression.trim();
-    if (trimmed_expression === '') {
-      this.addError('Empty if qualifier expression', start_token.range, ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS);
-    }
-
-    return trimmed_expression;
-  }
-
-  /**
-   * Parse an in qualifier expression, stopping at statement terminator or comma.
-   * Tracks parenthesis depth to handle nested expressions.
-   * Returns the expression as a trimmed string.
-   */
-  parseInQualifierExpression(): string {
-    let expression = '';
-    let paren_depth = 0;
-    const start_token = this.peek();
+    // Track state at each paren depth level
+    const state_stack: ExpressionState[] = ['INITIAL'];
+    
+    // Track previous non-whitespace token for split literal detection
+    let prev_token: Token | null = null;
 
     while (!this.isAtEnd()) {
       const token = this.peek();
@@ -2202,12 +2230,37 @@ export class StataParser {
       // Track parenthesis depth
       if (token.type === 'LPAREN') {
         paren_depth++;
+        // Push new INITIAL state for the new paren level
+        state_stack.push('INITIAL');
       } else if (token.type === 'RPAREN') {
         paren_depth--;
         if (paren_depth < 0) {
-          this.addError('Unbalanced parentheses in in qualifier', token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
+          this.addError(`Unbalanced parentheses in ${qualifier_type} qualifier`, token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
           paren_depth = 0;
         }
+        // Pop state for the closed paren level
+        if (state_stack.length > 1) {
+          state_stack.pop();
+        }
+        // After closing paren, the outer level sees an operand
+        if (state_stack.length > 0) {
+          const outer_state = state_stack[state_stack.length - 1];
+          if (outer_state === 'AFTER_COMPARE') {
+            state_stack[state_stack.length - 1] = 'AFTER_RHS';
+          } else if (outer_state === 'INITIAL') {
+            state_stack[state_stack.length - 1] = 'AFTER_OPERAND';
+          }
+        }
+      }
+
+      // Handle continuation tokens - skip them and continue parsing
+      if (token.type === 'CONTINUATION') {
+        this.advance(); // consume continuation
+        // Skip the following statement terminator if present
+        if (this.check('STATEMENT_TERMINATOR')) {
+          this.advance();
+        }
+        continue;
       }
 
       // Stop at top-level terminators
@@ -2215,11 +2268,84 @@ export class StataParser {
         if (token.type === 'STATEMENT_TERMINATOR' || token.type === 'COMMA') {
           break;
         }
+        // Stop at 'in' keyword (only for if-qualifiers)
+        if (stop_at_in && token.type === 'WORD' && token.value === 'in') {
+          break;
+        }
+        // Stop at opening brace (brace-style blocks)
+        if (token.type === 'LBRACE') {
+          break;
+        }
       }
 
-      // Stop at trivia (comments)
-      if (this.isTrivia()) {
+      // Stop at comments (but not continuations - handled above)
+      if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
         break;
+      }
+
+      // Get current state for this paren level
+      const current_state = state_stack[state_stack.length - 1];
+
+      // Stray token and split literal detection
+      if (current_state === 'AFTER_RHS' && token.type !== 'LPAREN' && token.type !== 'RPAREN') {
+        // Check for split literal patterns first
+        if (prev_token && this.detectSplitLiteral(prev_token, token)) {
+          // Split literal diagnostic already emitted by detectSplitLiteral
+        } else if (!this.isValidAfterComparison(token)) {
+          // This is a stray token
+          this.addError(
+            `Unexpected token '${token.value}' after comparison expression. Did you mean to use '&' or '|'?`,
+            token.range,
+            ParseErrorCode.STRAY_TOKEN_IN_CONDITION
+          );
+        }
+      }
+
+      // State transitions based on token type (skip whitespace)
+      if (token.type !== 'WHITESPACE' && token.type !== 'LPAREN' && token.type !== 'RPAREN') {
+        const current_state_for_transition = state_stack[state_stack.length - 1];
+        
+        if (token.type === 'OPERATOR') {
+          // Handle ~= as two tokens: ~ followed by =
+          // When we see =, check if previous token was ~
+          if (token.value === '=' && prev_token && prev_token.type === 'OPERATOR' && prev_token.value === '~') {
+            // This is the = part of ~=, transition to AFTER_COMPARE
+            state_stack[state_stack.length - 1] = 'AFTER_COMPARE';
+          } else if (token.value === '~') {
+            // Handle ~ operator - could be part of ~= or standalone negation
+            // Don't transition to AFTER_COMPARE yet, wait for potential =
+            // If not followed by =, it's treated as negation in next iteration
+          } else if (this.isComparisonOperator(token.value) && token.value !== '~') {
+            state_stack[state_stack.length - 1] = 'AFTER_COMPARE';
+          } else if (this.isLogicalOperator(token.value)) {
+            state_stack[state_stack.length - 1] = 'INITIAL';
+          } else if (this.isArithmeticOperator(token.value)) {
+            // Arithmetic operators: if we're in AFTER_COMPARE, stay there (unary operator)
+            // Otherwise, reset to INITIAL (binary operator expecting another operand)
+            if (current_state_for_transition !== 'AFTER_COMPARE') {
+              state_stack[state_stack.length - 1] = 'INITIAL';
+            }
+            // If in AFTER_COMPARE, stay there - the next operand will be the RHS
+          } else if (token.value === '!' || token.value === '~') {
+            // Negation operators: if we're in AFTER_COMPARE, stay there (unary negation)
+            // Otherwise, reset to INITIAL
+            if (current_state_for_transition !== 'AFTER_COMPARE') {
+              state_stack[state_stack.length - 1] = 'INITIAL';
+            }
+          }
+        } else if (token.type === 'WORD' || token.type === 'NUMBER' || 
+                   token.type === 'STRING' || token.type === 'MACRO_REF_LOCAL' || 
+                   token.type === 'MACRO_REF_GLOBAL') {
+          const state = state_stack[state_stack.length - 1];
+          if (state === 'AFTER_COMPARE') {
+            state_stack[state_stack.length - 1] = 'AFTER_RHS';
+          } else if (state === 'INITIAL') {
+            state_stack[state_stack.length - 1] = 'AFTER_OPERAND';
+          }
+          // If already AFTER_RHS, stay there (stray token case handled above)
+        }
+        
+        prev_token = token;
       }
 
       const tokenValue = this.advance().value;
@@ -2232,10 +2358,98 @@ export class StataParser {
 
     // Check for unbalanced parentheses
     if (paren_depth > 0) {
-      this.addError('Unbalanced parentheses in in qualifier: missing closing parenthesis', start_token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
+      this.addError(`Unbalanced parentheses in ${qualifier_type} qualifier: missing closing parenthesis`, start_token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
+    }
+    
+    const trimmed_expression = expression.trim();
+    
+    // Check for empty expression (only for if-qualifiers)
+    if (check_empty && trimmed_expression === '') {
+      this.addError(`Empty ${qualifier_type} qualifier expression`, start_token.range, ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS);
     }
 
-    return expression.trim();
+    return trimmed_expression;
+  }
+
+  /**
+   * Parse an if qualifier expression, stopping at statement terminator, comma, or 'in' keyword.
+   * Tracks parenthesis depth to handle nested expressions.
+   * Detects stray tokens after comparison expressions.
+   * Returns the expression as a trimmed string.
+   */
+  parseIfQualifierExpression(): string {
+    return this.parseQualifierExpressionWithStrayDetection('if', true, true);
+  }
+
+  /**
+   * Detect split literal patterns and emit diagnostics.
+   * Returns true if a split literal was detected.
+   * 
+   * Patterns detected:
+   * - `. N` (dot space number) → suggests `.N`
+   * - `. a` (dot space letter) → suggests `.a` (extended missing value)
+   * 
+   * Note: The lexer may tokenize `.` as either OPERATOR or WORD depending on context.
+   */
+  private detectSplitLiteral(prev_token: Token, current_token: Token): boolean {
+    // Check for `. N` pattern (dot followed by number)
+    // The dot may be tokenized as OPERATOR or WORD
+    const is_prev_dot = prev_token.value === '.' && (prev_token.type === 'OPERATOR' || prev_token.type === 'WORD');
+    
+    if (is_prev_dot) {
+      if (current_token.type === 'NUMBER') {
+        this.addError(
+          `Split literal detected: '${prev_token.value} ${current_token.value}' may have been intended as '.${current_token.value}'`,
+          { start: prev_token.range.start, end: current_token.range.end },
+          ParseErrorCode.SPLIT_LITERAL_IN_CONDITION
+        );
+        return true;
+      }
+      // Check for `. a` pattern (dot followed by single letter - extended missing value)
+      if (current_token.type === 'WORD' && /^[a-z]$/i.test(current_token.value)) {
+        this.addError(
+          `Split literal detected: '${prev_token.value} ${current_token.value}' may have been intended as '.${current_token.value}' (extended missing value)`,
+          { start: prev_token.range.start, end: current_token.range.end },
+          ParseErrorCode.SPLIT_LITERAL_IN_CONDITION
+        );
+        return true;
+      }
+    }
+    
+    // Check for `N .` pattern (number followed by dot)
+    const is_current_dot = current_token.value === '.' && (current_token.type === 'OPERATOR' || current_token.type === 'WORD');
+    
+    if (prev_token.type === 'NUMBER' && is_current_dot) {
+      this.addError(
+        `Split literal detected: '${prev_token.value} ${current_token.value}' may have been intended as '${prev_token.value}.' or the '.' may be stray`,
+        { start: prev_token.range.start, end: current_token.range.end },
+        ParseErrorCode.SPLIT_LITERAL_IN_CONDITION
+      );
+      return true;
+    }
+    
+    // Check for `a .` pattern (identifier followed by dot)
+    // Triggers for any word followed by a dot (e.g., `var .` or `x .`)
+    if (prev_token.type === 'WORD' && prev_token.value !== '.' && is_current_dot) {
+      this.addError(
+        `Split literal detected: '${prev_token.value} ${current_token.value}' - the '.' may be stray or part of a split literal`,
+        { start: prev_token.range.start, end: current_token.range.end },
+        ParseErrorCode.SPLIT_LITERAL_IN_CONDITION
+      );
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Parse an in qualifier expression, stopping at statement terminator or comma.
+   * Tracks parenthesis depth to handle nested expressions.
+   * Detects stray tokens after comparison expressions.
+   * Returns the expression as a trimmed string.
+   */
+  parseInQualifierExpression(): string {
+    return this.parseQualifierExpressionWithStrayDetection('in', false, false);
   }
 
   // Brace validation helper methods

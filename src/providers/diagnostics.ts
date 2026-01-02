@@ -380,7 +380,7 @@ export class DiagnosticsProvider {
         for (const diag of document.diagnostics) {
             if (diag.code && typeof diag.code === 'number') {
                 const code = diag.code as number;
-                if (code >= 3000 && code <= 3012) {
+                if (code >= 3000 && code <= 3014) {
                     // This is a parser error code
                     parser_errors.push({
                         message: diag.message,
