@@ -29,7 +29,7 @@ function get_errors_by_code(source: string, code: ParseErrorCode) {
 
 // Generator for comparison operators
 function arbitrary_comparison_operator(): fc.Arbitrary<string> {
-  return fc.constantFrom('==', '!=', '<', '>', '<=', '>=');
+  return fc.constantFrom('==', '!=', '~=', '<', '>', '<=', '>=');
 }
 
 // Generator for logical operators
@@ -39,7 +39,7 @@ function arbitrary_logical_operator(): fc.Arbitrary<string> {
 
 // Generator for arithmetic operators
 function arbitrary_arithmetic_operator(): fc.Arbitrary<string> {
-  return fc.constantFrom('+', '-', '*', '/');
+  return fc.constantFrom('+', '-', '*', '/', '^');
 }
 
 // Generator for simple operands (identifiers or numbers)
