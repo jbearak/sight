@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+/// <reference path="./types.d.ts" />
 /**
  * Install script for the Sight LSP binary.
  * 
