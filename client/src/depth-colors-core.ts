@@ -63,8 +63,17 @@ export interface ThemeTokenColorCustomizations {
 export interface TokenColorCustomizations {
     '[*Dark*]'?: ThemeTokenColorCustomizations;
     '[*Light*]'?: ThemeTokenColorCustomizations;
+    '[*]'?: ThemeTokenColorCustomizations;  // Universal fallback
     textMateRules?: TextMateRule[];
     [key: string]: ThemeTokenColorCustomizations | TextMateRule[] | undefined;
+}
+
+/**
+ * Check if a TextMateRule is a depth color rule (string or macro depth).
+ */
+export function isDepthColorRule(rule: TextMateRule): boolean {
+    return rule.scope.includes(STRING_SCOPE_PREFIX) || 
+           rule.scope.includes(MACRO_SCOPE_PREFIX);
 }
 
 /**
@@ -131,9 +140,12 @@ export function buildDepthColorRules(
 
 /**
  * Merge depth color rules with existing tokenColorCustomizations.
+ * @param existing - Existing token color customizations
+ * @param universal_rules - Optional rules for the universal [*] selector (from runtime theme detection)
  */
 export function mergeDepthColors(
-    existing: TokenColorCustomizations | undefined
+    existing: TokenColorCustomizations | undefined,
+    universal_rules?: TextMateRule[]
 ): TokenColorCustomizations {
     const result: TokenColorCustomizations = existing ? { ...existing } : {};
 
@@ -160,6 +172,18 @@ export function mergeDepthColors(
             ...light_rules
         ]
     };
+
+    // Add universal fallback rules if provided
+    if (universal_rules && universal_rules.length > 0) {
+        const existing_universal = result['[*]'] as ThemeTokenColorCustomizations | undefined;
+        result['[*]'] = {
+            ...existing_universal,
+            textMateRules: [
+                ...(existing_universal?.textMateRules || []),
+                ...universal_rules
+            ]
+        };
+    }
 
     return result;
 }

@@ -6,7 +6,7 @@ import {
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
-import { configureDepthColors, resetDepthColors } from './depth-colors';
+import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } from './depth-colors';
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
 
@@ -38,6 +38,11 @@ export function activate(context: ExtensionContext) {
     configureDepthColors(context, outputChannel).catch((error) => {
         outputChannel.appendLine(`Failed to configureDepthColors: ${error}`);
     });
+    
+    // Register theme change handler to update colors when theme kind changes
+    const theme_change_handler = registerThemeChangeHandler(outputChannel);
+    context.subscriptions.push(theme_change_handler);
+    outputChannel.appendLine('Registered theme change handler');
     
     // The server is bundled inside the extension at 'server/server.js'
     const serverModule = context.asAbsolutePath(
