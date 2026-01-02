@@ -29,11 +29,21 @@ export {
 /**
  * Determines if the current theme is a dark theme.
  * Includes both regular dark themes and high contrast dark themes.
+ * Returns true (dark) as fallback if theme detection fails.
  */
 export function isDarkTheme(): boolean {
-    const theme_kind = window.activeColorTheme.kind;
-    return theme_kind === ColorThemeKind.Dark || 
-           theme_kind === ColorThemeKind.HighContrast;
+    try {
+        const theme_kind = window.activeColorTheme?.kind;
+        if (theme_kind === undefined) {
+            // Fallback to dark theme if VS Code not fully initialized
+            return true;
+        }
+        return theme_kind === ColorThemeKind.Dark || 
+               theme_kind === ColorThemeKind.HighContrast;
+    } catch (error) {
+        // Fallback to dark theme if theme detection fails
+        return true;
+    }
 }
 
 /**
@@ -174,7 +184,7 @@ export async function resetDepthColors(
             const dark_section = current_customizations['[*Dark*]'];
             if (dark_section?.textMateRules) {
                 dark_section.textMateRules = dark_section.textMateRules.filter(
-                    rule => !rule.scope.includes('depth') || !rule.scope.includes('.stata')
+                    rule => !isDepthColorRule(rule)
                 );
             }
             
@@ -182,14 +192,14 @@ export async function resetDepthColors(
             const light_section = current_customizations['[*Light*]'];
             if (light_section?.textMateRules) {
                 light_section.textMateRules = light_section.textMateRules.filter(
-                    rule => !rule.scope.includes('depth') || !rule.scope.includes('.stata')
+                    rule => !isDepthColorRule(rule)
                 );
             }
             
             // Remove our depth color rules from top-level textMateRules (universal fallback)
             if (current_customizations.textMateRules) {
                 current_customizations.textMateRules = current_customizations.textMateRules.filter(
-                    rule => !rule.scope.includes('depth') || !rule.scope.includes('.stata')
+                    rule => !isDepthColorRule(rule)
                 );
             }
             
