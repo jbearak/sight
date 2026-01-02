@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+/// <reference path="./types.d.ts" />
 /**
  * Build script for creating bundled JS and native binaries.
  * 

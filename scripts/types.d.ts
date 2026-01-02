@@ -8,6 +8,8 @@ declare global {
   namespace ImportMeta {
     const main: boolean;
   }
+  
+  const Bun: any;
 }
 
 export {};
