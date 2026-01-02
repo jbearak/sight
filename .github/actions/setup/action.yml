@@ -18,8 +18,8 @@ runs:
   steps:
     - name: Setup Bun
       # Pinned action SHA for supply-chain safety.
-      # Tag v2 -> commit 4bc047ad259df6fc24a6c9b0f9a0cb08cf17571c
-      uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17571c # v2
+      # Tag v2.0.2 -> commit 735343b667d3e6f658f44d0eca948eb6282f2b76
+      uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
       with:
         bun-version: latest
 
