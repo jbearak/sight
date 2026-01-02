@@ -1499,8 +1499,8 @@ export class StataParser {
   private skipContinuation(): boolean {
     if (this.check('CONTINUATION')) {
       const continuation_token = this.peek();
-      // Validate continuation token exists (lexer ensures proper format)
-      if (!continuation_token.value) {
+      // Validate continuation token exists and has proper structure
+      if (!continuation_token || typeof continuation_token.value !== 'string') {
         // Malformed continuation - don't advance
         return false;
       }
