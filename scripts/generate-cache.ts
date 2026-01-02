@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-/// <reference path="./types.d.ts" />
 
 // Manual cache generation script - run when needed, commit results
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'fs';

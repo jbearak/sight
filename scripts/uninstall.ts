@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-/// <reference path="./types.d.ts" />
 /**
  * Uninstall script for the Sight LSP binary.
  * 

@@ -9,7 +9,6 @@
  *   bun scripts/release.ts 0.1.0
  */
 
-/// <reference path="./types.d.ts" />
 import { $ } from 'bun';
 
 interface ReleaseConfig {
