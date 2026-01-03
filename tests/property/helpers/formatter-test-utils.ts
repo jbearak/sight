@@ -13,7 +13,7 @@
  *   });
  */
 
-import { describe, it, expect } from 'bun:test';
+import { it } from 'bun:test';
 import * as fc from 'fast-check';
 import { FormattingOptions } from 'vscode-languageserver/node';
 import { StataLSPConfig } from '../../../src/types';
