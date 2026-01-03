@@ -4,7 +4,6 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { ContextTracker } from '../../src/context-tracker';
 import type { DocumentState } from '../../src/document-store';
-import type { ContextRange } from '../../src/types';
 
 describe('Formatter Performance Tests', () => {
     const formatter = new CodeFormatter();
@@ -67,7 +66,7 @@ describe('Formatter Performance Tests', () => {
             const doc = create_document_state(content);
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, []);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
@@ -79,7 +78,7 @@ describe('Formatter Performance Tests', () => {
             const doc = create_document_state(content);
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, []);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
@@ -95,10 +94,10 @@ describe('Formatter Performance Tests', () => {
             // Get context ranges for embedded blocks
             const tracker = new ContextTracker();
             tracker.initialize_from_tokens(doc.tokens!);
-            const context_ranges = tracker.get_all_context_ranges();
+            doc.context_ranges = tracker.get_all_context_ranges();
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, context_ranges);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
@@ -111,10 +110,10 @@ describe('Formatter Performance Tests', () => {
             
             const tracker = new ContextTracker();
             tracker.initialize_from_tokens(doc.tokens!);
-            const context_ranges = tracker.get_all_context_ranges();
+            doc.context_ranges = tracker.get_all_context_ranges();
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, context_ranges);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
@@ -128,11 +127,11 @@ describe('Formatter Performance Tests', () => {
             
             const tracker = new ContextTracker();
             tracker.initialize_from_tokens(doc.tokens!);
-            const context_ranges = tracker.get_all_context_ranges();
+            doc.context_ranges = tracker.get_all_context_ranges();
             
             // Should not throw or hang
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, context_ranges);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
@@ -158,7 +157,7 @@ describe('Formatter Performance Tests', () => {
             const doc = create_document_state(content);
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, []);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
@@ -184,7 +183,7 @@ describe('Formatter Performance Tests', () => {
             const doc = create_document_state(content);
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, []);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
