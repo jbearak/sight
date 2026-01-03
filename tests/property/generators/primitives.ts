@@ -176,9 +176,13 @@ export function arbitrary_trailing_comment(): fc.Arbitrary<string> {
 
   return fc.oneof(
     // Line comment with // (always recognized as comment)
-    my_comment_text.map((my_text) => `// ${my_text}`),
+    // trimEnd() on the full result removes trailing whitespace (including when text is empty)
+    // to prevent formatter normalization mismatches
+    my_comment_text.map((my_text) => `// ${my_text}`.trimEnd()),
     // Block comment (always recognized as comment)
-    my_comment_text.map((my_text) => `/* ${my_text} */`)
+    // trimEnd() on the text removes trailing whitespace before the closing */
+    // to prevent formatter normalization mismatches
+    my_comment_text.map((my_text) => `/* ${my_text.trimEnd()} */`)
   );
 }
 
