@@ -16,11 +16,11 @@ export interface AlignmentPattern {
 
 export class AlignmentDetector {
   private the_groups = new Map<number, ContinuationGroup>();
-  private the_aligned_lines = new Set<number>();
+  private aligned_lines_set = new Set<number>();
 
   analyze(tokens: Token[], original_source: string): Map<number, ContinuationGroup> {
     this.the_groups.clear();
-    this.the_aligned_lines.clear();
+    this.aligned_lines_set.clear();
     
     // Find continuation groups
     const my_continuation_groups = this.find_continuation_groups(tokens);
@@ -31,12 +31,12 @@ export class AlignmentDetector {
       // Mark the start line (which contains ///) for whitespace preservation
       // This preserves the spacing between code and the /// marker
       group.aligned_lines.add(start_line);
-      this.the_aligned_lines.add(start_line);
+      this.aligned_lines_set.add(start_line);
       
       // Mark all continuation lines for whitespace preservation
       for (const line of group.continuation_lines) {
         group.aligned_lines.add(line);
-        this.the_aligned_lines.add(line);
+        this.aligned_lines_set.add(line);
       }
       group.has_alignment = group.continuation_lines.length > 0;
       
@@ -48,7 +48,7 @@ export class AlignmentDetector {
 
   should_preserve_whitespace(line: number): boolean {
     return this.the_aligned_lines.has(line);
-  }
+    return this.aligned_lines_set.has(line);
 
   private find_continuation_groups(tokens: Token[]): Map<number, ContinuationGroup> {
     const my_groups = new Map<number, ContinuationGroup>();

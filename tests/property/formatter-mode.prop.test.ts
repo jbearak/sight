@@ -20,17 +20,7 @@ import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { DEFAULT_FORMATTING_OPTIONS } from './helpers/formatter-test-utils';
-
-function create_empty_symbol_table(): SymbolTable {
-    return {
-        programs: new Map(),
-        localMacros: new Map(),
-        globalMacros: new Map(),
-        variables: new Map(),
-        scalars: new Map(),
-        matrices: new Map(),
-    };
-}
+import { create_empty_symbol_table } from '../../src/analyzer';
 
 /**
  * Helper to create a DocumentState from source code

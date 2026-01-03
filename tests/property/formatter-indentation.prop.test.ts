@@ -20,24 +20,7 @@ import {
     skip_for_mode,
     FormatterMode,
 } from './helpers/formatter-test-utils';
-
-function create_document_state(source: string): DocumentState {
-    const lexer = new StataLexer();
-    const lex_result = lexer.tokenize(source);
-    const parser = new StataParser();
-    const parse_result = parser.parse(lex_result.tokens);
-
-    return {
-        uri: 'file:///test.do',
-        content: source,
-        version: 1,
-        ast: parse_result.ast,
-        tokens: lex_result.tokens,
-        line_offsets: lex_result.line_offsets,
-        symbols: new Map(),
-        diagnostics: [],
-    };
-}
+import { create_document_state } from './helpers/document-utils';
 
 describe('Formatter Indentation Properties', () => {
     const formatter = new CodeFormatter();
