@@ -16,9 +16,12 @@ export class IndentationDiagnosticAnalyzer {
     // Get Stata-only ranges (exclude embedded language blocks)
     const stataRanges = this.getStataRanges(document);
     
+    // Compute block comment lines to exclude from indentation checks
+    const block_comment_lines = this.compute_block_comment_lines(lines);
+    
     for (const range of stataRanges) {
-      diagnostics.push(...this.find_comment_indentation_issues(lines, range));
-      diagnostics.push(...this.find_block_indentation_issues(document, lines, range));
+      diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines));
+      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines));
     }
 
     return diagnostics;
@@ -73,10 +76,15 @@ export class IndentationDiagnosticAnalyzer {
     return prevTrimmed.endsWith('///');
   }
 
-  private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }): Diagnostic[] {
+  private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
     for (let i = range.start; i < range.end && i < lines.length - 1; i++) {
+      // Skip lines inside block comments (Requirements 1.1, 1.2, 1.3)
+      if (block_comment_lines.has(i) || block_comment_lines.has(i + 1)) {
+        continue;
+      }
+      
       const line = lines[i];
       const nextLine = lines[i + 1];
       const trimmed = line.trim();
@@ -110,11 +118,16 @@ export class IndentationDiagnosticAnalyzer {
     return diagnostics;
   }
 
-  private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }): Diagnostic[] {
+  private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
     // Look for opening braces - either standalone or at end of control flow statements
     for (let i = range.start; i <= range.end && i < lines.length; i++) {
+      // Skip lines inside block comments (Requirements 1.1, 1.2, 1.3)
+      if (block_comment_lines.has(i)) {
+        continue;
+      }
+      
       const line = lines[i];
       const trimmed = line.trim();
       
@@ -128,6 +141,11 @@ export class IndentationDiagnosticAnalyzer {
         
         // Check lines inside the block
         for (let j = i + 1; j <= range.end && j < lines.length && braceDepth > 0; j++) {
+          // Skip lines inside block comments (Requirements 1.1, 1.2, 1.3)
+          if (block_comment_lines.has(j)) {
+            continue;
+          }
+          
           const innerLine = lines[j];
           const innerTrimmed = innerLine.trim();
           
@@ -181,6 +199,57 @@ export class IndentationDiagnosticAnalyzer {
 
   private is_control_flow_start(line: string): boolean {
     return /^(if|foreach|forvalues|while|program|mata|python)\b/.test(line) || line === '{';
+  }
+
+  /**
+   * Computes a Set of line numbers that are inside block comments.
+   * A line is considered "inside" a block comment if:
+   * - It contains the opening delimiter (from that point to end of line)
+   * - It is entirely within an open block comment
+   * - It contains the closing delimiter (from start of line to that point)
+   * 
+   * Note: Stata doesn't support nested block comments, so the first
+   * closing delimiter ends the comment regardless of any opening
+   * sequences inside.
+   */
+  compute_block_comment_lines(lines: string[]): Set<number> {
+    const block_comment_lines = new Set<number>();
+    let in_block_comment = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      let j = 0;
+
+      while (j < line.length) {
+        if (!in_block_comment) {
+          // Look for /*
+          if (line[j] === '/' && line[j + 1] === '*') {
+            in_block_comment = true;
+            block_comment_lines.add(i);
+            j += 2;
+            continue;
+          }
+        } else {
+          // Already in block comment - this line is inside
+          block_comment_lines.add(i);
+
+          // Look for */
+          if (line[j] === '*' && line[j + 1] === '/') {
+            in_block_comment = false;
+            j += 2;
+            continue;
+          }
+        }
+        j++;
+      }
+
+      // If we're still in a block comment at end of line, mark this line
+      if (in_block_comment) {
+        block_comment_lines.add(i);
+      }
+    }
+
+    return block_comment_lines;
   }
 
   /**
