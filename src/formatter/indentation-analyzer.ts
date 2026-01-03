@@ -215,7 +215,14 @@ export class IndentationAnalyzer {
     private set_indentation(line: number, indent_level: number, is_continuation: boolean, is_block_start: boolean, is_block_end: boolean, preserve_whitespace: boolean = false): void {
         const existing = this.indentation_map.get(line);
         // Don't overwrite block start/end markers with regular indentation
-        if (existing && (existing.is_block_start || existing.is_block_end) && !is_block_start && !is_block_end) {
+        // BUT allow continuation indentation to update the indent level
+        if (existing && (existing.is_block_start || existing.is_block_end) && !is_block_start && !is_block_end && !is_continuation) {
+            return;
+        }
+        // For continuations on block end lines, preserve the block_end flag but update indent
+        if (existing && existing.is_block_end && is_continuation) {
+            existing.indent_level = indent_level;
+            existing.is_continuation = true;
             return;
         }
         this.indentation_map.set(line, {

@@ -59,16 +59,14 @@ export class AlignmentDetector {
         if (!my_current_group) {
           my_current_group = {
             start_line: my_line,
-            continuation_lines: [my_line, my_line + 1], // Include both the /// line and the next line
+            continuation_lines: [my_line + 1], // Only the line AFTER /// is a continuation
             has_alignment: false,
             aligned_lines: new Set()
           };
         } else {
-          my_current_group.continuation_lines.push(my_line);
           my_current_group.continuation_lines.push(my_line + 1);
         }
       } else if (my_current_group && my_line > my_current_group.continuation_lines[my_current_group.continuation_lines.length - 1]) {
-        // Deduplicate continuation_lines
         my_current_group.continuation_lines = [...new Set(my_current_group.continuation_lines)];
         my_groups.set(my_current_group.start_line, my_current_group);
         my_current_group = null;
