@@ -3,7 +3,10 @@ import { IndentationInfo } from './indentation-analyzer';
 
 export interface TokenProcessingState {
     current_line: number;
-    current_column: number;
+    /** The column position in the original source (for extracting spacing) */
+    source_column: number;
+    /** The visual column position in the output (for tab expansion) */
+    output_column: number;
     at_line_start: boolean;
     output_parts: string[];
 }
@@ -27,7 +30,8 @@ export class TokenReconstructor {
     ): string {
         const state: TokenProcessingState = {
             current_line: 0,
-            current_column: 0,
+            source_column: 0,
+            output_column: 0,
             at_line_start: true,
             output_parts: []
         };
@@ -44,7 +48,8 @@ export class TokenReconstructor {
             while (state.current_line < token_line) {
                 state.output_parts.push('\n');
                 state.current_line++;
-                state.current_column = 0;
+                state.source_column = 0;
+                state.output_column = 0;
                 state.at_line_start = true;
             }
 
@@ -59,32 +64,37 @@ export class TokenReconstructor {
                     const original_line = the_lines[state.current_line] || '';
                     const leading_whitespace = original_line.match(/^\s*/)?.[0] || '';
                     
+                    let output_whitespace: string;
                     if (indent_info.indent_delta !== 0) {
-                        const adjusted_whitespace = this.apply_indent_delta(leading_whitespace, indent_info.indent_delta, config);
-                        state.output_parts.push(adjusted_whitespace);
+                        output_whitespace = this.apply_indent_delta(leading_whitespace, indent_info.indent_delta, config);
                     } else {
-                        state.output_parts.push(leading_whitespace);
+                        output_whitespace = leading_whitespace;
                     }
-                    state.current_column = token_col; // Track original position for spacing calc
+                    state.output_parts.push(output_whitespace);
+                    state.source_column = token_col; // Track original position for spacing extraction
+                    state.output_column = this.calculate_visual_width(output_whitespace, config.indent_size);
                 } else {
                     // Generate new indentation
                     const indent_level = typeof indent_info === 'number' ? indent_info : (indent_info?.indent_level ?? 0);
                     const indent_str = this.make_indent(indent_level, config);
                     state.output_parts.push(indent_str);
-                    state.current_column = token_col; // Track original position for spacing calc
+                    state.source_column = token_col; // Track original position for spacing extraction
+                    state.output_column = indent_str.length; // Indent is all spaces or tabs
                 }
                 state.at_line_start = false;
-            } else if (!state.at_line_start && state.current_column < token_col) {
+            } else if (!state.at_line_start && state.source_column < token_col) {
                 // Preserve spacing between tokens on the same line
                 const original_line = the_lines[state.current_line] || '';
-                let spacing = original_line.substring(state.current_column, token_col);
+                let spacing = original_line.substring(state.source_column, token_col);
                 // Convert tabs to spaces if indent_style is spaces, BUT NOT if we're preserving whitespace
                 // (e.g., for continuation line alignment)
                 if (config.indent_style === 'spaces' && !should_preserve_whitespace) {
-                    spacing = spacing.replace(/\t/g, ' '.repeat(config.indent_size));
+                    // Use output_column (not source_column) for correct tab expansion
+                    spacing = this.expand_tabs_to_spaces(spacing, state.output_column, config.indent_size);
                 }
                 state.output_parts.push(spacing);
-                state.current_column = token_col;
+                state.source_column = token_col;
+                state.output_column += spacing.length;
             }
 
             // Output the token value
@@ -95,10 +105,13 @@ export class TokenReconstructor {
             if (newline_count > 0) {
                 state.current_line += newline_count;
                 const last_newline_idx = my_token.value.lastIndexOf('\n');
-                state.current_column = my_token.value.length - last_newline_idx - 1;
+                const chars_after_newline = my_token.value.length - last_newline_idx - 1;
+                state.source_column = chars_after_newline;
+                state.output_column = chars_after_newline;
                 state.at_line_start = my_token.value.endsWith('\n');
             } else {
-                state.current_column += my_token.value.length;
+                state.source_column += my_token.value.length;
+                state.output_column += my_token.value.length;
                 if (my_token.value.trim()) {
                     state.at_line_start = false;
                 }
@@ -106,6 +119,23 @@ export class TokenReconstructor {
         }
 
         return state.output_parts.join('');
+    }
+
+    /**
+     * Calculate the visual width of a string, accounting for tab stops.
+     */
+    private calculate_visual_width(str: string, tab_width: number): number {
+        let visual_column = 0;
+        const effective_tab_width = tab_width > 0 ? tab_width : 4;
+        
+        for (const my_char of str) {
+            if (my_char === '\t') {
+                visual_column = Math.ceil((visual_column + 1) / effective_tab_width) * effective_tab_width;
+            } else {
+                visual_column += 1;
+            }
+        }
+        return visual_column;
     }
 
     private apply_indent_delta(original_whitespace: string, delta: number, config: FormatterConfig): string {
@@ -147,5 +177,39 @@ export class TokenReconstructor {
             return '\t'.repeat(level);
         }
         return ' '.repeat(level * config.indent_size);
+    }
+
+    /**
+     * Convert tabs to spaces while preserving visual column alignment.
+     * Each tab expands to the next tab stop (multiples of tab_width).
+     * 
+     * @param spacing - The original spacing string (may contain tabs and spaces)
+     * @param start_column - The visual column where this spacing begins
+     * @param tab_width - The tab stop interval (typically indent_size)
+     * @returns Spaces that produce the same visual width
+     */
+    private expand_tabs_to_spaces(
+        spacing: string,
+        start_column: number,
+        tab_width: number
+    ): string {
+        // Defensive: treat negative start_column as 0
+        let visual_column = Math.max(0, start_column);
+        
+        // Defensive: default to 4 if tab_width is zero or negative
+        const effective_tab_width = tab_width > 0 ? tab_width : 4;
+        
+        for (const my_char of spacing) {
+            if (my_char === '\t') {
+                // Tab expands to next tab stop
+                visual_column = Math.ceil((visual_column + 1) / effective_tab_width) * effective_tab_width;
+            } else {
+                visual_column += 1;
+            }
+        }
+        
+        // Return spaces to reach the same visual column
+        const spaces_needed = visual_column - Math.max(0, start_column);
+        return ' '.repeat(spaces_needed);
     }
 }
