@@ -16,7 +16,11 @@ export class IndentationAnalyzer {
     private indentation_map: Map<number, IndentationInfo> = new Map();
     private current_depth = 0;
     private original_lines: string[] = [];
-    private indent_size = 4;
+    private indent_size: number;
+
+    constructor(indent_size: number = 4) {
+        this.indent_size = indent_size;
+    }
 
     analyze(ast: StataAST, tokens?: Token[], alignment_info?: Map<number, ContinuationGroup>, original_source?: string): Map<number, IndentationInfo> {
         this.indentation_map.clear();

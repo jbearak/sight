@@ -12,7 +12,7 @@ export class SourcePreservingFormatter {
 
     constructor(config: FormatterConfig) {
         this.config = config;
-        this.indentation_analyzer = new IndentationAnalyzer();
+        this.indentation_analyzer = new IndentationAnalyzer(config.indent_size);
         this.token_reconstructor = new TokenReconstructor();
         this.alignment_detector = new AlignmentDetector();
     }
