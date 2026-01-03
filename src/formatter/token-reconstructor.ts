@@ -59,7 +59,11 @@ export class TokenReconstructor {
             } else if (!state.at_line_start && state.current_column < token_col) {
                 // Preserve spacing between tokens on the same line
                 const original_line = the_lines[state.current_line] || '';
-                const spacing = original_line.substring(state.current_column, token_col);
+                let spacing = original_line.substring(state.current_column, token_col);
+                // Convert tabs to spaces if indent_style is spaces
+                if (config.indent_style === 'spaces') {
+                    spacing = spacing.replace(/\t/g, ' '.repeat(config.indent_size));
+                }
                 state.output_parts.push(spacing);
                 state.current_column = token_col;
             }
