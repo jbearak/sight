@@ -27,6 +27,8 @@ describe('CodeFormatter with embedded language support', () => {
       content: source,
       version: 1,
       ast: parse_result.ast,
+      tokens: lex_result.tokens,
+      line_offsets: lex_result.line_offsets,
       symbols: new Map(),
       diagnostics: [],
     };
