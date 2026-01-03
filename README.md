@@ -642,7 +642,7 @@ npm install -g github:jbearak/sight
 ```
 
 After installation, the `sight-language-server` command will be available globally. Use it with:
-- **Kiro CLI, OpenCode, Crush**: See [CLI integration](#cli-integration) below
+- **Kiro CLI, OpenCode, Crush**: See [CLI integration](#agent-integration) below
 - **Other LSP clients**: Configure to run `sight-language-server --stdio`
 - **Manual testing**: Run `sight-language-server --help` to verify installation
 
