@@ -103,24 +103,33 @@ export class AlignmentDetector {
     const my_operators = ['&', '|', '+', '-', '*', '/', '==', '!=', '<', '>', '<=', '>='];
     const my_operator_positions = new Map<number, number[]>();
     
-    for (const line_num of group.continuation_lines) {
+    // Check both the start line (with ///) and continuation lines for alignment
+    const my_lines_to_check = [group.start_line, ...group.continuation_lines];
+    
+    for (const line_num of my_lines_to_check) {
       const my_line = lines[line_num];
       if (!my_line) continue;
       
       for (const op of my_operators) {
-        const my_index = my_line.indexOf(op);
-        if (my_index !== -1) {
+        // Find ALL occurrences of the operator, not just the first
+        let my_index = my_line.indexOf(op);
+        while (my_index !== -1) {
           if (!my_operator_positions.has(my_index)) {
             my_operator_positions.set(my_index, []);
           }
           my_operator_positions.get(my_index)!.push(line_num);
+          my_index = my_line.indexOf(op, my_index + 1);
         }
       }
     }
     
+    // Only mark continuation lines for preservation (not the start line)
     for (const [column, the_lines] of my_operator_positions) {
       if (the_lines.length >= 2) {
-        return { column, element_type: 'operator', lines: the_lines };
+        const my_continuation_only = the_lines.filter(l => group.continuation_lines.includes(l));
+        if (my_continuation_only.length > 0) {
+          return { column, element_type: 'operator', lines: my_continuation_only };
+        }
       }
     }
     
