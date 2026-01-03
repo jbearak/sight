@@ -1499,17 +1499,17 @@ export class StataLexer {
    * We check if there are more than 3 additional slashes after the initial "///".
    */
   private isOnlySlashesUntilEndOfLine(): boolean {
-    let pos = this.position;
-    let slash_count = 0;
+    let my_pos = this.position;
+    let my_slash_count = 0;
     
     // Count consecutive slashes
-    while (pos < this.source.length && this.source[pos] === '/') {
-      slash_count++;
-      pos++;
+    while (my_pos < this.source.length && this.source[my_pos] === '/') {
+      my_slash_count++;
+      my_pos++;
     }
     
     // If we have 4+ more slashes (total 7+ with the initial ///), it's a visual separator
-    return slash_count >= 4;
+    return my_slash_count >= 4;
   }
 
   private advance(): string {
