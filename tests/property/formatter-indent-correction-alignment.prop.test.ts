@@ -38,6 +38,7 @@ function create_document_state(source: string): DocumentState {
             matrices: new Map(),
         },
         diagnostics: [],
+        context_ranges: [],
     };
 }
 
