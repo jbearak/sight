@@ -255,7 +255,16 @@ export class IndentationAnalyzer {
         }
     }
 
-    private set_indentation(line: number, indent_level: number, is_continuation: boolean, is_block_start: boolean, is_block_end: boolean, preserve_whitespace: boolean = false, indent_delta: number = 0, original_indent: number = 0): void {
+    private set_indentation(
+        line: number,
+        indent_level: number,
+        is_continuation: boolean,
+        is_block_start: boolean,
+        is_block_end: boolean,
+        preserve_whitespace: boolean = false,
+        indent_delta: number = 0,
+        original_indent: number = 0
+    ): void {
         const existing = this.indentation_map.get(line);
         // Don't overwrite block start/end markers with regular indentation
         // BUT allow continuation indentation to update the indent level
