@@ -742,6 +742,7 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | `sight.diagnostics.severity.undefinedVariable` | enum    | `"information"` | Severity level for undefined variable references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.styleWarnings`     | enum    | `"hint"`        | Severity level for style warnings. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`                |
 | `sight.diagnostics.undefinedVariableEnabled`   | boolean | `false`         | Enable checking for undefined variables                                                                               |
+| `sight.diagnostics.indentation`                | boolean | `true`          | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
 
 #### Forward Reference Detection
 
@@ -872,6 +873,9 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 
 ```json
 {
+  "diagnostics": {
+    "indentation": true
+  },
   "crossFile": {
     "indexWorkspace": true,
     "maxIndexedFiles": 1000,
@@ -891,6 +895,7 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 
 | Option                                  | Type                 | Default         | Description                                                             |
 | --------------------------------------- | -------------------- | --------------- | ----------------------------------------------------------------------- |
+| `diagnostics.indentation`               | boolean              | `true`          | Enable indentation diagnostics                                          |
 | `crossFile.indexWorkspace`              | boolean              | `true`          | Enable workspace-wide file indexing                                     |
 | `crossFile.maxIndexedFiles`             | number               | `1000`          | Maximum files to index                                                  |
 | `crossFile.maxBackwardDepth`            | number               | `10`            | Maximum recursion depth for backward directive resolution               |
@@ -905,9 +910,7 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 
 Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias: `"info"` for `"information"`)
 
-VS Code settings take precedence over `.sight.json` when both are present.
-
-### Example Configurations
+VS Code settings take precedence over `.sight.json` when both are present.### Example Configurations
 
 #### Disable All Diagnostics
 
@@ -925,9 +928,13 @@ VS Code settings take precedence over `.sight.json` when both are present.
 }
 ```
 
+#### Disable Indentation Diagnostics
 
-
-
+```json
+{
+  "sight.diagnostics.indentation": false
+}
+```
 
 #### Add Custom ADO Paths
 
