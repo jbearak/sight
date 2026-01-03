@@ -15,11 +15,22 @@ import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { CodeFormatter } from '../../src/providers/formatter';
 import { DocumentState } from '../../src/document-store';
-import { StataLSPConfig } from '../../src/types';
+import { StataLSPConfig, SymbolTable } from '../../src/types';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { FormattingOptions } from 'vscode-languageserver';
+
+function create_empty_symbol_table(): SymbolTable {
+    return {
+        programs: new Map(),
+        localMacros: new Map(),
+        globalMacros: new Map(),
+        variables: new Map(),
+        scalars: new Map(),
+        matrices: new Map(),
+    };
+}
 
 /**
  * Helper to create a DocumentState from source code
@@ -37,7 +48,7 @@ function create_document_state(source: string): DocumentState {
         ast: parse_result.ast,
         tokens: lex_result.tokens,
         line_offsets: lex_result.line_offsets,
-        symbols: new Map() as any,
+        symbols: create_empty_symbol_table(),
         diagnostics: [],
         context_ranges: [],
     };
@@ -181,7 +192,7 @@ describe('Formatter Mode Property Tests', () => {
                 version: 1,
                 tokens: [],
                 ast: undefined as any, // Missing AST
-                symbols: new Map() as any,
+                symbols: create_empty_symbol_table(),
                 diagnostics: [],
                 context_ranges: [],
                 line_offsets: [0],
