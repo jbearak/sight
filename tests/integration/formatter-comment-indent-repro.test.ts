@@ -62,11 +62,6 @@ describe('Formatter - Comment Indentation Fix', () => {
 
     const formatted = format_document(content);
 
-    console.log('Original:');
-    content.split('\n').forEach((line, i) => console.log(`${i}: [${line}]`));
-    console.log('\nFormatted:');
-    formatted.split('\n').forEach((line, i) => console.log(`${i}: [${line}]`));
-
     // All replace lines should have NO indentation (same as the comment)
     const lines = formatted.split('\n');
     expect(lines[0]).toMatch(/^\/+/); // Comment line unchanged
@@ -81,11 +76,6 @@ describe('Formatter - Comment Indentation Fix', () => {
     display "line 2"`;
 
     const formatted = format_document(content);
-
-    console.log('Original:');
-    content.split('\n').forEach((line, i) => console.log(`${i}: [${line}]`));
-    console.log('\nFormatted:');
-    formatted.split('\n').forEach((line, i) => console.log(`${i}: [${line}]`));
 
     const lines = formatted.split('\n');
     expect(lines[0]).toBe('* This is a comment');
