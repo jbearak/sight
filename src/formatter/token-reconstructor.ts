@@ -57,13 +57,13 @@ export class TokenReconstructor {
                     const original_line = the_lines[state.current_line] || '';
                     const leading_whitespace = original_line.match(/^\s*/)?.[0] || '';
                     state.output_parts.push(leading_whitespace);
-                    state.current_column = leading_whitespace.length;
+                    state.current_column = token_col; // Track original position for spacing calc
                 } else {
                     // Generate new indentation
                     const indent_level = typeof indent_info === 'number' ? indent_info : (indent_info?.indent_level ?? 0);
                     const indent_str = this.make_indent(indent_level, config);
                     state.output_parts.push(indent_str);
-                    state.current_column = indent_str.length;
+                    state.current_column = token_col; // Track original position for spacing calc
                 }
                 state.at_line_start = false;
             } else if (!state.at_line_start && state.current_column < token_col) {
