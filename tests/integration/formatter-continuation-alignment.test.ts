@@ -51,18 +51,5 @@ label values union_status union_status`;
         expect(formatted).toBe(source);
     });
     
-    it('should show token positions for continuation markers', () => {
-        const source = `lval union_status 0 "Never married" \t\t\t\t\t\t\t\t\t\t\t///
-\t1 "First marriage"  \t\t\t\t\t\t\t\t\t\t\t///`;
 
-        const lexer = new StataLexer();
-        const lex_result = lexer.tokenize(source);
-        
-        console.log('\n=== Tokens ===');
-        for (const token of lex_result.tokens) {
-            if (token.type === 'CONTINUATION' || token.type === 'STRING') {
-                console.log(`${token.type} at line ${token.range.start.line}, col ${token.range.start.character}: "${token.value.replace(/\t/g, '→')}"`);
-            }
-        }
-    });
 });
