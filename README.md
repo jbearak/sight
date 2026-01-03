@@ -53,6 +53,9 @@ Sight colorizes nesting depth of compound strings and local macros.
 Command+click (Mac) or Control+click (Windows) to see symbol definitions across files.
 <img width="671" height="386" src="examples/command_click.png"/>
 
+#### Missing indentation
+<img width="" height="345" src="examples/missing_indentation.png"/>
+
 
 
 ## Syntax Highlighting
