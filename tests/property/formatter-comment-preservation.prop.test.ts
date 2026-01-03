@@ -101,7 +101,9 @@ describe('Formatter Comment Preservation Property Tests', () => {
                     expect(my_formatted).toContain(`// ${my_trimmed_content}`);
                 } else if (my_data.style === 'block') {
                     // Block comments may have varying whitespace before closing
-                    expect(my_formatted).toMatch(new RegExp(`/\\*\\s*${my_trimmed_content}\\s*\\*/`));
+                    // Escape regex special characters in content
+                    const my_escaped_content = my_trimmed_content.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    expect(my_formatted).toMatch(new RegExp(`/\\*\\s*${my_escaped_content}\\s*\\*/`));
                 }
             }
         },
