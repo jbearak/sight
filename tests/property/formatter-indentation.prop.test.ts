@@ -69,6 +69,13 @@ describe('Formatter Indentation Properties', () => {
             if (edits.length === 0) return true;
 
             const formatted = edits[0].newText;
+            const formatted_doc = create_document_state(formatted);
+
+            // Verify formatted output is parseable
+            if (!formatted_doc.ast || !formatted_doc.tokens) {
+                return false;
+            }
+
             const the_lines = formatted.split('\n');
 
             // Check that block structure is maintained
@@ -110,6 +117,12 @@ describe('Formatter Indentation Properties', () => {
             if (edits.length === 0) return true;
 
             const formatted = edits[0].newText;
+            const formatted_doc = create_document_state(formatted);
+
+            // Verify formatted output is parseable
+            if (!formatted_doc.ast || !formatted_doc.tokens) {
+                return false;
+            }
 
             // AST mode does not preserve continuation markers (///), skip for AST mode
             skip_for_mode(mode, 'ast', () => {
@@ -143,6 +156,13 @@ describe('Formatter Indentation Properties', () => {
             if (edits.length === 0) return true;
 
             const formatted = edits[0].newText;
+            const formatted_doc = create_document_state(formatted);
+
+            // Verify formatted output is parseable
+            if (!formatted_doc.ast || !formatted_doc.tokens) {
+                return false;
+            }
+
             const the_lines = formatted.split('\n');
 
             // AST mode may not preserve comments the same way, skip comment checks for AST mode
