@@ -251,6 +251,38 @@ backward-compatible access to the command database and contains `BUILTIN_COMMAND
 Stata source (respects `#delimit` mode and preserves trivia). Used by the
 formatter.
 
+**Dual Formatter Architecture**: The LSP supports two formatter implementations:
+- **Source-Preserving Formatter** (default): Preserves original source structure
+  while applying formatting. Best for maintaining code style consistency.
+- **AST Formatter**: Rebuilds code from the AST using the Pretty Printer. May
+  normalize certain constructs but preserves semantic meaning.
+
+The formatter mode is configurable via `formatting.mode` setting (`"source-preserving"`
+or `"ast"`). Both formatters share common infrastructure for comment normalization
+and embedded language block preservation.
+
+**Formatter Testing Requirements**: All formatter tests MUST run against both
+formatter implementations to ensure consistent behavior. Use the dual-mode test
+helpers in `tests/property/helpers/formatter-test-utils.ts`:
+- `for_each_formatter_mode()` - Runs a unit test for each formatter mode
+- `for_each_formatter_mode_property()` - Runs a property test for each mode
+- `create_formatter_config(mode)` - Creates config for a specific mode
+- `skip_for_mode()` / `mode_specific_assertion()` - Handle mode-specific behavior
+
+Example usage:
+```typescript
+import { for_each_formatter_mode_property, create_formatter_config } from './helpers/formatter-test-utils';
+
+for_each_formatter_mode_property(
+    'should preserve tokens',
+    fc.constantFrom('display "hello"', 'gen x = 1'),
+    (mode, source) => {
+        const config = create_formatter_config(mode);
+        // ... test logic
+    }
+);
+```
+
 **Comment Processor** (`src/comment-processor/`): Comment analysis and
 transformations (comment-style normalization + toggle helpers). Includes:
 - **comment-analysis.ts**: Data models and helper functions for analyzing and classifying comments

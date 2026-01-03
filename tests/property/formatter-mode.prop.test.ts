@@ -4,6 +4,11 @@
  * Feature: restore-pretty-printer-formatting
  * Tests the configurable formatter mode that allows switching between
  * source-preserving (default) and AST-based formatting.
+ *
+ * NOTE: These tests specifically test mode selection behavior and should NOT
+ * use dual-mode execution (for_each_formatter_mode). They verify that the
+ * correct formatter is used based on configuration, which requires testing
+ * each mode explicitly.
  */
 
 import { describe, it, expect } from 'bun:test';

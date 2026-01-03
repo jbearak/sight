@@ -266,6 +266,11 @@ export class PrettyPrinter {
             return `${this.getIndent()}${scope_keyword} ${node.name} : ${func.name}${args_part}`.trimEnd();
         }
         
+        // Use '=' if the original definition had it
+        if (node.hasEquals) {
+            return `${this.getIndent()}${scope_keyword} ${node.name} = ${node.value}`.trimEnd();
+        }
+        
         return `${this.getIndent()}${scope_keyword} ${node.name} ${node.value}`.trimEnd();
     }
 

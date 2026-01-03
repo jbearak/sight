@@ -263,6 +263,7 @@ export interface MacroDefNode {
   scope: 'local' | 'global';
   name: string;
   value: string;
+  hasEquals?: boolean;  // Whether the definition used '=' (e.g., local x = 1 vs local x 1)
   extendedFunction?: ExtendedMacroFunction;
   range: Range;
   leadingTrivia?: TriviaNode[];
