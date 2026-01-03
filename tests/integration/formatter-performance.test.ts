@@ -21,7 +21,14 @@ describe('Formatter Performance Tests', () => {
             content,
             tokens: lex_result.tokens,
             ast: parse_result.ast,
-            symbols: { locals: new Map(), globals: new Map(), programs: new Map(), scalars: new Map(), matrices: new Map(), variables: new Map() },
+            symbols: {
+                programs: new Map(),
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                variables: new Map(),
+                scalars: new Map(),
+                matrices: new Map(),
+            },
             diagnostics: [],
             line_offsets: lex_result.line_offsets,
         };
