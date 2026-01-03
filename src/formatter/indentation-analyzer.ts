@@ -174,9 +174,16 @@ export class IndentationAnalyzer {
                 }
             } else if (my_token.type !== 'WHITESPACE') {
                 // Reset continuation state on non-whitespace, non-continuation token
-                // but only if we're on a new line
-                if (in_continuation && my_token.range.start.line > 0) {
-                    in_continuation = false;
+                // Check if we've moved to a new line that doesn't have a continuation marker
+                if (in_continuation) {
+                    const current_line = my_token.range.start.line;
+                    const previous_line = current_line - 1;
+                    const has_continuation_on_previous = tokens.some(t =>
+                        t.type === 'CONTINUATION' && t.range.start.line === previous_line
+                    );
+                    if (!has_continuation_on_previous) {
+                        in_continuation = false;
+                    }
                 }
             }
         }

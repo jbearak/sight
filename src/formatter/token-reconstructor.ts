@@ -84,17 +84,19 @@ export class TokenReconstructor {
                 state.at_line_start = false;
             } else if (!state.at_line_start && state.source_column < token_col) {
                 // Preserve spacing between tokens on the same line
-                const original_line = the_lines[state.current_line] || '';
-                let spacing = original_line.substring(state.source_column, token_col);
-                // Convert tabs to spaces if indent_style is spaces, BUT NOT if we're preserving whitespace
-                // (e.g., for continuation line alignment)
-                if (config.indent_style === 'spaces' && !should_preserve_whitespace) {
-                    // Use output_column (not source_column) for correct tab expansion
-                    spacing = this.expand_tabs_to_spaces(spacing, state.output_column, config.indent_size);
+                const original_line = the_lines[state.current_line];
+                if (original_line && state.source_column < original_line.length) {
+                    let spacing = original_line.substring(state.source_column, token_col);
+                    // Convert tabs to spaces if indent_style is spaces, BUT NOT if we're preserving whitespace
+                    // (e.g., for continuation line alignment)
+                    if (config.indent_style === 'spaces' && !should_preserve_whitespace) {
+                        // Use output_column (not source_column) for correct tab expansion
+                        spacing = this.expand_tabs_to_spaces(spacing, state.output_column, config.indent_size);
+                    }
+                    state.output_parts.push(spacing);
+                    state.output_column += spacing.length;
                 }
-                state.output_parts.push(spacing);
                 state.source_column = token_col;
-                state.output_column += spacing.length;
             }
 
             // Output the token value

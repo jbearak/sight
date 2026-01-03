@@ -18,6 +18,8 @@ import { CommentProcessor, CommentTransformation } from '../comment-processor/co
 import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, DocumentLike, compute_line_offsets } from '../utils/line-utils';
 import { PrettyPrinter } from '../pretty-printer';
+import { StataLexer } from '../lexer';
+import { StataParser } from '../parser';
 
 /**
  * Code Formatter class with embedded language support.
@@ -187,17 +189,36 @@ export class CodeFormatter {
             indent_style: options.insertSpaces ? 'spaces' : 'tabs',
         };
 
+        // Format the modified content (with placeholders) instead of original content
         const formatter = new SourcePreservingFormatter(config);
         let my_formatted_content: string;
 
         try {
-            my_formatted_content = formatter.format(
-                document.tokens!,
-                document.ast!,
-                document.line_offsets,
-                document.content,
-                { preserve_alignment: server_config?.formatting?.preserve_alignment }
-            );
+            // Parse the modified content with placeholders
+            const modified_lexer = new StataLexer();
+            const modified_lex_result = modified_lexer.tokenize(my_modified_content);
+            const modified_parser = new StataParser();
+            const modified_parse_result = modified_parser.parse(modified_lex_result.tokens);
+            
+            if (modified_parse_result.ast) {
+                my_formatted_content = formatter.format(
+                    modified_lex_result.tokens,
+                    modified_parse_result.ast,
+                    modified_lex_result.line_offsets,
+                    my_modified_content,
+                    { preserve_alignment: server_config?.formatting?.preserve_alignment }
+                );
+                
+                // Restore embedded blocks
+                for (const [my_placeholder, my_block_content] of the_embedded_blocks) {
+                    my_formatted_content = my_formatted_content.replace(
+                        my_placeholder,
+                        my_block_content
+                    );
+                }
+            } else {
+                my_formatted_content = document.content;
+            }
         } catch {
             // If formatting fails, use original content
             my_formatted_content = document.content;

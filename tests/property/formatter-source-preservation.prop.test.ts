@@ -71,6 +71,11 @@ describe('Formatter Source Preservation Properties', () => {
 
             const formatted = edits[0].newText;
             const formatted_doc = create_document_state(formatted);
+            
+            // Skip comparison if formatted output failed to parse
+            if (!formatted_doc.tokens || !formatted_doc.ast) {
+                return false; // Formatting produced invalid output
+            }
 
             if (mode === 'source-preserving') {
                 // Source-preserving mode: exact token preservation (including newlines)
