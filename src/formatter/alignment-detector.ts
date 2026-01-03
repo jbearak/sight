@@ -48,6 +48,7 @@ export class AlignmentDetector {
 
   should_preserve_whitespace(line: number): boolean {
     return this.aligned_lines_set.has(line);
+  }
 
   private find_continuation_groups(tokens: Token[]): Map<number, ContinuationGroup> {
     const my_groups = new Map<number, ContinuationGroup>();

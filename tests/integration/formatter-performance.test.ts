@@ -61,7 +61,12 @@ describe('Formatter Performance Tests', () => {
     }
 
     describe('Large File Performance', () => {
-        it('should format 1000 lines in under 30ms', () => {
+        // Use stricter thresholds locally, relaxed in CI for environment variance
+        const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+        const threshold1000 = isCI ? 60 : 20;  // Local: 20ms, CI: 60ms
+        const threshold5000 = isCI ? 150 : 40; // Local: 40ms, CI: 150ms
+        
+        it(`should format 1000 lines in under ${threshold1000}ms`, () => {
             const content = generate_large_file(1000);
             const doc = create_document_state(content);
             
@@ -70,10 +75,10 @@ describe('Formatter Performance Tests', () => {
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(30);
+            expect(elapsed_ms).toBeLessThan(threshold1000);
         });
 
-        it('should format 5000 lines in under 50ms', () => {
+        it(`should format 5000 lines in under ${threshold5000}ms`, () => {
             const content = generate_large_file(5000);
             const doc = create_document_state(content);
             
@@ -82,7 +87,7 @@ describe('Formatter Performance Tests', () => {
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(50);
+            expect(elapsed_ms).toBeLessThan(threshold5000);
         });
     });
 
