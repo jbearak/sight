@@ -223,7 +223,7 @@ export class IndentationAnalyzer {
 
     /**
      * Find the indentation level for a line by looking at surrounding context.
-     * Looks for the nearest preceding line with indentation info.
+     * Looks for the nearest preceding line with indentation info, then forward if needed.
      */
     private find_context_indent(line: number): number {
         // Look backwards for the nearest line with indentation
@@ -237,6 +237,15 @@ export class IndentationAnalyzer {
                 return info.indent_level;
             }
         }
+
+        // If no backward context found, look forward
+        for (let my_line = line + 1; my_line < this.lines.length; my_line++) {
+            const info = this.indentation_map.get(my_line);
+            if (info) {
+                return info.indent_level;
+            }
+        }
+
         // Default to no indentation
         return 0;
     }
