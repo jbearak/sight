@@ -53,10 +53,16 @@ export class TokenReconstructor {
                 const indent_info = line_indents.get(state.current_line);
                 
                 if (typeof indent_info === 'object' && indent_info.preserve_whitespace) {
-                    // Preserve original whitespace
+                    // Preserve original whitespace, but apply delta if non-zero
                     const original_line = the_lines[state.current_line] || '';
                     const leading_whitespace = original_line.match(/^\s*/)?.[0] || '';
-                    state.output_parts.push(leading_whitespace);
+                    
+                    if (indent_info.indent_delta !== 0) {
+                        const adjusted_whitespace = this.apply_indent_delta(leading_whitespace, indent_info.indent_delta, config);
+                        state.output_parts.push(adjusted_whitespace);
+                    } else {
+                        state.output_parts.push(leading_whitespace);
+                    }
                     state.current_column = token_col; // Track original position for spacing calc
                 } else {
                     // Generate new indentation
@@ -97,6 +103,40 @@ export class TokenReconstructor {
         }
 
         return state.output_parts.join('');
+    }
+
+    private apply_indent_delta(original_whitespace: string, delta: number, config: FormatterConfig): string {
+        if (delta === 0) return original_whitespace;
+        
+        if (delta > 0) {
+            // Positive delta: prepend spaces
+            const spaces_to_add = config.indent_style === 'tabs' ? '\t'.repeat(Math.ceil(delta / config.indent_size)) : ' '.repeat(delta);
+            return spaces_to_add + original_whitespace;
+        } else {
+            // Negative delta: remove leading spaces with bounds checking
+            const spaces_to_remove = Math.abs(delta);
+            let remaining = original_whitespace;
+            let removed = 0;
+            
+            // Remove spaces/tabs from the beginning
+            for (let i = 0; i < remaining.length && removed < spaces_to_remove; i++) {
+                const char = remaining[i];
+                if (char === ' ') {
+                    removed += 1;
+                } else if (char === '\t') {
+                    removed += config.indent_size;
+                } else {
+                    break;
+                }
+                
+                if (removed <= spaces_to_remove) {
+                    remaining = remaining.substring(1);
+                    i--; // Adjust index since we removed a character
+                }
+            }
+            
+            return remaining;
+        }
     }
 
     private make_indent(level: number, config: FormatterConfig): string {

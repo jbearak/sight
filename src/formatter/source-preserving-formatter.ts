@@ -22,7 +22,7 @@ export class SourcePreservingFormatter {
             const alignment_info = (config?.preserve_alignment !== false) 
                 ? this.alignment_detector.analyze(tokens, original_source)
                 : undefined;
-            const indentation_info = this.indentation_analyzer.analyze(ast, tokens, alignment_info);
+            const indentation_info = this.indentation_analyzer.analyze(ast, tokens, alignment_info, original_source);
             const line_indents = this.convert_to_line_indents(indentation_info);
             return this.token_reconstructor.reconstruct(tokens, line_indents, this.config, original_source);
         } catch (error) {

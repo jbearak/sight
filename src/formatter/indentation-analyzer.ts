@@ -8,15 +8,20 @@ export interface IndentationInfo {
     is_block_start: boolean;
     is_block_end: boolean;
     preserve_whitespace: boolean;
+    indent_delta: number;
+    original_indent: number;
 }
 
 export class IndentationAnalyzer {
     private indentation_map: Map<number, IndentationInfo> = new Map();
     private current_depth = 0;
+    private original_lines: string[] = [];
+    private indent_size = 4;
 
-    analyze(ast: StataAST, tokens?: Token[], alignment_info?: Map<number, ContinuationGroup>): Map<number, IndentationInfo> {
+    analyze(ast: StataAST, tokens?: Token[], alignment_info?: Map<number, ContinuationGroup>, original_source?: string): Map<number, IndentationInfo> {
         this.indentation_map.clear();
         this.current_depth = 0;
+        this.original_lines = original_source ? original_source.split('\n') : [];
 
         for (const my_node of ast.nodes) {
             this.walk_node(my_node);
@@ -32,6 +37,16 @@ export class IndentationAnalyzer {
         }
 
         return this.indentation_map;
+    }
+
+    private calculate_indent_delta(line: number, target_indent_level: number): { delta: number; original_indent: number } {
+        const original_line = this.original_lines[line] || '';
+        const original_indent_match = original_line.match(/^(\s*)/);
+        const original_indent_str = original_indent_match ? original_indent_match[1] : '';
+        const original_indent_spaces = original_indent_str.replace(/\t/g, ' '.repeat(this.indent_size)).length;
+        const target_indent_spaces = target_indent_level * this.indent_size;
+        const delta = target_indent_spaces - original_indent_spaces;
+        return { delta, original_indent: original_indent_spaces };
     }
 
     private walk_node(node: StataNode): void {
@@ -65,7 +80,8 @@ export class IndentationAnalyzer {
                     const trivia_line = my_trivia.range.start.line;
                     // Only set if not already set (don't override block markers)
                     if (!this.indentation_map.has(trivia_line)) {
-                        this.set_indentation(trivia_line, this.current_depth, false, false, false);
+                        const { delta, original_indent } = this.calculate_indent_delta(trivia_line, this.current_depth);
+                        this.set_indentation(trivia_line, this.current_depth, false, false, false, false, delta, original_indent);
                     }
                 }
             }
@@ -78,7 +94,8 @@ export class IndentationAnalyzer {
                     const trivia_line = my_trivia.range.start.line;
                     // Only set if not already set
                     if (!this.indentation_map.has(trivia_line)) {
-                        this.set_indentation(trivia_line, this.current_depth, false, false, false);
+                        const { delta, original_indent } = this.calculate_indent_delta(trivia_line, this.current_depth);
+                        this.set_indentation(trivia_line, this.current_depth, false, false, false, false, delta, original_indent);
                     }
                 }
             }
@@ -99,7 +116,8 @@ export class IndentationAnalyzer {
         const start_line = node.range.start.line;
         const end_line = node.range.end.line;
 
-        this.set_indentation(start_line, this.current_depth, false, true, false);
+        const start_delta_info = this.calculate_indent_delta(start_line, this.current_depth);
+        this.set_indentation(start_line, this.current_depth, false, true, false, false, start_delta_info.delta, start_delta_info.original_indent);
 
         this.current_depth++;
 
@@ -123,31 +141,36 @@ export class IndentationAnalyzer {
         this.current_depth--;
 
         if (end_line !== start_line) {
-            this.set_indentation(end_line, this.current_depth, false, false, true);
+            const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
+            this.set_indentation(end_line, this.current_depth, false, false, true, false, end_delta_info.delta, end_delta_info.original_indent);
         }
     }
 
     private process_regular_node(node: StataNode): void {
         const start_line = node.range.start.line;
-        this.set_indentation(start_line, this.current_depth, false, false, false);
+        const { delta, original_indent } = this.calculate_indent_delta(start_line, this.current_depth);
+        this.set_indentation(start_line, this.current_depth, false, false, false, false, delta, original_indent);
     }
 
     private process_continuations(tokens: Token[]): void {
         let continuation_indent = 0;
         let in_continuation = false;
+        let base_delta = 0;
 
         for (const my_token of tokens) {
             if (my_token.type === 'CONTINUATION') {
                 if (!in_continuation) {
                     const base_info = this.indentation_map.get(my_token.range.start.line);
                     continuation_indent = base_info ? base_info.indent_level + 1 : 1;
+                    base_delta = base_info ? base_info.indent_delta : 0;
                     in_continuation = true;
                 }
 
                 const next_line = my_token.range.start.line + 1;
                 const existing = this.indentation_map.get(next_line);
                 if (!existing || !existing.is_block_start) {
-                    this.set_indentation(next_line, continuation_indent, true, false, false);
+                    const { original_indent } = this.calculate_indent_delta(next_line, continuation_indent);
+                    this.set_indentation(next_line, continuation_indent, true, false, false, false, base_delta, original_indent);
                 }
             } else if (my_token.type !== 'WHITESPACE') {
                 // Reset continuation state on non-whitespace, non-continuation token
@@ -172,7 +195,8 @@ export class IndentationAnalyzer {
                 if (!this.indentation_map.has(comment_line)) {
                     // Find the nearest preceding line with indentation info
                     const indent_level = this.find_context_indent(comment_line);
-                    this.set_indentation(comment_line, indent_level, false, false, false);
+                    const { delta, original_indent } = this.calculate_indent_delta(comment_line, indent_level);
+                    this.set_indentation(comment_line, indent_level, false, false, false, false, delta, original_indent);
                 }
             }
         }
@@ -212,7 +236,7 @@ export class IndentationAnalyzer {
         }
     }
 
-    private set_indentation(line: number, indent_level: number, is_continuation: boolean, is_block_start: boolean, is_block_end: boolean, preserve_whitespace: boolean = false): void {
+    private set_indentation(line: number, indent_level: number, is_continuation: boolean, is_block_start: boolean, is_block_end: boolean, preserve_whitespace: boolean = false, indent_delta: number = 0, original_indent: number = 0): void {
         const existing = this.indentation_map.get(line);
         // Don't overwrite block start/end markers with regular indentation
         // BUT allow continuation indentation to update the indent level
@@ -223,6 +247,8 @@ export class IndentationAnalyzer {
         if (existing && existing.is_block_end && is_continuation) {
             existing.indent_level = indent_level;
             existing.is_continuation = true;
+            existing.indent_delta = indent_delta;
+            existing.original_indent = original_indent;
             return;
         }
         this.indentation_map.set(line, {
@@ -231,7 +257,9 @@ export class IndentationAnalyzer {
             is_continuation,
             is_block_start,
             is_block_end,
-            preserve_whitespace
+            preserve_whitespace,
+            indent_delta,
+            original_indent
         });
     }
 }

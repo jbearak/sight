@@ -5,6 +5,7 @@ export interface ContinuationGroup {
   continuation_lines: number[];
   has_alignment: boolean;
   aligned_lines: Set<number>;
+  base_delta: number;
 }
 
 export interface AlignmentPattern {
@@ -59,7 +60,8 @@ export class AlignmentDetector {
             start_line: my_line,
             continuation_lines: [my_line + 1], // Only the line AFTER /// is a continuation
             has_alignment: false,
-            aligned_lines: new Set()
+            aligned_lines: new Set(),
+            base_delta: 0
           };
         } else {
           my_current_group.continuation_lines.push(my_line + 1);
