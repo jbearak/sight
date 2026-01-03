@@ -41,6 +41,7 @@ import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 export class DiagnosticsProvider {
     private connection: Connection;
     private debounce_manager: DocumentDebounceManager | null = null;
+    private indentation_analyzer = new IndentationDiagnosticAnalyzer();
     
     // Track published versions to prevent stale diagnostics
     private published_versions: Map<string, number> = new Map();
@@ -304,15 +305,12 @@ export class DiagnosticsProvider {
             }
         }
 
-        // Add indentation diagnostics if enabled
-        if (config.diagnostics.indentation !== false) {
-            const indentation_analyzer = new IndentationDiagnosticAnalyzer();
-            const indentation_diagnostics = indentation_analyzer.analyze(document, config);
-            for (const my_indentation_diag of indentation_diagnostics) {
-                // Skip indentation diagnostics in embedded contexts
-                if (!this.is_in_embedded_context(my_indentation_diag.range.start, the_context_ranges)) {
-                    the_diagnostics.push(my_indentation_diag);
-                }
+        // Add indentation diagnostics
+        const indentation_diagnostics = this.indentation_analyzer.analyze(document, config);
+        for (const my_indentation_diag of indentation_diagnostics) {
+            // Skip indentation diagnostics in embedded contexts
+            if (!this.is_in_embedded_context(my_indentation_diag.range.start, the_context_ranges)) {
+                the_diagnostics.push(my_indentation_diag);
             }
         }
 

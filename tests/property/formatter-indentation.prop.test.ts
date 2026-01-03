@@ -20,24 +20,7 @@ import {
     skip_for_mode,
     FormatterMode,
 } from './helpers/formatter-test-utils';
-
-function create_document_state(source: string): DocumentState {
-    const lexer = new StataLexer();
-    const lex_result = lexer.tokenize(source);
-    const parser = new StataParser();
-    const parse_result = parser.parse(lex_result.tokens);
-
-    return {
-        uri: 'file:///test.do',
-        content: source,
-        version: 1,
-        ast: parse_result.ast,
-        tokens: lex_result.tokens,
-        line_offsets: lex_result.line_offsets,
-        symbols: new Map(),
-        diagnostics: [],
-    };
-}
+import { create_document_state } from './helpers/document-utils';
 
 describe('Formatter Indentation Properties', () => {
     const formatter = new CodeFormatter();
@@ -69,6 +52,13 @@ describe('Formatter Indentation Properties', () => {
             if (edits.length === 0) return true;
 
             const formatted = edits[0].newText;
+            const formatted_doc = create_document_state(formatted);
+
+            // Verify formatted output is parseable
+            if (!formatted_doc.ast || !formatted_doc.tokens) {
+                return false;
+            }
+
             const the_lines = formatted.split('\n');
 
             // Check that block structure is maintained
@@ -79,15 +69,17 @@ describe('Formatter Indentation Properties', () => {
                 expect(the_lines[the_lines.length - 1].trim()).toBe('}');
             });
 
-            // Check that content lines are indented
-            for (let i = 1; i < the_lines.length - 1; i++) {
-                const my_line = the_lines[i];
-                if (my_line.trim()) {
-                    // Content should have some indentation (at least 1 space)
-                    const leading_spaces = my_line.length - my_line.trimStart().length;
-                    expect(leading_spaces).toBeGreaterThanOrEqual(0);
+            // Check that content lines are indented (AST mode may not add indentation)
+            skip_for_mode(mode, 'ast', () => {
+                for (let i = 1; i < the_lines.length - 1; i++) {
+                    const my_line = the_lines[i];
+                    if (my_line.trim()) {
+                        // Content should have some indentation (at least 1 space)
+                        const leading_spaces = my_line.length - my_line.trimStart().length;
+                        expect(leading_spaces).toBeGreaterThan(0);
+                    }
                 }
-            }
+            });
             return true;
         },
         100
@@ -108,6 +100,12 @@ describe('Formatter Indentation Properties', () => {
             if (edits.length === 0) return true;
 
             const formatted = edits[0].newText;
+            const formatted_doc = create_document_state(formatted);
+
+            // Verify formatted output is parseable
+            if (!formatted_doc.ast || !formatted_doc.tokens) {
+                return false;
+            }
 
             // AST mode does not preserve continuation markers (///), skip for AST mode
             skip_for_mode(mode, 'ast', () => {
@@ -141,6 +139,13 @@ describe('Formatter Indentation Properties', () => {
             if (edits.length === 0) return true;
 
             const formatted = edits[0].newText;
+            const formatted_doc = create_document_state(formatted);
+
+            // Verify formatted output is parseable
+            if (!formatted_doc.ast || !formatted_doc.tokens) {
+                return false;
+            }
+
             const the_lines = formatted.split('\n');
 
             // AST mode may not preserve comments the same way, skip comment checks for AST mode

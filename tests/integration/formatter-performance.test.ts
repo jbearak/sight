@@ -4,7 +4,6 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { ContextTracker } from '../../src/context-tracker';
 import type { DocumentState } from '../../src/document-store';
-import type { ContextRange } from '../../src/types';
 
 describe('Formatter Performance Tests', () => {
     const formatter = new CodeFormatter();
@@ -21,7 +20,14 @@ describe('Formatter Performance Tests', () => {
             content,
             tokens: lex_result.tokens,
             ast: parse_result.ast,
-            symbols: { locals: new Map(), globals: new Map(), programs: new Map(), scalars: new Map(), matrices: new Map(), variables: new Map() },
+            symbols: {
+                programs: new Map(),
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                variables: new Map(),
+                scalars: new Map(),
+                matrices: new Map(),
+            },
             diagnostics: [],
             line_offsets: lex_result.line_offsets,
         };
@@ -55,82 +61,93 @@ describe('Formatter Performance Tests', () => {
     }
 
     describe('Large File Performance', () => {
-        it('should format 1000 lines in under 30ms', () => {
+        // Use stricter thresholds locally, relaxed in CI for environment variance
+        const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+        const threshold1000 = isCI ? 60 : 20;   // Local: 20ms, CI: 60ms (3x)
+        const threshold5000 = isCI ? 120 : 40;  // Local: 40ms, CI: 120ms (3x)
+        
+        it(`should format 1000 lines in under ${threshold1000}ms`, () => {
             const content = generate_large_file(1000);
             const doc = create_document_state(content);
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, []);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(30);
+            expect(elapsed_ms).toBeLessThan(threshold1000);
         });
 
-        it('should format 5000 lines in under 50ms', () => {
+        it(`should format 5000 lines in under ${threshold5000}ms`, () => {
             const content = generate_large_file(5000);
             const doc = create_document_state(content);
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, []);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(50);
+            expect(elapsed_ms).toBeLessThan(threshold5000);
         });
     });
 
     describe('Many Embedded Blocks Performance', () => {
-        it('should handle 100 embedded blocks in under 10ms', () => {
+        // Use stricter thresholds locally, relaxed in CI for environment variance
+        const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+        const threshold100 = isCI ? 30 : 10;    // Local: 10ms, CI: 30ms (3x)
+        const threshold500 = isCI ? 90 : 30;    // Local: 30ms, CI: 90ms (3x)
+        const thresholdLimit = isCI ? 150 : 50; // Local: 50ms, CI: 150ms (3x)
+
+        it(`should handle 100 embedded blocks in under ${threshold100}ms`, () => {
             const content = generate_file_with_embedded_blocks(100);
             const doc = create_document_state(content);
             
             // Get context ranges for embedded blocks
             const tracker = new ContextTracker();
             tracker.initialize_from_tokens(doc.tokens!);
-            const context_ranges = tracker.get_all_context_ranges();
+            doc.context_ranges = tracker.get_all_context_ranges();
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, context_ranges);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(10);
+            expect(elapsed_ms).toBeLessThan(threshold100);
         });
 
-        it('should handle 500 embedded blocks in under 30ms', () => {
+        it(`should handle 500 embedded blocks in under ${threshold500}ms`, () => {
             const content = generate_file_with_embedded_blocks(500);
             const doc = create_document_state(content);
             
             const tracker = new ContextTracker();
             tracker.initialize_from_tokens(doc.tokens!);
-            const context_ranges = tracker.get_all_context_ranges();
+            doc.context_ranges = tracker.get_all_context_ranges();
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, context_ranges);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(30);
+            expect(elapsed_ms).toBeLessThan(threshold500);
         });
 
-        it('should respect MAX_EMBEDDED_BLOCKS limit (1000)', () => {
+        it(`should respect MAX_EMBEDDED_BLOCKS limit (1000) in under ${thresholdLimit}ms`, () => {
             // Generate more than 1000 embedded blocks
             const content = generate_file_with_embedded_blocks(1100);
             const doc = create_document_state(content);
             
             const tracker = new ContextTracker();
             tracker.initialize_from_tokens(doc.tokens!);
-            const context_ranges = tracker.get_all_context_ranges();
+            doc.context_ranges = tracker.get_all_context_ranges();
             
             // Should not throw or hang
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, context_ranges);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
             // Should complete quickly due to limit
-            expect(elapsed_ms).toBeLessThan(50);
+            expect(elapsed_ms).toBeLessThan(thresholdLimit);
         });
     });
 
@@ -151,7 +168,7 @@ describe('Formatter Performance Tests', () => {
             const doc = create_document_state(content);
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, []);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
@@ -177,7 +194,7 @@ describe('Formatter Performance Tests', () => {
             const doc = create_document_state(content);
             
             const start_time = performance.now();
-            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true }, []);
+            const edits = formatter.format(doc, { tabSize: 4, insertSpaces: true });
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);

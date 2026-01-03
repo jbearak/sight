@@ -913,7 +913,9 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 
 Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias: `"info"` for `"information"`)
 
-VS Code settings take precedence over `.sight.json` when both are present.### Example Configurations
+VS Code settings take precedence over `.sight.json` when both are present.
+
+### Example Configurations
 
 #### Disable All Diagnostics
 

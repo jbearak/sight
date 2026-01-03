@@ -92,13 +92,23 @@ describe('Formatter Comment Preservation Property Tests', () => {
             const my_formatted = my_edits[0].newText;
 
             for (const my_data of my_comments_data) {
-                // Check that the comment style is preserved
+                // Check that the comment style is preserved with content
+                // Note: formatter may adjust whitespace around content
+                const my_trimmed_content = my_data.content.trim();
                 if (my_data.style === 'star') {
-                    expect(my_formatted).toContain('*');
+                    expect(my_formatted).toContain(`* ${my_trimmed_content}`);
                 } else if (my_data.style === 'slash') {
-                    expect(my_formatted).toContain('//');
+                    expect(my_formatted).toContain(`// ${my_trimmed_content}`);
                 } else if (my_data.style === 'block') {
-                    expect(my_formatted).toContain('/*');
+                    // Block comments may have varying whitespace before closing
+                    // Escape regex special characters in content
+                    const my_escaped_content = my_trimmed_content.replace(
+                        /[.*+?^${}()|[\]\\]/g,
+                        '\\$&'
+                    );
+                    expect(my_formatted).toMatch(
+                        new RegExp(`/\\*\\s*${my_escaped_content}\\s*\\*/`)
+                    );
                 }
             }
         },

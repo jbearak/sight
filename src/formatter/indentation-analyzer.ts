@@ -47,7 +47,15 @@ export class IndentationAnalyzer {
         const original_line = this.original_lines[line] || '';
         const original_indent_match = original_line.match(/^(\s*)/);
         const original_indent_str = original_indent_match ? original_indent_match[1] : '';
-        const original_indent_spaces = original_indent_str.replace(/\t/g, ' '.repeat(this.indent_size)).length;
+        let column = 0;
+        for (const ch of original_indent_str) {
+            if (ch === '\t') {
+                column += this.indent_size - (column % this.indent_size);
+            } else {
+                column += 1;
+            }
+        }
+        const original_indent_spaces = column;
         const target_indent_spaces = target_indent_level * this.indent_size;
         const delta = target_indent_spaces - original_indent_spaces;
         return { delta, original_indent: original_indent_spaces };
@@ -229,7 +237,8 @@ export class IndentationAnalyzer {
                 return info.indent_level;
             }
         }
-        // Default to no indentation
+
+        // Default to no indentation (e.g., comments at start of file)
         return 0;
     }
 
@@ -247,7 +256,16 @@ export class IndentationAnalyzer {
         }
     }
 
-    private set_indentation(line: number, indent_level: number, is_continuation: boolean, is_block_start: boolean, is_block_end: boolean, preserve_whitespace: boolean = false, indent_delta: number = 0, original_indent: number = 0): void {
+    private set_indentation(
+        line: number,
+        indent_level: number,
+        is_continuation: boolean,
+        is_block_start: boolean,
+        is_block_end: boolean,
+        preserve_whitespace: boolean = false,
+        indent_delta: number = 0,
+        original_indent: number = 0
+    ): void {
         const existing = this.indentation_map.get(line);
         // Don't overwrite block start/end markers with regular indentation
         // BUT allow continuation indentation to update the indent level

@@ -95,6 +95,7 @@ export function create_document_state(my_source: string): DocumentState {
     context_ranges: my_context_ranges,
     context_tracker: my_context_tracker,
     line_offsets: my_line_offsets,
+    forward_calls: [],
   };
 }
 

@@ -244,8 +244,14 @@ describe('Formatter Comment Normalization Property Tests', () => {
 
                     const my_formatted = my_edits[0].newText;
 
-                    // Should have star comments (target style)
-                    expect(my_formatted).toContain('*');
+                    // Verify that lines starting with star comments exist
+                    const the_lines = my_formatted.split('\n');
+                    const has_star_comments = the_lines.some(
+                        (line) =>
+                            line.trimStart().startsWith('* ') ||
+                            line.trimStart() === '*'
+                    );
+                    expect(has_star_comments).toBe(true);
                 }
             ),
             { numRuns: 100 }

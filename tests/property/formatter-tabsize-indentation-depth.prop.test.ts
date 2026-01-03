@@ -74,9 +74,7 @@ function generate_nested_blocks(depth: number, inner_statement: string): string 
         return inner_statement;
     }
     const inner = generate_nested_blocks(depth - 1, inner_statement);
-    const inner_lines = inner.split('\n');
-    const indented_inner = inner_lines.join('\n');
-    return `if a {\n${indented_inner}\n}`;
+    return `if a {\n${inner}\n}`;
 }
 
 /**

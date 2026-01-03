@@ -29,7 +29,14 @@ function create_document_state(source: string): DocumentState {
         ast: parse_result.ast,
         tokens: lex_result.tokens,
         line_offsets: lex_result.line_offsets,
-        symbols: new Map(),
+        symbols: {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        },
         diagnostics: [],
     };
 }

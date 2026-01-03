@@ -14,6 +14,7 @@ import { StataParser } from '../../src/parser';
 import { DocumentState } from '../../src/document-store';
 import { FormattingOptions } from 'vscode-languageserver';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
+import { arbitrary_non_reserved_identifier } from './generators/primitives';
 
 function create_document_state(source: string): DocumentState {
     const lexer = new StataLexer();
@@ -54,7 +55,7 @@ describe('Formatter Alignment Preservation Properties', () => {
             fc.asyncProperty(
                 fc.record({
                     operator: fc.constantFrom('+', '-', '*', '/', '&', '|'),
-                    var1: fc.stringMatching(/^[a-z][a-z0-9_]{0,3}$/),
+                    var1: arbitrary_non_reserved_identifier(),
                 }),
                 async (data) => {
                     const my_config = create_config(true);
@@ -80,7 +81,7 @@ describe('Formatter Alignment Preservation Properties', () => {
         await fc.assert(
             fc.asyncProperty(
                 fc.record({
-                    var1: fc.stringMatching(/^[a-z][a-z0-9_]{0,3}$/),
+                    var1: arbitrary_non_reserved_identifier(),
                     indent: fc.integer({ min: 2, max: 8 }),
                 }),
                 async (data) => {
@@ -106,7 +107,7 @@ describe('Formatter Alignment Preservation Properties', () => {
         await fc.assert(
             fc.asyncProperty(
                 fc.record({
-                    var1: fc.stringMatching(/^[a-z][a-z0-9_]{0,3}$/),
+                    var1: arbitrary_non_reserved_identifier(),
                     padding: fc.integer({ min: 6, max: 10 }),
                 }),
                 async (data) => {
