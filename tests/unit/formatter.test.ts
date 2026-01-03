@@ -4,6 +4,39 @@ import { StataLexer } from '../../src/lexer';
 import { DocumentState } from '../../src/document-store';
 import { FormattingOptions } from 'vscode-languageserver';
 
+// Shared test helpers
+function create_shared_document(source: string, lexer: StataLexer, parser: StataParser): DocumentState {
+    const lex_result = lexer.tokenize(source);
+    const parse_result = parser.parse(lex_result.tokens);
+
+    return {
+        uri: 'file:///test.do',
+        content: source,
+        version: 1,
+        ast: parse_result.ast,
+        tokens: lex_result.tokens,
+        line_offsets: lex_result.line_offsets,
+        symbols: new Map(),
+        diagnostics: [],
+    };
+}
+
+function format_shared_document(source: string, lexer: StataLexer, parser: StataParser, formatter: CodeFormatter, options?: Partial<FormattingOptions>): string {
+    const my_document = create_shared_document(source, lexer, parser);
+    const my_options: FormattingOptions = {
+        tabSize: 4,
+        insertSpaces: true,
+        ...options,
+    };
+
+    const my_edits = formatter.format(my_document, my_options);
+    if (my_edits.length === 0) {
+        return source;
+    }
+
+    return my_edits[0].newText;
+}
+
 describe('CodeFormatter with embedded language support', () => {
   let formatter: CodeFormatter;
   let parser: StataParser;
@@ -19,37 +52,14 @@ describe('CodeFormatter with embedded language support', () => {
    * Helper to create a DocumentState from source code.
    */
   function create_document(source: string): DocumentState {
-    const lex_result = lexer.tokenize(source);
-    const parse_result = parser.parse(lex_result.tokens);
-
-    return {
-      uri: 'file:///test.do',
-      content: source,
-      version: 1,
-      ast: parse_result.ast,
-      tokens: lex_result.tokens,
-      line_offsets: lex_result.line_offsets,
-      symbols: new Map(),
-      diagnostics: [],
-    };
+    return create_shared_document(source, lexer, parser);
   }
 
   /**
    * Helper to format a document.
    */
   function format_document(source: string): string {
-    const my_document = create_document(source);
-    const my_options: FormattingOptions = {
-      tabSize: 4,
-      insertSpaces: true,
-    };
-
-    const my_edits = formatter.format(my_document, my_options);
-    if (my_edits.length === 0) {
-      return source;
-    }
-
-    return my_edits[0].newText;
+    return format_shared_document(source, lexer, parser, formatter);
   }
 
   describe('formatting without embedded blocks', () => {
@@ -386,35 +396,11 @@ describe('Formatter bug fixes', () => {
   });
 
   function create_document(source: string): DocumentState {
-    const lex_result = lexer.tokenize(source);
-    const parse_result = parser.parse(lex_result.tokens);
-
-    return {
-      uri: 'file:///test.do',
-      content: source,
-      version: 1,
-      ast: parse_result.ast,
-      tokens: lex_result.tokens,
-      line_offsets: lex_result.line_offsets,
-      symbols: new Map(),
-      diagnostics: [],
-    };
+    return create_shared_document(source, lexer, parser);
   }
 
   function format_document(source: string, options?: Partial<FormattingOptions>): string {
-    const my_document = create_document(source);
-    const my_options: FormattingOptions = {
-      tabSize: 4,
-      insertSpaces: true,
-      ...options,
-    };
-
-    const my_edits = formatter.format(my_document, my_options);
-    if (my_edits.length === 0) {
-      return source;
-    }
-
-    return my_edits[0].newText;
+    return format_shared_document(source, lexer, parser, formatter, options);
   }
 
   describe('tab to space conversion', () => {
