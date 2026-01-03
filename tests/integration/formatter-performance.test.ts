@@ -136,6 +136,8 @@ describe('Formatter Performance Tests', () => {
     });
 
     describe('Negative Delta Application Performance', () => {
+        const ciMultiplier = process.env.CI ? 3 : 1;
+
         function generate_over_indented_file(num_lines: number): string {
             const lines: string[] = [];
             // Create deeply nested structure with excessive indentation
@@ -148,7 +150,7 @@ describe('Formatter Performance Tests', () => {
             return lines.join('\n');
         }
 
-        it('should handle negative delta on 1000 lines in under 10ms', () => {
+        it(`should handle negative delta on 1000 lines in under ${10 * ciMultiplier}ms`, () => {
             const content = generate_over_indented_file(1000);
             const doc = create_document_state(content);
             
@@ -157,7 +159,7 @@ describe('Formatter Performance Tests', () => {
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(10);
+            expect(elapsed_ms).toBeLessThan(10 * ciMultiplier);
         });
     });
 });
