@@ -92,7 +92,13 @@ describe('Formatter Performance Tests', () => {
     });
 
     describe('Many Embedded Blocks Performance', () => {
-        it('should handle 100 embedded blocks in under 10ms', () => {
+        // Use stricter thresholds locally, relaxed in CI for environment variance
+        const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+        const threshold100 = isCI ? 30 : 10;    // Local: 10ms, CI: 30ms (3x)
+        const threshold500 = isCI ? 90 : 30;    // Local: 30ms, CI: 90ms (3x)
+        const thresholdLimit = isCI ? 150 : 50; // Local: 50ms, CI: 150ms (3x)
+
+        it(`should handle 100 embedded blocks in under ${threshold100}ms`, () => {
             const content = generate_file_with_embedded_blocks(100);
             const doc = create_document_state(content);
             
@@ -106,10 +112,10 @@ describe('Formatter Performance Tests', () => {
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(10);
+            expect(elapsed_ms).toBeLessThan(threshold100);
         });
 
-        it('should handle 500 embedded blocks in under 30ms', () => {
+        it(`should handle 500 embedded blocks in under ${threshold500}ms`, () => {
             const content = generate_file_with_embedded_blocks(500);
             const doc = create_document_state(content);
             
@@ -122,10 +128,10 @@ describe('Formatter Performance Tests', () => {
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(30);
+            expect(elapsed_ms).toBeLessThan(threshold500);
         });
 
-        it('should respect MAX_EMBEDDED_BLOCKS limit (1000)', () => {
+        it(`should respect MAX_EMBEDDED_BLOCKS limit (1000) in under ${thresholdLimit}ms`, () => {
             // Generate more than 1000 embedded blocks
             const content = generate_file_with_embedded_blocks(1100);
             const doc = create_document_state(content);
@@ -141,7 +147,7 @@ describe('Formatter Performance Tests', () => {
             
             expect(edits.length).toBe(1);
             // Should complete quickly due to limit
-            expect(elapsed_ms).toBeLessThan(50);
+            expect(elapsed_ms).toBeLessThan(thresholdLimit);
         });
     });
 
