@@ -100,6 +100,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         preferredCommentStyle: '//',
         normalizeCommentStyle: false,
         commentLineWidth: 72,
+        mode: 'source-preserving',
     },
     indexing: {
         maxFileSizeBytes: 500000,
@@ -494,11 +495,11 @@ export function create_formatting_handler(
             );
         }
 
-        // Otherwise use standard formatting
+        // Otherwise use standard formatting with mode from config
         return deps.formatter_provider.format(
             document_state,
             params.options,
-            settings.formatting.lineWidth
+            settings
         );
     };
 }
@@ -533,12 +534,12 @@ export function create_range_formatting_handler(
             return the_full_edits;
         }
 
-        // Otherwise use standard range formatting
+        // Otherwise use standard range formatting with mode from config
         return deps.formatter_provider.format_range(
             document_state,
             params.range,
             params.options,
-            settings.formatting.lineWidth
+            settings
         );
     };
 }

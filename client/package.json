@@ -159,6 +159,19 @@
           "minimum": 40,
           "description": "Maximum line width for comments"
         },
+        "sight.formatting.mode": {
+          "type": "string",
+          "enum": [
+            "source-preserving",
+            "ast"
+          ],
+          "default": "source-preserving",
+          "description": "Formatter mode. 'source-preserving' (default) safely adjusts indentation. 'ast' (experimental) uses AST-based formatting - useful for testing but may produce unexpected output.",
+          "enumDescriptions": [
+            "Safe mode that preserves source structure and only adjusts indentation",
+            "Experimental mode that reconstructs code from AST - useful for testing parser correctness"
+          ]
+        },
         "sight.indexing.maxFileSizeBytes": {
           "type": "number",
           "default": 500000,

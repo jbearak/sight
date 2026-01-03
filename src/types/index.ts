@@ -467,6 +467,7 @@ export interface StataLSPConfig {
     preferredCommentStyle: '//' | '*' | '/* */';
     normalizeCommentStyle: boolean;
     commentLineWidth: number;
+    mode?: 'source-preserving' | 'ast';
   };
   indexing: {
     maxFileSizeBytes: number;

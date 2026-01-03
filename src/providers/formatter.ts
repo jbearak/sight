@@ -13,10 +13,11 @@ import {
 import { DocumentState } from '../document-store';
 import { SourcePreservingFormatter, FormatterConfig } from '../formatter';
 import { ContextRange } from '../context-tracker/types';
-import { CommentFormattingConfig } from '../types';
+import { CommentFormattingConfig, StataLSPConfig } from '../types';
 import { CommentProcessor, CommentTransformation } from '../comment-processor/comment-processor';
 import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, DocumentLike, compute_line_offsets } from '../utils/line-utils';
+import { PrettyPrinter } from '../pretty-printer';
 
 /**
  * Code Formatter class with embedded language support.
@@ -27,16 +28,22 @@ export class CodeFormatter {
      *
      * @param document - The document state
      * @param options - Formatting options from the client
-     * @param _line_width - Maximum line width (optional, currently unused by source-preserving formatter)
+     * @param config - LSP configuration (optional, for mode selection)
      * @returns Array of TextEdit (usually one replacing the whole content)
      */
     format(
         document: DocumentState,
         options: FormattingOptions,
-        _line_width?: number
+        config?: StataLSPConfig
     ): TextEdit[] {
         if (!document.ast || !document.tokens) {
             return [];
+        }
+
+        const mode = config?.formatting?.mode || 'source-preserving';
+
+        if (mode === 'ast') {
+            return this.format_with_ast(document, options);
         }
 
         // Use context tracker from document state if available
@@ -53,6 +60,39 @@ export class CodeFormatter {
             options,
             the_context_ranges
         );
+    }
+
+    /**
+     * Format document using AST-based PrettyPrinter (experimental).
+     * Returns empty edits on error to avoid code corruption.
+     */
+    private format_with_ast(
+        document: DocumentState,
+        options: FormattingOptions
+    ): TextEdit[] {
+        try {
+            const printer = new PrettyPrinter({
+                indent_size: options.tabSize,
+                indent_style: options.insertSpaces ? 'spaces' : 'tabs',
+                line_width: 80,
+            });
+
+            const formatted_text = printer.print(document.ast!);
+
+            const last_line = get_line_count(document) - 1;
+            const last_char = get_line_text(document, last_line).length;
+
+            return [{
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: last_line, character: last_char },
+                },
+                newText: formatted_text,
+            }];
+        } catch (error) {
+            logger.warn(`AST formatting failed: ${error}`);
+            return [];
+        }
     }
 
     /**
@@ -213,18 +253,18 @@ export class CodeFormatter {
      * @param document - The document state
      * @param _range - The range to format (currently unused)
      * @param options - Formatting options from the client
-     * @param line_width - Maximum line width (optional)
+     * @param config - LSP configuration (optional, for mode selection)
      * @returns Array of TextEdit
      */
     format_range(
         document: DocumentState,
         _range: Range,
         options: FormattingOptions,
-        line_width?: number
+        config?: StataLSPConfig
     ): TextEdit[] {
         // Fallback to full document formatting for now, as partial formatting
         // is more complex and depends on correctly identifying parent nodes.
-        return this.format(document, options, line_width);
+        return this.format(document, options, config);
     }
 
     /**
@@ -247,7 +287,7 @@ export class CodeFormatter {
         try {
             // If comment normalization is disabled, use standard formatting
             if (!comment_config.normalizeCommentStyle) {
-                return this.format(document, options, comment_config.lineWidth);
+                return this.format(document, options);
             }
 
             // Apply comment normalization directly to the original source

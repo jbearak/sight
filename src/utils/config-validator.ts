@@ -108,6 +108,18 @@ export function validate_comment_formatting_config(
                 );
             }
         }
+
+        // Validate mode
+        if (formatting.mode !== undefined) {
+            if (formatting.mode === 'source-preserving' || formatting.mode === 'ast') {
+                validated_config.formatting.mode = formatting.mode;
+            } else {
+                log_warning?.(
+                    `Invalid formatting.mode: ${formatting.mode}. ` +
+                    `Using default: ${DEFAULT_SETTINGS.formatting.mode}`
+                );
+            }
+        }
     }
 
     // Validate other sections (diagnostics, completion, indexing)
