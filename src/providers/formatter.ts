@@ -43,7 +43,7 @@ export class CodeFormatter {
         const mode = config?.formatting?.mode || 'source-preserving';
 
         if (mode === 'ast') {
-            return this.format_with_ast(document, options);
+            return this.format_with_ast(document, options, config);
         }
 
         // Use context tracker from document state if available
@@ -51,14 +51,15 @@ export class CodeFormatter {
 
         // If there are no embedded language blocks, use standard formatting
         if (the_context_ranges.length === 0) {
-            return this.format_without_embedded_blocks(document, options);
+            return this.format_without_embedded_blocks(document, options, config);
         }
 
         // Format with embedded language preservation
         return this.format_with_embedded_preservation(
             document,
             options,
-            the_context_ranges
+            the_context_ranges,
+            config
         );
     }
 
@@ -68,11 +69,14 @@ export class CodeFormatter {
      */
     private format_with_ast(
         document: DocumentState,
-        options: FormattingOptions
+        options: FormattingOptions,
+        server_config?: StataLSPConfig
     ): TextEdit[] {
         try {
+            // Use server's indentSize if configured, otherwise fall back to VS Code's tabSize
+            const indent_size = server_config?.formatting?.indentSize ?? options.tabSize;
             const printer = new PrettyPrinter({
-                indent_size: options.tabSize,
+                indent_size,
                 indent_style: options.insertSpaces ? 'spaces' : 'tabs',
                 line_width: 80,
             });
@@ -100,10 +104,13 @@ export class CodeFormatter {
      */
     private format_without_embedded_blocks(
         document: DocumentState,
-        options: FormattingOptions
+        options: FormattingOptions,
+        server_config?: StataLSPConfig
     ): TextEdit[] {
+        // Use server's indentSize if configured, otherwise fall back to VS Code's tabSize
+        const indent_size = server_config?.formatting?.indentSize ?? options.tabSize;
         const config: FormatterConfig = {
-            indent_size: options.tabSize,
+            indent_size,
             indent_style: options.insertSpaces ? 'spaces' : 'tabs',
         };
 
@@ -139,7 +146,8 @@ export class CodeFormatter {
     private format_with_embedded_preservation(
         document: DocumentState,
         options: FormattingOptions,
-        context_ranges: ContextRange[]
+        context_ranges: ContextRange[],
+        server_config?: StataLSPConfig
     ): TextEdit[] {
         const the_doc: DocumentLike = { content: document.content, line_offsets: document.line_offsets };
         const the_embedded_blocks: Map<string, string> = new Map();
@@ -171,8 +179,10 @@ export class CodeFormatter {
         // For embedded blocks, we fall back to returning the content with preserved blocks
         // since the source-preserving formatter works on the full token stream
         // A more sophisticated approach would filter tokens, but for now we preserve embedded blocks
+        // Use server's indentSize if configured, otherwise fall back to VS Code's tabSize
+        const indent_size = server_config?.formatting?.indentSize ?? options.tabSize;
         const config: FormatterConfig = {
-            indent_size: options.tabSize,
+            indent_size,
             indent_style: options.insertSpaces ? 'spaces' : 'tabs',
         };
 
