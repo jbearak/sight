@@ -100,7 +100,18 @@ export class IndentationAnalyzer {
         // Process body nodes (trivia is processed in walk_node)
         const the_body = node.body;
         for (const my_child of the_body) {
-            this.walk_node(my_child);
+            // Special case: if a child starts on the same line as the parent block,
+            // it should be at the parent's indentation level, not indented.
+            // This handles "else if" where the "if" is on the same line as "else".
+            const child_start_line = my_child.range.start.line;
+            if (child_start_line === start_line && this.is_block_node(my_child)) {
+                // Temporarily restore parent depth for this child
+                this.current_depth--;
+                this.walk_node(my_child);
+                this.current_depth++;
+            } else {
+                this.walk_node(my_child);
+            }
         }
 
         this.current_depth--;

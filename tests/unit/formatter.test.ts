@@ -372,3 +372,215 @@ summarize age`;
   });
 });
 
+
+
+describe('Formatter bug fixes', () => {
+  let formatter: CodeFormatter;
+  let parser: StataParser;
+  let lexer: StataLexer;
+
+  beforeEach(() => {
+    formatter = new CodeFormatter();
+    parser = new StataParser();
+    lexer = new StataLexer();
+  });
+
+  function create_document(source: string): DocumentState {
+    const lex_result = lexer.tokenize(source);
+    const parse_result = parser.parse(lex_result.tokens);
+
+    return {
+      uri: 'file:///test.do',
+      content: source,
+      version: 1,
+      ast: parse_result.ast,
+      tokens: lex_result.tokens,
+      line_offsets: lex_result.line_offsets,
+      symbols: new Map(),
+      diagnostics: [],
+    };
+  }
+
+  function format_document(source: string, options?: Partial<FormattingOptions>): string {
+    const my_document = create_document(source);
+    const my_options: FormattingOptions = {
+      tabSize: 4,
+      insertSpaces: true,
+      ...options,
+    };
+
+    const my_edits = formatter.format(my_document, my_options);
+    if (my_edits.length === 0) {
+      return source;
+    }
+
+    return my_edits[0].newText;
+  }
+
+  describe('tab to space conversion', () => {
+    test('should convert tabs to spaces when insertSpaces is true', () => {
+      const my_source = `program define test
+\tlocal x = 1
+\tif (x == 1) {
+\t\tdisplay "hello"
+\t}
+end`;
+
+      const my_formatted = format_document(my_source, { insertSpaces: true, tabSize: 4 });
+
+      // Should not contain any tabs
+      expect(my_formatted).not.toContain('\t');
+      // Should contain spaces for indentation
+      expect(my_formatted).toContain('    local');
+      expect(my_formatted).toContain('        display');
+    });
+
+    test('should preserve tabs when insertSpaces is false', () => {
+      const my_source = `program define test
+\tlocal x = 1
+end`;
+
+      const my_formatted = format_document(my_source, { insertSpaces: false, tabSize: 4 });
+
+      // Should contain tabs for indentation
+      expect(my_formatted).toContain('\tlocal');
+    });
+  });
+
+  describe('else if indentation', () => {
+    test('should not indent else when it follows if block', () => {
+      const my_source = `if survey_year == 2009 {
+replace birth_outcome = p8_2_1
+}
+else if survey_year == 2014 | survey_year == 2018 {
+replace birth_outcome = p9_2_1
+}`;
+
+      const my_formatted = format_document(my_source);
+
+      // else should be at column 0, not indented
+      const the_lines = my_formatted.split('\n');
+      const else_line = the_lines.find(l => l.trim().startsWith('else'));
+      expect(else_line).toBeDefined();
+      expect(else_line!.startsWith('else')).toBe(true);
+    });
+
+    test('should correctly indent contents inside else if block', () => {
+      const my_source = `if x == 1 {
+display "one"
+}
+else if x == 2 {
+display "two"
+}`;
+
+      const my_formatted = format_document(my_source);
+
+      // Contents inside blocks should be indented
+      expect(my_formatted).toContain('    display "one"');
+      expect(my_formatted).toContain('    display "two"');
+    });
+
+    test('should handle nested else if chains', () => {
+      const my_source = `if x == 1 {
+display "one"
+}
+else if x == 2 {
+display "two"
+}
+else {
+display "other"
+}`;
+
+      const my_formatted = format_document(my_source);
+
+      // All else/else if should be at column 0
+      const the_lines = my_formatted.split('\n');
+      const else_lines = the_lines.filter(l => l.trim().startsWith('else'));
+      for (const my_line of else_lines) {
+        expect(my_line.startsWith('else')).toBe(true);
+      }
+    });
+
+    test('should remove spurious leading space from if statement', () => {
+      const my_source = ` if survey_year == 2009 {
+replace birth_outcome = p8_2_1
+}`;
+
+      const my_formatted = format_document(my_source);
+
+      // if should be at column 0, not indented
+      expect(my_formatted.startsWith('if')).toBe(true);
+    });
+  });
+
+  describe('comment indentation inside blocks', () => {
+    test('should indent comments inside program blocks', () => {
+      const my_source = `program define test
+// This is a comment
+local x = 1
+end`;
+
+      const my_formatted = format_document(my_source);
+
+      // Comment should be indented
+      expect(my_formatted).toContain('    // This is a comment');
+    });
+
+    test('should indent comments inside if blocks', () => {
+      const my_source = `if x == 1 {
+// Comment inside if
+display "hello"
+}`;
+
+      const my_formatted = format_document(my_source);
+
+      // Comment should be indented
+      expect(my_formatted).toContain('    // Comment inside if');
+    });
+
+    test('should not duplicate text when formatting comments', () => {
+      const my_source = `program define test
+// Copy values:
+generate x = 1
+end`;
+
+      const my_formatted = format_document(my_source);
+
+      // Should not have duplicated text like "// Copy values:ues:"
+      expect(my_formatted).not.toMatch(/values:.*values:/);
+      expect(my_formatted).toContain('// Copy values:');
+    });
+  });
+
+  describe('text duplication prevention', () => {
+    test('should not duplicate any line content', () => {
+      const my_source = `program define aww_copy_var
+syntax, from(varname) to(string) [label(string)]
+// Copy values:
+generate \`to' = \`from'
+// Use the specified label:
+if (\`"\`label'"' != "") {
+label variable \`to' \`"\`label'"'
+}
+end`;
+
+      const my_formatted = format_document(my_source);
+
+      // Check that no line has duplicated content
+      const the_lines = my_formatted.split('\n');
+      for (const my_line of the_lines) {
+        const trimmed = my_line.trim();
+        if (trimmed.length > 6) {
+          // Check that the line doesn't end with a duplicate of part of itself
+          const half = Math.floor(trimmed.length / 2);
+          const first_half = trimmed.substring(trimmed.length - half);
+          const second_half = trimmed.substring(trimmed.length - half * 2, trimmed.length - half);
+          // This is a heuristic check - if the last half equals the second-to-last half, it's likely duplicated
+          if (first_half === second_half && first_half.length > 3) {
+            fail(`Line appears to have duplicated content: "${my_line}"`);
+          }
+        }
+      }
+    });
+  });
+});
