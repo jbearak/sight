@@ -34,6 +34,7 @@ This feature adds information-level diagnostics to help users maintain consisten
 2. WHEN code appears inside a `foreach`, `forvalues`, or `while` loop body AND the code has equal or lesser indentation than the loop keyword line, THEN THE Indentation_Diagnostic_Provider SHALL emit an information-level diagnostic
 3. WHEN code appears inside a `program` definition AND the code has equal or lesser indentation than the `program` keyword line, THEN THE Indentation_Diagnostic_Provider SHALL emit an information-level diagnostic
 4. WHEN code inside a control flow block has greater indentation than the parent structure, THEN THE Indentation_Diagnostic_Provider SHALL NOT emit a missing indentation diagnostic
+5. WHEN the opening brace appears on the same line as a control flow statement (e.g., `if condition {`), THEN THE Indentation_Diagnostic_Provider SHALL detect missing indentation for the block body
 
 ### Requirement 3: User Configuration
 

@@ -191,9 +191,9 @@ interface BlockInfo {
 
 ### Property 4: Missing indentation detection in control flow blocks
 
-*For any* control flow block (brace-delimited, foreach, forvalues, while, or program), when code inside the block has equal or lesser indentation than the block-opening line, the analyzer SHALL emit a missing indentation diagnostic.
+*For any* control flow block (brace-delimited, foreach, forvalues, while, or program), when code inside the block has equal or lesser indentation than the block-opening line, the analyzer SHALL emit a missing indentation diagnostic. This includes blocks where the opening brace appears on the same line as the control flow statement (e.g., `if condition {`).
 
-**Validates: Requirements 2.1, 2.2, 2.3**
+**Validates: Requirements 2.1, 2.2, 2.3, 2.5**
 
 ### Property 5: No false positives for properly indented blocks
 

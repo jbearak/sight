@@ -113,27 +113,41 @@ export class IndentationDiagnosticAnalyzer {
   private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
-    // Simple heuristic: look for braces and check indentation inside
+    // Look for opening braces - either standalone or at end of control flow statements
     for (let i = range.start; i <= range.end && i < lines.length; i++) {
       const line = lines[i];
       const trimmed = line.trim();
       
-      // Check for opening brace
-      if (trimmed === '{') {
+      // Check for opening brace - either standalone '{' or at end of line like 'if ... {'
+      const has_opening_brace = trimmed === '{' || trimmed.endsWith('{');
+      
+      if (has_opening_brace) {
         const braceIndent = this.get_line_indentation(line);
+        let braceDepth = 1;
         
         // Check lines inside the block
-        for (let j = i + 1; j <= range.end && j < lines.length; j++) {
+        for (let j = i + 1; j <= range.end && j < lines.length && braceDepth > 0; j++) {
           const innerLine = lines[j];
           const innerTrimmed = innerLine.trim();
           
-          // Stop at closing brace
-          if (innerTrimmed === '}') {
-            break;
+          // Track brace depth for nested blocks
+          if (innerTrimmed.endsWith('{') || innerTrimmed === '{') {
+            braceDepth++;
+          }
+          if (innerTrimmed === '}' || innerTrimmed.startsWith('}')) {
+            braceDepth--;
+            if (braceDepth === 0) {
+              break;
+            }
           }
           
-          // Skip empty lines and comments
-          if (!innerTrimmed || innerTrimmed.startsWith('*') || innerTrimmed.startsWith('//')) {
+          // Only check lines at the current nesting level (braceDepth === 1)
+          if (braceDepth !== 1) {
+            continue;
+          }
+          
+          // Skip empty lines, comments, and closing braces
+          if (!innerTrimmed || innerTrimmed.startsWith('*') || innerTrimmed.startsWith('//') || innerTrimmed === '}') {
             continue;
           }
           
@@ -144,7 +158,7 @@ export class IndentationDiagnosticAnalyzer {
           
           const innerIndent = this.get_line_indentation(innerLine);
           
-          // Check if line should be indented more than the brace
+          // Check if line should be indented more than the brace line
           if (innerIndent <= braceIndent) {
             diagnostics.push({
               severity: DiagnosticSeverity.Information,
