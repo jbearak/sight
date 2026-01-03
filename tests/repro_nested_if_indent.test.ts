@@ -9,33 +9,9 @@
 
 import { describe, it, expect } from 'bun:test';
 import { CodeFormatter } from '../src/providers/formatter';
-import { StataLexer } from '../src/lexer';
-import { StataParser } from '../src/parser';
-import { DocumentState } from '../src/document-store';
 import { DEFAULT_SETTINGS } from '../src/server-handlers';
 import { FormattingOptions } from 'vscode-languageserver';
-import { ContextTracker } from '../src/context-tracker';
-
-function create_document_state(source: string): DocumentState {
-    const lexer = new StataLexer();
-    const lex_result = lexer.tokenize(source);
-    const parser = new StataParser();
-    const parse_result = parser.parse(lex_result.tokens);
-    const context_tracker = new ContextTracker();
-    context_tracker.initialize_from_tokens(lex_result.tokens);
-
-    return {
-        uri: 'file:///test.do',
-        content: source,
-        version: 1,
-        ast: parse_result.ast,
-        tokens: lex_result.tokens,
-        line_offsets: lex_result.line_offsets,
-        symbols: new Map(),
-        diagnostics: [],
-        context_tracker,
-    };
-}
+import { create_document_state } from './property/helpers/document-utils';
 
 describe('Nested if block indentation issue', () => {
     const formatter = new CodeFormatter();
