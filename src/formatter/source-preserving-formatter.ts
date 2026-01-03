@@ -23,15 +23,11 @@ export class SourcePreservingFormatter {
                 ? this.alignment_detector.analyze(tokens, original_source)
                 : undefined;
             const indentation_info = this.indentation_analyzer.analyze(ast, tokens, alignment_info, original_source);
-            const line_indents = this.convert_to_line_indents(indentation_info);
-            return this.token_reconstructor.reconstruct(tokens, line_indents, this.config, original_source);
+            return this.token_reconstructor.reconstruct(tokens, indentation_info, this.config, original_source);
         } catch (error) {
             logger.warn(`Formatting failed, falling back to original source: ${error}`);
             return original_source;
         }
     }
 
-    private convert_to_line_indents(indentation_info: Map<number, IndentationInfo>): Map<number, IndentationInfo> {
-        return indentation_info;
-    }
 }

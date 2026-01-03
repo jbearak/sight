@@ -19,7 +19,7 @@ import { StataLSPConfig, SymbolTable } from '../../src/types';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { FormattingOptions } from 'vscode-languageserver';
+import { DEFAULT_FORMATTING_OPTIONS } from './helpers/formatter-test-utils';
 
 function create_empty_symbol_table(): SymbolTable {
     return {
@@ -53,11 +53,6 @@ function create_document_state(source: string): DocumentState {
         context_ranges: [],
     };
 }
-
-const DEFAULT_FORMATTING_OPTIONS: FormattingOptions = {
-    tabSize: 4,
-    insertSpaces: true,
-};
 
 describe('Formatter Mode Property Tests', () => {
     /**

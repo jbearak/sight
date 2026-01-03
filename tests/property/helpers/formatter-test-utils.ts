@@ -15,8 +15,17 @@
 
 import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
+import { FormattingOptions } from 'vscode-languageserver/node';
 import { StataLSPConfig } from '../../../src/types';
 import { DEFAULT_SETTINGS } from '../../../src/server-handlers';
+
+/**
+ * Default formatting options for tests.
+ */
+export const DEFAULT_FORMATTING_OPTIONS: FormattingOptions = {
+    tabSize: 4,
+    insertSpaces: true,
+};
 
 /**
  * Formatter mode type for parameterized testing.
