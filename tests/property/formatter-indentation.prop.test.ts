@@ -11,9 +11,6 @@
 import { describe, expect } from 'bun:test';
 import fc from 'fast-check';
 import { CodeFormatter } from '../../src/providers/formatter';
-import { StataLexer } from '../../src/lexer';
-import { StataParser } from '../../src/parser';
-import { DocumentState } from '../../src/document-store';
 import {
     for_each_formatter_mode_property,
     create_formatter_config,

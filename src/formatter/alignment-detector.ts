@@ -18,7 +18,7 @@ export class AlignmentDetector {
   private the_groups = new Map<number, ContinuationGroup>();
   private aligned_lines_set = new Set<number>();
 
-  analyze(tokens: Token[], original_source: string): Map<number, ContinuationGroup> {
+  analyze(tokens: Token[], _original_source?: string): Map<number, ContinuationGroup> {
     this.the_groups.clear();
     this.aligned_lines_set.clear();
     
