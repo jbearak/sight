@@ -91,7 +91,7 @@ export class CodeFormatter {
                     start: { line: 0, character: 0 },
                     end: { line: last_line, character: last_char },
                 },
-                newText: formatted_text,
+                newText: this.strip_trailing_whitespace(formatted_text),
             }];
         } catch (error) {
             logger.warn(`AST formatting failed: ${error}`);
@@ -132,7 +132,7 @@ export class CodeFormatter {
                 start: { line: 0, character: 0 },
                 end: { line: last_line, character: last_char },
             },
-            newText: formatted_text,
+            newText: this.strip_trailing_whitespace(formatted_text),
         }];
     }
 
@@ -212,7 +212,7 @@ export class CodeFormatter {
                 start: { line: 0, character: 0 },
                 end: { line: last_line, character: last_char },
             },
-            newText: my_formatted_content,
+            newText: this.strip_trailing_whitespace(my_formatted_content),
         }];
     }
 
@@ -320,7 +320,7 @@ export class CodeFormatter {
                     start: { line: 0, character: 0 },
                     end: { line: last_line, character: last_char },
                 },
-                newText: the_normalized_text,
+                newText: this.strip_trailing_whitespace(the_normalized_text),
             }];
         } catch (my_error) {
             logger.warn(`Error during format with comment normalization: ${my_error}`);
@@ -453,5 +453,16 @@ export class CodeFormatter {
             default:
                 return 'slash';
         }
+    }
+
+    /**
+     * Remove trailing whitespace from each line in the content.
+     * Preserves line structure (number of lines unchanged).
+     *
+     * @param content - The content to process
+     * @returns The content with trailing whitespace removed from each line
+     */
+    private strip_trailing_whitespace(content: string): string {
+        return content.split('\n').map(line => line.trimEnd()).join('\n');
     }
 }

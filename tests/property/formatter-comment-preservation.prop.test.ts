@@ -140,8 +140,9 @@ describe('Formatter Comment Preservation Property Tests', () => {
             const my_formatted = my_edits[0].newText;
 
             // All original comment contents should be preserved
+            // (trailing whitespace may be stripped by formatter)
             for (const my_data of my_comments_data) {
-                expect(my_formatted).toContain(my_data.content);
+                expect(my_formatted).toContain(my_data.content.trimEnd());
             }
         },
         100
