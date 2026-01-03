@@ -1,4 +1,5 @@
 import { StataAST, StataNode, ControlFlowNode, ProgramNode, TriviaNode, Token } from '../types';
+import { ContinuationGroup } from './alignment-detector';
 
 export interface IndentationInfo {
     line: number;
@@ -6,13 +7,14 @@ export interface IndentationInfo {
     is_continuation: boolean;
     is_block_start: boolean;
     is_block_end: boolean;
+    preserve_whitespace: boolean;
 }
 
 export class IndentationAnalyzer {
     private indentation_map: Map<number, IndentationInfo> = new Map();
     private current_depth = 0;
 
-    analyze(ast: StataAST, tokens?: Token[]): Map<number, IndentationInfo> {
+    analyze(ast: StataAST, tokens?: Token[], alignment_info?: Map<number, ContinuationGroup>): Map<number, IndentationInfo> {
         this.indentation_map.clear();
         this.current_depth = 0;
 
@@ -23,6 +25,10 @@ export class IndentationAnalyzer {
         if (tokens) {
             this.process_continuations(tokens);
             this.process_comment_tokens(tokens);
+        }
+
+        if (alignment_info) {
+            this.apply_alignment_preservation(alignment_info);
         }
 
         return this.indentation_map;
@@ -192,7 +198,21 @@ export class IndentationAnalyzer {
         return 0;
     }
 
-    private set_indentation(line: number, indent_level: number, is_continuation: boolean, is_block_start: boolean, is_block_end: boolean): void {
+    /**
+     * Apply alignment preservation based on continuation groups.
+     */
+    private apply_alignment_preservation(alignment_info: Map<number, ContinuationGroup>): void {
+        for (const group of alignment_info.values()) {
+            for (const line of group.aligned_lines) {
+                const existing = this.indentation_map.get(line);
+                if (existing) {
+                    existing.preserve_whitespace = true;
+                }
+            }
+        }
+    }
+
+    private set_indentation(line: number, indent_level: number, is_continuation: boolean, is_block_start: boolean, is_block_end: boolean, preserve_whitespace: boolean = false): void {
         const existing = this.indentation_map.get(line);
         // Don't overwrite block start/end markers with regular indentation
         if (existing && (existing.is_block_start || existing.is_block_end) && !is_block_start && !is_block_end) {
@@ -203,7 +223,8 @@ export class IndentationAnalyzer {
             indent_level,
             is_continuation,
             is_block_start,
-            is_block_end
+            is_block_end,
+            preserve_whitespace
         });
     }
 }

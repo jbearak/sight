@@ -119,7 +119,8 @@ export class CodeFormatter {
             document.tokens!,
             document.ast!,
             document.line_offsets,
-            document.content
+            document.content,
+            { preserve_alignment: server_config?.formatting?.preserve_alignment }
         );
 
         // Replace the entire document content
@@ -194,7 +195,8 @@ export class CodeFormatter {
                 document.tokens!,
                 document.ast!,
                 document.line_offsets,
-                document.content
+                document.content,
+                { preserve_alignment: server_config?.formatting?.preserve_alignment }
             );
         } catch {
             // If formatting fails, use original content

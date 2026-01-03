@@ -101,6 +101,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         normalizeCommentStyle: false,
         commentLineWidth: 72,
         mode: 'source-preserving',
+        preserve_alignment: true,
     },
     indexing: {
         maxFileSizeBytes: 500000,

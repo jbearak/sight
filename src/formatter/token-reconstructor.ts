@@ -1,4 +1,5 @@
 import { Token } from '../types';
+import { IndentationInfo } from './indentation-analyzer';
 
 export interface TokenProcessingState {
     current_line: number;
@@ -10,6 +11,7 @@ export interface TokenProcessingState {
 export interface FormatterConfig {
     indent_size: number;
     indent_style: 'spaces' | 'tabs';
+    preserve_alignment?: boolean;
 }
 
 export class TokenReconstructor {
@@ -19,7 +21,7 @@ export class TokenReconstructor {
      */
     reconstruct(
         tokens: Token[],
-        line_indents: Map<number, number>,
+        line_indents: Map<number, number | IndentationInfo>,
         config: FormatterConfig,
         original_source: string
     ): string {
@@ -48,13 +50,21 @@ export class TokenReconstructor {
 
             // At line start, apply indentation
             if (state.at_line_start && my_token.value.trim()) {
-                const indent_level = line_indents.get(state.current_line) ?? 0;
-                const indent_str = this.make_indent(indent_level, config);
-                state.output_parts.push(indent_str);
-                // After applying indentation, set current_column to the token's original position
-                // This ensures we don't try to "preserve spacing" between our new indent and the token
-                // The indentation replaces ALL leading whitespace
-                state.current_column = token_col;
+                const indent_info = line_indents.get(state.current_line);
+                
+                if (typeof indent_info === 'object' && indent_info.preserve_whitespace) {
+                    // Preserve original whitespace
+                    const original_line = the_lines[state.current_line] || '';
+                    const leading_whitespace = original_line.match(/^\s*/)?.[0] || '';
+                    state.output_parts.push(leading_whitespace);
+                    state.current_column = leading_whitespace.length;
+                } else {
+                    // Generate new indentation
+                    const indent_level = typeof indent_info === 'number' ? indent_info : (indent_info?.indent_level ?? 0);
+                    const indent_str = this.make_indent(indent_level, config);
+                    state.output_parts.push(indent_str);
+                    state.current_column = indent_str.length;
+                }
                 state.at_line_start = false;
             } else if (!state.at_line_start && state.current_column < token_col) {
                 // Preserve spacing between tokens on the same line

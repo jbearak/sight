@@ -468,6 +468,7 @@ export interface StataLSPConfig {
     preferredCommentStyle: '//' | '*' | '/* */';
     normalizeCommentStyle: boolean;
     commentLineWidth: number;
+    preserve_alignment?: boolean;
     mode?: 'source-preserving' | 'ast';
   };
   indexing: {

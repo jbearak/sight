@@ -1008,11 +1008,24 @@ Configure code formatting options.
 | `sight.formatting.indentSize` | number | `4` | Number of spaces or tab stops for indentation (minimum: 1) |
 | `sight.formatting.indentStyle` | enum | `"spaces"` | Use spaces or tabs for indentation. Options: `"spaces"`, `"tabs"` |
 | `sight.formatting.lineWidth` | number | `80` | Maximum line width for formatting (minimum: 40) |
+| `sight.formatting.preserveAlignment` | boolean | `true` | Preserve intentional alignment in continuation lines |
 | `sight.formatting.normalizeCommentStyle` | boolean | `false` | Normalize comment styles during formatting |
 | `sight.formatting.preferredCommentStyle` | enum | `"//"` | Preferred comment style for normalization. Options: `"//"`, `"*"`, `"/* */"` |
 | `sight.formatting.commentLineWidth` | number | `72` | Maximum line width for comments (minimum: 40) |
 
 To automatically format on save, enable VS Code's built-in `editor.formatOnSave` setting.
+
+#### Alignment Preservation
+
+When `preserveAlignment` is enabled (default), the formatter detects and preserves intentional alignment in continuation lines (lines after `///`). This allows you to maintain aligned operators, conditions, or expressions across multiple lines:
+
+```stata
+gen new_var = (condition1 == 1) ///
+            & (condition2 == 2) ///
+            | (condition3 == 3)
+```
+
+When alignment preservation is disabled, the formatter applies standard indentation rules to all continuation lines.
 
 ### Comment Style Normalization
 

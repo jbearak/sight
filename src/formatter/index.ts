@@ -1,3 +1,9 @@
+// Re-export from alignment-detector
+import { AlignmentDetector as _AlignmentDetector, ContinuationGroup as _ContinuationGroup, AlignmentPattern as _AlignmentPattern } from './alignment-detector';
+export const AlignmentDetector = _AlignmentDetector;
+export type ContinuationGroup = _ContinuationGroup;
+export type AlignmentPattern = _AlignmentPattern;
+
 // Re-export from indentation-analyzer
 import { IndentationAnalyzer as _IndentationAnalyzer, IndentationInfo as _IndentationInfo } from './indentation-analyzer';
 export const IndentationAnalyzer = _IndentationAnalyzer;
