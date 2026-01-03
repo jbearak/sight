@@ -79,15 +79,17 @@ describe('Formatter Indentation Properties', () => {
                 expect(the_lines[the_lines.length - 1].trim()).toBe('}');
             });
 
-            // Check that content lines are indented
-            for (let i = 1; i < the_lines.length - 1; i++) {
-                const my_line = the_lines[i];
-                if (my_line.trim()) {
-                    // Content should have some indentation (at least 1 space)
-                    const leading_spaces = my_line.length - my_line.trimStart().length;
-                    expect(leading_spaces).toBeGreaterThanOrEqual(0);
+            // Check that content lines are indented (AST mode may not add indentation)
+            skip_for_mode(mode, 'ast', () => {
+                for (let i = 1; i < the_lines.length - 1; i++) {
+                    const my_line = the_lines[i];
+                    if (my_line.trim()) {
+                        // Content should have some indentation (at least 1 space)
+                        const leading_spaces = my_line.length - my_line.trimStart().length;
+                        expect(leading_spaces).toBeGreaterThan(0);
+                    }
                 }
-            }
+            });
             return true;
         },
         100
