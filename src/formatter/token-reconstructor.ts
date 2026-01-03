@@ -148,29 +148,33 @@ export class TokenReconstructor {
             const spaces_to_add = config.indent_style === 'tabs' ? '\t'.repeat(Math.ceil(delta / config.indent_size)) : ' '.repeat(delta);
             return spaces_to_add + original_whitespace;
         } else {
-            // Negative delta: remove leading spaces with bounds checking
+            // Negative delta: remove leading spaces
+            // Use a simpler approach: count characters to remove without modifying loop variable
             const spaces_to_remove = Math.abs(delta);
-            let remaining = original_whitespace;
+            let chars_to_remove = 0;
             let removed = 0;
             
-            // Remove spaces/tabs from the beginning
-            for (let i = 0; i < remaining.length && removed < spaces_to_remove; i++) {
-                const char = remaining[i];
+            for (let i = 0; i < original_whitespace.length && removed < spaces_to_remove; i++) {
+                const char = original_whitespace[i];
                 if (char === ' ') {
                     removed += 1;
+                    chars_to_remove++;
                 } else if (char === '\t') {
-                    removed += config.indent_size;
+                    const tab_value = config.indent_size;
+                    if (removed + tab_value <= spaces_to_remove) {
+                        removed += tab_value;
+                        chars_to_remove++;
+                    } else {
+                        // Tab would remove more than needed, stop here
+                        break;
+                    }
                 } else {
+                    // Non-whitespace character, stop
                     break;
-                }
-                
-                if (removed <= spaces_to_remove) {
-                    remaining = remaining.substring(1);
-                    i--; // Adjust index since we removed a character
                 }
             }
             
-            return remaining;
+            return original_whitespace.substring(chars_to_remove);
         }
     }
 

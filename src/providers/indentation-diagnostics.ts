@@ -222,8 +222,8 @@ export class IndentationDiagnosticAnalyzer {
 
       while (j < line.length) {
         if (!in_block_comment) {
-          // Look for /*
-          if (line[j] === '/' && line[j + 1] === '*') {
+          // Look for /* (with bounds check for j + 1)
+          if (j + 1 < line.length && line[j] === '/' && line[j + 1] === '*') {
             in_block_comment = true;
             block_comment_lines.add(i);
             j += 2;
@@ -233,8 +233,8 @@ export class IndentationDiagnosticAnalyzer {
           // Already in block comment - this line is inside
           block_comment_lines.add(i);
 
-          // Look for */
-          if (line[j] === '*' && line[j + 1] === '/') {
+          // Look for */ (with bounds check for j + 1)
+          if (j + 1 < line.length && line[j] === '*' && line[j + 1] === '/') {
             in_block_comment = false;
             j += 2;
             continue;

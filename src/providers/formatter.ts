@@ -152,6 +152,9 @@ export class CodeFormatter {
         context_ranges: ContextRange[],
         server_config?: StataLSPConfig
     ): TextEdit[] {
+        // Limit embedded blocks to prevent resource exhaustion
+        const MAX_EMBEDDED_BLOCKS = 1000;
+        
         const the_doc: DocumentLike = { content: document.content, line_offsets: document.line_offsets };
         const the_embedded_blocks: Map<string, string> = new Map();
         let my_placeholder_counter = 0;
@@ -163,6 +166,11 @@ export class CodeFormatter {
         );
 
         for (const my_range of the_sorted_ranges) {
+            // Prevent resource exhaustion from too many embedded blocks
+            if (my_placeholder_counter >= MAX_EMBEDDED_BLOCKS) {
+                break;
+            }
+            
             const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
             the_embedded_blocks.set(my_placeholder, this.extract_block_content(
                 the_doc,
