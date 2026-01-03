@@ -436,6 +436,10 @@ export enum StataDiagnosticCode {
   FORVALUES_SYNTAX = 3008,
   REDUNDANT_MACRO_SUFFIX = 3009,
   INVALID_MACRO_CHAR = 3010,
+
+  // Indentation errors
+  UNNECESSARY_INDENTATION = 5001,
+  MISSING_INDENTATION = 5002,
 }
 
 
@@ -456,6 +460,7 @@ export interface StataLSPConfig {
       styleWarnings: 'error' | 'warning' | 'information' | 'hint' | 'off';
     };
     undefinedVariableEnabled: boolean;
+    indentation: boolean;
   };
   completion: {
     cacheSize: number;

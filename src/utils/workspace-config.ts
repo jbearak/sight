@@ -37,6 +37,17 @@ export function map_stata_lsp_json_to_partial_config(raw: unknown): DeepPartial<
     const maybe_raw = raw as Record<string, unknown>;
     const mapped: DeepPartial<StataLSPConfig> = {};
 
+    // README schema: { diagnostics: { ... } }
+    const diagnostics = maybe_raw.diagnostics;
+    if (diagnostics && typeof diagnostics === 'object') {
+        const diagnostics_obj = diagnostics as Record<string, unknown>;
+        mapped.diagnostics = {};
+
+        if (typeof diagnostics_obj.indentation === 'boolean') {
+            mapped.diagnostics.indentation = diagnostics_obj.indentation;
+        }
+    }
+
     // README schema: { formatting: { ... } }
     const formatting = maybe_raw.formatting;
     if (formatting && typeof formatting === 'object') {

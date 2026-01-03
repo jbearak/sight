@@ -88,6 +88,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
             styleWarnings: 'hint',
         },
         undefinedVariableEnabled: false,
+        indentation: true,
     },
     completion: {
         cacheSize: 200,
