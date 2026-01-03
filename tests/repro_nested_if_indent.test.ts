@@ -5,6 +5,10 @@
  * continuation lines, the formatter doesn't fix the indentation of the
  * statements inside the inner block, even though diagnostics are correctly
  * emitted.
+ * 
+ * NOTE: This is a reproduction test file used for debugging the original issue.
+ * The comprehensive regression tests are in tests/integration/formatter-tabsize-respect.test.ts.
+ * This file is kept for historical reference and manual debugging of similar issues.
  */
 
 import { describe, it, expect } from 'bun:test';
@@ -44,22 +48,15 @@ replace period_returned = 0 if period_returned == 2
         const my_result = await formatter.format(my_doc, options, my_config);
         const my_formatted = my_result[0]?.newText ?? my_source;
         
-        console.log('Original source:');
-        console.log(my_source);
-        console.log('\nFormatted source:');
-        console.log(my_formatted);
-        
         const my_lines = my_formatted.split('\n');
         
         // The lines inside the inner if block should be indented
         // Line with "* then:" should have 4 spaces (2 levels of nesting * 2 spaces)
         const then_line = my_lines.find(l => l.includes('* then:'));
-        console.log('Then line:', JSON.stringify(then_line));
         expect(then_line).toMatch(/^    \* then:/);
         
         // Line with "replace period_returned = mn35" should have 4 spaces
         const replace_line = my_lines.find(l => l.includes('replace period_returned = mn35'));
-        console.log('Replace line:', JSON.stringify(replace_line));
         expect(replace_line).toMatch(/^    replace/);
     });
 
@@ -83,11 +80,6 @@ replace x = 1
         
         const my_result = await formatter.format(my_doc, options, my_config);
         const my_formatted = my_result[0]?.newText ?? my_source;
-        
-        console.log('Simple nested - Original:');
-        console.log(my_source);
-        console.log('\nSimple nested - Formatted:');
-        console.log(my_formatted);
         
         const my_lines = my_formatted.split('\n');
         
@@ -121,18 +113,12 @@ replace x = 1
         const my_result = await formatter.format(my_doc, options, my_config);
         const my_formatted = my_result[0]?.newText ?? my_source;
         
-        console.log('Continuation condition - Original:');
-        console.log(my_source);
-        console.log('\nContinuation condition - Formatted:');
-        console.log(my_formatted);
-        
         const my_lines = my_formatted.split('\n');
         
         // Inner if should have 2 spaces
         expect(my_lines[1]).toMatch(/^  if b/);
         // replace should have 4 spaces (inside nested if)
         const replace_line = my_lines.find(l => l.includes('replace'));
-        console.log('Replace line:', JSON.stringify(replace_line));
         expect(replace_line).toMatch(/^    replace/);
     });
 });
