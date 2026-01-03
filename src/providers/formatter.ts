@@ -73,8 +73,8 @@ export class CodeFormatter {
         server_config?: StataLSPConfig
     ): TextEdit[] {
         try {
-            // Use server's indentSize if configured, otherwise fall back to VS Code's tabSize
-            const indent_size = server_config?.formatting?.indentSize ?? options.tabSize;
+            // Use VS Code's tabSize (from editor settings), fall back to server config
+            const indent_size = options.tabSize ?? server_config?.formatting?.indentSize ?? 4;
             const printer = new PrettyPrinter({
                 indent_size,
                 indent_style: options.insertSpaces ? 'spaces' : 'tabs',
@@ -107,8 +107,8 @@ export class CodeFormatter {
         options: FormattingOptions,
         server_config?: StataLSPConfig
     ): TextEdit[] {
-        // Use server's indentSize if configured, otherwise fall back to VS Code's tabSize
-        const indent_size = server_config?.formatting?.indentSize ?? options.tabSize;
+        // Use VS Code's tabSize (from editor settings), fall back to server config
+        const indent_size = options.tabSize ?? server_config?.formatting?.indentSize ?? 4;
         const config: FormatterConfig = {
             indent_size,
             indent_style: options.insertSpaces ? 'spaces' : 'tabs',
@@ -179,8 +179,8 @@ export class CodeFormatter {
         // For embedded blocks, we fall back to returning the content with preserved blocks
         // since the source-preserving formatter works on the full token stream
         // A more sophisticated approach would filter tokens, but for now we preserve embedded blocks
-        // Use server's indentSize if configured, otherwise fall back to VS Code's tabSize
-        const indent_size = server_config?.formatting?.indentSize ?? options.tabSize;
+        // Use VS Code's tabSize (from editor settings), fall back to server config
+        const indent_size = options.tabSize ?? server_config?.formatting?.indentSize ?? 4;
         const config: FormatterConfig = {
             indent_size,
             indent_style: options.insertSpaces ? 'spaces' : 'tabs',
