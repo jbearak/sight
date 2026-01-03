@@ -1025,6 +1025,26 @@ gen new_var = (condition1 == 1) ///
             | (condition3 == 3)
 ```
 
+**Alignment with Indentation Correction**: When the formatter corrects incorrect block indentation, it preserves alignment by applying the same indentation delta to all continuation lines. For example, if a statement inside an `if` block is missing 4 spaces of indentation:
+
+```stata
+// Before formatting (missing indentation)
+if condition {
+gen result = (var1 == 1) ///
+           & (var2 == 2) ///
+           | (var3 == 3)
+}
+
+// After formatting (indentation corrected, alignment preserved)
+if condition {
+    gen result = (var1 == 1) ///
+               & (var2 == 2) ///
+               | (var3 == 3)
+}
+```
+
+The formatter adds the same 4 spaces to both the base statement and all continuation lines, maintaining their relative alignment.
+
 When alignment preservation is disabled, the formatter applies standard indentation rules to all continuation lines.
 
 ### Comment Style Normalization
