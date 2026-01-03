@@ -3,6 +3,7 @@ import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
 import { DocumentState } from '../../src/document-store';
 import { FormattingOptions } from 'vscode-languageserver';
+import { create_empty_symbol_table } from '../../src/analyzer';
 
 // Shared test helpers
 function create_shared_document(source: string, lexer: StataLexer, parser: StataParser): DocumentState {
