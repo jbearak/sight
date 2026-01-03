@@ -13,6 +13,8 @@ export class IndentationDiagnosticAnalyzer {
       return diagnostics;
     }
 
+    const indent_size = config.formatting?.indentSize ?? 4;
+
     // Get Stata-only ranges (exclude embedded language blocks)
     const stataRanges = this.getStataRanges(document);
     
@@ -20,8 +22,8 @@ export class IndentationDiagnosticAnalyzer {
     const block_comment_lines = this.compute_block_comment_lines(lines);
     
     for (const range of stataRanges) {
-      diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines));
-      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines));
+      diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size));
+      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size));
     }
 
     return diagnostics;
@@ -57,13 +59,13 @@ export class IndentationDiagnosticAnalyzer {
     return ranges.length > 0 ? ranges : [{ start: 0, end: totalLines - 1 }];
   }
 
-  private get_line_indentation(line: string): number {
+  private get_line_indentation(line: string, indent_size: number): number {
     let level = 0;
     for (const char of line) {
       if (char === ' ') {
         level += 1;
       } else if (char === '\t') {
-        level += 4; // Assume 4 spaces per tab
+        level += indent_size;
       } else {
         break;
       }
@@ -76,7 +78,7 @@ export class IndentationDiagnosticAnalyzer {
     return prevTrimmed.endsWith('///');
   }
 
-  private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>): Diagnostic[] {
+  private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
     for (let i = range.start; i < range.end && i < lines.length - 1; i++) {
@@ -96,8 +98,8 @@ export class IndentationDiagnosticAnalyzer {
           !nextTrimmed.startsWith('*') && 
           !nextTrimmed.startsWith('//')) {
         
-        const commentIndent = this.get_line_indentation(line);
-        const nextIndent = this.get_line_indentation(nextLine);
+        const commentIndent = this.get_line_indentation(line, indent_size);
+        const nextIndent = this.get_line_indentation(nextLine, indent_size);
         
         // Check if next line is unnecessarily indented
         if (nextIndent > commentIndent && !this.is_control_flow_start(nextTrimmed)) {
@@ -118,7 +120,7 @@ export class IndentationDiagnosticAnalyzer {
     return diagnostics;
   }
 
-  private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>): Diagnostic[] {
+  private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
     // Look for opening braces - either standalone or at end of control flow statements
@@ -136,7 +138,7 @@ export class IndentationDiagnosticAnalyzer {
       
       if (has_opening_brace) {
         // If this line is a continuation line, trace back to find the original statement's indentation
-        const braceIndent = this.get_statement_indentation(lines, i, range.start);
+        const braceIndent = this.get_statement_indentation(lines, i, range.start, indent_size);
         let braceDepth = 1;
         
         // Check lines inside the block
@@ -175,7 +177,7 @@ export class IndentationDiagnosticAnalyzer {
             continue;
           }
           
-          const innerIndent = this.get_line_indentation(innerLine);
+          const innerIndent = this.get_line_indentation(innerLine, indent_size);
           
           // Check if line should be indented more than the brace line
           if (innerIndent <= braceIndent) {
@@ -257,7 +259,7 @@ export class IndentationDiagnosticAnalyzer {
    * If the line is a continuation (previous line ends with ///), trace back
    * to find the original statement's indentation.
    */
-  private get_statement_indentation(lines: string[], lineIndex: number, rangeStart: number): number {
+  private get_statement_indentation(lines: string[], lineIndex: number, rangeStart: number, indent_size: number): number {
     let current_index = lineIndex;
     
     // Trace back through continuation lines to find the original statement
@@ -274,6 +276,6 @@ export class IndentationDiagnosticAnalyzer {
     }
     
     // Return the indentation of the original statement line
-    return this.get_line_indentation(lines[current_index]);
+    return this.get_line_indentation(lines[current_index], indent_size);
   }
 }
