@@ -23,16 +23,14 @@ export class AlignmentDetector {
     // Find continuation groups
     const my_continuation_groups = this.find_continuation_groups(tokens);
     
-    // Analyze each group for alignment
+    // For continuation lines, always preserve whitespace when preserve_alignment is enabled
+    // This handles both character-aligned and visually-aligned (tab-based) formatting
     for (const [start_line, group] of my_continuation_groups) {
-      const my_patterns = this.detect_alignment_patterns(group, my_lines, tokens);
-      group.has_alignment = my_patterns.length > 0;
-      
-      for (const pattern of my_patterns) {
-        for (const line of pattern.lines) {
-          group.aligned_lines.add(line);
-        }
+      // Mark all continuation lines for whitespace preservation
+      for (const line of group.continuation_lines) {
+        group.aligned_lines.add(line);
       }
+      group.has_alignment = group.continuation_lines.length > 0;
       
       this.the_groups.set(start_line, group);
     }

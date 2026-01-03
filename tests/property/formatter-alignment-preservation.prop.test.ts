@@ -75,24 +75,26 @@ describe('Formatter Alignment Preservation Properties', () => {
         );
     });
 
-    // Property 4: Non-Purposeful Alignment Standard Indentation
-    it('applies standard indentation when alignment criteria not met', async () => {
+    // Property 4: Continuation lines preserve original whitespace
+    it('preserves original whitespace on continuation lines', async () => {
         await fc.assert(
             fc.asyncProperty(
                 fc.record({
                     var1: fc.stringMatching(/^[a-z][a-z0-9_]{0,3}$/),
+                    indent: fc.integer({ min: 2, max: 8 }),
                 }),
                 async (data) => {
                     const my_config = create_config(true);
-                    // Different operators - no alignment to preserve
-                    const my_source = `gen ${data.var1} = 1 ///\n  ${data.var1} + 2`;
+                    const my_spaces = ' '.repeat(data.indent);
+                    // Continuation line with custom indentation should be preserved
+                    const my_source = `gen ${data.var1} = 1 ///\n${my_spaces}+ 2`;
                     
                     const my_doc = create_document_state(my_source);
                     const my_result = await formatter.format(my_doc, options, my_config);
 
                     const my_lines = my_result[0].newText.split('\n');
-                    // Should have standard 4-space indent for continuation
-                    return my_lines[1].startsWith('    ');
+                    // Should preserve the original indentation
+                    return my_lines[1].startsWith(my_spaces);
                 }
             ),
             { numRuns: 50 }
