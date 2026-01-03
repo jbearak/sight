@@ -16,7 +16,7 @@ function create_shared_document(source: string, lexer: StataLexer, parser: Stata
         ast: parse_result.ast,
         tokens: lex_result.tokens,
         line_offsets: lex_result.line_offsets,
-        symbols: new Map(),
+        symbols: create_empty_symbol_table(),
         diagnostics: [],
     };
 }
