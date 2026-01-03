@@ -51,11 +51,11 @@ export class TokenReconstructor {
                 const indent_level = line_indents.get(state.current_line) ?? 0;
                 const indent_str = this.make_indent(indent_level, config);
                 state.output_parts.push(indent_str);
-                state.current_column = indent_str.length;
+                // After applying indentation, set current_column to the token's original position
+                // This ensures we don't try to "preserve spacing" between our new indent and the token
+                // The indentation replaces ALL leading whitespace
+                state.current_column = token_col;
                 state.at_line_start = false;
-
-                // Skip original leading whitespace
-                // Token starts at token_col, we've added indent_str
             } else if (!state.at_line_start && state.current_column < token_col) {
                 // Preserve spacing between tokens on the same line
                 const original_line = the_lines[state.current_line] || '';

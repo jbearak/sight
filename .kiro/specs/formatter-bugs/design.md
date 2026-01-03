@@ -28,6 +28,24 @@ The key insight is that the **tokens preserve the original source text** (each t
 
 ## Components and Interfaces
 
+### Bug Analysis: Current Implementation Issues
+
+The current implementation has two critical bugs:
+
+**Bug 1: Text Duplication**
+The `TokenReconstructor` incorrectly handles spacing after applying indentation. When at line start:
+1. It applies new indentation (e.g., 4 spaces)
+2. It sets `current_column` to the indent length (4)
+3. When processing the next token at column N, it tries to preserve "spacing" from column 4 to N
+4. But this grabs actual content from the original line, not just whitespace
+
+**Fix**: After applying indentation at line start, skip directly to the token's column position without trying to preserve intermediate spacing. The indentation replaces all leading whitespace.
+
+**Bug 2: Comment Un-indentation**
+The `IndentationAnalyzer` only processes AST nodes, but comments are trivia attached to nodes, not nodes themselves. Comments inside blocks don't get indentation entries.
+
+**Fix**: Process trivia (comments) attached to AST nodes and assign them the same indentation level as their parent node. Also process standalone comment tokens that appear between statements.
+
 ### SourcePreservingFormatter
 
 A new formatter class that operates on tokens rather than AST reconstruction.
@@ -225,6 +243,18 @@ interface BlockInfo {
 *For any* valid Stata source, formatting SHALL produce syntactically valid Stata code, or return no edits if formatting would corrupt the code.
 
 **Validates: Requirements 10.1, 10.2, 10.3**
+
+### Property 11: No Text Duplication
+
+*For any* valid Stata source, formatting SHALL produce output where each line's non-whitespace content appears exactly once, with no duplicated text fragments.
+
+**Validates: Requirements 11.1, 11.2, 11.3**
+
+### Property 12: Trivia Indentation Correctness
+
+*For any* comment (line or block) appearing inside a code block, formatting SHALL produce output where the comment is indented to match the block's indentation level.
+
+**Validates: Requirements 12.1, 12.2, 12.3**
 
 ## Error Handling
 

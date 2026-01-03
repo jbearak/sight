@@ -22,16 +22,60 @@ export class IndentationAnalyzer {
 
         if (tokens) {
             this.process_continuations(tokens);
+            this.process_comment_tokens(tokens);
         }
 
         return this.indentation_map;
     }
 
     private walk_node(node: StataNode): void {
+        // Process leading trivia before the node
+        this.process_node_trivia(node);
+
         if (this.is_block_node(node)) {
             this.process_block_node(node as ControlFlowNode | ProgramNode);
         } else {
             this.process_regular_node(node);
+        }
+    }
+
+    private has_trivia(node: StataNode): boolean {
+        return 'leadingTrivia' in node || 'trailingTrivia' in node;
+    }
+
+    private process_node_trivia(node: StataNode): void {
+        if (!this.has_trivia(node)) return;
+
+        // Cast to access trivia properties
+        const node_with_trivia = node as StataNode & {
+            leadingTrivia?: TriviaNode[];
+            trailingTrivia?: TriviaNode[];
+        };
+
+        // Process leading trivia - these should be indented at the current depth
+        if (node_with_trivia.leadingTrivia) {
+            for (const my_trivia of node_with_trivia.leadingTrivia) {
+                if (my_trivia.type === 'comment') {
+                    const trivia_line = my_trivia.range.start.line;
+                    // Only set if not already set (don't override block markers)
+                    if (!this.indentation_map.has(trivia_line)) {
+                        this.set_indentation(trivia_line, this.current_depth, false, false, false);
+                    }
+                }
+            }
+        }
+
+        // Process trailing trivia - these should also be at current depth
+        if (node_with_trivia.trailingTrivia) {
+            for (const my_trivia of node_with_trivia.trailingTrivia) {
+                if (my_trivia.type === 'comment') {
+                    const trivia_line = my_trivia.range.start.line;
+                    // Only set if not already set
+                    if (!this.indentation_map.has(trivia_line)) {
+                        this.set_indentation(trivia_line, this.current_depth, false, false, false);
+                    }
+                }
+            }
         }
     }
 
@@ -53,7 +97,7 @@ export class IndentationAnalyzer {
 
         this.current_depth++;
 
-        // Process body nodes
+        // Process body nodes (trivia is processed in walk_node)
         const the_body = node.body;
         for (const my_child of the_body) {
             this.walk_node(my_child);
@@ -96,6 +140,45 @@ export class IndentationAnalyzer {
                 }
             }
         }
+    }
+
+    /**
+     * Process standalone comment tokens that weren't attached to AST nodes.
+     * These are comments that appear between statements in a block.
+     * We find the nearest preceding line with indentation and use that level.
+     */
+    private process_comment_tokens(tokens: Token[]): void {
+        for (const my_token of tokens) {
+            if (my_token.type === 'COMMENT_LINE' || my_token.type === 'COMMENT_BLOCK') {
+                const comment_line = my_token.range.start.line;
+                // Only process if not already set
+                if (!this.indentation_map.has(comment_line)) {
+                    // Find the nearest preceding line with indentation info
+                    const indent_level = this.find_context_indent(comment_line);
+                    this.set_indentation(comment_line, indent_level, false, false, false);
+                }
+            }
+        }
+    }
+
+    /**
+     * Find the indentation level for a line by looking at surrounding context.
+     * Looks for the nearest preceding line with indentation info.
+     */
+    private find_context_indent(line: number): number {
+        // Look backwards for the nearest line with indentation
+        for (let my_line = line - 1; my_line >= 0; my_line--) {
+            const info = this.indentation_map.get(my_line);
+            if (info) {
+                // If the preceding line is a block start, the comment should be indented inside
+                if (info.is_block_start) {
+                    return info.indent_level + 1;
+                }
+                return info.indent_level;
+            }
+        }
+        // Default to no indentation
+        return 0;
     }
 
     private set_indentation(line: number, indent_level: number, is_continuation: boolean, is_block_start: boolean, is_block_end: boolean): void {

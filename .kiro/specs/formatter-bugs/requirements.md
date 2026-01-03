@@ -121,3 +121,23 @@ The Sight LSP formatter has multiple critical bugs that corrupt Stata source cod
 1. FOR ALL valid Stata programs, formatting SHALL produce syntactically valid Stata code
 2. FOR ALL Stata commands, formatting SHALL produce output that Stata can execute without syntax errors
 3. IF the Formatter cannot produce valid output, THEN the Formatter SHALL return no edits rather than corrupt the code
+
+### Requirement 11: No Text Duplication
+
+**User Story:** As a Stata developer, I want the formatter to not duplicate text from my source code, so that my code remains correct.
+
+#### Acceptance Criteria
+
+1. WHEN the Formatter outputs a line, THE Pretty_Printer SHALL NOT duplicate any portion of the original line content
+2. WHEN the Formatter adjusts indentation, THE Pretty_Printer SHALL replace leading whitespace only, not append to existing content
+3. FOR ALL lines in the source, formatting SHALL produce output where each line's non-whitespace content appears exactly once
+
+### Requirement 12: Preserve Trivia Indentation
+
+**User Story:** As a Stata developer, I want the formatter to properly indent comments and other trivia, so that my code documentation aligns with the surrounding code structure.
+
+#### Acceptance Criteria
+
+1. WHEN a Line_Comment appears inside a block, THE Formatter SHALL indent it to match the block's indentation level
+2. WHEN a Block_Comment appears inside a block, THE Formatter SHALL indent it to match the block's indentation level
+3. WHEN trivia appears between statements in a block, THE Formatter SHALL apply the same indentation as the surrounding statements
