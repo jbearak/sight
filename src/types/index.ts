@@ -90,6 +90,8 @@ export interface LexerState {
   embedded_brace_depth?: number;
   // Line number where the embedded block started (for brace-style detection)
   embedded_block_start_line?: number;
+  // Track if we're in a continuation sequence (previous line ended with ///)
+  in_continuation?: boolean;
 }
 
 export interface LexerResult {

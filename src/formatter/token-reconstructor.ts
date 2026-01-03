@@ -48,11 +48,13 @@ export class TokenReconstructor {
                 state.at_line_start = true;
             }
 
+            // Check if this line should preserve whitespace (for continuation alignment)
+            const indent_info = line_indents.get(state.current_line);
+            const should_preserve_whitespace = typeof indent_info === 'object' && indent_info.preserve_whitespace;
+
             // At line start, apply indentation
             if (state.at_line_start && my_token.value.trim()) {
-                const indent_info = line_indents.get(state.current_line);
-                
-                if (typeof indent_info === 'object' && indent_info.preserve_whitespace) {
+                if (should_preserve_whitespace) {
                     // Preserve original whitespace, but apply delta if non-zero
                     const original_line = the_lines[state.current_line] || '';
                     const leading_whitespace = original_line.match(/^\s*/)?.[0] || '';
@@ -76,8 +78,9 @@ export class TokenReconstructor {
                 // Preserve spacing between tokens on the same line
                 const original_line = the_lines[state.current_line] || '';
                 let spacing = original_line.substring(state.current_column, token_col);
-                // Convert tabs to spaces if indent_style is spaces
-                if (config.indent_style === 'spaces') {
+                // Convert tabs to spaces if indent_style is spaces, BUT NOT if we're preserving whitespace
+                // (e.g., for continuation line alignment)
+                if (config.indent_style === 'spaces' && !should_preserve_whitespace) {
                     spacing = spacing.replace(/\t/g, ' '.repeat(config.indent_size));
                 }
                 state.output_parts.push(spacing);

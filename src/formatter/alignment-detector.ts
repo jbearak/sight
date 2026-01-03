@@ -27,6 +27,10 @@ export class AlignmentDetector {
     // For continuation lines, always preserve whitespace when preserve_alignment is enabled
     // This handles both character-aligned and visually-aligned (tab-based) formatting
     for (const [start_line, group] of my_continuation_groups) {
+      // Mark the start line (which contains ///) for whitespace preservation
+      // This preserves the spacing between code and the /// marker
+      group.aligned_lines.add(start_line);
+      
       // Mark all continuation lines for whitespace preservation
       for (const line of group.continuation_lines) {
         group.aligned_lines.add(line);

@@ -122,7 +122,8 @@ export class IndentationDiagnosticAnalyzer {
       const has_opening_brace = trimmed === '{' || trimmed.endsWith('{');
       
       if (has_opening_brace) {
-        const braceIndent = this.get_line_indentation(line);
+        // If this line is a continuation line, trace back to find the original statement's indentation
+        const braceIndent = this.get_statement_indentation(lines, i, range.start);
         let braceDepth = 1;
         
         // Check lines inside the block
@@ -180,5 +181,30 @@ export class IndentationDiagnosticAnalyzer {
 
   private is_control_flow_start(line: string): boolean {
     return /^(if|foreach|forvalues|while|program|mata|python)\b/.test(line) || line === '{';
+  }
+
+  /**
+   * Get the indentation of the statement that a line belongs to.
+   * If the line is a continuation (previous line ends with ///), trace back
+   * to find the original statement's indentation.
+   */
+  private get_statement_indentation(lines: string[], lineIndex: number, rangeStart: number): number {
+    let current_index = lineIndex;
+    
+    // Trace back through continuation lines to find the original statement
+    while (current_index > rangeStart) {
+      const prev_line = lines[current_index - 1];
+      const prev_trimmed = prev_line.trim();
+      
+      // If previous line ends with ///, this is a continuation - keep going back
+      if (prev_trimmed.endsWith('///')) {
+        current_index--;
+      } else {
+        break;
+      }
+    }
+    
+    // Return the indentation of the original statement line
+    return this.get_line_indentation(lines[current_index]);
   }
 }
