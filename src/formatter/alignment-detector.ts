@@ -83,4 +83,3 @@ export class AlignmentDetector {
     return my_groups;
   }
 }
-}

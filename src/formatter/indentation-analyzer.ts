@@ -239,7 +239,7 @@ export class IndentationAnalyzer {
         }
 
         // If no backward context found, look forward
-        for (let my_line = line + 1; my_line < this.lines.length; my_line++) {
+        for (let my_line = line + 1; my_line < this.original_lines.length; my_line++) {
             const info = this.indentation_map.get(my_line);
             if (info) {
                 return info.indent_level;
