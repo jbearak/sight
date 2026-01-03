@@ -16,7 +16,7 @@ For the AST formatter mode, the `PrettyPrinter` already generates clean output, 
 
 ### Design Decision: Where to Remove Trailing Whitespace
 
-**Option 1: In TokenReconstructor (Chosen)**
+**Option 1: In TokenReconstructor**
 - Modify `reconstruct()` to strip trailing whitespace when emitting newlines
 - Pros: Single point of change, handles source-preserving mode
 - Cons: Requires careful handling of inter-token spacing
