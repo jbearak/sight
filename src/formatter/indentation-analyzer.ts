@@ -47,7 +47,15 @@ export class IndentationAnalyzer {
         const original_line = this.original_lines[line] || '';
         const original_indent_match = original_line.match(/^(\s*)/);
         const original_indent_str = original_indent_match ? original_indent_match[1] : '';
-        const original_indent_spaces = original_indent_str.replace(/\t/g, ' '.repeat(this.indent_size)).length;
+        let column = 0;
+        for (const ch of original_indent_str) {
+            if (ch === '\t') {
+                column += this.indent_size - (column % this.indent_size);
+            } else {
+                column += 1;
+            }
+        }
+        const original_indent_spaces = column;
         const target_indent_spaces = target_indent_level * this.indent_size;
         const delta = target_indent_spaces - original_indent_spaces;
         return { delta, original_indent: original_indent_spaces };
