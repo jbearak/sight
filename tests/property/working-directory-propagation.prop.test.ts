@@ -878,6 +878,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     file_name_gen,
                     fc.integer({ min: 1, max: 3 }),
                     async (missing_name, nesting_depth) => {
+                        scope_resolver.clear_cache();
                         // Create a chain of files where the last one references a missing file
                         const the_files: string[] = [];
 
@@ -943,6 +944,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     fc.integer({ min: 2, max: 4 }),
                     file_name_gen,
                     async (chain_length, missing_name) => {
+                        scope_resolver.clear_cache();
                         // Create a chain of files
                         const the_file_names: string[] = [];
                         const the_file_paths: string[] = [];
@@ -1018,6 +1020,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                 fc.asyncProperty(
                     file_name_gen,
                     async (child_name) => {
+                        scope_resolver.clear_cache();
                         // Create parent file
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);

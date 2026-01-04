@@ -771,7 +771,7 @@ export interface ForwardResolvedScope {
 export interface ContentProvider {
   read_file(uri: string): Promise<string>;
   exists(uri: string): Promise<boolean>;
-  stat?(uri: string): Promise<{ mtimeMs: number } | undefined>;
+  stat?(uri: string): Promise<{ mtimeMs: number; size: number } | undefined>;
 }
 
 export type DuplicateCallDecision =

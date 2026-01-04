@@ -87,7 +87,8 @@ export class ScopeResolver {
     private parser: StataParser;
     private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    private file_cache: Map<string, { content_hash: string; mtimeMs?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string }>;
+    // Cache key is "uri|working_directory" (or just "uri" if no working directory)
+    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     private cache_metrics: ScopeCacheMetrics;
     private logger?: ScopeResolverLogger;
@@ -133,7 +134,7 @@ export class ScopeResolver {
                 const fs_path = URI.parse(uri).fsPath;
                 try {
                     const stats = await fs.promises.stat(fs_path);
-                    return { mtimeMs: stats.mtimeMs };
+                    return { mtimeMs: stats.mtimeMs, size: stats.size };
                 } catch {
                     return undefined;
                 }
@@ -1317,17 +1318,20 @@ export class ScopeResolver {
         const content_hash = this.hash_content(content);
         const cached = this.file_cache.get(uri);
         if (cached && cached.content_hash === content_hash) {
-            return { symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, diagnostics: [] };
+            return { symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, diagnostics: cached.diagnostics };
         }
 
         try {
             const my_parse_result = this.parse_content(uri, content);
 
             this.file_cache.set(uri, {
+                content,
                 content_hash,
+                size: Buffer.byteLength(content, 'utf8'),
                 symbols: my_parse_result.symbols,
                 directives: my_parse_result.directives,
                 forward_calls: my_parse_result.forward_calls,
+                diagnostics: my_parse_result.diagnostics,
             });
 
             return {
@@ -1447,37 +1451,52 @@ export class ScopeResolver {
     private async _get_parsed_file_impl(
         uri: string,
         fs_path: string,
-        options?: { skip_disk_if_cached?: boolean; working_directory?: string }
+        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache }
     ): Promise<ParsedFileResult> {
         const inherited_wd = options?.working_directory;
+        const cache_key = this.make_file_cache_key(uri, inherited_wd);
 
-        // Cache-first mode: return cached entry without disk read if available
-        if (options?.skip_disk_if_cached) {
-            const cache_key = this.make_file_cache_key(uri, inherited_wd);
-            const cached = this.file_cache.get(cache_key);
-            if (cached) {
-                this.log(`[get_parsed_file] file_cache HIT for ${cache_key}`);
-                this.cache_metrics.file.hits++;
-                // Return empty content since we didn't read from disk
-                return { content: '', symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
-            } else {
-                this.log(`[get_parsed_file] file_cache MISS for ${cache_key}`);
-            }
+        // 1. Initial Cache/Stat Check (Avoid Disk Read if possible)
+        const cached = this.file_cache.get(cache_key);
 
-            // Also check fallback URI if original doesn't end in .do
-            if (!fs_path.endsWith('.do')) {
-                const fallback_uri = URI.file(fs_path + '.do').toString();
-                const fallback_cache_key = this.make_file_cache_key(fallback_uri, inherited_wd);
-                const fallback_cached = this.file_cache.get(fallback_cache_key);
-                if (fallback_cached) {
-                    this.cache_metrics.file.hits++;
-                    return { content: '', symbols: fallback_cached.symbols, directives: fallback_cached.directives, forward_calls: fallback_cached.forward_calls, working_directory: fallback_cached.working_directory, diagnostics: [] };
-                }
-            }
-            // No cache entry - fall through to disk read
+        // Cache-first mode: return cached entry without disk access if available
+        if (options?.skip_disk_if_cached && cached) {
+            this.log(`[get_parsed_file] file_cache HIT for ${cache_key} (skip_disk_if_cached)`);
+            this.cache_metrics.file.hits++;
+            return {
+                content: cached.content,
+                symbols: cached.symbols,
+                directives: cached.directives,
+                forward_calls: cached.forward_calls,
+                working_directory: cached.working_directory,
+                diagnostics: cached.diagnostics
+            };
         }
 
-        // 1. Read file from content provider
+        // Optimization: check mtime and size if available BEFORE reading content
+        let mtimeMs: number | undefined;
+        let size: number | undefined;
+        if (this.content_provider.stat) {
+            const stats = await this.content_provider.stat(uri);
+            mtimeMs = stats?.mtimeMs;
+            size = stats?.size;
+
+            // Fast Path: mtime and size match bypasses disk read entirely
+            if (cached && mtimeMs !== undefined && cached.mtimeMs === mtimeMs && size !== undefined && cached.size === size) {
+                this.cache_metrics.file.hits++;
+                this.log(`[get_parsed_file] File cache HIT for ${uri} (mtime match, skipped read)`);
+                return {
+                    content: cached.content,
+                    symbols: cached.symbols,
+                    directives: cached.directives,
+                    forward_calls: cached.forward_calls,
+                    working_directory: cached.working_directory,
+                    diagnostics: cached.diagnostics
+                };
+            }
+        }
+
+        // 2. Read file from content provider (Mtime failed or missing)
         let content: string;
         let actual_fs_path = fs_path;
         let actual_uri = uri;
@@ -1490,12 +1509,33 @@ export class ScopeResolver {
                 const fallback_path = fs_path + '.do';
                 const fallback_uri = URI.file(fallback_path).toString();
                 try {
+                    // Re-check stat/cache for fallback URI before reading
+                    if (this.content_provider.stat) {
+                        const fallback_stats = await this.content_provider.stat(fallback_uri);
+                        const fallback_mtimeMs = fallback_stats?.mtimeMs;
+                        const fallback_size = fallback_stats?.size;
+                        const fallback_cache_key = this.make_file_cache_key(fallback_uri, inherited_wd);
+                        const fallback_cached = this.file_cache.get(fallback_cache_key);
+
+                        if (fallback_cached && fallback_mtimeMs !== undefined && fallback_cached.mtimeMs === fallback_mtimeMs && fallback_size !== undefined && fallback_cached.size === fallback_size) {
+                            this.cache_metrics.file.hits++;
+                            this.log(`[get_parsed_file] File cache HIT for ${fallback_uri} (mtime match, skipped read)`);
+                            return {
+                                content: fallback_cached.content,
+                                symbols: fallback_cached.symbols,
+                                directives: fallback_cached.directives,
+                                forward_calls: fallback_cached.forward_calls,
+                                working_directory: fallback_cached.working_directory,
+                                diagnostics: fallback_cached.diagnostics
+                            };
+                        }
+                    }
+
                     content = await this.content_provider.read_file(fallback_uri);
                     actual_fs_path = fallback_path;
                     actual_uri = fallback_uri;
                 } catch (fallback_error) {
                     // Both paths failed
-                    const cache_key = this.make_file_cache_key(uri, inherited_wd);
                     this.file_cache.delete(cache_key);
                     this.cache_metrics.file.misses++;
                     const original_error = error instanceof Error ? error.message : String(error);
@@ -1503,70 +1543,68 @@ export class ScopeResolver {
                 }
             } else {
                 // Original path ends in .do, no fallback to try
-                this.file_cache.delete(uri);
+                this.file_cache.delete(cache_key);
                 this.cache_metrics.file.misses++;
                 return { error: error instanceof Error ? error.message : String(error) };
             }
         }
 
-        // 2. Compute hash (or stat)
-        // Optimisation: check mtime if available without reading content
-        let mtimeMs: number | undefined;
-        if (this.content_provider.stat) {
-            // Use actual_uri (after fallback resolution) for stat
-            const stats = await this.content_provider.stat(actual_uri);
-            mtimeMs = stats?.mtimeMs;
-        }
-
-        // 3. Check cache (use actual_uri + working_directory for cache key)
-        const cache_key = this.make_file_cache_key(actual_uri, inherited_wd);
-        const cached = this.file_cache.get(cache_key);
-
-        // Compute content hash (needed for both mtime and hash checks)
+        // 3. Final Cache/Hash check (Defensive)
+        const actual_cache_key = this.make_file_cache_key(actual_uri, inherited_wd);
+        const actual_cached = this.file_cache.get(actual_cache_key);
         const disk_hash = this.hash_content(content);
 
-        // Mtime check (fastest, but verify with hash since mtime resolution can be coarse)
-        if (cached && mtimeMs !== undefined && cached.mtimeMs === mtimeMs) {
-            // Mtime matches, but verify content hash to handle quick overwrites
-            // (mtime resolution on some systems is only milliseconds)
-            if (cached.content_hash === disk_hash) {
-                this.cache_metrics.file.hits++;
-                this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (mtime+hash match)`);
-                return { content, symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
-            }
-            // Mtime matches but hash differs - file was modified within same millisecond
-            // Skip to cache miss processing since hash check would fail
-            this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (mtime match but hash differs)`);
-        } else if (cached && cached.content_hash === disk_hash) {
-            // Content hash check (for when mtime is unavailable or didn't match)
+        if (actual_cached && actual_cached.content_hash === disk_hash) {
             this.cache_metrics.file.hits++;
             this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (hash match)`);
-            // Update mtime if we have it
+
+            // Update cached content and mtime if we have em (mtime might be from previous block or fresh)
+            actual_cached.content = content;
             if (mtimeMs !== undefined) {
-                cached.mtimeMs = mtimeMs;
+                actual_cached.mtimeMs = mtimeMs;
+            } else if (this.content_provider.stat) {
+                // Fetch mtime now if we didn't before (e.g. if we skipped stat block but now want to cache it)
+                const stats = await this.content_provider.stat(actual_uri);
+                actual_cached.mtimeMs = stats?.mtimeMs;
             }
-            // Return content along with cached results
-            return { content, symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
-        } else if (cached) {
-            this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (cached hash=${cached.content_hash}, disk hash=${disk_hash})`);
+
+            return {
+                content,
+                symbols: actual_cached.symbols,
+                directives: actual_cached.directives,
+                forward_calls: actual_cached.forward_calls,
+                working_directory: actual_cached.working_directory,
+                diagnostics: actual_cached.diagnostics
+            };
+        } else if (actual_cached) {
+            this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (cached hash=${actual_cached.content_hash}, disk hash=${disk_hash})`);
         } else {
             this.log(`[get_parsed_file] File cache MISS for ${actual_uri} (no entry)`);
         }
 
-        // 4. Parse and cache (use actual_uri + working_directory for cache key)
+        // 4. Parse and cache
         this.cache_metrics.file.misses++;
         try {
             const parse_result = this.parse_content(actual_uri, content, inherited_wd);
-            const actual_cache_key = this.make_file_cache_key(actual_uri, inherited_wd);
+
+            // Fetch mtime if we don't have it yet for this file
+            if (mtimeMs === undefined && this.content_provider.stat) {
+                const stats = await this.content_provider.stat(actual_uri);
+                mtimeMs = stats?.mtimeMs;
+            }
+
             this.file_cache.set(actual_cache_key, {
+                content,
                 content_hash: disk_hash,
                 mtimeMs,
+                size: Buffer.byteLength(content, 'utf8'),
                 symbols: parse_result.symbols,
                 directives: parse_result.directives,
                 forward_calls: parse_result.forward_calls,
                 working_directory: parse_result.working_directory,
+                diagnostics: parse_result.diagnostics,
             });
-            // Return content along with parsed results
+
             return { content, ...parse_result };
         } catch (error) {
             this.warn(`ScopeResolver: Parse error for ${actual_uri}: ${error instanceof Error ? error.message : String(error)}`);

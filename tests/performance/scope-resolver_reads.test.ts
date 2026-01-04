@@ -29,7 +29,15 @@ describe('ScopeResolver Performance', () => {
             stat: async (uri: string) => {
                 const current = stat_counts.get(uri) || 0;
                 stat_counts.set(uri, current + 1);
-                return { mtimeMs: 1000 };
+
+                // Chain: main -> A -> B -> C
+                let content = '';
+                if (uri.endsWith('main.do')) content = '* @lsp-done-by: "A.do"';
+                else if (uri.endsWith('A.do')) content = '* @lsp-done-by: "B.do"';
+                else if (uri.endsWith('B.do')) content = '* @lsp-done-by: "C.do"';
+                else if (uri.endsWith('C.do')) content = '* define macro';
+
+                return { mtimeMs: 1000, size: Buffer.byteLength(content, 'utf8') };
             }
         };
 
@@ -78,5 +86,36 @@ describe('ScopeResolver Performance', () => {
         // Current implementation is likely much higher.
 
         expect(total_reads).toBe(3);
+    });
+
+    it('skips read_file if mtime matches', async () => {
+        const uri = URI.file('/test/main.do').toString();
+
+        // Initial resolution - populates cache
+        await resolver.resolve(uri, '* @lsp-done-by: "A.do"');
+        const initial_reads = new Map(read_counts);
+        const initial_stats = new Map(stat_counts);
+
+        // Second resolution - slightly different content to bypass scope_cache
+        // but A.do should still be in file_cache.
+        await resolver.resolve(uri, '* @lsp-done-by: "A.do" ');
+
+        console.log('Final read counts:', Object.fromEntries(read_counts));
+        console.log('Final stat counts:', Object.fromEntries(stat_counts));
+
+        // Verify that stat was called again but read_file was NOT
+        for (const [file, count] of read_counts) {
+            const initial_count = initial_reads.get(file) || 0;
+            if (!file.endsWith('main.do')) {
+                expect(count).toBe(initial_count);
+            }
+        }
+
+        for (const [file, count] of stat_counts) {
+            const initial_count = initial_stats.get(file) || 0;
+            if (!file.endsWith('main.do')) {
+                expect(count).toBeGreaterThan(initial_count);
+            }
+        }
     });
 });
