@@ -333,7 +333,7 @@ export class IndentationDiagnosticAnalyzer {
         const end_line = node.range.end.line;
         
         // If the node has a body, recurse into it with increased depth
-        if (node.body && Array.isArray(node.body)) {
+        if ('body' in node && node.body && Array.isArray(node.body)) {
           for (const child of node.body) {
             walk_node(child, current_depth + 1);
           }
