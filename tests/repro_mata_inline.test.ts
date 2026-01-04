@@ -3,9 +3,10 @@ import { StataLexer } from '../src/lexer';
 import { StataParser } from '../src/parser';
 import { ContextTracker } from '../src/context-tracker';
 import { CodeFormatter } from '../src/providers/formatter';
+import { for_each_formatter_mode, create_formatter_config } from './property/helpers/formatter-test-utils';
 
 describe('Mata inline formatter bug reproduction', () => {
-    test('formatter should preserve code after mata: inline call', () => {
+    for_each_formatter_mode('formatter should preserve code after mata: inline call', (mode) => {
         const source = `run programs.do
 mata: aww_init_matrices()
 
@@ -41,7 +42,8 @@ if (_rc == 170) {
         }
 
         console.log("\n=== Formatting ===");
-        const formatter = new CodeFormatter();
+        const config = create_formatter_config(mode);
+        const formatter = new CodeFormatter(config);
         const document_state = {
             content: source,
             tokens: lex_result.tokens,
@@ -54,7 +56,7 @@ if (_rc == 170) {
         console.log("Edits:", edits.length);
 
         if (edits.length > 0) {
-            console.log("\n=== Formatted output ===");
+            console.log(`\n=== Formatted output [${mode}] ===`);
             console.log(edits[0].newText);
             
             // The formatted output should contain all the original statements
