@@ -16,32 +16,16 @@ if (_rc == 170) {
     mkdir "output"
 }`;
 
-        console.log("=== Original source ===");
-        console.log(source);
-        console.log("\n=== Lexing ===");
-
         const lexer = new StataLexer();
         const lex_result = lexer.tokenize(source);
-        console.log("Tokens:", lex_result.tokens.length);
 
-        console.log("\n=== Parsing ===");
         const parser = new StataParser();
         const parse_result = parser.parse(lex_result.tokens);
-        console.log("AST nodes:", parse_result.ast?.nodes.length);
 
-        console.log("\n=== Context tracking ===");
         const context_tracker = new ContextTracker();
         context_tracker.initialize_from_tokens(lex_result.tokens, source);
         const context_ranges = context_tracker.get_all_context_ranges();
-        console.log("Context ranges:", context_ranges.length);
-        for (const range of context_ranges) {
-            console.log(`  - ${range.context} (single_line: ${range.is_single_line})`);
-            console.log(`    range: ${range.range.start.line}:${range.range.start.character} - ${range.range.end.line}:${range.range.end.character}`);
-            console.log(`    start_delimiter: ${range.start_delimiter.command}`);
-            console.log(`    end_delimiter: ${range.end_delimiter?.command || 'none'}`);
-        }
 
-        console.log("\n=== Formatting ===");
         const config = create_formatter_config(mode);
         const formatter = new CodeFormatter(config);
         const document_state = {
@@ -53,11 +37,8 @@ if (_rc == 170) {
         };
 
         const edits = formatter.format(document_state as any, { tabSize: 4, insertSpaces: true });
-        console.log("Edits:", edits.length);
 
         if (edits.length > 0) {
-            console.log(`\n=== Formatted output [${mode}] ===`);
-            console.log(edits[0].newText);
             
             // The formatted output should contain all the original statements
             expect(edits[0].newText).toContain('run programs.do');
