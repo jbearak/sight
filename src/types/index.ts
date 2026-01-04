@@ -370,7 +370,7 @@ export interface MacroSymbol {
   extendedFunction?: ExtendedMacroFunction;
   definition_index?: number;  // Preorder index where macro was defined
   definition_line?: number;   // Line number where macro was first defined
-  additional_definitions?: Array<{index: number, line: number, location: { uri: string; range: Range }}>;
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
 }
 
 export interface VariableSymbol {
@@ -772,6 +772,7 @@ export interface ForwardResolvedScope {
 export interface ContentProvider {
   read_file(uri: string): Promise<string>;
   exists(uri: string): Promise<boolean>;
+  stat?(uri: string): Promise<{ mtimeMs: number; size: number } | undefined>;
 }
 
 export type DuplicateCallDecision =

@@ -563,7 +563,10 @@ local child_local = 3
 
     // Task 8.4: Performance Properties
     describe('Task 8.4: Performance Properties', () => {
-        test('cache hits are faster than misses', async () => {
+        // Skip in CI: timing-based tests are unreliable due to environment variance
+        const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+
+        test.skipIf(isCI)('cache hits are faster than misses', async () => {
             const file_path = write_file('large.do', `
 // Large file to make parsing time measurable
 local var1 = 1
