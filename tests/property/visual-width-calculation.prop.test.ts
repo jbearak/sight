@@ -100,14 +100,17 @@ describe('Visual Width Calculation Properties', () => {
                     
                     const diagnostics = analyzer.analyze(doc_state, config);
                     
-                    // If visual width > 0 (expected indent is 0 at top level),
-                    // we should get an UNNECESSARY_INDENTATION diagnostic
+                    // Should detect unnecessary indentation since expected is 0
                     const unnecessary = diagnostics.filter(
                         d => d.code === StataDiagnosticCode.UNNECESSARY_INDENTATION
                     );
                     
-                    // Should detect unnecessary indentation since expected is 0
                     expect(unnecessary.length).toBeGreaterThanOrEqual(1);
+                    
+                    // Verify the diagnostic range width matches expected visual width
+                    const diagnostic = unnecessary[0];
+                    const actual_width = diagnostic.range.end.character;
+                    expect(actual_width).toBe(expected_width);
                     
                     return true;
                 }
@@ -156,6 +159,11 @@ describe('Visual Width Calculation Properties', () => {
                     );
                     
                     expect(unnecessary.length).toBeGreaterThanOrEqual(1);
+                    
+                    // Verify the diagnostic range width matches expected visual width
+                    const diagnostic = unnecessary[0];
+                    const actual_width = diagnostic.range.end.character;
+                    expect(actual_width).toBe(expected_width);
                     
                     return true;
                 }
