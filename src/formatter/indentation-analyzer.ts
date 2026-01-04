@@ -205,9 +205,8 @@ export class IndentationAnalyzer {
         this.current_depth++;
 
         // If the node has a body, process child nodes
-        const node_with_body = node as any;
-        if (node_with_body.body && Array.isArray(node_with_body.body)) {
-            for (const my_child of node_with_body.body) {
+        if (node.type === 'command' && node.body) {
+            for (const my_child of node.body) {
                 this.walk_node(my_child);
             }
         } else {
