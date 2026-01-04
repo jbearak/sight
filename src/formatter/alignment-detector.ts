@@ -25,15 +25,13 @@ export class AlignmentDetector {
     // Find continuation groups
     const my_continuation_groups = this.find_continuation_groups(tokens);
     
-    // For continuation lines, always preserve whitespace when preserve_alignment is enabled
-    // This handles both character-aligned and visually-aligned (tab-based) formatting
+    // For continuation lines (lines AFTER ///), preserve whitespace for alignment
+    // But do NOT preserve whitespace on the start line - it should be normalized
     for (const [start_line, group] of my_continuation_groups) {
-      // Mark the start line (which contains ///) for whitespace preservation
-      // This preserves the spacing between code and the /// marker
-      group.aligned_lines.add(start_line);
-      this.aligned_lines_set.add(start_line);
+      // Do NOT mark the start line for whitespace preservation
+      // The start line should have its leading indentation normalized
       
-      // Mark all continuation lines for whitespace preservation
+      // Mark only the continuation lines (lines after ///) for whitespace preservation
       for (const line of group.continuation_lines) {
         group.aligned_lines.add(line);
         this.aligned_lines_set.add(line);
