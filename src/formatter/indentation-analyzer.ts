@@ -85,11 +85,14 @@ export class IndentationAnalyzer {
         }
 
         if (this.is_block_node(node)) {
-            if (node.type === 'command' && (node as CommandNode).name === '{') {
-                this.process_command_brace_block(node);
-            } else {
-                this.process_block_node(node as ControlFlowNode | ProgramNode);
+            if (node.type === 'command') {
+                const cmd = node as CommandNode;
+                if (cmd.name === '{') {
+                    this.process_command_brace_block(node);
+                    return;
+                }
             }
+            this.process_block_node(node as ControlFlowNode | ProgramNode);
         } else {
             this.process_regular_node(node);
         }
