@@ -51,15 +51,7 @@ describe('Capture Block Indentation - False Positive', () => {
     const analyzer = new IndentationDiagnosticAnalyzer();
     const diagnostics = analyzer.analyze(doc, config);
 
-    console.log('Content lines:');
-    content.split('\n').forEach((line, i) => {
-      console.log(`  Line ${i}: "${line}"`);
-    });
 
-    console.log('\nDiagnostics:');
-    for (const d of diagnostics) {
-      console.log(`  Line ${d.range.start.line}: ${d.code} - ${d.message}`);
-    }
 
     // Filter for UNNECESSARY_INDENTATION diagnostics
     const unnecessary_indentation_diagnostics = diagnostics.filter(
