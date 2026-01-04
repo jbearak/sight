@@ -42,7 +42,7 @@ if \`is_default' == 1 {
             symbols: { localMacros: new Map(), globalMacros: new Map(), programs: new Map(), variables: new Map(), scalars: new Map(), matrices: new Map() },
             diagnostics: [],
             context_tracker: context_tracker,
-            context_ranges: context_ranges,
+            context_ranges: context_tracker.get_all_context_ranges(),
             line_offsets: lex_result.line_offsets,
         };
 
