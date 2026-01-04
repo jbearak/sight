@@ -9,7 +9,7 @@
  * indentation diagnostics when mixed whitespace produces the correct visual width.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import fc from 'fast-check';
 import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-diagnostics';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
@@ -108,7 +108,7 @@ describe('No False Positive Visual Width Properties', () => {
      *
      * **Validates: Requirements 1.2, 1.4**
      */
-    test('Property 2: No false positive when visual width equals expected indentation', () => {
+    it('Property 2: No false positive when visual width equals expected indentation', () => {
         fc.assert(
             fc.property(
                 indent_size_arb,
@@ -190,7 +190,7 @@ describe('No False Positive Visual Width Properties', () => {
      *
      * **Validates: Requirements 1.4**
      */
-    test('Property 2b: Space+tab producing correct width does not trigger diagnostic', () => {
+    it('Property 2b: Space+tab producing correct width does not trigger diagnostic', () => {
         fc.assert(
             fc.property(
                 fc.integer({ min: 1, max: 3 }),  // 1-3 spaces before tab
@@ -270,7 +270,7 @@ describe('No False Positive Visual Width Properties', () => {
      *
      * **Validates: Requirements 1.2, 1.4**
      */
-    test('Property 2c: Mixed whitespace at depth 1 with correct width - no diagnostic', () => {
+    it('Property 2c: Mixed whitespace at depth 1 with correct width - no diagnostic', () => {
         fc.assert(
             fc.property(
                 indent_size_arb,
@@ -325,7 +325,7 @@ describe('No False Positive Visual Width Properties', () => {
      *
      * **Validates: Requirements 1.4**
      */
-    test('Property 2d: Regression test for space+tab false positive bug', () => {
+    it('Property 2d: Regression test for space+tab false positive bug', () => {
         const indent_size = 4;
         
         // " \t" should have visual width 4 (space to col 1, tab to col 4)
@@ -365,7 +365,7 @@ describe('No False Positive Visual Width Properties', () => {
      *
      * **Validates: Requirements 1.4**
      */
-    test('Property 2e: Multiple spaces before tab - no false positive', () => {
+    it('Property 2e: Multiple spaces before tab - no false positive', () => {
         const indent_size = 4;
         
         const the_test_cases = [
