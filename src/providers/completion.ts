@@ -1094,7 +1094,7 @@ export class CompletionProvider {
         }
 
         const the_completions: CompletionItem[] = [];
-        const seen_names = new Set<string>();
+        const seen_labels = new Set<string>();
 
         // symbols are pre-selected by caller (reachable scope vs full workspace vs document)
 
@@ -1102,7 +1102,7 @@ export class CompletionProvider {
         if (symbols.programs.size > 0) {
             for (const [name, program] of symbols.programs) {
                 if (prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) {
-                    seen_names.add(name.toLowerCase());
+                    seen_labels.add(name.toLowerCase());
                     
                     // Determine scope proximity for ranking
                     let depth = 0;
@@ -1146,8 +1146,8 @@ export class CompletionProvider {
                 if (call_site.call_line < cursor_line) {
                     for (const [name, program] of call_site.symbols.programs) {
                         if ((prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) && 
-                            !seen_names.has(name.toLowerCase())) {
-                            seen_names.add(name.toLowerCase());
+                            !seen_labels.has(name.toLowerCase())) {
+                            seen_labels.add(name.toLowerCase());
                             
                             const ranking_factors: CompletionRankingFactors = {
                                 scope_depth: 1,
@@ -1181,8 +1181,8 @@ export class CompletionProvider {
             for (const my_call_site of the_visible_call_sites) {
                 for (const [name, program] of my_call_site.symbols.programs) {
                     if ((prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) && 
-                        !seen_names.has(name.toLowerCase())) {
-                        seen_names.add(name.toLowerCase());
+                        !seen_labels.has(name.toLowerCase())) {
+                        seen_labels.add(name.toLowerCase());
                         
                         const ranking_factors: CompletionRankingFactors = {
                             scope_depth: 1,
@@ -1214,7 +1214,7 @@ export class CompletionProvider {
 
         for (const my_command of the_commands) {
             // Skip if shadowed by user program
-            if (seen_names.has(my_command.name.toLowerCase())) {
+            if (seen_labels.has(my_command.name.toLowerCase())) {
                 continue;
             }
 
@@ -1611,6 +1611,7 @@ export class CompletionProvider {
         const prefix_lower = prefix.toLowerCase();
         
         const the_completions: CompletionItem[] = [];
+        const seen_labels = new Set<string>();
 
         const current_program = scope === 'local'
             ? this.detect_cursor_in_program_body(document, position)
@@ -1742,6 +1743,7 @@ export class CompletionProvider {
                     newText: new_text,
                 },
             });
+            seen_labels.add(name);
         }
 
         // Add forward scope symbols (from forward_scope parameter - legacy path)
@@ -1758,7 +1760,7 @@ export class CompletionProvider {
                         }
 
                         // Skip if already added
-                        if (the_completions.some(c => c.label === name)) {
+                        if (seen_labels.has(name)) {
                             continue;
                         }
 
@@ -1787,6 +1789,7 @@ export class CompletionProvider {
                                 newText: new_text,
                             },
                         });
+                        seen_labels.add(name);
                     }
                 }
             }
@@ -1814,7 +1817,7 @@ export class CompletionProvider {
                     }
 
                     // Skip if already added
-                    if (the_completions.some(c => c.label === name)) {
+                    if (seen_labels.has(name)) {
                         continue;
                     }
 
@@ -1843,6 +1846,7 @@ export class CompletionProvider {
                             newText: new_text,
                         },
                     });
+                    seen_labels.add(name);
                 }
             }
         }
@@ -1906,6 +1910,7 @@ export class CompletionProvider {
         forward_scope?: ForwardResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
+        const seen_labels = new Set<string>();
 
         // Compute word prefix and replacement range
         const prefix = this.get_word_at_position(document, position);
@@ -1971,6 +1976,7 @@ export class CompletionProvider {
                 },
                 filterText: name,
             });
+            seen_labels.add(name);
         }
 
         // Scalars
@@ -2010,6 +2016,7 @@ export class CompletionProvider {
                 },
                 filterText: name,
             });
+            seen_labels.add(name);
         }
 
         // Matrices
@@ -2049,6 +2056,7 @@ export class CompletionProvider {
                 },
                 filterText: name,
             });
+            seen_labels.add(name);
         }
 
         // Add forward scope symbols
@@ -2059,7 +2067,7 @@ export class CompletionProvider {
                     // Variables
                     for (const [name, variable] of call_site.symbols.variables) {
                         // Skip if already added
-                        if (the_completions.some(c => c.label === name)) {
+                        if (seen_labels.has(name)) {
                             continue;
                         }
 
@@ -2086,11 +2094,12 @@ export class CompletionProvider {
                             },
                             filterText: name,
                         });
+                        seen_labels.add(name);
                     }
 
                     // Scalars
                     for (const [name, scalar] of call_site.symbols.scalars) {
-                        if (the_completions.some(c => c.label === name)) {
+                        if (seen_labels.has(name)) {
                             continue;
                         }
 
@@ -2117,11 +2126,12 @@ export class CompletionProvider {
                             },
                             filterText: name,
                         });
+                        seen_labels.add(name);
                     }
 
                     // Matrices
                     for (const [name, matrix] of call_site.symbols.matrices) {
-                        if (the_completions.some(c => c.label === name)) {
+                        if (seen_labels.has(name)) {
                             continue;
                         }
 
@@ -2148,6 +2158,7 @@ export class CompletionProvider {
                             },
                             filterText: name,
                         });
+                        seen_labels.add(name);
                     }
                 }
             }
@@ -2162,7 +2173,7 @@ export class CompletionProvider {
                 // Variables
                 for (const [name, variable] of my_call_site.symbols.variables) {
                     // Skip if already added
-                    if (the_completions.some(c => c.label === name)) {
+                    if (seen_labels.has(name)) {
                         continue;
                     }
 
@@ -2189,11 +2200,12 @@ export class CompletionProvider {
                         },
                         filterText: name,
                     });
+                    seen_labels.add(name);
                 }
 
                 // Scalars
                 for (const [name, scalar] of my_call_site.symbols.scalars) {
-                    if (the_completions.some(c => c.label === name)) {
+                    if (seen_labels.has(name)) {
                         continue;
                     }
 
@@ -2220,11 +2232,12 @@ export class CompletionProvider {
                         },
                         filterText: name,
                     });
+                    seen_labels.add(name);
                 }
 
                 // Matrices
                 for (const [name, matrix] of my_call_site.symbols.matrices) {
-                    if (the_completions.some(c => c.label === name)) {
+                    if (seen_labels.has(name)) {
                         continue;
                     }
 
@@ -2251,6 +2264,7 @@ export class CompletionProvider {
                         },
                         filterText: name,
                     });
+                    seen_labels.add(name);
                 }
             }
         }
@@ -2269,6 +2283,7 @@ export class CompletionProvider {
         forward_scope?: ForwardResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
+        const seen_labels = new Set<string>();
 
         for (const [name, program] of symbols.programs) {
             // Determine scope proximity for ranking
@@ -2302,6 +2317,7 @@ export class CompletionProvider {
                 documentation: `Defined at ${program.sourceUri}`,
                 sortText: compute_ranking_key(ranking_factors),
             });
+            seen_labels.add(name);
         }
 
         // Add forward scope symbols (from forward_scope parameter - legacy path)
@@ -2311,7 +2327,7 @@ export class CompletionProvider {
                 if (call_site.call_line < cursor_line) {
                     for (const [name, program] of call_site.symbols.programs) {
                         // Skip if already added
-                        if (the_completions.some(c => c.label === name)) {
+                        if (seen_labels.has(name)) {
                             continue;
                         }
 
@@ -2333,6 +2349,7 @@ export class CompletionProvider {
                             documentation: `Defined at ${program.sourceUri}`,
                             sortText: compute_ranking_key(ranking_factors),
                         });
+                        seen_labels.add(name);
                     }
                 }
             }
@@ -2346,7 +2363,7 @@ export class CompletionProvider {
             for (const my_call_site of the_visible_call_sites) {
                 for (const [name, program] of my_call_site.symbols.programs) {
                     // Skip if already added
-                    if (the_completions.some(c => c.label === name)) {
+                    if (seen_labels.has(name)) {
                         continue;
                     }
 
@@ -2368,6 +2385,7 @@ export class CompletionProvider {
                         documentation: `Defined at ${program.sourceUri}`,
                         sortText: compute_ranking_key(ranking_factors),
                     });
+                    seen_labels.add(name);
                 }
             }
         }

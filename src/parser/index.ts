@@ -826,18 +826,18 @@ export class StataParser {
         // Handle parenthesized groups (e.g., getmata (var1 var2)=matrix, exit(1))
         // Capture the entire parenthesized expression as a single varlist item
         const paren_start = this.advance(); // consume (
-        let paren_content = '';
+        const paren_parts = [];
         let paren_depth = 1;
         let last_was_word = false;
         while (!this.isAtEnd() && paren_depth > 0) {
           if (this.check('LPAREN')) {
             paren_depth++;
-            paren_content += this.advance().value;
+            paren_parts.push(this.advance().value);
             last_was_word = false;
           } else if (this.check('RPAREN')) {
             paren_depth--;
             if (paren_depth > 0) {
-              paren_content += this.advance().value;
+              paren_parts.push(this.advance().value);
             }
             last_was_word = false;
           } else {
@@ -845,12 +845,13 @@ export class StataParser {
                                     this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
             // Add space between consecutive word-like tokens
             if (last_was_word && current_is_word) {
-              paren_content += ' ';
+              paren_parts.push(' ');
             }
-            paren_content += this.advance().value;
+            paren_parts.push(this.advance().value);
             last_was_word = current_is_word;
           }
         }
+        const paren_content = paren_parts.join('');
         const paren_end_pos = this.check('RPAREN') ? this.peek().range.end : this.previous().range.end;
         if (this.check('RPAREN')) {
           this.advance(); // consume closing paren

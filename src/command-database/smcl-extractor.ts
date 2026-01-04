@@ -311,6 +311,15 @@ export const SYNOPT_WRAPPER_PATTERN =
     /\{synopt\s*:\s*((?:\{opt[h]?\s+[^}]+\}|\{cmd:[^}]+\})(?:\{[^}]+\})*)\s*\}([^{]*(?:\{(?!p_end)[^}]*\}[^{]*)*)/gi;
 
 // ============================================================================
+// Compiled RegExp Constants
+// ============================================================================
+
+const VIEWERDIALOG_REGEX = new RegExp(VIEWERDIALOG_PATTERN.source, 'g');
+const CMDAB_REGEX = new RegExp(CMDAB_PATTERN.source, 'gi');
+const OPT_REGEX = new RegExp(OPT_PATTERN.source, 'gi');
+const SYNOPT_WRAPPER_REGEX = new RegExp(SYNOPT_WRAPPER_PATTERN.source, 'gi');
+
+// ============================================================================
 // Extraction Functions
 // ============================================================================
 
@@ -323,10 +332,10 @@ export const SYNOPT_WRAPPER_PATTERN =
 export function extract_viewerdialog_commands(content: string): string[] {
     const the_commands: string[] = [];
     // Reset lastIndex to ensure we start from the beginning
-    const pattern = new RegExp(VIEWERDIALOG_PATTERN.source, 'g');
+    VIEWERDIALOG_REGEX.lastIndex = 0;
 
     let my_match: RegExpExecArray | null;
-    while ((my_match = pattern.exec(content)) !== null) {
+    while ((my_match = VIEWERDIALOG_REGEX.exec(content)) !== null) {
         const my_command_name = my_match[1];
         if (my_command_name && !the_commands.includes(my_command_name)) {
             the_commands.push(my_command_name);
@@ -354,10 +363,10 @@ export function extract_cmdab_patterns(
     const seen_names = new Set<string>();
 
     // Extract from {cmdab:abbr:full} patterns
-    const cmdab_pattern = new RegExp(CMDAB_PATTERN.source, 'gi');
+    CMDAB_REGEX.lastIndex = 0;
     let my_match: RegExpExecArray | null;
 
-    while ((my_match = cmdab_pattern.exec(content)) !== null) {
+    while ((my_match = CMDAB_REGEX.exec(content)) !== null) {
         const my_abbrev = my_match[1];
         const my_suffix = my_match[2];
         const my_full_name = my_abbrev + my_suffix;
@@ -382,9 +391,9 @@ export function extract_cmdab_patterns(
         // Help files sometimes use {opt ...} to display command abbreviations
         // (e.g., {opt mer:ge} in merge.sthlp). We MUST NOT enable this for
         // full-file scans, or we'd treat option lists as commands.
-        const opt_pattern = new RegExp(OPT_PATTERN.source, 'gi');
+        OPT_REGEX.lastIndex = 0;
 
-        while ((my_match = opt_pattern.exec(content)) !== null) {
+        while ((my_match = OPT_REGEX.exec(content)) !== null) {
             const my_abbrev = my_match[1];
             const my_suffix = my_match[2];
             const my_full_name = my_abbrev + my_suffix;
@@ -677,10 +686,10 @@ export function extract_options_from_section(
     const seen_names = new Set<string>();
 
     // First, try to extract from {synopt:{opt ...}} wrappers (most common format)
-    const synopt_pattern = new RegExp(SYNOPT_WRAPPER_PATTERN.source, 'gi');
+    SYNOPT_WRAPPER_REGEX.lastIndex = 0;
     let my_match: RegExpExecArray | null;
 
-    while ((my_match = synopt_pattern.exec(options_section)) !== null) {
+    while ((my_match = SYNOPT_WRAPPER_REGEX.exec(options_section)) !== null) {
         const inner_opt_tag = my_match[1];
         const description_text = my_match[2] || '';
 
