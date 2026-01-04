@@ -156,7 +156,7 @@ export class CodeFormatter {
         const MAX_EMBEDDED_BLOCKS = 1000;
         
         const the_doc: DocumentLike = { content: document.content, line_offsets: document.line_offsets };
-        const the_embedded_blocks: Map<string, string> = new Map();
+        const the_embedded_blocks: Map<string, { content: string; range: ContextRange }> = new Map();
         let my_placeholder_counter = 0;
 
         // Extract embedded blocks and replace with placeholders
@@ -172,10 +172,10 @@ export class CodeFormatter {
             }
             
             const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
-            the_embedded_blocks.set(my_placeholder, this.extract_block_content(
-                the_doc,
-                my_range
-            ));
+            the_embedded_blocks.set(my_placeholder, {
+                content: this.extract_block_content(the_doc, my_range),
+                range: my_range
+            });
 
             // Calculate the actual range to replace
             // For single-line contexts (mata:, python:), use the range as-is
@@ -239,7 +239,7 @@ export class CodeFormatter {
                 );
                 
                 // Restore embedded blocks with proper indentation
-                for (const [my_placeholder, my_block_content] of the_embedded_blocks) {
+                for (const [my_placeholder, my_block_info] of the_embedded_blocks) {
                     // Find the placeholder in the formatted content and get its indentation
                     const placeholder_match = my_formatted_content.match(
                         new RegExp(`^([ \\t]*)${my_placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm')
@@ -250,12 +250,13 @@ export class CodeFormatter {
                     // The first line already has no leading whitespace (stripped in extract_block_content)
                     // The last line (end delimiter) also has no leading whitespace (stripped)
                     // We need to add the placeholder's indentation to both
-                    const block_lines = my_block_content.split('\n');
+                    const block_lines = my_block_info.content.split('\n');
+                    const expected_end_delimiter = my_block_info.range.end_delimiter?.command || 'end';
                     const indented_block_lines = block_lines.map((line, index) => {
                         if (index === 0) {
                             // First line (opening delimiter): add placeholder indentation
                             return placeholder_indent + line;
-                        } else if (index === block_lines.length - 1 && line.trim() === 'end') {
+                        } else if (index === block_lines.length - 1 && line.trim() === expected_end_delimiter) {
                             // Last line is the end delimiter: add placeholder indentation
                             return placeholder_indent + line;
                         } else {
