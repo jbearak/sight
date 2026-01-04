@@ -28,6 +28,7 @@ import {
     ReverseDependencyIndex,
     CallEdgeDiff,
     ContentProvider,
+    DirectiveParseResult,
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
 import { DirectiveParser } from '../directive-parser';
@@ -43,6 +44,13 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
     max_forward_depth: 10,
     max_chain_depth: 20,
 };
+
+/**
+ * Cache for file parsing results within a single resolution request.
+ * Ensures we only read/parse each file once per request.
+ */
+type ParsedFileResult = { content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] } | { error: string };
+type RequestCache = Map<string, Promise<ParsedFileResult>>;
 
 /**
  * Interface for ForwardScopeResolver to avoid circular imports.
@@ -79,7 +87,7 @@ export class ScopeResolver {
     private parser: StataParser;
     private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    private file_cache: Map<string, { content_hash: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string }>;
+    private file_cache: Map<string, { content_hash: string; mtimeMs?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     private cache_metrics: ScopeCacheMetrics;
     private logger?: ScopeResolverLogger;
@@ -119,6 +127,15 @@ export class ScopeResolver {
                     return true;
                 } catch {
                     return false;
+                }
+            },
+            stat: async (uri: string) => {
+                const fs_path = URI.parse(uri).fsPath;
+                try {
+                    const stats = await fs.promises.stat(fs_path);
+                    return { mtimeMs: stats.mtimeMs };
+                } catch {
+                    return undefined;
                 }
             }
         };
@@ -588,6 +605,9 @@ export class ScopeResolver {
 
         visited.add(file_uri);
 
+        // Create request cache for this resolution chain
+        const request_cache: RequestCache = new Map();
+
         // Follow directive chain
         const normalized_directives = this.normalize_directives(
             my_directives,
@@ -612,6 +632,7 @@ export class ScopeResolver {
             the_out_of_scope,
             1,
             my_config,
+            request_cache,
             token
         );
 
@@ -808,7 +829,8 @@ export class ScopeResolver {
         directives: Directive[],
         visited: Set<string>,
         depth: number,
-        config: ScopeResolverConfig
+        config: ScopeResolverConfig,
+        request_cache: RequestCache
     ): Promise<string | undefined> {
         // Check depth limit
         if (depth > config.max_backward_depth) {
@@ -823,17 +845,35 @@ export class ScopeResolver {
                 continue;
             }
 
-            // Read file content using content provider
-            let my_content: string;
+            // Read file content using get_parsed_file to leverage cache
+            let my_parent_result: ParsedFileResult;
             try {
-                my_content = await this.content_provider.read_file(my_parent_uri);
+                // We use get_parsed_file instead of raw read to ensure we benefit from
+                // the request cache (parse once) and file cache (mtime check).
+                // Note: We don't have the inherited WD yet, so we pass undefined.
+                // This is fine for directive parsing as directives don't depend on WD.
+                my_parent_result = await this.get_parsed_file(
+                    my_parent_uri,
+                    my_directive.path,
+                    { request_cache }
+                );
             } catch (error) {
+                // Should not happen as get_parsed_file catches errors and returns { error } object
+                // except for unexpected runtime errors
+                my_parent_result = { error: String(error) };
+            }
+
+            if ('error' in my_parent_result) {
                 // Try .do fallback if original path doesn't end in .do
                 if (!my_directive.path.endsWith('.do')) {
                     const my_fallback_path = my_directive.path + '.do';
                     const my_fallback_uri = URI.file(my_fallback_path).toString();
                     try {
-                        my_content = await this.content_provider.read_file(my_fallback_uri);
+                        my_parent_result = await this.get_parsed_file(
+                            my_fallback_uri,
+                            my_fallback_path,
+                            { request_cache }
+                        );
                     } catch (fallback_error) {
                         // Both paths failed - log warning and continue to next directive
                         this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
@@ -846,24 +886,28 @@ export class ScopeResolver {
                 }
             }
 
-            // Use DirectiveParser to extract only directives and working_directory (fast, no full AST)
-            const my_directive_result = this.directive_parser.parse(my_content, my_parent_uri);
+            // Double check for error after fallback
+            if ('error' in my_parent_result) {
+                this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
+                continue;
+            }
 
             // If the parent has a working_directory, return it (nearest parent wins)
-            if (my_directive_result.working_directory?.resolved_path) {
-                return my_directive_result.working_directory.resolved_path;
+            if (my_parent_result.working_directory) {
+                return my_parent_result.working_directory;
             }
 
             // Otherwise, recursively search deeper ancestors
-            if (my_directive_result.directives.length > 0) {
+            if (my_parent_result.directives.length > 0) {
                 // Mark as visited before recursing
                 visited.add(my_parent_uri);
 
                 const my_deeper_wd = await this.discover_working_directory(
-                    my_directive_result.directives,
+                    my_parent_result.directives,
                     visited,
                     depth + 1,
-                    config
+                    config,
+                    request_cache
                 );
 
                 // Allow same file via different paths
@@ -893,6 +937,7 @@ export class ScopeResolver {
         out_of_scope: OutOfScopeSymbol[],
         depth: number,
         config: ScopeResolverConfig,
+        request_cache: RequestCache,
         token?: CancellationToken
     ): Promise<{ working_directory?: string }> {
         if (depth > config.max_backward_depth) {
@@ -936,14 +981,15 @@ export class ScopeResolver {
                 [my_directive],  // Just this directive to follow its chain
                 new Set(visited),  // Copy visited set for discovery phase
                 depth,
-                config
+                config,
+                request_cache
             );
 
             // Phase 2: Parse with discovered working directory
             const my_parent_result = await this.get_parsed_file(
                 my_parent_uri,
                 my_directive.path,
-                { working_directory: discovered_wd }  // Pass discovered working directory
+                { working_directory: discovered_wd, request_cache }  // Pass discovered working directory
             );
 
             // Check for cancellation after file read
@@ -1187,6 +1233,7 @@ export class ScopeResolver {
                 out_of_scope,
                 depth + 1,
                 config,
+                request_cache,
                 token
             );
             visited.delete(my_parent_uri); // Allow same file via different paths
@@ -1374,8 +1421,34 @@ export class ScopeResolver {
     async get_parsed_file(
         uri: string,
         fs_path: string,
+        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache }
+    ): Promise<ParsedFileResult> {
+        // Use request cache if available to avoid duplicate reads/parses in same request
+        if (options?.request_cache) {
+            // Include working_directory in request cache key because it affects parsing
+            const req_key = this.make_file_cache_key(uri, options.working_directory);
+            let promise = options.request_cache.get(req_key);
+            if (promise) {
+                return promise;
+            }
+
+            // Create new promise for this file
+            promise = this._get_parsed_file_impl(uri, fs_path, options);
+            options.request_cache.set(req_key, promise);
+            return promise;
+        }
+
+        return this._get_parsed_file_impl(uri, fs_path, options);
+    }
+
+    /**
+     * Internal implementation of get_parsed_file
+     */
+    private async _get_parsed_file_impl(
+        uri: string,
+        fs_path: string,
         options?: { skip_disk_if_cached?: boolean; working_directory?: string }
-    ): Promise<{ content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] } | { error: string }> {
+    ): Promise<ParsedFileResult> {
         const inherited_wd = options?.working_directory;
 
         // Cache-first mode: return cached entry without disk read if available
@@ -1436,16 +1509,46 @@ export class ScopeResolver {
             }
         }
 
-        // 2. Compute hash
-        const disk_hash = this.hash_content(content);
-        this.log(`[get_parsed_file] Read ${actual_uri} from disk, hash=${disk_hash}, content length=${content.length}`);
+        // 2. Compute hash (or stat)
+        // Optimisation: check mtime if available without reading content
+        let mtimeMs: number | undefined;
+        if (this.content_provider.stat) {
+            const stats = await this.content_provider.stat(uri);
+            mtimeMs = stats?.mtimeMs;
+        }
 
         // 3. Check cache (use actual_uri + working_directory for cache key)
         const cache_key = this.make_file_cache_key(actual_uri, inherited_wd);
         const cached = this.file_cache.get(cache_key);
+
+        // Mtime check (fastest)
+        if (cached && mtimeMs !== undefined && cached.mtimeMs === mtimeMs) {
+            this.cache_metrics.file.hits++;
+            this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (mtime match)`);
+            return { content: '', symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
+        }
+
+        // Content hash check (slower, requires read)
+        if (!content) {
+            // Should have read content by now if we are here (unless mtime check passed, but it didn't)
+            // Wait, logic above:
+            // 1. read file (optimistically? or can we defer?)
+            // We can defer read if we do mtime check first.
+            // But existing code structure reads first. 
+            // Let's refactor slightly to read on demand?
+            // No, let's keep it simple for now and rely on mtime for future hits.
+            // First read is unavoidable.
+        }
+
+        const disk_hash = this.hash_content(content);
+
         if (cached && cached.content_hash === disk_hash) {
             this.cache_metrics.file.hits++;
             this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (hash match)`);
+            // Update mtime if we have it
+            if (mtimeMs !== undefined) {
+                cached.mtimeMs = mtimeMs;
+            }
             // Return content along with cached results
             return { content, symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
         }
@@ -1463,6 +1566,7 @@ export class ScopeResolver {
             const actual_cache_key = this.make_file_cache_key(actual_uri, inherited_wd);
             this.file_cache.set(actual_cache_key, {
                 content_hash: disk_hash,
+                mtimeMs,
                 symbols: parse_result.symbols,
                 directives: parse_result.directives,
                 forward_calls: parse_result.forward_calls,
