@@ -1737,6 +1737,7 @@ export class ScopeResolver {
                 out_of_scope.push(new_symbol);
             } else if (new_symbol.reason === 'inheritance_excludes_locals' &&
                 out_of_scope[existing_index].reason === 'after_call_site') {
+                // Replace in-place; name_to_index remains valid since name and index are unchanged
                 out_of_scope[existing_index] = new_symbol;
             }
         }
