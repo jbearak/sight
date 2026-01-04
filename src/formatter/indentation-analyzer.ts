@@ -22,12 +22,16 @@ export class IndentationAnalyzer {
         this.indent_size = indent_size;
     }
 
-    private has_body(node: StataNode): node is ControlFlowNode | ProgramNode | (CommandNode & { body: StataNode[] }) {
+    private has_body(
+        node: StataNode
+    ): node is ControlFlowNode | ProgramNode | (CommandNode & { body: StataNode[] }) {
         return (
-            (node.type === 'if' || node.type === 'else' || node.type === 'foreach' || 
-             node.type === 'forvalues' || node.type === 'while' || node.type === 'frame' ||
+            (node.type === 'if' || node.type === 'else' || 
+             node.type === 'foreach' || node.type === 'forvalues' || 
+             node.type === 'while' || node.type === 'frame' ||
              node.type === 'program') ||
-            (node.type === 'command' && 'body' in node && Array.isArray(node.body))
+            (node.type === 'command' && 'body' in node && 
+             Array.isArray(node.body))
         );
     }
 
