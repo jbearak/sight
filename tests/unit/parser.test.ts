@@ -788,6 +788,47 @@ else {
         expect(node.varlist).toHaveLength(2);
       }
     });
+
+    test('should parse prefixed macro command', () => {
+      const source = 'quietly `cmd\' arg1';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.prefix).toHaveLength(1);
+        expect(node.prefix?.[0].name).toBe('quietly');
+        expect(node.name).toBe('`cmd\'');
+        expect(node.varlist).toHaveLength(1);
+        expect(node.varlist?.[0].name).toBe('arg1');
+      }
+    });
+
+    test('should parse multiple prefixes with macro command', () => {
+      const source = 'capture noisily `my_cmd\' var1 var2, option1';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.prefix).toHaveLength(2);
+        expect(node.prefix?.[0].name).toBe('capture');
+        expect(node.prefix?.[1].name).toBe('noisily');
+        expect(node.name).toBe('`my_cmd\'');
+        expect(node.varlist).toHaveLength(2);
+        expect(node.options).toHaveLength(1);
+      }
+    });
   });
 
   describe('trivia handling', () => {

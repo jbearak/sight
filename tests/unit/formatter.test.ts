@@ -167,12 +167,7 @@ if (_rc == 170) {
       expect(my_formatted).toContain('mata: aww_init_matrices()');
       expect(my_formatted).toContain('confirmdir "output"');
       expect(my_formatted).toContain('mkdir "output"');
-      
-      // Mode-specific formatting expectations
-      mode_specific_assertion(mode, {
-        'source-preserving': () => expect(my_formatted).toContain('if (_rc == 170)'),
-        'ast': () => expect(my_formatted).toContain('if ( _rc == 170 )')
-      });
+      expect(my_formatted).toContain('if (_rc == 170)');
     });
 
     for_each_formatter_mode('should preserve all code after single-line python: call', (mode) => {
