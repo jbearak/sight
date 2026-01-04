@@ -41,6 +41,8 @@ The feature builds on the existing indentation infrastructure:
 
 4. **Mixed indentation handling**: The formatter normalizes all leading whitespace to the configured style (spaces or tabs), regardless of the original mix.
 
+5. **Actionable diagnostic messages**: Diagnostic messages include guidance to use "Format Document" to fix the issue, making it clear how to resolve the warning.
+
 ## Components and Interfaces
 
 ### IndentationDiagnosticAnalyzer (Enhanced)
@@ -157,6 +159,18 @@ export interface IndentationInfo {
 type ExpectedDepthMap = Map<number, number>;  // line number → expected depth
 ```
 
+### Diagnostic Message Format
+
+Diagnostic messages should be actionable and guide users to the fix:
+
+```typescript
+// UNNECESSARY_INDENTATION message format
+`Line appears unnecessarily indented. Use Format Document to fix.`
+
+// MISSING_INDENTATION message format (existing)
+`Expected indentation of ${expected} spaces, found ${actual}. Use Format Document to fix.`
+```
+
 ## Correctness Properties
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system—essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
@@ -191,7 +205,13 @@ type ExpectedDepthMap = Map<number, number>;  // line number → expected depth
 
 **Validates: Requirements 2.3, 2.4**
 
-### Property 6: Formatter normalizes indentation to configured style
+### Property 6: Diagnostic messages suggest Format Document
+
+*For any* `UNNECESSARY_INDENTATION` or `MISSING_INDENTATION` diagnostic emitted, the diagnostic message SHALL contain guidance to use "Format Document" to fix the issue.
+
+**Validates: Requirements 1.4**
+
+### Property 7: Formatter normalizes indentation to configured style
 
 *For any* Stata source code with mixed indentation (spaces and tabs), after formatting:
 - If configured for spaces: all leading whitespace SHALL be spaces only
@@ -199,13 +219,13 @@ type ExpectedDepthMap = Map<number, number>;  // line number → expected depth
 
 **Validates: Requirements 3.1, 3.2, 3.3**
 
-### Property 7: Formatter preserves non-whitespace content
+### Property 8: Formatter preserves non-whitespace content
 
 *For any* Stata source code, after formatting, the non-whitespace content of each line SHALL be identical to the original.
 
 **Validates: Requirements 3.4**
 
-### Property 8: Formatting eliminates all indentation diagnostics (Round-trip)
+### Property 9: Formatting eliminates all indentation diagnostics (Round-trip)
 
 *For any* Stata source code, after running the formatter, re-analyzing the formatted code SHALL produce zero indentation diagnostics (`UNNECESSARY_INDENTATION` or `MISSING_INDENTATION`).
 
@@ -246,7 +266,7 @@ Property tests will use fast-check to verify universal properties:
 - **Minimum iterations**: 100 per property
 - **Tag format**: `Feature: block-start-indentation-diagnostic, Property N: <property_text>`
 
-Each correctness property (1-8) will have a corresponding property-based test that generates random Stata code structures and verifies the property holds.
+Each correctness property (1-9) will have a corresponding property-based test that generates random Stata code structures and verifies the property holds.
 
 ### Integration Tests
 

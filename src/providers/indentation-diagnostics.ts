@@ -1,7 +1,7 @@
 import { Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { LanguageContext } from '../context-tracker/types';
-import { StataDiagnosticCode, StataLSPConfig } from '../types';
+import { StataDiagnosticCode, StataLSPConfig, StataNode, ControlFlowNode, ProgramNode } from '../types';
 
 export class IndentationDiagnosticAnalyzer {
   analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
@@ -24,6 +24,10 @@ export class IndentationDiagnosticAnalyzer {
     for (const range of stataRanges) {
       diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size));
       diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size));
+      
+      // NEW: Compute expected depths from AST and find unnecessary indentation issues
+      const expected_depths = this.compute_expected_depths(document, range);
+      diagnostics.push(...this.find_unnecessary_indentation_issues(document, lines, range, block_comment_lines, indent_size, expected_depths));
     }
 
     return diagnostics;
@@ -277,5 +281,186 @@ export class IndentationDiagnosticAnalyzer {
     
     // Return the indentation of the original statement line
     return this.get_line_indentation(lines[current_index], indent_size);
+  }
+
+  /**
+   * Compute expected indentation depth for each line using AST traversal.
+   * Returns a Map from line number to expected depth.
+   * 
+   * This method walks the AST and tracks the nesting depth for control flow
+   * blocks: if, foreach, forvalues, while, program, mata, python, frame.
+   * 
+   * Requirements: 1.1, 1.2, 1.3, 2.1, 2.2
+   */
+  compute_expected_depths(
+    document: DocumentState,
+    range: { start: number; end: number }
+  ): Map<number, number> {
+    const expected_depths = new Map<number, number>();
+    
+    // If no AST available, return empty map (fallback to existing behavior)
+    if (!document.ast) {
+      return expected_depths;
+    }
+    
+    // Walk the AST and compute expected depths
+    let current_depth = 0;
+    
+    const walk_node = (node: StataNode): void => {
+      const start_line = node.range.start.line;
+      const end_line = node.range.end.line;
+      
+      // Only process lines within the specified range
+      if (start_line >= range.start && start_line <= range.end) {
+        // Set expected depth for the start line
+        if (!expected_depths.has(start_line)) {
+          expected_depths.set(start_line, current_depth);
+        }
+      }
+      
+      // Check if this is a block node that increases depth
+      if (this.is_block_node_type(node)) {
+        const block_node = node as ControlFlowNode | ProgramNode;
+        
+        // Increase depth for body
+        current_depth++;
+        
+        // Process body nodes
+        for (const my_child of block_node.body) {
+          // Special case: if a child starts on the same line as the parent block,
+          // it should be at the parent's indentation level, not indented.
+          // This handles "else if" where the "if" is on the same line as "else".
+          const child_start_line = my_child.range.start.line;
+          if (child_start_line === start_line && this.is_block_node_type(my_child)) {
+            // Temporarily restore parent depth for this child
+            current_depth--;
+            walk_node(my_child);
+            current_depth++;
+          } else {
+            walk_node(my_child);
+          }
+        }
+        
+        // Decrease depth after body
+        current_depth--;
+        
+        // Set expected depth for the end line (closing brace)
+        if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
+          if (!expected_depths.has(end_line)) {
+            expected_depths.set(end_line, current_depth);
+          }
+        }
+      }
+    };
+    
+    // Walk all top-level nodes
+    for (const my_node of document.ast.nodes) {
+      walk_node(my_node);
+    }
+    
+    return expected_depths;
+  }
+
+  /**
+   * Check if a node is a block node that increases indentation depth.
+   */
+  private is_block_node_type(node: StataNode): boolean {
+    return node.type === 'program' ||
+           node.type === 'if' ||
+           node.type === 'else' ||
+           node.type === 'foreach' ||
+           node.type === 'forvalues' ||
+           node.type === 'while' ||
+           node.type === 'frame';
+  }
+
+  /**
+   * Check if a line should be excluded from unnecessary indentation checks.
+   * Excludes: blank lines, comment-only lines, continuation lines, block comment lines.
+   * 
+   * Requirements: 2.3, 2.4
+   */
+  should_skip_unnecessary_check(
+    line: string,
+    lineIndex: number,
+    lines: string[],
+    block_comment_lines: Set<number>
+  ): boolean {
+    // Skip lines inside block comments
+    if (block_comment_lines.has(lineIndex)) {
+      return true;
+    }
+    
+    const trimmed = line.trim();
+    
+    // Skip blank lines (empty or whitespace-only)
+    if (trimmed === '') {
+      return true;
+    }
+    
+    // Skip comment-only lines (* or // at start after trimming)
+    if (trimmed.startsWith('*') || trimmed.startsWith('//')) {
+      return true;
+    }
+    
+    // Skip continuation lines (previous line ends with ///)
+    if (lineIndex > 0) {
+      const prev_line = lines[lineIndex - 1];
+      const prev_trimmed = prev_line.trim();
+      if (prev_trimmed.endsWith('///')) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Find lines with unnecessary indentation at any depth.
+   * A line has unnecessary indentation if its actual indentation
+   * exceeds the expected indentation for its depth.
+   * 
+   * Requirements: 1.1, 2.1, 2.2
+   */
+  find_unnecessary_indentation_issues(
+    document: DocumentState,
+    lines: string[],
+    range: { start: number; end: number },
+    block_comment_lines: Set<number>,
+    indent_size: number,
+    expected_depths: Map<number, number>
+  ): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
+    
+    for (let i = range.start; i <= range.end && i < lines.length; i++) {
+      const line = lines[i];
+      
+      // Skip excluded lines
+      if (this.should_skip_unnecessary_check(line, i, lines, block_comment_lines)) {
+        continue;
+      }
+      
+      const actual_indent = this.get_line_indentation(line, indent_size);
+      
+      // Get expected depth from AST, default to 0 (top-level) if not found
+      const expected_depth = expected_depths.get(i) ?? 0;
+      const expected_indent = expected_depth * indent_size;
+      
+      // Check if actual indentation exceeds expected
+      if (actual_indent > expected_indent) {
+        diagnostics.push({
+          severity: DiagnosticSeverity.Information,
+          range: Range.create(
+            Position.create(i, 0),
+            Position.create(i, actual_indent)
+          ),
+          message: 'Line appears unnecessarily indented. Use Format Document to fix.',
+          source: 'sight',
+          code: StataDiagnosticCode.UNNECESSARY_INDENTATION,
+        });
+      }
+    }
+    
+    return diagnostics;
   }
 }
