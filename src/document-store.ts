@@ -40,7 +40,7 @@ export interface DocumentState {
 
 export class DocumentStore {
   private documents: Map<string, DocumentState> = new Map();
-  private access_order: Map<string, number> = new Map(); // LRU tracking
+  private access_order: Map<string, true> = new Map(); // LRU tracking via insertion order
   private active_updates: Map<string, Promise<void>> = new Map();
   private readonly MAX_DOCUMENTS = 50;
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
@@ -273,12 +273,12 @@ export class DocumentStore {
   }
 
   /**
-   * Touch access time for LRU tracking.
+   * Touch access for LRU tracking.
    * Deletes and re-inserts to maintain Map insertion order (oldest first).
    */
   private touch_access(uri: string): void {
     this.access_order.delete(uri);
-    this.access_order.set(uri, Date.now());
+    this.access_order.set(uri, true);
   }
 
   /**
@@ -319,21 +319,11 @@ export class DocumentStore {
   }
 
   /**
-   * Find the URI with the oldest access timestamp.
-   * O(n) - Must iterate through Map values to find minimum timestamp.
+   * Find the URI with the oldest access (first in Map insertion order).
+   * O(1) - Map maintains insertion order, so first entry is oldest.
    */
   private find_oldest_uri(): string | undefined {
-    let oldest_uri: string | undefined;
-    let oldest_timestamp = Infinity;
-    
-    for (const [uri, timestamp] of this.access_order) {
-      if (timestamp < oldest_timestamp) {
-        oldest_timestamp = timestamp;
-        oldest_uri = uri;
-      }
-    }
-    
-    return oldest_uri;
+    return this.access_order.keys().next().value;
   }
 
   /**
