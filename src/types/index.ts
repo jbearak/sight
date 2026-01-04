@@ -625,7 +625,7 @@ export interface ScopeCacheEntry {
   content_hash: string;
   timestamp: number;
   // URIs that this resolved scope depends on (including the root file itself).
-  dependent_uris: string[];
+  dependent_uris: Set<string>;
 }
 
 export interface ScopeCacheMetrics {

@@ -47,11 +47,7 @@ export class DiagnosticsProvider {
     private published_versions: Map<string, number> = new Map();
     
     // Cache filtered diagnostics by (uri, version, config_hash)
-    private filtered_cache: Map<string, {
-        version: number;
-        config_hash: string;
-        diagnostics: Diagnostic[];
-    }> = new Map();
+    private filtered_cache: Map<string, Map<string, Diagnostic[]>> = new Map();
 
     constructor(connection: Connection, debounce_manager?: DocumentDebounceManager) {
         this.connection = connection;
@@ -74,11 +70,7 @@ export class DiagnosticsProvider {
     clear_published_version(uri: string): void {
         this.published_versions.delete(uri);
         // Also clear the filtered cache for this URI
-        for (const key of this.filtered_cache.keys()) {
-            if (key.startsWith(uri + ':')) {
-                this.filtered_cache.delete(key);
-            }
-        }
+        this.filtered_cache.delete(uri);
     }
 
     /**
@@ -148,12 +140,13 @@ export class DiagnosticsProvider {
     ): Promise<Diagnostic[]> {
         // Generate config hash for cache key
         const config_hash = this.compute_config_hash(config);
-        const cache_key = `${document.uri}:${document.version}:${config_hash}`;
         
         // Check cache first
-        const cached = this.filtered_cache.get(cache_key);
-        if (cached && cached.version === document.version && cached.config_hash === config_hash) {
-            return cached.diagnostics;
+        const uri_cache = this.filtered_cache.get(document.uri);
+        const inner_key = `${document.version}:${config_hash}`;
+        const cached = uri_cache?.get(inner_key);
+        if (cached) {
+            return cached;
         }
 
         const the_diagnostics: Diagnostic[] = [];
@@ -335,11 +328,12 @@ export class DiagnosticsProvider {
         }
 
         // Cache the filtered diagnostics
-        this.filtered_cache.set(cache_key, {
-            version: document.version,
-            config_hash,
-            diagnostics: the_diagnostics,
-        });
+        let cache_for_uri = this.filtered_cache.get(document.uri);
+        if (!cache_for_uri) {
+            cache_for_uri = new Map();
+            this.filtered_cache.set(document.uri, cache_for_uri);
+        }
+        cache_for_uri.set(`${document.version}:${config_hash}`, the_diagnostics);
 
         return the_diagnostics;
     }

@@ -40,7 +40,7 @@ export interface DocumentState {
 
 export class DocumentStore {
   private documents: Map<string, DocumentState> = new Map();
-  private access_order: string[] = []; // LRU tracking
+  private access_order: Map<string, number> = new Map(); // LRU tracking
   private active_updates: Map<string, Promise<void>> = new Map();
   private readonly MAX_DOCUMENTS = 50;
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
@@ -193,7 +193,7 @@ export class DocumentStore {
 
   close(uri: string): void {
     this.documents.delete(uri);
-    this.access_order = this.access_order.filter((u) => u !== uri);
+    this.access_order.delete(uri);
   }
 
   get(uri: string): DocumentState | undefined {
@@ -276,8 +276,7 @@ export class DocumentStore {
    * Touch access time for LRU tracking.
    */
   private touch_access(uri: string): void {
-    this.access_order = this.access_order.filter((u) => u !== uri);
-    this.access_order.push(uri);
+    this.access_order.set(uri, Date.now());
   }
 
   /**
@@ -287,24 +286,47 @@ export class DocumentStore {
     // Evict by document count
     while (
       this.documents.size >= this.MAX_DOCUMENTS &&
-      this.access_order.length > 0
+      this.access_order.size > 0
     ) {
-      const oldest = this.access_order.shift()!;
-      this.documents.delete(oldest);
-      this.metrics.evictions++;
+      const oldest = this.find_oldest_uri();
+      if (oldest) {
+        this.documents.delete(oldest);
+        this.access_order.delete(oldest);
+        this.metrics.evictions++;
+      }
     }
 
     // Evict by total token bytes
     let total_bytes = this.estimate_total_bytes();
     while (
       total_bytes + incoming_bytes > this.MAX_TOKEN_BYTES &&
-      this.access_order.length > 0
+      this.access_order.size > 0
     ) {
-      const oldest = this.access_order.shift()!;
-      this.documents.delete(oldest);
-      this.metrics.evictions++;
-      total_bytes = this.estimate_total_bytes();
+      const oldest = this.find_oldest_uri();
+      if (oldest) {
+        this.documents.delete(oldest);
+        this.access_order.delete(oldest);
+        this.metrics.evictions++;
+        total_bytes = this.estimate_total_bytes();
+      }
     }
+  }
+
+  /**
+   * Find the URI with the oldest access timestamp.
+   */
+  private find_oldest_uri(): string | undefined {
+    let oldest_uri: string | undefined;
+    let oldest_timestamp = Infinity;
+
+    for (const [uri, timestamp] of this.access_order) {
+      if (timestamp < oldest_timestamp) {
+        oldest_timestamp = timestamp;
+        oldest_uri = uri;
+      }
+    }
+
+    return oldest_uri;
   }
 
   /**
