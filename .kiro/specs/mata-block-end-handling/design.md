@@ -2,18 +2,22 @@
 
 ## Overview
 
-This design addresses two related bugs in the handling of Mata/Python block `end` statements:
+This design addresses bugs in the handling of Mata/Python embedded language blocks:
 
 1. **Indentation Diagnostic False Positive**: The `end` statement is incorrectly flagged as unnecessarily indented
-2. **Formatter Code Deletion**: The formatter deletes the `end` statement and subsequent code
+2. **Formatter Code Deletion (Multi-line blocks)**: The formatter deletes the `end` statement and subsequent code
+3. **Formatter Code Deletion (Single-line calls)**: The formatter deletes all code following single-line `mata:` or `python:` calls
 
-Both bugs stem from a mismatch between how context ranges and AST node ranges represent embedded blocks:
+Bugs 1 and 2 stem from a mismatch between how context ranges and AST node ranges represent embedded blocks:
 - **Context ranges** exclude the `end` delimiter line (range ends at line N-1 where `end` is on line N)
 - **AST node ranges** include the `end` delimiter line (range ends at line N)
+
+Bug 3 stems from using `MAX_SAFE_INTEGER` as the end character position in context ranges for single-line calls. When `replace_range_in_content` calculates the end offset as `line_offset + MAX_SAFE_INTEGER`, it overflows past the document content, causing `substring(end_offset)` to return empty string.
 
 The fix involves:
 1. Making the indentation analyzer recognize `embedded_block` AST nodes
 2. Making the formatter include the `end` delimiter when extracting embedded block content
+3. Clamping end character positions to actual line length in `replace_range_in_content`
 
 ## Architecture
 
@@ -133,6 +137,37 @@ private extract_block_content(
 ```
 
 #### Modified Method: `replace_range_in_content`
+
+The method needs to clamp the end character position to the actual line length to prevent overflow when `MAX_SAFE_INTEGER` is used:
+
+```typescript
+private replace_range_in_content(
+    content: string,
+    range: Range,
+    new_text: string
+): string {
+    const the_offsets = compute_line_offsets(content);
+
+    // Ensure indices are in bounds
+    if (range.start.line >= the_offsets.length || range.end.line >= the_offsets.length) {
+        return content;
+    }
+
+    const the_start_offset = the_offsets[range.start.line] + range.start.character;
+    
+    // Calculate the actual end of the line to clamp the end character
+    const the_line_end_offset = range.end.line + 1 < the_offsets.length
+        ? the_offsets[range.end.line + 1] - 1  // -1 to exclude newline
+        : content.length;
+    const the_max_end_char = the_line_end_offset - the_offsets[range.end.line];
+    const the_clamped_end_char = Math.min(range.end.character, the_max_end_char);
+    const the_end_offset = the_offsets[range.end.line] + the_clamped_end_char;
+
+    return content.substring(0, the_start_offset) + new_text + content.substring(the_end_offset);
+}
+```
+
+#### Modified Method: `format_with_embedded_preservation`
 
 The method needs to use the correct range that includes the end delimiter:
 
@@ -306,6 +341,12 @@ The AST node's `range.end.line` includes the end delimiter line, unlike the cont
 *For any* Stata document containing a Mata or Python block at any nesting depth, the formatter SHALL NOT add extra indentation to the opening delimiter (`mata` or `python`) beyond what is expected for its nesting level.
 
 **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
+
+### Property 4: Formatter preservation for single-line embedded calls
+
+*For any* valid Stata document containing single-line `mata:` or `python:` calls, formatting the document SHALL produce output that contains all original statements including any code following the embedded call.
+
+**Validates: Requirements 5.1, 5.2, 5.3, 5.4**
 
 ## Error Handling
 

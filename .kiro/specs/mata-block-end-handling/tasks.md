@@ -2,9 +2,10 @@
 
 ## Overview
 
-This plan implements fixes for two related bugs in Mata/Python block `end` statement handling:
+This plan implements fixes for bugs in Mata/Python embedded language block handling:
 1. Indentation diagnostic false positive on `end` statements
-2. Formatter deleting `end` statements and subsequent code
+2. Formatter deleting `end` statements and subsequent code (multi-line blocks)
+3. Formatter deleting all code after single-line `mata:` or `python:` calls
 
 ## Tasks
 
@@ -80,9 +81,33 @@ This plan implements fixes for two related bugs in Mata/Python block `end` state
   - Run full test suite
   - Ensure all tests pass, ask the user if questions arise.
 
+- [x] 7. Fix CodeFormatter to handle single-line embedded calls
+  - [x] 7.1 Fix replace_range_in_content to clamp end character position
+    - Calculate actual line length before computing end offset
+    - Clamp end character to actual line length to prevent overflow
+    - _Requirements: 5.3_
+
+  - [x] 7.2 Write unit test for single-line mata: call preservation
+    - Test that code after `mata: function()` is preserved
+    - Test that code after `python: code` is preserved
+    - _Requirements: 5.1, 5.2_
+
+  - [x] 7.3 Write property test for single-line embedded call preservation
+    - **Property 4: Formatter preservation for single-line embedded calls**
+    - Generate documents with single-line `mata:` or `python:` calls and code after them
+    - Verify all statements preserved after formatting
+    - **Validates: Requirements 5.1, 5.2, 5.3, 5.4**
+
+- [x] 8. Final checkpoint - Verify single-line fix
+  - Run the reproduction test (tests/repro_mata_inline.test.ts)
+  - Ensure code after single-line mata: calls is preserved
+  - Run full test suite
+  - Ensure all tests pass, ask the user if questions arise.
+
 ## Notes
 
 - The reproduction test already exists and will verify the fixes
-- Both bugs share the same root cause (context range vs AST range mismatch)
+- Bugs 1 and 2 share the same root cause (context range vs AST range mismatch)
 - Task 5 addresses a separate but related issue: the formatter's IndentationAnalyzer doesn't recognize embedded_block nodes, causing the `mata` keyword to be over-indented
+- Task 7 addresses a new bug: single-line `mata:` calls use MAX_SAFE_INTEGER as end character, causing overflow in replace_range_in_content
 - The IndentationDiagnosticAnalyzer (for warnings) was fixed in Task 1, but the IndentationAnalyzer (for formatting) needs the same fix

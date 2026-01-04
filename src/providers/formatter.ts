@@ -304,6 +304,9 @@ export class CodeFormatter {
 
     /**
      * Replace a range in content with new text.
+     * 
+     * Note: The end character position is clamped to the actual line length to prevent
+     * overflow when MAX_SAFE_INTEGER is used (e.g., for single-line embedded calls).
      */
     private replace_range_in_content(
         content: string,
@@ -318,7 +321,19 @@ export class CodeFormatter {
         }
 
         const the_start_offset = the_offsets[range.start.line] + range.start.character;
-        const the_end_offset = the_offsets[range.end.line] + range.end.character;
+        
+        // Calculate end offset, clamping to actual line length if needed
+        // This prevents overflow when MAX_SAFE_INTEGER is used as end character
+        let the_end_offset = the_offsets[range.end.line] + range.end.character;
+        
+        // Only clamp if the calculated offset exceeds content length
+        // This is an optimization to avoid extra calculations in the common case
+        if (the_end_offset > content.length) {
+            const the_line_end_offset = range.end.line + 1 < the_offsets.length
+                ? the_offsets[range.end.line + 1] - 1  // -1 to exclude newline
+                : content.length;
+            the_end_offset = the_line_end_offset;
+        }
 
         return content.substring(0, the_start_offset) + new_text + content.substring(the_end_offset);
     }

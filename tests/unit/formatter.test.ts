@@ -146,6 +146,60 @@ generate age = 25`;
       expect(my_formatted).toContain('generate');
     });
 
+    test('should preserve all code after single-line mata: call', () => {
+      // This tests the fix for the bug where code after mata: was deleted
+      const my_source = `run programs.do
+mata: aww_init_matrices()
+
+// We next make sure the output folders exist
+confirmdir "output"
+if (_rc == 170) {
+    mkdir "output"
+}`;
+
+      const my_formatted = format_document(my_source, lexer, parser, formatter);
+
+      // All statements should be preserved
+      expect(my_formatted).toContain('run programs.do');
+      expect(my_formatted).toContain('mata: aww_init_matrices()');
+      expect(my_formatted).toContain('confirmdir "output"');
+      expect(my_formatted).toContain('mkdir "output"');
+      expect(my_formatted).toContain('if (_rc == 170)');
+    });
+
+    test('should preserve all code after single-line python: call', () => {
+      // This tests the fix for the bug where code after python: was deleted
+      const my_source = `use mydata.dta
+python: import pandas as pd
+
+// Process the data
+summarize income
+regress income age education`;
+
+      const my_formatted = format_document(my_source, lexer, parser, formatter);
+
+      // All statements should be preserved
+      expect(my_formatted).toContain('use mydata.dta');
+      expect(my_formatted).toContain('python: import pandas as pd');
+      expect(my_formatted).toContain('summarize income');
+      expect(my_formatted).toContain('regress income age education');
+    });
+
+    test('should preserve code after multiple single-line embedded calls', () => {
+      const my_source = `mata: x = 1
+python: y = 2
+generate z = 3
+summarize z`;
+
+      const my_formatted = format_document(my_source, lexer, parser, formatter);
+
+      // All statements should be preserved
+      expect(my_formatted).toContain('mata: x = 1');
+      expect(my_formatted).toContain('python: y = 2');
+      expect(my_formatted).toContain('generate z = 3');
+      expect(my_formatted).toContain('summarize z');
+    });
+
     test('should preserve nested embedded blocks', () => {
       const my_source = `mata
       matrix A = (1, 2)
