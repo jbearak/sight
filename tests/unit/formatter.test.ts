@@ -4,6 +4,7 @@ import { StataLexer } from '../../src/lexer';
 import { DocumentState } from '../../src/document-store';
 import { FormattingOptions } from 'vscode-languageserver';
 import { create_empty_symbol_table } from '../../src/analyzer';
+import { for_each_formatter_mode, create_formatter_config, FormatterMode, mode_specific_assertion } from '../property/helpers/formatter-test-utils';
 
 // Shared test helpers
 function create_shared_document(source: string, lexer: StataLexer, parser: StataParser): DocumentState {
@@ -22,7 +23,7 @@ function create_shared_document(source: string, lexer: StataLexer, parser: Stata
     };
 }
 
-function format_shared_document(source: string, lexer: StataLexer, parser: StataParser, formatter: CodeFormatter, options?: Partial<FormattingOptions>): string {
+function format_shared_document(source: string, lexer: StataLexer, parser: StataParser, formatter: CodeFormatter, options?: Partial<FormattingOptions>, config?: any): string {
     const my_document = create_shared_document(source, lexer, parser);
     const my_options: FormattingOptions = {
         tabSize: 4,
@@ -30,7 +31,7 @@ function format_shared_document(source: string, lexer: StataLexer, parser: Stata
         ...options,
     };
 
-    const my_edits = formatter.format(my_document, my_options);
+    const my_edits = formatter.format(my_document, my_options, config);
     if (my_edits.length === 0) {
         return source;
     }
@@ -41,8 +42,8 @@ function format_shared_document(source: string, lexer: StataLexer, parser: Stata
 /**
  * Helper to format a document with optional formatting options.
  */
-function format_document(source: string, lexer: StataLexer, parser: StataParser, formatter: CodeFormatter, options?: Partial<FormattingOptions>): string {
-    return format_shared_document(source, lexer, parser, formatter, options);
+function format_document(source: string, lexer: StataLexer, parser: StataParser, formatter: CodeFormatter, config?: any, options?: Partial<FormattingOptions>): string {
+    return format_shared_document(source, lexer, parser, formatter, options, config);
 }
 
 describe('CodeFormatter with embedded language support', () => {
@@ -144,6 +145,66 @@ generate age = 25`;
       // Single-line python should be preserved
       expect(my_formatted).toContain('python:');
       expect(my_formatted).toContain('generate');
+    });
+
+    for_each_formatter_mode('should preserve all code after single-line mata: call', (mode) => {
+      // This tests the fix for the bug where code after mata: was deleted
+      const my_source = `run programs.do
+mata: aww_init_matrices()
+
+// We next make sure the output folders exist
+confirmdir "output"
+if (_rc == 170) {
+    mkdir "output"
+}`;
+
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter(config);
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      // All statements should be preserved
+      expect(my_formatted).toContain('run programs.do');
+      expect(my_formatted).toContain('mata: aww_init_matrices()');
+      expect(my_formatted).toContain('confirmdir "output"');
+      expect(my_formatted).toContain('mkdir "output"');
+      expect(my_formatted).toContain('if (_rc == 170)');
+    });
+
+    for_each_formatter_mode('should preserve all code after single-line python: call', (mode) => {
+      // This tests the fix for the bug where code after python: was deleted
+      const my_source = `use mydata.dta
+python: import pandas as pd
+
+// Process the data
+summarize income
+regress income age education`;
+
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter(config);
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      // All statements should be preserved
+      expect(my_formatted).toContain('use mydata.dta');
+      expect(my_formatted).toContain('python: import pandas as pd');
+      expect(my_formatted).toContain('summarize income');
+      expect(my_formatted).toContain('regress income age education');
+    });
+
+    for_each_formatter_mode('should preserve code after multiple single-line embedded calls', (mode) => {
+      const my_source = `mata: x = 1
+python: y = 2
+generate z = 3
+summarize z`;
+
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter(config);
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      // All statements should be preserved
+      expect(my_formatted).toContain('mata: x = 1');
+      expect(my_formatted).toContain('python: y = 2');
+      expect(my_formatted).toContain('generate z = 3');
+      expect(my_formatted).toContain('summarize z');
     });
 
     test('should preserve nested embedded blocks', () => {
@@ -418,15 +479,22 @@ end`;
       expect(my_formatted).toContain('        display');
     });
 
-    test('should preserve tabs when insertSpaces is false', () => {
+    for_each_formatter_mode('should handle tabs when insertSpaces is false', (mode: FormatterMode) => {
       const my_source = `program define test
 \tlocal x = 1
 end`;
 
-      const my_formatted = format_document(my_source, lexer, parser, formatter, { insertSpaces: false, tabSize: 4 });
+      const my_config = create_formatter_config(mode);
+      const my_formatted = format_document(my_source, lexer, parser, formatter, my_config, { insertSpaces: false, tabSize: 4 });
 
-      // Should contain tabs for indentation
-      expect(my_formatted).toContain('\tlocal');
+      if (mode === 'source-preserving') {
+        // Source-preserving formatter should preserve original tabs
+        expect(my_formatted).toContain('\tlocal');
+      } else {
+        // AST formatter rebuilds from scratch and uses configured indentation style
+        // When insertSpaces=false, it should use tabs but may not preserve original tabs
+        expect(my_formatted).toContain('\tlocal');
+      }
     });
   });
 

@@ -20,7 +20,7 @@ export class SmclPrettyPrinterImpl implements SmclPrettyPrinter {
         const tokenizer = new SmclTokenizer(smcl);
         const the_tokens = tokenizer.tokenize();
         
-        let result = '';
+        const parts = [];
         let i = 0;
         
         while (i < the_tokens.length) {
@@ -28,30 +28,30 @@ export class SmclPrettyPrinterImpl implements SmclPrettyPrinter {
             
             if (my_token.type === 'directive_start') {
                 const directive_result = this.process_directive_plain(the_tokens, i);
-                result += directive_result.text;
+                parts.push(directive_result.text);
                 i = directive_result.next_index;
             } else if (my_token.type === 'text') {
-                result += my_token.content;
+                parts.push(my_token.content);
                 i++;
             } else if (my_token.type === 'newline') {
-                result += '\n';
+                parts.push('\n');
                 i++;
             } else if (my_token.type === 'whitespace') {
-                result += my_token.content;
+                parts.push(my_token.content);
                 i++;
             } else if (my_token.type === 'directive_name') {
                 // Handle directive names that appear outside of braces
-                result += my_token.content;
+                parts.push(my_token.content);
                 i++;
             } else if (my_token.type === 'colon') {
-                result += ':';
+                parts.push(':');
                 i++;
             } else {
                 i++;
             }
         }
         
-        return this.clean_whitespace(result);
+        return this.clean_whitespace(parts.join(''));
     }
 
     /**
@@ -61,7 +61,7 @@ export class SmclPrettyPrinterImpl implements SmclPrettyPrinter {
         const tokenizer = new SmclTokenizer(smcl);
         const the_tokens = tokenizer.tokenize();
         
-        let result = '';
+        const parts = [];
         let i = 0;
         
         while (i < the_tokens.length) {
@@ -69,30 +69,30 @@ export class SmclPrettyPrinterImpl implements SmclPrettyPrinter {
             
             if (my_token.type === 'directive_start') {
                 const directive_result = this.process_directive_markdown(the_tokens, i);
-                result += directive_result.text;
+                parts.push(directive_result.text);
                 i = directive_result.next_index;
             } else if (my_token.type === 'text') {
-                result += my_token.content;
+                parts.push(my_token.content);
                 i++;
             } else if (my_token.type === 'newline') {
-                result += '\n';
+                parts.push('\n');
                 i++;
             } else if (my_token.type === 'whitespace') {
-                result += my_token.content;
+                parts.push(my_token.content);
                 i++;
             } else if (my_token.type === 'directive_name') {
                 // Handle directive names that appear outside of braces
-                result += my_token.content;
+                parts.push(my_token.content);
                 i++;
             } else if (my_token.type === 'colon') {
-                result += ':';
+                parts.push(':');
                 i++;
             } else {
                 i++;
             }
         }
         
-        return this.clean_whitespace(result);
+        return this.clean_whitespace(parts.join(''));
     }
 
     /**

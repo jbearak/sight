@@ -16,11 +16,14 @@ import * as fc from 'fast-check';
 import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-diagnostics';
 import { DocumentState } from '../../src/document-store';
 import { ContextTracker } from '../../src/context-tracker';
+import { StataLexer } from '../../src/lexer';
+import { StataParser } from '../../src/parser';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 
 /**
- * Create a minimal DocumentState for indentation analysis.
- * The IndentationDiagnosticAnalyzer only needs content and context_tracker.
+ * Create a DocumentState for indentation analysis with proper AST.
+ * The IndentationDiagnosticAnalyzer needs content, context_tracker, and AST
+ * for depth-based indentation analysis.
  */
 function create_document_for_indentation(content: string): DocumentState {
     const the_line_offsets: number[] = [];
@@ -30,12 +33,21 @@ function create_document_for_indentation(content: string): DocumentState {
         my_offset += my_line.length + 1;
     }
 
+    // Parse the content to get proper AST for depth computation
+    const my_lexer = new StataLexer();
+    const my_parser = new StataParser();
+    const my_lex_result = my_lexer.tokenize(content);
+    const my_parse_result = my_parser.parse(my_lex_result.tokens);
+    
+    const my_context_tracker = new ContextTracker();
+    my_context_tracker.initialize_from_tokens(my_lex_result.tokens);
+
     return {
         uri: 'file:///test.do',
         version: 1,
         content,
-        tokens: [],
-        ast: null,
+        tokens: my_lex_result.tokens,
+        ast: my_parse_result.ast,
         symbols: {
             localMacros: new Map(),
             globalMacros: new Map(),
@@ -45,7 +57,7 @@ function create_document_for_indentation(content: string): DocumentState {
             variables: new Map()
         },
         diagnostics: [],
-        context_tracker: new ContextTracker(),
+        context_tracker: my_context_tracker,
         context_ranges: [],
         line_offsets: the_line_offsets,
         forward_calls: []

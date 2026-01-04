@@ -629,6 +629,208 @@ end`;
     });
   });
 
+  describe('macro reference command parsing', () => {
+    test('should parse local macro at start of statement', () => {
+      const source = '`custom_cmd\' "arg1" "arg2"';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.name).toBe('`custom_cmd\'');
+        expect(node.varlist).toHaveLength(2);
+        expect(node.varlist?.[0].name).toBe('"arg1"');
+        expect(node.varlist?.[1].name).toBe('"arg2"');
+      }
+    });
+
+    test('should parse global macro at start of statement', () => {
+      const source = '$my_command arg1 arg2';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.name).toBe('$my_command');
+        expect(node.varlist).toHaveLength(2);
+        expect(node.varlist?.[0].name).toBe('arg1');
+        expect(node.varlist?.[1].name).toBe('arg2');
+      }
+    });
+
+    test('should parse macro command with various argument types', () => {
+      const source = '`cmd\' var1 "string arg" `macro_arg\' 123';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.name).toBe('`cmd\'');
+        expect(node.varlist).toHaveLength(4);
+        expect(node.varlist?.[0].name).toBe('var1');
+        expect(node.varlist?.[1].name).toBe('"string arg"');
+        expect(node.varlist?.[2].name).toBe('`macro_arg\'');
+        expect(node.varlist?.[3].name).toBe('123');
+      }
+    });
+
+    test('should parse macro command inside else block', () => {
+      const source = `if 1 {
+    display "hello"
+}
+else {
+    \`custom_arg' "test"
+}`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(2);
+
+      const elseNode = parseResult.ast.nodes.find((n: any) => n.type === 'else');
+      expect(elseNode).toBeDefined();
+      expect(elseNode?.type).toBe('else');
+
+      if (elseNode?.type === 'else') {
+        expect(elseNode.body).toHaveLength(1);
+        expect(elseNode.body[0].type).toBe('command');
+        if (elseNode.body[0].type === 'command') {
+          expect(elseNode.body[0].name).toBe('`custom_arg\'');
+        }
+      }
+    });
+
+    test('should parse macro command with if-qualifier', () => {
+      const source = '`cmd\' var1 if x > 0';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.name).toBe('`cmd\'');
+        expect(node.varlist).toHaveLength(1);
+        expect(node.varlist?.[0].name).toBe('var1');
+        expect(node.ifExpression).toBe('x>0');
+      }
+    });
+
+    test('should parse macro command with options', () => {
+      const source = '`cmd\' var1, option1 option2(value)';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.name).toBe('`cmd\'');
+        expect(node.varlist).toHaveLength(1);
+        expect(node.options).toHaveLength(2);
+        expect(node.options?.[0].name).toBe('option1');
+        expect(node.options?.[1].name).toBe('option2');
+        expect(node.options?.[1].argument).toBe('value');
+      }
+    });
+
+    test('should parse macro command with no arguments', () => {
+      const source = '`my_command\'';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.name).toBe('`my_command\'');
+        expect(node.varlist).toBeUndefined();
+      }
+    });
+
+    test('should parse global macro command with braces', () => {
+      const source = '${my_command} arg1 arg2';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.name).toBe('${my_command}');
+        expect(node.varlist).toHaveLength(2);
+      }
+    });
+
+    test('should parse prefixed macro command', () => {
+      const source = 'quietly `cmd\' arg1';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.prefix).toHaveLength(1);
+        expect(node.prefix?.[0].name).toBe('quietly');
+        expect(node.name).toBe('`cmd\'');
+        expect(node.varlist).toHaveLength(1);
+        expect(node.varlist?.[0].name).toBe('arg1');
+      }
+    });
+
+    test('should parse multiple prefixes with macro command', () => {
+      const source = 'capture noisily `my_cmd\' var1 var2, option1';
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.prefix).toHaveLength(2);
+        expect(node.prefix?.[0].name).toBe('capture');
+        expect(node.prefix?.[1].name).toBe('noisily');
+        expect(node.name).toBe('`my_cmd\'');
+        expect(node.varlist).toHaveLength(2);
+        expect(node.options).toHaveLength(1);
+      }
+    });
+  });
+
   describe('trivia handling', () => {
     test('should attach star comment as leading trivia', () => {
       const source = `* This is a comment

@@ -60,7 +60,8 @@ export class TokenReconstructor {
             // At line start, apply indentation
             if (state.at_line_start && my_token.value.trim()) {
                 if (should_preserve_whitespace) {
-                    // Preserve original whitespace, but apply delta if non-zero
+                    // Preserve original whitespace alignment, but apply delta if non-zero
+                    // AND normalize mixed whitespace to consistent style
                     const original_line = the_lines[state.current_line] || '';
                     const leading_whitespace = original_line.match(/^\s*/)?.[0] || '';
                     
@@ -68,7 +69,9 @@ export class TokenReconstructor {
                     if (indent_info.indent_delta !== 0) {
                         output_whitespace = this.apply_indent_delta(leading_whitespace, indent_info.indent_delta, config);
                     } else {
-                        output_whitespace = leading_whitespace;
+                        // Even with delta 0, normalize mixed whitespace to consistent style
+                        // while preserving the visual width
+                        output_whitespace = this.normalize_whitespace(leading_whitespace, config);
                     }
                     state.output_parts.push(output_whitespace);
                     state.source_column = token_col; // Track original position for spacing extraction
@@ -183,6 +186,37 @@ export class TokenReconstructor {
             return '\t'.repeat(level);
         }
         return ' '.repeat(level * config.indent_size);
+    }
+
+    /**
+     * Normalize whitespace to consistent style while preserving visual width.
+     * Converts mixed tabs/spaces to the configured indent_style.
+     * 
+     * @param whitespace - The original whitespace string (may contain mixed tabs and spaces)
+     * @param config - Formatter configuration with indent_style and indent_size
+     * @returns Normalized whitespace with the same visual width
+     */
+    private normalize_whitespace(whitespace: string, config: FormatterConfig): string {
+        // Fast path: if already consistent style, return as-is
+        if (config.indent_style === 'spaces' && !whitespace.includes('\t')) {
+            return whitespace;
+        }
+        if (config.indent_style === 'tabs' && !whitespace.includes(' ')) {
+            return whitespace;
+        }
+        
+        // Calculate the visual width of the original whitespace
+        const visual_width = this.calculate_visual_width(whitespace, config.indent_size);
+        
+        if (config.indent_style === 'tabs') {
+            // Convert to tabs + remaining spaces
+            const full_tabs = Math.floor(visual_width / config.indent_size);
+            const remaining_spaces = visual_width % config.indent_size;
+            return '\t'.repeat(full_tabs) + ' '.repeat(remaining_spaces);
+        } else {
+            // Convert to all spaces
+            return ' '.repeat(visual_width);
+        }
     }
 
     /**

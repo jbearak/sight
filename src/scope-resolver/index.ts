@@ -262,8 +262,8 @@ export class ScopeResolver {
         const types_array = Array.from(unique_types);
 
         // Check if we have both do/run AND include
-        const has_do_or_run = types_array.some(t => t === 'do' || t === 'run');
-        const has_include = types_array.includes('include');
+        const has_do_or_run = unique_types.has('do') || unique_types.has('run');
+        const has_include = unique_types.has('include');
         const has_mixed = has_do_or_run && has_include;
 
         return { has_mixed, types: types_array };
@@ -370,8 +370,9 @@ export class ScopeResolver {
 
         const normalized: Directive[] = [];
         for (const the_group of by_parent_uri.values()) {
-            const has_done_by = the_group.some((d) => d.type === 'done-by');
-            const has_included_by = the_group.some((d) => d.type === 'included-by');
+            const group_types = new Set(the_group.map(d => d.type));
+            const has_done_by = group_types.has('done-by');
+            const has_included_by = group_types.has('included-by');
 
             if (has_done_by && has_included_by) {
                 // Warn once, and prefer included-by.

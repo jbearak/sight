@@ -139,8 +139,8 @@ export class StataParser {
       if (node === null) {
         node = this.parseCommand();
       }
-    } else if (this.check('WORD')) {
-      // Default to command parsing
+    } else if (this.check('WORD') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) {
+      // Default to command parsing (handles both regular commands and macro-led commands)
       node = this.parseCommand();
     } else if (this.check('LBRACE')) {
       // Standalone open brace - this is an error in Stata
@@ -282,13 +282,25 @@ export class StataParser {
       end_token_index !== undefined ? end_token_index : this.current
     );
 
-    // Reconstruct content from tokens.
-    // The lexer includes whitespace tokens, so concatenating token values preserves
-    // embedded content structure without introducing word-splitting artifacts.
+    // Reconstruct content preserving whitespace between tokens
     let content = '';
-    for (let i = 0; i < content_tokens.length; i++) {
-      const my_token = content_tokens[i];
-      content += my_token.value;
+    if (content_tokens.length > 0) {
+      for (let i = 0; i < content_tokens.length; i++) {
+        const my_token = content_tokens[i];
+        
+        // Add the token value
+        content += my_token.value;
+        
+        // Add space between tokens if there's a gap and not the last token
+        if (i < content_tokens.length - 1) {
+          const next_token = content_tokens[i + 1];
+          const gap = next_token.range.start.character - my_token.range.end.character;
+          if (gap > 0) {
+            // Add the appropriate number of spaces
+            content += ' '.repeat(gap);
+          }
+        }
+      }
     }
     content = content.trim();
 
@@ -757,11 +769,12 @@ export class StataParser {
         name: '{',
         fullName: '{',
         expression: undefined,
+        body,
         range: this.makeRange(startToken.range.start, this.previous().range.end),
       };
     }
 
-    if (!this.check('WORD')) {
+    if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
       this.addError('Expected command name', this.peek().range);
       throw new Error('Missing command name');
     }
@@ -803,7 +816,7 @@ export class StataParser {
         break;
       }
       
-      if (this.check('WORD') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) {
+      if (this.check('WORD') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') || this.check('NUMBER')) {
         const varToken = this.advance();
         varlist.push({
           name: varToken.value,
@@ -813,18 +826,18 @@ export class StataParser {
         // Handle parenthesized groups (e.g., getmata (var1 var2)=matrix, exit(1))
         // Capture the entire parenthesized expression as a single varlist item
         const paren_start = this.advance(); // consume (
-        let paren_content = '';
+        const paren_parts = [];
         let paren_depth = 1;
         let last_was_word = false;
         while (!this.isAtEnd() && paren_depth > 0) {
           if (this.check('LPAREN')) {
             paren_depth++;
-            paren_content += this.advance().value;
+            paren_parts.push(this.advance().value);
             last_was_word = false;
           } else if (this.check('RPAREN')) {
             paren_depth--;
             if (paren_depth > 0) {
-              paren_content += this.advance().value;
+              paren_parts.push(this.advance().value);
             }
             last_was_word = false;
           } else {
@@ -832,12 +845,13 @@ export class StataParser {
                                     this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
             // Add space between consecutive word-like tokens
             if (last_was_word && current_is_word) {
-              paren_content += ' ';
+              paren_parts.push(' ');
             }
-            paren_content += this.advance().value;
+            paren_parts.push(this.advance().value);
             last_was_word = current_is_word;
           }
         }
+        const paren_content = paren_parts.join('');
         const paren_end_pos = this.check('RPAREN') ? this.peek().range.end : this.previous().range.end;
         if (this.check('RPAREN')) {
           this.advance(); // consume closing paren

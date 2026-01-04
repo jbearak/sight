@@ -4,6 +4,7 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer, create_empty_symbol_table } from '../../src/analyzer';
 import { StataDiagnosticCode, SymbolTable, ProgramSymbol } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators/primitives';
 
 function analyze_code(code: string, workspace_symbols?: SymbolTable) {
     const lexer = new StataLexer();
@@ -20,9 +21,7 @@ const macro_name_gen = fc.string({ minLength: 1, maxLength: 10 })
     .filter(s => !['if', 'in', 'using', 'local', 'global', 'end', 'program'].includes(s.toLowerCase()));
 
 // Generator for valid program names
-const program_name_gen = fc.string({ minLength: 1, maxLength: 8 })
-    .filter(s => /^[a-z][a-z0-9]*$/.test(s))
-    .filter(s => !['if', 'in', 'using', 'local', 'global', 'end', 'program', 'by', 'quietly', 'capture'].includes(s));
+const program_name_gen = arbitrary_non_reserved_identifier();
 
 describe('C_local Definition Position Properties', () => {
     /**

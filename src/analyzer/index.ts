@@ -1755,6 +1755,32 @@ export class SemanticAnalyzer {
             return;
         }
         
+        // Pre-build Sets of matching option names to avoid O(n²) complexity
+        const local_option_names = new Set<string>();
+        const global_option_names = new Set<string>();
+        
+        if (builtin_cmd) {
+            for (const option of node.options) {
+                for (const opt of builtin_cmd.local_options) {
+                    if (matches_option(option.name, opt)) {
+                        local_option_names.add(option.name);
+                    }
+                }
+                for (const opt of builtin_cmd.global_options) {
+                    if (matches_option(option.name, opt)) {
+                        global_option_names.add(option.name);
+                    }
+                }
+            }
+        } else if (program_options) {
+            for (const option_name of program_options.local_options) {
+                local_option_names.add(option_name);
+            }
+            for (const option_name of program_options.global_options) {
+                global_option_names.add(option_name);
+            }
+        }
+        
         for (const option of node.options) {
             // Parse the option argument
             const parse_result = parse_option_argument(option.argument);
@@ -1765,20 +1791,10 @@ export class SemanticAnalyzer {
             const macro_name = parse_result.identifier;
             
             // Check if this is a local() option
-            let is_local_option = false;
-            if (builtin_cmd) {
-                is_local_option = builtin_cmd.local_options.some(opt => matches_option(option.name, opt));
-            } else if (program_options) {
-                is_local_option = program_options.local_options.includes(option.name);
-            }
+            const is_local_option = local_option_names.has(option.name);
             
             // Check if this is a global() option
-            let is_global_option = false;
-            if (builtin_cmd) {
-                is_global_option = builtin_cmd.global_options.some(opt => matches_option(option.name, opt));
-            } else if (program_options) {
-                is_global_option = program_options.global_options.includes(option.name);
-            }
+            const is_global_option = global_option_names.has(option.name);
             
             if (is_local_option) {
                 // Check if macro already exists (first definition wins)

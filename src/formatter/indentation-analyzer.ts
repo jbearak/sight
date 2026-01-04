@@ -1,4 +1,4 @@
-import { StataAST, StataNode, ControlFlowNode, ProgramNode, TriviaNode, Token } from '../types';
+import { StataAST, StataNode, ControlFlowNode, ProgramNode, CommandNode, TriviaNode, Token } from '../types';
 import { ContinuationGroup } from './alignment-detector';
 
 export interface IndentationInfo {
@@ -20,6 +20,19 @@ export class IndentationAnalyzer {
 
     constructor(indent_size: number = 4) {
         this.indent_size = indent_size;
+    }
+
+    private has_body(
+        node: StataNode
+    ): node is ControlFlowNode | ProgramNode | (CommandNode & { body: StataNode[] }) {
+        return (
+            (node.type === 'if' || node.type === 'else' || 
+             node.type === 'foreach' || node.type === 'forvalues' || 
+             node.type === 'while' || node.type === 'frame' ||
+             node.type === 'program') ||
+            (node.type === 'command' && 'body' in node && 
+             Array.isArray(node.body))
+        );
     }
 
     analyze(ast: StataAST, tokens?: Token[], alignment_info?: Map<number, ContinuationGroup>, original_source?: string): Map<number, IndentationInfo> {
@@ -65,7 +78,20 @@ export class IndentationAnalyzer {
         // Process leading trivia before the node
         this.process_node_trivia(node);
 
+        // Handle embedded_block nodes specially (Mata/Python blocks)
+        if (node.type === 'embedded_block') {
+            this.process_embedded_block_node(node);
+            return;
+        }
+
         if (this.is_block_node(node)) {
+            if (node.type === 'command') {
+                const cmd = node as CommandNode;
+                if (cmd.name === '{') {
+                    this.process_command_brace_block(node);
+                    return;
+                }
+            }
             this.process_block_node(node as ControlFlowNode | ProgramNode);
         } else {
             this.process_regular_node(node);
@@ -121,7 +147,9 @@ export class IndentationAnalyzer {
                node.type === 'foreach' ||
                node.type === 'forvalues' ||
                node.type === 'while' ||
-               node.type === 'frame';
+               node.type === 'frame' ||
+               node.type === 'embedded_block' ||
+               (node.type === 'command' && node.name === '{');
     }
 
     private process_block_node(node: ControlFlowNode | ProgramNode): void {
@@ -152,6 +180,63 @@ export class IndentationAnalyzer {
 
         this.current_depth--;
 
+        if (end_line !== start_line) {
+            const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
+            this.set_indentation(end_line, this.current_depth, false, false, true, false, end_delta_info.delta, end_delta_info.original_indent);
+        }
+    }
+
+    /**
+     * Process embedded_block nodes (Mata/Python blocks).
+     * Sets start and end line depths at current_depth without recursing into content.
+     */
+    private process_embedded_block_node(node: StataNode): void {
+        const start_line = node.range.start.line;
+        const end_line = node.range.end.line;
+
+        // Set indentation for the start line (mata/python) at current depth
+        const start_delta_info = this.calculate_indent_delta(start_line, this.current_depth);
+        this.set_indentation(start_line, this.current_depth, false, true, false, false, 
+            start_delta_info.delta, start_delta_info.original_indent);
+
+        // Set indentation for the end line (end) at current depth (same as start)
+        if (end_line !== start_line) {
+            const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
+            this.set_indentation(end_line, this.current_depth, false, false, true, false, 
+                end_delta_info.delta, end_delta_info.original_indent);
+        }
+
+        // Do NOT recurse into embedded block content - it's a different language
+    }
+
+    private process_command_brace_block(node: StataNode): void {
+        const start_line = node.range.start.line;
+        const end_line = node.range.end.line;
+
+        // Set indentation for the start line (opening brace) at current depth
+        const start_delta_info = this.calculate_indent_delta(start_line, this.current_depth);
+        this.set_indentation(start_line, this.current_depth, false, true, false, false, start_delta_info.delta, start_delta_info.original_indent);
+
+        // Increase depth for interior lines
+        this.current_depth++;
+
+        // If the node has a body, process child nodes
+        if (this.has_body(node)) {
+            for (const my_child of node.body) {
+                this.walk_node(my_child);
+            }
+        } else {
+            // Fallback: set indentation for interior lines (between start and end)
+            for (let line = start_line + 1; line < end_line; line++) {
+                const { delta, original_indent } = this.calculate_indent_delta(line, this.current_depth);
+                this.set_indentation(line, this.current_depth, false, false, false, false, delta, original_indent);
+            }
+        }
+
+        // Decrease depth back to original
+        this.current_depth--;
+
+        // Set indentation for the end line (closing brace) at current depth
         if (end_line !== start_line) {
             const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
             this.set_indentation(end_line, this.current_depth, false, false, true, false, end_delta_info.delta, end_delta_info.original_indent);

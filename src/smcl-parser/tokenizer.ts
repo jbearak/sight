@@ -119,33 +119,33 @@ export class SmclTokenizer {
     }
 
     private read_whitespace(start_pos: number, start_line: number, start_column: number): SmclToken {
-        let my_content = '';
+        const content_start = this.position;
         while (this.position < this.content.length && /\s/.test(this.content[this.position]) && this.content[this.position] !== '\n') {
-            my_content += this.content[this.position];
             this.advance();
         }
+        const my_content = this.content.substring(content_start, this.position);
         return this.create_token('whitespace', my_content, start_pos, start_line, start_column);
     }
 
     private read_directive_name(start_pos: number, start_line: number, start_column: number): SmclToken {
-        let my_content = '';
+        const content_start = this.position;
         while (this.position < this.content.length && /[a-zA-Z0-9_]/.test(this.content[this.position])) {
-            my_content += this.content[this.position];
             this.advance();
         }
+        const my_content = this.content.substring(content_start, this.position);
         return this.create_token('directive_name', my_content, start_pos, start_line, start_column);
     }
 
     private read_text(start_pos: number, start_line: number, start_column: number): SmclToken {
-        let my_content = '';
+        const content_start = this.position;
         while (this.position < this.content.length) {
             const my_char = this.content[this.position];
             if (my_char === '{' || my_char === '}' || my_char === '\n' || /\s/.test(my_char)) {
                 break;
             }
-            my_content += my_char;
             this.advance();
         }
+        const my_content = this.content.substring(content_start, this.position);
         return this.create_token('text', my_content, start_pos, start_line, start_column);
     }
 

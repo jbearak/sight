@@ -1,7 +1,7 @@
 import { Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { LanguageContext } from '../context-tracker/types';
-import { StataDiagnosticCode, StataLSPConfig } from '../types';
+import { StataDiagnosticCode, StataLSPConfig, StataNode, StataAST, ControlFlowNode, ProgramNode, Token } from '../types';
 
 export class IndentationDiagnosticAnalyzer {
   analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
@@ -21,12 +21,41 @@ export class IndentationDiagnosticAnalyzer {
     // Compute block comment lines to exclude from indentation checks
     const block_comment_lines = this.compute_block_comment_lines(lines);
     
+    // Compute continuation lines from tokens for efficient lookup
+    const continuation_lines = document.tokens 
+      ? this.compute_continuation_lines(document.tokens)
+      : new Set<number>();
+    
     for (const range of stataRanges) {
       diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size));
-      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size));
+      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size, continuation_lines));
+      
+      // NEW: Compute expected depths from AST and find unnecessary indentation issues
+      const expected_depths = this.compute_expected_depths(document, range);
+      diagnostics.push(...this.find_unnecessary_indentation_issues(document, lines, range, block_comment_lines, indent_size, expected_depths, continuation_lines));
     }
 
     return diagnostics;
+  }
+
+  /**
+   * Compute a set of line numbers that are continuation lines.
+   * A line is a continuation if the previous line has a CONTINUATION token.
+   * 
+   * @param tokens - The document's tokens
+   * @returns Set of 0-indexed line numbers that are continuation lines
+   */
+  private compute_continuation_lines(tokens: Token[]): Set<number> {
+    const continuation_lines = new Set<number>();
+    
+    for (const my_token of tokens) {
+      if (my_token.type === 'CONTINUATION') {
+        // The line AFTER the continuation token is a continuation line
+        continuation_lines.add(my_token.range.start.line + 1);
+      }
+    }
+    
+    return continuation_lines;
   }
 
   private getStataRanges(document: DocumentState): Array<{ start: number; end: number }> {
@@ -59,23 +88,31 @@ export class IndentationDiagnosticAnalyzer {
     return ranges.length > 0 ? ranges : [{ start: 0, end: totalLines - 1 }];
   }
 
+  /**
+   * Calculate the visual width of leading whitespace, accounting for tab stops.
+   * Tabs expand to the next multiple of indent_size (tab stop).
+   * 
+   * @param line - The full line of text
+   * @param indent_size - Tab stop interval (typically 4, validated by config system)
+   * @returns Visual column width of leading whitespace
+   */
   private get_line_indentation(line: string, indent_size: number): number {
-    let level = 0;
+    let visual_column = 0;
     for (const char of line) {
       if (char === ' ') {
-        level += 1;
+        visual_column += 1;
       } else if (char === '\t') {
-        level += indent_size;
+        // Tab advances to next tab stop (next multiple of indent_size)
+        visual_column = Math.ceil((visual_column + 1) / indent_size) * indent_size;
       } else {
         break;
       }
     }
-    return level;
+    return visual_column;
   }
 
-  private is_continuation_line(line: string, prevLine: string): boolean {
-    const prevTrimmed = prevLine.trim();
-    return prevTrimmed.endsWith('///');
+  private is_continuation_line(lineIndex: number, continuation_lines: Set<number>): boolean {
+    return continuation_lines.has(lineIndex);
   }
 
   private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number): Diagnostic[] {
@@ -120,7 +157,7 @@ export class IndentationDiagnosticAnalyzer {
     return diagnostics;
   }
 
-  private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number): Diagnostic[] {
+  private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number, continuation_lines: Set<number>): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
     // Look for opening braces - either standalone or at end of control flow statements
@@ -138,7 +175,7 @@ export class IndentationDiagnosticAnalyzer {
       
       if (has_opening_brace) {
         // If this line is a continuation line, trace back to find the original statement's indentation
-        const braceIndent = this.get_statement_indentation(lines, i, range.start, indent_size);
+        const braceIndent = this.get_statement_indentation(lines, i, range.start, indent_size, continuation_lines);
         let braceDepth = 1;
         
         // Check lines inside the block
@@ -173,7 +210,7 @@ export class IndentationDiagnosticAnalyzer {
           }
           
           // Skip continuation lines
-          if (j > i + 1 && this.is_continuation_line(innerLine, lines[j - 1])) {
+          if (this.is_continuation_line(j, continuation_lines)) {
             continue;
           }
           
@@ -259,23 +296,293 @@ export class IndentationDiagnosticAnalyzer {
    * If the line is a continuation (previous line ends with ///), trace back
    * to find the original statement's indentation.
    */
-  private get_statement_indentation(lines: string[], lineIndex: number, rangeStart: number, indent_size: number): number {
+  private get_statement_indentation(lines: string[], lineIndex: number, rangeStart: number, indent_size: number, continuation_lines: Set<number>): number {
     let current_index = lineIndex;
     
     // Trace back through continuation lines to find the original statement
-    while (current_index > rangeStart) {
-      const prev_line = lines[current_index - 1];
-      const prev_trimmed = prev_line.trim();
-      
-      // If previous line ends with ///, this is a continuation - keep going back
-      if (prev_trimmed.endsWith('///')) {
-        current_index--;
-      } else {
-        break;
-      }
+    while (current_index > rangeStart && continuation_lines.has(current_index)) {
+      current_index--;
     }
     
     // Return the indentation of the original statement line
     return this.get_line_indentation(lines[current_index], indent_size);
+  }
+
+  /**
+   * Compute expected indentation depth for brace blocks from command nodes.
+   * Returns a Map from line number to depth for lines inside brace blocks.
+   * 
+   * This method tracks depth through both control flow blocks (if, foreach, etc.)
+   * and prefix command brace blocks (capture { }, quietly { }, etc.).
+   */
+  private compute_brace_block_depths(
+    ast: StataAST,
+    range: { start: number; end: number }
+  ): Map<number, number> {
+    const brace_depths = new Map<number, number>();
+    
+    const walk_node = (node: StataNode, current_depth: number): void => {
+      const start_line = node.range.start.line;
+      
+      // Set depth for this node's start line
+      if (start_line >= range.start && start_line <= range.end) {
+        const existing = brace_depths.get(start_line) ?? 0;
+        brace_depths.set(start_line, Math.max(existing, current_depth));
+      }
+      
+      // Check if this is a prefix command brace block
+      if (node.type === 'command' && 'name' in node && node.name === '{') {
+        const end_line = node.range.end.line;
+        
+        // If the node has a body, recurse into it with increased depth
+        if ('body' in node && node.body && Array.isArray(node.body)) {
+          for (const child of node.body) {
+            walk_node(child, current_depth + 1);
+          }
+        } else {
+          // Fallback: mark interior lines with increased depth (for nodes without body)
+          for (let line = start_line + 1; line < end_line; line++) {
+            if (line >= range.start && line <= range.end) {
+              const existing = brace_depths.get(line) ?? 0;
+              brace_depths.set(line, Math.max(existing, current_depth + 1));
+            }
+          }
+        }
+        
+        // Closing brace gets same depth as opening
+        if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
+          const existing = brace_depths.get(end_line) ?? 0;
+          brace_depths.set(end_line, Math.max(existing, current_depth));
+        }
+        
+        return;
+      }
+      
+      // Check if this is a control flow block that increases depth
+      const is_control_flow = node.type === 'program' ||
+                              node.type === 'if' ||
+                              node.type === 'else' ||
+                              node.type === 'foreach' ||
+                              node.type === 'forvalues' ||
+                              node.type === 'while' ||
+                              node.type === 'frame';
+      
+      if (is_control_flow && node.body) {
+        // Recurse into body with increased depth
+        for (const child of node.body) {
+          walk_node(child, current_depth + 1);
+        }
+        
+        // Set closing brace depth
+        const end_line = node.range.end.line;
+        if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
+          const existing = brace_depths.get(end_line) ?? 0;
+          brace_depths.set(end_line, Math.max(existing, current_depth));
+        }
+      } else if ('body' in node && node.body) {
+        // Non-block node with body - recurse without increasing depth
+        for (const child of node.body) {
+          walk_node(child, current_depth);
+        }
+      }
+    };
+    
+    for (const node of ast.nodes) {
+      walk_node(node, 0);
+    }
+    
+    return brace_depths;
+  }
+
+  /**
+   * Compute expected indentation depth for each line using AST traversal.
+   * Returns a Map from line number to expected depth.
+   * 
+   * This method walks the AST and tracks the nesting depth for control flow
+   * blocks: if, foreach, forvalues, while, program, mata, python, frame.
+   * 
+   * Requirements: 1.1, 1.2, 1.3, 2.1, 2.2
+   */
+  compute_expected_depths(
+    document: DocumentState,
+    range: { start: number; end: number }
+  ): Map<number, number> {
+    const expected_depths = new Map<number, number>();
+    
+    // If no AST available, return empty map (fallback to existing behavior)
+    if (!document.ast) {
+      return expected_depths;
+    }
+    
+    // Walk the AST and compute expected depths
+    // Pass depth as parameter to avoid shared state issues across sibling nodes
+    const walk_node = (node: StataNode, depth: number): void => {
+      const start_line = node.range.start.line;
+      const end_line = node.range.end.line;
+      
+      // Only process lines within the specified range
+      if (start_line >= range.start && start_line <= range.end) {
+        // Set expected depth for the start line
+        if (!expected_depths.has(start_line)) {
+          expected_depths.set(start_line, depth);
+        }
+      }
+      
+      // Handle embedded_block nodes (Mata/Python blocks)
+      // The end delimiter should be at the same depth as the start delimiter
+      // Don't recurse into embedded block content (it's a different language)
+      if (node.type === 'embedded_block') {
+        // Set expected depth for the end line (containing 'end')
+        if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
+          if (!expected_depths.has(end_line)) {
+            expected_depths.set(end_line, depth);
+          }
+        }
+        // Don't recurse into embedded block content
+        return;
+      }
+      
+      // Check if this is a block node that increases depth
+      if (this.is_block_node_type(node)) {
+        const block_node = node as ControlFlowNode | ProgramNode;
+        
+        // Process body nodes with increased depth
+        for (const my_child of block_node.body) {
+          // Special case: if a child starts on the same line as the parent block,
+          // it should be at the parent's indentation level, not indented.
+          // This handles "else if" where the "if" is on the same line as "else".
+          const child_start_line = my_child.range.start.line;
+          if (child_start_line === start_line && this.is_block_node_type(my_child)) {
+            // Use parent depth for this child (same line)
+            walk_node(my_child, depth);
+          } else {
+            walk_node(my_child, depth + 1);
+          }
+        }
+        
+        // Set expected depth for the end line (closing brace)
+        if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
+          if (!expected_depths.has(end_line)) {
+            expected_depths.set(end_line, depth);
+          }
+        }
+      }
+    };
+    
+    // Walk all top-level nodes
+    for (const my_node of document.ast.nodes) {
+      walk_node(my_node, 0);
+    }
+    
+    // Compute and merge brace block depths
+    const brace_depths = this.compute_brace_block_depths(document.ast, range);
+    for (const [line, depth] of brace_depths) {
+      const existing_depth = expected_depths.get(line) ?? 0;
+      expected_depths.set(line, Math.max(existing_depth, depth));
+    }
+    
+    return expected_depths;
+  }
+
+  /**
+   * Check if a node is a block node that increases indentation depth.
+   * Note: Command brace blocks (e.g., capture { }) are handled separately
+   * by compute_brace_block_depths, not here.
+   */
+  private is_block_node_type(node: StataNode): boolean {
+    return node.type === 'program' ||
+           node.type === 'if' ||
+           node.type === 'else' ||
+           node.type === 'foreach' ||
+           node.type === 'forvalues' ||
+           node.type === 'while' ||
+           node.type === 'frame';
+  }
+
+  /**
+   * Check if a line should be excluded from unnecessary indentation checks.
+   * Excludes: blank lines, comment-only lines, continuation lines, block comment lines.
+   * 
+   * Requirements: 2.3, 2.4
+   */
+  should_skip_unnecessary_check(
+    line: string,
+    lineIndex: number,
+    block_comment_lines: Set<number>,
+    continuation_lines: Set<number>
+  ): boolean {
+    // Skip lines inside block comments
+    if (block_comment_lines.has(lineIndex)) {
+      return true;
+    }
+    
+    const trimmed = line.trim();
+    
+    // Skip blank lines (empty or whitespace-only)
+    if (trimmed === '') {
+      return true;
+    }
+    
+    // Skip comment-only lines (* or // at start after trimming)
+    if (trimmed.startsWith('*') || trimmed.startsWith('//')) {
+      return true;
+    }
+    
+    // Skip continuation lines (using token-based detection)
+    if (continuation_lines.has(lineIndex)) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Find lines with unnecessary indentation at any depth.
+   * A line has unnecessary indentation if its actual indentation
+   * exceeds the expected indentation for its depth.
+   * 
+   * Requirements: 1.1, 2.1, 2.2
+   */
+  find_unnecessary_indentation_issues(
+    document: DocumentState,
+    lines: string[],
+    range: { start: number; end: number },
+    block_comment_lines: Set<number>,
+    indent_size: number,
+    expected_depths: Map<number, number>,
+    continuation_lines: Set<number>
+  ): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
+    
+    for (let i = range.start; i <= range.end && i < lines.length; i++) {
+      const line = lines[i];
+      
+      // Skip excluded lines
+      if (this.should_skip_unnecessary_check(line, i, block_comment_lines, continuation_lines)) {
+        continue;
+      }
+      
+      const actual_indent = this.get_line_indentation(line, indent_size);
+      
+      // Get expected depth from AST, default to 0 (top-level) if not found
+      const expected_depth = expected_depths.get(i) ?? 0;
+      const expected_indent = expected_depth * indent_size;
+      
+      // Check if actual indentation exceeds expected
+      if (actual_indent > expected_indent) {
+        diagnostics.push({
+          severity: DiagnosticSeverity.Information,
+          range: Range.create(
+            Position.create(i, 0),
+            Position.create(i, actual_indent)
+          ),
+          message: 'Line appears unnecessarily indented. Use Format Document to fix.',
+          source: 'sight',
+          code: StataDiagnosticCode.UNNECESSARY_INDENTATION,
+        });
+      }
+    }
+    
+    return diagnostics;
   }
 }

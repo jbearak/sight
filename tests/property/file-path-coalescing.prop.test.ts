@@ -115,9 +115,9 @@ describe('File Path Coalescing Property Tests', () => {
   it('should preserve division operator in arithmetic expressions', () => {
     fc.assert(
       fc.property(
-        fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9_]*$/),
-        fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9_]*$/),
-        fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9_]*$/),
+        arbitrary_non_reserved_identifier(),
+        arbitrary_non_reserved_identifier(),
+        arbitrary_non_reserved_identifier(),
         (my_var, my_a, my_b) => {
           const my_source = `gen ${my_var} = ${my_a}/${my_b}`;
           const my_command_node = parse_first_command(my_source);

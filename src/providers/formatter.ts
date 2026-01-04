@@ -156,7 +156,7 @@ export class CodeFormatter {
         const MAX_EMBEDDED_BLOCKS = 1000;
         
         const the_doc: DocumentLike = { content: document.content, line_offsets: document.line_offsets };
-        const the_embedded_blocks: Map<string, string> = new Map();
+        const the_embedded_blocks: Map<string, { content: string; range: ContextRange }> = new Map();
         let my_placeholder_counter = 0;
 
         // Extract embedded blocks and replace with placeholders
@@ -172,15 +172,36 @@ export class CodeFormatter {
             }
             
             const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
-            the_embedded_blocks.set(my_placeholder, this.extract_block_content(
-                the_doc,
-                my_range
-            ));
+            the_embedded_blocks.set(my_placeholder, {
+                content: this.extract_block_content(the_doc, my_range),
+                range: my_range
+            });
 
-            // Replace the block with placeholder
+            // Calculate the actual range to replace
+            // For single-line contexts (mata:, python:), use the range as-is
+            // For multi-line blocks, include the end delimiter line
+            let actual_range: Range;
+            if (my_range.is_single_line) {
+                // Single-line context: range already covers the entire line
+                actual_range = my_range.range;
+            } else {
+                // Multi-line block: context_range.range excludes the end delimiter,
+                // but we need to include it
+                const actual_end_line = my_range.end_delimiter
+                    ? my_range.end_delimiter.range.start.line
+                    : my_range.range.end.line;
+                // Get the length of the end line to use as the end character
+                const end_line_text = get_line_text(the_doc, actual_end_line);
+                actual_range = {
+                    start: my_range.range.start,
+                    end: { line: actual_end_line, character: end_line_text.length }
+                };
+            }
+
+            // Replace the block with placeholder using the actual range
             my_modified_content = this.replace_range_in_content(
                 my_modified_content,
-                my_range.range,
+                actual_range,
                 my_placeholder
             );
 
@@ -217,13 +238,37 @@ export class CodeFormatter {
                     { preserve_alignment: server_config?.formatting?.preserve_alignment }
                 );
                 
-                // Restore embedded blocks
-                for (const [my_placeholder, my_block_content] of the_embedded_blocks) {
-                    my_formatted_content = my_formatted_content.replace(
-                        my_placeholder,
-                        my_block_content
-                    );
-                }
+                // Restore embedded blocks with proper indentation using single-pass replacement
+                // Pattern captures: (leading whitespace)(placeholder with number)
+                const placeholder_pattern = /^([ \t]*)(__EMBEDDED_BLOCK_(\d+)__)/gm;
+                my_formatted_content = my_formatted_content.replace(
+                    placeholder_pattern,
+                    (_match, leading_indent: string, _full_placeholder: string, block_num: string) => {
+                        const my_placeholder = `__EMBEDDED_BLOCK_${block_num}__`;
+                        const my_block_info = the_embedded_blocks.get(my_placeholder);
+                        if (!my_block_info) {
+                            return leading_indent + my_placeholder; // Shouldn't happen, but be safe
+                        }
+                        
+                        // Apply the placeholder's indentation to the block content
+                        const block_lines = my_block_info.content.split('\n');
+                        const expected_end_delimiter = my_block_info.range.end_delimiter?.command || 'end';
+                        const indented_block_lines = block_lines.map((line, index) => {
+                            if (index === 0) {
+                                // First line (opening delimiter): add placeholder indentation
+                                return leading_indent + line;
+                            } else if (index === block_lines.length - 1 && line.trim() === expected_end_delimiter) {
+                                // Last line is the end delimiter: add placeholder indentation
+                                return leading_indent + line;
+                            } else {
+                                // Middle lines (embedded content): preserve as-is
+                                return line;
+                            }
+                        });
+                        
+                        return indented_block_lines.join('\n');
+                    }
+                );
             } else {
                 my_formatted_content = document.content;
             }
@@ -247,18 +292,41 @@ export class CodeFormatter {
 
     /**
      * Extract the full content of an embedded language block including delimiters.
+     * 
+     * Note: context_range.range excludes the end delimiter line, but we need to
+     * include it. Use end_delimiter.range.start.line if available, otherwise
+     * fall back to context_range.range.end.line.
+     * 
+     * The first line's (opening delimiter) and last line's (closing delimiter)
+     * leading whitespace is stripped since the formatter will handle indentation.
+     * This prevents double-indentation when the block is restored.
      */
     private extract_block_content(
         doc: DocumentLike,
         context_range: ContextRange
     ): string {
         const the_start_line = context_range.range.start.line;
-        const the_end_line = context_range.range.end.line;
+        // Include the end delimiter line (context range excludes it, but we need it)
+        const the_end_line = context_range.end_delimiter
+            ? context_range.end_delimiter.range.start.line
+            : context_range.range.end.line;
         const the_line_count = get_line_count(doc);
         const the_block_lines: string[] = [];
 
         for (let i = the_start_line; i <= the_end_line && i < the_line_count; i++) {
-            the_block_lines.push(get_line_text(doc, i));
+            const line_text = get_line_text(doc, i);
+            if (i === the_start_line) {
+                // Strip leading whitespace from the first line (opening delimiter)
+                // since the formatter will handle indentation.
+                the_block_lines.push(line_text.trimStart());
+            } else if (i === the_end_line && !context_range.is_single_line) {
+                // Strip leading whitespace from the last line (closing delimiter)
+                // since the formatter will handle indentation.
+                // Only do this for multi-line blocks (not single-line mata: calls)
+                the_block_lines.push(line_text.trimStart());
+            } else {
+                the_block_lines.push(line_text);
+            }
         }
 
         return the_block_lines.join('\n');
@@ -266,6 +334,9 @@ export class CodeFormatter {
 
     /**
      * Replace a range in content with new text.
+     * 
+     * Note: The end character position is clamped to the actual line length to prevent
+     * overflow when MAX_SAFE_INTEGER is used (e.g., for single-line embedded calls).
      */
     private replace_range_in_content(
         content: string,
@@ -280,7 +351,19 @@ export class CodeFormatter {
         }
 
         const the_start_offset = the_offsets[range.start.line] + range.start.character;
-        const the_end_offset = the_offsets[range.end.line] + range.end.character;
+        
+        // Calculate end offset, clamping to actual line length if needed
+        // This prevents overflow when MAX_SAFE_INTEGER is used as end character
+        let the_end_offset = the_offsets[range.end.line] + range.end.character;
+        
+        // Only clamp if the calculated offset exceeds content length
+        // This is an optimization to avoid extra calculations in the common case
+        if (the_end_offset > content.length) {
+            const the_line_end_offset = range.end.line + 1 < the_offsets.length
+                ? the_offsets[range.end.line + 1] - 1  // -1 to exclude newline
+                : content.length;
+            the_end_offset = the_line_end_offset;
+        }
 
         return content.substring(0, the_start_offset) + new_text + content.substring(the_end_offset);
     }

@@ -232,6 +232,7 @@ export interface CommandNode {
   expression?: string;
   ifExpression?: string;
   inExpression?: string;
+  body?: StataNode[];  // For prefix command brace blocks (e.g., capture { })
   range: Range;
   leadingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];

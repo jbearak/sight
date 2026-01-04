@@ -287,6 +287,16 @@ export class PrettyPrinter {
     }
 
     /**
+     * Normalize condition formatting by removing spaces around parentheses.
+     */
+    private normalizeCondition(condition: string): string {
+        if (!condition) return condition;
+        
+        // Remove spaces after opening parenthesis and before closing parenthesis
+        return condition.replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+    }
+
+    /**
      * Print a control flow statement (if, else, foreach, forvalues, while).
      */
     private printControlFlow(node: ControlFlowNode): string {
@@ -297,7 +307,7 @@ export class PrettyPrinter {
 
         switch (node.type) {
             case 'if':
-                header += `if ${node.condition || ''} {`;
+                header += `if ${this.normalizeCondition(node.condition || '')} {`;
                 break;
             case 'else':
                 header += 'else {';
@@ -309,7 +319,7 @@ export class PrettyPrinter {
                 header += `forvalues ${node.loopVar || ''} ${node.loopSpec || ''} {`;
                 break;
             case 'while':
-                header += `while ${node.condition || ''} {`;
+                header += `while ${this.normalizeCondition(node.condition || '')} {`;
                 break;
         }
 
@@ -349,6 +359,11 @@ export class PrettyPrinter {
      * Preserves the content unchanged while formatting delimiters.
      */
     private printEmbeddedBlock(node: EmbeddedLanguageBlockNode): string {
+        if (node.is_single_line) {
+            // For single-line embedded blocks, print everything on one line
+            return `${this.getIndent()}${node.start_command} ${node.content}${this.getStatementTerminator()}`;
+        }
+
         const the_lines: string[] = [];
 
         // Print start delimiter
@@ -359,7 +374,7 @@ export class PrettyPrinter {
         the_lines.push(node.content);
 
         // Ensure content ends with newline if not single-line
-        if (!node.is_single_line && !node.content.endsWith('\n')) {
+        if (!node.content.endsWith('\n')) {
             the_lines.push('\n');
         }
 

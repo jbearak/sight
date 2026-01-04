@@ -245,19 +245,8 @@ export class CommentToggle {
    */
   uncomment_all_styles(line: string): string {
     // Try to remove each comment style
-    const my_patterns = [
-      /^\s*\/\/\s?/,      // // style
-      /^\s*\*\s?/,        // * style
-      /^\s*\/\/\/\s?/,    // /// style (continuation)
-      /^\s*\/\*\s?/,      // /* style (start)
-      /\s?\*\/\s*$/,      // */ style (end)
-    ];
-
-    let my_result = line;
-    for (const my_pattern of my_patterns) {
-      my_result = my_result.replace(my_pattern, '');
-    }
-
-    return my_result;
+    const my_pattern = /^\s*\/\/\/\s?|^\s*\/\/\s?|^\s*\*\s?|^\s*\/\*\s?|\s?\*\/\s*$/;
+    
+    return line.replace(my_pattern, '');
   }
 }

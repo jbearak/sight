@@ -65,10 +65,12 @@ describe('Formatter Performance Tests', () => {
 
     describe('Many Embedded Blocks Performance', () => {
         // Use stricter thresholds locally, relaxed in CI for environment variance
+        // Note: These thresholds account for correct content preservation behavior
+        // (previous thresholds were based on buggy code that deleted content)
         const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
-        const threshold100 = isCI ? 30 : 10;    // Local: 10ms, CI: 30ms (3x)
-        const threshold500 = isCI ? 90 : 30;    // Local: 30ms, CI: 90ms (3x)
-        const thresholdLimit = isCI ? 150 : 50; // Local: 50ms, CI: 150ms (3x)
+        const threshold100 = isCI ? 30 : 10;     // Local: 10ms, CI: 30ms (3x)
+        const threshold500 = isCI ? 150 : 50;    // Local: 50ms, CI: 150ms (3x)
+        const thresholdLimit = isCI ? 450 : 150; // Local: 150ms, CI: 450ms (3x)
 
         it(`should handle 100 embedded blocks in under ${threshold100}ms`, () => {
             const content = generate_file_with_embedded_blocks(100);
