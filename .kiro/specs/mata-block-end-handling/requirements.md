@@ -54,3 +54,15 @@ Both bugs stem from the same root cause: the context range for Mata blocks exclu
 1. WHEN the context range for a Mata block ends at line N, THE CodeFormatter SHALL extract content from the start line through line N+1 (including the end delimiter)
 2. WHEN the context range for a Python block ends at line N, THE CodeFormatter SHALL extract content from the start line through line N+1 (including the end delimiter)
 3. THE IndentationDiagnosticAnalyzer SHALL use AST node ranges (which include the end delimiter) rather than context ranges (which exclude it) for depth computation
+
+### Requirement 4: Formatter Indentation Analyzer Embedded Block Recognition
+
+**User Story:** As a developer, I want the formatter to correctly recognize Mata/Python blocks as block structures, so that the opening delimiter is not incorrectly indented.
+
+#### Acceptance Criteria
+
+1. WHEN formatting a document containing a Mata block, THE IndentationAnalyzer SHALL recognize `embedded_block` AST nodes as block structures
+2. WHEN computing indentation for a Mata block, THE IndentationAnalyzer SHALL set the start line (`mata`) at the current depth without adding extra indentation
+3. WHEN computing indentation for a Mata block, THE IndentationAnalyzer SHALL set the end line (`end`) at the same depth as the start line
+4. THE IndentationAnalyzer SHALL NOT recurse into embedded block content (it's a different language)
+5. WHEN formatting a document containing a Python block, THE IndentationAnalyzer SHALL apply the same rules as for Mata blocks

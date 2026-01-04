@@ -272,6 +272,9 @@ export class CodeFormatter {
      * Note: context_range.range excludes the end delimiter line, but we need to
      * include it. Use end_delimiter.range.start.line if available, otherwise
      * fall back to context_range.range.end.line.
+     * 
+     * The first line's leading whitespace is stripped since the formatter will
+     * handle indentation. This prevents double-indentation when the block is restored.
      */
     private extract_block_content(
         doc: DocumentLike,
@@ -286,7 +289,14 @@ export class CodeFormatter {
         const the_block_lines: string[] = [];
 
         for (let i = the_start_line; i <= the_end_line && i < the_line_count; i++) {
-            the_block_lines.push(get_line_text(doc, i));
+            const line_text = get_line_text(doc, i);
+            if (i === the_start_line) {
+                // Strip leading whitespace from the first line since the formatter
+                // will handle indentation. This prevents double-indentation.
+                the_block_lines.push(line_text.trimStart());
+            } else {
+                the_block_lines.push(line_text);
+            }
         }
 
         return the_block_lines.join('\n');

@@ -47,7 +47,42 @@ This plan implements fixes for two related bugs in Mata/Python block `end` state
   - Run full test suite
   - Ensure all tests pass, ask the user if questions arise.
 
+- [x] 5. Fix IndentationAnalyzer (Formatter) to handle embedded_block nodes
+  - [x] 5.1 Add embedded_block to is_block_node method
+    - Add `node.type === 'embedded_block'` check
+    - _Requirements: 4.1_
+
+  - [x] 5.2 Add process_embedded_block_node method
+    - Set start line depth at current_depth
+    - Set end line depth at current_depth (same as start)
+    - Do NOT recurse into embedded content
+    - _Requirements: 4.2, 4.3, 4.4, 4.5_
+
+  - [x] 5.3 Update walk_node to handle embedded_block before general block processing
+    - Check for embedded_block type early
+    - Call process_embedded_block_node and return
+    - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
+
+  - [x] 5.4 Fix extract_block_content to strip leading whitespace from first line
+    - Strip leading whitespace from first line to prevent double-indentation
+    - Formatter handles indentation, so original whitespace should be removed
+    - _Requirements: 4.2_
+
+  - [ ]* 5.5 Write property test for formatter embedded block indentation
+    - **Property 3: Formatter embedded block indentation correctness**
+    - Generate Mata/Python blocks at various nesting depths
+    - Verify formatter doesn't add extra indentation to opening delimiter
+    - **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
+
+- [x] 6. Final checkpoint - Verify all fixes
+  - Run the reproduction test (tests/repro_mata_indent.test.ts)
+  - Ensure formatter doesn't over-indent mata keyword
+  - Run full test suite
+  - Ensure all tests pass, ask the user if questions arise.
+
 ## Notes
 
 - The reproduction test already exists and will verify the fixes
 - Both bugs share the same root cause (context range vs AST range mismatch)
+- Task 5 addresses a separate but related issue: the formatter's IndentationAnalyzer doesn't recognize embedded_block nodes, causing the `mata` keyword to be over-indented
+- The IndentationDiagnosticAnalyzer (for warnings) was fixed in Task 1, but the IndentationAnalyzer (for formatting) needs the same fix

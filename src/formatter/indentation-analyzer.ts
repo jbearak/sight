@@ -65,6 +65,12 @@ export class IndentationAnalyzer {
         // Process leading trivia before the node
         this.process_node_trivia(node);
 
+        // Handle embedded_block nodes specially (Mata/Python blocks)
+        if (node.type === 'embedded_block') {
+            this.process_embedded_block_node(node);
+            return;
+        }
+
         if (this.is_block_node(node)) {
             if (node.type === 'command' && (node as any).name === '{') {
                 this.process_command_brace_block(node);
@@ -126,6 +132,7 @@ export class IndentationAnalyzer {
                node.type === 'forvalues' ||
                node.type === 'while' ||
                node.type === 'frame' ||
+               node.type === 'embedded_block' ||
                (node.type === 'command' && (node as any).name === '{');
     }
 
@@ -161,6 +168,29 @@ export class IndentationAnalyzer {
             const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
             this.set_indentation(end_line, this.current_depth, false, false, true, false, end_delta_info.delta, end_delta_info.original_indent);
         }
+    }
+
+    /**
+     * Process embedded_block nodes (Mata/Python blocks).
+     * Sets start and end line depths at current_depth without recursing into content.
+     */
+    private process_embedded_block_node(node: StataNode): void {
+        const start_line = node.range.start.line;
+        const end_line = node.range.end.line;
+
+        // Set indentation for the start line (mata/python) at current depth
+        const start_delta_info = this.calculate_indent_delta(start_line, this.current_depth);
+        this.set_indentation(start_line, this.current_depth, false, true, false, false, 
+            start_delta_info.delta, start_delta_info.original_indent);
+
+        // Set indentation for the end line (end) at current depth (same as start)
+        if (end_line !== start_line) {
+            const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
+            this.set_indentation(end_line, this.current_depth, false, false, true, false, 
+                end_delta_info.delta, end_delta_info.original_indent);
+        }
+
+        // Do NOT recurse into embedded block content - it's a different language
     }
 
     private process_command_brace_block(node: StataNode): void {

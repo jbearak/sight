@@ -171,6 +171,80 @@ private format_with_embedded_preservation(
 }
 ```
 
+### Component 3: IndentationAnalyzer (Formatter)
+
+The `IndentationAnalyzer` in `src/formatter/indentation-analyzer.ts` needs to recognize `embedded_block` AST nodes as block structures.
+
+#### Modified Method: `is_block_node`
+
+Add `embedded_block` to the list of recognized block types:
+
+```typescript
+private is_block_node(node: StataNode): boolean {
+    return node.type === 'program' ||
+           node.type === 'if' ||
+           node.type === 'else' ||
+           node.type === 'foreach' ||
+           node.type === 'forvalues' ||
+           node.type === 'while' ||
+           node.type === 'frame' ||
+           node.type === 'embedded_block' ||  // NEW: recognize embedded blocks
+           (node.type === 'command' && (node as any).name === '{');
+}
+```
+
+#### Modified Method: `walk_node`
+
+Add handling for `embedded_block` nodes before the general block node processing:
+
+```typescript
+private walk_node(node: StataNode): void {
+    // Process leading trivia before the node
+    this.process_node_trivia(node);
+
+    // NEW: Handle embedded_block nodes specially
+    if (node.type === 'embedded_block') {
+        this.process_embedded_block_node(node);
+        return;
+    }
+
+    if (this.is_block_node(node)) {
+        if (node.type === 'command' && (node as any).name === '{') {
+            this.process_command_brace_block(node);
+        } else {
+            this.process_block_node(node as ControlFlowNode | ProgramNode);
+        }
+    } else {
+        this.process_regular_node(node);
+    }
+}
+```
+
+#### New Method: `process_embedded_block_node`
+
+Handle embedded blocks by setting start and end line depths without recursing into content:
+
+```typescript
+private process_embedded_block_node(node: StataNode): void {
+    const start_line = node.range.start.line;
+    const end_line = node.range.end.line;
+
+    // Set indentation for the start line (mata/python) at current depth
+    const start_delta_info = this.calculate_indent_delta(start_line, this.current_depth);
+    this.set_indentation(start_line, this.current_depth, false, true, false, false, 
+        start_delta_info.delta, start_delta_info.original_indent);
+
+    // Set indentation for the end line (end) at current depth (same as start)
+    if (end_line !== start_line) {
+        const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
+        this.set_indentation(end_line, this.current_depth, false, false, true, false, 
+            end_delta_info.delta, end_delta_info.original_indent);
+    }
+
+    // Do NOT recurse into embedded block content - it's a different language
+}
+```
+
 ## Data Models
 
 ### ContextRange (existing, for reference)
@@ -226,6 +300,12 @@ The AST node's `range.end.line` includes the end delimiter line, unlike the cont
 *For any* valid Stata document containing Mata or Python blocks, formatting the document SHALL produce output that contains all original statements including the `end` delimiter and any code following the embedded block.
 
 **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2**
+
+### Property 3: Formatter embedded block indentation correctness
+
+*For any* Stata document containing a Mata or Python block at any nesting depth, the formatter SHALL NOT add extra indentation to the opening delimiter (`mata` or `python`) beyond what is expected for its nesting level.
+
+**Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
 
 ## Error Handling
 
