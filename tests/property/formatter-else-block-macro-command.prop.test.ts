@@ -21,13 +21,14 @@ import {
     DEFAULT_FORMATTING_OPTIONS,
 } from './helpers/formatter-test-utils';
 import { create_document_state } from './helpers/document-utils';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Formatter Else Block with Macro Command Properties', () => {
     const formatter = new CodeFormatter();
     const options = DEFAULT_FORMATTING_OPTIONS;
 
     // Generator for valid Stata macro names
-    const macro_name_arb = fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]{0,8}$/);
+    const macro_name_arb = arbitrary_non_reserved_identifier();
 
     // Generator for simple string arguments
     const string_arg_arb = fc.stringMatching(/^[a-zA-Z0-9_]{1,10}$/).map(s => `"${s}"`);
