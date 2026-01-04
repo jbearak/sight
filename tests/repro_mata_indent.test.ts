@@ -7,6 +7,7 @@ import { DocumentState } from '../src/document-store';
 import { CodeFormatter } from '../src/providers/formatter';
 import { init_tracker_from_source } from './test-context-helper';
 import { for_each_formatter_mode, create_formatter_config } from './property/helpers/formatter-test-utils';
+import { createTestConfig } from './test-config-helper';
 
 describe('Mata block indentation bug reproduction', () => {
     it('should not flag end statement as unnecessarily indented', () => {
@@ -47,12 +48,11 @@ if \`is_default' == 1 {
         };
 
         const analyzer = new IndentationDiagnosticAnalyzer();
-        const config = {
-            diagnostics: { indentation: true },
-            formatting: { indentSize: 4 }
-        };
+        const config = createTestConfig({
+            formatting: { indentSize: 4 } as any
+        });
 
-        const diagnostics = analyzer.analyze(document, config as any);
+        const diagnostics = analyzer.analyze(document, config);
 
         // The "end" statement on line 10 should NOT be flagged as unnecessarily indented
         // It's correctly indented at the same level as "mata" (both inside the if block)
