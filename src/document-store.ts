@@ -320,11 +320,20 @@ export class DocumentStore {
 
   /**
    * Find the URI with the oldest access timestamp.
-   * O(1) - Map iteration order is insertion order, and touch_access maintains oldest-first.
+   * O(n) - Must iterate through Map values to find minimum timestamp.
    */
   private find_oldest_uri(): string | undefined {
-    const first = this.access_order.keys().next();
-    return first.done ? undefined : first.value;
+    let oldest_uri: string | undefined;
+    let oldest_timestamp = Infinity;
+    
+    for (const [uri, timestamp] of this.access_order) {
+      if (timestamp < oldest_timestamp) {
+        oldest_timestamp = timestamp;
+        oldest_uri = uri;
+      }
+    }
+    
+    return oldest_uri;
   }
 
   /**
