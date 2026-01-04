@@ -177,10 +177,31 @@ export class CodeFormatter {
                 my_range
             ));
 
-            // Replace the block with placeholder
+            // Calculate the actual range to replace
+            // For single-line contexts (mata:, python:), use the range as-is
+            // For multi-line blocks, include the end delimiter line
+            let actual_range: Range;
+            if (my_range.is_single_line) {
+                // Single-line context: range already covers the entire line
+                actual_range = my_range.range;
+            } else {
+                // Multi-line block: context_range.range excludes the end delimiter,
+                // but we need to include it
+                const actual_end_line = my_range.end_delimiter
+                    ? my_range.end_delimiter.range.start.line
+                    : my_range.range.end.line;
+                // Get the length of the end line to use as the end character
+                const end_line_text = get_line_text(the_doc, actual_end_line);
+                actual_range = {
+                    start: my_range.range.start,
+                    end: { line: actual_end_line, character: end_line_text.length }
+                };
+            }
+
+            // Replace the block with placeholder using the actual range
             my_modified_content = this.replace_range_in_content(
                 my_modified_content,
-                my_range.range,
+                actual_range,
                 my_placeholder
             );
 
@@ -247,13 +268,20 @@ export class CodeFormatter {
 
     /**
      * Extract the full content of an embedded language block including delimiters.
+     * 
+     * Note: context_range.range excludes the end delimiter line, but we need to
+     * include it. Use end_delimiter.range.start.line if available, otherwise
+     * fall back to context_range.range.end.line.
      */
     private extract_block_content(
         doc: DocumentLike,
         context_range: ContextRange
     ): string {
         const the_start_line = context_range.range.start.line;
-        const the_end_line = context_range.range.end.line;
+        // Include the end delimiter line (context range excludes it, but we need it)
+        const the_end_line = context_range.end_delimiter
+            ? context_range.end_delimiter.range.start.line
+            : context_range.range.end.line;
         const the_line_count = get_line_count(doc);
         const the_block_lines: string[] = [];
 

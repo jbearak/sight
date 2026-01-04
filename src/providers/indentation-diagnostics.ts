@@ -427,6 +427,20 @@ export class IndentationDiagnosticAnalyzer {
         }
       }
       
+      // Handle embedded_block nodes (Mata/Python blocks)
+      // The end delimiter should be at the same depth as the start delimiter
+      // Don't recurse into embedded block content (it's a different language)
+      if (node.type === 'embedded_block') {
+        // Set expected depth for the end line (containing 'end')
+        if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
+          if (!expected_depths.has(end_line)) {
+            expected_depths.set(end_line, current_depth);
+          }
+        }
+        // Don't recurse into embedded block content
+        return;
+      }
+      
       // Check if this is a block node that increases depth
       if (this.is_block_node_type(node)) {
         const block_node = node as ControlFlowNode | ProgramNode;
