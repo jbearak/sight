@@ -1723,8 +1723,8 @@ export class ScopeResolver {
         new_symbols: OutOfScopeSymbol[]
     ): void {
         // Build index once for O(n) lookups instead of O(n²)
-        // ASSUMPTION: out_of_scope array is only modified via push() and element replacement
-        // If elements are removed or reordered elsewhere, this index becomes stale
+        // ASSUMPTION: Within this function, out_of_scope is only modified via push()
+        //   and element replacement. No removals or reordering occur.
         const name_to_index = new Map<string, number>();
         for (let i = 0; i < out_of_scope.length; i++) {
             name_to_index.set(out_of_scope[i].name, i);
