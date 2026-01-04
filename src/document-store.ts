@@ -293,6 +293,8 @@ export class DocumentStore {
         this.documents.delete(oldest);
         this.access_order.delete(oldest);
         this.metrics.evictions++;
+      } else {
+        break; // Safety: prevent infinite loop if access_order is inconsistent
       }
     }
 
@@ -308,6 +310,8 @@ export class DocumentStore {
         this.access_order.delete(oldest);
         this.metrics.evictions++;
         total_bytes = this.estimate_total_bytes();
+      } else {
+        break; // Safety: prevent infinite loop if access_order is inconsistent
       }
     }
   }
