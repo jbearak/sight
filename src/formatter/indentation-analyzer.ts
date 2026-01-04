@@ -1,4 +1,4 @@
-import { StataAST, StataNode, ControlFlowNode, ProgramNode, TriviaNode, Token } from '../types';
+import { StataAST, StataNode, ControlFlowNode, ProgramNode, CommandNode, TriviaNode, Token } from '../types';
 import { ContinuationGroup } from './alignment-detector';
 
 export interface IndentationInfo {
@@ -20,6 +20,15 @@ export class IndentationAnalyzer {
 
     constructor(indent_size: number = 4) {
         this.indent_size = indent_size;
+    }
+
+    private has_body(node: StataNode): node is ControlFlowNode | ProgramNode | (CommandNode & { body: StataNode[] }) {
+        return (
+            (node.type === 'if' || node.type === 'else' || node.type === 'foreach' || 
+             node.type === 'forvalues' || node.type === 'while' || node.type === 'frame' ||
+             node.type === 'program') ||
+            (node.type === 'command' && 'body' in node && Array.isArray(node.body))
+        );
     }
 
     analyze(ast: StataAST, tokens?: Token[], alignment_info?: Map<number, ContinuationGroup>, original_source?: string): Map<number, IndentationInfo> {
@@ -205,7 +214,7 @@ export class IndentationAnalyzer {
         this.current_depth++;
 
         // If the node has a body, process child nodes
-        if (node.type === 'command' && node.body) {
+        if (this.has_body(node)) {
             for (const my_child of node.body) {
                 this.walk_node(my_child);
             }
