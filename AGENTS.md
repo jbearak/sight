@@ -544,3 +544,105 @@ const inc = wage * hours;  // Should be: const income_usd = wage_usd * hours
 // WRONG: missing my_/the_ prefixes
 for (const state of stateList)  // Should be: for (const my_state of the_states)
 ```
+
+## Performance Patterns
+
+Avoid common O(n²) patterns that degrade performance on large inputs.
+
+### Array Lookups in Loops
+
+**BAD** - O(n²) with `.some()`/`.includes()`/`.find()` inside loops:
+```typescript
+for (const my_item of the_items) {
+    if (the_results.some(r => r.name === my_item.name)) continue;  // O(n) per iteration
+    the_results.push(my_item);
+}
+```
+
+**GOOD** - O(n) with Set for lookups:
+```typescript
+const seen_names = new Set<string>();
+for (const my_item of the_items) {
+    if (seen_names.has(my_item.name)) continue;  // O(1) per iteration
+    seen_names.add(my_item.name);
+    the_results.push(my_item);
+}
+```
+
+### String Concatenation in Loops
+
+**BAD** - O(n²) due to string immutability:
+```typescript
+let result = '';
+for (const my_token of the_tokens) {
+    result += my_token.value;  // Creates new string each iteration
+}
+```
+
+**GOOD** - O(n) with array + join:
+```typescript
+const the_parts: string[] = [];
+for (const my_token of the_tokens) {
+    the_parts.push(my_token.value);
+}
+const result = the_parts.join('');
+```
+
+**GOOD** - O(n) with substring for character-by-character:
+```typescript
+const start_pos = this.position;
+while (this.position < this.content.length && is_valid_char(this.content[this.position])) {
+    this.position++;
+}
+const result = this.content.substring(start_pos, this.position);
+```
+
+### Regex in Loops
+
+**BAD** - O(n) regex operations per iteration:
+```typescript
+for (const [my_placeholder, my_content] of the_placeholders) {
+    text = text.replace(new RegExp(my_placeholder, 'g'), my_content);  // Full scan per placeholder
+}
+```
+
+**GOOD** - Single regex with callback:
+```typescript
+text = text.replace(/__PLACEHOLDER_(\d+)__/g, (match, num) => {
+    return the_placeholders.get(match) ?? match;
+});
+```
+
+**BAD** - RegExp created inside function (called repeatedly):
+```typescript
+function extract_patterns(content: string) {
+    const pattern = new RegExp(SOME_PATTERN.source, 'gi');  // Created every call
+    // ...
+}
+```
+
+**GOOD** - RegExp hoisted to module level:
+```typescript
+const SOME_REGEX = new RegExp(SOME_PATTERN.source, 'gi');
+
+function extract_patterns(content: string) {
+    SOME_REGEX.lastIndex = 0;  // Reset for global regex
+    // ...
+}
+```
+
+### Multiple Array Scans
+
+**BAD** - Multiple passes over same array:
+```typescript
+const has_type_a = the_items.some(i => i.type === 'a');
+const has_type_b = the_items.some(i => i.type === 'b');
+const has_type_c = the_items.includes(some_item);
+```
+
+**GOOD** - Single pass with Set:
+```typescript
+const the_types = new Set(the_items.map(i => i.type));
+const has_type_a = the_types.has('a');
+const has_type_b = the_types.has('b');
+```
