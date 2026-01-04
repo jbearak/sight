@@ -63,18 +63,27 @@ export class IndentationDiagnosticAnalyzer {
     return ranges.length > 0 ? ranges : [{ start: 0, end: totalLines - 1 }];
   }
 
+  /**
+   * Calculate the visual width of leading whitespace, accounting for tab stops.
+   * Tabs expand to the next multiple of indent_size (tab stop).
+   * 
+   * @param line - The full line of text
+   * @param indent_size - Tab stop interval (typically 4, validated by config system)
+   * @returns Visual column width of leading whitespace
+   */
   private get_line_indentation(line: string, indent_size: number): number {
-    let level = 0;
+    let visual_column = 0;
     for (const char of line) {
       if (char === ' ') {
-        level += 1;
+        visual_column += 1;
       } else if (char === '\t') {
-        level += indent_size;
+        // Tab advances to next tab stop (next multiple of indent_size)
+        visual_column = Math.ceil((visual_column + 1) / indent_size) * indent_size;
       } else {
         break;
       }
     }
-    return level;
+    return visual_column;
   }
 
   private is_continuation_line(line: string, prevLine: string): boolean {
