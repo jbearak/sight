@@ -646,3 +646,93 @@ const the_types = new Set(the_items.map(i => i.type));
 const has_type_a = the_types.has('a');
 const has_type_b = the_types.has('b');
 ```
+
+## Type Safety
+
+Leverage TypeScript's type system to catch errors at compile time rather than runtime.
+
+### Avoid `any` Type
+
+**BAD** - Using `any` defeats type checking:
+```typescript
+function process_node(node: any) {
+    return node.name;  // No compile-time check if 'name' exists
+}
+```
+
+**GOOD** - Use proper types or union types:
+```typescript
+function process_node(node: StataNode) {
+    if (node.type === 'command') {
+        return node.name;  // TypeScript knows 'name' exists on command nodes
+    }
+    return undefined;
+}
+```
+
+### Type Guards Before Property Access
+
+**BAD** - Accessing type-specific properties without checking:
+```typescript
+function get_name(node: StataNode) {
+    return node.name;  // Error: 'name' doesn't exist on all StataNode types
+}
+```
+
+**GOOD** - Check node type before accessing properties:
+```typescript
+function get_name(node: StataNode) {
+    if (node.type === 'command' || node.type === 'program_definition') {
+        return node.name;  // Safe: these types have 'name'
+    }
+    return undefined;
+}
+```
+
+**GOOD** - Use type guard functions for reusable checks:
+```typescript
+function is_named_node(node: StataNode): node is CommandNode | ProgramDefinitionNode {
+    return node.type === 'command' || node.type === 'program_definition';
+}
+
+function get_name(node: StataNode) {
+    if (is_named_node(node)) {
+        return node.name;  // TypeScript narrows the type
+    }
+    return undefined;
+}
+```
+
+### Discriminated Unions
+
+When working with AST nodes, use the `type` field as a discriminant:
+
+```typescript
+// The StataNode type is a discriminated union
+switch (node.type) {
+    case 'command':
+        // TypeScript knows node is CommandNode here
+        console.log(node.name, node.options);
+        break;
+    case 'macro_definition':
+        // TypeScript knows node is MacroDefinitionNode here
+        console.log(node.macro_name, node.value);
+        break;
+    case 'block':
+        // TypeScript knows node is BlockNode here
+        console.log(node.children);
+        break;
+}
+```
+
+### Optional Chaining for Uncertain Properties
+
+**BAD** - Assuming properties exist:
+```typescript
+const value = node.options[0].value;  // Crashes if options is empty
+```
+
+**GOOD** - Use optional chaining:
+```typescript
+const value = node.options?.[0]?.value;  // Returns undefined if path doesn't exist
+```
