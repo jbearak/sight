@@ -197,6 +197,14 @@ export class TokenReconstructor {
      * @returns Normalized whitespace with the same visual width
      */
     private normalize_whitespace(whitespace: string, config: FormatterConfig): string {
+        // Fast path: if already consistent style, return as-is
+        if (config.indent_style === 'spaces' && !whitespace.includes('\t')) {
+            return whitespace;
+        }
+        if (config.indent_style === 'tabs' && !whitespace.includes(' ')) {
+            return whitespace;
+        }
+        
         // Calculate the visual width of the original whitespace
         const visual_width = this.calculate_visual_width(whitespace, config.indent_size);
         

@@ -22,7 +22,9 @@ export class IndentationDiagnosticAnalyzer {
     const block_comment_lines = this.compute_block_comment_lines(lines);
     
     // Compute continuation lines from tokens for efficient lookup
-    const continuation_lines = this.compute_continuation_lines(document.tokens);
+    const continuation_lines = document.tokens 
+      ? this.compute_continuation_lines(document.tokens)
+      : new Set<number>();
     
     for (const range of stataRanges) {
       diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size));
@@ -413,9 +415,8 @@ export class IndentationDiagnosticAnalyzer {
     }
     
     // Walk the AST and compute expected depths
-    let current_depth = 0;
-    
-    const walk_node = (node: StataNode): void => {
+    // Pass depth as parameter to avoid shared state issues across sibling nodes
+    const walk_node = (node: StataNode, depth: number): void => {
       const start_line = node.range.start.line;
       const end_line = node.range.end.line;
       
@@ -423,7 +424,7 @@ export class IndentationDiagnosticAnalyzer {
       if (start_line >= range.start && start_line <= range.end) {
         // Set expected depth for the start line
         if (!expected_depths.has(start_line)) {
-          expected_depths.set(start_line, current_depth);
+          expected_depths.set(start_line, depth);
         }
       }
       
@@ -434,7 +435,7 @@ export class IndentationDiagnosticAnalyzer {
         // Set expected depth for the end line (containing 'end')
         if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
           if (!expected_depths.has(end_line)) {
-            expected_depths.set(end_line, current_depth);
+            expected_depths.set(end_line, depth);
           }
         }
         // Don't recurse into embedded block content
@@ -445,32 +446,24 @@ export class IndentationDiagnosticAnalyzer {
       if (this.is_block_node_type(node)) {
         const block_node = node as ControlFlowNode | ProgramNode;
         
-        // Increase depth for body
-        current_depth++;
-        
-        // Process body nodes
+        // Process body nodes with increased depth
         for (const my_child of block_node.body) {
           // Special case: if a child starts on the same line as the parent block,
           // it should be at the parent's indentation level, not indented.
           // This handles "else if" where the "if" is on the same line as "else".
           const child_start_line = my_child.range.start.line;
           if (child_start_line === start_line && this.is_block_node_type(my_child)) {
-            // Temporarily restore parent depth for this child
-            current_depth--;
-            walk_node(my_child);
-            current_depth++;
+            // Use parent depth for this child (same line)
+            walk_node(my_child, depth);
           } else {
-            walk_node(my_child);
+            walk_node(my_child, depth + 1);
           }
         }
-        
-        // Decrease depth after body
-        current_depth--;
         
         // Set expected depth for the end line (closing brace)
         if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
           if (!expected_depths.has(end_line)) {
-            expected_depths.set(end_line, current_depth);
+            expected_depths.set(end_line, depth);
           }
         }
       }
@@ -478,7 +471,7 @@ export class IndentationDiagnosticAnalyzer {
     
     // Walk all top-level nodes
     for (const my_node of document.ast.nodes) {
-      walk_node(my_node);
+      walk_node(my_node, 0);
     }
     
     // Compute and merge brace block depths
