@@ -26,37 +26,11 @@ if \`is_default' == 1 {
         const lexer = new StataLexer();
         const lex_result = lexer.tokenize(source);
 
-        console.log("=== TOKENS ===");
-        for (const token of lex_result.tokens) {
-            if (token.type !== 'WHITESPACE') {
-                console.log(`Line ${token.range.start.line}: ${token.type} = "${token.value}"`);
-            }
-        }
-
         const context_tracker = new ContextTracker();
         init_tracker_from_source(context_tracker, source);
 
-        console.log("\n=== CONTEXT RANGES ===");
-        const context_ranges = context_tracker.get_all_context_ranges();
-        for (const range of context_ranges) {
-            console.log(`Context: ${range.context}, Lines: ${range.range.start.line}-${range.range.end.line}`);
-        }
-
         const parser = new StataParser();
         const parse_result = parser.parse(lex_result.tokens, context_tracker);
-
-        console.log("\n=== AST NODES ===");
-        function printNode(node: any, indent: string = "") {
-            console.log(`${indent}${node.type}: lines ${node.range.start.line}-${node.range.end.line}`);
-            if (node.body) {
-                for (const child of node.body) {
-                    printNode(child, indent + "  ");
-                }
-            }
-        }
-        for (const node of parse_result.ast.nodes) {
-            printNode(node);
-        }
 
         // Create document state
         const document: DocumentState = {
@@ -78,17 +52,7 @@ if \`is_default' == 1 {
             formatting: { indentSize: 4 }
         };
 
-        console.log("\n=== EXPECTED DEPTHS ===");
-        const expected_depths = analyzer.compute_expected_depths(document, { start: 0, end: 15 });
-        for (const [line, depth] of expected_depths) {
-            console.log(`Line ${line}: depth ${depth}`);
-        }
-
-        console.log("\n=== DIAGNOSTICS ===");
         const diagnostics = analyzer.analyze(document, config as any);
-        for (const diag of diagnostics) {
-            console.log(`Line ${diag.range.start.line}: ${diag.message}`);
-        }
 
         // The "end" statement on line 10 should NOT be flagged as unnecessarily indented
         // It's correctly indented at the same level as "mata" (both inside the if block)
@@ -136,11 +100,6 @@ if \`is_default' == 1 {
         const config = create_formatter_config(mode);
         const formatter = new CodeFormatter(config);
         const edits = formatter.format(document, { tabSize: 4, insertSpaces: true });
-
-        console.log(`\n=== FORMATTED OUTPUT [${mode}] ===`);
-        if (edits.length > 0) {
-            console.log(edits[0].newText);
-        }
 
         // The formatted output should contain:
         // 1. The "end" statement

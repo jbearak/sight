@@ -86,16 +86,7 @@ describe('Continuation Line False Positive - UNNECESSARY_INDENTATION', () => {
     const doc = create_document(content);
     const diagnostics = analyzer.analyze(doc, config);
 
-    // Log for debugging
-    console.log("Content lines (with tabs):");
-    content.split('\n').forEach((line, i) => {
-      console.log(`  Line ${i}: "${line.replace(/\t/g, '→')}"`);
-    });
 
-    console.log("\nDiagnostics:");
-    diagnostics.forEach(d => {
-      console.log(`  Line ${d.range.start.line}: ${d.message} (code: ${d.code})`);
-    });
 
     // Lines 4 and 5 (0-indexed) are continuation lines - should NOT be flagged
     const continuation_diagnostics = diagnostics.filter(
