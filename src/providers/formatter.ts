@@ -238,38 +238,37 @@ export class CodeFormatter {
                     { preserve_alignment: server_config?.formatting?.preserve_alignment }
                 );
                 
-                // Restore embedded blocks with proper indentation
-                for (const [my_placeholder, my_block_info] of the_embedded_blocks) {
-                    // Find the placeholder in the formatted content and get its indentation
-                    const placeholder_match = my_formatted_content.match(
-                        new RegExp(`^([ \\t]*)${my_placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm')
-                    );
-                    const placeholder_indent = placeholder_match ? placeholder_match[1] : '';
-                    
-                    // Apply the placeholder's indentation to the block content
-                    // The first line already has no leading whitespace (stripped in extract_block_content)
-                    // The last line (end delimiter) also has no leading whitespace (stripped)
-                    // We need to add the placeholder's indentation to both
-                    const block_lines = my_block_info.content.split('\n');
-                    const expected_end_delimiter = my_block_info.range.end_delimiter?.command || 'end';
-                    const indented_block_lines = block_lines.map((line, index) => {
-                        if (index === 0) {
-                            // First line (opening delimiter): add placeholder indentation
-                            return placeholder_indent + line;
-                        } else if (index === block_lines.length - 1 && line.trim() === expected_end_delimiter) {
-                            // Last line is the end delimiter: add placeholder indentation
-                            return placeholder_indent + line;
-                        } else {
-                            // Middle lines (embedded content): preserve as-is
-                            return line;
+                // Restore embedded blocks with proper indentation using single-pass replacement
+                // Pattern captures: (leading whitespace)(placeholder with number)
+                const placeholder_pattern = /^([ \t]*)(__EMBEDDED_BLOCK_(\d+)__)/gm;
+                my_formatted_content = my_formatted_content.replace(
+                    placeholder_pattern,
+                    (_match, leading_indent: string, _full_placeholder: string, block_num: string) => {
+                        const my_placeholder = `__EMBEDDED_BLOCK_${block_num}__`;
+                        const my_block_info = the_embedded_blocks.get(my_placeholder);
+                        if (!my_block_info) {
+                            return leading_indent + my_placeholder; // Shouldn't happen, but be safe
                         }
-                    });
-                    
-                    my_formatted_content = my_formatted_content.replace(
-                        new RegExp(`[ \\t]*${my_placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
-                        indented_block_lines.join('\n')
-                    );
-                }
+                        
+                        // Apply the placeholder's indentation to the block content
+                        const block_lines = my_block_info.content.split('\n');
+                        const expected_end_delimiter = my_block_info.range.end_delimiter?.command || 'end';
+                        const indented_block_lines = block_lines.map((line, index) => {
+                            if (index === 0) {
+                                // First line (opening delimiter): add placeholder indentation
+                                return leading_indent + line;
+                            } else if (index === block_lines.length - 1 && line.trim() === expected_end_delimiter) {
+                                // Last line is the end delimiter: add placeholder indentation
+                                return leading_indent + line;
+                            } else {
+                                // Middle lines (embedded content): preserve as-is
+                                return line;
+                            }
+                        });
+                        
+                        return indented_block_lines.join('\n');
+                    }
+                );
             } else {
                 my_formatted_content = document.content;
             }
