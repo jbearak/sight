@@ -100,7 +100,7 @@ describe('Completion Ranking', () => {
                     const key_a = compute_ranking_key(factors_a);
                     const key_b = compute_ranking_key(factors_b);
                     
-                    const expected_order = name_a.toLowerCase().localeCompare(name_b.toLowerCase()) < 0;
+                    const expected_order = name_a.toLowerCase() < name_b.toLowerCase();
                     const actual_order = key_a < key_b;
                     
                     expect(actual_order).toBe(expected_order);
