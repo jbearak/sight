@@ -6,18 +6,19 @@ import { StataLSPConfig, CrossFileConfig } from '../src/types';
  */
 export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): StataLSPConfig {
     const defaultCrossFile: CrossFileConfig = {
-        indexWorkspace: true,
-        maxIndexedFiles: 1000,
-        maxBackwardDepth: 10,
-        maxForwardDepth: 10,
-        maxChainDepth: 20,
-        maxCalleeRevalidations: 10,
-        assumeCallSite: 'end',
+        index_workspace: true,
+        max_indexed_files: 1000,
+        max_backward_depth: 10,
+        max_forward_depth: 10,
+        max_chain_depth: 20,
+        max_callee_revalidations: 10,
+        assume_call_site: 'end',
         diagnostics: {
-            undefinedSymbol: 'warning',
-            outOfScope: 'information',
-            missingFile: 'warning',
-            callSiteIdentification: 'information'
+            undefined_symbol: 'warning',
+            out_of_scope: 'information',
+            missing_file: 'warning',
+            max_depth: 'warning',
+            call_site_identification: 'information'
         }
     };
 
