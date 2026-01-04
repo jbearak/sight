@@ -1,7 +1,7 @@
 import { Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { LanguageContext } from '../context-tracker/types';
-import { StataDiagnosticCode, StataLSPConfig, StataNode, ControlFlowNode, ProgramNode, Token } from '../types';
+import { StataDiagnosticCode, StataLSPConfig, StataNode, StataAST, ControlFlowNode, ProgramNode, Token } from '../types';
 
 export class IndentationDiagnosticAnalyzer {
   analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
@@ -314,12 +314,12 @@ export class IndentationDiagnosticAnalyzer {
    * and prefix command brace blocks (capture { }, quietly { }, etc.).
    */
   private compute_brace_block_depths(
-    ast: any,
+    ast: StataAST,
     range: { start: number; end: number }
   ): Map<number, number> {
     const brace_depths = new Map<number, number>();
     
-    const walk_node = (node: any, current_depth: number): void => {
+    const walk_node = (node: StataNode, current_depth: number): void => {
       const start_line = node.range.start.line;
       
       // Set depth for this node's start line
