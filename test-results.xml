@@ -1,0 +1,1 @@
+error: --reporter=junit requires --reporter-outfile [file] to specify where to save the XML report
