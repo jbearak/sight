@@ -85,7 +85,7 @@ export class IndentationAnalyzer {
         }
 
         if (this.is_block_node(node)) {
-            if (node.type === 'command' && (node as any).name === '{') {
+            if (node.type === 'command' && (node as CommandNode).name === '{') {
                 this.process_command_brace_block(node);
             } else {
                 this.process_block_node(node as ControlFlowNode | ProgramNode);
