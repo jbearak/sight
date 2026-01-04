@@ -1,9 +1,7 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { CodeFormatter } from '../../src/providers/formatter';
-import { DocumentState } from '../../src/document-store';
-import { StataLexer } from '../../src/lexer';
-import { StataParser } from '../../src/parser';
 import { FormattingOptions } from 'vscode-languageserver';
+import { create_document_state } from '../property/helpers/document-utils';
 
 /**
  * Regression test for formatter not fixing all unnecessarily indented lines after a comment.
@@ -13,33 +11,13 @@ import { FormattingOptions } from 'vscode-languageserver';
  */
 describe('Formatter - Comment Indentation Fix', () => {
   let formatter: CodeFormatter;
-  let parser: StataParser;
-  let lexer: StataLexer;
 
   beforeEach(() => {
     formatter = new CodeFormatter();
-    parser = new StataParser();
-    lexer = new StataLexer();
   });
 
-  function create_document(source: string): DocumentState {
-    const lex_result = lexer.tokenize(source);
-    const parse_result = parser.parse(lex_result.tokens);
-
-    return {
-      uri: 'file:///test.do',
-      content: source,
-      version: 1,
-      ast: parse_result.ast,
-      tokens: lex_result.tokens,
-      line_offsets: lex_result.line_offsets,
-      symbols: new Map(),
-      diagnostics: [],
-    };
-  }
-
   function format_document(source: string): string {
-    const my_document = create_document(source);
+    const my_document = create_document_state(source);
     const my_options: FormattingOptions = {
       tabSize: 4,
       insertSpaces: true,

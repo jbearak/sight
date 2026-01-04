@@ -13,6 +13,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
+import { FormattingOptions } from 'vscode-languageserver-protocol';
 import { CodeFormatter } from '../../src/providers/formatter';
 import { DocumentState } from '../../src/document-store';
 import { StataLSPConfig, SymbolTable } from '../../src/types';

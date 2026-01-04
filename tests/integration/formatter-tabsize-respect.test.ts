@@ -20,7 +20,7 @@ import { create_document_state } from '../property/helpers/document-utils';
 describe('Formatter tabSize respect - Regression test', () => {
     const formatter = new CodeFormatter();
 
-    it('should indent nested if block body at 4 spaces with tabSize=2 (2 levels × 2 spaces)', async () => {
+    it('should indent nested if block body at 4 spaces with tabSize=2 (2 levels × 2 spaces)', () => {
         // This is the exact reproduction case from the bug report:
         // - Nested if block with continuation lines in condition
         // - tabSize = 2
@@ -48,7 +48,7 @@ replace period_returned = 0 if period_returned == 2
             },
         };
         
-        const my_result = await formatter.format(my_doc, my_options, my_config);
+        const my_result = formatter.format(my_doc, my_options, my_config);
         const my_formatted = my_result[0]?.newText ?? my_source;
         
         const my_lines = my_formatted.split('\n');
@@ -67,7 +67,7 @@ replace period_returned = 0 if period_returned == 2
         expect(replace_recode_line).toBe('    replace period_returned = 0 if period_returned == 2');
     });
 
-    it('should indent nested blocks correctly with tabSize=2', async () => {
+    it('should indent nested blocks correctly with tabSize=2', () => {
         // Simpler case: two levels of nesting with tabSize=2
         const my_source = `if a {
 if b {
@@ -86,7 +86,7 @@ replace x = 1
             },
         };
         
-        const my_result = await formatter.format(my_doc, my_options, my_config);
+        const my_result = formatter.format(my_doc, my_options, my_config);
         const my_formatted = my_result[0]?.newText ?? my_source;
         
         const my_lines = my_formatted.split('\n');
@@ -103,7 +103,7 @@ replace x = 1
         expect(my_lines[4]).toBe('}');
     });
 
-    it('should indent nested blocks correctly with tabSize=4', async () => {
+    it('should indent nested blocks correctly with tabSize=4', () => {
         // Same structure but with tabSize=4 for comparison
         const my_source = `if a {
 if b {
@@ -122,7 +122,7 @@ replace x = 1
             },
         };
         
-        const my_result = await formatter.format(my_doc, my_options, my_config);
+        const my_result = formatter.format(my_doc, my_options, my_config);
         const my_formatted = my_result[0]?.newText ?? my_source;
         
         const my_lines = my_formatted.split('\n');
@@ -139,7 +139,7 @@ replace x = 1
         expect(my_lines[4]).toBe('}');
     });
 
-    it('should handle continuation lines in nested block condition with tabSize=2', async () => {
+    it('should handle continuation lines in nested block condition with tabSize=2', () => {
         // Nested if with continuation lines in condition
         const my_source = `if a {
 if b | ///
@@ -159,7 +159,7 @@ replace x = 1
             },
         };
         
-        const my_result = await formatter.format(my_doc, my_options, my_config);
+        const my_result = formatter.format(my_doc, my_options, my_config);
         const my_formatted = my_result[0]?.newText ?? my_source;
         
         const my_lines = my_formatted.split('\n');
