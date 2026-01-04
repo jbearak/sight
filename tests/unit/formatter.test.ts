@@ -4,6 +4,7 @@ import { StataLexer } from '../../src/lexer';
 import { DocumentState } from '../../src/document-store';
 import { FormattingOptions } from 'vscode-languageserver';
 import { create_empty_symbol_table } from '../../src/analyzer';
+import { for_each_formatter_mode, create_formatter_config } from '../property/helpers/formatter-test-utils';
 
 // Shared test helpers
 function create_shared_document(source: string, lexer: StataLexer, parser: StataParser): DocumentState {
@@ -41,7 +42,7 @@ function format_shared_document(source: string, lexer: StataLexer, parser: Stata
 /**
  * Helper to format a document with optional formatting options.
  */
-function format_document(source: string, lexer: StataLexer, parser: StataParser, formatter: CodeFormatter, options?: Partial<FormattingOptions>): string {
+function format_document(source: string, lexer: StataLexer, parser: StataParser, formatter: CodeFormatter, config?: any, options?: Partial<FormattingOptions>): string {
     return format_shared_document(source, lexer, parser, formatter, options);
 }
 
@@ -146,7 +147,7 @@ generate age = 25`;
       expect(my_formatted).toContain('generate');
     });
 
-    test('should preserve all code after single-line mata: call', () => {
+    for_each_formatter_mode('should preserve all code after single-line mata: call', (mode) => {
       // This tests the fix for the bug where code after mata: was deleted
       const my_source = `run programs.do
 mata: aww_init_matrices()
@@ -157,7 +158,9 @@ if (_rc == 170) {
     mkdir "output"
 }`;
 
-      const my_formatted = format_document(my_source, lexer, parser, formatter);
+      const config = create_formatter_config(mode);
+      const formatter = new CodeFormatter(config);
+      const my_formatted = format_document(my_source, lexer, parser, formatter, config);
 
       // All statements should be preserved
       expect(my_formatted).toContain('run programs.do');
@@ -167,7 +170,7 @@ if (_rc == 170) {
       expect(my_formatted).toContain('if (_rc == 170)');
     });
 
-    test('should preserve all code after single-line python: call', () => {
+    for_each_formatter_mode('should preserve all code after single-line python: call', (mode) => {
       // This tests the fix for the bug where code after python: was deleted
       const my_source = `use mydata.dta
 python: import pandas as pd
@@ -176,7 +179,9 @@ python: import pandas as pd
 summarize income
 regress income age education`;
 
-      const my_formatted = format_document(my_source, lexer, parser, formatter);
+      const config = create_formatter_config(mode);
+      const formatter = new CodeFormatter(config);
+      const my_formatted = format_document(my_source, lexer, parser, formatter, config);
 
       // All statements should be preserved
       expect(my_formatted).toContain('use mydata.dta');
@@ -185,13 +190,15 @@ regress income age education`;
       expect(my_formatted).toContain('regress income age education');
     });
 
-    test('should preserve code after multiple single-line embedded calls', () => {
+    for_each_formatter_mode('should preserve code after multiple single-line embedded calls', (mode) => {
       const my_source = `mata: x = 1
 python: y = 2
 generate z = 3
 summarize z`;
 
-      const my_formatted = format_document(my_source, lexer, parser, formatter);
+      const config = create_formatter_config(mode);
+      const formatter = new CodeFormatter(config);
+      const my_formatted = format_document(my_source, lexer, parser, formatter, config);
 
       // All statements should be preserved
       expect(my_formatted).toContain('mata: x = 1');
