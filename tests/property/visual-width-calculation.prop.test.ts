@@ -312,12 +312,14 @@ describe('Visual Width Calculation Properties', () => {
                     
                     // Expected indent at depth 1 is indent_size
                     const expected_indent = indent_size;
+                    // braceIndent is 0 (the `if` line has no indentation)
+                    const brace_indent = 0;
                     
                     if (expected_width > expected_indent) {
                         // Should have UNNECESSARY_INDENTATION
                         expect(line_1_unnecessary.length).toBeGreaterThanOrEqual(1);
-                    } else if (expected_width < expected_indent) {
-                        // Should have MISSING_INDENTATION when innerIndent <= braceIndent (0)
+                    } else if (expected_width <= brace_indent) {
+                        // Should have MISSING_INDENTATION only when innerIndent <= braceIndent
                         expect(line_1_missing.length).toBeGreaterThanOrEqual(1);
                     }
                     // If expected_width === expected_indent, no diagnostic should be emitted
