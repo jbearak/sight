@@ -1,7 +1,7 @@
 import { Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { LanguageContext } from '../context-tracker/types';
-import { StataDiagnosticCode, StataLSPConfig, StataNode, ControlFlowNode, ProgramNode } from '../types';
+import { StataDiagnosticCode, StataLSPConfig, StataNode, ControlFlowNode, ProgramNode, Token } from '../types';
 
 export class IndentationDiagnosticAnalyzer {
   analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
@@ -21,16 +21,39 @@ export class IndentationDiagnosticAnalyzer {
     // Compute block comment lines to exclude from indentation checks
     const block_comment_lines = this.compute_block_comment_lines(lines);
     
+    // Compute continuation lines from tokens for efficient lookup
+    const continuation_lines = this.compute_continuation_lines(document.tokens);
+    
     for (const range of stataRanges) {
       diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size));
-      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size));
+      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size, continuation_lines));
       
       // NEW: Compute expected depths from AST and find unnecessary indentation issues
       const expected_depths = this.compute_expected_depths(document, range);
-      diagnostics.push(...this.find_unnecessary_indentation_issues(document, lines, range, block_comment_lines, indent_size, expected_depths));
+      diagnostics.push(...this.find_unnecessary_indentation_issues(document, lines, range, block_comment_lines, indent_size, expected_depths, continuation_lines));
     }
 
     return diagnostics;
+  }
+
+  /**
+   * Compute a set of line numbers that are continuation lines.
+   * A line is a continuation if the previous line has a CONTINUATION token.
+   * 
+   * @param tokens - The document's tokens
+   * @returns Set of 0-indexed line numbers that are continuation lines
+   */
+  private compute_continuation_lines(tokens: Token[]): Set<number> {
+    const continuation_lines = new Set<number>();
+    
+    for (const my_token of tokens) {
+      if (my_token.type === 'CONTINUATION') {
+        // The line AFTER the continuation token is a continuation line
+        continuation_lines.add(my_token.range.start.line + 1);
+      }
+    }
+    
+    return continuation_lines;
   }
 
   private getStataRanges(document: DocumentState): Array<{ start: number; end: number }> {
@@ -86,9 +109,8 @@ export class IndentationDiagnosticAnalyzer {
     return visual_column;
   }
 
-  private is_continuation_line(line: string, prevLine: string): boolean {
-    const prevTrimmed = prevLine.trim();
-    return prevTrimmed.endsWith('///');
+  private is_continuation_line(lineIndex: number, continuation_lines: Set<number>): boolean {
+    return continuation_lines.has(lineIndex);
   }
 
   private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number): Diagnostic[] {
@@ -133,7 +155,7 @@ export class IndentationDiagnosticAnalyzer {
     return diagnostics;
   }
 
-  private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number): Diagnostic[] {
+  private find_block_indentation_issues(document: DocumentState, lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number, continuation_lines: Set<number>): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
     // Look for opening braces - either standalone or at end of control flow statements
@@ -151,7 +173,7 @@ export class IndentationDiagnosticAnalyzer {
       
       if (has_opening_brace) {
         // If this line is a continuation line, trace back to find the original statement's indentation
-        const braceIndent = this.get_statement_indentation(lines, i, range.start, indent_size);
+        const braceIndent = this.get_statement_indentation(lines, i, range.start, indent_size, continuation_lines);
         let braceDepth = 1;
         
         // Check lines inside the block
@@ -186,7 +208,7 @@ export class IndentationDiagnosticAnalyzer {
           }
           
           // Skip continuation lines
-          if (j > i + 1 && this.is_continuation_line(innerLine, lines[j - 1])) {
+          if (this.is_continuation_line(j, continuation_lines)) {
             continue;
           }
           
@@ -272,20 +294,12 @@ export class IndentationDiagnosticAnalyzer {
    * If the line is a continuation (previous line ends with ///), trace back
    * to find the original statement's indentation.
    */
-  private get_statement_indentation(lines: string[], lineIndex: number, rangeStart: number, indent_size: number): number {
+  private get_statement_indentation(lines: string[], lineIndex: number, rangeStart: number, indent_size: number, continuation_lines: Set<number>): number {
     let current_index = lineIndex;
     
     // Trace back through continuation lines to find the original statement
-    while (current_index > rangeStart) {
-      const prev_line = lines[current_index - 1];
-      const prev_trimmed = prev_line.trim();
-      
-      // If previous line ends with ///, this is a continuation - keep going back
-      if (prev_trimmed.endsWith('///')) {
-        current_index--;
-      } else {
-        break;
-      }
+    while (current_index > rangeStart && continuation_lines.has(current_index)) {
+      current_index--;
     }
     
     // Return the indentation of the original statement line
@@ -392,8 +406,8 @@ export class IndentationDiagnosticAnalyzer {
   should_skip_unnecessary_check(
     line: string,
     lineIndex: number,
-    lines: string[],
-    block_comment_lines: Set<number>
+    block_comment_lines: Set<number>,
+    continuation_lines: Set<number>
   ): boolean {
     // Skip lines inside block comments
     if (block_comment_lines.has(lineIndex)) {
@@ -412,13 +426,9 @@ export class IndentationDiagnosticAnalyzer {
       return true;
     }
     
-    // Skip continuation lines (previous line ends with ///)
-    if (lineIndex > 0) {
-      const prev_line = lines[lineIndex - 1];
-      const prev_trimmed = prev_line.trim();
-      if (prev_trimmed.endsWith('///')) {
-        return true;
-      }
+    // Skip continuation lines (using token-based detection)
+    if (continuation_lines.has(lineIndex)) {
+      return true;
     }
     
     return false;
@@ -437,7 +447,8 @@ export class IndentationDiagnosticAnalyzer {
     range: { start: number; end: number },
     block_comment_lines: Set<number>,
     indent_size: number,
-    expected_depths: Map<number, number>
+    expected_depths: Map<number, number>,
+    continuation_lines: Set<number>
   ): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
@@ -445,7 +456,7 @@ export class IndentationDiagnosticAnalyzer {
       const line = lines[i];
       
       // Skip excluded lines
-      if (this.should_skip_unnecessary_check(line, i, lines, block_comment_lines)) {
+      if (this.should_skip_unnecessary_check(line, i, block_comment_lines, continuation_lines)) {
         continue;
       }
       
