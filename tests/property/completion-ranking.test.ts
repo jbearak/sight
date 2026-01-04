@@ -100,6 +100,7 @@ describe('Completion Ranking', () => {
                     const key_a = compute_ranking_key(factors_a);
                     const key_b = compute_ranking_key(factors_b);
                     
+                    // Direct string comparison is correct for Stata identifiers (ASCII-only)
                     const expected_order = name_a.toLowerCase() < name_b.toLowerCase();
                     const actual_order = key_a < key_b;
                     
