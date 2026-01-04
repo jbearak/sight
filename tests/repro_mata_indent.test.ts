@@ -6,6 +6,7 @@ import { IndentationDiagnosticAnalyzer } from '../src/providers/indentation-diag
 import { DocumentState } from '../src/document-store';
 import { CodeFormatter } from '../src/providers/formatter';
 import { init_tracker_from_source } from './test-context-helper';
+import { for_each_formatter_mode, create_formatter_config } from './property/helpers/formatter-test-utils';
 
 describe('Mata block indentation bug reproduction', () => {
     it('should not flag end statement as unnecessarily indented', () => {
@@ -95,7 +96,7 @@ if \`is_default' == 1 {
         expect(end_line_diagnostics.length).toBe(0);
     });
 
-    it('should not delete code after mata block when formatting', () => {
+    for_each_formatter_mode('should not delete code after mata block when formatting', (mode) => {
         const source = `local is_default 1
 if \`is_default' == 1 {
     // Append all the DHS datasets that were just processed:
@@ -132,10 +133,11 @@ if \`is_default' == 1 {
             line_offsets: lex_result.line_offsets,
         };
 
-        const formatter = new CodeFormatter();
+        const config = create_formatter_config(mode);
+        const formatter = new CodeFormatter(config);
         const edits = formatter.format(document, { tabSize: 4, insertSpaces: true });
 
-        console.log("\n=== FORMATTED OUTPUT ===");
+        console.log(`\n=== FORMATTED OUTPUT [${mode}] ===`);
         if (edits.length > 0) {
             console.log(edits[0].newText);
         }
