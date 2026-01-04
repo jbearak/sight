@@ -66,7 +66,11 @@ export class IndentationAnalyzer {
         this.process_node_trivia(node);
 
         if (this.is_block_node(node)) {
-            this.process_block_node(node as ControlFlowNode | ProgramNode);
+            if (node.type === 'command' && (node as any).name === '{') {
+                this.process_command_brace_block(node);
+            } else {
+                this.process_block_node(node as ControlFlowNode | ProgramNode);
+            }
         } else {
             this.process_regular_node(node);
         }
@@ -121,7 +125,8 @@ export class IndentationAnalyzer {
                node.type === 'foreach' ||
                node.type === 'forvalues' ||
                node.type === 'while' ||
-               node.type === 'frame';
+               node.type === 'frame' ||
+               (node.type === 'command' && (node as any).name === '{');
     }
 
     private process_block_node(node: ControlFlowNode | ProgramNode): void {
@@ -152,6 +157,41 @@ export class IndentationAnalyzer {
 
         this.current_depth--;
 
+        if (end_line !== start_line) {
+            const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
+            this.set_indentation(end_line, this.current_depth, false, false, true, false, end_delta_info.delta, end_delta_info.original_indent);
+        }
+    }
+
+    private process_command_brace_block(node: StataNode): void {
+        const start_line = node.range.start.line;
+        const end_line = node.range.end.line;
+
+        // Set indentation for the start line (opening brace) at current depth
+        const start_delta_info = this.calculate_indent_delta(start_line, this.current_depth);
+        this.set_indentation(start_line, this.current_depth, false, true, false, false, start_delta_info.delta, start_delta_info.original_indent);
+
+        // Increase depth for interior lines
+        this.current_depth++;
+
+        // If the node has a body, process child nodes
+        const node_with_body = node as any;
+        if (node_with_body.body && Array.isArray(node_with_body.body)) {
+            for (const my_child of node_with_body.body) {
+                this.walk_node(my_child);
+            }
+        } else {
+            // Fallback: set indentation for interior lines (between start and end)
+            for (let line = start_line + 1; line < end_line; line++) {
+                const { delta, original_indent } = this.calculate_indent_delta(line, this.current_depth);
+                this.set_indentation(line, this.current_depth, false, false, false, false, delta, original_indent);
+            }
+        }
+
+        // Decrease depth back to original
+        this.current_depth--;
+
+        // Set indentation for the end line (closing brace) at current depth
         if (end_line !== start_line) {
             const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
             this.set_indentation(end_line, this.current_depth, false, false, true, false, end_delta_info.delta, end_delta_info.original_indent);

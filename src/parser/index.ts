@@ -757,6 +757,7 @@ export class StataParser {
         name: '{',
         fullName: '{',
         expression: undefined,
+        body,
         range: this.makeRange(startToken.range.start, this.previous().range.end),
       };
     }

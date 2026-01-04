@@ -307,6 +307,92 @@ export class IndentationDiagnosticAnalyzer {
   }
 
   /**
+   * Compute expected indentation depth for brace blocks from command nodes.
+   * Returns a Map from line number to depth for lines inside brace blocks.
+   * 
+   * This method tracks depth through both control flow blocks (if, foreach, etc.)
+   * and prefix command brace blocks (capture { }, quietly { }, etc.).
+   */
+  private compute_brace_block_depths(
+    ast: any,
+    range: { start: number; end: number }
+  ): Map<number, number> {
+    const brace_depths = new Map<number, number>();
+    
+    const walk_node = (node: any, current_depth: number): void => {
+      const start_line = node.range.start.line;
+      
+      // Set depth for this node's start line
+      if (start_line >= range.start && start_line <= range.end) {
+        const existing = brace_depths.get(start_line) ?? 0;
+        brace_depths.set(start_line, Math.max(existing, current_depth));
+      }
+      
+      // Check if this is a prefix command brace block
+      if (node.type === 'command' && node.name === '{') {
+        const end_line = node.range.end.line;
+        
+        // If the node has a body, recurse into it with increased depth
+        if (node.body && Array.isArray(node.body)) {
+          for (const child of node.body) {
+            walk_node(child, current_depth + 1);
+          }
+        } else {
+          // Fallback: mark interior lines with increased depth (for nodes without body)
+          for (let line = start_line + 1; line < end_line; line++) {
+            if (line >= range.start && line <= range.end) {
+              const existing = brace_depths.get(line) ?? 0;
+              brace_depths.set(line, Math.max(existing, current_depth + 1));
+            }
+          }
+        }
+        
+        // Closing brace gets same depth as opening
+        if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
+          const existing = brace_depths.get(end_line) ?? 0;
+          brace_depths.set(end_line, Math.max(existing, current_depth));
+        }
+        
+        return;
+      }
+      
+      // Check if this is a control flow block that increases depth
+      const is_control_flow = node.type === 'program' ||
+                              node.type === 'if' ||
+                              node.type === 'else' ||
+                              node.type === 'foreach' ||
+                              node.type === 'forvalues' ||
+                              node.type === 'while' ||
+                              node.type === 'frame';
+      
+      if (is_control_flow && node.body) {
+        // Recurse into body with increased depth
+        for (const child of node.body) {
+          walk_node(child, current_depth + 1);
+        }
+        
+        // Set closing brace depth
+        const end_line = node.range.end.line;
+        if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
+          const existing = brace_depths.get(end_line) ?? 0;
+          brace_depths.set(end_line, Math.max(existing, current_depth));
+        }
+      } else if (node.body) {
+        // Non-block node with body - recurse without increasing depth
+        for (const child of node.body) {
+          walk_node(child, current_depth);
+        }
+      }
+    };
+    
+    for (const node of ast.nodes) {
+      walk_node(node, 0);
+    }
+    
+    return brace_depths;
+  }
+
+  /**
    * Compute expected indentation depth for each line using AST traversal.
    * Returns a Map from line number to expected depth.
    * 
@@ -381,11 +467,20 @@ export class IndentationDiagnosticAnalyzer {
       walk_node(my_node);
     }
     
+    // Compute and merge brace block depths
+    const brace_depths = this.compute_brace_block_depths(document.ast, range);
+    for (const [line, depth] of brace_depths) {
+      const existing_depth = expected_depths.get(line) ?? 0;
+      expected_depths.set(line, Math.max(existing_depth, depth));
+    }
+    
     return expected_depths;
   }
 
   /**
    * Check if a node is a block node that increases indentation depth.
+   * Note: Command brace blocks (e.g., capture { }) are handled separately
+   * by compute_brace_block_depths, not here.
    */
   private is_block_node_type(node: StataNode): boolean {
     return node.type === 'program' ||
