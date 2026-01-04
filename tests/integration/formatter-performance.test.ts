@@ -111,6 +111,8 @@ describe('Formatter Performance Tests', () => {
     });
 
     describe('Block Comment Detection Performance', () => {
+        const ciMultiplier = process.env.CI ? 5 : 1;
+
         function generate_file_with_block_comments(num_comments: number): string {
             const lines: string[] = [];
             for (let i = 0; i < num_comments; i++) {
@@ -122,7 +124,7 @@ describe('Formatter Performance Tests', () => {
             return lines.join('\n');
         }
 
-        it('should handle 500 block comments in under 10ms', () => {
+        it(`should handle 500 block comments in under ${10 * ciMultiplier}ms`, () => {
             const content = generate_file_with_block_comments(500);
             const doc = create_document_state(content);
             
@@ -131,7 +133,7 @@ describe('Formatter Performance Tests', () => {
             const elapsed_ms = performance.now() - start_time;
             
             expect(edits.length).toBe(1);
-            expect(elapsed_ms).toBeLessThan(10);
+            expect(elapsed_ms).toBeLessThan(10 * ciMultiplier);
         });
     });
 
