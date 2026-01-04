@@ -13,6 +13,7 @@ import fc from 'fast-check';
 import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-diagnostics';
 import { CodeFormatter } from '../../src/providers/formatter';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
+import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { create_document_state } from './helpers/document-utils';
 import {
     for_each_formatter_mode_property,
@@ -26,20 +27,15 @@ describe('Prefix Command Brace Block Indentation Properties', () => {
     const options = { tabSize: 4, insertSpaces: true };
 
     const config: StataLSPConfig = {
+        ...DEFAULT_SETTINGS,
         diagnostics: {
+            ...DEFAULT_SETTINGS.diagnostics,
             enabled: true,
             indentation: true,
-            severity: {
-                undefinedMacro: 'warning',
-                undefinedVariable: 'information',
-                styleWarnings: 'hint'
-            },
-            undefinedVariableEnabled: false
         },
-        adoPaths: [],
-        cross_file: {},
         formatting: {
-            indentSize: 4
+            ...DEFAULT_SETTINGS.formatting,
+            indentSize: 4,
         }
     };
 
