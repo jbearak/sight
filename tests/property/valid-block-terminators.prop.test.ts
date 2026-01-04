@@ -48,7 +48,7 @@ describe('Valid Block Terminators Property Tests', () => {
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
                 // Filter out content that would create unclosed block comments
                 fc.array(fc.string({ minLength: 1, maxLength: 30 }), { minLength: 0, maxLength: 5 })
-                    .filter(lines => !lines.some(line => line.includes('/*') && !line.includes('*/'))),
+                    .filter(lines => !lines.some(line => line.includes('/*'))),
                 (my_block_type, my_content_lines) => {
                     // Build valid embedded block
                     let my_document = `${my_block_type}\n`;
@@ -64,15 +64,15 @@ describe('Valid Block Terminators Property Tests', () => {
                     // Should have no diagnostics for valid blocks
                     const my_block_errors = my_diagnostics.filter(
                         (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNEXPECTED_END
+                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
+                            my_diag.code === ContextErrorCode.UNEXPECTED_END
                     );
                     expect(my_block_errors.length).toBe(0);
 
                     // Should correctly identify the block
                     const my_ranges = context_tracker.get_all_context_ranges();
                     expect(my_ranges.length).toBe(1);
-                    
+
                     const my_expected_context = my_block_type === 'mata' ? LanguageContext.MATA : LanguageContext.PYTHON;
                     expect(my_ranges[0].context).toBe(my_expected_context);
                     expect(my_ranges[0].end_delimiter?.command).toBe('end');
@@ -101,7 +101,7 @@ describe('Valid Block Terminators Property Tests', () => {
                         // Filter out content that would create unclosed block comments
                         content: fc.array(
                             fc.string({ minLength: 1, maxLength: 20 })
-                                .filter(s => !s.includes('/*') || s.includes('*/')),
+                                .filter(s => !s.includes('/*')),
                             { minLength: 0, maxLength: 3 }
                         )
                     }),
@@ -113,7 +113,7 @@ describe('Valid Block Terminators Property Tests', () => {
                         const my_content = my_block.content.join('\n');
                         return `${my_block.type}\n${my_content}\nend`;
                     });
-                    
+
                     const my_document = my_block_parts.join('\n\n');
 
                     // Initialize context tracker
@@ -123,15 +123,15 @@ describe('Valid Block Terminators Property Tests', () => {
                     // Should have no diagnostics for valid blocks
                     const my_block_errors = my_diagnostics.filter(
                         (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNEXPECTED_END
+                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
+                            my_diag.code === ContextErrorCode.UNEXPECTED_END
                     );
                     expect(my_block_errors.length).toBe(0);
 
                     // Should correctly identify all blocks
                     const my_ranges = context_tracker.get_all_context_ranges();
                     expect(my_ranges.length).toBe(my_blocks.length);
-                    
+
                     // Each block should have correct structure
                     for (let i = 0; i < my_blocks.length; i++) {
                         const my_expected_context = my_blocks[i].type === 'mata' ? LanguageContext.MATA : LanguageContext.PYTHON;
@@ -165,7 +165,7 @@ describe('Valid Block Terminators Property Tests', () => {
                     const my_before = my_before_commands.join('\n');
                     const my_content = my_content_lines.join('\n');
                     const my_after = my_after_commands.join('\n');
-                    
+
                     const my_document = `${my_before}
 
 ${my_block_type}
@@ -181,15 +181,15 @@ ${my_after}`;
                     // Should have no diagnostics for valid block
                     const my_block_errors = my_diagnostics.filter(
                         (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNEXPECTED_END
+                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
+                            my_diag.code === ContextErrorCode.UNEXPECTED_END
                     );
                     expect(my_block_errors.length).toBe(0);
 
                     // Should correctly identify the block
                     const my_ranges = context_tracker.get_all_context_ranges();
                     expect(my_ranges.length).toBe(1);
-                    
+
                     const my_expected_context = my_block_type === 'mata' ? LanguageContext.MATA : LanguageContext.PYTHON;
                     expect(my_ranges[0].context).toBe(my_expected_context);
                     expect(my_ranges[0].end_delimiter?.command).toBe('end');
@@ -231,15 +231,15 @@ end`;
                     // Should have no block-related diagnostics for valid nested structure
                     const my_block_errors = my_diagnostics.filter(
                         (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNEXPECTED_END
+                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
+                            my_diag.code === ContextErrorCode.UNEXPECTED_END
                     );
                     expect(my_block_errors.length).toBe(0);
 
                     // Should correctly identify only the embedded block (program blocks are not tracked as context ranges)
                     const my_ranges = context_tracker.get_all_context_ranges();
                     expect(my_ranges.length).toBe(1); // Only the embedded block should be tracked
-                    
+
                     const my_expected_context = my_embedded_type === 'mata' ? LanguageContext.MATA : LanguageContext.PYTHON;
                     expect(my_ranges[0].context).toBe(my_expected_context);
                     expect(my_ranges[0].end_delimiter?.command).toBe('end');
@@ -266,7 +266,11 @@ end`;
                     fc.record({
                         program_name: arbitrary_identifier(),
                         embedded_type: fc.oneof(fc.constant('mata'), fc.constant('python')),
-                        content: fc.array(fc.string({ minLength: 1, maxLength: 15 }), { minLength: 0, maxLength: 2 })
+                        content: fc.array(
+                            fc.string({ minLength: 1, maxLength: 15 })
+                                .filter(s => !s.includes('/*')),
+                            { minLength: 0, maxLength: 2 }
+                        )
                     }),
                     { minLength: 1, maxLength: 3 }
                 ),
@@ -280,7 +284,7 @@ end`;
     end
 end`;
                     });
-                    
+
                     const my_document = my_program_parts.join('\n\n');
 
                     // Initialize context tracker
@@ -290,15 +294,15 @@ end`;
                     // Should have no block-related diagnostics for valid nested structures
                     const my_block_errors = my_diagnostics.filter(
                         (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNEXPECTED_END
+                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
+                            my_diag.code === ContextErrorCode.UNEXPECTED_END
                     );
                     expect(my_block_errors.length).toBe(0);
 
                     // Should correctly identify all embedded blocks (program blocks are not tracked as context ranges)
                     const my_ranges = context_tracker.get_all_context_ranges();
                     expect(my_ranges.length).toBe(my_programs.length);
-                    
+
                     // Each embedded block should have correct structure
                     for (let i = 0; i < my_programs.length; i++) {
                         const my_expected_context = my_programs[i].embedded_type === 'mata' ? LanguageContext.MATA : LanguageContext.PYTHON;
@@ -328,9 +332,9 @@ end`;
                 arbitrary_identifier(),
                 // Filter out content that would create unclosed block comments
                 fc.string({ minLength: 1, maxLength: 20 })
-                    .filter(s => !s.includes('/*') || s.includes('*/')),
+                    .filter(s => !s.includes('/*')),
                 fc.string({ minLength: 1, maxLength: 20 })
-                    .filter(s => !s.includes('/*') || s.includes('*/')),
+                    .filter(s => !s.includes('/*')),
                 (my_prog1_name, my_prog2_name, my_mata_content, my_python_content) => {
                     // Build program blocks with different embedded types
                     const my_document = `program define ${my_prog1_name}
@@ -352,19 +356,19 @@ end`;
                     // Should have no block-related diagnostics for valid mixed nested structure
                     const my_block_errors = my_diagnostics.filter(
                         (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNEXPECTED_END
+                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
+                            my_diag.code === ContextErrorCode.UNEXPECTED_END
                     );
                     expect(my_block_errors.length).toBe(0);
 
                     // Should correctly identify both embedded blocks
                     const my_ranges = context_tracker.get_all_context_ranges();
                     expect(my_ranges.length).toBe(2);
-                    
+
                     // First block should be mata
                     expect(my_ranges[0].context).toBe(LanguageContext.MATA);
                     expect(my_ranges[0].end_delimiter?.command).toBe('end');
-                    
+
                     // Second block should be python
                     expect(my_ranges[1].context).toBe(LanguageContext.PYTHON);
                     expect(my_ranges[1].end_delimiter?.command).toBe('end');
@@ -390,7 +394,7 @@ end`;
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
                 // Filter out content that would create unclosed block comments
                 fc.array(fc.string({ minLength: 1, maxLength: 15 }), { minLength: 1, maxLength: 3 })
-                    .filter(lines => !lines.some(line => line.includes('/*') && !line.includes('*/'))),
+                    .filter(lines => !lines.some(line => line.includes('/*'))),
                 (my_program_name, my_embedded_type, my_content_lines) => {
                     // Build program block with embedded language block
                     const my_content = my_content_lines.join('\n');
@@ -404,7 +408,7 @@ end`;
 
                     // Initialize context tracker
                     init_tracker_from_source(context_tracker, my_document);
-                    
+
                     // Check context at various positions
                     // Position before embedded block (should be STATA)
                     const my_before_context = context_tracker.get_context_at_position({
@@ -412,7 +416,7 @@ end`;
                         character: 4
                     });
                     expect(my_before_context).toBe(LanguageContext.STATA);
-                    
+
                     // Position inside embedded block (should be embedded language)
                     const my_inside_context = context_tracker.get_context_at_position({
                         line: 3,
@@ -420,7 +424,7 @@ end`;
                     });
                     const my_expected_context = my_embedded_type === 'mata' ? LanguageContext.MATA : LanguageContext.PYTHON;
                     expect(my_inside_context).toBe(my_expected_context);
-                    
+
                     // Position after embedded block but still in program (should be STATA)
                     // The 'end' command is on line 4 + content_lines.length, so after that should be STATA
                     const my_end_line = 4 + my_content_lines.length;
@@ -465,15 +469,15 @@ end`;
                     // Should have no block-related diagnostics for valid single-line embedded block
                     const my_block_errors = my_diagnostics.filter(
                         (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                                   my_diag.code === ContextErrorCode.UNEXPECTED_END
+                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
+                            my_diag.code === ContextErrorCode.UNEXPECTED_END
                     );
                     expect(my_block_errors.length).toBe(0);
 
                     // Should correctly identify the single-line embedded block
                     const my_ranges = context_tracker.get_all_context_ranges();
                     expect(my_ranges.length).toBe(1);
-                    
+
                     const my_expected_context = my_embedded_type === 'mata' ? LanguageContext.MATA : LanguageContext.PYTHON;
                     expect(my_ranges[0].context).toBe(my_expected_context);
                     expect(my_ranges[0].is_single_line).toBe(true);

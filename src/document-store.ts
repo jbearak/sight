@@ -274,8 +274,10 @@ export class DocumentStore {
 
   /**
    * Touch access time for LRU tracking.
+   * Deletes and re-inserts to maintain Map insertion order (oldest first).
    */
   private touch_access(uri: string): void {
+    this.access_order.delete(uri);
     this.access_order.set(uri, Date.now());
   }
 
@@ -318,19 +320,11 @@ export class DocumentStore {
 
   /**
    * Find the URI with the oldest access timestamp.
+   * O(1) - Map iteration order is insertion order, and touch_access maintains oldest-first.
    */
   private find_oldest_uri(): string | undefined {
-    let oldest_uri: string | undefined;
-    let oldest_timestamp = Infinity;
-
-    for (const [uri, timestamp] of this.access_order) {
-      if (timestamp < oldest_timestamp) {
-        oldest_timestamp = timestamp;
-        oldest_uri = uri;
-      }
-    }
-
-    return oldest_uri;
+    const first = this.access_order.keys().next();
+    return first.done ? undefined : first.value;
   }
 
   /**
