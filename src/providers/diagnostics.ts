@@ -453,16 +453,8 @@ export class DiagnosticsProvider {
      * Called when document is updated or config changes.
      */
     clear_cache_for_document(uri: string): void {
-        // Remove all cache entries for this URI
-        const keys_to_delete: string[] = [];
-        for (const key of this.filtered_cache.keys()) {
-            if (key.startsWith(`${uri}:`)) {
-                keys_to_delete.push(key);
-            }
-        }
-        for (const key of keys_to_delete) {
-            this.filtered_cache.delete(key);
-        }
+        // Remove all cached diagnostics for this URI (all versions/configs)
+        this.filtered_cache.delete(uri);
     }
 
     /**
