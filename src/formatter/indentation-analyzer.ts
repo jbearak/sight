@@ -146,7 +146,7 @@ export class IndentationAnalyzer {
                node.type === 'while' ||
                node.type === 'frame' ||
                node.type === 'embedded_block' ||
-               (node.type === 'command' && (node as any).name === '{');
+               (node.type === 'command' && node.name === '{');
     }
 
     private process_block_node(node: ControlFlowNode | ProgramNode): void {
