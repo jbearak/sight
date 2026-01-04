@@ -37,7 +37,10 @@ describe('Prefix Command Brace Block Indentation Properties', () => {
             undefinedVariableEnabled: false
         },
         adoPaths: [],
-        cross_file: {}
+        cross_file: {},
+        formatting: {
+            indentSize: 4
+        }
     };
 
     // Generator for prefix commands
