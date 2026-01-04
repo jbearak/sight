@@ -317,10 +317,8 @@ describe('Visual Width Calculation Properties', () => {
                         // Should have UNNECESSARY_INDENTATION
                         expect(line_1_unnecessary.length).toBeGreaterThanOrEqual(1);
                     } else if (expected_width < expected_indent) {
-                        // Should have MISSING_INDENTATION (from block check)
-                        // Note: The block check uses <= comparison, so equal is also flagged
-                        // Actually, the block check is for innerIndent <= braceIndent
-                        // which is different from the unnecessary check
+                        // Should have MISSING_INDENTATION when innerIndent <= braceIndent (0)
+                        expect(line_1_missing.length).toBeGreaterThanOrEqual(1);
                     }
                     // If expected_width === expected_indent, no diagnostic should be emitted
                     // for unnecessary indentation
