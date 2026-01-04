@@ -1513,7 +1513,8 @@ export class ScopeResolver {
         // Optimisation: check mtime if available without reading content
         let mtimeMs: number | undefined;
         if (this.content_provider.stat) {
-            const stats = await this.content_provider.stat(uri);
+            // Use actual_uri (after fallback resolution) for stat
+            const stats = await this.content_provider.stat(actual_uri);
             mtimeMs = stats?.mtimeMs;
         }
 
@@ -1521,26 +1522,23 @@ export class ScopeResolver {
         const cache_key = this.make_file_cache_key(actual_uri, inherited_wd);
         const cached = this.file_cache.get(cache_key);
 
-        // Mtime check (fastest)
-        if (cached && mtimeMs !== undefined && cached.mtimeMs === mtimeMs) {
-            this.cache_metrics.file.hits++;
-            this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (mtime match)`);
-            return { content: '', symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
-        }
-
-        // Content hash check (slower, requires read)
-        if (!content) {
-            // Should have read content by now if we are here (unless mtime check passed, but it didn't)
-            // Wait, logic above:
-            // 1. read file (optimistically? or can we defer?)
-            // We can defer read if we do mtime check first.
-            // But existing code structure reads first. 
-            // Let's refactor slightly to read on demand?
-            // No, let's keep it simple for now and rely on mtime for future hits.
-            // First read is unavoidable.
-        }
-
+        // Compute content hash (needed for both mtime and hash checks)
         const disk_hash = this.hash_content(content);
+
+        // Mtime check (fastest, but verify with hash since mtime resolution can be coarse)
+        if (cached && mtimeMs !== undefined && cached.mtimeMs === mtimeMs) {
+            // Mtime matches, but verify content hash to handle quick overwrites
+            // (mtime resolution on some systems is only milliseconds)
+            if (cached.content_hash === disk_hash) {
+                this.cache_metrics.file.hits++;
+                this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (mtime+hash match)`);
+                return { content, symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
+            }
+            // Mtime matches but hash differs - file was modified within same millisecond
+            this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (mtime match but hash differs)`);
+        }
+
+        // Content hash check (for when mtime is unavailable or didn't match)
 
         if (cached && cached.content_hash === disk_hash) {
             this.cache_metrics.file.hits++;
