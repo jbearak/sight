@@ -16,30 +16,23 @@ import { CodeFormatter } from '../../src/providers/formatter';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 import { create_document_state } from '../property/helpers/document-utils';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
+import { for_each_formatter_mode, create_formatter_config } from '../property/helpers/formatter-test-utils';
 
 describe('Diagnostic-Formatter Consistency Integration', () => {
-    const analyzer = new IndentationDiagnosticAnalyzer();
-    const formatter = new CodeFormatter();
-    const options = { tabSize: 4, insertSpaces: true };
+    for_each_formatter_mode('should diagnose and fix unnecessary indentation at top level', (mode) => {
+        const analyzer = new IndentationDiagnosticAnalyzer();
+        const formatter = new CodeFormatter();
+        const options = { tabSize: 4, insertSpaces: true };
 
-    const default_config: StataLSPConfig = {
-        ...DEFAULT_SETTINGS,
-        diagnostics: {
-            ...DEFAULT_SETTINGS.diagnostics,
-            enabled: true,
-            indentation: true,
-        },
-        formatting: {
-            ...DEFAULT_SETTINGS.formatting,
-            mode: 'source-preserving',
-        },
-    };
+        const default_config: StataLSPConfig = {
+            ...create_formatter_config(mode),
+            diagnostics: {
+                ...DEFAULT_SETTINGS.diagnostics,
+                enabled: true,
+                indentation: true,
+            },
+        };
 
-    /**
-     * Test: Unnecessary indentation at top level is diagnosed and fixed
-     * Requirements: 4.1
-     */
-    test('should diagnose and fix unnecessary indentation at top level', () => {
         // Generate code with indentation issues - top-level statement with leading whitespace
         const source_with_issues = `    gen x = 1
     display "hello"
@@ -73,11 +66,20 @@ gen y = 2`;
         expect(unnecessary_after.length).toBe(0);
     });
 
-    /**
-     * Test: Missing indentation inside brace block is diagnosed and fixed
-     * Requirements: 4.2
-     */
-    test('should diagnose and fix missing indentation inside brace block', () => {
+    for_each_formatter_mode('should diagnose and fix missing indentation inside brace block', (mode) => {
+        const analyzer = new IndentationDiagnosticAnalyzer();
+        const formatter = new CodeFormatter();
+        const options = { tabSize: 4, insertSpaces: true };
+
+        const default_config: StataLSPConfig = {
+            ...create_formatter_config(mode),
+            diagnostics: {
+                ...DEFAULT_SETTINGS.diagnostics,
+                enabled: true,
+                indentation: true,
+            },
+        };
+
         // Generate code with missing indentation inside block
         const source_with_issues = `if 1 == 1 {
 gen x = 1
@@ -112,11 +114,20 @@ display "hello"
         expect(missing_after.length).toBe(0);
     });
 
-    /**
-     * Test: Mixed indentation (space + tab) is diagnosed and fixed
-     * Requirements: 4.1, 4.2
-     */
-    test('should diagnose and fix mixed indentation inside block', () => {
+    for_each_formatter_mode('should diagnose and fix mixed indentation inside block', (mode) => {
+        const analyzer = new IndentationDiagnosticAnalyzer();
+        const formatter = new CodeFormatter();
+        const options = { tabSize: 4, insertSpaces: true };
+
+        const default_config: StataLSPConfig = {
+            ...create_formatter_config(mode),
+            diagnostics: {
+                ...DEFAULT_SETTINGS.diagnostics,
+                enabled: true,
+                indentation: true,
+            },
+        };
+
         // Generate code with mixed indentation (space + tab)
         const source_with_issues = `if 1 == 1 {
  \tgen x = 1
@@ -150,11 +161,20 @@ display "hello"
         expect(indentation_diagnostics.length).toBe(0);
     });
 
-    /**
-     * Test: Over-indentation inside block is diagnosed and fixed
-     * Requirements: 4.1
-     */
-    test('should diagnose and fix over-indentation inside block', () => {
+    for_each_formatter_mode('should diagnose and fix over-indentation inside block', (mode) => {
+        const analyzer = new IndentationDiagnosticAnalyzer();
+        const formatter = new CodeFormatter();
+        const options = { tabSize: 4, insertSpaces: true };
+
+        const default_config: StataLSPConfig = {
+            ...create_formatter_config(mode),
+            diagnostics: {
+                ...DEFAULT_SETTINGS.diagnostics,
+                enabled: true,
+                indentation: true,
+            },
+        };
+
         // Generate code with over-indentation (8 spaces instead of 4)
         const source_with_issues = `if 1 == 1 {
         gen x = 1
@@ -188,11 +208,20 @@ display "hello"
         expect(unnecessary_after.length).toBe(0);
     });
 
-    /**
-     * Test: Nested blocks with indentation issues are diagnosed and fixed
-     * Requirements: 4.1, 4.2, 4.3
-     */
-    test('should diagnose and fix nested block indentation issues', () => {
+    for_each_formatter_mode('should diagnose and fix nested block indentation issues', (mode) => {
+        const analyzer = new IndentationDiagnosticAnalyzer();
+        const formatter = new CodeFormatter();
+        const options = { tabSize: 4, insertSpaces: true };
+
+        const default_config: StataLSPConfig = {
+            ...create_formatter_config(mode),
+            diagnostics: {
+                ...DEFAULT_SETTINGS.diagnostics,
+                enabled: true,
+                indentation: true,
+            },
+        };
+
         // Generate code with nested blocks and various indentation issues
         const source_with_issues = `    if 1 == 1 {
 gen x = 1
@@ -231,11 +260,20 @@ gen y = 2
         expect(indentation_after.length).toBe(0);
     });
 
-    /**
-     * Test: Formatting is idempotent - formatting twice produces same result
-     * Requirements: 4.3
-     */
-    test('should produce idempotent formatting results', () => {
+    for_each_formatter_mode('should produce idempotent formatting results', (mode) => {
+        const analyzer = new IndentationDiagnosticAnalyzer();
+        const formatter = new CodeFormatter();
+        const options = { tabSize: 4, insertSpaces: true };
+
+        const default_config: StataLSPConfig = {
+            ...create_formatter_config(mode),
+            diagnostics: {
+                ...DEFAULT_SETTINGS.diagnostics,
+                enabled: true,
+                indentation: true,
+            },
+        };
+
         const source_with_issues = `    gen x = 1
 if 1 == 1 {
 gen y = 2
@@ -274,17 +312,25 @@ gen y = 2
         expect(indent_diags_2.length).toBe(0);
     });
 
-    /**
-     * Test: Tabs configuration is respected
-     * Requirements: 4.1, 4.2
-     */
-    test('should respect tabs configuration when fixing indentation', () => {
+    for_each_formatter_mode('should respect tabs configuration when fixing indentation', (mode) => {
+        const analyzer = new IndentationDiagnosticAnalyzer();
+        const formatter = new CodeFormatter();
+        const tabs_options = { tabSize: 4, insertSpaces: false };
+
+        const default_config: StataLSPConfig = {
+            ...create_formatter_config(mode),
+            diagnostics: {
+                ...DEFAULT_SETTINGS.diagnostics,
+                enabled: true,
+                indentation: true,
+            },
+        };
+
         const source_with_issues = `if 1 == 1 {
 gen x = 1
 }`;
 
         const doc_state = create_document_state(source_with_issues);
-        const tabs_options = { tabSize: 4, insertSpaces: false };
 
         // Format with tabs
         const edits = formatter.format(doc_state, tabs_options, default_config);
