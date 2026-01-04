@@ -377,7 +377,7 @@ export class IndentationDiagnosticAnalyzer {
           const existing = brace_depths.get(end_line) ?? 0;
           brace_depths.set(end_line, Math.max(existing, current_depth));
         }
-      } else if (node.body) {
+      } else if ('body' in node && node.body) {
         // Non-block node with body - recurse without increasing depth
         for (const child of node.body) {
           walk_node(child, current_depth);
