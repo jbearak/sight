@@ -20,9 +20,10 @@ const macro_name_gen = fc.string({ minLength: 1, maxLength: 10 })
     .filter(s => !['if', 'in', 'using', 'local', 'global', 'end', 'program'].includes(s.toLowerCase()));
 
 // Generator for valid program names
+// Must exclude prefix commands and their abbreviations (qui, cap, noi) which the parser treats specially
 const program_name_gen = fc.string({ minLength: 1, maxLength: 8 })
     .filter(s => /^[a-z][a-z0-9]*$/.test(s))
-    .filter(s => !['if', 'in', 'using', 'local', 'global', 'end', 'program', 'by', 'quietly', 'capture'].includes(s));
+    .filter(s => !['if', 'in', 'using', 'local', 'global', 'end', 'program', 'by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi'].includes(s));
 
 describe('C_local Definition Position Properties', () => {
     /**
