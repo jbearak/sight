@@ -1482,7 +1482,9 @@ export class ScopeResolver {
             size = stats?.size;
 
             // Fast Path: mtime and size match bypasses disk read entirely
-            if (cached && mtimeMs !== undefined && cached.mtimeMs === mtimeMs && size !== undefined && cached.size === size) {
+            if (cached && mtimeMs !== undefined && size !== undefined &&
+                cached.mtimeMs !== undefined && cached.mtimeMs === mtimeMs &&
+                cached.size !== undefined && cached.size === size) {
                 this.cache_metrics.file.hits++;
                 this.log(`[get_parsed_file] File cache HIT for ${uri} (mtime match, skipped read)`);
                 return {
@@ -1517,7 +1519,9 @@ export class ScopeResolver {
                         const fallback_cache_key = this.make_file_cache_key(fallback_uri, inherited_wd);
                         const fallback_cached = this.file_cache.get(fallback_cache_key);
 
-                        if (fallback_cached && fallback_mtimeMs !== undefined && fallback_cached.mtimeMs === fallback_mtimeMs && fallback_size !== undefined && fallback_cached.size === fallback_size) {
+                        if (fallback_cached && fallback_mtimeMs !== undefined && fallback_size !== undefined &&
+                            fallback_cached.mtimeMs !== undefined && fallback_cached.mtimeMs === fallback_mtimeMs &&
+                            fallback_cached.size !== undefined && fallback_cached.size === fallback_size) {
                             this.cache_metrics.file.hits++;
                             this.log(`[get_parsed_file] File cache HIT for ${fallback_uri} (mtime match, skipped read)`);
                             return {
@@ -1557,17 +1561,7 @@ export class ScopeResolver {
         if (actual_cached && actual_cached.content_hash === disk_hash) {
             this.cache_metrics.file.hits++;
             this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (hash match)`);
-
-            // Update cached content and mtime if we have em (mtime might be from previous block or fresh)
-            actual_cached.content = content;
-            if (mtimeMs !== undefined) {
-                actual_cached.mtimeMs = mtimeMs;
-            } else if (this.content_provider.stat) {
-                // Fetch mtime now if we didn't before (e.g. if we skipped stat block but now want to cache it)
-                const stats = await this.content_provider.stat(actual_uri);
-                actual_cached.mtimeMs = stats?.mtimeMs;
-            }
-
+            // Return cached results with current content - don't mutate cache entry
             return {
                 content,
                 symbols: actual_cached.symbols,
