@@ -142,6 +142,10 @@ export class StataParser {
     } else if (this.check('WORD')) {
       // Default to command parsing
       node = this.parseCommand();
+    } else if (this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) {
+      // Macro reference at start of statement - parse as command
+      // This handles cases like: `custom_arg' "arg1" "arg2"
+      node = this.parseMacroCommand();
     } else if (this.check('LBRACE')) {
       // Standalone open brace - this is an error in Stata
       // The brace should be on the same line as a condition/statement
@@ -1103,6 +1107,155 @@ export class StataParser {
       options: undefined,
       expression: undefined,
       range: this.makeRange(startPos, this.previous().range.end),
+    };
+  }
+
+  /**
+   * Parse a command that starts with a macro reference.
+   * This handles cases like: `custom_arg' "arg1" "arg2"
+   * where a macro expands to a command name at runtime.
+   */
+  private parseMacroCommand(): CommandNode {
+    const start_token = this.peek();
+    const macro_token = this.advance(); // consume macro reference (MACRO_REF_LOCAL or MACRO_REF_GLOBAL)
+
+    // Parse arguments (similar to parseCommand varlist parsing)
+    const varlist: IdentifierNode[] = [];
+
+    while (
+      !this.check('COMMA') &&
+      !this.isTrivia() &&
+      !this.check('STATEMENT_TERMINATOR') &&
+      !this.isAtEnd()
+    ) {
+      // Stop at 'if' keyword for if-qualifier
+      if (this.checkWord('if')) {
+        break;
+      }
+      // Stop at 'in' keyword for in-qualifier
+      if (this.checkWord('in')) {
+        break;
+      }
+
+      if (
+        this.check('WORD') ||
+        this.check('STRING') ||
+        this.check('MACRO_REF_LOCAL') ||
+        this.check('MACRO_REF_GLOBAL') ||
+        this.check('NUMBER')
+      ) {
+        const arg_token = this.advance();
+        varlist.push({
+          name: arg_token.value,
+          range: arg_token.range,
+        });
+      } else if (this.check('LPAREN')) {
+        // Handle parenthesized groups (similar to parseCommand)
+        const paren_start = this.advance(); // consume (
+        let paren_content = '';
+        let paren_depth = 1;
+        let last_was_word = false;
+        while (!this.isAtEnd() && paren_depth > 0) {
+          if (this.check('LPAREN')) {
+            paren_depth++;
+            paren_content += this.advance().value;
+            last_was_word = false;
+          } else if (this.check('RPAREN')) {
+            paren_depth--;
+            if (paren_depth > 0) {
+              paren_content += this.advance().value;
+            }
+            last_was_word = false;
+          } else {
+            const current_is_word =
+              this.check('WORD') ||
+              this.check('NUMBER') ||
+              this.check('MACRO_REF_LOCAL') ||
+              this.check('MACRO_REF_GLOBAL');
+            // Add space between consecutive word-like tokens
+            if (last_was_word && current_is_word) {
+              paren_content += ' ';
+            }
+            paren_content += this.advance().value;
+            last_was_word = current_is_word;
+          }
+        }
+        const paren_end_pos = this.check('RPAREN')
+          ? this.peek().range.end
+          : this.previous().range.end;
+        if (this.check('RPAREN')) {
+          this.advance(); // consume closing paren
+        }
+        // Add the parenthesized content as a single varlist item with parens
+        if (paren_content.trim()) {
+          varlist.push({
+            name: `(${paren_content})`,
+            range: this.makeRange(paren_start.range.start, paren_end_pos),
+          });
+        }
+      } else {
+        // Stop at other tokens
+        break;
+      }
+    }
+
+    // Parse if-qualifier
+    let ifExpression: string | undefined;
+    if (this.checkWord('if')) {
+      this.advance(); // consume 'if'
+      ifExpression = this.parseIfQualifierExpression();
+    }
+
+    // Parse in-qualifier
+    let inExpression: string | undefined;
+    if (this.checkWord('in')) {
+      this.advance(); // consume 'in'
+      inExpression = this.parseInQualifierExpression();
+    }
+
+    // Parse options (after comma)
+    const options: OptionNode[] = [];
+    if (this.check('COMMA')) {
+      this.advance(); // consume comma
+
+      // Stop at statement terminator, end of file, or comment (trivia)
+      while (
+        !this.check('STATEMENT_TERMINATOR') &&
+        !this.isAtEnd() &&
+        !this.isTrivia()
+      ) {
+        if (this.check('WORD')) {
+          const option_token = this.advance();
+          const option: OptionNode = {
+            type: 'option',
+            name: option_token.value,
+            fullName: option_token.value,
+            range: option_token.range,
+          };
+
+          // Check for option argument
+          if (this.check('LPAREN')) {
+            const parsed = this.parse_option_argument_inside_parens();
+            option.argument = parsed.argument;
+            option.argument_range = parsed.argument_range;
+          }
+
+          options.push(option);
+        } else {
+          this.advance(); // skip unknown tokens in options
+        }
+      }
+    }
+
+    return {
+      type: 'command',
+      name: macro_token.value,
+      fullName: macro_token.value,
+      varlist: varlist.length > 0 ? varlist : undefined,
+      options: options.length > 0 ? options : undefined,
+      ifExpression,
+      inExpression,
+      range: this.makeRange(start_token.range.start, this.previous().range.end),
     };
   }
 
