@@ -329,7 +329,7 @@ export class IndentationDiagnosticAnalyzer {
       }
       
       // Check if this is a prefix command brace block
-      if (node.type === 'command' && node.name === '{') {
+      if (node.type === 'command' && 'name' in node && node.name === '{') {
         const end_line = node.range.end.line;
         
         // If the node has a body, recurse into it with increased depth
