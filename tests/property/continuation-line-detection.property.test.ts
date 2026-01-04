@@ -1,11 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-diagnostics';
-import { DocumentState } from '../../src/document-store';
-import { ContextTracker } from '../../src/context-tracker';
 import { StataDiagnosticCode, StataLSPConfig, Token } from '../../src/types';
-import { StataLexer } from '../../src/lexer';
-import { StataParser } from '../../src/parser';
+import { create_document_state } from './helpers/document-utils';
 
 /**
  * Property-based tests for continuation line detection.
@@ -31,23 +28,7 @@ describe('Continuation Line Detection Properties', () => {
     cross_file: {}
   };
 
-  const create_document = (content: string): DocumentState => {
-    const lexer = new StataLexer();
-    const parser = new StataParser();
-    const lex_result = lexer.tokenize(content);
-    const parse_result = parser.parse(lex_result.tokens);
-    return {
-      uri: 'file:///test.do',
-      version: 1,
-      content,
-      tokens: lex_result.tokens,
-      ast: parse_result.ast,
-      symbols: { localMacros: new Map(), globalMacros: new Map(), programs: new Map(), scalars: new Map(), matrices: new Map(), variables: new Map() },
-      diagnostics: [],
-      context_tracker: new ContextTracker(),
-      line_offsets: []
-    };
-  };
+  const create_document = create_document_state;
 
   const find_continuation_lines_from_tokens = (tokens: Token[]): Set<number> => {
     const the_continuation_lines = new Set<number>();
