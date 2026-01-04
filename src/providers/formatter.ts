@@ -1,7 +1,7 @@
 /**
  * Code Formatter Provider for Sight
  *
- * Wraps PrettyPrinter to provide LSP formatting services.
+ * Uses SourcePreservingFormatter to provide LSP formatting services.
  * Extends formatting to support embedded language blocks (Mata, Python).
  */
 
@@ -11,12 +11,15 @@ import {
     Range,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
-import { PrettyPrinter } from '../pretty-printer';
+import { SourcePreservingFormatter, FormatterConfig } from '../formatter';
 import { ContextRange } from '../context-tracker/types';
-import { CommentFormattingConfig } from '../types';
+import { CommentFormattingConfig, StataLSPConfig } from '../types';
 import { CommentProcessor, CommentTransformation } from '../comment-processor/comment-processor';
 import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, DocumentLike, compute_line_offsets } from '../utils/line-utils';
+import { PrettyPrinter } from '../pretty-printer';
+import { StataLexer } from '../lexer';
+import { StataParser } from '../parser';
 
 /**
  * Code Formatter class with embedded language support.
@@ -27,16 +30,22 @@ export class CodeFormatter {
      *
      * @param document - The document state
      * @param options - Formatting options from the client
-     * @param line_width - Maximum line width (optional, defaults to 80)
+     * @param config - LSP configuration (optional, for mode selection)
      * @returns Array of TextEdit (usually one replacing the whole content)
      */
     format(
         document: DocumentState,
         options: FormattingOptions,
-        line_width?: number
+        config?: StataLSPConfig
     ): TextEdit[] {
-        if (!document.ast) {
+        if (!document.ast || !document.tokens) {
             return [];
+        }
+
+        const mode = config?.formatting?.mode || 'source-preserving';
+
+        if (mode === 'ast') {
+            return this.format_with_ast(document, options, config);
         }
 
         // Use context tracker from document state if available
@@ -44,11 +53,7 @@ export class CodeFormatter {
 
         // If there are no embedded language blocks, use standard formatting
         if (the_context_ranges.length === 0) {
-            return this.format_without_embedded_blocks(
-                document,
-                options,
-                line_width
-            );
+            return this.format_without_embedded_blocks(document, options, config);
         }
 
         // Format with embedded language preservation
@@ -56,8 +61,44 @@ export class CodeFormatter {
             document,
             options,
             the_context_ranges,
-            line_width
+            config
         );
+    }
+
+    /**
+     * Format document using AST-based PrettyPrinter (experimental).
+     * Returns empty edits on error to avoid code corruption.
+     */
+    private format_with_ast(
+        document: DocumentState,
+        options: FormattingOptions,
+        server_config?: StataLSPConfig
+    ): TextEdit[] {
+        try {
+            // Use VS Code's tabSize (from editor settings), fall back to server config
+            const indent_size = options.tabSize ?? server_config?.formatting?.indentSize ?? 4;
+            const printer = new PrettyPrinter({
+                indent_size,
+                indent_style: options.insertSpaces ? 'spaces' : 'tabs',
+                line_width: 80,
+            });
+
+            const formatted_text = printer.print(document.ast!);
+
+            const last_line = get_line_count(document) - 1;
+            const last_char = get_line_text(document, last_line).length;
+
+            return [{
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: last_line, character: last_char },
+                },
+                newText: this.strip_trailing_whitespace(formatted_text),
+            }];
+        } catch (error) {
+            logger.warn(`AST formatting failed: ${error}`);
+            return [];
+        }
     }
 
     /**
@@ -66,15 +107,23 @@ export class CodeFormatter {
     private format_without_embedded_blocks(
         document: DocumentState,
         options: FormattingOptions,
-        line_width?: number
+        server_config?: StataLSPConfig
     ): TextEdit[] {
-        const printer = new PrettyPrinter({
-            indent_size: options.tabSize,
+        // Use VS Code's tabSize (from editor settings), fall back to server config
+        const indent_size = options.tabSize ?? server_config?.formatting?.indentSize ?? 4;
+        const config: FormatterConfig = {
+            indent_size,
             indent_style: options.insertSpaces ? 'spaces' : 'tabs',
-            line_width: line_width,
-        });
+        };
 
-        const formatted_text = printer.print(document.ast!);
+        const formatter = new SourcePreservingFormatter(config);
+        const formatted_text = formatter.format(
+            document.tokens!,
+            document.ast!,
+            document.line_offsets,
+            document.content,
+            { preserve_alignment: server_config?.formatting?.preserve_alignment }
+        );
 
         // Replace the entire document content
         const last_line = get_line_count(document) - 1;
@@ -85,7 +134,7 @@ export class CodeFormatter {
                 start: { line: 0, character: 0 },
                 end: { line: last_line, character: last_char },
             },
-            newText: formatted_text,
+            newText: this.strip_trailing_whitespace(formatted_text),
         }];
     }
 
@@ -93,17 +142,19 @@ export class CodeFormatter {
      * Format document while preserving embedded language block content.
      * 
      * Strategy:
-     * 1. Extract embedded language blocks from original content
-     * 2. Format the Stata code (with embedded blocks replaced by placeholders)
+     * 1. Filter tokens to exclude embedded block content
+     * 2. Format the Stata code tokens
      * 3. Reinsert preserved embedded blocks into formatted output
-     * 4. Ensure proper spacing around block boundaries
      */
     private format_with_embedded_preservation(
         document: DocumentState,
         options: FormattingOptions,
         context_ranges: ContextRange[],
-        line_width?: number
+        server_config?: StataLSPConfig
     ): TextEdit[] {
+        // Limit embedded blocks to prevent resource exhaustion
+        const MAX_EMBEDDED_BLOCKS = 1000;
+        
         const the_doc: DocumentLike = { content: document.content, line_offsets: document.line_offsets };
         const the_embedded_blocks: Map<string, string> = new Map();
         let my_placeholder_counter = 0;
@@ -115,6 +166,11 @@ export class CodeFormatter {
         );
 
         for (const my_range of the_sorted_ranges) {
+            // Prevent resource exhaustion from too many embedded blocks
+            if (my_placeholder_counter >= MAX_EMBEDDED_BLOCKS) {
+                break;
+            }
+            
             const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
             the_embedded_blocks.set(my_placeholder, this.extract_block_content(
                 the_doc,
@@ -131,30 +187,49 @@ export class CodeFormatter {
             my_placeholder_counter++;
         }
 
-        // Format the modified content (with placeholders)
-        const printer = new PrettyPrinter({
-            indent_size: options.tabSize,
+        // For embedded blocks, we fall back to returning the content with preserved blocks
+        // since the source-preserving formatter works on the full token stream
+        // A more sophisticated approach would filter tokens, but for now we preserve embedded blocks
+        // Use VS Code's tabSize (from editor settings), fall back to server config
+        const indent_size = options.tabSize ?? server_config?.formatting?.indentSize ?? 4;
+        const config: FormatterConfig = {
+            indent_size,
             indent_style: options.insertSpaces ? 'spaces' : 'tabs',
-            line_width: line_width,
-        });
+        };
 
-        let my_formatted_content = my_modified_content;
+        // Format the modified content (with placeholders) instead of original content
+        const formatter = new SourcePreservingFormatter(config);
+        let my_formatted_content: string;
 
         try {
-            // Try to format - if it fails, fall back to original
-            my_formatted_content = printer.print(document.ast!);
+            // Parse the modified content with placeholders
+            const modified_lexer = new StataLexer();
+            const modified_lex_result = modified_lexer.tokenize(my_modified_content);
+            const modified_parser = new StataParser();
+            const modified_parse_result = modified_parser.parse(modified_lex_result.tokens);
+            
+            if (modified_parse_result.ast) {
+                my_formatted_content = formatter.format(
+                    modified_lex_result.tokens,
+                    modified_parse_result.ast,
+                    modified_lex_result.line_offsets,
+                    my_modified_content,
+                    { preserve_alignment: server_config?.formatting?.preserve_alignment }
+                );
+                
+                // Restore embedded blocks
+                for (const [my_placeholder, my_block_content] of the_embedded_blocks) {
+                    my_formatted_content = my_formatted_content.replace(
+                        my_placeholder,
+                        my_block_content
+                    );
+                }
+            } else {
+                my_formatted_content = document.content;
+            }
         } catch {
             // If formatting fails, use original content
-            my_formatted_content = my_modified_content;
-        }
-
-        // Restore embedded blocks
-        let my_final_content = my_formatted_content;
-        for (const [my_placeholder, my_block_content] of the_embedded_blocks) {
-            my_final_content = my_final_content.replace(
-                my_placeholder,
-                my_block_content
-            );
+            my_formatted_content = document.content;
         }
 
         // Calculate the range to replace
@@ -166,7 +241,7 @@ export class CodeFormatter {
                 start: { line: 0, character: 0 },
                 end: { line: last_line, character: last_char },
             },
-            newText: my_final_content,
+            newText: this.strip_trailing_whitespace(my_formatted_content),
         }];
     }
 
@@ -219,18 +294,18 @@ export class CodeFormatter {
      * @param document - The document state
      * @param _range - The range to format (currently unused)
      * @param options - Formatting options from the client
-     * @param line_width - Maximum line width (optional, defaults to 80)
+     * @param config - LSP configuration (optional, for mode selection)
      * @returns Array of TextEdit
      */
     format_range(
         document: DocumentState,
         _range: Range,
         options: FormattingOptions,
-        line_width?: number
+        config?: StataLSPConfig
     ): TextEdit[] {
         // Fallback to full document formatting for now, as partial formatting
         // is more complex and depends on correctly identifying parent nodes.
-        return this.format(document, options, line_width);
+        return this.format(document, options, config);
     }
 
     /**
@@ -253,7 +328,7 @@ export class CodeFormatter {
         try {
             // If comment normalization is disabled, use standard formatting
             if (!comment_config.normalizeCommentStyle) {
-                return this.format(document, options, comment_config.lineWidth);
+                return this.format(document, options);
             }
 
             // Apply comment normalization directly to the original source
@@ -274,7 +349,7 @@ export class CodeFormatter {
                     start: { line: 0, character: 0 },
                     end: { line: last_line, character: last_char },
                 },
-                newText: the_normalized_text,
+                newText: this.strip_trailing_whitespace(the_normalized_text),
             }];
         } catch (my_error) {
             logger.warn(`Error during format with comment normalization: ${my_error}`);
@@ -407,5 +482,16 @@ export class CodeFormatter {
             default:
                 return 'slash';
         }
+    }
+
+    /**
+     * Remove trailing whitespace from each line in the content.
+     * Preserves line structure (number of lines unchanged).
+     *
+     * @param content - The content to process
+     * @returns The content with trailing whitespace removed from each line
+     */
+    private strip_trailing_whitespace(content: string): string {
+        return content.split('\n').map(line => line.trimEnd()).join('\n');
     }
 }

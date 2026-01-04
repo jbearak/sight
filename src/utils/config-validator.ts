@@ -108,6 +108,30 @@ export function validate_comment_formatting_config(
                 );
             }
         }
+
+        // Validate mode
+        if (formatting.mode !== undefined) {
+            if (formatting.mode === 'source-preserving' || formatting.mode === 'ast') {
+                validated_config.formatting.mode = formatting.mode;
+            } else {
+                log_warning?.(
+                    `Invalid formatting.mode: ${formatting.mode}. ` +
+                    `Using default: ${DEFAULT_SETTINGS.formatting.mode}`
+                );
+            }
+        }
+
+        // Validate preserve_alignment
+        if (formatting.preserve_alignment !== undefined) {
+            if (typeof formatting.preserve_alignment === 'boolean') {
+                validated_config.formatting.preserve_alignment = formatting.preserve_alignment;
+            } else {
+                log_warning?.(
+                    `Invalid preserve_alignment: ${formatting.preserve_alignment}. ` +
+                    `Using default: ${DEFAULT_SETTINGS.formatting.preserve_alignment}`
+                );
+            }
+        }
     }
 
     // Validate other sections (diagnostics, completion, indexing)

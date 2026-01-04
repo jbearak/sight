@@ -103,6 +103,11 @@ const EXPECTED_CONFIG_FIELDS: ConfigFieldSpec[] = [
         path: 'sight.formatting.commentLineWidth',
         type: 'number',
     },
+    {
+        path: 'sight.formatting.mode',
+        type: 'string',
+        enum_values: ['source-preserving', 'ast'],
+    },
     // Indexing
     {
         path: 'sight.indexing.maxFileSizeBytes',

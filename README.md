@@ -53,6 +53,9 @@ Sight colorizes nesting depth of compound strings and local macros.
 Command+click (Mac) or Control+click (Windows) to see symbol definitions across files.
 <img width="671" height="386" src="examples/command_click.png"/>
 
+#### Missing indentation
+<img width="" height="345" src="examples/missing_indentation.png"/>
+
 
 
 ## Syntax Highlighting
@@ -642,7 +645,7 @@ npm install -g github:jbearak/sight
 ```
 
 After installation, the `sight-language-server` command will be available globally. Use it with:
-- **Kiro CLI, OpenCode, Crush**: See [CLI integration](#cli-integration) below
+- **Kiro CLI, OpenCode, Crush**: See [CLI integration](#agent-integration) below
 - **Other LSP clients**: Configure to run `sight-language-server --stdio`
 - **Manual testing**: Run `sight-language-server --help` to verify installation
 
@@ -742,6 +745,7 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | `sight.diagnostics.severity.undefinedVariable` | enum    | `"information"` | Severity level for undefined variable references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.styleWarnings`     | enum    | `"hint"`        | Severity level for style warnings. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`                |
 | `sight.diagnostics.undefinedVariableEnabled`   | boolean | `false`         | Enable checking for undefined variables                                                                               |
+| `sight.diagnostics.indentation`                | boolean | `true`          | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
 
 #### Forward Reference Detection
 
@@ -872,6 +876,9 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 
 ```json
 {
+  "diagnostics": {
+    "indentation": true
+  },
   "crossFile": {
     "indexWorkspace": true,
     "maxIndexedFiles": 1000,
@@ -891,6 +898,7 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 
 | Option                                  | Type                 | Default         | Description                                                             |
 | --------------------------------------- | -------------------- | --------------- | ----------------------------------------------------------------------- |
+| `diagnostics.indentation`               | boolean              | `true`          | Enable indentation diagnostics                                          |
 | `crossFile.indexWorkspace`              | boolean              | `true`          | Enable workspace-wide file indexing                                     |
 | `crossFile.maxIndexedFiles`             | number               | `1000`          | Maximum files to index                                                  |
 | `crossFile.maxBackwardDepth`            | number               | `10`            | Maximum recursion depth for backward directive resolution               |
@@ -925,9 +933,13 @@ VS Code settings take precedence over `.sight.json` when both are present.
 }
 ```
 
+#### Disable Indentation Diagnostics
 
-
-
+```json
+{
+  "sight.diagnostics.indentation": false
+}
+```
 
 #### Add Custom ADO Paths
 
@@ -1008,11 +1020,44 @@ Configure code formatting options.
 | `sight.formatting.indentSize` | number | `4` | Number of spaces or tab stops for indentation (minimum: 1) |
 | `sight.formatting.indentStyle` | enum | `"spaces"` | Use spaces or tabs for indentation. Options: `"spaces"`, `"tabs"` |
 | `sight.formatting.lineWidth` | number | `80` | Maximum line width for formatting (minimum: 40) |
+| `sight.formatting.preserveAlignment` | boolean | `true` | Preserve intentional alignment in continuation lines |
 | `sight.formatting.normalizeCommentStyle` | boolean | `false` | Normalize comment styles during formatting |
 | `sight.formatting.preferredCommentStyle` | enum | `"//"` | Preferred comment style for normalization. Options: `"//"`, `"*"`, `"/* */"` |
 | `sight.formatting.commentLineWidth` | number | `72` | Maximum line width for comments (minimum: 40) |
 
 To automatically format on save, enable VS Code's built-in `editor.formatOnSave` setting.
+
+#### Alignment Preservation
+
+When `preserveAlignment` is enabled (default), the formatter detects and preserves intentional alignment in continuation lines (lines after `///`). This allows you to maintain aligned operators, conditions, or expressions across multiple lines:
+
+```stata
+gen new_var = (condition1 == 1) ///
+            & (condition2 == 2) ///
+            | (condition3 == 3)
+```
+
+**Alignment with Indentation Correction**: When the formatter corrects incorrect block indentation, it preserves alignment by applying the same indentation delta to all continuation lines. For example, if a statement inside an `if` block is missing 4 spaces of indentation:
+
+```stata
+// Before formatting (missing indentation)
+if condition {
+gen result = (var1 == 1) ///
+           & (var2 == 2) ///
+           | (var3 == 3)
+}
+
+// After formatting (indentation corrected, alignment preserved)
+if condition {
+    gen result = (var1 == 1) ///
+               & (var2 == 2) ///
+               | (var3 == 3)
+}
+```
+
+The formatter adds the same 4 spaces to both the base statement and all continuation lines, maintaining their relative alignment.
+
+When alignment preservation is disabled, the formatter applies standard indentation rules to all continuation lines.
 
 ### Comment Style Normalization
 

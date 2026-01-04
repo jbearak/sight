@@ -90,6 +90,8 @@ export interface LexerState {
   embedded_brace_depth?: number;
   // Line number where the embedded block started (for brace-style detection)
   embedded_block_start_line?: number;
+  // Track if we're in a continuation sequence (previous line ended with ///)
+  in_continuation?: boolean;
 }
 
 export interface LexerResult {
@@ -263,6 +265,7 @@ export interface MacroDefNode {
   scope: 'local' | 'global';
   name: string;
   value: string;
+  hasEquals?: boolean;  // Whether the definition used '=' (e.g., local x = 1 vs local x 1)
   extendedFunction?: ExtendedMacroFunction;
   range: Range;
   leadingTrivia?: TriviaNode[];
@@ -435,6 +438,10 @@ export enum StataDiagnosticCode {
   FORVALUES_SYNTAX = 3008,
   REDUNDANT_MACRO_SUFFIX = 3009,
   INVALID_MACRO_CHAR = 3010,
+
+  // Indentation errors
+  UNNECESSARY_INDENTATION = 5001,
+  MISSING_INDENTATION = 5002,
 }
 
 
@@ -455,6 +462,7 @@ export interface StataLSPConfig {
       styleWarnings: 'error' | 'warning' | 'information' | 'hint' | 'off';
     };
     undefinedVariableEnabled: boolean;
+    indentation: boolean;
   };
   completion: {
     cacheSize: number;
@@ -467,6 +475,8 @@ export interface StataLSPConfig {
     preferredCommentStyle: '//' | '*' | '/* */';
     normalizeCommentStyle: boolean;
     commentLineWidth: number;
+    preserve_alignment?: boolean;
+    mode?: 'source-preserving' | 'ast';
   };
   indexing: {
     maxFileSizeBytes: number;

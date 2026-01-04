@@ -56,11 +56,23 @@ export class StataLexer {
               if (my_token.type !== 'WHITESPACE') {
                 this.previous_token = my_token;
               }
+              // Reset continuation state when we see actual code (not continuation, whitespace, or newline)
+              if (my_token.type !== 'CONTINUATION' && 
+                  my_token.type !== 'WHITESPACE' && 
+                  my_token.type !== 'STATEMENT_TERMINATOR') {
+                this.state.in_continuation = false;
+              }
             }
           } else {
             tokens.push(result);
             if (result.type !== 'WHITESPACE') {
               this.previous_token = result;
+            }
+            // Reset continuation state when we see actual code (not continuation, whitespace, or newline)
+            if (result.type !== 'CONTINUATION' && 
+                result.type !== 'WHITESPACE' && 
+                result.type !== 'STATEMENT_TERMINATOR') {
+              this.state.in_continuation = false;
             }
           }
         }
@@ -368,6 +380,20 @@ export class StataLexer {
       // Check for continuation comment ///
       if (this.peek() === '/') {
         this.advance(); // consume third /
+        
+        // Check if this is a visual separator (only slashes until end of line)
+        // e.g., "//////////////////////////////////////" is a comment, not continuation
+        if (this.isOnlySlashesUntilEndOfLine()) {
+          return this.scanLineComment(startLine, startColumn, 'slash');
+        }
+        
+        // /// is a continuation if:
+        // 1. There's code before it on the same line (startColumn > 0), OR
+        // 2. We're continuing a valid continuation sequence (previous line ended with ///)
+        if (startColumn === 0 && !this.state.in_continuation) {
+          return this.scanLineComment(startLine, startColumn, 'slash');
+        }
+        
         return this.scanContinuationComment(startLine, startColumn);
       } else {
         return this.scanLineComment(startLine, startColumn, 'slash');
@@ -671,6 +697,9 @@ export class StataLexer {
     while (this.peek() !== '\n' && !this.isAtEnd()) {
       this.advance();
     }
+
+    // Mark that we're in a continuation sequence
+    this.state.in_continuation = true;
 
     const value = this.source.substring(this.position_to_offset(startLine, startColumn), this.position);
     return {
@@ -1461,6 +1490,26 @@ export class StataLexer {
 
   private isAtEnd(): boolean {
     return this.position >= this.source.length;
+  }
+
+  /**
+   * Check if this looks like a visual separator line.
+   * Visual separators typically have many consecutive slashes (e.g., "////////////////////")
+   * Real continuations are just "///" possibly followed by comment text.
+   * We check if there are more than 3 additional slashes after the initial "///".
+   */
+  private isOnlySlashesUntilEndOfLine(): boolean {
+    let my_pos = this.position;
+    let my_slash_count = 0;
+    
+    // Count consecutive slashes
+    while (my_pos < this.source.length && this.source[my_pos] === '/') {
+      my_slash_count++;
+      my_pos++;
+    }
+    
+    // If we have 4+ more slashes (total 7+ with the initial ///), it's a visual separator
+    return my_slash_count >= 4;
   }
 
   private advance(): string {

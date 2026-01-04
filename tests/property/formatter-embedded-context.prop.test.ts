@@ -1,3 +1,17 @@
+/**
+ * Property Tests: Formatter Embedded Context Preservation
+ *
+ * Feature: comment-style-normalization
+ * Tests that comments within embedded language blocks (Mata, Python) are
+ * preserved and not normalized.
+ *
+ * NOTE: These tests operate on the CommentProcessor directly, not the
+ * CodeFormatter. The CommentProcessor is a lower-level component that
+ * handles comment transformations regardless of formatter mode. Therefore,
+ * dual-mode testing is not applicable here - the behavior is the same
+ * regardless of which formatter (source-preserving or AST) is used.
+ */
+
 import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { CommentProcessor } from '../../src/comment-processor/comment-processor';

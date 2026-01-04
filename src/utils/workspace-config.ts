@@ -35,52 +35,73 @@ export function map_stata_lsp_json_to_partial_config(raw: unknown): DeepPartial<
     }
 
     const maybe_raw = raw as Record<string, unknown>;
+    const mapped: DeepPartial<StataLSPConfig> = {};
+
+    // README schema: { diagnostics: { ... } }
+    const diagnostics = maybe_raw.diagnostics;
+    if (diagnostics && typeof diagnostics === 'object') {
+        const diagnostics_obj = diagnostics as Record<string, unknown>;
+        mapped.diagnostics = {};
+
+        if (typeof diagnostics_obj.indentation === 'boolean') {
+            mapped.diagnostics.indentation = diagnostics_obj.indentation;
+        }
+    }
+
+    // README schema: { formatting: { ... } }
+    const formatting = maybe_raw.formatting;
+    if (formatting && typeof formatting === 'object') {
+        const formatting_obj = formatting as Record<string, unknown>;
+        mapped.formatting = {};
+
+        if (typeof formatting_obj.preserveAlignment === 'boolean') {
+            mapped.formatting.preserve_alignment = formatting_obj.preserveAlignment;
+        }
+    }
 
     // README schema: { crossFile: { ... } }
     const cross_file = maybe_raw.crossFile;
-    if (!cross_file || typeof cross_file !== 'object') {
-        return {};
-    }
+    if (cross_file && typeof cross_file === 'object') {
+        const cross_file_obj = cross_file as Record<string, unknown>;
+        mapped.cross_file = { diagnostics: {} };
 
-    const cross_file_obj = cross_file as Record<string, unknown>;
-    const mapped: DeepPartial<StataLSPConfig> = { cross_file: { diagnostics: {} } };
+        if (typeof cross_file_obj.indexWorkspace === 'boolean') {
+            mapped.cross_file!.index_workspace = cross_file_obj.indexWorkspace;
+        }
+        if (typeof cross_file_obj.maxIndexedFiles === 'number') {
+            mapped.cross_file!.max_indexed_files = cross_file_obj.maxIndexedFiles;
+        }
+        if (cross_file_obj.assumeCallSite === 'end' || cross_file_obj.assumeCallSite === 'start') {
+            mapped.cross_file!.assume_call_site = cross_file_obj.assumeCallSite;
+        }
+        if (typeof cross_file_obj.maxBackwardDepth === 'number') {
+            mapped.cross_file!.max_backward_depth = cross_file_obj.maxBackwardDepth;
+        }
+        if (typeof cross_file_obj.maxForwardDepth === 'number') {
+            mapped.cross_file!.max_forward_depth = cross_file_obj.maxForwardDepth;
+        }
+        if (typeof cross_file_obj.maxChainDepth === 'number') {
+            mapped.cross_file!.max_chain_depth = cross_file_obj.maxChainDepth;
+        }
+        if (typeof cross_file_obj.maxCalleeRevalidations === 'number') {
+            mapped.cross_file!.max_callee_revalidations = cross_file_obj.maxCalleeRevalidations;
+        }
 
-    if (typeof cross_file_obj.indexWorkspace === 'boolean') {
-        mapped.cross_file!.index_workspace = cross_file_obj.indexWorkspace;
-    }
-    if (typeof cross_file_obj.maxIndexedFiles === 'number') {
-        mapped.cross_file!.max_indexed_files = cross_file_obj.maxIndexedFiles;
-    }
-    if (cross_file_obj.assumeCallSite === 'end' || cross_file_obj.assumeCallSite === 'start') {
-        mapped.cross_file!.assume_call_site = cross_file_obj.assumeCallSite;
-    }
-    if (typeof cross_file_obj.maxBackwardDepth === 'number') {
-        mapped.cross_file!.max_backward_depth = cross_file_obj.maxBackwardDepth;
-    }
-    if (typeof cross_file_obj.maxForwardDepth === 'number') {
-        mapped.cross_file!.max_forward_depth = cross_file_obj.maxForwardDepth;
-    }
-    if (typeof cross_file_obj.maxChainDepth === 'number') {
-        mapped.cross_file!.max_chain_depth = cross_file_obj.maxChainDepth;
-    }
-    if (typeof cross_file_obj.maxCalleeRevalidations === 'number') {
-        mapped.cross_file!.max_callee_revalidations = cross_file_obj.maxCalleeRevalidations;
-    }
-
-    const diags = cross_file_obj.diagnostics;
-    if (diags && typeof diags === 'object') {
-        const diags_obj = diags as Record<string, unknown>;
-        if (typeof diags_obj.undefinedSymbol === 'string') {
-            mapped.cross_file!.diagnostics!.undefined_symbol = normalize_severity(diags_obj.undefinedSymbol);
-        }
-        if (typeof diags_obj.outOfScope === 'string') {
-            mapped.cross_file!.diagnostics!.out_of_scope = normalize_severity(diags_obj.outOfScope);
-        }
-        if (typeof diags_obj.missingFile === 'string') {
-            mapped.cross_file!.diagnostics!.missing_file = normalize_severity(diags_obj.missingFile);
-        }
-        if (typeof diags_obj.callSiteIdentification === 'string') {
-            mapped.cross_file!.diagnostics!.call_site_identification = normalize_severity(diags_obj.callSiteIdentification);
+        const diags = cross_file_obj.diagnostics;
+        if (diags && typeof diags === 'object') {
+            const diags_obj = diags as Record<string, unknown>;
+            if (typeof diags_obj.undefinedSymbol === 'string') {
+                mapped.cross_file!.diagnostics!.undefined_symbol = normalize_severity(diags_obj.undefinedSymbol);
+            }
+            if (typeof diags_obj.outOfScope === 'string') {
+                mapped.cross_file!.diagnostics!.out_of_scope = normalize_severity(diags_obj.outOfScope);
+            }
+            if (typeof diags_obj.missingFile === 'string') {
+                mapped.cross_file!.diagnostics!.missing_file = normalize_severity(diags_obj.missingFile);
+            }
+            if (typeof diags_obj.callSiteIdentification === 'string') {
+                mapped.cross_file!.diagnostics!.call_site_identification = normalize_severity(diags_obj.callSiteIdentification);
+            }
         }
     }
 

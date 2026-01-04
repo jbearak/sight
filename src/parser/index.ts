@@ -520,6 +520,7 @@ export class StataParser {
       scope,
       name: macroName,
       value: value.trim(),
+      hasEquals: has_equals,
       range: this.makeRange(scopeToken.range.start, this.previous().range.end),
     };
   }

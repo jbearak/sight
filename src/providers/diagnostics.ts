@@ -17,6 +17,7 @@ import { ScopeResolver } from '../scope-resolver';
 import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 
 /**
  * DiagnosticsProvider aggregates diagnostics from cached parse results.
@@ -40,6 +41,7 @@ import { get_line_text, get_line_count } from '../utils/line-utils';
 export class DiagnosticsProvider {
     private connection: Connection;
     private debounce_manager: DocumentDebounceManager | null = null;
+    private indentation_analyzer = new IndentationDiagnosticAnalyzer();
     
     // Track published versions to prevent stale diagnostics
     private published_versions: Map<string, number> = new Map();
@@ -303,6 +305,15 @@ export class DiagnosticsProvider {
             }
         }
 
+        // Add indentation diagnostics
+        const indentation_diagnostics = this.indentation_analyzer.analyze(document, config);
+        for (const my_indentation_diag of indentation_diagnostics) {
+            // Skip indentation diagnostics in embedded contexts
+            if (!this.is_in_embedded_context(my_indentation_diag.range.start, the_context_ranges)) {
+                the_diagnostics.push(my_indentation_diag);
+            }
+        }
+
         // Add directive-related diagnostics if scope resolver is provided
         if (resolved_scope) {
             for (const my_directive_diag of resolved_scope.diagnostics) {
@@ -342,6 +353,7 @@ export class DiagnosticsProvider {
             enabled: config.diagnostics.enabled,
             severity: config.diagnostics.severity,
             undefinedVariableEnabled: config.diagnostics.undefinedVariableEnabled,
+            indentation: config.diagnostics.indentation,
             adoPaths: config.adoPaths,
             cross_file: config.cross_file,
         });
