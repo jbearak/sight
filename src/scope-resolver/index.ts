@@ -182,7 +182,7 @@ export class ScopeResolver {
         const keys_to_remove: string[] = [];
 
         for (const [cache_key, entry] of this.scope_cache) {
-            if (entry.dependent_uris.includes(uri)) {
+            if (entry.dependent_uris.has(uri)) {
                 keys_to_remove.push(cache_key);
             }
         }
@@ -711,7 +711,7 @@ export class ScopeResolver {
             resolved_scope,
             content_hash: this.hash_content(file_content),
             timestamp: Date.now(),
-            dependent_uris: resolved_scope.chain.map((e) => e.uri),
+            dependent_uris: new Set(resolved_scope.chain.map((e) => e.uri)),
         });
 
         return resolved_scope;
@@ -1722,18 +1722,24 @@ export class ScopeResolver {
         out_of_scope: OutOfScopeSymbol[],
         new_symbols: OutOfScopeSymbol[]
     ): void {
-        for (const new_symbol of new_symbols) {
-            const existing_index = out_of_scope.findIndex(s => s.name === new_symbol.name);
+        // Build index once for O(n) lookups instead of O(n²)
+        // ASSUMPTION: Within this function, out_of_scope is only modified via push()
+        //   and element replacement. No removals or reordering occur.
+        const name_to_index = new Map<string, number>();
+        for (let i = 0; i < out_of_scope.length; i++) {
+            name_to_index.set(out_of_scope[i].name, i);
+        }
 
-            if (existing_index === -1) {
-                // No existing entry, add new one
+        for (const new_symbol of new_symbols) {
+            const existing_index = name_to_index.get(new_symbol.name);
+            if (existing_index === undefined) {
+                name_to_index.set(new_symbol.name, out_of_scope.length);
                 out_of_scope.push(new_symbol);
             } else if (new_symbol.reason === 'inheritance_excludes_locals' &&
                 out_of_scope[existing_index].reason === 'after_call_site') {
-                // Replace after_call_site with inheritance_excludes_locals
+                // Replace in-place; name_to_index remains valid since name and index are unchanged
                 out_of_scope[existing_index] = new_symbol;
             }
-            // Otherwise keep existing entry (same reason or existing has higher priority)
         }
     }
 
@@ -2248,7 +2254,7 @@ export class ScopeResolver {
             // Find and remove all scope cache entries that depend on this URI
             const keys_to_remove: string[] = [];
             for (const [cache_key, entry] of this.scope_cache) {
-                if (entry.dependent_uris.includes(my_uri)) {
+                if (entry.dependent_uris.has(my_uri)) {
                     keys_to_remove.push(cache_key);
                 }
             }

@@ -9,6 +9,11 @@ import {
   LanguageContext,
 } from '../types';
 
+const EXPRESSION_CONTEXT_KEYWORDS = new Set(['if', 'else', 'foreach', 'forvalues', 'while', 'gen', 'generate', 'replace', 'egen', 'set', 'scalar', 'matrix', 'return']);
+const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'noisily', 'by', 'bysort']);
+const MULTIPLICATION_CONTEXT_TYPES = new Set(['NUMBER', 'WORD', 'RPAREN', 'RBRACKET', 'RBRACE', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'LPAREN']);
+const ASSIGNMENT_OPERATORS = new Set(['=', '==', '!=', '<', '>', '<=', '>=']);
+
 export class StataLexer {
   private source: string = '';
   private position: number = 0;
@@ -234,38 +239,24 @@ export class StataLexer {
     }
     
     // After certain command keywords (case-sensitive), * is likely a comment
-    const the_comment_context_keywords = [
-      'program', 'capture', 'quietly', 'noisily', 'by', 'bysort'
-    ];
-    
     // Keywords that expect expressions where * should be multiplication (case-sensitive)
-    const the_expression_context_keywords = [
-      'if', 'else', 'foreach', 'forvalues', 'while', 'gen', 'generate', 
-      'replace', 'egen', 'set', 'scalar', 'matrix', 'return'
-    ];
     
     if (prev_token_type === 'WORD') {
-      if (the_expression_context_keywords.includes(prev_token_value)) {
+      if (EXPRESSION_CONTEXT_KEYWORDS.has(prev_token_value)) {
         return false; // Treat as multiplication
-      } else if (the_comment_context_keywords.includes(prev_token_value)) {
+      } else if (COMMENT_CONTEXT_KEYWORDS.has(prev_token_value)) {
         return true; // Treat as comment
       }
     }
     
     // Rule 3: After these tokens, * is likely multiplication
-    const the_multiplication_context_types = [
-      'NUMBER', 'WORD', 'RPAREN', 'RBRACKET', 'RBRACE',
-      'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'LPAREN'
-    ];
-    
-    if (the_multiplication_context_types.includes(prev_token_type)) {
+    if (MULTIPLICATION_CONTEXT_TYPES.has(prev_token_type)) {
       return false;
     }
     
     // After operators (except assignment), * is likely multiplication
     if (prev_token_type === 'OPERATOR') {
-      const the_assignment_operators = ['=', '==', '!=', '<', '>', '<=', '>='];
-      if (!the_assignment_operators.includes(prev_token_value)) {
+      if (!ASSIGNMENT_OPERATORS.has(prev_token_value)) {
         return false;
       }
       // After assignment operators, * could be either - default to comment

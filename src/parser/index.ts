@@ -28,6 +28,8 @@ import {
 import { ContextTracker } from '../context-tracker';
 import { isFileCommand } from '../utils/file-path-utils';
 
+const PREFIX_COMMANDS = new Set(['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi']);
+
 export class StataParser {
   private tokens: Token[] = [];
   private current: number = 0;
@@ -2029,8 +2031,7 @@ export class StataParser {
   }
 
   private isPrefixCommand(word: string): boolean {
-    const prefixes = ['by', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'];
-    return prefixes.includes(word);
+    return PREFIX_COMMANDS.has(word);
   }
 
   private collectTrivia(): TriviaNode[] {
