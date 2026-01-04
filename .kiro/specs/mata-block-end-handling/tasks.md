@@ -69,7 +69,7 @@ This plan implements fixes for bugs in Mata/Python embedded language block handl
     - Formatter handles indentation, so original whitespace should be removed
     - _Requirements: 4.2_
 
-  - [ ]* 5.5 Write property test for formatter embedded block indentation
+  - [x] 5.5 Write property test for formatter embedded block indentation
     - **Property 3: Formatter embedded block indentation correctness**
     - Generate Mata/Python blocks at various nesting depths
     - Verify formatter doesn't add extra indentation to opening delimiter

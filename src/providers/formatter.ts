@@ -238,11 +238,35 @@ export class CodeFormatter {
                     { preserve_alignment: server_config?.formatting?.preserve_alignment }
                 );
                 
-                // Restore embedded blocks
+                // Restore embedded blocks with proper indentation
                 for (const [my_placeholder, my_block_content] of the_embedded_blocks) {
+                    // Find the placeholder in the formatted content and get its indentation
+                    const placeholder_match = my_formatted_content.match(
+                        new RegExp(`^([ \\t]*)${my_placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm')
+                    );
+                    const placeholder_indent = placeholder_match ? placeholder_match[1] : '';
+                    
+                    // Apply the placeholder's indentation to the block content
+                    // The first line already has no leading whitespace (stripped in extract_block_content)
+                    // The last line (end delimiter) also has no leading whitespace (stripped)
+                    // We need to add the placeholder's indentation to both
+                    const block_lines = my_block_content.split('\n');
+                    const indented_block_lines = block_lines.map((line, index) => {
+                        if (index === 0) {
+                            // First line (opening delimiter): add placeholder indentation
+                            return placeholder_indent + line;
+                        } else if (index === block_lines.length - 1 && line.trim() === 'end') {
+                            // Last line is the end delimiter: add placeholder indentation
+                            return placeholder_indent + line;
+                        } else {
+                            // Middle lines (embedded content): preserve as-is
+                            return line;
+                        }
+                    });
+                    
                     my_formatted_content = my_formatted_content.replace(
-                        my_placeholder,
-                        my_block_content
+                        new RegExp(`[ \\t]*${my_placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+                        indented_block_lines.join('\n')
                     );
                 }
             } else {
@@ -273,8 +297,9 @@ export class CodeFormatter {
      * include it. Use end_delimiter.range.start.line if available, otherwise
      * fall back to context_range.range.end.line.
      * 
-     * The first line's leading whitespace is stripped since the formatter will
-     * handle indentation. This prevents double-indentation when the block is restored.
+     * The first line's (opening delimiter) and last line's (closing delimiter)
+     * leading whitespace is stripped since the formatter will handle indentation.
+     * This prevents double-indentation when the block is restored.
      */
     private extract_block_content(
         doc: DocumentLike,
@@ -291,8 +316,13 @@ export class CodeFormatter {
         for (let i = the_start_line; i <= the_end_line && i < the_line_count; i++) {
             const line_text = get_line_text(doc, i);
             if (i === the_start_line) {
-                // Strip leading whitespace from the first line since the formatter
-                // will handle indentation. This prevents double-indentation.
+                // Strip leading whitespace from the first line (opening delimiter)
+                // since the formatter will handle indentation.
+                the_block_lines.push(line_text.trimStart());
+            } else if (i === the_end_line && !context_range.is_single_line) {
+                // Strip leading whitespace from the last line (closing delimiter)
+                // since the formatter will handle indentation.
+                // Only do this for multi-line blocks (not single-line mata: calls)
                 the_block_lines.push(line_text.trimStart());
             } else {
                 the_block_lines.push(line_text);
