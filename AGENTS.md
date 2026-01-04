@@ -253,9 +253,14 @@ formatter.
 
 **Dual Formatter Architecture**: The LSP supports two formatter implementations:
 - **Source-Preserving Formatter** (default): Preserves original source structure
-  while applying formatting. Best for maintaining code style consistency.
+  while applying formatting. Uses AST-based depth computation for accurate
+  indentation levels. Best for maintaining code style consistency.
 - **AST Formatter**: Rebuilds code from the AST using the Pretty Printer. May
   normalize certain constructs but preserves semantic meaning.
+
+Both formatters require a valid AST for proper indentation depth computation.
+The `IndentationDiagnosticAnalyzer` also uses AST-based depth analysis to detect
+unnecessary and missing indentation issues.
 
 The formatter mode is configurable via `formatting.mode` setting (`"source-preserving"`
 or `"ast"`). Both formatters share common infrastructure for comment normalization
