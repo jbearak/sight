@@ -1535,12 +1535,10 @@ export class ScopeResolver {
                 return { content, symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
             }
             // Mtime matches but hash differs - file was modified within same millisecond
+            // Skip to cache miss processing since hash check would fail
             this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (mtime match but hash differs)`);
-        }
-
-        // Content hash check (for when mtime is unavailable or didn't match)
-
-        if (cached && cached.content_hash === disk_hash) {
+        } else if (cached && cached.content_hash === disk_hash) {
+            // Content hash check (for when mtime is unavailable or didn't match)
             this.cache_metrics.file.hits++;
             this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (hash match)`);
             // Update mtime if we have it
@@ -1549,9 +1547,7 @@ export class ScopeResolver {
             }
             // Return content along with cached results
             return { content, symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, working_directory: cached.working_directory, diagnostics: [] };
-        }
-
-        if (cached) {
+        } else if (cached) {
             this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (cached hash=${cached.content_hash}, disk hash=${disk_hash})`);
         } else {
             this.log(`[get_parsed_file] File cache MISS for ${actual_uri} (no entry)`);
