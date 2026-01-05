@@ -266,10 +266,16 @@ describe('Property 2: String Content Preservation', () => {
         expect(output).toContain('"a+b-c*d"');
     });
 
-    for_each_formatter_mode('should preserve compound strings with embedded macros', (mode) => {
+    for_each_formatter_mode('should preserve compound strings with embedded local macros', (mode) => {
         const source = `display \`"\`macro'"'`;
         const output = format_with_mode(source, mode);
         expect(output).toContain('`"`macro\'"\'');
+    });
+
+    for_each_formatter_mode('should preserve compound strings with embedded global macros', (mode) => {
+        const source = `display \`"$macro"'`;
+        const output = format_with_mode(source, mode);
+        expect(output).toContain('`"$macro"\'');
     });
 
     for_each_formatter_mode_property(
@@ -419,6 +425,13 @@ describe('Edge Cases', () => {
 }`;
         const output = format_with_mode(source, mode);
         expect(output).toContain('`"`macro\'"\'');
+    });
+
+    for_each_formatter_mode('should handle deeply nested compound strings', (mode) => {
+        // Test compound string containing another compound string
+        const source = `display \`"\`"nested"'"'`;
+        const output = format_with_mode(source, mode);
+        expect(output).toContain('`"`"nested"\'"\'');
     });
 });
 
