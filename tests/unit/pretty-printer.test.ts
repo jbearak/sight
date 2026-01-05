@@ -224,6 +224,19 @@ display "next"`);
             expect(output).toContain('// inline comment');
         });
 
+        test('should keep trailing comment on same line as statement', () => {
+            const ast = parse_source(`generate age = 25 // inline comment`);
+            const output = printer.print(ast);
+
+            // Trailing comment should be on same line as statement
+            const the_lines = output.split('\n').filter(l => l.trim().length > 0);
+            expect(the_lines.length).toBe(1);
+            expect(the_lines[0]).toContain('generate');
+            expect(the_lines[0]).toContain('// inline comment');
+            // Should have space before comment, not indentation
+            expect(the_lines[0]).toMatch(/age.*\s\/\/ inline comment/);
+        });
+
         test('should preserve block comment', () => {
             const ast = parse_source(`/* block comment */
 generate age = 25`);
