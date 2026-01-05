@@ -87,16 +87,28 @@ export function find_protected_regions(expression: string): ProtectedRegion[] {
 
     while (i < expression.length) {
         // Check for compound string: `"..."'
-        if (expression[i] === '`' && expression[i + 1] === '"') {
+        if (
+            expression[i] === '`' &&
+            i + 1 < expression.length &&
+            expression[i + 1] === '"'
+        ) {
             const my_start = i;
             i += 2; // Skip `"
             let my_depth = 1;
 
             while (i < expression.length && my_depth > 0) {
-                if (expression[i] === '`' && expression[i + 1] === '"') {
+                if (
+                    expression[i] === '`' &&
+                    i + 1 < expression.length &&
+                    expression[i + 1] === '"'
+                ) {
                     my_depth++;
                     i += 2;
-                } else if (expression[i] === '"' && expression[i + 1] === "'") {
+                } else if (
+                    expression[i] === '"' &&
+                    i + 1 < expression.length &&
+                    expression[i + 1] === "'"
+                ) {
                     my_depth--;
                     i += 2;
                 } else {
@@ -112,8 +124,12 @@ export function find_protected_regions(expression: string): ProtectedRegion[] {
             continue;
         }
 
-        // Check for nested local macro: `x`y'' (backtick followed by content with nested backticks)
-        if (expression[i] === '`' && expression[i + 1] !== '"') {
+        // Check for nested local macro: `x`y'' (backtick followed by content
+        // with nested backticks)
+        if (
+            expression[i] === '`' &&
+            (i + 1 >= expression.length || expression[i + 1] !== '"')
+        ) {
             const my_start = i;
             i++; // Skip opening backtick
 
@@ -152,7 +168,11 @@ export function find_protected_regions(expression: string): ProtectedRegion[] {
         }
 
         // Check for global macro with nested content: ${...}
-        if (expression[i] === '$' && expression[i + 1] === '{') {
+        if (
+            expression[i] === '$' &&
+            i + 1 < expression.length &&
+            expression[i + 1] === '{'
+        ) {
             const my_start = i;
             i += 2; // Skip ${
             let my_brace_depth = 1;
@@ -273,8 +293,8 @@ function classify_token(
     if (value === ',') return 'comma';
     if (value === ':') return 'colon';
 
-    // Check for keywords
-    if (EXPRESSION_KEYWORDS.has(value.toLowerCase())) {
+    // Check for keywords (case-sensitive - Stata is case-sensitive)
+    if (EXPRESSION_KEYWORDS.has(value)) {
         return 'keyword';
     }
 
@@ -516,10 +536,19 @@ function needs_space_before(
     if (my_curr === 'open_bracket') return false;
 
     // Space between adjacent identifiers/numbers/macros
-    if (
-        (my_curr === 'identifier' || my_curr === 'number' || my_curr === 'macro_ref' || my_curr === 'string') &&
-        (my_prev === 'identifier' || my_prev === 'number' || my_prev === 'macro_ref' || my_prev === 'string' || my_prev === 'close_paren' || my_prev === 'close_bracket')
-    ) {
+    const is_curr_value_like =
+        my_curr === 'identifier' ||
+        my_curr === 'number' ||
+        my_curr === 'macro_ref' ||
+        my_curr === 'string';
+    const is_prev_value_like =
+        my_prev === 'identifier' ||
+        my_prev === 'number' ||
+        my_prev === 'macro_ref' ||
+        my_prev === 'string' ||
+        my_prev === 'close_paren' ||
+        my_prev === 'close_bracket';
+    if (is_curr_value_like && is_prev_value_like) {
         return true;
     }
 

@@ -119,28 +119,28 @@ This implementation adds intelligent token spacing to the AST formatter (PrettyP
 - [x] 7. Checkpoint - Ensure all tests pass
   - All tests pass (44 property tests + 1152 unit tests + 160 formatter tests)
 
-- [ ] 8. Fix PR #22 feedback issues
-  - [ ] 8.1 Fix bounds checking in protected region detection
+- [x] 8. Fix PR #22 feedback issues
+  - [x] 8.1 Fix bounds checking in protected region detection
     - Add `i + 1 < expression.length` checks before accessing `expression[i + 1]`
     - Fix lines 90, 96, 99, 155 in `expression-spacing.ts`
     - _Requirements: 9.1, 9.2, 9.3_
 
-  - [ ] 8.2 Fix case-sensitive keyword matching
+  - [x] 8.2 Fix case-sensitive keyword matching
     - Remove `toLowerCase()` from keyword matching in `classify_token()`
     - Use exact string comparison: `EXPRESSION_KEYWORDS.has(value)` instead of `EXPRESSION_KEYWORDS.has(value.toLowerCase())`
     - _Requirements: 10.1, 10.2, 10.3_
 
-  - [ ] 8.3 Fix test generator to use non-reserved identifiers
+  - [x] 8.3 Fix test generator to use non-reserved identifiers
     - Import `arbitrary_non_reserved_identifier` from `tests/property/generators/index.ts`
     - Replace custom `identifier_arb` with `arbitrary_non_reserved_identifier()`
     - Update imports to use public API (`src/pretty-printer/index.ts`)
     - _Requirements: 11.1, 11.2, 11.3_
 
-  - [ ] 8.4 Fix code style issues
+  - [x] 8.4 Fix code style issues
     - Break long lines (520-521) to comply with 80-character limit
     - _Requirements: Code style compliance_
 
-- [ ] 9. Final checkpoint - Verify PR feedback fixes
+- [x] 9. Final checkpoint - Verify PR feedback fixes
   - Ensure all tests pass after PR feedback fixes
   - Verify bounds safety with edge case expressions
   - Verify case-sensitive keyword matching works correctly
