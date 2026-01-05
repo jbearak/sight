@@ -46,6 +46,9 @@ describe('Out-of-Scope Diagnostic Correctness Properties', () => {
                         local_def_line: fc.integer({ min: 16, max: 25 })
                     }),
                     async ({ local_name, call_site_line, local_def_line }) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        resolver.clear_cache();
+
                         // Create parent file with local macro defined after call site
                         const parent_content = [
                             '// Parent file',
@@ -88,6 +91,9 @@ describe('Out-of-Scope Diagnostic Correctness Properties', () => {
                         global_def_line: fc.integer({ min: 16, max: 25 })
                     }),
                     async ({ global_name, call_site_line, global_def_line }) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        resolver.clear_cache();
+
                         // Create parent file with global macro defined after call site
                         const parent_content = [
                             '// Parent file',
@@ -132,6 +138,9 @@ describe('Out-of-Scope Diagnostic Correctness Properties', () => {
                         { minLength: 1, maxLength: 5 }
                     ).map(names => [...new Set(names)]), // Remove duplicates
                     async (local_names) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        resolver.clear_cache();
+
                         // Create parent file with local macros
                         const parent_content = [
                             '// Parent file',
@@ -173,6 +182,9 @@ describe('Out-of-Scope Diagnostic Correctness Properties', () => {
                         { minLength: 1, maxLength: 5 }
                     ).map(names => [...new Set(names)]), // Remove duplicates
                     async (local_names) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        resolver.clear_cache();
+
                         // Create parent file with local macros
                         const parent_content = [
                             '// Parent file',
@@ -227,6 +239,9 @@ describe('Out-of-Scope Diagnostic Correctness Properties', () => {
                         def_lines_after: fc.array(fc.integer({ min: 1, max: 5 }), { minLength: 2, maxLength: 8 })
                     }),
                     async ({ symbol_names, call_site_line, def_lines_after }) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        resolver.clear_cache();
+
                         // Ensure we have enough definition lines for all symbols
                         const def_lines = def_lines_after.slice(0, symbol_names.length).map(offset => call_site_line + offset + 1);
                         
@@ -276,6 +291,9 @@ describe('Out-of-Scope Diagnostic Correctness Properties', () => {
                 fc.asyncProperty(
                     fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
                     async (symbol_name) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        resolver.clear_cache();
+
                         // Create a scenario where a symbol could be out-of-scope for multiple reasons
                         // 1. Local macro in parent (inheritance_excludes_locals)
                         // 2. Defined after call site (after_call_site)
@@ -324,6 +342,9 @@ describe('Out-of-Scope Diagnostic Correctness Properties', () => {
                         def_line_offset: fc.integer({ min: -3, max: 5 })
                     }),
                     async ({ directive_type, symbol_type, symbol_name, call_site_line, def_line_offset }) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        resolver.clear_cache();
+
                         const def_line = call_site_line + def_line_offset;
                         if (def_line < 0) return; // Skip invalid cases
 

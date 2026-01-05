@@ -10,6 +10,9 @@ import {
     DirectiveNode,
     TriviaNode
 } from '../../src/types';
+import { CodeFormatter } from '../../src/providers/formatter';
+import { create_empty_symbol_table } from '../../src/analyzer';
+import { for_each_formatter_mode, create_formatter_config } from '../property/helpers/formatter-test-utils';
 
 describe('PrettyPrinter', () => {
     let printer: PrettyPrinter;
@@ -29,6 +32,28 @@ describe('PrettyPrinter', () => {
         const lex_result = lexer.tokenize(source);
         const parse_result = parser.parse(lex_result.tokens);
         return parse_result.ast;
+    }
+
+    /**
+     * Helper to format source using CodeFormatter with specified mode.
+     */
+    function format_with_mode(source: string, mode: 'source-preserving' | 'ast'): string {
+        const lex_result = lexer.tokenize(source);
+        const parse_result = parser.parse(lex_result.tokens);
+        const config = create_formatter_config(mode);
+        const formatter = new CodeFormatter(config);
+        const document = {
+            uri: 'file:///test.do',
+            content: source,
+            version: 1,
+            ast: parse_result.ast,
+            tokens: lex_result.tokens,
+            line_offsets: lex_result.line_offsets,
+            symbols: create_empty_symbol_table(),
+            diagnostics: [],
+        };
+        const edits = formatter.format(document, { tabSize: 4, insertSpaces: true }, config);
+        return edits.length > 0 ? edits[0].newText : source;
     }
 
     describe('basic printing', () => {
@@ -222,6 +247,19 @@ display "next"`);
             const output = printer.print(ast);
 
             expect(output).toContain('// inline comment');
+        });
+
+        for_each_formatter_mode('should keep trailing comment on same line as statement', (mode) => {
+            const source = `generate age = 25 // inline comment`;
+            const output = format_with_mode(source, mode);
+
+            // Trailing comment should be on same line as statement
+            const the_lines = output.split('\n').filter(l => l.trim().length > 0);
+            expect(the_lines.length).toBe(1);
+            expect(the_lines[0]).toContain('generate');
+            expect(the_lines[0]).toContain('// inline comment');
+            // Should have space before comment, not indentation
+            expect(the_lines[0]).toMatch(/age.*\s\/\/ inline comment/);
         });
 
         test('should preserve block comment', () => {

@@ -109,6 +109,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     wd_synonym_gen,
                     async (my_dir_name, my_synonym) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Create parent file with working directory directive
                         const parent_content = `// @lsp-${my_synonym}: "${my_dir_name}"\nlocal parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -152,6 +155,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     wd_synonym_gen,
                     async (my_dir_name, my_synonym) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Create parent file with working directory directive
                         const parent_content = `// @lsp-${my_synonym}: "${my_dir_name}"\nlocal parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -206,6 +212,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     wd_synonym_gen,
                     wd_synonym_gen,
                     async (parent_dir, nested_dir, parent_synonym, nested_synonym) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Ensure directories are different for meaningful test
                         const actual_nested_dir = parent_dir === nested_dir
                             ? nested_dir + '_override'
@@ -260,6 +269,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                 fc.asyncProperty(
                     file_name_gen,
                     async (my_file_name) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Create parent file WITHOUT working directory directive
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -310,6 +322,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     fc.integer({ min: 2, max: 5 }),
                     wd_synonym_gen,
                     async (my_dir_name, nesting_depth, my_synonym) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Create a chain of files: parent -> child1 -> child2 -> ... -> childN
                         const the_files: string[] = [];
 
@@ -364,6 +379,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     wd_synonym_gen,
                     async (parent_dir, child_override_dir, my_synonym) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Ensure directories are different
                         const actual_child_dir = parent_dir === child_override_dir
                             ? child_override_dir + '_override'
@@ -425,6 +443,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     fc.constantFrom('do', 'run', 'include') as fc.Arbitrary<'do' | 'run' | 'include'>,
                     wd_synonym_gen,
                     async (my_dir_name, call_type, my_synonym) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Create parent file with working directory directive
                         const parent_content = `// @lsp-${my_synonym}: "${my_dir_name}"\nlocal parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -484,6 +505,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     wd_synonym_gen,
                     async (my_dir_name, my_synonym) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Create parent file with working directory directive
                         const parent_content = `// @lsp-${my_synonym}: "${my_dir_name}"\n// @lsp-do: "child.do"\nlocal parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -532,6 +556,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     wd_synonym_gen,
                     async (parent_dir, child_dir, my_synonym) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Ensure directories are different
                         const actual_child_dir = parent_dir === child_dir
                             ? child_dir + '_override'
@@ -600,6 +627,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     file_name_gen,
                     fc.constantFrom('do', 'run', 'include') as fc.Arbitrary<'do' | 'run' | 'include'>,
                     async (child_name, missing_name, call_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Skip if child_name === missing_name (would be circular dependency, not missing file)
                         if (child_name === missing_name) {
                             return true; // Skip this iteration
@@ -669,6 +699,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     file_name_gen,
                     fc.integer({ min: 0, max: 50 }),
                     async (child_name, missing_name, call_site_line) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Skip if child_name === missing_name (would be circular dependency, not missing file)
                         if (child_name === missing_name) {
                             return true; // Skip this iteration
@@ -745,6 +778,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     file_name_gen,
                     file_name_gen,
                     async (child_name, grandchild_name, missing_name) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Ensure unique names
                         const actual_grandchild = grandchild_name === child_name
                             ? grandchild_name + '_gc'
@@ -817,6 +853,8 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     file_name_gen,
                     fc.constantFrom('do', 'run', 'include') as fc.Arbitrary<'do' | 'run' | 'include'>,
                     async (missing_name, call_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
                         // Create parent file that directly references a missing file
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
