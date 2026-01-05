@@ -13,20 +13,17 @@ import fc from 'fast-check';
 import {
     format_expression_spacing,
     find_protected_regions,
-    ProtectedRegion,
-} from '../../src/pretty-printer/expression-spacing';
+} from '../../src/pretty-printer';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 // ============================================================================
 // Generators
 // ============================================================================
 
 /**
- * Generate valid Stata identifiers.
+ * Generate valid Stata identifiers (excluding reserved qualifier keywords).
  */
-const identifier_arb = fc.stringOf(
-    fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789'),
-    { minLength: 1, maxLength: 10 }
-).filter(s => /^[a-zA-Z_]/.test(s));
+const identifier_arb = arbitrary_non_reserved_identifier();
 
 /**
  * Generate simple numbers.
@@ -452,6 +449,13 @@ describe('Property 7: Curly Brace Spacing', () => {
         const my_result = format_expression_spacing(my_input);
         expect(my_result).not.toMatch(/\s+\}/);
     });
+
+    it('should not add space after closing brace', () => {
+        const my_input = '{x}y';
+        const my_result = format_expression_spacing(my_input);
+        // Should not have space between } and y
+        expect(my_result).not.toMatch(/\}\s+[a-zA-Z]/);
+    });
 });
 
 // ============================================================================
@@ -645,5 +649,107 @@ describe('Edge Cases', () => {
         const my_input = '$x+$y';
         const my_result = format_expression_spacing(my_input);
         expect(my_result).toBe('$x + $y');
+    });
+});
+
+// ============================================================================
+// Property 9: Bounds Safety
+// ============================================================================
+
+describe('Property 9: Bounds Safety', () => {
+    it('should handle empty expressions without errors', () => {
+        expect(() => format_expression_spacing('')).not.toThrow();
+        expect(() => find_protected_regions('')).not.toThrow();
+    });
+
+    it('should handle single-character expressions without errors', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom('$', '"', '`', '+', '-', '(', ')', '[', ']'),
+                (char) => {
+                    expect(() => format_expression_spacing(char)).not.toThrow();
+                    expect(() => find_protected_regions(char)).not.toThrow();
+                    return true;
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    it('should handle expressions ending with special characters', () => {
+        const the_edge_cases = [
+            'x$',
+            'x"',
+            'x`',
+            '$',
+            '"',
+            '`',
+            'abc$',
+            'abc"',
+            'abc`',
+        ];
+        for (const my_input of the_edge_cases) {
+            expect(() => format_expression_spacing(my_input)).not.toThrow();
+            expect(() => find_protected_regions(my_input)).not.toThrow();
+        }
+    });
+
+    it('should handle unclosed delimiters without errors', () => {
+        const the_unclosed = [
+            '`x',      // unclosed local macro
+            '"hello',  // unclosed string
+            '`"test',  // unclosed compound string
+            '${x',     // unclosed global macro
+        ];
+        for (const my_input of the_unclosed) {
+            expect(() => format_expression_spacing(my_input)).not.toThrow();
+            expect(() => find_protected_regions(my_input)).not.toThrow();
+        }
+    });
+});
+
+// ============================================================================
+// Property 10: Case-Sensitive Keyword Matching
+// ============================================================================
+
+describe('Property 10: Case-Sensitive Keyword Matching', () => {
+    it('should recognize lowercase "of" as keyword', () => {
+        const my_input = 'x of y';
+        const my_result = format_expression_spacing(my_input);
+        expect(my_result).toContain(' of ');
+    });
+
+    it('should recognize lowercase "in" as keyword', () => {
+        const my_input = 'x in y';
+        const my_result = format_expression_spacing(my_input);
+        expect(my_result).toContain(' in ');
+    });
+
+    it('should NOT recognize uppercase "OF" as keyword', () => {
+        const my_input = 'xOFy';
+        const my_result = format_expression_spacing(my_input);
+        // Should be treated as identifier, not keyword with spaces
+        expect(my_result).toBe('xOFy');
+    });
+
+    it('should NOT recognize uppercase "IN" as keyword', () => {
+        const my_input = 'xINy';
+        const my_result = format_expression_spacing(my_input);
+        // Should be treated as identifier, not keyword with spaces
+        expect(my_result).toBe('xINy');
+    });
+
+    it('should NOT recognize mixed case "Of" as keyword', () => {
+        const my_input = 'xOfy';
+        const my_result = format_expression_spacing(my_input);
+        // Should be treated as identifier, not keyword with spaces
+        expect(my_result).toBe('xOfy');
+    });
+
+    it('should NOT recognize mixed case "In" as keyword', () => {
+        const my_input = 'xIny';
+        const my_result = format_expression_spacing(my_input);
+        // Should be treated as identifier, not keyword with spaces
+        expect(my_result).toBe('xIny');
     });
 });

@@ -14,6 +14,8 @@ This feature will add intelligent token spacing to the AST formatter to produce 
 - **Operator**: Arithmetic (+, -, *, /, ^), comparison (==, !=, <, >, <=, >=), or logical (&, |) operators
 - **Operand**: Variables, numbers, strings, or macro references used with operators
 - **Qualifier_Expression**: The expression following `if` or `in` qualifiers in Stata commands
+- **Expression_Spacing_Utility**: The `format_expression_spacing()` function that applies spacing rules to expression strings
+- **Protected_Region**: A section of an expression (string literal, nested macro, compound string) that should not have spacing modified
 
 ## Requirements
 
@@ -106,3 +108,33 @@ This feature will add intelligent token spacing to the AST formatter to produce 
 1. WHEN the AST_Formatter outputs a unary minus operator (at the start of an expression or after another operator) THEN the AST_Formatter SHALL NOT add a space between the operator and its operand
 2. WHEN the AST_Formatter outputs a logical not operator (!) THEN the AST_Formatter SHALL NOT add a space between the operator and its operand
 3. WHEN the AST_Formatter outputs a tilde negation operator (~) THEN the AST_Formatter SHALL NOT add a space between the operator and its operand
+
+### Requirement 9: Bounds Safety in Protected Region Detection
+
+**User Story:** As a developer, I want the expression spacing utility to safely handle all input strings without runtime errors, so that malformed or edge-case expressions don't crash the formatter.
+
+#### Acceptance Criteria
+
+1. WHEN the Expression_Spacing_Utility accesses characters at position `i + 1` THEN the Expression_Spacing_Utility SHALL verify that `i + 1 < expression.length` before accessing
+2. WHEN the Expression_Spacing_Utility parses an expression ending with special characters ($, ", or backtick) THEN the Expression_Spacing_Utility SHALL handle the boundary condition without throwing an error
+3. WHEN the Expression_Spacing_Utility encounters an empty or single-character expression THEN the Expression_Spacing_Utility SHALL return a valid result without array index errors
+
+### Requirement 10: Case-Sensitive Keyword Matching
+
+**User Story:** As a developer, I want the expression spacing utility to respect Stata's case-sensitivity rules, so that keywords are matched exactly as Stata expects them.
+
+#### Acceptance Criteria
+
+1. WHEN the Expression_Spacing_Utility classifies a token as a keyword THEN the Expression_Spacing_Utility SHALL use exact string comparison without case conversion
+2. WHEN the Expression_Spacing_Utility encounters "of" or "in" in lowercase THEN the Expression_Spacing_Utility SHALL classify them as keywords
+3. WHEN the Expression_Spacing_Utility encounters "OF", "In", or other case variants THEN the Expression_Spacing_Utility SHALL NOT classify them as keywords
+
+### Requirement 11: Test Generator Compliance
+
+**User Story:** As a developer, I want the property tests to use appropriate identifier generators, so that tests don't produce false failures due to reserved qualifier keywords.
+
+#### Acceptance Criteria
+
+1. WHEN property tests generate identifiers for expression positions THEN the tests SHALL use `arbitrary_non_reserved_identifier()` from the generators module
+2. WHEN property tests generate identifiers THEN the tests SHALL NOT produce reserved qualifier keywords like "if" or "in"
+3. WHEN property tests import utilities THEN the tests SHALL import from the public API (`src/pretty-printer/index.ts`) rather than internal modules
