@@ -449,6 +449,13 @@ describe('Property 7: Curly Brace Spacing', () => {
         const my_result = format_expression_spacing(my_input);
         expect(my_result).not.toMatch(/\s+\}/);
     });
+
+    it('should not add space after closing brace', () => {
+        const my_input = '{x}y';
+        const my_result = format_expression_spacing(my_input);
+        // Should not have space between } and y
+        expect(my_result).not.toMatch(/\}\s+[a-zA-Z]/);
+    });
 });
 
 // ============================================================================
