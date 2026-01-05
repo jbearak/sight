@@ -80,7 +80,7 @@ This implementation plan addresses bugs in the AST formatter (PrettyPrinter) whe
 
 - [x] 6. Checkpoint - Verify core fixes
   - All property tests pass
-  - All existing formatter tests pass (3374 tests)
+  - All existing formatter tests pass (3384 tests)
   - No regressions detected
 
 - [x] 7. Add unit tests for concrete test cases
@@ -118,7 +118,7 @@ This implementation plan addresses bugs in the AST formatter (PrettyPrinter) whe
     - **Validates: Requirements 2.1, 2.2, 2.3**
 
 - [x] 9. Final checkpoint - Ensure all tests pass
-  - Full test suite passes: 3374 pass, 2 skip, 0 fail
+  - Full test suite passes: 3384 pass, 2 skip, 0 fail
   - Dual-mode testing passes for both formatter implementations
   - All tests pass
 
