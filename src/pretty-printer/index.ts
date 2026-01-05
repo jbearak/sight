@@ -14,6 +14,7 @@ import {
     IdentifierNode,
     EmbeddedLanguageBlockNode
 } from '../types';
+import { format_expression_spacing } from './expression-spacing';
 
 /**
  * Options for configuring the PrettyPrinter output.
@@ -166,22 +167,22 @@ export class PrettyPrinter {
             the_parts.push(the_var_names.join(' '));
         }
 
-        // Print expression (assignment)
+        // Print expression (assignment) with proper spacing
         if (node.expression) {
             the_parts.push(' = ');
-            the_parts.push(node.expression);
+            the_parts.push(format_expression_spacing(node.expression));
         }
 
-        // Print if-qualifier
+        // Print if-qualifier with proper spacing
         if (node.ifExpression) {
             the_parts.push(' if ');
-            the_parts.push(node.ifExpression);
+            the_parts.push(format_expression_spacing(node.ifExpression));
         }
 
-        // Print in-qualifier
+        // Print in-qualifier with proper spacing
         if (node.inExpression) {
             the_parts.push(' in ');
-            the_parts.push(node.inExpression);
+            the_parts.push(format_expression_spacing(node.inExpression));
         }
 
         // Print options (after comma)
@@ -220,7 +221,7 @@ export class PrettyPrinter {
         let result = option.name;
 
         if (option.argument !== undefined) {
-            result += `(${option.argument})`;
+            result += `(${format_expression_spacing(option.argument)})`;
         }
 
         return result;
@@ -268,10 +269,10 @@ export class PrettyPrinter {
         
         // Use '=' if the original definition had it
         if (node.hasEquals) {
-            return `${this.getIndent()}${scope_keyword} ${node.name} = ${node.value}`.trimEnd();
+            return `${this.getIndent()}${scope_keyword} ${node.name} = ${format_expression_spacing(node.value)}`.trimEnd();
         }
         
-        return `${this.getIndent()}${scope_keyword} ${node.name} ${node.value}`.trimEnd();
+        return `${this.getIndent()}${scope_keyword} ${node.name} ${format_expression_spacing(node.value)}`.trimEnd();
     }
 
     /**
@@ -292,8 +293,9 @@ export class PrettyPrinter {
     private normalizeCondition(condition: string): string {
         if (!condition) return condition;
         
-        // Remove spaces after opening parenthesis and before closing parenthesis
-        return condition.replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+        // Apply expression spacing first, then remove spaces around parentheses
+        const spaced = format_expression_spacing(condition);
+        return spaced.replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
     }
 
     /**
@@ -313,10 +315,10 @@ export class PrettyPrinter {
                 header += 'else {';
                 break;
             case 'foreach':
-                header += `foreach ${node.loopVar || ''} ${node.loopSpec || ''} {`;
+                header += `foreach ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} {`;
                 break;
             case 'forvalues':
-                header += `forvalues ${node.loopVar || ''} ${node.loopSpec || ''} {`;
+                header += `forvalues ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} {`;
                 break;
             case 'while':
                 header += `while ${this.normalizeCondition(node.condition || '')} {`;
@@ -496,3 +498,7 @@ export function print_node(node: StataNode, options?: Partial<PrintOptions>): st
     const printer = new PrettyPrinter(options);
     return printer.printNode(node, options);
 }
+
+// Re-export expression spacing utility
+export { format_expression_spacing, find_protected_regions } from './expression-spacing';
+export type { ProtectedRegion } from './expression-spacing';
