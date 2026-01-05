@@ -32,7 +32,7 @@ else {
     `"text"'
     "text"
 }
-di  `" `macro' "'
+di `" `macro' "'
 di " `macro' "
 di " text "
 `" `macro' "'

@@ -72,13 +72,14 @@ This implementation plan addresses bugs in the AST formatter (PrettyPrinter) whe
     - **Validates: Requirements 1.6, 3.1, 3.4, 4.1, 4.2, 4.3, 5.1, 5.2, 5.3**
 
 - [ ] 5. Fix extended macro function spacing
-  - [ ] 5.1 Preserve spacing in extended function arguments
-    - Do not apply expression spacing to extended function arguments
-    - Preserve spaces both before and after operators in `: list a - b` syntax
+  - [ ] 5.1 Normalize spacing in extended function arguments
+    - Apply expression spacing to extended function arguments (add spaces around operators)
+    - Fix bug where space after `-` operator is not being added
+    - Ensure `local x: list a-b` becomes `local x : list a - b`
     - _Requirements: 2.4_
 
   - [ ] 5.2 Write property test for extended function spacing
-    - **Property 4: Extended Function Spacing Preservation**
+    - **Property 4: Extended Function Spacing Normalization**
     - **Validates: Requirements 2.4**
 
 - [ ] 6. Checkpoint - Verify core fixes

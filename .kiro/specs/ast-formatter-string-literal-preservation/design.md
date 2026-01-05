@@ -104,7 +104,7 @@ Expressions stored in AST nodes (e.g., `CommandNode.expression`, `MacroDefNode.v
 - Simple strings: opening `"` and closing `"`
 - Compound strings: opening `` `" `` and closing `` "' ``
 
-**Validates: Requirements 1.1, 1.2, 1.5, 7.1, 7.2, 7.3**
+**Validates: Requirements 1.1, 1.2, 1.5, 7.1, 7.2, 7.3, 7.4**
 
 ### Property 2: String Content Preservation
 
@@ -118,9 +118,9 @@ Expressions stored in AST nodes (e.g., `CommandNode.expression`, `MacroDefNode.v
 
 **Validates: Requirements 1.6, 3.1, 3.4, 4.1, 4.2, 4.3, 5.1, 5.2, 5.3**
 
-### Property 4: Extended Function Spacing Preservation
+### Property 4: Extended Function Spacing Normalization
 
-*For any* macro extended function definition (e.g., `local x : list a - b`), when formatted by the AST formatter, the spacing around operators in the function arguments SHALL be preserved exactly as in the original.
+*For any* macro extended function definition (e.g., `local x : list a - b`), when formatted by the AST formatter, the output SHALL have normalized spacing with spaces around operators, regardless of the original spacing in the input.
 
 **Validates: Requirements 2.4**
 
@@ -212,8 +212,9 @@ Based on investigation, likely fixes:
 
 ### Phase 3: Fix Extended Function Spacing
 
-- Preserve original spacing in `extendedFunction.args`
-- Do not apply expression spacing to extended function arguments
+- Ensure proper spacing is applied to `extendedFunction.args`
+- Apply expression spacing to extended function arguments (add spaces around operators)
+- Fix the bug where space after `-` operator is not being added
 
 ### Phase 4: Add Tests
 
