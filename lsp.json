@@ -1,7 +1,7 @@
 {
   "$schema": "https://kiro.dev/schemas/lsp.json",
   "servers": {
-    "sight": {
+    "stata": {
       "command": "sight-language-server",
       "args": ["--stdio"],
       "fileExtensions": [".do", ".ado", ".doh", ".mata"],

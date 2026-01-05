@@ -1,7 +1,7 @@
 {
   "$schema": "https://charm.land/crush.json",
   "lsp": {
-    "sight": {
+    "stata": {
       "command": "sight-language-server",
       "args": ["--stdio"],
       "extensions": [".do", ".ado", ".doh", ".mata"]

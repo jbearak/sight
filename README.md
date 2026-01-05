@@ -687,7 +687,7 @@ Create an `lsp.json` file in your project root:
 ```json
 {
   "servers": {
-    "sight": {
+    "stata": {
       "command": "sight-language-server",
       "args": ["--stdio"],
       "fileExtensions": [".do", ".ado", ".doh", ".mata"],
@@ -705,7 +705,7 @@ Create an `opencode.json` file in your project root:
 {
   "$schema": "https://opencode.ai/config.json",
   "lsp": {
-    "sight": {
+    "stata": {
       "command": ["sight-language-server", "--stdio"],
       "extensions": [".do", ".ado", ".doh", ".mata"]
     }
@@ -721,7 +721,7 @@ Create a `crush.json` file in your project root:
 {
   "$schema": "https://charm.land/crush.json",
   "lsp": {
-    "sight": {
+    "stata": {
       "command": "sight-language-server",
       "args": ["--stdio"],
       "extensions": [".do", ".ado", ".doh", ".mata"]
