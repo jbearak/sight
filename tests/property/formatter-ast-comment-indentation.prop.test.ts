@@ -7,7 +7,7 @@
  * to match their scope depth, while trailing comments remain inline.
  */
 
-import { describe, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import * as fc from 'fast-check';
 import { CodeFormatter } from '../../src/providers/formatter';
 import { DocumentStore } from '../../src/document-store';
@@ -180,53 +180,56 @@ describe('AST Formatter Comment Indentation Property Tests', () => {
      * AST formatter and source-preserving formatter, the comment indentation
      * levels (number of indent units) SHALL be equivalent.
      *
+     * Note: This test compares both formatter modes directly, so it doesn't
+     * use for_each_formatter_mode_async_property (which would run redundantly).
+     *
      * Validates: Requirements 4.2
      */
-    for_each_formatter_mode_async_property(
-        'Property 3: comment indentation consistent across formatter modes',
-        fc.tuple(
-            nesting_depth_arbitrary,
-            comment_content_arbitrary
-        ),
-        async (mode: FormatterMode, [depth, content]) => {
-            const my_code = build_code_with_comment_at_depth(depth, content, 'slash');
+    it('Property 3: comment indentation consistent across formatter modes', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc.tuple(nesting_depth_arbitrary, comment_content_arbitrary),
+                async ([depth, content]) => {
+                    const my_code = build_code_with_comment_at_depth(depth, content, 'slash');
 
-            const my_store = new DocumentStore();
-            await my_store.open('file:///test.do', my_code, 1);
-            const my_document = my_store.get('file:///test.do');
+                    const my_store = new DocumentStore();
+                    await my_store.open('file:///test.do', my_code, 1);
+                    const my_document = my_store.get('file:///test.do');
 
-            if (!my_document || !my_document.ast) {
-                return;
-            }
+                    if (!my_document || !my_document.ast) {
+                        return;
+                    }
 
-            const my_formatter = new CodeFormatter();
+                    const my_formatter = new CodeFormatter();
 
-            // Format with source-preserving
-            const my_sp_config = create_formatter_config('source-preserving');
-            const my_sp_edits = my_formatter.format(my_document, my_options, my_sp_config);
+                    // Format with source-preserving
+                    const my_sp_config = create_formatter_config('source-preserving');
+                    const my_sp_edits = my_formatter.format(my_document, my_options, my_sp_config);
 
-            // Format with AST
-            const my_ast_config = create_formatter_config('ast');
-            const my_ast_edits = my_formatter.format(my_document, my_options, my_ast_config);
+                    // Format with AST
+                    const my_ast_config = create_formatter_config('ast');
+                    const my_ast_edits = my_formatter.format(my_document, my_options, my_ast_config);
 
-            if (my_sp_edits.length === 0 || my_ast_edits.length === 0) {
-                return;
-            }
+                    if (my_sp_edits.length === 0 || my_ast_edits.length === 0) {
+                        return;
+                    }
 
-            const my_sp_formatted = my_sp_edits[0].newText;
-            const my_ast_formatted = my_ast_edits[0].newText;
+                    const my_sp_formatted = my_sp_edits[0].newText;
+                    const my_ast_formatted = my_ast_edits[0].newText;
 
-            const my_sp_comment_line = find_comment_line(my_sp_formatted, content);
-            const my_ast_comment_line = find_comment_line(my_ast_formatted, content);
+                    const my_sp_comment_line = find_comment_line(my_sp_formatted, content);
+                    const my_ast_comment_line = find_comment_line(my_ast_formatted, content);
 
-            if (my_sp_comment_line && my_ast_comment_line) {
-                const my_sp_indent = count_leading_spaces(my_sp_comment_line);
-                const my_ast_indent = count_leading_spaces(my_ast_comment_line);
-                expect(my_ast_indent).toBe(my_sp_indent);
-            }
-        },
-        100
-    );
+                    if (my_sp_comment_line && my_ast_comment_line) {
+                        const my_sp_indent = count_leading_spaces(my_sp_comment_line);
+                        const my_ast_indent = count_leading_spaces(my_ast_comment_line);
+                        expect(my_ast_indent).toBe(my_sp_indent);
+                    }
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
 
     /**
      * Property 1 (depth 0): Top-level comments have no indentation
