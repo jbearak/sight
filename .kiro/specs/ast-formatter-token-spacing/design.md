@@ -218,6 +218,18 @@ function is_unary_minus(previous: TokenCategory | null): boolean {
 
 **Validates: Requirements 8.1, 8.2, 8.3**
 
+### Property 9: Bounds Safety
+
+*For any* expression string including empty strings, single characters, and strings ending with special characters ($, ", backtick), the formatting utility SHALL complete without throwing array index errors.
+
+**Validates: Requirements 9.1, 9.2, 9.3**
+
+### Property 10: Case-Sensitive Keyword Matching
+
+*For any* token that matches a keyword pattern, the formatting utility SHALL only classify it as a keyword if it matches exactly in lowercase (e.g., "of" and "in" are keywords, but "OF", "In", "OF" are not).
+
+**Validates: Requirements 10.1, 10.2, 10.3**
+
 ## Error Handling
 
 ### Malformed Expressions
