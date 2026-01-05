@@ -144,6 +144,11 @@ export class StataParser {
     } else if (this.check('WORD') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) {
       // Default to command parsing (handles both regular commands and macro-led commands)
       node = this.parseCommand();
+    } else if (this.check('STRING')) {
+      // Standalone string literal or compound string with embedded macros
+      // The lexer splits compound strings with macros into multiple tokens,
+      // so we need to collect all tokens until the statement terminator
+      node = this.parseStringStatement();
     } else if (this.check('LBRACE')) {
       // Standalone open brace - this is an error in Stata
       // The brace should be on the same line as a condition/statement
@@ -555,14 +560,13 @@ export class StataParser {
     // IMPORTANT: Preserve the original token stream verbatim to avoid introducing
     // artificial token boundaries (e.g., turning "0Ea" into "0E a").
     const arg_tokens: Token[] = [];
-    let args = '';
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
       const token = this.advance();
       arg_tokens.push(token);
-      args += token.value;
     }
 
-    const args_trimmed = args.trim();
+    // Reconstruct args with original spacing preserved
+    const args_trimmed = this.reconstructTokensWithSpacing(arg_tokens).trim();
     const extended_function = {
       name: function_name,
       args: args_trimmed,
@@ -1609,11 +1613,10 @@ export class StataParser {
   private parseIfStatement(): ControlFlowNode {
     const ifToken = this.advance(); // consume 'if'
 
-    // Parse condition (simplified - just collect tokens until {)
-    let condition = '';
+    // Parse condition - collect tokens until { and reconstruct with original spacing
+    const condition_tokens: Token[] = [];
     const condition_start_line = ifToken.range.start.line;
     let paren_depth = 0;
-    let needs_space = false;
     
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
@@ -1639,19 +1642,14 @@ export class StataParser {
         }
       }
       
-      // Preserve whitespace tokens as-is, don't add extra spaces
-      if (token.type === 'WHITESPACE') {
-        condition += token.value;
-        needs_space = false;
-      } else {
-        // Add space between non-whitespace tokens only if needed
-        if (needs_space && condition.length > 0 && !condition.endsWith(' ')) {
-          condition += ' ';
-        }
-        condition += token.value;
-        needs_space = true;
+      // Skip whitespace tokens but collect all others
+      if (token.type !== 'WHITESPACE') {
+        condition_tokens.push(token);
       }
     }
+
+    // Reconstruct condition with original spacing preserved
+    const condition = this.reconstructTokensWithSpacing(condition_tokens).trim();
 
     // Check for unbalanced parentheses and empty condition
     if (paren_depth > 0) {
@@ -1848,10 +1846,9 @@ export class StataParser {
     const whileToken = this.advance(); // consume 'while'
     const while_start_line = whileToken.range.start.line;
 
-    // Parse condition
-    let condition = '';
+    // Parse condition - collect tokens until { and reconstruct with original spacing
+    const condition_tokens: Token[] = [];
     let paren_depth = 0;
-    let needs_space = false;
     
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
@@ -1877,19 +1874,14 @@ export class StataParser {
         }
       }
       
-      // Preserve whitespace tokens as-is, don't add extra spaces
-      if (token.type === 'WHITESPACE') {
-        condition += token.value;
-        needs_space = false;
-      } else {
-        // Add space between non-whitespace tokens only if needed
-        if (needs_space && condition.length > 0 && !condition.endsWith(' ')) {
-          condition += ' ';
-        }
-        condition += token.value;
-        needs_space = true;
+      // Skip whitespace tokens but collect all others
+      if (token.type !== 'WHITESPACE') {
+        condition_tokens.push(token);
       }
     }
+
+    // Reconstruct condition with original spacing preserved
+    const condition = this.reconstructTokensWithSpacing(condition_tokens).trim();
 
     // Check for unbalanced parentheses and empty condition
     if (paren_depth > 0) {
@@ -1934,6 +1926,41 @@ export class StataParser {
       condition: condition.trim(),
       body,
       range: this.makeRange(whileToken.range.start, this.previous().range.end),
+    };
+  }
+
+  /**
+   * Parse a standalone string statement.
+   * 
+   * In Stata, a string literal on its own line is valid syntax (though it does nothing).
+   * The lexer splits compound strings with embedded macros into multiple tokens:
+   * - `"`macro'"' becomes: STRING `" + MACRO_REF_LOCAL `macro' + STRING "'
+   * 
+   * This method collects all tokens until the statement terminator and reconstructs
+   * the original string with proper spacing preserved.
+   */
+  private parseStringStatement(): CommandNode {
+    const start_token = this.peek();
+    const statement_tokens: Token[] = [];
+    
+    // Collect all tokens until statement terminator
+    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+      const token = this.advance();
+      if (token.type !== 'WHITESPACE') {
+        statement_tokens.push(token);
+      }
+    }
+    
+    // Reconstruct the string with original spacing
+    const content = this.reconstructTokensWithSpacing(statement_tokens);
+    
+    // Create a command node with the reconstructed string as the name
+    // This preserves the string in the AST for the pretty printer
+    return {
+      type: 'command',
+      name: content,
+      fullName: content,
+      range: this.makeRange(start_token.range.start, this.previous().range.end),
     };
   }
 
@@ -2783,5 +2810,42 @@ export class StataParser {
         code: ParseErrorCode.CODE_AFTER_OPEN_BRACE,
       });
     }
+  }
+
+  /**
+   * Reconstruct a string from tokens while preserving original spacing.
+   * Uses token ranges to determine gaps between tokens and adds appropriate whitespace.
+   * 
+   * @param tokens - Array of tokens to reconstruct
+   * @returns The reconstructed string with original spacing preserved
+   */
+  private reconstructTokensWithSpacing(tokens: Token[]): string {
+    if (tokens.length === 0) {
+      return '';
+    }
+
+    const the_parts: string[] = [];
+    let prev_token: Token | null = null;
+
+    for (const my_token of tokens) {
+      if (prev_token !== null) {
+        // Calculate gap between previous token end and current token start
+        // Handle same-line gaps
+        if (prev_token.range.end.line === my_token.range.start.line) {
+          const gap = my_token.range.start.character - prev_token.range.end.character;
+          if (gap > 0) {
+            the_parts.push(' '.repeat(gap));
+          }
+        } else {
+          // Different lines - add a single space as separator
+          // (newlines are handled by statement terminators)
+          the_parts.push(' ');
+        }
+      }
+      the_parts.push(my_token.value);
+      prev_token = my_token;
+    }
+
+    return the_parts.join('');
   }
 }

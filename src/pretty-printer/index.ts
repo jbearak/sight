@@ -161,10 +161,50 @@ export class PrettyPrinter {
         the_parts.push(node.name);
 
         // Print variable list
+        // Join items preserving original spacing:
+        // - Don't add space if current item ends with whitespace
+        // - Don't add space if next item starts with whitespace
+        // - Don't add space between string delimiters and their content
+        //   (e.g., " followed by `macro' followed by ")
+        //   (e.g., `" followed by `macro' followed by "')
         if (node.varlist && node.varlist.length > 0) {
             the_parts.push(' ');
-            const the_var_names = node.varlist.map(v => v.name);
-            the_parts.push(the_var_names.join(' '));
+            for (let i = 0; i < node.varlist.length; i++) {
+                const my_var = node.varlist[i];
+                const my_name = my_var.name;
+                
+                // Add the variable name
+                the_parts.push(my_name);
+                
+                // Determine if we need a space before the next item
+                if (i < node.varlist.length - 1) {
+                    const next_name = node.varlist[i + 1].name;
+                    const ends_with_space = /\s$/.test(my_name);
+                    const next_starts_with_space = /^\s/.test(next_name);
+                    
+                    // Check if this is a string delimiter followed by content
+                    // or content followed by closing delimiter
+                    // Compound string: `" ... "'
+                    const ends_with_compound_open = /`"$/.test(my_name) || my_name === '`"';
+                    const next_is_compound_close = /^"'/.test(next_name) || next_name === `"'`;
+                    
+                    // Double-quoted string: " ... "
+                    // The lexer splits "content" into " + content + "
+                    const is_quote_delimiter = my_name === '"' || next_name === '"';
+                    
+                    // Don't add space if:
+                    // 1. Current item ends with whitespace
+                    // 2. Next item starts with whitespace
+                    // 3. Current ends with compound open delimiter
+                    // 4. Next starts with compound close delimiter
+                    // 5. Either current or next is a standalone quote delimiter
+                    if (!ends_with_space && !next_starts_with_space && 
+                        !ends_with_compound_open && !next_is_compound_close &&
+                        !is_quote_delimiter) {
+                        the_parts.push(' ');
+                    }
+                }
+            }
         }
 
         // Print expression (assignment) with proper spacing
