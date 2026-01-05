@@ -84,6 +84,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     wd_synonym_gen,
                     backward_directive_gen,
                     async (depth, wd_synonym, directive_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Use a unique, identifiable working directory path
                         const wd_path = '../root_wd_data';
                         
@@ -139,6 +142,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     wd_synonym_gen,
                     backward_directive_gen,
                     async (depth, wd_position, wd_synonym, directive_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Ensure wd_position is valid for the chain depth
                         const actual_wd_position = Math.min(wd_position, depth - 1);
                         // Use a unique, identifiable working directory path
@@ -200,6 +206,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     wd_synonym_gen,
                     backward_directive_gen,
                     async (wd_synonym, directive_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Use unique, identifiable working directory paths
                         const root_wd = '../root_wd_data';
                         const middle_wd = '../middle_wd_data';
@@ -245,6 +254,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     wd_synonym_gen,
                     backward_directive_gen,
                     async (parent_synonym, child_synonym, directive_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Use unique, identifiable working directory paths
                         const parent_wd = '../parent_wd_data';
                         const child_wd = '../child_wd_data';
@@ -281,6 +293,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     wd_synonym_gen,
                     backward_directive_gen,
                     async (depth, wd_synonym, directive_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Use a unique, identifiable working directory path
                         const wd_path = '../propagated_wd_data';
                         
@@ -342,6 +357,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     wd_synonym_gen,
                     backward_directive_gen,
                     async (wd_synonym, directive_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Use a unique, identifiable working directory path
                         const wd_path = 'wd_subdir';
                         
@@ -398,6 +416,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     wd_synonym_gen,
                     fc.array(backward_directive_gen, { minLength: 2, maxLength: 4 }),
                     async (wd_synonym, directive_types) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Use a unique, identifiable working directory path
                         const wd_path = '../mixed_chain_wd_data';
                         
@@ -452,6 +473,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     wd_synonym_gen,
                     backward_directive_gen,
                     async (wd_synonym, directive_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         // Create subdirectory structure
                         fs.mkdirSync(path.join(temp_dir, 'subdir'), { recursive: true });
                         fs.mkdirSync(path.join(temp_dir, 'data'), { recursive: true });
@@ -494,6 +518,9 @@ describe('Working Directory Inheritance Transitivity Property Tests', () => {
                     chain_depth_gen,
                     backward_directive_gen,
                     async (depth, directive_type) => {
+                        // Clear cache at the start of each iteration to avoid stale data
+                        scope_resolver.clear_cache();
+
                         const the_file_names: string[] = [];
                         const the_file_paths: string[] = [];
 
