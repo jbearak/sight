@@ -401,6 +401,7 @@ export class PrettyPrinter {
 
         const the_parts: string[] = [];
         for (const my_trivia of trivia_node.leadingTrivia) {
+            the_parts.push(this.getIndent());
             the_parts.push(this.printTrivia(my_trivia));
             the_parts.push(this.getStatementTerminator());
         }
