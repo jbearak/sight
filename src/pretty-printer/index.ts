@@ -272,7 +272,7 @@ export class PrettyPrinter {
             return `${this.getIndent()}${scope_keyword} ${node.name} = ${format_expression_spacing(node.value)}`.trimEnd();
         }
         
-        return `${this.getIndent()}${scope_keyword} ${node.name} ${node.value}`.trimEnd();
+        return `${this.getIndent()}${scope_keyword} ${node.name} ${format_expression_spacing(node.value)}`.trimEnd();
     }
 
     /**
@@ -315,10 +315,10 @@ export class PrettyPrinter {
                 header += 'else {';
                 break;
             case 'foreach':
-                header += `foreach ${node.loopVar || ''} ${node.loopSpec || ''} {`;
+                header += `foreach ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} {`;
                 break;
             case 'forvalues':
-                header += `forvalues ${node.loopVar || ''} ${node.loopSpec || ''} {`;
+                header += `forvalues ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} {`;
                 break;
             case 'while':
                 header += `while ${this.normalizeCondition(node.condition || '')} {`;

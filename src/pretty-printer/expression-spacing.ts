@@ -318,9 +318,6 @@ function tokenize_expression(
         for (const my_region of protected_regions) {
             if (i === my_region.start) {
                 const my_value = expression.slice(my_region.start, my_region.end);
-                const my_prev_category = the_tokens.length > 0
-                    ? the_tokens[the_tokens.length - 1].category
-                    : null;
 
                 the_tokens.push({
                     value: my_value,
@@ -474,7 +471,8 @@ function needs_space_before(
     // Binary operators need space before
     if (my_curr === 'binary_operator') return true;
 
-    // Unary operators don't need space before (they attach to operand)
+    // Unary operators need space before (to separate from previous token, e.g., `x + -y`)
+    // but NOT after (they attach to their operand)
     if (my_curr === 'unary_operator') return true;
 
     // No space before closing delimiters
