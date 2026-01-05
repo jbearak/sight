@@ -120,13 +120,6 @@ const compound_with_macro_arb = fc.tuple(identifier_arb).map(
     ([name]) => `\`"\`${name}'"'`
 );
 
-/**
- * Generate compound strings with spaces and embedded macros.
- */
-const compound_with_spaces_arb = fc.tuple(identifier_arb).map(
-    ([name]) => `\`" \`${name}' "'`
-);
-
 // ============================================================================
 // Unit Tests: Concrete Test Cases from Requirements
 // ============================================================================
@@ -135,7 +128,7 @@ describe('Unit Tests: Concrete Test Cases', () => {
     // Feature: ast-formatter-string-literal-preservation
     // Validates: Requirements 8.1, 8.2, 8.3
 
-    it('should preserve the main concrete test case exactly', () => {
+    for_each_formatter_mode('should preserve the main concrete test case exactly', (mode) => {
         const source = `if (\`"\`macro'"') {
     \`"\`macro'"'
     "\`macro'"
@@ -155,30 +148,30 @@ di " text "
 " \`macro' "
 "text"`;
 
-        const output = format_with_ast(source);
+        const output = format_with_mode(source, mode);
         expect(output.trim()).toBe(source.trim());
     });
 
-    it('should preserve strings in control flow conditions', () => {
+    for_each_formatter_mode('should preserve strings in control flow conditions', (mode) => {
         const source = `if "\`myvar'" == "value" {
     display "match"
 }`;
 
-        const output = format_with_ast(source);
+        const output = format_with_mode(source, mode);
         expect(output.trim()).toBe(source.trim());
     });
 
-    it('should preserve strings passed to user-defined programs', () => {
+    for_each_formatter_mode('should preserve strings passed to user-defined programs', (mode) => {
         const source = `my_program \`"\`complex_string'"' "simple_string"`;
 
-        const output = format_with_ast(source);
+        const output = format_with_mode(source, mode);
         expect(output.trim()).toBe(source.trim());
     });
 
-    it('should preserve macro extended function spacing', () => {
+    for_each_formatter_mode('should preserve macro extended function spacing', (mode) => {
         const source = `local macro : other_macro - another_macro`;
 
-        const output = format_with_ast(source);
+        const output = format_with_mode(source, mode);
         expect(output.trim()).toBe(source.trim());
     });
 
@@ -334,6 +327,33 @@ describe('Property 3: Round-Trip Preservation', () => {
 }`;
         const output = format_with_mode(source, mode);
         expect(output).toContain('`"`macro\'"\'');
+    });
+});
+
+// ============================================================================
+// Property 4: Extended Function Spacing Preservation
+// ============================================================================
+
+describe('Property 4: Extended Function Spacing Preservation', () => {
+    // Feature: ast-formatter-string-literal-preservation, Property 4
+    // Validates: Requirement 2.4
+
+    for_each_formatter_mode('should preserve spaces around operators in extended functions', (mode) => {
+        const source = `local result : other_macro - another_macro`;
+        const output = format_with_mode(source, mode);
+        expect(output).toContain(': other_macro - another_macro');
+    });
+
+    for_each_formatter_mode('should preserve extended function with list operations', (mode) => {
+        const source = `local combined : list a | b`;
+        const output = format_with_mode(source, mode);
+        expect(output).toContain(': list a | b');
+    });
+
+    for_each_formatter_mode('should preserve extended function with word count', (mode) => {
+        const source = `local count : word count \`mylist'`;
+        const output = format_with_mode(source, mode);
+        expect(output).toContain(': word count `mylist\'');
     });
 });
 
