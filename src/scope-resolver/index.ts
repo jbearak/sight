@@ -1386,7 +1386,7 @@ export class ScopeResolver {
         uri: string,
         content: string,
         inherited_working_directory?: string
-    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] } {
+    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } {
         const my_directive_result = this.directive_parser.parse(content, uri);
         const my_lex_result = this.lexer.tokenize(content);
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
@@ -1486,6 +1486,7 @@ export class ScopeResolver {
                 directives: cached.directives,
                 forward_calls: cached.forward_calls,
                 working_directory: cached.working_directory,
+                working_directory_directive: cached.working_directory_directive,
                 diagnostics: cached.diagnostics
             };
         }
@@ -1510,6 +1511,7 @@ export class ScopeResolver {
                     directives: cached.directives,
                     forward_calls: cached.forward_calls,
                     working_directory: cached.working_directory,
+                    working_directory_directive: cached.working_directory_directive,
                     diagnostics: cached.diagnostics
                 };
             }
