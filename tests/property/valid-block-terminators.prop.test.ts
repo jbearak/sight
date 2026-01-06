@@ -453,7 +453,9 @@ end`;
             fc.property(
                 arbitrary_identifier(),
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                fc.string({ minLength: 1, maxLength: 30 }),
+                // Content must have at least one non-whitespace character to be treated as inline
+                // (mata:/python: followed by only whitespace is now treated as block start)
+                fc.stringMatching(/^[a-zA-Z0-9_ \t\-+=(){}[\]]*$/).filter(s => s.trim().length > 0),
                 (my_program_name, my_embedded_type, my_single_line_content) => {
                     // Build program block with single-line embedded block
                     const my_document = `program define ${my_program_name}
