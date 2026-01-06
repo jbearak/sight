@@ -241,6 +241,12 @@ export class StataLexer {
           }
           my_pos++;
         }
+        // If we exited the loop without finding */, we reached EOF
+        // Treat unclosed block comment as block mode
+        if (my_pos >= this.source.length || 
+            (my_pos + 1 >= this.source.length && this.source[my_pos] !== '*')) {
+          return true;
+        }
         continue;
       }
       
