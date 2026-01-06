@@ -6,12 +6,20 @@ This plan addresses critical bugs in the PrettyPrinter (AST formatter) that caus
 
 ## Tasks
 
-- [ ] 1. Analyze current PrettyPrinter implementation and identify bug locations
+- [x] 1. Analyze current PrettyPrinter implementation and identify bug locations
   - Review `printPrefix()` method to understand current colon handling
   - Review `printCommand()` method to understand varlist and option handling
   - Identify where newlines are incorrectly inserted after colons
   - Identify where varlists are being dropped
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 3.1, 3.2, 4.1_
+  
+  **Analysis Results:**
+  - Bug 1: Parser consumes colons after prefix commands (line 702-705) but doesn't store `has_colon` in PrefixNode
+  - Bug 2: `printPrefix()` only adds colon for `by` prefix, ignoring other prefix commands with colons
+  - Bug 3: `unab` command parser consumes colon but doesn't store it - varlist has no colon indicator
+  - Bug 4: `frame bh: command` is parsed as `frame` command with varlist `[bh]`, losing the colon and subsequent command
+  - Bug 5: `rename *, lower` - the `*` is tokenized as OPERATOR, not included in varlist
+  - Root cause: PrefixNode interface lacks `has_colon` field; parser doesn't preserve colon information
 
 - [ ] 2. Fix prefix command colon spacing
   - [ ] 2.1 Update `printPrefix()` to detect and preserve colons for all prefix commands
