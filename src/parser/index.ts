@@ -1954,8 +1954,11 @@ export class StataParser {
     // Reconstruct the string with original spacing
     const content = this.reconstructTokensWithSpacing(statement_tokens);
     
-    // Create a command node with the reconstructed string as the name
-    // This preserves the string in the AST for the pretty printer
+    // Create a command node with the reconstructed string as the name.
+    // This is a pragmatic choice: standalone strings in Stata are valid
+    // (though no-op) statements. By storing them as CommandNode with
+    // the string content as `name`, the PrettyPrinter outputs them
+    // correctly without needing special handling.
     return {
       type: 'command',
       name: content,
