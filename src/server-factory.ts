@@ -421,10 +421,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         }
 
                         // Revalidate files that depend on this file via backward directives (@lsp-done-by/@lsp-included-by)
-                        // These are files that inherit symbols FROM this file
-                        const backward_children = scope_resolver.get_backward_directive_children(text_document.uri);
-                        connection.console.log(`[reverse-deps] Interface changed, backward-directive children for ${text_document.uri}: ${Array.from(backward_children).join(', ') || '(none)'}`);
+                        // These are files that inherit symbols FROM this file (transitively)
+                        const backward_children = scope_resolver.get_transitive_backward_directive_children(text_document.uri);
+                        connection.console.log(`[reverse-deps] Interface changed, transitive backward-directive children for ${text_document.uri}: ${backward_children.size} files`);
                         if (backward_children.size > 0) {
+                            connection.console.log(`[reverse-deps] Transitive dependents: ${Array.from(backward_children).join(', ')}`);
                             const settings = await get_document_settings(text_document.uri);
                             schedule_caller_revalidation(backward_children, text_document.uri, settings);
                         }

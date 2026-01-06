@@ -2404,6 +2404,46 @@ export class ScopeResolver {
     }
 
     /**
+     * Get all files that transitively depend on a parent file via backward directives.
+     * Uses BFS to traverse the dependency graph with cycle detection.
+     * @param parent_uri - The URI of the parent file
+     * @param max_depth - Maximum chain depth (default: config.max_chain_depth)
+     * @returns Set of all transitive dependent URIs
+     */
+    get_transitive_backward_directive_children(
+        parent_uri: string,
+        max_depth: number = DEFAULT_CONFIG.max_chain_depth
+    ): Set<string> {
+        const result = new Set<string>();
+        const visited = new Set<string>([parent_uri]);
+        const queue: string[] = [parent_uri];
+        let depth = 0;
+
+        while (queue.length > 0 && depth < max_depth) {
+            const level_size = queue.length;
+
+            for (let i = 0; i < level_size; i++) {
+                const current = queue.shift()!;
+                const direct_children = this.backward_directive_children.get(current);
+
+                if (direct_children) {
+                    for (const my_child of direct_children) {
+                        if (!visited.has(my_child)) {
+                            visited.add(my_child);
+                            result.add(my_child);
+                            queue.push(my_child);
+                        }
+                    }
+                }
+            }
+
+            depth++;
+        }
+
+        return result;
+    }
+
+    /**
      * Get debug info about the reverse dependencies state.
      * Used for debugging caller revalidation issues.
      */
