@@ -11,7 +11,6 @@
 import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { StataLexer } from '../../src/lexer/index.ts';
-import { LanguageContext } from '../../src/types/index.ts';
 
 // ============================================================================
 // Generators
