@@ -2840,9 +2840,13 @@ export class StataParser {
             the_parts.push(' '.repeat(gap));
           }
         } else {
-          // Different lines - add a single space as separator
-          // (newlines are handled by statement terminators)
-          the_parts.push(' ');
+          // Different lines - preserve original spacing by using the token's column position
+          const spaces_from_line_start = my_token.range.start.character;
+          if (spaces_from_line_start > 0) {
+            the_parts.push(' '.repeat(spaces_from_line_start));
+          } else {
+            the_parts.push(' ');
+          }
         }
       }
       the_parts.push(my_token.value);
