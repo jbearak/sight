@@ -178,14 +178,14 @@ di " text "
     // Note: Embedded Mata blocks with mata: syntax now work correctly
     // The lexer detects mata: followed by newline as a block start
     // The PrettyPrinter preserves string literals but may adjust indentation
-    it('should preserve embedded Mata block with string literals', () => {
+    for_each_formatter_mode('should preserve embedded Mata block with string literals', (mode) => {
         const source = `mata:
     st_local("result", \`"\`macro'"')
     printf("\`macro'")
     printf(\`" \`macro' "')
 end`;
 
-        const output = format_with_ast(source);
+        const output = format_with_mode(source, mode);
         
         // Verify the block structure is preserved
         expect(output).toContain('mata:');
