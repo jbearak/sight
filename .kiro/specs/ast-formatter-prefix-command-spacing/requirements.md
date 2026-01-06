@@ -124,3 +124,13 @@ These bugs make the AST formatter produce invalid output that cannot be executed
 1. WHEN the AST_Formatter processes a CommandNode with prefix field THEN the AST_Formatter SHALL recognize it as having prefix commands
 2. WHEN the AST_Formatter processes prefix commands with colons THEN the AST_Formatter SHALL detect the colon and apply space (not newline) after it
 3. WHEN the AST_Formatter processes commands with options THEN the AST_Formatter SHALL detect the comma and apply `, ` (comma space) before options on the same line
+
+### Requirement 11: Wildcard Pattern Preservation
+
+**User Story:** As a developer, I want the AST formatter to preserve wildcard patterns without adding spaces, so that variable name patterns remain syntactically correct.
+
+#### Acceptance Criteria
+
+1. WHEN the AST_Formatter outputs a varlist item containing a wildcard pattern (e.g., `var*`, `old?`, `_*`) THEN the AST_Formatter SHALL NOT insert a space between the variable name and the wildcard character
+2. WHEN the AST_Formatter outputs adjacent varlist items where one ends with a wildcard THEN the AST_Formatter SHALL add a space between the items (e.g., `var* other` not `var*other`)
+3. WHEN the AST_Formatter outputs a varlist with multiple wildcard patterns THEN the AST_Formatter SHALL preserve each pattern without internal spaces (e.g., `old* new*` not `old * new *`)

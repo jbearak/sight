@@ -131,7 +131,24 @@ This plan addresses critical bugs in the PrettyPrinter (AST formatter) that caus
     - **Property 10: Command Structure Recognition**
     - **Validates: Requirements 10.1, 10.2, 10.3**
 
-- [ ] 10. Final checkpoint - Ensure all tests pass
+- [ ] 10. Implement wildcard pattern preservation
+  - [ ] 10.1 Update varlist formatting to preserve wildcard patterns
+    - Ensure no space inserted between variable name and wildcard (`*`, `?`)
+    - Maintain spaces between separate varlist items
+    - Handle patterns like `var*`, `old?`, `_*`
+    - _Requirements: 11.1, 11.2, 11.3_
+
+  - [ ] 10.2 Write property test for wildcard pattern preservation
+    - **Property 11: Wildcard Pattern Preservation**
+    - **Validates: Requirements 11.1, 11.2, 11.3**
+
+  - [ ] 10.3 Write unit tests for wildcard patterns
+    - Test `rename var* new*` preserves patterns without internal spaces
+    - Test `summarize var* other` has space between items
+    - Test various wildcard patterns (`*`, `?`, combinations)
+    - _Requirements: 11.1, 11.2, 11.3_
+
+- [ ] 11. Final checkpoint - Ensure all tests pass
   - Run complete test suite
   - Verify no regressions in existing tests
   - Verify all new property tests pass with 100+ iterations

@@ -306,6 +306,12 @@ const SPACING_RULES: SpacingRule[] = [
 
 **Validates: Requirements 10.1, 10.2, 10.3**
 
+### Property 11: Wildcard Pattern Preservation
+
+*For any* varlist item containing wildcard characters (`*`, `?`), formatting should preserve the pattern without inserting spaces between the variable name and the wildcard character.
+
+**Validates: Requirements 11.1, 11.2, 11.3**
+
 ## Error Handling
 
 ### Invalid AST Structures
@@ -385,6 +391,12 @@ Property tests will verify universal properties across all inputs (minimum 100 i
    - Generate random commands with various structures
    - Verify newlines only appear at statement boundaries
    - **Feature: ast-formatter-prefix-command-spacing, Property 6: Statement Terminator Placement**
+
+7. **Property Test: Wildcard Pattern Preservation**
+   - Generate random varlist items with wildcard patterns (`*`, `?`)
+   - Verify no spaces inserted within patterns (e.g., `var*` not `var *`)
+   - Verify spaces between separate varlist items
+   - **Feature: ast-formatter-prefix-command-spacing, Property 11: Wildcard Pattern Preservation**
 
 ### Testing Framework
 
