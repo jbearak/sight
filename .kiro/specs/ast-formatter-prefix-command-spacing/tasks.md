@@ -21,11 +21,12 @@ This plan addresses critical bugs in the PrettyPrinter (AST formatter) that caus
   - Bug 5: `rename *, lower` - the `*` is tokenized as OPERATOR, not included in varlist
   - Root cause: PrefixNode interface lacks `has_colon` field; parser doesn't preserve colon information
 
-- [ ] 2. Fix prefix command colon spacing
-  - [ ] 2.1 Update `printPrefix()` to detect and preserve colons for all prefix commands
-    - Modify logic to check if prefix command was followed by colon in source
-    - Add colon to output when present (not just for `by` prefix)
-    - Ensure space (not newline) follows the colon
+- [x] 2. Fix prefix command colon spacing
+  - [x] 2.1 Update `printPrefix()` to detect and preserve colons for all prefix commands
+    - Added `has_colon` field to PrefixNode interface in types/index.ts
+    - Updated parser to set `has_colon = true` when consuming colon after prefix
+    - Updated `printPrefix()` to use `has_colon` instead of checking for `by` prefix
+    - Added special handling for `frame name:` prefix syntax in parseCommand() and parseFrameBlock()
     - _Requirements: 1.1, 1.2, 1.3, 5.1, 5.2, 5.3_
 
   - [ ] 2.2 Write property test for prefix colon spacing

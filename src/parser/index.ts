@@ -702,6 +702,7 @@ export class StataParser {
       // Consume colon after any prefix command (quietly:, capture:, noisily:, etc.)
       if (this.check('COLON')) {
         this.advance();
+        prefix.has_colon = true;
       }
 
       prefixes.push(prefix);
@@ -797,6 +798,74 @@ export class StataParser {
     // The args command doesn't support if/in qualifiers, so 'if' and 'in' are valid macro names
     if (commandName === 'args') {
       return this.parseArgsCommand(command_token, prefixes);
+    }
+
+    // Special handling for frame prefix: frame name: command
+    // This handles cases like `capture frame this: that`
+    if (commandName === 'frame' && this.check('WORD')) {
+      const saved_pos = this.current;
+      const frame_name_token = this.advance();
+      this.skipTrivia();
+      if (this.check('COLON')) {
+        // This is frame prefix syntax: frame name: command
+        this.advance(); // consume colon
+        
+        // Create a prefix node for the frame
+        const frame_prefix: PrefixNode = {
+          type: 'prefix',
+          name: 'frame',
+          fullName: 'frame',
+          varlist: [frame_name_token.value],
+          has_colon: true,
+          range: this.makeRange(command_token.range.start, this.previous().range.end),
+        };
+        prefixes.push(frame_prefix);
+        
+        // Parse any additional prefix commands
+        while (this.isPrefixCommand(this.peek().value)) {
+          const prefixToken = this.advance();
+          const prefix: PrefixNode = {
+            type: 'prefix',
+            name: prefixToken.value,
+            fullName: prefixToken.value,
+            range: prefixToken.range,
+          };
+          if (this.check('COLON')) {
+            this.advance();
+            prefix.has_colon = true;
+          }
+          prefixes.push(prefix);
+        }
+        
+        // Now parse the main command
+        if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
+          this.addError('Expected command name after frame prefix', this.peek().range);
+          return {
+            type: 'command',
+            prefix: prefixes,
+            name: '',
+            fullName: '',
+            range: this.makeRange(startToken.range.start, this.previous().range.end),
+          };
+        }
+        
+        const actual_command_token = this.advance();
+        const actual_command_name = actual_command_token.value;
+        
+        // Handle unab specially
+        if (actual_command_name === 'unab') {
+          const unab_node = this.parseUnabCommandBody(actual_command_token);
+          unab_node.prefix = prefixes;
+          unab_node.range = this.makeRange(startToken.range.start, unab_node.range.end);
+          return unab_node;
+        }
+        
+        // Parse the rest of the command normally
+        return this.parseCommandBody(actual_command_token, prefixes, startToken);
+      } else {
+        // Not frame prefix syntax, backtrack
+        this.current = saved_pos;
+      }
     }
 
     // Parse variable list (stop at comma, statement terminator, comment, or 'if' keyword)
@@ -934,6 +1003,116 @@ export class StataParser {
       prefix: prefixes.length > 0 ? prefixes : undefined,
       name: commandName,
       fullName: commandName, // TODO: expand abbreviations
+      varlist: varlist.length > 0 ? varlist : undefined,
+      options: options.length > 0 ? options : undefined,
+      expression,
+      ifExpression,
+      inExpression,
+      range: this.makeRange(startToken.range.start, this.previous().range.end),
+    };
+  }
+
+  /**
+   * Parse the body of a command (varlist, expression, qualifiers, options).
+   * Used when the command name has already been consumed.
+   */
+  private parseCommandBody(command_token: Token, prefixes: PrefixNode[], startToken: Token): CommandNode {
+    const commandName = command_token.value;
+    
+    // Parse variable list (stop at comma, statement terminator, comment, or 'if' keyword)
+    // Use file path coalescing for file commands
+    const varlist: IdentifierNode[] = [];
+    
+    // For file commands, try to parse the first argument as a file path
+    if (isFileCommand(commandName) && (this.check('WORD') || this.check('NUMBER') || this.check('OPERATOR') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL'))) {
+      const filePath = this.parseFilePathArgument();
+      if (filePath) {
+        varlist.push(filePath);
+      }
+    }
+    
+    // Parse remaining arguments normally (including parenthesized groups)
+    while (!this.check('COMMA') && !this.isTrivia() && !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+      // Stop at 'if' keyword for if-qualifier
+      if (this.checkWord('if')) {
+        break;
+      }
+      // Stop at 'in' keyword for in-qualifier
+      if (this.checkWord('in')) {
+        break;
+      }
+      
+      if (this.check('WORD') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') || this.check('NUMBER')) {
+        const varToken = this.advance();
+        varlist.push({
+          name: varToken.value,
+          range: varToken.range,
+        });
+      } else if (this.check('OPERATOR') && this.peek().value === '=') {
+        // Stop at assignment operator
+        break;
+      } else {
+        // Stop at other tokens
+        break;
+      }
+    }
+
+    // Check for assignment expression after varlist
+    let expression: string | undefined;
+    if (this.check('OPERATOR') && this.peek().value === '=') {
+      this.advance(); // consume '='
+      expression = this.parseExpression();
+    }
+
+    // Parse if-qualifier
+    let ifExpression: string | undefined;
+    if (this.checkWord('if')) {
+      this.advance(); // consume 'if'
+      ifExpression = this.parseIfQualifierExpression();
+    }
+
+    // Parse in-qualifier
+    let inExpression: string | undefined;
+    if (this.checkWord('in')) {
+      this.advance(); // consume 'in'
+      inExpression = this.parseInQualifierExpression();
+    }
+
+    // Parse options (after comma)
+    const options: OptionNode[] = [];
+    if (this.check('COMMA')) {
+      this.advance(); // consume comma
+
+      // Stop at statement terminator, end of file, or comment (trivia)
+      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+        if (this.check('WORD')) {
+          const optionToken = this.advance();
+          const option: OptionNode = {
+            type: 'option',
+            name: optionToken.value,
+            fullName: optionToken.value,
+            range: optionToken.range,
+          };
+
+          // Check for option argument
+          if (this.check('LPAREN')) {
+            const parsed = this.parse_option_argument_inside_parens();
+            option.argument = parsed.argument;
+            option.argument_range = parsed.argument_range;
+          }
+
+          options.push(option);
+        } else {
+          this.advance(); // skip unknown tokens in options
+        }
+      }
+    }
+
+    return {
+      type: 'command',
+      prefix: prefixes.length > 0 ? prefixes : undefined,
+      name: commandName,
+      fullName: commandName,
       varlist: varlist.length > 0 ? varlist : undefined,
       options: options.length > 0 ? options : undefined,
       expression,
@@ -1968,14 +2147,14 @@ export class StataParser {
   }
 
   /**
-   * Parse a frame block: `frame name { ... }`
+   * Parse a frame block: `frame name { ... }` or frame prefix: `frame name: command`
    * Frame blocks execute code in the context of a named data frame.
-   * Syntax: frame framename { commands }
+   * Syntax: frame framename { commands } OR frame framename: command
    * 
    * Unlike conditional blocks (if, while), frame blocks don't have a condition -
-   * they just have a frame name followed by a brace block.
+   * they just have a frame name followed by a brace block or colon.
    */
-  private parseFrameBlock(): ControlFlowNode | null {
+  private parseFrameBlock(): ControlFlowNode | CommandNode | null {
     const frame_token = this.advance(); // consume 'frame'
     const frame_start_line = frame_token.range.start.line;
 
@@ -1983,7 +2162,7 @@ export class StataParser {
 
     // Get frame name - must be a WORD token
     if (!this.check('WORD')) {
-      // Not a frame block syntax, fall back to command parsing
+      // Not a frame block/prefix syntax, fall back to command parsing
       // Reset position and return null to let parseCommand handle it
       this.current--;
       return null;
@@ -1991,14 +2170,151 @@ export class StataParser {
 
     const name_token = this.peek();
 
-    // Check if this is followed by a brace (frame block syntax)
+    // Check if this is followed by a brace (frame block syntax) or colon (frame prefix syntax)
     // We need to look ahead past the frame name
     const saved_position = this.current;
     this.advance(); // consume frame name
     this.skipTrivia();
 
+    if (this.check('COLON')) {
+      // This is frame prefix syntax: frame name: command
+      this.advance(); // consume colon
+      
+      // Create a prefix node for the frame
+      const frame_prefix: PrefixNode = {
+        type: 'prefix',
+        name: 'frame',
+        fullName: 'frame',
+        varlist: [name_token.value],
+        has_colon: true,
+        range: this.makeRange(frame_token.range.start, this.previous().range.end),
+      };
+      
+      // Parse the rest as a command with this prefix
+      // We need to handle the case where there might be more prefix commands after frame:
+      const prefixes: PrefixNode[] = [frame_prefix];
+      
+      // Parse any additional prefix commands
+      while (this.isPrefixCommand(this.peek().value)) {
+        const prefixToken = this.advance();
+        const prefix: PrefixNode = {
+          type: 'prefix',
+          name: prefixToken.value,
+          fullName: prefixToken.value,
+          range: prefixToken.range,
+        };
+
+        // Handle 'by' prefix with variable list
+        if (prefixToken.value === 'by') {
+          if (this.check('COLON')) {
+            // by varlist: command
+            // TODO: parse variable list before colon
+          } else {
+            // by: command (no variables)
+          }
+        }
+
+        // Consume colon after any prefix command
+        if (this.check('COLON')) {
+          this.advance();
+          prefix.has_colon = true;
+        }
+
+        prefixes.push(prefix);
+      }
+      
+      // Now parse the main command
+      if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
+        this.addError('Expected command name after frame prefix', this.peek().range);
+        return {
+          type: 'command',
+          prefix: prefixes,
+          name: '',
+          fullName: '',
+          range: this.makeRange(frame_token.range.start, this.previous().range.end),
+        };
+      }
+      
+      const command_token = this.advance();
+      const commandName = command_token.value;
+      
+      // Special handling for unab command: unab macroname : varlist
+      if (commandName === 'unab') {
+        const unab_node = this.parseUnabCommandBody(command_token);
+        unab_node.prefix = prefixes;
+        unab_node.range = this.makeRange(frame_token.range.start, unab_node.range.end);
+        return unab_node;
+      }
+      
+      // Parse variable list
+      const varlist: IdentifierNode[] = [];
+      while ((this.check('WORD') || this.check('OPERATOR') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) && 
+             !this.check('COMMA') && !this.isTrivia() && !this.check('STATEMENT_TERMINATOR')) {
+        // Stop at 'if' or 'in' keywords (qualifiers)
+        if (this.check('WORD') && (this.peek().value === 'if' || this.peek().value === 'in')) {
+          break;
+        }
+        const varToken = this.advance();
+        varlist.push({
+          name: varToken.value,
+          range: varToken.range,
+        });
+      }
+      
+      // Parse if/in qualifiers
+      let ifExpression: string | undefined;
+      let inExpression: string | undefined;
+      
+      if (this.checkWord('if')) {
+        this.advance();
+        ifExpression = this.parseExpression();
+      }
+      
+      if (this.checkWord('in')) {
+        this.advance();
+        inExpression = this.parseExpression();
+      }
+      
+      // Parse options
+      const options: OptionNode[] = [];
+      if (this.check('COMMA')) {
+        this.advance();
+        while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+          if (this.check('WORD')) {
+            const optionToken = this.advance();
+            const option: OptionNode = {
+              type: 'option',
+              name: optionToken.value,
+              fullName: optionToken.value,
+              range: optionToken.range,
+            };
+            if (this.check('LPAREN')) {
+              const parsed = this.parse_option_argument_inside_parens();
+              option.argument = parsed.argument;
+              option.argument_range = parsed.argument_range;
+            }
+            options.push(option);
+          } else {
+            this.advance();
+          }
+        }
+      }
+      
+      return {
+        type: 'command',
+        prefix: prefixes,
+        name: commandName,
+        fullName: commandName,
+        varlist: varlist.length > 0 ? varlist : undefined,
+        options: options.length > 0 ? options : undefined,
+        ifExpression,
+        inExpression,
+        range: this.makeRange(frame_token.range.start, this.previous().range.end),
+      };
+    }
+
     if (!this.check('LBRACE')) {
-      // Not a frame block syntax (might be `frame framename: command` or other frame command)
+      // Not a frame block syntax (might be other frame command like `frame create`)
       // Reset position and return null to let parseCommand handle it
       this.current = saved_position - 1; // Reset to before 'frame' was consumed
       return null;
@@ -2039,6 +2355,89 @@ export class StataParser {
       frameName: frame_name,
       body,
       range: this.makeRange(frame_token.range.start, this.previous().range.end),
+    };
+  }
+  
+  /**
+   * Parse the body of an unab command (after the command name has been consumed).
+   * unab macroname : varlist
+   */
+  private parseUnabCommandBody(commandToken: Token): CommandNode {
+    const startPos = commandToken.range.start;
+    
+    // Parse macro name
+    if (!this.check('WORD')) {
+      this.addError('Expected macro name after unab', this.peek().range);
+      return {
+        type: 'command',
+        name: 'unab',
+        fullName: 'unab',
+        range: this.makeRange(startPos, this.previous().range.end),
+      };
+    }
+    
+    const macroNameToken = this.advance();
+    const varlist: IdentifierNode[] = [
+      {
+        name: macroNameToken.value,
+        range: macroNameToken.range,
+      }
+    ];
+    
+    // Expect colon
+    if (!this.check('COLON')) {
+      this.addError('Expected ":" after macro name in unab command', this.peek().range);
+    } else {
+      this.advance(); // consume colon
+      // Add colon marker to varlist
+      varlist.push({
+        name: ':',
+        range: this.previous().range,
+      });
+    }
+    
+    // Parse variable list after colon
+    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) && !this.check('COMMA') && !this.isTrivia()) {
+      const varToken = this.advance();
+      varlist.push({
+        name: varToken.value,
+        range: varToken.range,
+      });
+    }
+    
+    // Parse options (after comma)
+    const options: OptionNode[] = [];
+    if (this.check('COMMA')) {
+      this.advance();
+      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+        if (this.check('WORD')) {
+          const optionToken = this.advance();
+          const option: OptionNode = {
+            type: 'option',
+            name: optionToken.value,
+            fullName: optionToken.value,
+            range: optionToken.range,
+          };
+          if (this.check('LPAREN')) {
+            const parsed = this.parse_option_argument_inside_parens();
+            option.argument = parsed.argument;
+            option.argument_range = parsed.argument_range;
+          }
+          options.push(option);
+        } else {
+          this.advance();
+        }
+      }
+    }
+
+    return {
+      type: 'command',
+      name: 'unab',
+      fullName: 'unab',
+      varlist,
+      options: options.length > 0 ? options : undefined,
+      expression: undefined,
+      range: this.makeRange(startPos, this.previous().range.end),
     };
   }
 

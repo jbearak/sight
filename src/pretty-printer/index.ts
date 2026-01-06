@@ -273,8 +273,8 @@ export class PrettyPrinter {
             result += ' ' + prefix.varlist.join(' ');
         }
 
-        // Add colon for by prefix
-        if (prefix.name === 'by') {
+        // Add colon if the prefix had one
+        if (prefix.has_colon) {
             result += ':';
         }
 

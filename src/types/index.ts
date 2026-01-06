@@ -205,6 +205,7 @@ export interface PrefixNode {
   name: string;
   fullName: string;
   varlist?: string[];
+  has_colon?: boolean;
   range: Range;
 }
 
