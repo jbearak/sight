@@ -558,7 +558,9 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
      */
     describe('Property 11: Wildcard Pattern Preservation', () => {
         it('should not insert space within wildcard patterns', () => {
-            const var_prefix_gen = fc.stringOf(fc.constantFrom('a', 'b', 'c', 'x', 'y', 'z'), { minLength: 1, maxLength: 5 });
+            // Use prefixes that won't be parsed as Stata keywords (if, in, etc.)
+            const var_prefix_gen = fc.stringOf(fc.constantFrom('a', 'b', 'c', 'x', 'y', 'z'), { minLength: 3, maxLength: 5 })
+                .filter(s => !['if', 'in', 'by'].includes(s));
             const wildcard_gen = fc.constantFrom('*', '?');
 
             fc.assert(
