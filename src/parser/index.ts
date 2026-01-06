@@ -1045,7 +1045,11 @@ export class StataParser {
         break;
       }
       
-      if (this.check('WORD') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') || this.check('NUMBER')) {
+      // Check for wildcard operators (* and ?) which are valid in varlists
+      // This mirrors the logic in parseCommand for consistency
+      const is_wildcard = this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?');
+      
+      if (this.check('WORD') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') || this.check('NUMBER') || is_wildcard) {
         const varToken = this.advance();
         varlist.push({
           name: varToken.value,

@@ -60,24 +60,24 @@ This implementation plan addresses all review feedback from PR #28 by refactorin
     - Format and verify colon is preserved
     - Test fallback logic works correctly
 
-- [ ] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Add wildcard support to parseCommandBody
-  - [ ] 5.1 Update parseCommandBody in src/parser/index.ts
+- [x] 5. Add wildcard support to parseCommandBody
+  - [x] 5.1 Update parseCommandBody in src/parser/index.ts
     - Add wildcard operator detection before assignment check
     - Check for `OPERATOR` tokens with value `*` or `?`
     - Treat wildcards as varlist items (same shape as WORD/STRING/MACRO_REF)
     - Mirror the logic from parseCommand (lines 894-897)
     - _Requirements: 1.1, 1.4_
 
-  - [ ] 5.2 Write property test for wildcard detection
+  - [x] 5.2 Write property test for wildcard detection
     - **Property 7: Wildcard operator detection**
     - **Validates: Requirements 1.1, 1.4**
     - Generate random command bodies with `*` and `?` operators
     - Verify they appear in varlist
 
-  - [ ] 5.3 Write property test for wildcard preservation in frame commands
+  - [x] 5.3 Write property test for wildcard preservation in frame commands
     - **Property 3: Wildcard preservation in frame commands**
     - **Validates: Requirements 1.2, 1.3**
     - Generate random frame-prefixed commands with wildcards
