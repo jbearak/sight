@@ -185,6 +185,84 @@ export class StataLexer {
     return true;
   }
 
+  /**
+   * Check if the rest of the current line contains only whitespace or comments.
+   * Used to determine if mata:/python: should start a block or be inline.
+   * Returns true if only whitespace/comments (or nothing) remains until newline/EOF.
+   * 
+   * Examples that return true (block mode):
+   *   - "mata:\n"           (nothing after colon)
+   *   - "mata:   \n"        (only whitespace)
+   *   - "mata: // comment\n" (whitespace + line comment)
+   *   - "mata: [block comment]\n" (whitespace + block comment)
+   *   - "mata: * comment\n" (whitespace + star comment - valid at statement boundary)
+   * 
+   * Examples that return false (inline mode):
+   *   - "mata: x = 5\n"     (code after colon)
+   *   - "mata: x = 5 // comment\n" (code + comment)
+   */
+  private is_only_whitespace_or_comment_until_newline(): boolean {
+    let my_pos = this.position;
+    
+    while (my_pos < this.source.length) {
+      const my_char = this.source[my_pos];
+      
+      if (my_char === '\n' || my_char === '\r') {
+        // Reached end of line - only whitespace/comments found
+        return true;
+      }
+      
+      if (my_char === ' ' || my_char === '\t') {
+        // Skip whitespace
+        my_pos++;
+        continue;
+      }
+      
+      // Check for // line comment
+      if (my_char === '/' && my_pos + 1 < this.source.length && 
+          this.source[my_pos + 1] === '/') {
+        // Rest of line is a comment - treat as block mode
+        return true;
+      }
+      
+      // Check for /* block comment */
+      if (my_char === '/' && my_pos + 1 < this.source.length && 
+          this.source[my_pos + 1] === '*') {
+        // Skip the block comment
+        my_pos += 2; // Skip /*
+        while (my_pos + 1 < this.source.length) {
+          if (this.source[my_pos] === '*' && this.source[my_pos + 1] === '/') {
+            my_pos += 2; // Skip */
+            break;
+          }
+          if (this.source[my_pos] === '\n') {
+            // Block comment spans to next line - treat as block mode
+            return true;
+          }
+          my_pos++;
+        }
+        // If we exited the loop without finding */, we reached EOF or near-EOF
+        // Treat unclosed block comment as block mode
+        if (my_pos + 1 >= this.source.length) {
+          return true;
+        }
+        continue;
+      }
+      
+      // Check for * line comment (valid at statement boundary after mata:/python:)
+      if (my_char === '*') {
+        // Rest of line is a comment - treat as block mode
+        return true;
+      }
+      
+      // Found non-whitespace, non-comment content
+      return false;
+    }
+    
+    // Reached EOF - treat as end of line
+    return true;
+  }
+
   private get_current_context(): LanguageContext {
     if (!this.state.context_stack || this.state.context_stack.length === 0) {
       return LanguageContext.STATA;
@@ -1375,18 +1453,31 @@ export class StataLexer {
         const prev_is_mata_inline = this.previous_token &&
           this.previous_token.type === 'MATA_INLINE';
         
-        // First check for inline mata: syntax (mata followed by colon)
-        // This takes precedence because "capture mata:" should be recognized as inline mata
+        // First check for mata: syntax (mata followed by colon)
+        // This takes precedence because "capture mata:" should be recognized
         if (this.peek() === ':') {
           this.advance(); // consume the colon
           const full_value = value + ':';
-          // NOTE: Do NOT push Mata context for inline mata:
-          // Inline Mata executes a single expression and returns to Stata immediately
-          return {
-            type: 'MATA_INLINE',
-            value: full_value,
-            range: this.makeRange(startLine, startColumn, this.line, this.column),
-          };
+          
+          // Lookahead: check if there's content on the same line after the colon
+          // (whitespace and comments don't count as content)
+          if (this.is_only_whitespace_or_comment_until_newline()) {
+            // mata: followed by newline/comment = block start
+            this.push_context(LanguageContext.MATA);
+            this.state.embedded_block_start_line = startLine;
+            return {
+              type: 'MATA_START',
+              value: full_value,
+              range: this.makeRange(startLine, startColumn, this.line, this.column),
+            };
+          } else {
+            // mata: followed by content = inline expression
+            return {
+              type: 'MATA_INLINE',
+              value: full_value,
+              range: this.makeRange(startLine, startColumn, this.line, this.column),
+            };
+          }
         } else if (prev_is_word || prev_is_mata_inline) {
           // "mata" is an argument to a command or part of inline mata, not a block start
           // Fall through to return as WORD
@@ -1406,13 +1497,26 @@ export class StataLexer {
         if (this.peek() === ':') {
           this.advance(); // consume the colon
           const full_value = value + ':';
-          // NOTE: Do NOT push Python context for inline python:
-          // Inline Python executes a single expression and returns to Stata immediately
-          return {
-            type: 'PYTHON_INLINE',
-            value: full_value,
-            range: this.makeRange(startLine, startColumn, this.line, this.column),
-          };
+          
+          // Lookahead: check if there's content on the same line after the colon
+          // (whitespace and comments don't count as content)
+          if (this.is_only_whitespace_or_comment_until_newline()) {
+            // python: followed by newline/comment = block start
+            this.push_context(LanguageContext.PYTHON);
+            this.state.embedded_block_start_line = startLine;
+            return {
+              type: 'PYTHON_START',
+              value: full_value,
+              range: this.makeRange(startLine, startColumn, this.line, this.column),
+            };
+          } else {
+            // python: followed by content = inline expression
+            return {
+              type: 'PYTHON_INLINE',
+              value: full_value,
+              range: this.makeRange(startLine, startColumn, this.line, this.column),
+            };
+          }
         }
         
         // Check if previous token was "end" - if so, this is "end python" not a block start

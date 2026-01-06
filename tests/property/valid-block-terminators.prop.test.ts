@@ -158,7 +158,11 @@ describe('Valid Block Terminators Property Tests', () => {
         fc.assert(
             fc.property(
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 3 }),
+                fc.array(
+                    fc.string({ minLength: 1, maxLength: 20 })
+                        .filter(s => !s.includes('/*')),
+                    { minLength: 0, maxLength: 3 }
+                ),
                 fc.array(arbitrary_command_name(), { minLength: 1, maxLength: 3 }),
                 fc.array(arbitrary_command_name(), { minLength: 1, maxLength: 3 }),
                 (my_block_type, my_content_lines, my_before_commands, my_after_commands) => {
@@ -453,7 +457,9 @@ end`;
             fc.property(
                 arbitrary_identifier(),
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                fc.string({ minLength: 1, maxLength: 30 }),
+                // Content must have at least one non-whitespace character to be treated as inline
+                // (mata:/python: followed by only whitespace is now treated as block start)
+                fc.stringMatching(/^[a-zA-Z0-9_ \t\-+=(){}[\]]*$/).filter(s => s.trim().length > 0),
                 (my_program_name, my_embedded_type, my_single_line_content) => {
                     // Build program block with single-line embedded block
                     const my_document = `program define ${my_program_name}

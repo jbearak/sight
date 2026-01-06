@@ -156,7 +156,10 @@ end`;
     fc.assert(
       fc.property(
         fc.oneof(fc.constant('mata:'), fc.constant('python:')),
-        fc.stringMatching(/^[a-zA-Z0-9_\s\-+=(){}[\]]*$/),
+        // Content must have at least one non-whitespace character to be treated as inline
+        // (mata:/python: followed by only whitespace is now treated as block start)
+        // Use space and tab only (not \s which includes \r and \n)
+        fc.stringMatching(/^[a-zA-Z0-9_ \t\-+=(){}[\]]*$/).filter(s => s.trim().length > 0),
         (block_type, content) => {
           const my_lexer = new StataLexer();
           
