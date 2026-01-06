@@ -29,6 +29,7 @@ import {
     CallEdgeDiff,
     ContentProvider,
     DirectiveParseResult,
+    WorkingDirectoryDirective,
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
 import { DirectiveParser } from '../directive-parser';
@@ -49,7 +50,7 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
  * Cache for file parsing results within a single resolution request.
  * Ensures we only read/parse each file once per request.
  */
-type ParsedFileResult = { content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] } | { error: string };
+type ParsedFileResult = { content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } | { error: string };
 type RequestCache = Map<string, Promise<ParsedFileResult>>;
 
 /**
@@ -88,7 +89,7 @@ export class ScopeResolver {
     private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] }>;
+    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     private cache_metrics: ScopeCacheMetrics;
     private logger?: ScopeResolverLogger;
@@ -855,38 +856,50 @@ export class ScopeResolver {
                 continue;
             }
 
-            // Read file content using content provider
-            let my_content: string;
+            // Read file content using get_parsed_file to leverage cache
+            let my_parent_result: ParsedFileResult;
             try {
-                my_content = await this.content_provider.read_file(my_parent_uri);
+                my_parent_result = await this.get_parsed_file(
+                    my_parent_uri,
+                    my_directive.path,
+                    { request_cache }
+                );
             } catch (error) {
+                my_parent_result = { error: String(error) };
+            }
+
+            if ('error' in my_parent_result) {
                 // Try .do fallback if original path doesn't end in .do
                 if (!my_directive.path.endsWith('.do')) {
                     const my_fallback_path = my_directive.path + '.do';
                     const my_fallback_uri = URI.file(my_fallback_path).toString();
                     try {
-                        my_content = await this.content_provider.read_file(my_fallback_uri);
+                        my_parent_result = await this.get_parsed_file(
+                            my_fallback_uri,
+                            my_fallback_path,
+                            { request_cache }
+                        );
                     } catch (fallback_error) {
-                        // Both paths failed - log warning and continue to next directive
                         this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
                         continue;
                     }
                 } else {
-                    // Original path ends in .do, no fallback to try
                     this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
                     continue;
                 }
             }
 
-            // Use DirectiveParser to extract only directives and working_directory (fast, no full AST)
-            const my_directive_result = this.directive_parser.parse(my_content, my_parent_uri);
+            if ('error' in my_parent_result) {
+                this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
+                continue;
+            }
 
-            // If the parent has a working_directory, return it (nearest parent wins)
-            if (my_directive_result.working_directory?.resolved_path !== undefined) {
-                let resolved_path = my_directive_result.working_directory.resolved_path;
+            // If the parent has a working_directory directive, resolve it for inheritance
+            if (my_parent_result.working_directory_directive) {
+                let resolved_path = my_parent_result.working_directory_directive.resolved_path;
                 
                 // Handle workspace-relative paths
-                if (my_directive_result.working_directory.is_workspace_relative && this.workspace_root) {
+                if (my_parent_result.working_directory_directive.is_workspace_relative && this.workspace_root) {
                     resolved_path = path.normalize(path.join(this.workspace_root, resolved_path));
                 }
                 
@@ -894,12 +907,12 @@ export class ScopeResolver {
             }
 
             // Otherwise, recursively search deeper ancestors
-            if (my_directive_result.directives.length > 0) {
+            if (my_parent_result.directives.length > 0) {
                 // Mark as visited before recursing
                 visited.add(my_parent_uri);
 
                 const my_deeper_wd = await this.discover_working_directory(
-                    my_directive_result.directives,
+                    my_parent_result.directives,
                     visited,
                     depth + 1,
                     config,
@@ -1327,6 +1340,8 @@ export class ScopeResolver {
                 symbols: my_parse_result.symbols,
                 directives: my_parse_result.directives,
                 forward_calls: my_parse_result.forward_calls,
+                working_directory: my_parse_result.working_directory,
+                working_directory_directive: my_parse_result.working_directory_directive,
                 diagnostics: my_parse_result.diagnostics,
             });
 
@@ -1401,6 +1416,7 @@ export class ScopeResolver {
             directives: my_directive_result.directives,
             forward_calls: all_forward_calls,
             working_directory: effective_working_directory,
+            working_directory_directive: my_directive_result.working_directory,
             diagnostics: my_directive_result.diagnostics,
         };
     }
@@ -1564,6 +1580,7 @@ export class ScopeResolver {
                 directives: actual_cached.directives,
                 forward_calls: actual_cached.forward_calls,
                 working_directory: actual_cached.working_directory,
+                working_directory_directive: actual_cached.working_directory_directive,
                 diagnostics: actual_cached.diagnostics
             };
         } else if (actual_cached) {
@@ -1592,6 +1609,7 @@ export class ScopeResolver {
                 directives: parse_result.directives,
                 forward_calls: parse_result.forward_calls,
                 working_directory: parse_result.working_directory,
+                working_directory_directive: parse_result.working_directory_directive,
                 diagnostics: parse_result.diagnostics,
             });
 

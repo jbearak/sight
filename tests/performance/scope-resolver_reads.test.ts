@@ -81,14 +81,15 @@ describe('ScopeResolver Performance', () => {
         // B: 1 (discovery from A) + 1 (discovery top) + 1 (parse) = 3
         // C: 1 (discovery from A) + 1 (discovery from B) + 1 (discovery top) + 1 (parse) = 4
 
-        // Total: 2 + 3 + 4 = 9 reads
-        // This is the correct behavior - discover_working_directory needs to read files
-        // separately from the main parsing to get raw directive information.
+        // Total: A=1, B=1, C=1 = 3 reads (optimal)
+        // With the optimization, each file is read only once because
+        // discover_working_directory uses the cached parse result with
+        // raw directive information instead of re-reading files.
 
-        expect(total_reads).toBe(9);
+        expect(total_reads).toBe(3);
     });
 
-    it('reads files again for working directory discovery', async () => {
+    it('avoids duplicate reads with working directory directive caching', async () => {
         const uri = URI.file('/test/main.do').toString();
 
         // Initial resolution - populates cache
@@ -97,20 +98,19 @@ describe('ScopeResolver Performance', () => {
         const initial_stats = new Map(stat_counts);
 
         // Second resolution - slightly different content to bypass scope_cache
-        // but A.do should still be in file_cache.
+        // Files should not be re-read because working directory directives
+        // are cached in the parse result.
         await resolver.resolve(uri, '* @lsp-done-by: "A.do" ');
 
         console.log('Final read counts:', Object.fromEntries(read_counts));
         console.log('Final stat counts:', Object.fromEntries(stat_counts));
 
-        // After the bug fix, discover_working_directory reads files directly
-        // rather than using the cached parse results, because it needs raw
-        // directive information, not the resolved working directory.
-        // This means files will be read again for working directory discovery.
+        // With the optimization, files are not re-read for working directory discovery
+        // because the raw directive information is cached alongside the parse result.
         for (const [file, count] of read_counts) {
             const initial_count = initial_reads.get(file) || 0;
             if (!file.endsWith('main.do')) {
-                expect(count).toBeGreaterThan(initial_count);
+                expect(count).toBe(initial_count);
             }
         }
     });
