@@ -125,20 +125,20 @@ This implementation plan addresses all review feedback from PR #28 by refactorin
     - Generate random prefix command brace blocks
     - Format and verify correct output without array manipulation artifacts
 
-- [ ] 9. Update test generators to use arbitrary_non_reserved_identifier
-  - [ ] 9.1 Update ast-formatter-prefix-command-spacing.prop.test.ts
+- [x] 9. Update test generators to use arbitrary_non_reserved_identifier
+  - [x] 9.1 Update ast-formatter-prefix-command-spacing.prop.test.ts
     - Import `arbitrary_non_reserved_identifier` from `tests/property/generators/index.ts`
     - Replace manual identifier filtering (lines 104-105, 561-564) with generator
     - Apply to all varlist and macro name generation
     - _Requirements: 3.1, 3.2, 7.1, 7.2_
 
-  - [ ] 9.2 Update pretty-printer-frame-block-deletion.prop.test.ts
+  - [x] 9.2 Update pretty-printer-frame-block-deletion.prop.test.ts
     - Import `arbitrary_non_reserved_identifier` from `tests/property/generators/index.ts`
     - Replace any manual identifier filtering with generator
     - Apply to frame name generation
     - _Requirements: 3.1, 3.2, 7.1, 7.2_
 
-  - [ ] 9.3 Write property test for reserved identifier exclusion
+  - [x] 9.3 Write property test for reserved identifier exclusion
     - **Property 8: Reserved identifier exclusion**
     - **Validates: Requirements 3.1, 3.2**
     - Generate random identifiers using `arbitrary_non_reserved_identifier()`

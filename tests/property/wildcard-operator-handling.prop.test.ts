@@ -388,3 +388,29 @@ describe('Prefix brace block format determinism (Property 10)', () => {
         50
     );
 });
+
+
+describe('Reserved identifier exclusion (Property 8)', () => {
+    it('should not generate reserved keywords', () => {
+        fc.assert(
+            fc.property(arbitrary_non_reserved_identifier(), (identifier) => {
+                // Reserved keywords that should be excluded
+                const reserved = ['if', 'in', 'by'];
+                expect(reserved).not.toContain(identifier);
+            }),
+            { numRuns: 200 }
+        );
+    });
+
+    it('should generate valid Stata identifiers', () => {
+        fc.assert(
+            fc.property(arbitrary_non_reserved_identifier(), (identifier) => {
+                // Should start with letter or underscore
+                expect(identifier).toMatch(/^[a-zA-Z_]/);
+                // Should only contain valid characters
+                expect(identifier).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]*$/);
+            }),
+            { numRuns: 200 }
+        );
+    });
+});

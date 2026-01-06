@@ -13,6 +13,7 @@ import * as fc from 'fast-check';
 import { PrettyPrinter, print_ast } from '../../src/pretty-printer';
 import { StataLexer, StataParser } from '../../src/index';
 import { ControlFlowNode, CommandNode, StataAST, StataNode, Range } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 /**
  * Helper to create a Range object.
@@ -41,11 +42,9 @@ function parse_source(source: string): StataAST {
 
 /**
  * Generator for valid Stata frame names (identifiers)
+ * Uses shared generator that excludes reserved keywords
  */
-const arbitrary_frame_name = fc.stringOf(
-    fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz_'.split('')),
-    { minLength: 1, maxLength: 10 }
-).filter(s => /^[a-z_][a-z_0-9]*$/i.test(s));
+const arbitrary_frame_name = arbitrary_non_reserved_identifier();
 
 /**
  * Generator for simple command names

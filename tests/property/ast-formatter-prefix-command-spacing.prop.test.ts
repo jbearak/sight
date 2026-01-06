@@ -18,6 +18,7 @@ import {
     FormatterMode,
 } from './helpers/formatter-test-utils';
 import { format_document } from '../../src/providers/formatter';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('AST Formatter Prefix Command Spacing Property Tests', () => {
     let my_parser: StataParser;
@@ -558,9 +559,8 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
      */
     describe('Property 11: Wildcard Pattern Preservation', () => {
         it('should not insert space within wildcard patterns', () => {
-            // Use prefixes that won't be parsed as Stata keywords (if, in, etc.)
-            const var_prefix_gen = fc.stringOf(fc.constantFrom('a', 'b', 'c', 'x', 'y', 'z'), { minLength: 3, maxLength: 5 })
-                .filter(s => !['if', 'in', 'by'].includes(s));
+            // Use shared generator that excludes reserved keywords
+            const var_prefix_gen = arbitrary_non_reserved_identifier();
             const wildcard_gen = fc.constantFrom('*', '?');
 
             fc.assert(
