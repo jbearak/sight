@@ -12,8 +12,13 @@ import * as fc from 'fast-check';
 import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
 import { PrettyPrinter } from '../../src/pretty-printer';
+import { CodeFormatter } from '../../src/providers/formatter';
+import { DocumentState } from '../../src/document-store';
+import { ContextTracker } from '../../src/context-tracker';
+import { TextEdit } from 'vscode-languageserver';
 import {
     for_each_formatter_mode_property,
+    for_each_formatter_mode,
     create_formatter_config,
     FormatterMode,
 } from './helpers/formatter-test-utils';
@@ -38,6 +43,61 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
     }
 
     /**
+     * Apply text edits to source to get formatted result.
+     */
+    function apply_edits(source: string, edits: TextEdit[]): string {
+        if (edits.length === 0) return source;
+        if (edits.length === 1) {
+            return edits[0].newText;
+        }
+        return edits[0].newText;
+    }
+
+    /**
+     * Create a document state for formatting.
+     */
+    function create_document_state(source: string): DocumentState {
+        const lexer = new StataLexer();
+        const lex_result = lexer.tokenize(source);
+        const parser = new StataParser();
+        const parse_result = parser.parse(lex_result.tokens);
+        const context_tracker = new ContextTracker();
+        context_tracker.initialize_from_tokens(lex_result.tokens);
+
+        return {
+            uri: 'file:///test.do',
+            content: source,
+            version: 1,
+            ast: parse_result.ast,
+            tokens: lex_result.tokens,
+            line_offsets: lex_result.line_offsets,
+            symbols: {
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                programs: new Map(),
+                scalars: new Map(),
+                matrices: new Map(),
+                variables: new Map(),
+            },
+            diagnostics: [],
+            context_ranges: [],
+            context_tracker,
+            forward_calls: [],
+        };
+    }
+
+    /**
+     * Format source using CodeFormatter with specified mode.
+     */
+    function formatWithMode(source: string, mode: FormatterMode): string {
+        const config = create_formatter_config(mode);
+        const doc_state = create_document_state(source);
+        const formatter = new CodeFormatter();
+        const edits = formatter.format(doc_state, { tabSize: 4, insertSpaces: true }, config);
+        return apply_edits(source, edits);
+    }
+
+    /**
      * Property 1: Prefix Colon Spacing
      * For any command with a prefix command and colon, formatting should produce
      * a space (not newline) after the colon, keeping the prefix and main command
@@ -47,33 +107,29 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
      * Validates: Requirements 1.1, 1.2, 1.3
      */
     describe('Property 1: Prefix Colon Spacing', () => {
-        it('should produce space (not newline) after prefix colon', () => {
-            const prefix_gen = fc.constantFrom('quietly', 'capture', 'noisily', 'qui', 'cap', 'noi');
-            const command_gen = fc.constantFrom('display', 'summarize', 'regress', 'generate', 'list');
-            const arg_gen = fc.constantFrom('"hello"', 'var1', 'x y', '');
+        // Dual-mode property test
+        for_each_formatter_mode_property(
+            'should produce space (not newline) after prefix colon',
+            fc.tuple(
+                fc.constantFrom('quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'),
+                fc.constantFrom('display', 'summarize', 'regress', 'generate', 'list'),
+                fc.constantFrom('"hello"', 'var1', 'x y', '')
+            ),
+            (mode, [prefix, command, arg]) => {
+                const source = `${prefix}: ${command}${arg ? ' ' + arg : ''}`;
+                const output = formatWithMode(source, mode);
 
-            fc.assert(
-                fc.property(prefix_gen, command_gen, arg_gen, (prefix, command, arg) => {
-                    const source = `${prefix}: ${command}${arg ? ' ' + arg : ''}`;
-                    const output = parseAndFormat(source);
+                // Output should be on a single line (no newlines except at end)
+                const lines = output.trim().split('\n');
+                expect(lines.length).toBe(1);
 
-                    // Output should be on a single line (no newlines except at end)
-                    const lines = output.trim().split('\n');
-                    if (lines.length !== 1) {
-                        return false;
-                    }
+                // Output should contain the colon followed by space
+                expect(output).toContain(': ');
+            },
+            100
+        );
 
-                    // Output should contain the colon followed by space
-                    if (!output.includes(': ')) {
-                        return false;
-                    }
-
-                    return true;
-                }),
-                { numRuns: 100 }
-            );
-        });
-
+        // Unit tests still use parseAndFormat for AST-specific testing
         it('should format capture frame this: that with space after colon', () => {
             const output = parseAndFormat('capture frame this: that');
             expect(output.trim()).toBe('capture frame this: that');

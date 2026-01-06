@@ -144,22 +144,22 @@ This implementation plan addresses all review feedback from PR #28 by refactorin
     - Generate random identifiers using `arbitrary_non_reserved_identifier()`
     - Verify none are reserved keywords (`if`, `in`, `by`)
 
-- [ ] 10. Add dual-mode formatter testing
-  - [ ] 10.1 Update ast-formatter-prefix-command-spacing.prop.test.ts for dual-mode
+- [x] 10. Add dual-mode formatter testing
+  - [x] 10.1 Update ast-formatter-prefix-command-spacing.prop.test.ts for dual-mode
     - Import `for_each_formatter_mode_property` from `tests/property/helpers/formatter-test-utils.ts`
     - Wrap all property tests with `for_each_formatter_mode_property()`
     - Most tests run in both modes (indentation, spacing, structure)
     - Use `skip_for_mode('source-preserving')` only if specific tests verify AST-only normalization
     - _Requirements: 2.1, 2.2, 2.5_
 
-  - [ ] 10.2 Update pretty-printer-frame-block-deletion.prop.test.ts for dual-mode
+  - [x] 10.2 Update pretty-printer-frame-block-deletion.prop.test.ts for dual-mode
     - Import `for_each_formatter_mode_property` from `tests/property/helpers/formatter-test-utils.ts`
     - Wrap all property tests with `for_each_formatter_mode_property()`
     - Most tests run in both modes (frame blocks, indentation, structure)
     - Use `skip_for_mode('source-preserving')` only if needed
     - _Requirements: 2.1, 2.2, 2.5_
 
-  - [ ] 10.3 Write property test for dual formatter correctness
+  - [x] 10.3 Write property test for dual formatter correctness
     - **Property 4: Dual formatter correctness**
     - **Validates: Requirements 2.1, 2.2**
     - Generate random valid Stata source code

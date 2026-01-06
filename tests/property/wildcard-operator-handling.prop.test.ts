@@ -17,6 +17,7 @@ import { TextEdit } from 'vscode-languageserver';
 import {
     for_each_formatter_mode_property,
     create_formatter_config,
+    FormatterMode,
 } from './helpers/formatter-test-utils';
 import { arbitrary_non_reserved_identifier } from './generators';
 
@@ -120,6 +121,17 @@ function create_document_state(source: string): DocumentState {
         context_tracker,
         forward_calls: [],
     };
+}
+
+/**
+ * Format source using CodeFormatter with specified mode.
+ */
+function formatWithMode(source: string, mode: FormatterMode): string {
+    const config = create_formatter_config(mode);
+    const doc_state = create_document_state(source);
+    const formatter = new CodeFormatter();
+    const edits = formatter.format(doc_state, { tabSize: 4, insertSpaces: true }, config);
+    return apply_edits(source, edits);
 }
 
 /**
@@ -413,4 +425,61 @@ describe('Reserved identifier exclusion (Property 8)', () => {
             { numRuns: 200 }
         );
     });
+});
+
+
+describe('Dual formatter correctness (Property 4)', () => {
+    /**
+     * Generator for simple Stata commands.
+     */
+    function arbitrary_simple_command(): fc.Arbitrary<string> {
+        return fc.oneof(
+            fc.constant('display "hello"'),
+            fc.constant('gen x = 1'),
+            fc.constant('local y = 2'),
+            fc.constant('summarize var1'),
+            fc.constant('quietly: display "test"'),
+            fc.constant('capture: gen z = 3')
+        );
+    }
+
+    for_each_formatter_mode_property(
+        'should produce correctly indented output',
+        arbitrary_simple_command(),
+        (mode, source) => {
+            const output = formatWithMode(source, mode);
+            
+            // Output should not be empty
+            expect(output.trim().length).toBeGreaterThan(0);
+            
+            // Output should not have leading whitespace on first line (no extra indentation)
+            const first_line = output.split('\n')[0];
+            expect(first_line).toBe(first_line.trimStart());
+        },
+        50
+    );
+
+    for_each_formatter_mode_property(
+        'should preserve structural elements',
+        fc.constantFrom(
+            'quietly: display "hello"',
+            'capture: gen x = 1',
+            'frame myframe: summarize var1'
+        ),
+        (mode, source) => {
+            const output = formatWithMode(source, mode);
+            
+            // Prefix commands should be preserved
+            if (source.includes('quietly:')) {
+                expect(output).toContain('quietly:');
+            }
+            if (source.includes('capture:')) {
+                expect(output).toContain('capture:');
+            }
+            if (source.includes('frame')) {
+                expect(output).toContain('frame');
+            }
+        },
+        30
+    );
 });
