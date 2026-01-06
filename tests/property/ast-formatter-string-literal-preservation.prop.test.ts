@@ -175,17 +175,6 @@ di " text "
         expect(output.trim()).toBe(source.trim());
     });
 
-    // Note: Multi-line compound strings are limited by lexer behavior
-    // The lexer treats newlines inside compound strings as statement terminators
-    it.skip('should preserve multi-line compound strings (lexer limitation)', () => {
-        const source = `local long_text \`"This is a
-multi-line
-compound string"'`;
-
-        const output = format_with_ast(source);
-        expect(output.trim()).toBe(source.trim());
-    });
-
     // Note: Embedded Mata blocks with mata: syntax now work correctly
     // The lexer detects mata: followed by newline as a block start
     // The PrettyPrinter preserves string literals but may adjust indentation
