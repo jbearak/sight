@@ -40,18 +40,19 @@ This plan addresses critical bugs in the PrettyPrinter (AST formatter) that caus
     - Test multiple prefix commands with colons
     - _Requirements: 1.1, 1.2, 7.1, 7.2, 7.3_
 
-- [ ] 3. Fix colon qualifier preservation
-  - [ ] 3.1 Ensure colons in commands like `unab` are preserved
-    - Review how colon qualifiers are represented in AST
-    - Update formatting logic to preserve colons in qualifier context
-    - Add space after colon in qualifiers
+- [x] 3. Fix colon qualifier preservation
+  - [x] 3.1 Ensure colons in commands like `unab` are preserved
+    - Updated parseUnabCommand to include colon in varlist as ':' marker
+    - Updated should_omit_space() to not add space before colon
+    - Colon is now preserved with space after it
     - _Requirements: 2.1, 2.2, 2.3_
 
-  - [ ] 3.2 Write property test for colon preservation
+  - [x] 3.2 Write property test for colon preservation
     - **Property 2: Colon Preservation**
     - **Validates: Requirements 2.1, 2.2, 2.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
 
-  - [ ] 3.3 Write unit tests for colon qualifier examples
+  - [x] 3.3 Write unit tests for colon qualifier examples
     - Test `unab merp: _all` preserves colon with space
     - Test other commands with colon qualifiers
     - _Requirements: 2.1, 2.2, 2.3_

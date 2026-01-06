@@ -18,7 +18,8 @@ import { format_expression_spacing } from './expression-spacing';
 
 /**
  * Determines if a space should be omitted between two adjacent varlist tokens.
- * Returns true when tokens are string delimiters that should "stick" together.
+ * Returns true when tokens are string delimiters that should "stick" together,
+ * or when the next token is a colon qualifier.
  */
 function should_omit_space(current: string, next: string): boolean {
     // Whitespace already present
@@ -29,6 +30,9 @@ function should_omit_space(current: string, next: string): boolean {
     
     // Double-quote delimiter adjacent to content
     if (current === '"' || next === '"') return true;
+    
+    // Colon qualifier - no space before colon (e.g., unab varname: _all)
+    if (next === ':') return true;
     
     return false;
 }

@@ -92,6 +92,51 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
     });
 
     /**
+     * Property 2: Colon Preservation
+     * For any command with a colon qualifier (e.g., unab varname: _all),
+     * formatting should preserve the colon in the output with a space after it.
+     *
+     * Feature: ast-formatter-prefix-command-spacing, Property 2: Colon Preservation
+     * Validates: Requirements 2.1, 2.2, 2.3
+     */
+    describe('Property 2: Colon Preservation', () => {
+        it('should preserve colon in unab command', () => {
+            const macro_name_gen = fc.stringOf(fc.constantFrom('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'), { minLength: 1, maxLength: 8 });
+            const varlist_gen = fc.constantFrom('_all', 'var*', 'x y z', 'myvar');
+
+            fc.assert(
+                fc.property(macro_name_gen, varlist_gen, (macro_name, varlist) => {
+                    const source = `unab ${macro_name}: ${varlist}`;
+                    const output = parseAndFormat(source);
+
+                    // Output should contain the colon
+                    if (!output.includes(':')) {
+                        return false;
+                    }
+
+                    // Output should have space after colon
+                    if (!output.includes(': ')) {
+                        return false;
+                    }
+
+                    return true;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should format unab merp: _all with colon preserved', () => {
+            const output = parseAndFormat('unab merp: _all');
+            expect(output.trim()).toBe('unab merp: _all');
+        });
+
+        it('should format unab vars: var1 var2 with colon preserved', () => {
+            const output = parseAndFormat('unab vars: var1 var2');
+            expect(output.trim()).toBe('unab vars: var1 var2');
+        });
+    });
+
+    /**
      * Property 5: Frame Prefix Spacing
      * For any frame prefix command, formatting should add spaces between frame,
      * the frame name, and after the colon.
@@ -230,6 +275,23 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
         it('should format by varlist: command correctly', () => {
             const output = parseAndFormat('by: summarize var1');
             expect(output.trim()).toBe('by: summarize var1');
+        });
+    });
+
+    describe('Task 3.3: Unit tests for colon qualifier examples', () => {
+        it('should format unab merp: _all with colon preserved', () => {
+            const output = parseAndFormat('unab merp: _all');
+            expect(output.trim()).toBe('unab merp: _all');
+        });
+
+        it('should format unab vars: var1 var2 with colon preserved', () => {
+            const output = parseAndFormat('unab vars: var1 var2');
+            expect(output.trim()).toBe('unab vars: var1 var2');
+        });
+
+        it('should format frame bh: unab raw_vars_bh: _all with both colons preserved', () => {
+            const output = parseAndFormat('frame bh: unab raw_vars_bh: _all');
+            expect(output.trim()).toBe('frame bh: unab raw_vars_bh: _all');
         });
     });
 });

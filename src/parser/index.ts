@@ -1211,11 +1211,15 @@ export class StataParser {
       }
     ];
     
-    // Expect colon
+    // Expect colon - include it in varlist to preserve it during formatting
     if (!this.check('COLON')) {
       this.addError('Expected ":" after macro name in unab command', this.peek().range);
     } else {
-      this.advance(); // consume colon
+      const colon_token = this.advance(); // consume colon
+      varlist.push({
+        name: ':',
+        range: colon_token.range,
+      });
     }
     
     // Parse variable list after colon
