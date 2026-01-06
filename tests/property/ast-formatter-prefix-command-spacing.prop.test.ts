@@ -401,4 +401,187 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
             expect(output.trim()).toBe('drop x?');
         });
     });
+
+    /**
+     * Property 6: Statement Terminator Placement
+     * For any complete command, formatting should only add a statement terminator
+     * (newline or semicolon) at the end of the complete command, not within the
+     * command structure.
+     *
+     * Feature: ast-formatter-prefix-command-spacing, Property 6: Statement Terminator Placement
+     * Validates: Requirements 6.1, 6.2, 6.3
+     */
+    describe('Property 6: Statement Terminator Placement', () => {
+        it('should not add terminator after prefix colon', () => {
+            const prefix_gen = fc.constantFrom('quietly', 'capture', 'noisily');
+            const command_gen = fc.constantFrom('display', 'summarize', 'list');
+
+            fc.assert(
+                fc.property(prefix_gen, command_gen, (prefix, command) => {
+                    const source = `${prefix}: ${command}`;
+                    const output = parseAndFormat(source);
+
+                    // Should be on single line (only one newline at end)
+                    const lines = output.split('\n').filter(l => l.length > 0);
+                    return lines.length === 1;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should not add terminator after comma before options', () => {
+            const command_gen = fc.constantFrom('summarize', 'describe', 'list');
+            const option_gen = fc.constantFrom('detail', 'nolabel', 'format');
+
+            fc.assert(
+                fc.property(command_gen, option_gen, (command, option) => {
+                    const source = `${command}, ${option}`;
+                    const output = parseAndFormat(source);
+
+                    // Should be on single line
+                    const lines = output.split('\n').filter(l => l.length > 0);
+                    return lines.length === 1;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should add terminator only at end of complete command', () => {
+            const output = parseAndFormat('capture frame test: display "hello"');
+            // Should end with exactly one newline
+            expect(output.endsWith('\n')).toBe(true);
+            expect(output.trim().split('\n').length).toBe(1);
+        });
+    });
+
+    /**
+     * Property 8: Round-Trip Consistency
+     * For any valid Stata command with prefix commands, colons, varlists, or options,
+     * formatting then parsing should produce an AST equivalent to the original.
+     *
+     * Feature: ast-formatter-prefix-command-spacing, Property 8: Round-Trip Consistency
+     * Validates: Requirements 8.1, 8.2, 8.3
+     */
+    describe('Property 8: Round-Trip Consistency', () => {
+        it('should produce parseable output for prefix commands', () => {
+            const prefix_gen = fc.constantFrom('quietly', 'capture', 'noisily');
+            const command_gen = fc.constantFrom('display', 'summarize', 'list');
+
+            fc.assert(
+                fc.property(prefix_gen, command_gen, (prefix, command) => {
+                    const source = `${prefix}: ${command}`;
+                    const output = parseAndFormat(source);
+
+                    // Parse the output
+                    const lex_result = my_lexer.tokenize(output);
+                    const parse_result = my_parser.parse(lex_result.tokens);
+
+                    // Should parse without errors
+                    return parse_result.errors.length === 0 && parse_result.ast.nodes.length > 0;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should preserve command structure through round-trip', () => {
+            const output1 = parseAndFormat('capture frame test: display "hello"');
+            const output2 = parseAndFormat(output1.trim());
+            expect(output1.trim()).toBe(output2.trim());
+        });
+    });
+
+    /**
+     * Property 9: Edge Case Handling
+     * For any command with empty varlists, no arguments, or only options,
+     * formatting should handle them without adding spurious spaces or newlines.
+     *
+     * Feature: ast-formatter-prefix-command-spacing, Property 9: Edge Case Handling
+     * Validates: Requirements 9.1, 9.2, 9.3
+     */
+    describe('Property 9: Edge Case Handling', () => {
+        it('should handle commands with no arguments', () => {
+            const command_gen = fc.constantFrom('clear', 'exit', 'end');
+
+            fc.assert(
+                fc.property(command_gen, (command) => {
+                    const source = command;
+                    const output = parseAndFormat(source);
+
+                    // Should not have trailing spaces before newline
+                    const trimmed = output.trimEnd();
+                    return trimmed === command;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should handle commands with only options', () => {
+            const output = parseAndFormat('summarize, detail');
+            expect(output.trim()).toBe('summarize, detail');
+        });
+    });
+
+    /**
+     * Property 10: Command Structure Recognition
+     * For any CommandNode with prefix, varlist, or options fields, formatting
+     * should correctly identify and process each component according to its
+     * semantic role.
+     *
+     * Feature: ast-formatter-prefix-command-spacing, Property 10: Command Structure Recognition
+     * Validates: Requirements 10.1, 10.2, 10.3
+     */
+    describe('Property 10: Command Structure Recognition', () => {
+        it('should recognize prefix field in CommandNode', () => {
+            const output = parseAndFormat('quietly: display "test"');
+            expect(output).toContain('quietly:');
+        });
+
+        it('should recognize colon in prefix commands', () => {
+            const output = parseAndFormat('capture: display "test"');
+            expect(output).toContain('capture:');
+        });
+
+        it('should recognize options after comma', () => {
+            const output = parseAndFormat('summarize var1, detail');
+            expect(output).toContain(', detail');
+        });
+    });
+
+    /**
+     * Property 11: Wildcard Pattern Preservation
+     * For any varlist item containing wildcard characters (* or ?), formatting
+     * should preserve the pattern without inserting spaces between the variable
+     * name and the wildcard character.
+     *
+     * Feature: ast-formatter-prefix-command-spacing, Property 11: Wildcard Pattern Preservation
+     * Validates: Requirements 11.1, 11.2, 11.3
+     */
+    describe('Property 11: Wildcard Pattern Preservation', () => {
+        it('should not insert space within wildcard patterns', () => {
+            const var_prefix_gen = fc.stringOf(fc.constantFrom('a', 'b', 'c', 'x', 'y', 'z'), { minLength: 1, maxLength: 5 });
+            const wildcard_gen = fc.constantFrom('*', '?');
+
+            fc.assert(
+                fc.property(var_prefix_gen, wildcard_gen, (var_prefix, wildcard) => {
+                    const pattern = `${var_prefix}${wildcard}`;
+                    const source = `describe ${pattern}`;
+                    const output = parseAndFormat(source);
+
+                    // Pattern should be preserved without internal space
+                    return output.includes(pattern);
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should add space between separate varlist items', () => {
+            const output = parseAndFormat('describe var* other');
+            expect(output.trim()).toBe('describe var* other');
+        });
+
+        it('should preserve multiple wildcard patterns', () => {
+            const output = parseAndFormat('rename old* new*');
+            expect(output.trim()).toBe('rename old* new*');
+        });
+    });
 });
