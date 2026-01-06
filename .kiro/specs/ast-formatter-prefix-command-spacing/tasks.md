@@ -29,11 +29,12 @@ This plan addresses critical bugs in the PrettyPrinter (AST formatter) that caus
     - Added special handling for `frame name:` prefix syntax in parseCommand() and parseFrameBlock()
     - _Requirements: 1.1, 1.2, 1.3, 5.1, 5.2, 5.3_
 
-  - [ ] 2.2 Write property test for prefix colon spacing
+  - [x] 2.2 Write property test for prefix colon spacing
     - **Property 1: Prefix Colon Spacing**
     - **Validates: Requirements 1.1, 1.2, 1.3**
+    - Created tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
 
-  - [ ] 2.3 Write unit tests for prefix colon examples
+  - [x] 2.3 Write unit tests for prefix colon examples
     - Test `capture frame this: that` formats with space after colon
     - Test `frame bh: unab raw_vars_bh _all` formats with space after colon
     - Test multiple prefix commands with colons
