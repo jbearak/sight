@@ -23,7 +23,9 @@ describe('Inline Context Isolation Property Tests', () => {
     fc.assert(
       fc.property(
         // Generate random Mata expression (simple alphanumeric content, no newlines)
-        fc.stringMatching(/^[a-zA-Z0-9_ +=(),]*$/).filter(s => s.length > 0 && s.length < 50),
+        // Must contain at least one non-whitespace character to be treated as inline
+        // (mata: followed by only whitespace is now treated as block start)
+        fc.stringMatching(/^[a-zA-Z0-9_ +=(),]*$/).filter(s => s.length > 0 && s.length < 50 && s.trim().length > 0),
         // Generate random Stata code for subsequent lines
         fc.array(
           fc.oneof(
@@ -97,7 +99,9 @@ describe('Inline Context Isolation Property Tests', () => {
     fc.assert(
       fc.property(
         // Generate random Python expression (simple alphanumeric content, no newlines)
-        fc.stringMatching(/^[a-zA-Z0-9_ +=(),]*$/).filter(s => s.length > 0 && s.length < 50),
+        // Must contain at least one non-whitespace character to be treated as inline
+        // (python: followed by only whitespace is now treated as block start)
+        fc.stringMatching(/^[a-zA-Z0-9_ +=(),]*$/).filter(s => s.length > 0 && s.length < 50 && s.trim().length > 0),
         // Generate random Stata code for subsequent lines
         fc.array(
           fc.oneof(
@@ -226,7 +230,10 @@ describe('Inline Context Isolation Property Tests', () => {
     fc.assert(
       fc.property(
         fc.oneof(fc.constant('mata'), fc.constant('python')),
-        fc.stringMatching(/^[a-zA-Z0-9_\s]*$/).filter(s => s.length > 0 && s.length < 30),
+        // Must contain at least one non-whitespace character to be treated as inline
+        // (mata:/python: followed by only whitespace is now treated as block start)
+        // Use space and tab only (not \s which includes \r and \n)
+        fc.stringMatching(/^[a-zA-Z0-9_ \t]*$/).filter(s => s.length > 0 && s.length < 30 && s.trim().length > 0),
         (language, expression) => {
           const my_lexer = new StataLexer();
           
@@ -286,7 +293,9 @@ describe('Inline Context Isolation Property Tests', () => {
       fc.property(
         fc.oneof(fc.constant('mata:'), fc.constant('python:')),
         // Generate safe string content (no special characters that could break strings)
-        fc.stringMatching(/^[a-zA-Z0-9 _-]*$/).filter(s => s.length > 0 && s.length < 30),
+        // Must contain at least one non-whitespace character to be treated as inline
+        // (mata:/python: followed by only whitespace is now treated as block start)
+        fc.stringMatching(/^[a-zA-Z0-9 _-]*$/).filter(s => s.length > 0 && s.length < 30 && s.trim().length > 0),
         fc.array(
           fc.stringMatching(/^[a-zA-Z0-9 _-]*$/).filter(s => s.length > 0 && s.length < 20),
           { minLength: 1, maxLength: 3 }
