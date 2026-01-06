@@ -124,6 +124,7 @@ export class PrettyPrinter {
             case 'foreach':
             case 'forvalues':
             case 'while':
+            case 'frame':
                 result += this.printControlFlow(node);
                 break;
             case 'string':
@@ -216,6 +217,46 @@ export class PrettyPrinter {
             the_parts.push(', ');
             const the_option_strs = node.options.map(o => this.printOption(o));
             the_parts.push(the_option_strs.join(' '));
+        }
+
+        // Handle prefix command brace blocks (e.g., capture { }, quietly { })
+        if (node.body) {
+            // Special case: standalone brace block has name '{' with no prefixes
+            if (node.name === '{' && (!node.prefix || node.prefix.length === 0)) {
+                // Remove the '{' we already added and rebuild
+                the_parts.length = 0;
+                the_parts.push(this.getIndent());
+                the_parts.push('{');
+            } else if (node.name === '{') {
+                // Prefix command brace block: prefixes already added, just need the brace
+                // Remove the trailing space after the last prefix and the '{' command name
+                while (the_parts.length > 0) {
+                    const last = the_parts[the_parts.length - 1];
+                    if (last === ' ' || last === '{') {
+                        the_parts.pop();
+                    } else {
+                        break;
+                    }
+                }
+                the_parts.push(' {');
+            } else {
+                the_parts.push(' {');
+            }
+            the_parts.push(this.getStatementTerminator());
+
+            // Increase indent for body
+            this.current_indent++;
+
+            // Print body statements
+            for (const my_stmt of node.body) {
+                the_parts.push(this.printNode(my_stmt));
+            }
+
+            // Decrease indent
+            this.current_indent--;
+
+            // Print closing brace (without statement terminator - printNode adds it)
+            the_parts.push(`${this.getIndent()}}`);
         }
 
         return the_parts.join('');
@@ -348,6 +389,9 @@ export class PrettyPrinter {
                 break;
             case 'while':
                 header += `while ${this.normalizeCondition(node.condition || '')} {`;
+                break;
+            case 'frame':
+                header += `frame ${node.frameName || ''} {`;
                 break;
         }
 
@@ -482,7 +526,8 @@ export class PrettyPrinter {
             node.type === 'else' ||
             node.type === 'foreach' ||
             node.type === 'forvalues' ||
-            node.type === 'while'
+            node.type === 'while' ||
+            node.type === 'frame'
         );
     }
 

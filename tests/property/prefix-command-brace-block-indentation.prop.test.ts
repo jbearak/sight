@@ -160,9 +160,11 @@ describe('Prefix Command Brace Block Indentation Properties', () => {
             const original_lines = source.split('\n');
 
             // Interior lines should still be indented after formatting
+            // Skip first line (command with opening brace) and last non-empty line (closing brace)
             for (let i = 1; i < formatted_lines.length - 1; i++) {
                 const line = formatted_lines[i];
-                if (line.trim()) {
+                // Skip empty lines and closing brace lines
+                if (line.trim() && line.trim() !== '}') {
                     // Content should have some indentation
                     const leading_spaces = line.length - line.trimStart().length;
                     expect(leading_spaces).toBeGreaterThan(0);
