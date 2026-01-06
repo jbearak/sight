@@ -2191,6 +2191,7 @@ export class StataParser {
 
     if (this.check('COLON')) {
       // This is frame prefix syntax: frame name: command
+      // Use shared frame prefix parsing logic (same as parseCommand)
       this.advance(); // consume colon
       
       // Create a prefix node for the frame
@@ -2204,7 +2205,6 @@ export class StataParser {
       };
       
       // Parse the rest as a command with this prefix
-      // We need to handle the case where there might be more prefix commands after frame:
       const prefixes: PrefixNode[] = [frame_prefix];
       
       // Parse any additional prefix commands
@@ -2216,16 +2216,6 @@ export class StataParser {
           fullName: prefixToken.value,
           range: prefixToken.range,
         };
-
-        // Handle 'by' prefix with variable list
-        if (prefixToken.value === 'by') {
-          if (this.check('COLON')) {
-            // by varlist: command
-            // TODO: parse variable list before colon
-          } else {
-            // by: command (no variables)
-          }
-        }
 
         // Consume colon after any prefix command
         if (this.check('COLON')) {
@@ -2259,71 +2249,9 @@ export class StataParser {
         return unab_node;
       }
       
-      // Parse variable list
-      const varlist: IdentifierNode[] = [];
-      while ((this.check('WORD') || this.check('OPERATOR') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) && 
-             !this.check('COMMA') && !this.isTrivia() && !this.check('STATEMENT_TERMINATOR')) {
-        // Stop at 'if' or 'in' keywords (qualifiers)
-        if (this.check('WORD') && (this.peek().value === 'if' || this.peek().value === 'in')) {
-          break;
-        }
-        const varToken = this.advance();
-        varlist.push({
-          name: varToken.value,
-          range: varToken.range,
-        });
-      }
-      
-      // Parse if/in qualifiers
-      let ifExpression: string | undefined;
-      let inExpression: string | undefined;
-      
-      if (this.checkWord('if')) {
-        this.advance();
-        ifExpression = this.parseExpression();
-      }
-      
-      if (this.checkWord('in')) {
-        this.advance();
-        inExpression = this.parseExpression();
-      }
-      
-      // Parse options
-      const options: OptionNode[] = [];
-      if (this.check('COMMA')) {
-        this.advance();
-        while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
-          if (this.check('WORD')) {
-            const optionToken = this.advance();
-            const option: OptionNode = {
-              type: 'option',
-              name: optionToken.value,
-              fullName: optionToken.value,
-              range: optionToken.range,
-            };
-            if (this.check('LPAREN')) {
-              const parsed = this.parse_option_argument_inside_parens();
-              option.argument = parsed.argument;
-              option.argument_range = parsed.argument_range;
-            }
-            options.push(option);
-          } else {
-            this.advance();
-          }
-        }
-      }
-      
-      return {
-        type: 'command',
-        prefix: prefixes,
-        name: commandName,
-        fullName: commandName,
-        varlist: varlist.length > 0 ? varlist : undefined,
-        options: options.length > 0 ? options : undefined,
-        ifExpression,
-        inExpression,
-        range: this.makeRange(frame_token.range.start, this.previous().range.end),
-      };
+      // Use parseCommandBody for consistent varlist/option parsing
+      // This ensures wildcards and other features work the same way
+      return this.parseCommandBody(command_token, prefixes, frame_token);
     }
 
     if (!this.check('LBRACE')) {

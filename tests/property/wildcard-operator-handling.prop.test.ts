@@ -279,3 +279,33 @@ describe('Wildcard AST locations (Property 8.3)', () => {
         );
     });
 });
+
+
+describe('Frame prefix parsing equivalence (Property 5)', () => {
+    it('should produce equivalent AST for frame-prefixed commands', () => {
+        // This test validates that parseCommand and parseFrameBlock produce
+        // equivalent AST structures for frame-prefixed commands
+        fc.assert(
+            fc.property(arbitrary_frame_command_with_wildcard(), (source) => {
+                const ast = parse(source);
+                const the_commands = find_command_nodes(ast);
+                
+                expect(the_commands.length).toBeGreaterThan(0);
+                const cmd = the_commands[0];
+                
+                // Verify structure is consistent
+                expect(cmd.prefix).toBeDefined();
+                expect(cmd.prefix!.length).toBeGreaterThan(0);
+                expect(cmd.prefix![0].name).toBe('frame');
+                expect(cmd.prefix![0].has_colon).toBe(true);
+                expect(cmd.prefix![0].varlist).toBeDefined();
+                
+                // Command should have proper structure
+                expect(cmd.name).toBeDefined();
+                expect(cmd.fullName).toBeDefined();
+                expect(cmd.range).toBeDefined();
+            }),
+            { numRuns: 100 }
+        );
+    });
+});

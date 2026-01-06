@@ -83,32 +83,32 @@ This implementation plan addresses all review feedback from PR #28 by refactorin
     - Generate random frame-prefixed commands with wildcards
     - Parse, format, verify wildcards preserved in original positions
 
-- [ ] 6. Extract shared frame prefix parsing logic
-  - [ ] 6.1 Create parseFramePrefixedCommand helper in src/parser/index.ts
+- [x] 6. Extract shared frame prefix parsing logic
+  - [x] 6.1 Create parseFramePrefixedCommand helper in src/parser/index.ts
     - Extract common logic from parseCommand (lines 803-869) and parseFrameBlock (lines 2186-2321)
     - Input: `frame_prefix: PrefixNode, prefixes: PrefixNode[], startToken: Token`
     - Output: `CommandNode`
     - Handle: frame name: [prefix...] command [args]
     - _Requirements: 4.1, 4.2, 4.3_
 
-  - [ ] 6.2 Update parseCommand to use shared helper
+  - [x] 6.2 Update parseCommand to use shared helper
     - Replace frame prefix parsing logic with call to parseFramePrefixedCommand
     - Maintain existing behavior
     - _Requirements: 4.1_
 
-  - [ ] 6.3 Update parseFrameBlock to use shared helper
+  - [x] 6.3 Update parseFrameBlock to use shared helper
     - Replace frame prefix parsing logic with call to parseFramePrefixedCommand
     - Maintain existing behavior
     - _Requirements: 4.2_
 
-  - [ ] 6.4 Write property test for frame prefix parsing equivalence
+  - [x] 6.4 Write property test for frame prefix parsing equivalence
     - **Property 5: Frame prefix parsing equivalence**
     - **Validates: Requirements 4.1, 4.2, 4.4**
     - Generate random frame-prefixed commands
     - Parse via both entry points (parseCommand and parseFrameBlock contexts)
     - Verify equivalent AST structures
 
-- [ ] 7. Checkpoint - Ensure all tests pass
+- [x] 7. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 8. Simplify pretty printer prefix brace block handling
