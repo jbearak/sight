@@ -1620,6 +1620,11 @@ export class ScopeResolver {
                 diagnostics: parse_result.diagnostics,
             });
 
+            // Register backward directive dependencies from cached file
+            // This ensures transitive dependents are discoverable even when
+            // intermediate files are only read from disk (not opened in editor)
+            this.sync_backward_directive_dependencies(actual_uri, parse_result.directives);
+
             return { content, ...parse_result };
         } catch (error) {
             this.warn(`ScopeResolver: Parse error for ${actual_uri}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1964,6 +1969,10 @@ export class ScopeResolver {
             }
         }
         this.cache_metrics.file.invalidations += num_deleted;
+
+        // Clear backward directive dependencies for this file
+        // This maintains consistency between file cache and backward directive map
+        this.clear_backward_directive_dependencies(uri);
 
         // Cascade to scope cache entries that depend on this URI (backward directives)
         let num_removed = this.cascade_invalidate_scope_cache_for_uri(uri);
