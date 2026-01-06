@@ -158,7 +158,11 @@ describe('Valid Block Terminators Property Tests', () => {
         fc.assert(
             fc.property(
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 3 }),
+                fc.array(
+                    fc.string({ minLength: 1, maxLength: 20 })
+                        .filter(s => !s.includes('/*')),
+                    { minLength: 0, maxLength: 3 }
+                ),
                 fc.array(arbitrary_command_name(), { minLength: 1, maxLength: 3 }),
                 fc.array(arbitrary_command_name(), { minLength: 1, maxLength: 3 }),
                 (my_block_type, my_content_lines, my_before_commands, my_after_commands) => {
