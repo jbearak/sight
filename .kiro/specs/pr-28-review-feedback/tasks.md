@@ -166,48 +166,48 @@ This implementation plan addresses all review feedback from PR #28 by refactorin
     - Format with both AST and source-preserving modes
     - Verify both produce correctly indented output with preserved structural elements
 
-- [ ] 11. Add semantic tests for AST structure integrity
-  - [ ] 11.1 Write property test for AST structure integrity
+- [x] 11. Add semantic tests for AST structure integrity
+  - [x] 11.1 Write property test for AST structure integrity
     - **Property 9: AST structure integrity**
     - **Validates: Requirements 8.1, 8.2**
     - Generate random CommandNodes
     - If `has_colon_before_varlist` is true, verify varlist contains no colon tokens
     - Verify varlist contains only variable names and wildcards
 
-  - [ ] 11.2 Write property test for frame-prefixed command AST structure
+  - [x] 11.2 Write property test for frame-prefixed command AST structure
     - **Validates: Requirements 8.2**
     - Generate random frame-prefixed commands
     - Parse and verify AST node structure matches expectations
     - Check prefix nodes, has_colon field, varlist structure
 
-  - [ ] 11.3 Write property test for wildcard AST locations
+  - [x] 11.3 Write property test for wildcard AST locations
     - **Validates: Requirements 8.3**
     - Generate random commands with wildcards
     - Parse and verify wildcards appear in correct AST locations (varlist)
 
-- [ ] 12. Add code comments for complex logic
-  - [ ] 12.1 Add comments to parseUnabCommand
+- [x] 12. Add code comments for complex logic
+  - [x] 12.1 Add comments to parseUnabCommand
     - Document why `has_colon_before_varlist` is set
     - Explain backward compatibility considerations
     - _Requirements: 9.2_
 
-  - [ ] 12.2 Add comments to parseCommandBody
+  - [x] 12.2 Add comments to parseCommandBody
     - Explain wildcard operator detection logic
     - Document why specific token types are checked
     - _Requirements: 9.3_
 
-  - [ ] 12.3 Add comments to parseFramePrefixedCommand
+  - [x] 12.3 Add comments to parseFramePrefixedCommand
     - Document the shared frame prefix parsing strategy
     - Explain how it handles both entry points
     - _Requirements: 9.2_
 
-  - [ ] 12.4 Add comments to printCommand
+  - [x] 12.4 Add comments to printCommand
     - Explain prefix brace block format determination
     - Document fallback logic for backward compatibility
     - Clarify expected state at each step
     - _Requirements: 9.1, 9.4_
 
-- [ ] 13. Final checkpoint - Ensure all tests pass
+- [x] 13. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
