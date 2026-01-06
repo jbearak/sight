@@ -29,6 +29,7 @@ import {
     CallEdgeDiff,
     ContentProvider,
     DirectiveParseResult,
+    WorkingDirectoryDirective,
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
 import { DirectiveParser } from '../directive-parser';
@@ -49,7 +50,7 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
  * Cache for file parsing results within a single resolution request.
  * Ensures we only read/parse each file once per request.
  */
-type ParsedFileResult = { content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] } | { error: string };
+type ParsedFileResult = { content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } | { error: string };
 type RequestCache = Map<string, Promise<ParsedFileResult>>;
 
 /**
@@ -88,7 +89,7 @@ export class ScopeResolver {
     private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] }>;
+    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     private cache_metrics: ScopeCacheMetrics;
     private logger?: ScopeResolverLogger;
@@ -97,6 +98,7 @@ export class ScopeResolver {
     // Track backward directive dependencies: parent_uri → set of child_uris that depend on it via @lsp-done-by/@lsp-included-by
     private backward_directive_children: Map<string, Set<string>>;
     private content_provider: ContentProvider;
+    private workspace_root: string | undefined;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
         this.directive_parser = new DirectiveParser();
@@ -140,6 +142,13 @@ export class ScopeResolver {
                 }
             }
         };
+    }
+
+    /**
+     * Set the workspace root for resolving workspace-relative working directory paths.
+     */
+    set_workspace_root(workspace_root: string | undefined): void {
+        this.workspace_root = workspace_root;
     }
 
     /**
@@ -850,18 +859,12 @@ export class ScopeResolver {
             // Read file content using get_parsed_file to leverage cache
             let my_parent_result: ParsedFileResult;
             try {
-                // We use get_parsed_file instead of raw read to ensure we benefit from
-                // the request cache (parse once) and file cache (mtime check).
-                // Note: We don't have the inherited WD yet, so we pass undefined.
-                // This is fine for directive parsing as directives don't depend on WD.
                 my_parent_result = await this.get_parsed_file(
                     my_parent_uri,
                     my_directive.path,
                     { request_cache }
                 );
             } catch (error) {
-                // Should not happen as get_parsed_file catches errors and returns { error } object
-                // except for unexpected runtime errors
                 my_parent_result = { error: String(error) };
             }
 
@@ -877,26 +880,35 @@ export class ScopeResolver {
                             { request_cache }
                         );
                     } catch (fallback_error) {
-                        // Both paths failed - log warning and continue to next directive
                         this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
                         continue;
                     }
                 } else {
-                    // Original path ends in .do, no fallback to try
                     this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
                     continue;
                 }
             }
 
-            // Double check for error after fallback
             if ('error' in my_parent_result) {
                 this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
                 continue;
             }
 
-            // If the parent has a working_directory, return it (nearest parent wins)
-            if (my_parent_result.working_directory) {
-                return my_parent_result.working_directory;
+            // If the parent has a working_directory directive, resolve it for inheritance
+            if (my_parent_result.working_directory_directive) {
+                let resolved_path = my_parent_result.working_directory_directive.resolved_path;
+                
+                // Handle workspace-relative paths
+                if (my_parent_result.working_directory_directive.is_workspace_relative) {
+                    if (this.workspace_root) {
+                        resolved_path = path.normalize(path.join(this.workspace_root, resolved_path));
+                    } else {
+                        this.warn(`discover_working_directory: Cannot resolve workspace-relative path "${my_parent_result.working_directory_directive.path}" - no workspace root set`);
+                        continue;
+                    }
+                }
+                
+                return resolved_path;
             }
 
             // Otherwise, recursively search deeper ancestors
@@ -1027,8 +1039,9 @@ export class ScopeResolver {
             }
 
             // Check if parent has a working directory (nearest parent wins)
-            if (!found_working_directory && my_parent_result.working_directory) {
-                found_working_directory = my_parent_result.working_directory;
+            // Use the discovered working directory, not the resolved one from get_parsed_file
+            if (!found_working_directory && discovered_wd) {
+                found_working_directory = discovered_wd;
             }
 
             // Use content from get_parsed_file() for call site resolution (no second disk read)
@@ -1332,6 +1345,8 @@ export class ScopeResolver {
                 symbols: my_parse_result.symbols,
                 directives: my_parse_result.directives,
                 forward_calls: my_parse_result.forward_calls,
+                working_directory: my_parse_result.working_directory,
+                working_directory_directive: my_parse_result.working_directory_directive,
                 diagnostics: my_parse_result.diagnostics,
             });
 
@@ -1371,7 +1386,7 @@ export class ScopeResolver {
         uri: string,
         content: string,
         inherited_working_directory?: string
-    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; diagnostics: DirectiveDiagnostic[] } {
+    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } {
         const my_directive_result = this.directive_parser.parse(content, uri);
         const my_lex_result = this.lexer.tokenize(content);
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
@@ -1406,6 +1421,7 @@ export class ScopeResolver {
             directives: my_directive_result.directives,
             forward_calls: all_forward_calls,
             working_directory: effective_working_directory,
+            working_directory_directive: my_directive_result.working_directory,
             diagnostics: my_directive_result.diagnostics,
         };
     }
@@ -1470,6 +1486,7 @@ export class ScopeResolver {
                 directives: cached.directives,
                 forward_calls: cached.forward_calls,
                 working_directory: cached.working_directory,
+                working_directory_directive: cached.working_directory_directive,
                 diagnostics: cached.diagnostics
             };
         }
@@ -1494,6 +1511,7 @@ export class ScopeResolver {
                     directives: cached.directives,
                     forward_calls: cached.forward_calls,
                     working_directory: cached.working_directory,
+                    working_directory_directive: cached.working_directory_directive,
                     diagnostics: cached.diagnostics
                 };
             }
@@ -1569,6 +1587,7 @@ export class ScopeResolver {
                 directives: actual_cached.directives,
                 forward_calls: actual_cached.forward_calls,
                 working_directory: actual_cached.working_directory,
+                working_directory_directive: actual_cached.working_directory_directive,
                 diagnostics: actual_cached.diagnostics
             };
         } else if (actual_cached) {
@@ -1597,6 +1616,7 @@ export class ScopeResolver {
                 directives: parse_result.directives,
                 forward_calls: parse_result.forward_calls,
                 working_directory: parse_result.working_directory,
+                working_directory_directive: parse_result.working_directory_directive,
                 diagnostics: parse_result.diagnostics,
             });
 

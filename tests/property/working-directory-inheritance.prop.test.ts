@@ -23,6 +23,7 @@ describe('Working Directory Inheritance Property Tests', () => {
     beforeEach(() => {
         test_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wd-inheritance-test-'));
         scope_resolver = new ScopeResolver();
+        scope_resolver.set_workspace_root(test_dir);
     });
 
     afterEach(() => {

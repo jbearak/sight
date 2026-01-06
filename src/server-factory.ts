@@ -619,6 +619,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
                     if (folder_paths.length > 0) {
                         document_store.set_workspace_root(folder_paths[0]);
+                        if (scope_resolver) {
+                            scope_resolver.set_workspace_root(folder_paths[0]);
+                        }
                         const loaded = read_workspace_file_config_from_root(folder_paths[0]);
                         workspace_file_config = loaded.partial_config;
                         if (loaded.error) {
@@ -658,9 +661,15 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         const folder_path = URI.parse(folders[0].uri).fsPath;
                         if (folder_path) {
                             document_store.set_workspace_root(folder_path);
+                            if (scope_resolver) {
+                                scope_resolver.set_workspace_root(folder_path);
+                            }
                         }
                     } else {
                         document_store.set_workspace_root(undefined);
+                        if (scope_resolver) {
+                            scope_resolver.set_workspace_root(undefined);
+                        }
                     }
                 });
             }
