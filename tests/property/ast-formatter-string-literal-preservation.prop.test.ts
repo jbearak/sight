@@ -229,7 +229,7 @@ describe('Property 1: String Delimiter Preservation', () => {
             expect(output).toContain(str);
             return true;
         },
-        50
+        100
     );
 
     for_each_formatter_mode_property(
@@ -241,7 +241,7 @@ describe('Property 1: String Delimiter Preservation', () => {
             expect(output).toContain(str);
             return true;
         },
-        50
+        100
     );
 });
 
