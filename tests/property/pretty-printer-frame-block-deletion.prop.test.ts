@@ -708,17 +708,12 @@ describe('Pretty Printer Delimiter Mode and Consistency Property Tests', () => {
                         const ast: StataAST = { nodes: [directive_node, frame_node] };
                         const output = print_ast(ast);
 
-                        // After #delimit ;, lines should end with semicolon
+                        // After #delimit ;, body command lines should end with semicolon
                         const the_lines = output.split('\n');
-                        // Skip the directive line, check subsequent lines
-                        let found_semicolon = false;
-                        for (let i = 1; i < the_lines.length; i++) {
-                            const line = the_lines[i].trim();
-                            if (line && line !== '}') {
-                                // Non-empty, non-brace lines should have semicolons
-                                found_semicolon = found_semicolon || line.endsWith(';');
-                            }
-                        }
+                        // Find the body command line and verify it has semicolon
+                        const body_line = the_lines.find(l => l.includes(cmd));
+                        expect(body_line).toBeDefined();
+                        expect(body_line!.trim().endsWith(';')).toBe(true);
 
                         return true;
                     }
