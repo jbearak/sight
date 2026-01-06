@@ -899,8 +899,13 @@ export class ScopeResolver {
                 let resolved_path = my_parent_result.working_directory_directive.resolved_path;
                 
                 // Handle workspace-relative paths
-                if (my_parent_result.working_directory_directive.is_workspace_relative && this.workspace_root) {
-                    resolved_path = path.normalize(path.join(this.workspace_root, resolved_path));
+                if (my_parent_result.working_directory_directive.is_workspace_relative) {
+                    if (this.workspace_root) {
+                        resolved_path = path.normalize(path.join(this.workspace_root, resolved_path));
+                    } else {
+                        this.warn(`discover_working_directory: Cannot resolve workspace-relative path "${my_parent_result.working_directory_directive.path}" - no workspace root set`);
+                        continue;
+                    }
                 }
                 
                 return resolved_path;
