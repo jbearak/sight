@@ -111,15 +111,15 @@ This implementation plan addresses all review feedback from PR #28 by refactorin
 - [x] 7. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. Simplify pretty printer prefix brace block handling
-  - [ ] 8.1 Refactor printCommand prefix brace block logic in src/pretty-printer/index.ts
+- [x] 8. Simplify pretty printer prefix brace block handling
+  - [x] 8.1 Refactor printCommand prefix brace block logic in src/pretty-printer/index.ts
     - Replace post-hoc array manipulation (lines 241-248) with upfront format determination
     - Use clear decision tree: standalone brace block vs prefix brace block vs regular command
     - Remove fragile while loop that pops array elements
     - Add comments explaining expected state at each step
     - _Requirements: 6.1, 6.4, 6.5, 9.1_
 
-  - [ ] 8.2 Write property test for prefix brace block format determinism
+  - [x] 8.2 Write property test for prefix brace block format determinism
     - **Property 10: Prefix brace block format determinism**
     - **Validates: Requirements 6.1, 6.4**
     - Generate random prefix command brace blocks

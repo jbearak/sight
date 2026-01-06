@@ -231,26 +231,39 @@ export class PrettyPrinter {
         }
 
         // Handle prefix command brace blocks (e.g., capture { }, quietly { })
+        // Determine format upfront rather than manipulating array after construction
         if (node.body) {
-            // Special case: standalone brace block has name '{' with no prefixes
-            if (node.name === '{' && (!node.prefix || node.prefix.length === 0)) {
-                // Remove the '{' we already added and rebuild
+            // Decision tree for brace block formatting:
+            // 1. Standalone brace block: name === '{' with no prefixes
+            // 2. Prefix brace block: name === '{' with prefixes (e.g., capture { })
+            // 3. Regular command with body: name !== '{' (e.g., program foo { })
+            
+            const is_standalone_brace = node.name === '{' && (!node.prefix || node.prefix.length === 0);
+            const is_prefix_brace_block = node.name === '{' && node.prefix && node.prefix.length > 0;
+            
+            if (is_standalone_brace) {
+                // Standalone brace block: just indent + brace
+                // Clear and rebuild since we don't want the '{' as command name
                 the_parts.length = 0;
                 the_parts.push(this.getIndent());
                 the_parts.push('{');
-            } else if (node.name === '{') {
-                // Prefix command brace block: prefixes already added, just need the brace
-                // Remove the trailing space after the last prefix and the '{' command name
-                while (the_parts.length > 0) {
-                    const last = the_parts[the_parts.length - 1];
-                    if (last === ' ' || last === '{') {
-                        the_parts.pop();
-                    } else {
-                        break;
-                    }
+            } else if (is_prefix_brace_block) {
+                // Prefix brace block: prefixes are already in the_parts
+                // We need to remove the trailing space and '{' that were added as command name
+                // Expected state: [..., 'prefix', ' ', '{']
+                // We want: [..., 'prefix', ' {']
+                
+                // Remove the '{' command name we added earlier
+                if (the_parts.length > 0 && the_parts[the_parts.length - 1] === '{') {
+                    the_parts.pop();
+                }
+                // Remove trailing space after command name (which was '{')
+                if (the_parts.length > 0 && the_parts[the_parts.length - 1] === ' ') {
+                    the_parts.pop();
                 }
                 the_parts.push(' {');
             } else {
+                // Regular command with body: add space and brace
                 the_parts.push(' {');
             }
             the_parts.push(this.getStatementTerminator());
