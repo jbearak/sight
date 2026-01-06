@@ -31,9 +31,6 @@ function should_omit_space(current: string, next: string): boolean {
     // Double-quote delimiter adjacent to content
     if (current === '"' || next === '"') return true;
     
-    // Colon qualifier - no space before colon (e.g., unab varname: _all)
-    if (next === ':') return true;
-    
     // Wildcard patterns - no space before * or ? when they follow a word-like token
     // This handles patterns like var*, x?, _*
     if ((next === '*' || next === '?') && /^[a-zA-Z0-9_]+$/.test(current)) return true;
@@ -187,11 +184,17 @@ export class PrettyPrinter {
         the_parts.push(node.name);
 
         // Print variable list, preserving spacing around string delimiters
+        // For unab commands with has_colon_before_varlist, emit colon after macro name
         if (node.varlist && node.varlist.length > 0) {
             the_parts.push(' ');
             for (let i = 0; i < node.varlist.length; i++) {
                 const my_name = node.varlist[i].name;
                 the_parts.push(my_name);
+                
+                // For unab commands: emit colon after the first item (macro name)
+                if (i === 0 && node.has_colon_before_varlist) {
+                    the_parts.push(':');
+                }
                 
                 if (i < node.varlist.length - 1) {
                     const next_name = node.varlist[i + 1].name;

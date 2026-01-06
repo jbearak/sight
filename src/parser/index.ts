@@ -1214,15 +1214,16 @@ export class StataParser {
       }
     ];
     
-    // Expect colon - include it in varlist to preserve it during formatting
+    // Track whether we found a colon - stored in dedicated field, not varlist
+    // This keeps varlists pure (only variable names) while preserving syntax info
+    let has_colon_before_varlist = false;
+    
+    // Expect colon
     if (!this.check('COLON')) {
       this.addError('Expected ":" after macro name in unab command', this.peek().range);
     } else {
-      const colon_token = this.advance(); // consume colon
-      varlist.push({
-        name: ':',
-        range: colon_token.range,
-      });
+      this.advance(); // consume colon
+      has_colon_before_varlist = true;
     }
     
     // Parse variable list after colon
@@ -1269,6 +1270,7 @@ export class StataParser {
       name: 'unab',
       fullName: 'unab',
       varlist,
+      has_colon_before_varlist,
       options: options.length > 0 ? options : undefined,
       expression: undefined,
       range: this.makeRange(startPos, this.previous().range.end),
@@ -2391,16 +2393,16 @@ export class StataParser {
       }
     ];
     
+    // Track whether we found a colon - stored in dedicated field, not varlist
+    // This keeps varlists pure (only variable names) while preserving syntax info
+    let has_colon_before_varlist = false;
+    
     // Expect colon
     if (!this.check('COLON')) {
       this.addError('Expected ":" after macro name in unab command', this.peek().range);
     } else {
       this.advance(); // consume colon
-      // Add colon marker to varlist
-      varlist.push({
-        name: ':',
-        range: this.previous().range,
-      });
+      has_colon_before_varlist = true;
     }
     
     // Parse variable list after colon
@@ -2442,6 +2444,7 @@ export class StataParser {
       name: 'unab',
       fullName: 'unab',
       varlist,
+      has_colon_before_varlist,
       options: options.length > 0 ? options : undefined,
       expression: undefined,
       range: this.makeRange(startPos, this.previous().range.end),

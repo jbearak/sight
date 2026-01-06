@@ -229,6 +229,7 @@ export interface CommandNode {
   name: string;
   fullName: string;
   varlist?: IdentifierNode[];
+  has_colon_before_varlist?: boolean;  // For unab commands: separates macro name from varlist
   options?: OptionNode[];
   expression?: string;
   ifExpression?: string;

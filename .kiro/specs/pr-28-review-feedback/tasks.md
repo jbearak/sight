@@ -6,55 +6,55 @@ This implementation plan addresses all review feedback from PR #28 by refactorin
 
 ## Tasks
 
-- [ ] 1. Add dedicated colon field to CommandNode
+- [x] 1. Add dedicated colon field to CommandNode
   - Add `has_colon_before_varlist?: boolean` field to CommandNode interface in src/types/index.ts
   - Update type exports and ensure backward compatibility
   - _Requirements: 11.1_
 
-- [ ] 1.1 Write property test for CommandNode type extension
+- [x] 1.1 Write property test for CommandNode type extension
   - **Property 1: Type field presence**
   - **Validates: Requirements 11.1**
   - Generate random CommandNodes and verify optional field is accepted
 
-- [ ] 2. Refactor parseUnabCommand to use dedicated colon field
-  - [ ] 2.1 Update parseUnabCommand in src/parser/index.ts
+- [x] 2. Refactor parseUnabCommand to use dedicated colon field
+  - [x] 2.1 Update parseUnabCommand in src/parser/index.ts
     - Remove colon from varlist array
     - Set `has_colon_before_varlist = true` when colon token is consumed
     - Keep varlist containing only variable names (macro name + variables)
     - _Requirements: 11.2, 5.1_
 
-  - [ ] 2.2 Write property test for unab colon field
+  - [x] 2.2 Write property test for unab colon field
     - **Property 2: Colon field consistency**
     - **Validates: Requirements 11.2, 5.1**
     - Generate random unab commands with colons
     - Verify `has_colon_before_varlist = true` and no colon in varlist
 
-  - [ ] 2.3 Write property test for varlist purity
+  - [x] 2.3 Write property test for varlist purity
     - **Property 1: Varlist purity**
     - **Validates: Requirements 5.3, 8.1**
     - Generate random commands
     - Verify varlists contain only IdentifierNodes with variable names or wildcards, never syntax tokens
 
-- [ ] 3. Update pretty printer to check colon field
-  - [ ] 3.1 Update printCommand in src/pretty-printer/index.ts
+- [x] 3. Update pretty printer to check colon field
+  - [x] 3.1 Update printCommand in src/pretty-printer/index.ts
     - Check `has_colon_before_varlist` field to emit colon for unab commands
     - Add fallback logic for backward compatibility (check varlist for colon if field missing)
     - Emit colon between macro name and varlist when field is true
     - _Requirements: 11.3, 5.4_
 
-  - [ ] 3.2 Remove colon handling from should_omit_space
+  - [x] 3.2 Remove colon handling from should_omit_space
     - Remove line 35 that checks for `:` in next token
     - Keep wildcard pattern handling
     - _Requirements: 5.4_
 
-  - [ ] 3.3 Write property test for unab round trip
+  - [x] 3.3 Write property test for unab round trip
     - **Property 6: Unab round trip**
     - **Validates: Requirements 11.3, 5.4**
     - Generate random unab commands
     - Parse, pretty-print, parse again
     - Verify colon and varlist structure preserved
 
-  - [ ] 3.4 Write unit test for backward compatibility
+  - [x] 3.4 Write unit test for backward compatibility
     - **Validates: Requirements 5.5**
     - Create old-style AST with colon in varlist
     - Format and verify colon is preserved
