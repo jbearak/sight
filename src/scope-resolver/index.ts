@@ -97,6 +97,7 @@ export class ScopeResolver {
     // Track backward directive dependencies: parent_uri → set of child_uris that depend on it via @lsp-done-by/@lsp-included-by
     private backward_directive_children: Map<string, Set<string>>;
     private content_provider: ContentProvider;
+    private workspace_root: string | undefined;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
         this.directive_parser = new DirectiveParser();
@@ -140,6 +141,13 @@ export class ScopeResolver {
                 }
             }
         };
+    }
+
+    /**
+     * Set the workspace root for resolving workspace-relative working directory paths.
+     */
+    set_workspace_root(workspace_root: string | undefined): void {
+        this.workspace_root = workspace_root;
     }
 
     /**
@@ -847,35 +855,17 @@ export class ScopeResolver {
                 continue;
             }
 
-            // Read file content using get_parsed_file to leverage cache
-            let my_parent_result: ParsedFileResult;
+            // Read file content using content provider
+            let my_content: string;
             try {
-                // We use get_parsed_file instead of raw read to ensure we benefit from
-                // the request cache (parse once) and file cache (mtime check).
-                // Note: We don't have the inherited WD yet, so we pass undefined.
-                // This is fine for directive parsing as directives don't depend on WD.
-                my_parent_result = await this.get_parsed_file(
-                    my_parent_uri,
-                    my_directive.path,
-                    { request_cache }
-                );
+                my_content = await this.content_provider.read_file(my_parent_uri);
             } catch (error) {
-                // Should not happen as get_parsed_file catches errors and returns { error } object
-                // except for unexpected runtime errors
-                my_parent_result = { error: String(error) };
-            }
-
-            if ('error' in my_parent_result) {
                 // Try .do fallback if original path doesn't end in .do
                 if (!my_directive.path.endsWith('.do')) {
                     const my_fallback_path = my_directive.path + '.do';
                     const my_fallback_uri = URI.file(my_fallback_path).toString();
                     try {
-                        my_parent_result = await this.get_parsed_file(
-                            my_fallback_uri,
-                            my_fallback_path,
-                            { request_cache }
-                        );
+                        my_content = await this.content_provider.read_file(my_fallback_uri);
                     } catch (fallback_error) {
                         // Both paths failed - log warning and continue to next directive
                         this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
@@ -888,24 +878,28 @@ export class ScopeResolver {
                 }
             }
 
-            // Double check for error after fallback
-            if ('error' in my_parent_result) {
-                this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
-                continue;
-            }
+            // Use DirectiveParser to extract only directives and working_directory (fast, no full AST)
+            const my_directive_result = this.directive_parser.parse(my_content, my_parent_uri);
 
             // If the parent has a working_directory, return it (nearest parent wins)
-            if (my_parent_result.working_directory) {
-                return my_parent_result.working_directory;
+            if (my_directive_result.working_directory?.resolved_path !== undefined) {
+                let resolved_path = my_directive_result.working_directory.resolved_path;
+                
+                // Handle workspace-relative paths
+                if (my_directive_result.working_directory.is_workspace_relative && this.workspace_root) {
+                    resolved_path = path.normalize(path.join(this.workspace_root, resolved_path));
+                }
+                
+                return resolved_path;
             }
 
             // Otherwise, recursively search deeper ancestors
-            if (my_parent_result.directives.length > 0) {
+            if (my_directive_result.directives.length > 0) {
                 // Mark as visited before recursing
                 visited.add(my_parent_uri);
 
                 const my_deeper_wd = await this.discover_working_directory(
-                    my_parent_result.directives,
+                    my_directive_result.directives,
                     visited,
                     depth + 1,
                     config,
@@ -1027,8 +1021,9 @@ export class ScopeResolver {
             }
 
             // Check if parent has a working directory (nearest parent wins)
-            if (!found_working_directory && my_parent_result.working_directory) {
-                found_working_directory = my_parent_result.working_directory;
+            // Use the discovered working directory, not the resolved one from get_parsed_file
+            if (!found_working_directory && discovered_wd) {
+                found_working_directory = discovered_wd;
             }
 
             // Use content from get_parsed_file() for call site resolution (no second disk read)
