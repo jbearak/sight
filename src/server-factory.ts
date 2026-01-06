@@ -265,6 +265,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
      * Schedule re-validation for caller documents when a callee changes.
      * This ensures that when a file defining symbols changes, all files
      * that call it (via do/run/include) get their diagnostics updated.
+     * Also revalidates files that transitively depend on the callers via
+     * backward directives (@lsp-done-by/@lsp-included-by).
      */
     function schedule_caller_revalidation(
         caller_uris: Set<string>,
@@ -273,7 +275,18 @@ export async function create_server(options: ServerOptions): Promise<void> {
     ): void {
         const max_revalidations = config.cross_file?.max_callee_revalidations ?? 10;
 
-        const sorted_callers = Array.from(caller_uris).sort((a, b) => {
+        // Expand caller_uris to include transitive backward directive dependents
+        const all_uris_to_revalidate = new Set<string>(caller_uris);
+        if (scope_resolver) {
+            for (const my_caller_uri of caller_uris) {
+                const backward_dependents = scope_resolver.get_transitive_backward_directive_children(my_caller_uri);
+                for (const my_dependent_uri of backward_dependents) {
+                    all_uris_to_revalidate.add(my_dependent_uri);
+                }
+            }
+        }
+
+        const sorted_callers = Array.from(all_uris_to_revalidate).sort((a, b) => {
             return get_document_priority(b) - get_document_priority(a);
         });
 
@@ -287,7 +300,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         const my_token = { cancelled: false };
         pending_revalidations.set(token_key, my_token);
 
-        connection.console.log(`[caller-revalidation] Triggered by ${trigger_uri}, callers: ${sorted_callers.length}`);
+        connection.console.log(`[caller-revalidation] Triggered by ${trigger_uri}, direct callers: ${caller_uris.size}, total (with backward deps): ${all_uris_to_revalidate.size}`);
 
         let count = 0;
         for (const my_caller_uri of sorted_callers) {
@@ -421,10 +434,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         }
 
                         // Revalidate files that depend on this file via backward directives (@lsp-done-by/@lsp-included-by)
-                        // These are files that inherit symbols FROM this file
-                        const backward_children = scope_resolver.get_backward_directive_children(text_document.uri);
-                        connection.console.log(`[reverse-deps] Interface changed, backward-directive children for ${text_document.uri}: ${Array.from(backward_children).join(', ') || '(none)'}`);
+                        // These are files that inherit symbols FROM this file (transitively)
+                        const backward_children = scope_resolver.get_transitive_backward_directive_children(text_document.uri);
+                        connection.console.log(`[reverse-deps] Interface changed, transitive backward-directive children for ${text_document.uri}: ${backward_children.size} files`);
                         if (backward_children.size > 0) {
+                            connection.console.log(`[reverse-deps] Transitive dependents: ${Array.from(backward_children).join(', ')}`);
                             const settings = await get_document_settings(text_document.uri);
                             schedule_caller_revalidation(backward_children, text_document.uri, settings);
                         }
