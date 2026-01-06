@@ -159,7 +159,7 @@ global d_var = 4`);
      * the `get_transitive_backward_directive_children` function should terminate and return
      * a finite set of URIs without entering an infinite loop.
      *
-     * **Validates: Requirements 1.4**
+     * **Validates: Requirement 2.3 (avoid duplicate revalidations)**
      */
     describe('Property 2: Cycle Detection Terminates', () => {
         test('cycle in dependency graph terminates', async () => {
@@ -260,7 +260,7 @@ global self_var = 1`);
      * `get_transitive_backward_directive_children` function should return only
      * dependents within max_depth levels, not the entire chain.
      *
-     * **Validates: Requirements 1.5**
+     * **Validates: Requirement 2.2 (respect existing revalidation limits)**
      */
     describe('Property 3: Depth Limiting Respected', () => {
         test('depth limit restricts traversal', async () => {
