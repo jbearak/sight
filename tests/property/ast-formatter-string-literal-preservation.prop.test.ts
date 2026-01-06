@@ -203,9 +203,10 @@ end`;
         expect(output).toContain('end');
         
         // Verify string literals are preserved exactly
-        expect(output).toContain('st_local("result", `"`macro\'"\')')
-        expect(output).toContain('printf("`macro\'")')
-        expect(output).toContain('printf(`" `macro\' "\')')
+        expect(output).toContain('st_local("result", `"`macro\'"\')');
+        expect(output).toContain('printf("`macro\'")');
+        expect(output).toContain('printf(`" `macro\' "\')');
+    
     });
 });
 
