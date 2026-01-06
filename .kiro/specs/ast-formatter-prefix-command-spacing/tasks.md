@@ -57,36 +57,37 @@ This plan addresses critical bugs in the PrettyPrinter (AST formatter) that caus
     - Test other commands with colon qualifiers
     - _Requirements: 2.1, 2.2, 2.3_
 
-- [ ] 4. Fix varlist preservation and option comma spacing
-  - [ ] 4.1 Update `printCommand()` to preserve varlists
-    - Ensure varlist is emitted before options
-    - Add space between command name and varlist
-    - Add spaces between varlist items
+- [x] 4. Fix varlist preservation and option comma spacing
+  - [x] 4.1 Update `printCommand()` to preserve varlists
+    - Updated parser to include wildcard operators (* and ?) in varlist
+    - Varlist is already emitted before options in printCommand()
+    - Spaces between varlist items already handled by should_omit_space()
     - _Requirements: 3.1, 3.2, 4.1, 4.2, 4.3_
 
-  - [ ] 4.2 Fix comma spacing before options
-    - Ensure `, ` (comma space) is used before options
-    - Prevent newlines after commas
+  - [x] 4.2 Fix comma spacing before options
+    - Comma spacing already correct in printCommand() (`, ` before options)
+    - No newlines after commas (single line output)
     - _Requirements: 3.3_
 
-  - [ ] 4.3 Write property test for varlist preservation
+  - [x] 4.3 Write property test for varlist preservation
     - **Property 3: Varlist Preservation**
     - **Validates: Requirements 3.1, 3.2, 4.1, 4.2, 4.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
 
-  - [ ] 4.4 Write property test for option comma spacing
+  - [x] 4.4 Write property test for option comma spacing
     - **Property 4: Option Comma Spacing**
     - **Validates: Requirements 3.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
 
-  - [ ] 4.5 Write unit tests for varlist and option examples
+  - [x] 4.5 Write unit tests for varlist and option examples
     - Test `rename *, lower` preserves varlist and comma spacing
     - Test commands with multiple varlist items
     - Test commands with only options (no varlist)
     - _Requirements: 3.1, 3.2, 3.3, 4.1, 4.2, 4.3_
 
-- [ ] 5. Checkpoint - Ensure all tests pass
-  - Run all new tests and verify they pass
-  - Run existing formatter tests to ensure no regressions
-  - Ask the user if questions arise
+- [x] 5. Checkpoint - Ensure all tests pass
+  - All 3512 tests pass
+  - No regressions in existing formatter tests
 
 - [ ] 6. Fix statement terminator control
   - [ ] 6.1 Update statement terminator logic

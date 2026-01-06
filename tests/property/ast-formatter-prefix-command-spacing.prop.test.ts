@@ -294,4 +294,111 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
             expect(output.trim()).toBe('frame bh: unab raw_vars_bh: _all');
         });
     });
+
+    /**
+     * Property 3: Varlist Preservation
+     * For any command with a varlist, formatting should include all varlist items
+     * in the output with spaces between them.
+     *
+     * Feature: ast-formatter-prefix-command-spacing, Property 3: Varlist Preservation
+     * Validates: Requirements 3.1, 3.2, 4.1, 4.2, 4.3
+     */
+    describe('Property 3: Varlist Preservation', () => {
+        it('should preserve wildcard varlist items', () => {
+            const command_gen = fc.constantFrom('rename', 'drop', 'keep', 'describe', 'summarize');
+            const wildcard_gen = fc.constantFrom('*', 'var*', '_*', 'x?');
+
+            fc.assert(
+                fc.property(command_gen, wildcard_gen, (command, wildcard) => {
+                    const source = `${command} ${wildcard}`;
+                    const output = parseAndFormat(source);
+
+                    // Output should contain the wildcard
+                    if (!output.includes(wildcard)) {
+                        return false;
+                    }
+
+                    // Should be on single line
+                    const lines = output.trim().split('\n');
+                    return lines.length === 1;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should preserve multiple varlist items with spaces', () => {
+            const output = parseAndFormat('summarize var1 var2 var3');
+            expect(output.trim()).toBe('summarize var1 var2 var3');
+        });
+
+        it('should format rename *, lower with varlist preserved', () => {
+            const output = parseAndFormat('rename *, lower');
+            expect(output.trim()).toBe('rename *, lower');
+        });
+    });
+
+    /**
+     * Property 4: Option Comma Spacing
+     * For any command with options, formatting should emit `, ` (comma followed
+     * by space, not newline) before the options.
+     *
+     * Feature: ast-formatter-prefix-command-spacing, Property 4: Option Comma Spacing
+     * Validates: Requirements 3.3
+     */
+    describe('Property 4: Option Comma Spacing', () => {
+        it('should emit comma space before options', () => {
+            const command_gen = fc.constantFrom('summarize', 'regress', 'describe', 'list');
+            const varlist_gen = fc.constantFrom('var1', 'x y', '*');
+            const option_gen = fc.constantFrom('detail', 'nolabel', 'format');
+
+            fc.assert(
+                fc.property(command_gen, varlist_gen, option_gen, (command, varlist, option) => {
+                    const source = `${command} ${varlist}, ${option}`;
+                    const output = parseAndFormat(source);
+
+                    // Output should contain comma followed by space
+                    if (!output.includes(', ')) {
+                        return false;
+                    }
+
+                    // Should be on single line
+                    const lines = output.trim().split('\n');
+                    return lines.length === 1;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should format command with only options (no varlist)', () => {
+            const output = parseAndFormat('summarize, detail');
+            expect(output.trim()).toBe('summarize, detail');
+        });
+    });
+
+    describe('Task 4.5: Unit tests for varlist and option examples', () => {
+        it('should format rename *, lower with varlist and comma spacing', () => {
+            const output = parseAndFormat('rename *, lower');
+            expect(output.trim()).toBe('rename *, lower');
+        });
+
+        it('should format commands with multiple varlist items', () => {
+            const output = parseAndFormat('summarize var1 var2 var3, detail');
+            expect(output.trim()).toBe('summarize var1 var2 var3, detail');
+        });
+
+        it('should format commands with only options (no varlist)', () => {
+            const output = parseAndFormat('summarize, detail');
+            expect(output.trim()).toBe('summarize, detail');
+        });
+
+        it('should format commands with wildcard patterns', () => {
+            const output = parseAndFormat('describe var*');
+            expect(output.trim()).toBe('describe var*');
+        });
+
+        it('should format commands with question mark wildcard', () => {
+            const output = parseAndFormat('drop x?');
+            expect(output.trim()).toBe('drop x?');
+        });
+    });
 });

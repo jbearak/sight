@@ -19,7 +19,7 @@ import { format_expression_spacing } from './expression-spacing';
 /**
  * Determines if a space should be omitted between two adjacent varlist tokens.
  * Returns true when tokens are string delimiters that should "stick" together,
- * or when the next token is a colon qualifier.
+ * when the next token is a colon qualifier, or when dealing with wildcard patterns.
  */
 function should_omit_space(current: string, next: string): boolean {
     // Whitespace already present
@@ -33,6 +33,10 @@ function should_omit_space(current: string, next: string): boolean {
     
     // Colon qualifier - no space before colon (e.g., unab varname: _all)
     if (next === ':') return true;
+    
+    // Wildcard patterns - no space before * or ? when they follow a word-like token
+    // This handles patterns like var*, x?, _*
+    if ((next === '*' || next === '?') && /^[a-zA-Z0-9_]+$/.test(current)) return true;
     
     return false;
 }
