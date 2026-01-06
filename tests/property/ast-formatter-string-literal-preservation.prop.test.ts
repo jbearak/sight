@@ -206,7 +206,6 @@ end`;
         expect(output).toContain('st_local("result", `"`macro\'"\')');
         expect(output).toContain('printf("`macro\'")');
         expect(output).toContain('printf(`" `macro\' "\')');
-    
     });
 });
 
