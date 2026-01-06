@@ -1625,6 +1625,11 @@ export class ScopeResolver {
             // intermediate files are only read from disk (not opened in editor)
             this.sync_backward_directive_dependencies(actual_uri, parse_result.directives);
 
+            // Register forward call relationships from cached file
+            // This ensures callee_to_callers map includes relationships from cached files,
+            // not just open documents, enabling proper revalidation when callees change
+            this.register_forward_call_relationships_from_cache(actual_uri, parse_result.forward_calls);
+
             return { content, ...parse_result };
         } catch (error) {
             this.warn(`ScopeResolver: Parse error for ${actual_uri}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1973,6 +1978,10 @@ export class ScopeResolver {
         // Clear backward directive dependencies for this file
         // This maintains consistency between file cache and backward directive map
         this.clear_backward_directive_dependencies(uri);
+
+        // Clear forward call relationships for this file
+        // This maintains consistency between file cache and callee_to_callers map
+        this.clear_forward_call_relationships(uri);
 
         // Cascade to scope cache entries that depend on this URI (backward directives)
         let num_removed = this.cascade_invalidate_scope_cache_for_uri(uri);
@@ -2450,6 +2459,61 @@ export class ScopeResolver {
         }
 
         return result;
+    }
+
+    /**
+     * Register forward call relationships from a cached file's forward calls.
+     * Called when a file is added to the file cache to ensure the callee_to_callers
+     * map includes relationships from cached files, not just open documents.
+     *
+     * @param caller_uri - The URI of the file whose forward calls are being registered
+     * @param forward_calls - The parsed forward calls from the file
+     */
+    private register_forward_call_relationships_from_cache(
+        caller_uri: string,
+        forward_calls: ForwardCall[]
+    ): void {
+        // Clear existing relationships for this caller first
+        this.clear_forward_call_relationships(caller_uri);
+
+        // Register each callee relationship
+        for (const my_call of forward_calls) {
+            // Skip dynamic paths (containing macro references)
+            if (!my_call.is_static || !my_call.path) {
+                continue;
+            }
+
+            const callee_uri = URI.file(my_call.path).toString();
+
+            // Add to callee_to_callers
+            let caller_set = this.reverse_deps.callee_to_callers.get(callee_uri);
+            if (!caller_set) {
+                caller_set = new Set();
+                this.reverse_deps.callee_to_callers.set(callee_uri, caller_set);
+            }
+            caller_set.add(caller_uri);
+
+            this.log(`[forward-call-cache] Registered: ${caller_uri} calls ${callee_uri}`);
+        }
+    }
+
+    /**
+     * Clear forward call relationships where the given URI is the caller.
+     * Called before re-registering relationships when a file is re-parsed,
+     * and when a file's cache is invalidated.
+     *
+     * @param caller_uri - The URI of the caller file
+     */
+    private clear_forward_call_relationships(caller_uri: string): void {
+        // Remove this caller from all callee entries in callee_to_callers
+        for (const [callee_uri, caller_set] of this.reverse_deps.callee_to_callers) {
+            if (caller_set.has(caller_uri)) {
+                caller_set.delete(caller_uri);
+                if (caller_set.size === 0) {
+                    this.reverse_deps.callee_to_callers.delete(callee_uri);
+                }
+            }
+        }
     }
 
     /**
