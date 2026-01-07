@@ -15,15 +15,12 @@ import { PrettyPrinter } from '../../src/pretty-printer';
 import { CodeFormatter } from '../../src/providers/formatter';
 import { DocumentState } from '../../src/document-store';
 import { ContextTracker } from '../../src/context-tracker';
-import { TextEdit } from 'vscode-languageserver';
 import {
     for_each_formatter_mode_property,
-    for_each_formatter_mode,
     create_formatter_config,
     FormatterMode,
 } from './helpers/formatter-test-utils';
 import { apply_edits } from './helpers';
-import { format_document } from '../../src/providers/formatter';
 import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('AST Formatter Prefix Command Spacing Property Tests', () => {
@@ -237,35 +234,32 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
      * Validates: Requirements 7.1, 7.2, 7.3
      */
     describe('Property 7: Prefix Command Chain Spacing', () => {
-        it('should add spaces between multiple prefix commands', () => {
-            const prefix1_gen = fc.constantFrom('quietly', 'capture', 'noisily');
-            const prefix2_gen = fc.constantFrom('quietly', 'capture', 'noisily');
-            const command_gen = fc.constantFrom('display', 'summarize', 'list');
+        // Dual-mode property test
+        for_each_formatter_mode_property(
+            'should add spaces between multiple prefix commands',
+            fc.tuple(
+                fc.constantFrom('quietly', 'capture', 'noisily'),
+                fc.constantFrom('quietly', 'capture', 'noisily'),
+                fc.constantFrom('display', 'summarize', 'list')
+            ),
+            (mode, [prefix1, prefix2, command]) => {
+                // Skip if same prefix (not typical usage)
+                if (prefix1 === prefix2) return true;
 
-            fc.assert(
-                fc.property(prefix1_gen, prefix2_gen, command_gen, (prefix1, prefix2, command) => {
-                    // Skip if same prefix (not typical usage)
-                    if (prefix1 === prefix2) return true;
+                const source = `${prefix1} ${prefix2}: ${command}`;
+                const output = formatWithMode(source, mode);
 
-                    const source = `${prefix1} ${prefix2}: ${command}`;
-                    const output = parseAndFormat(source);
+                // Should be on single line
+                const lines = output.trim().split('\n');
+                expect(lines.length).toBe(1);
 
-                    // Should be on single line
-                    const lines = output.trim().split('\n');
-                    if (lines.length !== 1) {
-                        return false;
-                    }
+                // Should have spaces between prefixes
+                expect(output).toContain(`${prefix1} `);
 
-                    // Should have spaces between prefixes
-                    if (!output.includes(`${prefix1} `)) {
-                        return false;
-                    }
-
-                    return true;
-                }),
-                { numRuns: 100 }
-            );
-        });
+                return true;
+            },
+            100
+        );
 
         it('should format capture quietly: display correctly', () => {
             const output = parseAndFormat('capture quietly: display "test"');

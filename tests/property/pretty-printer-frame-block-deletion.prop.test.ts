@@ -15,15 +15,12 @@ import { StataLexer, StataParser } from '../../src/index';
 import { ControlFlowNode, CommandNode, StataAST, StataNode, Range } from '../../src/types';
 import { arbitrary_non_reserved_identifier } from './generators';
 import { CodeFormatter } from '../../src/providers/formatter';
-import { DocumentState } from '../../src/document-store';
-import { ContextTracker } from '../../src/context-tracker';
-import { TextEdit } from 'vscode-languageserver';
 import {
     for_each_formatter_mode_property,
     create_formatter_config,
     FormatterMode,
 } from './helpers/formatter-test-utils';
-import { apply_edits } from './helpers';
+import { apply_edits, create_document_state } from './helpers';
 
 /**
  * Helper to create a Range object.
@@ -48,39 +45,6 @@ function parse_source(source: string): StataAST {
     const parser = new StataParser();
     const lex_result = lexer.tokenize(source);
     return parser.parse(lex_result.tokens).ast;
-}
-
-/**
- * Create a document state for formatting.
- */
-function create_document_state(source: string): DocumentState {
-    const lexer = new StataLexer();
-    const lex_result = lexer.tokenize(source);
-    const parser = new StataParser();
-    const parse_result = parser.parse(lex_result.tokens);
-    const context_tracker = new ContextTracker();
-    context_tracker.initialize_from_tokens(lex_result.tokens);
-
-    return {
-        uri: 'file:///test.do',
-        content: source,
-        version: 1,
-        ast: parse_result.ast,
-        tokens: lex_result.tokens,
-        line_offsets: lex_result.line_offsets,
-        symbols: {
-            localMacros: new Map(),
-            globalMacros: new Map(),
-            programs: new Map(),
-            scalars: new Map(),
-            matrices: new Map(),
-            variables: new Map(),
-        },
-        diagnostics: [],
-        context_ranges: [],
-        context_tracker,
-        forward_calls: [],
-    };
 }
 
 /**

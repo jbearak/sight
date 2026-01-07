@@ -10,15 +10,12 @@ import * as fc from 'fast-check';
 import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
 import { CodeFormatter } from '../../src/providers/formatter';
-import { DocumentState } from '../../src/document-store';
-import { ContextTracker } from '../../src/context-tracker';
 import { CommandNode, StataNode } from '../../src/types';
-import { TextEdit } from 'vscode-languageserver';
 import {
     for_each_formatter_mode_property,
     create_formatter_config,
 } from './helpers/formatter-test-utils';
-import { apply_edits, find_command_nodes } from './helpers';
+import { apply_edits, find_command_nodes, create_document_state } from './helpers';
 import { arbitrary_non_reserved_identifier } from './generators';
 
 /**
@@ -30,39 +27,6 @@ function parse(source: string): StataNode[] {
     const parser = new StataParser();
     const result = parser.parse(tokens.tokens);
     return result.ast?.nodes ?? [];
-}
-
-/**
- * Create a document state for formatting.
- */
-function create_document_state(source: string): DocumentState {
-    const lexer = new StataLexer();
-    const lex_result = lexer.tokenize(source);
-    const parser = new StataParser();
-    const parse_result = parser.parse(lex_result.tokens);
-    const context_tracker = new ContextTracker();
-    context_tracker.initialize_from_tokens(lex_result.tokens);
-
-    return {
-        uri: 'file:///test.do',
-        content: source,
-        version: 1,
-        ast: parse_result.ast,
-        tokens: lex_result.tokens,
-        line_offsets: lex_result.line_offsets,
-        symbols: {
-            localMacros: new Map(),
-            globalMacros: new Map(),
-            programs: new Map(),
-            scalars: new Map(),
-            matrices: new Map(),
-            variables: new Map(),
-        },
-        diagnostics: [],
-        context_ranges: [],
-        context_tracker,
-        forward_calls: [],
-    };
 }
 
 /**

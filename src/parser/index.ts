@@ -1029,6 +1029,9 @@ export class StataParser {
   ): CommandNode {
     prefixes.push(frame_prefix);
     
+    // Skip whitespace after the colon
+    this.skipTrivia();
+    
     // Parse any additional prefix commands (e.g., frame name: quietly: command)
     while (this.isPrefixCommand(this.peek().value)) {
       const prefix_token = this.advance();
@@ -1044,7 +1047,11 @@ export class StataParser {
         prefix.has_colon = true;
       }
       prefixes.push(prefix);
+      this.skipTrivia();
     }
+    
+    // Skip any remaining whitespace before the main command
+    this.skipTrivia();
     
     // Now parse the main command
     if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') &&
@@ -1137,6 +1144,47 @@ export class StataParser {
           name: var_token.value,
           range: var_token.range,
         });
+      } else if (this.check('LPAREN')) {
+        // Handle parenthesized groups (e.g., frame myframe: command (xy)=m)
+        const paren_start = this.advance(); // consume (
+        const paren_parts = [];
+        let paren_depth = 1;
+        let last_was_word = false;
+        while (!this.isAtEnd() && paren_depth > 0) {
+          if (this.check('LPAREN')) {
+            paren_depth++;
+            paren_parts.push(this.advance().value);
+            last_was_word = false;
+          } else if (this.check('RPAREN')) {
+            paren_depth--;
+            if (paren_depth > 0) {
+              paren_parts.push(this.advance().value);
+            }
+            last_was_word = false;
+          } else {
+            const current_is_word = this.check('WORD') ||
+                this.check('NUMBER') || this.check('MACRO_REF_LOCAL') ||
+                this.check('MACRO_REF_GLOBAL');
+            if (last_was_word && current_is_word) {
+              paren_parts.push(' ');
+            }
+            paren_parts.push(this.advance().value);
+            last_was_word = current_is_word;
+          }
+        }
+        const paren_content = paren_parts.join('');
+        const paren_end_pos = this.check('RPAREN')
+            ? this.peek().range.end
+            : this.previous().range.end;
+        if (this.check('RPAREN')) {
+          this.advance(); // consume closing paren
+        }
+        if (paren_content.trim()) {
+          varlist.push({
+            name: `(${paren_content})`,
+            range: this.makeRange(paren_start.range.start, paren_end_pos),
+          });
+        }
       } else if (this.check('OPERATOR') && this.peek().value === '=') {
         // Stop at assignment operator
         break;
