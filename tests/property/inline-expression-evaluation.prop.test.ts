@@ -34,6 +34,7 @@ describe('Inline Expression Evaluation Property Tests', () => {
         my_config = {
             diagnostics: {
                 enabled: true,
+                indentation: false,
                 severity: {
                     styleWarnings: 'warning',
                     undefinedMacro: 'warning',
