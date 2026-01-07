@@ -835,11 +835,16 @@ export class StataParser {
           fullName: 'frame',
           frameName: frame_name_token.value,
           has_colon: true,
-          range: this.makeRange(command_token.range.start, this.previous().range.end),
+          range: this.makeRange(
+            command_token.range.start,
+            this.previous().range.end
+          ),
         };
         
         // Use shared helper for consistent frame prefix parsing
-        return this.parseFramePrefixedCommand(frame_prefix, prefixes, start_token);
+        return this.parseFramePrefixedCommand(
+          frame_prefix, prefixes, start_token
+        );
       } else {
         // Not frame prefix syntax, backtrack
         this.current = saved_pos;
@@ -2253,12 +2258,12 @@ export class StataParser {
   }
 
   /**
-   * Parse a frame block: `frame name { ... }` or frame prefix: `frame name: command`
+   * Parse a frame block: `frame name { ... }` or prefix: `frame name: cmd`
    * Frame blocks execute code in the context of a named data frame.
    * Syntax: frame framename { commands } OR frame framename: command
    * 
-   * Unlike conditional blocks (if, while), frame blocks don't have a condition -
-   * they just have a frame name followed by a brace block or colon.
+   * Unlike conditional blocks (if, while), frame blocks don't have a
+   * condition - they just have a frame name followed by brace or colon.
    */
   private parseFrameBlock(): ControlFlowNode | CommandNode | null {
     const frame_token = this.advance(); // consume 'frame'
@@ -2276,7 +2281,7 @@ export class StataParser {
 
     const name_token = this.peek();
 
-    // Check if this is followed by a brace (frame block syntax) or colon (frame prefix syntax)
+    // Check if followed by brace (frame block) or colon (frame prefix)
     // We need to look ahead past the frame name
     const saved_position = this.current;
     this.advance(); // consume frame name
@@ -2294,7 +2299,10 @@ export class StataParser {
         fullName: 'frame',
         frameName: name_token.value,
         has_colon: true,
-        range: this.makeRange(frame_token.range.start, this.previous().range.end),
+        range: this.makeRange(
+          frame_token.range.start,
+          this.previous().range.end
+        ),
       };
       
       // Use shared helper for consistent frame prefix parsing
@@ -2302,7 +2310,7 @@ export class StataParser {
     }
 
     if (!this.check('LBRACE')) {
-      // Not a frame block syntax (might be other frame command like `frame create`)
+      // Not frame block syntax (might be `frame create` or similar)
       // Reset position and return null to let parseCommand handle it
       this.current = saved_position - 1; // Reset to before 'frame' was consumed
       return null;
@@ -2347,7 +2355,7 @@ export class StataParser {
   }
   
   /**
-   * Parse the body of an unab command (after the command name has been consumed).
+   * Parse the body of an unab command (after command name consumed).
    * unab macroname : varlist
    */
   private parseUnabCommandBody(command_token: Token): CommandNode {
