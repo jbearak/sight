@@ -13,6 +13,16 @@ import * as fc from 'fast-check';
 import { PrettyPrinter, print_ast } from '../../src/pretty-printer';
 import { StataLexer, StataParser } from '../../src/index';
 import { ControlFlowNode, CommandNode, StataAST, StataNode, Range } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators';
+import { CodeFormatter } from '../../src/providers/formatter';
+import { DocumentState } from '../../src/document-store';
+import { ContextTracker } from '../../src/context-tracker';
+import { TextEdit } from 'vscode-languageserver';
+import {
+    for_each_formatter_mode_property,
+    create_formatter_config,
+    FormatterMode,
+} from './helpers/formatter-test-utils';
 
 /**
  * Helper to create a Range object.
@@ -40,12 +50,65 @@ function parse_source(source: string): StataAST {
 }
 
 /**
- * Generator for valid Stata frame names (identifiers)
+ * Apply text edits to source to get formatted result.
  */
-const arbitrary_frame_name = fc.stringOf(
-    fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz_'.split('')),
-    { minLength: 1, maxLength: 10 }
-).filter(s => /^[a-z_][a-z_0-9]*$/i.test(s));
+function apply_edits(source: string, edits: TextEdit[]): string {
+    if (edits.length === 0) return source;
+    if (edits.length === 1) {
+        return edits[0].newText;
+    }
+    return edits[0].newText;
+}
+
+/**
+ * Create a document state for formatting.
+ */
+function create_document_state(source: string): DocumentState {
+    const lexer = new StataLexer();
+    const lex_result = lexer.tokenize(source);
+    const parser = new StataParser();
+    const parse_result = parser.parse(lex_result.tokens);
+    const context_tracker = new ContextTracker();
+    context_tracker.initialize_from_tokens(lex_result.tokens);
+
+    return {
+        uri: 'file:///test.do',
+        content: source,
+        version: 1,
+        ast: parse_result.ast,
+        tokens: lex_result.tokens,
+        line_offsets: lex_result.line_offsets,
+        symbols: {
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            programs: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+            variables: new Map(),
+        },
+        diagnostics: [],
+        context_ranges: [],
+        context_tracker,
+        forward_calls: [],
+    };
+}
+
+/**
+ * Format source using CodeFormatter with specified mode.
+ */
+function formatWithMode(source: string, mode: FormatterMode): string {
+    const config = create_formatter_config(mode);
+    const doc_state = create_document_state(source);
+    const formatter = new CodeFormatter();
+    const edits = formatter.format(doc_state, { tabSize: 4, insertSpaces: true }, config);
+    return apply_edits(source, edits);
+}
+
+/**
+ * Generator for valid Stata frame names (identifiers)
+ * Uses shared generator that excludes reserved keywords
+ */
+const arbitrary_frame_name = arbitrary_non_reserved_identifier();
 
 /**
  * Generator for simple command names
@@ -1408,4 +1471,120 @@ describe('Pretty Printer Trivia Unit Tests', () => {
             expect(output).toContain('capture {');
         });
     });
+});
+
+// =============================================================================
+// Dual-Mode Formatter Tests
+// =============================================================================
+// These tests run through CodeFormatter in both AST and source-preserving modes
+// to ensure both formatters handle frame blocks and prefix brace blocks correctly.
+
+describe('Dual-Mode Formatter Frame Block Tests', () => {
+    /**
+     * Generator for frame block source code.
+     */
+    function arbitrary_frame_block_source(): fc.Arbitrary<string> {
+        return fc.tuple(
+            arbitrary_frame_name,
+            fc.array(arbitrary_statement, { minLength: 1, maxLength: 3 })
+        ).map(([frame_name, stmts]) => {
+            const body = stmts.map(s => `    ${s}`).join('\n');
+            return `frame ${frame_name} {\n${body}\n}`;
+        });
+    }
+
+    /**
+     * Generator for prefix brace block source code.
+     */
+    function arbitrary_prefix_brace_block_source(): fc.Arbitrary<string> {
+        return fc.tuple(
+            arbitrary_prefix_command,
+            fc.array(arbitrary_statement, { minLength: 1, maxLength: 3 })
+        ).map(([prefix, stmts]) => {
+            const body = stmts.map(s => `    ${s}`).join('\n');
+            return `${prefix} {\n${body}\n}`;
+        });
+    }
+
+    for_each_formatter_mode_property(
+        'should preserve frame blocks through formatting',
+        arbitrary_frame_block_source(),
+        (mode, source) => {
+            const formatted = formatWithMode(source, mode);
+            
+            // Frame keyword should be preserved
+            expect(formatted).toContain('frame');
+            // Opening and closing braces should be preserved
+            expect(formatted).toContain('{');
+            expect(formatted).toContain('}');
+        },
+        50
+    );
+
+    for_each_formatter_mode_property(
+        'should preserve prefix brace blocks through formatting',
+        arbitrary_prefix_brace_block_source(),
+        (mode, source) => {
+            const formatted = formatWithMode(source, mode);
+            
+            // Opening and closing braces should be preserved
+            expect(formatted).toContain('{');
+            expect(formatted).toContain('}');
+        },
+        50
+    );
+
+    for_each_formatter_mode_property(
+        'should maintain correct indentation in frame blocks',
+        arbitrary_frame_block_source(),
+        (mode, source) => {
+            const formatted = formatWithMode(source, mode);
+            const the_lines = formatted.split('\n');
+            
+            // Find body lines (between { and })
+            let in_body = false;
+            for (const my_line of the_lines) {
+                if (my_line.includes('{')) {
+                    in_body = true;
+                    continue;
+                }
+                if (my_line.trim() === '}') {
+                    in_body = false;
+                    continue;
+                }
+                if (in_body && my_line.trim().length > 0) {
+                    // Body lines should be indented
+                    expect(my_line.startsWith('    ') || my_line.startsWith('\t')).toBe(true);
+                }
+            }
+        },
+        50
+    );
+
+    for_each_formatter_mode_property(
+        'should maintain correct indentation in prefix brace blocks',
+        arbitrary_prefix_brace_block_source(),
+        (mode, source) => {
+            const formatted = formatWithMode(source, mode);
+            const the_lines = formatted.split('\n');
+            
+            // Find body lines (between { and })
+            let in_body = false;
+            for (const my_line of the_lines) {
+                if (my_line.includes('{')) {
+                    in_body = true;
+                    continue;
+                }
+                if (my_line.trim() === '}') {
+                    in_body = false;
+                    continue;
+                }
+                if (in_body && my_line.trim().length > 0) {
+                    // Body lines should be indented
+                    expect(my_line.startsWith('    ') || my_line.startsWith('\t')).toBe(true);
+                }
+            }
+        },
+        50
+    );
 });
