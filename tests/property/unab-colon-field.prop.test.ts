@@ -263,3 +263,66 @@ describe('AST structure integrity (Property 9)', () => {
         );
     });
 });
+
+describe('Backward compatibility (Requirement 5.5)', () => {
+    /**
+     * Test that old-style ASTs with colons in varlists are handled correctly.
+     * This ensures backward compatibility with ASTs created before the
+     * has_colon_before_varlist field was added.
+     */
+    it('should format old-style AST with colon in varlist correctly', () => {
+        // Import PrettyPrinter for direct AST formatting
+        const { print_ast } = require('../../src/pretty-printer');
+        
+        // Create an old-style AST with colon in varlist (no has_colon_before_varlist field)
+        const old_style_ast = {
+            nodes: [{
+                type: 'command',
+                name: 'unab',
+                fullName: 'unab',
+                // Old ASTs had colon as a varlist item
+                varlist: [
+                    { name: 'myvar', range: { start: { line: 0, character: 5 }, end: { line: 0, character: 10 } } },
+                    { name: ':', range: { start: { line: 0, character: 11 }, end: { line: 0, character: 12 } } },
+                    { name: 'var1', range: { start: { line: 0, character: 13 }, end: { line: 0, character: 17 } } },
+                ],
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 17 } },
+            }],
+        };
+        
+        const output = print_ast(old_style_ast);
+        
+        // Colon should be preserved in output
+        expect(output).toContain(':');
+        // Should have the macro name
+        expect(output).toContain('myvar');
+        // Should have the variable
+        expect(output).toContain('var1');
+    });
+
+    it('should format new-style AST with has_colon_before_varlist correctly', () => {
+        const { print_ast } = require('../../src/pretty-printer');
+        
+        // Create a new-style AST with has_colon_before_varlist field
+        const new_style_ast = {
+            nodes: [{
+                type: 'command',
+                name: 'unab',
+                fullName: 'unab',
+                has_colon_before_varlist: true,
+                varlist: [
+                    { name: 'myvar', range: { start: { line: 0, character: 5 }, end: { line: 0, character: 10 } } },
+                    { name: 'var1', range: { start: { line: 0, character: 13 }, end: { line: 0, character: 17 } } },
+                ],
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 17 } },
+            }],
+        };
+        
+        const output = print_ast(new_style_ast);
+        
+        // Colon should be emitted after macro name
+        expect(output).toContain('myvar:');
+        // Should have the variable
+        expect(output).toContain('var1');
+    });
+});
