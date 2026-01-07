@@ -76,6 +76,10 @@ const EXPECTED_CONFIG_FIELDS: ConfigFieldSpec[] = [
         path: 'sight.diagnostics.undefinedVariableEnabled',
         type: 'boolean',
     },
+    {
+        path: 'sight.diagnostics.indentation',
+        type: 'boolean',
+    },
     // Formatting
     {
         path: 'sight.formatting.indentSize',

@@ -108,6 +108,11 @@
           "default": false,
           "description": "Enable checking for undefined variables"
         },
+        "sight.diagnostics.indentation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable indentation diagnostics (missing/unnecessary indentation warnings). Disabled by default since indentation is stylistic in Stata and doesn't affect execution."
+        },
         "sight.formatting.indentSize": {
           "type": "number",
           "default": 4,
