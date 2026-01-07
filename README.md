@@ -54,6 +54,9 @@ Command+click (Mac) or Control+click (Windows) to see symbol definitions across 
 <img width="671" height="386" src="examples/command_click.png"/>
 
 #### Missing indentation
+
+> **Note:** Indentation diagnostics are disabled by default. See [Configuration > Diagnostics](#diagnostics) to enable them.
+
 <img width="" height="345" src="examples/missing_indentation.png"/>
 
 
@@ -745,7 +748,20 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | `sight.diagnostics.severity.undefinedVariable` | enum    | `"information"` | Severity level for undefined variable references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.styleWarnings`     | enum    | `"hint"`        | Severity level for style warnings. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`                |
 | `sight.diagnostics.undefinedVariableEnabled`   | boolean | `false`         | Enable checking for undefined variables                                                                               |
-| `sight.diagnostics.indentation`                | boolean | `true`          | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
+| `sight.diagnostics.indentation`                | boolean | `false`         | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
+
+#### Why Indentation Diagnostics Are Disabled by Default
+
+Unlike Python, Stata ignores indentation - it's purely stylistic and doesn't affect code execution. Indentation diagnostics are disabled by default for several reasons:
+
+1. **Stylistic, not semantic**: "Wrong" indentation won't break your code
+2. **Legacy codebase noise**: Existing codebases may produce many warnings, causing alert fatigue
+3. **Subjective preferences**: Teams may have different indentation conventions
+4. **Opt-in philosophy**: Mature LSPs (TypeScript, ESLint) default stylistic rules to off
+
+To enable indentation diagnostics:
+- **VS Code**: Set `sight.diagnostics.indentation` to `true` in Settings
+- **Project config**: Add `"diagnostics": { "indentation": true }` to `.sight.json`
 
 #### Forward Reference Detection
 
@@ -877,7 +893,7 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 ```json
 {
   "diagnostics": {
-    "indentation": true
+    "indentation": false
   },
   "crossFile": {
     "indexWorkspace": true,
@@ -898,7 +914,7 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 
 | Option                                  | Type                 | Default         | Description                                                             |
 | --------------------------------------- | -------------------- | --------------- | ----------------------------------------------------------------------- |
-| `diagnostics.indentation`               | boolean              | `true`          | Enable indentation diagnostics                                          |
+| `diagnostics.indentation`               | boolean              | `false`         | Enable indentation diagnostics                                          |
 | `crossFile.indexWorkspace`              | boolean              | `true`          | Enable workspace-wide file indexing                                     |
 | `crossFile.maxIndexedFiles`             | number               | `1000`          | Maximum files to index                                                  |
 | `crossFile.maxBackwardDepth`            | number               | `10`            | Maximum recursion depth for backward directive resolution               |
