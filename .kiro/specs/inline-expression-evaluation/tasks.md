@@ -21,17 +21,17 @@ This implementation adds support for inline colon-expression syntax (`` `:functi
     - **Property 1: Inline Expression No Warning**
     - **Validates: Requirements 1.2, 3.2**
 
-- [ ] 2. Verify existing behavior and add regression tests
-  - [ ] 2.1 Verify `is_expression_evaluation` works correctly for equals-expressions
+- [x] 2. Verify existing behavior and add regression tests
+  - [x] 2.1 Verify `is_expression_evaluation` works correctly for equals-expressions
     - Test that `` `=2+2' `` does not emit warning
     - Test that `` `=string(varname)' `` does not emit warning
     - _Requirements: 1.2_
 
-  - [ ] 2.2 Write property test for regular macro reference warning (Property 2)
+  - [x] 2.2 Write property test for regular macro reference warning (Property 2)
     - **Property 2: Regular Macro Reference Warning Preserved**
     - **Validates: Requirements 2.2**
 
-  - [ ] 2.3 Write property test for nested macro validation (Property 3)
+  - [x] 2.3 Write property test for nested macro validation (Property 3)
     - **Property 3: Nested Macro Validation in Inline Expressions**
     - **Validates: Requirements 1.3**
 
