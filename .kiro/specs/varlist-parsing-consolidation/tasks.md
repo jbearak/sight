@@ -39,17 +39,17 @@ This plan refactors `parseCommand` to delegate to `parseCommandBody` for standar
 - [x] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. Write additional property tests
-  - [ ] 4.1 Write property test for standard command AST correctness
+- [x] 4. Write additional property tests
+  - [x] 4.1 Write property test for standard command AST correctness
     - **Property 1: AST Equivalence for Standard Commands**
     - Generate random commands with varlists, expressions, qualifiers, options
     - Verify AST structure is correct
     - **Validates: Requirements 1.4, 2.1**
-  - [ ] 4.2 Write property test for wildcard operator handling
+  - [x] 4.2 Write property test for wildcard operator handling
     - Generate commands with * and ? operators in varlist position
     - Verify wildcards appear correctly in AST varlist
     - **Validates: Requirements 2.3**
-  - [ ] 4.3 Write property test for file command path coalescing
+  - [x] 4.3 Write property test for file command path coalescing
     - Generate file commands (do, run, include) with various path formats
     - Verify path tokens are coalesced correctly
     - **Validates: Requirements 2.4**
