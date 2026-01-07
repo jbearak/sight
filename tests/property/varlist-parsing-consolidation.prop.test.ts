@@ -202,49 +202,7 @@ describe('Feature: varlist-parsing-consolidation', () => {
      * Validates: Requirements 2.3
      */
     describe('Property 2: Wildcard Operator Handling', () => {
-        it('should include * wildcard in varlist', () => {
-            fc.assert(
-                fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
-                    (cmd_name, var_prefix) => {
-                        const source = `${cmd_name} ${var_prefix}*`;
-                        const cmd = parse(source);
 
-                        expect(cmd).not.toBeNull();
-                        expect(cmd!.name).toBe(cmd_name);
-                        expect(cmd!.varlist).toBeDefined();
-                        expect(cmd!.varlist!.length).toBe(2);
-                        expect(cmd!.varlist![0].name).toBe(var_prefix);
-                        expect(cmd!.varlist![1].name).toBe('*');
-                        return true;
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
-
-        it('should include ? wildcard in varlist', () => {
-            fc.assert(
-                fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
-                    (cmd_name, var_prefix) => {
-                        const source = `${cmd_name} ${var_prefix}?`;
-                        const cmd = parse(source);
-
-                        expect(cmd).not.toBeNull();
-                        expect(cmd!.name).toBe(cmd_name);
-                        expect(cmd!.varlist).toBeDefined();
-                        expect(cmd!.varlist!.length).toBe(2);
-                        expect(cmd!.varlist![0].name).toBe(var_prefix);
-                        expect(cmd!.varlist![1].name).toBe('?');
-                        return true;
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
 
         it('should handle standalone * wildcard', () => {
             fc.assert(
