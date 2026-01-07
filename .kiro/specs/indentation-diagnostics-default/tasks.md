@@ -38,7 +38,7 @@ This implementation changes the default value of `diagnostics.indentation` from 
     - Update `.sight.json` example to show `false` as default
     - _Requirements: 4.3, 4.4_
 
-- [ ] 5. Final checkpoint
+- [x] 5. Final checkpoint
   - Ensure all tests pass
   - Verify documentation is accurate
 
