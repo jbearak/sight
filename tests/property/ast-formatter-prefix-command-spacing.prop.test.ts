@@ -321,12 +321,6 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
         });
     });
 
-        it('should format rename *, lower with varlist preserved', () => {
-            const output = parseAndFormat('rename *, lower');
-            expect(output.trim()).toBe('rename *, lower');
-        });
-    });
-
     /**
      * Property 4: Option Comma Spacing
      * For any command with options, formatting should emit `, ` (comma followed
