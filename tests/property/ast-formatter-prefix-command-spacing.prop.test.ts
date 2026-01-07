@@ -14,6 +14,7 @@ import { StataLexer } from '../../src/lexer';
 import { PrettyPrinter } from '../../src/pretty-printer';
 import { CodeFormatter } from '../../src/providers/formatter';
 import {
+    for_each_formatter_mode,
     for_each_formatter_mode_property,
     create_formatter_config,
     FormatterMode,
@@ -250,6 +251,17 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
         return my_printer.print(parse_result.ast);
     }
 
+    /**
+     * Format source using CodeFormatter with specified mode.
+     */
+    function formatWithMode(source: string, mode: FormatterMode): string {
+        const config = create_formatter_config(mode);
+        const doc_state = create_document_state(source);
+        const formatter = new CodeFormatter();
+        const edits = formatter.format(doc_state, { tabSize: 4, insertSpaces: true }, config);
+        return apply_edits(source, edits);
+    }
+
     describe('Task 2.3: Unit tests for prefix colon examples', () => {
         it('should format capture frame this: that with space after colon', () => {
             const output = parseAndFormat('capture frame this: that');
@@ -360,28 +372,28 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
     });
 
     describe('Task 4.5: Unit tests for varlist and option examples', () => {
-        it('should format rename *, lower with varlist and comma spacing', () => {
-            const output = parseAndFormat('rename *, lower');
+        for_each_formatter_mode('should format rename *, lower with varlist and comma spacing', (mode) => {
+            const output = formatWithMode('rename *, lower', mode);
             expect(output.trim()).toBe('rename *, lower');
         });
 
-        it('should format commands with multiple varlist items', () => {
-            const output = parseAndFormat('summarize var1 var2 var3, detail');
+        for_each_formatter_mode('should format commands with multiple varlist items', (mode) => {
+            const output = formatWithMode('summarize var1 var2 var3, detail', mode);
             expect(output.trim()).toBe('summarize var1 var2 var3, detail');
         });
 
-        it('should format commands with only options (no varlist)', () => {
-            const output = parseAndFormat('summarize, detail');
+        for_each_formatter_mode('should format commands with only options (no varlist)', (mode) => {
+            const output = formatWithMode('summarize, detail', mode);
             expect(output.trim()).toBe('summarize, detail');
         });
 
-        it('should format commands with wildcard patterns', () => {
-            const output = parseAndFormat('describe var*');
+        for_each_formatter_mode('should format commands with wildcard patterns', (mode) => {
+            const output = formatWithMode('describe var*', mode);
             expect(output.trim()).toBe('describe var*');
         });
 
-        it('should format commands with question mark wildcard', () => {
-            const output = parseAndFormat('drop x?');
+        for_each_formatter_mode('should format commands with question mark wildcard', (mode) => {
+            const output = formatWithMode('drop x?', mode);
             expect(output.trim()).toBe('drop x?');
         });
     });
