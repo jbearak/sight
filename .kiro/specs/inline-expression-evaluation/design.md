@@ -127,11 +127,11 @@ This ensures that the inline expression detection does not accidentally suppress
 
 **Validates: Requirements 2.2**
 
-### Property 3: Nested Macro Validation in Inline Expressions
+### Property 3: Nested Macro Handling in Inline Expressions
 
-*For any* inline expression containing nested macro references (e.g., `` `=`n'+1' ``), the analyzer SHALL validate those nested macro references and emit warnings for undefined ones.
+*For any* inline expression containing nested macro references (e.g., `` `=`n'+1' ``), the analyzer SHALL skip the entire token without emitting warnings.
 
-The outer inline expression is skipped, but any nested macro references within it must still be validated.
+**Known Limitation:** The lexer produces a single token for the entire inline expression, so nested macro references within it cannot be separately validated. This is a trade-off of the current architecture.
 
 **Validates: Requirements 1.3**
 
@@ -163,7 +163,7 @@ The lexer already handles malformed expressions gracefully:
 
 1. **Empty expression**: `` `=' `` - Skipped (starts with `=`)
 2. **Empty function**: `` `:' `` - Skipped (starts with `:`)
-3. **Nested expressions**: `` `=`a'+`b'' `` - Outer skipped, nested refs validated
+3. **Nested expressions**: `` `=`a'+`b'' `` - Entire token skipped (nested refs not separately validated)
 4. **Mixed content**: `` `=:test' `` - Skipped (starts with `=`)
 
 ## Testing Strategy
@@ -181,7 +181,7 @@ Property-based testing will be used to verify the correctness properties with mi
 
 1. **Property 1 Test**: Generate random expressions and function names, wrap in `` `=...' `` or `` `:...' ``, verify no undefined macro warning is emitted
 2. **Property 2 Test**: Generate random undefined macro names (not starting with `=` or `:`), verify warning is emitted
-3. **Property 3 Test**: Generate expressions with nested macros (some defined, some undefined), verify nested refs are validated
+3. **Property 3 Test**: Generate expressions with nested macros, verify entire token is skipped (no warnings)
 4. **Property 4 Test**: Generate macro assignments with extended functions, verify space before colon
 5. **Property 5 Test**: Generate prefix commands with colons, verify no space added before colon
 

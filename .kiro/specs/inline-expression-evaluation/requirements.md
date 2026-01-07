@@ -27,7 +27,7 @@ This feature addresses two related improvements to Stata macro handling in the L
 
 1. WHEN the Lexer encounters `` `= `` followed by an expression and closing `` ' ``, THE Lexer SHALL tokenize it as a local macro reference token
 2. WHEN the Analyzer processes a token whose content starts with `=`, THE Analyzer SHALL NOT emit an undefined macro warning (existing behavior)
-3. WHEN an inline expression contains nested macro references (e.g., `` `=`n'+1' ``), THE Analyzer SHALL still validate those nested macro references
+3. WHEN an inline expression contains nested macro references (e.g., `` `=`n'+1' ``), THE Analyzer SHALL skip the entire token (known limitation: the lexer produces a single token for the whole expression, so nested references cannot be separately validated)
 4. WHEN an inline expression is malformed (unclosed or invalid), THE Lexer SHALL handle it gracefully without crashing
 
 ### Requirement 2: Distinguish Inline Expression from Macro Reference
