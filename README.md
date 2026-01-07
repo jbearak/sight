@@ -988,14 +988,14 @@ The extension provides intelligent auto-closing for Stata's unique quoting conve
 
 ### Supported Patterns
 
-| You Type | Result       | Description                           |
-| -------- | ------------ | ------------------------------------- |
-| `` ` ``  | `` `\|' ``   | Local macro reference                 |
-| `` `` `` | `` ``\|'' `` | Nested local macro (double backticks) |
-| `` `" `` | `` `"\|"' `` | Compound string                       |
-| `"`      | `"\|"`       | Double-quoted string                  |
+| You Type   | Result         | Description                           |
+| ---------- | -------------- | ------------------------------------- |
+| `` ` ``    | `` `\|' ``     | Local macro reference                 |
+| `` \`\` `` | `` \`\`\|'' `` | Nested local macro (double backticks) |
+| `` `" ``   | `` `"\|"' ``   | Compound string                       |
+| `"`        | `` `"\|"` ``   | Double-quoted string                  |
 
-Note: `\|` represents cursor position.
+Note: `|` represents cursor position.
 
 ### Skip-Over Behavior
 
