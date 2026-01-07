@@ -1,0 +1,179 @@
+# Implementation Plan: AST Formatter Prefix Command Spacing
+
+## Overview
+
+This plan addresses critical bugs in the PrettyPrinter (AST formatter) that cause it to produce syntactically invalid Stata code. The formatter incorrectly handles spacing around colons in prefix commands, drops varlists, and mishandles commas before options.
+
+## Tasks
+
+- [x] 1. Analyze current PrettyPrinter implementation and identify bug locations
+  - Review `printPrefix()` method to understand current colon handling
+  - Review `printCommand()` method to understand varlist and option handling
+  - Identify where newlines are incorrectly inserted after colons
+  - Identify where varlists are being dropped
+  - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 3.1, 3.2, 4.1_
+  
+  **Analysis Results:**
+  - Bug 1: Parser consumes colons after prefix commands (line 702-705) but doesn't store `has_colon` in PrefixNode
+  - Bug 2: `printPrefix()` only adds colon for `by` prefix, ignoring other prefix commands with colons
+  - Bug 3: `unab` command parser consumes colon but doesn't store it - varlist has no colon indicator
+  - Bug 4: `frame bh: command` is parsed as `frame` command with varlist `[bh]`, losing the colon and subsequent command
+  - Bug 5: `rename *, lower` - the `*` is tokenized as OPERATOR, not included in varlist
+  - Root cause: PrefixNode interface lacks `has_colon` field; parser doesn't preserve colon information
+
+- [x] 2. Fix prefix command colon spacing
+  - [x] 2.1 Update `printPrefix()` to detect and preserve colons for all prefix commands
+    - Added `has_colon` field to PrefixNode interface in types/index.ts
+    - Updated parser to set `has_colon = true` when consuming colon after prefix
+    - Updated `printPrefix()` to use `has_colon` instead of checking for `by` prefix
+    - Added special handling for `frame name:` prefix syntax in parseCommand() and parseFrameBlock()
+    - _Requirements: 1.1, 1.2, 1.3, 5.1, 5.2, 5.3_
+
+  - [x] 2.2 Write property test for prefix colon spacing
+    - **Property 1: Prefix Colon Spacing**
+    - **Validates: Requirements 1.1, 1.2, 1.3**
+    - Created tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+  - [x] 2.3 Write unit tests for prefix colon examples
+    - Test `capture frame this: that` formats with space after colon
+    - Test `frame bh: unab raw_vars_bh _all` formats with space after colon
+    - Test multiple prefix commands with colons
+    - _Requirements: 1.1, 1.2, 7.1, 7.2, 7.3_
+
+- [x] 3. Fix colon qualifier preservation
+  - [x] 3.1 Ensure colons in commands like `unab` are preserved
+    - Updated parseUnabCommand to include colon in varlist as ':' marker
+    - Updated should_omit_space() to not add space before colon
+    - Colon is now preserved with space after it
+    - _Requirements: 2.1, 2.2, 2.3_
+
+  - [x] 3.2 Write property test for colon preservation
+    - **Property 2: Colon Preservation**
+    - **Validates: Requirements 2.1, 2.2, 2.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+  - [x] 3.3 Write unit tests for colon qualifier examples
+    - Test `unab merp: _all` preserves colon with space
+    - Test other commands with colon qualifiers
+    - _Requirements: 2.1, 2.2, 2.3_
+
+- [x] 4. Fix varlist preservation and option comma spacing
+  - [x] 4.1 Update `printCommand()` to preserve varlists
+    - Updated parser to include wildcard operators (* and ?) in varlist
+    - Varlist is already emitted before options in printCommand()
+    - Spaces between varlist items already handled by should_omit_space()
+    - _Requirements: 3.1, 3.2, 4.1, 4.2, 4.3_
+
+  - [x] 4.2 Fix comma spacing before options
+    - Comma spacing already correct in printCommand() (`, ` before options)
+    - No newlines after commas (single line output)
+    - _Requirements: 3.3_
+
+  - [x] 4.3 Write property test for varlist preservation
+    - **Property 3: Varlist Preservation**
+    - **Validates: Requirements 3.1, 3.2, 4.1, 4.2, 4.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+  - [x] 4.4 Write property test for option comma spacing
+    - **Property 4: Option Comma Spacing**
+    - **Validates: Requirements 3.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+  - [x] 4.5 Write unit tests for varlist and option examples
+    - Test `rename *, lower` preserves varlist and comma spacing
+    - Test commands with multiple varlist items
+    - Test commands with only options (no varlist)
+    - _Requirements: 3.1, 3.2, 3.3, 4.1, 4.2, 4.3_
+
+- [x] 5. Checkpoint - Ensure all tests pass
+  - All 3512 tests pass
+  - No regressions in existing formatter tests
+
+- [x] 6. Fix statement terminator control
+  - [x] 6.1 Update statement terminator logic
+    - Statement terminators already correctly placed at end of complete statements
+    - No terminators within command structures
+    - _Requirements: 6.1, 6.2, 6.3_
+
+  - [x] 6.2 Write property test for statement terminator placement
+    - **Property 6: Statement Terminator Placement**
+    - **Validates: Requirements 6.1, 6.2, 6.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+  - [x] 6.3 Write unit tests for statement terminator examples
+    - Test no terminator after prefix colon
+    - Test no terminator after comma before options
+    - Test terminator only at end of complete command
+    - _Requirements: 6.1, 6.2, 6.3_
+
+- [x] 7. Implement round-trip consistency validation
+  - [x] 7.1 Add round-trip test infrastructure
+    - Tests parse formatted output and verify no errors
+    - Tests verify idempotency (format twice produces same result)
+    - _Requirements: 8.1, 8.2, 8.3_
+
+  - [x] 7.2 Write property test for round-trip consistency
+    - **Property 8: Round-Trip Consistency**
+    - **Validates: Requirements 8.1, 8.2, 8.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+- [x] 8. Handle edge cases
+  - [x] 8.1 Add edge case handling
+    - Commands with no arguments handled correctly (no trailing spaces)
+    - Commands with only options handled correctly
+    - Empty varlists handled correctly
+    - _Requirements: 9.1, 9.2, 9.3_
+
+  - [x] 8.2 Write property test for edge case handling
+    - **Property 9: Edge Case Handling**
+    - **Validates: Requirements 9.1, 9.2, 9.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+  - [x] 8.3 Write unit tests for edge cases
+    - Test command with no arguments
+    - Test command with only options
+    - Test empty varlists
+    - _Requirements: 9.1, 9.2, 9.3_
+
+- [x] 9. Verify command structure recognition
+  - [x] 9.1 Review AST node structure handling
+    - Prefix field detection works correctly
+    - Colon detection in prefix commands works correctly
+    - Option detection and comma handling works correctly
+    - _Requirements: 10.1, 10.2, 10.3_
+
+  - [x] 9.2 Write property test for command structure recognition
+    - **Property 10: Command Structure Recognition**
+    - **Validates: Requirements 10.1, 10.2, 10.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+- [x] 10. Implement wildcard pattern preservation
+  - [x] 10.1 Update varlist formatting to preserve wildcard patterns
+    - Updated should_omit_space() to not insert space before * or ?
+    - Spaces maintained between separate varlist items
+    - Patterns like `var*`, `old?`, `_*` preserved correctly
+    - _Requirements: 11.1, 11.2, 11.3_
+
+  - [x] 10.2 Write property test for wildcard pattern preservation
+    - **Property 11: Wildcard Pattern Preservation**
+    - **Validates: Requirements 11.1, 11.2, 11.3**
+    - Added to tests/property/ast-formatter-prefix-command-spacing.prop.test.ts
+
+  - [x] 10.3 Write unit tests for wildcard patterns
+    - Test `rename var* new*` preserves patterns without internal spaces
+    - Test `summarize var* other` has space between items
+    - Test various wildcard patterns (`*`, `?`, combinations)
+    - _Requirements: 11.1, 11.2, 11.3_
+
+- [x] 11. Final checkpoint - Ensure all tests pass
+  - All 3525 tests pass
+  - No regressions in existing tests
+  - All 43 new property/unit tests pass with 100+ iterations each
+
+## Notes
+
+- Each task references specific requirements for traceability
+- Checkpoints ensure incremental validation
+- Property tests validate universal correctness properties
+- Unit tests validate specific examples and edge cases
+- All formatter tests must run against both AST formatter and source-preserving formatter using helpers from `tests/property/helpers/formatter-test-utils.ts`

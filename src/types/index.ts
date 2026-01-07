@@ -205,6 +205,8 @@ export interface PrefixNode {
   name: string;
   fullName: string;
   varlist?: string[];
+  frameName?: string;  // For frame prefixes with frame names
+  has_colon?: boolean;
   range: Range;
 }
 
@@ -228,6 +230,7 @@ export interface CommandNode {
   name: string;
   fullName: string;
   varlist?: IdentifierNode[];
+  has_colon_before_varlist?: boolean;  // For unab commands: separates macro name from varlist
   options?: OptionNode[];
   expression?: string;
   ifExpression?: string;

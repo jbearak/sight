@@ -18,7 +18,8 @@ import { format_expression_spacing } from './expression-spacing';
 
 /**
  * Determines if a space should be omitted between two adjacent varlist tokens.
- * Returns true when tokens are string delimiters that should "stick" together.
+ * Returns true when tokens are string delimiters that should "stick" together,
+ * when the next token is a colon qualifier, or when dealing with wildcard patterns.
  */
 function should_omit_space(current: string, next: string): boolean {
     // Whitespace already present
@@ -29,6 +30,10 @@ function should_omit_space(current: string, next: string): boolean {
     
     // Double-quote delimiter adjacent to content
     if (current === '"' || next === '"') return true;
+    
+    // Wildcard patterns - no space before * or ? when they follow a word-like token
+    // This handles patterns like var*, x?, _*
+    if ((next === '*' || next === '?') && /^[a-zA-Z0-9_]+$/.test(current)) return true;
     
     return false;
 }
@@ -124,6 +129,7 @@ export class PrettyPrinter {
             case 'foreach':
             case 'forvalues':
             case 'while':
+            case 'frame':
                 result += this.printControlFlow(node);
                 break;
             case 'string':
@@ -178,11 +184,17 @@ export class PrettyPrinter {
         the_parts.push(node.name);
 
         // Print variable list, preserving spacing around string delimiters
+        // For unab commands with has_colon_before_varlist, emit colon after macro name
         if (node.varlist && node.varlist.length > 0) {
             the_parts.push(' ');
             for (let i = 0; i < node.varlist.length; i++) {
                 const my_name = node.varlist[i].name;
                 the_parts.push(my_name);
+                
+                // For unab commands: emit colon after the first item (macro name)
+                if (i === 0 && node.has_colon_before_varlist) {
+                    the_parts.push(':');
+                }
                 
                 if (i < node.varlist.length - 1) {
                     const next_name = node.varlist[i + 1].name;
@@ -218,6 +230,59 @@ export class PrettyPrinter {
             the_parts.push(the_option_strs.join(' '));
         }
 
+        // Handle prefix command brace blocks (e.g., capture { }, quietly { })
+        // Determine format upfront rather than manipulating array after construction
+        if (node.body) {
+            // Decision tree for brace block formatting:
+            // 1. Standalone brace block: name === '{' with no prefixes
+            // 2. Prefix brace block: name === '{' with prefixes (e.g., capture { })
+            // 3. Regular command with body: name !== '{' (e.g., program foo { })
+            
+            const is_standalone_brace = node.name === '{' && (!node.prefix || node.prefix.length === 0);
+            const is_prefix_brace_block = node.name === '{' && node.prefix && node.prefix.length > 0;
+            
+            if (is_standalone_brace) {
+                // Standalone brace block: just indent + brace
+                // Clear and rebuild since we don't want the '{' as command name
+                the_parts.length = 0;
+                the_parts.push(this.getIndent());
+                the_parts.push('{');
+            } else if (is_prefix_brace_block) {
+                // Prefix brace block: prefixes are already in the_parts
+                // We need to remove the trailing space and '{' that were added as command name
+                // Expected state: [..., 'prefix', ' ', '{']
+                // We want: [..., 'prefix', ' {']
+                
+                // Remove the '{' command name we added earlier
+                if (the_parts.length > 0 && the_parts[the_parts.length - 1] === '{') {
+                    the_parts.pop();
+                }
+                // Remove trailing space after command name (which was '{')
+                if (the_parts.length > 0 && the_parts[the_parts.length - 1] === ' ') {
+                    the_parts.pop();
+                }
+                the_parts.push(' {');
+            } else {
+                // Regular command with body: add space and brace
+                the_parts.push(' {');
+            }
+            the_parts.push(this.getStatementTerminator());
+
+            // Increase indent for body
+            this.current_indent++;
+
+            // Print body statements
+            for (const my_stmt of node.body) {
+                the_parts.push(this.printNode(my_stmt));
+            }
+
+            // Decrease indent
+            this.current_indent--;
+
+            // Print closing brace (without statement terminator - printNode adds it)
+            the_parts.push(`${this.getIndent()}}`);
+        }
+
         return the_parts.join('');
     }
 
@@ -227,13 +292,17 @@ export class PrettyPrinter {
     private printPrefix(prefix: PrefixNode): string {
         let result = prefix.name;
 
+        // Handle frame prefix with frame name
+        if (prefix.frameName) {
+            result += ' ' + prefix.frameName;
+        }
         // Handle 'by' prefix with variable list
-        if (prefix.varlist && prefix.varlist.length > 0) {
+        else if (prefix.varlist && prefix.varlist.length > 0) {
             result += ' ' + prefix.varlist.join(' ');
         }
 
-        // Add colon for by prefix
-        if (prefix.name === 'by') {
+        // Add colon if the prefix had one
+        if (prefix.has_colon) {
             result += ':';
         }
 
@@ -348,6 +417,9 @@ export class PrettyPrinter {
                 break;
             case 'while':
                 header += `while ${this.normalizeCondition(node.condition || '')} {`;
+                break;
+            case 'frame':
+                header += `frame ${node.frameName || ''} {`;
                 break;
         }
 
@@ -482,7 +554,8 @@ export class PrettyPrinter {
             node.type === 'else' ||
             node.type === 'foreach' ||
             node.type === 'forvalues' ||
-            node.type === 'while'
+            node.type === 'while' ||
+            node.type === 'frame'
         );
     }
 
