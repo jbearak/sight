@@ -708,6 +708,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
             );
         }
 
+        // Clear published versions so diagnostics will be re-published
+        // even though document versions haven't changed
+        if (diagnostics_provider) {
+            for (const my_doc of documents.all()) {
+                diagnostics_provider.clear_published_version(my_doc.uri);
+            }
+        }
+
         documents.all().forEach(validate_text_document);
     });
 
