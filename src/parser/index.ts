@@ -1254,12 +1254,17 @@ export class StataParser {
       let name = var_token.value;
       let end_range = var_token.range.end;
       
-      // Coalesce adjacent wildcard tokens
-      while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
-             this.isAdjacentToken(this.previous(), this.peek())) {
-        const wildcard_token = this.advance();
-        name += wildcard_token.value;
-        end_range = wildcard_token.range.end;
+      // Only coalesce wildcards for actual varlist tokens, not standalone wildcards
+      const is_varlist_token = var_token.type === 'WORD' || var_token.type === 'MACRO_REF_LOCAL' ||
+          var_token.type === 'MACRO_REF_GLOBAL';
+      if (is_varlist_token) {
+        // Coalesce adjacent wildcard tokens
+        while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
+               this.isAdjacentToken(this.previous(), this.peek())) {
+          const wildcard_token = this.advance();
+          name += wildcard_token.value;
+          end_range = wildcard_token.range.end;
+        }
       }
       
       varlist.push({
@@ -2343,12 +2348,17 @@ export class StataParser {
       let name = var_token.value;
       let end_range = var_token.range.end;
       
-      // Coalesce adjacent wildcard tokens
-      while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
-             this.isAdjacentToken(this.previous(), this.peek())) {
-        const wildcard_token = this.advance();
-        name += wildcard_token.value;
-        end_range = wildcard_token.range.end;
+      // Only coalesce wildcards for actual varlist tokens, not standalone wildcards
+      const is_varlist_token = var_token.type === 'WORD' || var_token.type === 'MACRO_REF_LOCAL' ||
+          var_token.type === 'MACRO_REF_GLOBAL';
+      if (is_varlist_token) {
+        // Coalesce adjacent wildcard tokens
+        while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
+               this.isAdjacentToken(this.previous(), this.peek())) {
+          const wildcard_token = this.advance();
+          name += wildcard_token.value;
+          end_range = wildcard_token.range.end;
+        }
       }
       
       varlist.push({
@@ -2550,7 +2560,7 @@ export class StataParser {
 
   /**
    * Check if a token is a wildcard operator (* or ?).
-   * Note: * is tokenized as OPERATOR, but ? may be tokenized as WORD.
+   * Note: * is always tokenized as OPERATOR, but ? can be tokenized as either OPERATOR or WORD.
    */
   private isWildcardToken(token: Token): boolean {
     if (token.value === '*' && token.type === 'OPERATOR') {
