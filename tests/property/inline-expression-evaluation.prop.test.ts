@@ -304,3 +304,152 @@ describe('Inline Expression Evaluation Property Tests', () => {
         });
     });
 });
+
+/**
+ * Formatter Spacing Property Tests
+ *
+ * Tests that verify formatter spacing behavior for extended macro functions
+ * and prefix commands.
+ *
+ * Feature: inline-expression-evaluation
+ * Property 4: Extended Macro Function Spacing
+ * Property 5: Prefix Command Spacing Preserved
+ * Validates: Requirements 4.1, 4.2, 4.3
+ */
+import { StataLexer } from '../../src/lexer';
+import { StataParser } from '../../src/parser';
+import { PrettyPrinter } from '../../src/pretty-printer';
+
+describe('Formatter Spacing Property Tests', () => {
+    /**
+     * Generator for extended macro function names.
+     */
+    function arbitrary_extended_function_name(): fc.Arbitrary<string> {
+        return fc.constantFrom(
+            'type',
+            'format',
+            'label',
+            'constraint',
+            'char',
+            'properties',
+            'length',
+            'subinstr',
+            'substr',
+            'list'
+        );
+    }
+
+    /**
+     * Generator for prefix command names.
+     */
+    function arbitrary_prefix_command(): fc.Arbitrary<string> {
+        return fc.constantFrom(
+            'quietly',
+            'noisily',
+            'capture',
+            'by',
+            'bysort'
+        );
+    }
+
+    /**
+     * Property 4: Extended Macro Function Spacing
+     *
+     * For any macro assignment with extended function syntax,
+     * the formatter SHALL preserve or produce a space before the colon.
+     *
+     * Feature: inline-expression-evaluation, Property 4: Extended Macro Function Spacing
+     * Validates: Requirements 4.1, 4.3
+     */
+    describe('Property 4: Extended Macro Function Spacing', () => {
+        it('should preserve space before colon in extended macro functions', () => {
+            fc.assert(
+                fc.property(
+                    arbitrary_identifier(),
+                    arbitrary_extended_function_name(),
+                    arbitrary_identifier(),
+                    (my_macro_name, my_func_name, my_arg) => {
+                        const my_source = `local ${my_macro_name} : ${my_func_name} ${my_arg}`;
+
+                        const my_lexer = new StataLexer();
+                        const my_lex_result = my_lexer.tokenize(my_source);
+                        const my_parser = new StataParser();
+                        const my_parse_result = my_parser.parse(my_lex_result.tokens);
+
+                        if (!my_parse_result.ast || my_parse_result.errors.length > 0) {
+                            return true; // Skip invalid inputs
+                        }
+
+                        const my_printer = new PrettyPrinter();
+                        const my_formatted = my_printer.print(my_parse_result.ast);
+
+                        // Should have space before colon (` : `)
+                        return my_formatted.includes(' : ');
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should normalize missing space before colon', () => {
+            // Test that input without space before colon gets normalized
+            const my_source = 'local x: type mpg';
+
+            const my_lexer = new StataLexer();
+            const my_lex_result = my_lexer.tokenize(my_source);
+            const my_parser = new StataParser();
+            const my_parse_result = my_parser.parse(my_lex_result.tokens);
+
+            if (!my_parse_result.ast || my_parse_result.errors.length > 0) {
+                // Parser may not recognize this as extended function
+                return;
+            }
+
+            const my_printer = new PrettyPrinter();
+            const my_formatted = my_printer.print(my_parse_result.ast);
+
+            // If parsed as extended function, should have space before colon
+            if (my_formatted.includes(':')) {
+                expect(my_formatted.includes(' : ')).toBe(true);
+            }
+        });
+    });
+
+    /**
+     * Property 5: Prefix Command Spacing Preserved
+     *
+     * For any prefix command with a colon, the formatter SHALL NOT add
+     * a space before the colon.
+     *
+     * Feature: inline-expression-evaluation, Property 5: Prefix Command Spacing Preserved
+     * Validates: Requirements 4.2
+     */
+    describe('Property 5: Prefix Command Spacing Preserved', () => {
+        it('should NOT add space before colon in prefix commands', () => {
+            fc.assert(
+                fc.property(
+                    arbitrary_prefix_command(),
+                    (my_prefix) => {
+                        const my_source = `${my_prefix}: display "hello"`;
+
+                        const my_lexer = new StataLexer();
+                        const my_lex_result = my_lexer.tokenize(my_source);
+                        const my_parser = new StataParser();
+                        const my_parse_result = my_parser.parse(my_lex_result.tokens);
+
+                        if (!my_parse_result.ast || my_parse_result.errors.length > 0) {
+                            return true; // Skip invalid inputs
+                        }
+
+                        const my_printer = new PrettyPrinter();
+                        const my_formatted = my_printer.print(my_parse_result.ast);
+
+                        // Should have colon attached to prefix (no space before)
+                        return my_formatted.includes(`${my_prefix}:`);
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+    });
+});

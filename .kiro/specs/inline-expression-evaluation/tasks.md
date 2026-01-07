@@ -35,23 +35,23 @@ This implementation adds support for inline colon-expression syntax (`` `:functi
     - **Property 3: Nested Macro Validation in Inline Expressions**
     - **Validates: Requirements 1.3**
 
-- [ ] 3. Checkpoint - Ensure all tests pass
+- [x] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. Verify formatter spacing behavior
-  - [ ] 4.1 Verify extended macro function spacing in pretty-printer
+- [x] 4. Verify formatter spacing behavior
+  - [x] 4.1 Verify extended macro function spacing in pretty-printer
     - Confirm `local x : type mpg` produces space before colon
     - _Requirements: 4.1_
 
-  - [ ] 4.2 Verify prefix command spacing is preserved
+  - [x] 4.2 Verify prefix command spacing is preserved
     - Confirm `quietly: display` does NOT add space before colon
     - _Requirements: 4.2_
 
-  - [ ] 4.3 Write property test for extended macro function spacing (Property 4)
+  - [x] 4.3 Write property test for extended macro function spacing (Property 4)
     - **Property 4: Extended Macro Function Spacing**
     - **Validates: Requirements 4.1, 4.3**
 
-  - [ ] 4.4 Write property test for prefix command spacing (Property 5)
+  - [x] 4.4 Write property test for prefix command spacing (Property 5)
     - **Property 5: Prefix Command Spacing Preserved**
     - **Validates: Requirements 4.2**
 
