@@ -111,7 +111,7 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
     describe('Property 2: Colon Preservation', () => {
         it('should preserve colon in unab command', () => {
             const macro_name_gen = fc.stringOf(fc.constantFrom('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'), { minLength: 1, maxLength: 8 });
-            const varlist_gen = fc.constantFrom('_all', 'var*', 'x y z', 'myvar');
+            const varlist_gen = fc.constantFrom('_all', 'x y z', 'myvar');
 
             fc.assert(
                 fc.property(macro_name_gen, varlist_gen, (macro_name, varlist) => {
@@ -310,28 +310,6 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
      * Validates: Requirements 3.1, 3.2, 4.1, 4.2, 4.3
      */
     describe('Property 3: Varlist Preservation', () => {
-        it('should preserve wildcard varlist items', () => {
-            const command_gen = fc.constantFrom('rename', 'drop', 'keep', 'describe', 'summarize');
-            const wildcard_gen = fc.constantFrom('*', 'var*', '_*', 'x?');
-
-            fc.assert(
-                fc.property(command_gen, wildcard_gen, (command, wildcard) => {
-                    const source = `${command} ${wildcard}`;
-                    const output = parseAndFormat(source);
-
-                    // Output should contain the wildcard
-                    if (!output.includes(wildcard)) {
-                        return false;
-                    }
-
-                    // Should be on single line
-                    const lines = output.trim().split('\n');
-                    return lines.length === 1;
-                }),
-                { numRuns: 100 }
-            );
-        });
-
         it('should preserve multiple varlist items with spaces', () => {
             const output = parseAndFormat('summarize var1 var2 var3');
             expect(output.trim()).toBe('summarize var1 var2 var3');

@@ -49,6 +49,22 @@ function arbitrary_whitespace(): fc.Arbitrary<string> {
     return fc.integer({ min: 1, max: 5 }).map(n => ' '.repeat(n));
 }
 
+/**
+ * Prefix commands that should not be used as main command names in tests.
+ * These are treated specially by the parser and would be consumed as prefixes.
+ */
+const PREFIX_COMMANDS = ['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi'];
+
+/**
+ * Generate identifiers that are not prefix commands.
+ * Use this for command names that should not be treated as prefixes.
+ */
+function arbitrary_non_prefix_identifier(): fc.Arbitrary<string> {
+    return arbitrary_non_reserved_identifier().filter(
+        (id) => !PREFIX_COMMANDS.includes(id)
+    );
+}
+
 describe('frame prefix whitespace tolerance property tests', () => {
     /**
      * Property 4: Frame Prefix Whitespace Tolerance
@@ -61,7 +77,7 @@ describe('frame prefix whitespace tolerance property tests', () => {
             fc.property(
                 arbitrary_non_reserved_identifier(),
                 arbitrary_whitespace(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_non_prefix_identifier(),
                 (frame_name, whitespace, cmd_name) => {
                     const source = `frame ${frame_name}:${whitespace}${cmd_name} x`;
                     const { cmd, errors } = parse_with_errors(source);
@@ -91,7 +107,7 @@ describe('frame prefix whitespace tolerance property tests', () => {
                 arbitrary_non_reserved_identifier(),
                 arbitrary_whitespace(),
                 arbitrary_whitespace(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_non_prefix_identifier(),
                 (frame_name, ws1, ws2, cmd_name) => {
                     const source = `frame ${frame_name}:${ws1}quietly:${ws2}${cmd_name} x`;
                     const { cmd, errors } = parse_with_errors(source);
@@ -123,7 +139,7 @@ describe('frame prefix whitespace tolerance property tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_non_reserved_identifier(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_non_prefix_identifier(),
                 (frame_name, cmd_name) => {
                     const source = `frame ${frame_name}:${cmd_name} x`;
                     const { cmd, errors } = parse_with_errors(source);
@@ -157,7 +173,7 @@ describe('frame parsing path consistency property tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_non_reserved_identifier(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_non_prefix_identifier(),
                 arbitrary_non_reserved_identifier(),
                 (frame_name, cmd_name, var_name) => {
                     // Parse with no whitespace
