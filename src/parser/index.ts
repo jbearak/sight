@@ -819,49 +819,9 @@ export class StataParser {
           has_colon: true,
           range: this.makeRange(command_token.range.start, this.previous().range.end),
         };
-        prefixes.push(frame_prefix);
         
-        // Parse any additional prefix commands
-        while (this.isPrefixCommand(this.peek().value)) {
-          const prefixToken = this.advance();
-          const prefix: PrefixNode = {
-            type: 'prefix',
-            name: prefixToken.value,
-            fullName: prefixToken.value,
-            range: prefixToken.range,
-          };
-          if (this.check('COLON')) {
-            this.advance();
-            prefix.has_colon = true;
-          }
-          prefixes.push(prefix);
-        }
-        
-        // Now parse the main command
-        if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
-          this.addError('Expected command name after frame prefix', this.peek().range);
-          return {
-            type: 'command',
-            prefix: prefixes,
-            name: '',
-            fullName: '',
-            range: this.makeRange(startToken.range.start, this.previous().range.end),
-          };
-        }
-        
-        const actual_command_token = this.advance();
-        const actual_command_name = actual_command_token.value;
-        
-        // Handle unab specially
-        if (actual_command_name === 'unab') {
-          const unab_node = this.parseUnabCommandBody(actual_command_token);
-          unab_node.prefix = prefixes;
-          unab_node.range = this.makeRange(startToken.range.start, unab_node.range.end);
-          return unab_node;
-        }
-        
-        // Parse the rest of the command normally
-        return this.parseCommandBody(actual_command_token, prefixes, startToken);
+        // Use shared helper for consistent frame prefix parsing
+        return this.parseFramePrefixedCommand(frame_prefix, prefixes, startToken);
       } else {
         // Not frame prefix syntax, backtrack
         this.current = saved_pos;
@@ -1013,6 +973,68 @@ export class StataParser {
       inExpression,
       range: this.makeRange(startToken.range.start, this.previous().range.end),
     };
+  }
+
+  /**
+   * Parse a frame-prefixed command after the frame prefix has been identified.
+   * Shared logic used by both parseCommand and parseFrameBlock to ensure consistent
+   * handling of frame prefix syntax: frame name: [prefix...] command [args]
+   * 
+   * @param frame_prefix - The frame prefix node (already created with has_colon=true)
+   * @param prefixes - Array of prefix nodes to append to (frame_prefix will be added)
+   * @param startToken - The original start token for range calculation
+   * @returns CommandNode representing the frame-prefixed command
+   */
+  private parseFramePrefixedCommand(
+    frame_prefix: PrefixNode,
+    prefixes: PrefixNode[],
+    startToken: Token
+  ): CommandNode {
+    prefixes.push(frame_prefix);
+    
+    // Parse any additional prefix commands (e.g., frame name: quietly: command)
+    while (this.isPrefixCommand(this.peek().value)) {
+      const prefixToken = this.advance();
+      const prefix: PrefixNode = {
+        type: 'prefix',
+        name: prefixToken.value,
+        fullName: prefixToken.value,
+        range: prefixToken.range,
+      };
+      // Consume colon after any prefix command
+      if (this.check('COLON')) {
+        this.advance();
+        prefix.has_colon = true;
+      }
+      prefixes.push(prefix);
+    }
+    
+    // Now parse the main command
+    if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
+      this.addError('Expected command name after frame prefix', this.peek().range);
+      return {
+        type: 'command',
+        prefix: prefixes,
+        name: '',
+        fullName: '',
+        range: this.makeRange(startToken.range.start, this.previous().range.end),
+      };
+    }
+    
+    const command_token = this.advance();
+    const commandName = command_token.value;
+    
+    // Special handling for unab command: unab macroname : varlist
+    if (commandName === 'unab') {
+      const unab_node = this.parseUnabCommandBody(command_token);
+      unab_node.prefix = prefixes;
+      unab_node.range = this.makeRange(startToken.range.start, unab_node.range.end);
+      return unab_node;
+    }
+    
+    // Use parseCommandBody for consistent varlist/option parsing
+    // This ensures wildcards and other features work the same way
+    return this.parseCommandBody(command_token, prefixes, startToken);
   }
 
   /**
