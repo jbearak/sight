@@ -2213,7 +2213,7 @@ export class StataParser {
 
     if (this.check('COLON')) {
       // This is frame prefix syntax: frame name: command
-      // Use shared frame prefix parsing logic (same as parseCommand)
+      // Use shared frame prefix parsing logic for consistent behavior
       this.advance(); // consume colon
       
       // Create a prefix node for the frame
@@ -2226,54 +2226,8 @@ export class StataParser {
         range: this.makeRange(frame_token.range.start, this.previous().range.end),
       };
       
-      // Parse the rest as a command with this prefix
-      const prefixes: PrefixNode[] = [frame_prefix];
-      
-      // Parse any additional prefix commands
-      while (this.isPrefixCommand(this.peek().value)) {
-        const prefixToken = this.advance();
-        const prefix: PrefixNode = {
-          type: 'prefix',
-          name: prefixToken.value,
-          fullName: prefixToken.value,
-          range: prefixToken.range,
-        };
-
-        // Consume colon after any prefix command
-        if (this.check('COLON')) {
-          this.advance();
-          prefix.has_colon = true;
-        }
-
-        prefixes.push(prefix);
-      }
-      
-      // Now parse the main command
-      if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
-        this.addError('Expected command name after frame prefix', this.peek().range);
-        return {
-          type: 'command',
-          prefix: prefixes,
-          name: '',
-          fullName: '',
-          range: this.makeRange(frame_token.range.start, this.previous().range.end),
-        };
-      }
-      
-      const command_token = this.advance();
-      const commandName = command_token.value;
-      
-      // Special handling for unab command: unab macroname : varlist
-      if (commandName === 'unab') {
-        const unab_node = this.parseUnabCommandBody(command_token);
-        unab_node.prefix = prefixes;
-        unab_node.range = this.makeRange(frame_token.range.start, unab_node.range.end);
-        return unab_node;
-      }
-      
-      // Use parseCommandBody for consistent varlist/option parsing
-      // This ensures wildcards and other features work the same way
-      return this.parseCommandBody(command_token, prefixes, frame_token);
+      // Use shared helper for consistent frame prefix parsing
+      return this.parseFramePrefixedCommand(frame_prefix, [], frame_token);
     }
 
     if (!this.check('LBRACE')) {
