@@ -19,6 +19,9 @@ import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { StataLSPConfig, StataDiagnosticCode } from '../../src/types';
 import { create_document_state } from './helpers/document-utils';
 import { arbitrary_identifier } from './generators';
+import { StataLexer } from '../../src/lexer';
+import { StataParser } from '../../src/parser';
+import { PrettyPrinter } from '../../src/pretty-printer';
 
 describe('Inline Expression Evaluation Property Tests', () => {
     let my_diagnostics_provider: DiagnosticsProvider;
@@ -317,9 +320,6 @@ describe('Inline Expression Evaluation Property Tests', () => {
  * Property 5: Prefix Command Spacing Preserved
  * Validates: Requirements 4.1, 4.2, 4.3
  */
-import { StataLexer } from '../../src/lexer';
-import { StataParser } from '../../src/parser';
-import { PrettyPrinter } from '../../src/pretty-printer';
 
 describe('Formatter Spacing Property Tests', () => {
     /**
