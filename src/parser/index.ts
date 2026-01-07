@@ -893,48 +893,9 @@ export class StataParser {
           range: var_token.range,
         });
       } else if (this.check('LPAREN')) {
-        // Handle parenthesized groups (e.g., getmata (var1 var2)=matrix)
-        // Capture the entire parenthesized expression as a single varlist item
-        const paren_start = this.advance(); // consume (
-        const paren_parts = [];
-        let paren_depth = 1;
-        let last_was_word = false;
-        while (!this.isAtEnd() && paren_depth > 0) {
-          if (this.check('LPAREN')) {
-            paren_depth++;
-            paren_parts.push(this.advance().value);
-            last_was_word = false;
-          } else if (this.check('RPAREN')) {
-            paren_depth--;
-            if (paren_depth > 0) {
-              paren_parts.push(this.advance().value);
-            }
-            last_was_word = false;
-          } else {
-            const current_is_word = this.check('WORD') ||
-                this.check('NUMBER') || this.check('MACRO_REF_LOCAL') ||
-                this.check('MACRO_REF_GLOBAL');
-            // Add space between consecutive word-like tokens
-            if (last_was_word && current_is_word) {
-              paren_parts.push(' ');
-            }
-            paren_parts.push(this.advance().value);
-            last_was_word = current_is_word;
-          }
-        }
-        const paren_content = paren_parts.join('');
-        const paren_end_pos = this.check('RPAREN')
-            ? this.peek().range.end
-            : this.previous().range.end;
-        if (this.check('RPAREN')) {
-          this.advance(); // consume closing paren
-        }
-        // Add the parenthesized content as a single varlist item with parens
-        if (paren_content.trim()) {
-          varlist.push({
-            name: `(${paren_content})`,
-            range: this.makeRange(paren_start.range.start, paren_end_pos),
-          });
+        const paren_node = this.parseParenthesizedGroup();
+        if (paren_node) {
+          varlist.push(paren_node);
         }
       } else if (this.check('OPERATOR') && this.peek().value === '=') {
         // Stop at assignment operator
@@ -1145,45 +1106,9 @@ export class StataParser {
           range: var_token.range,
         });
       } else if (this.check('LPAREN')) {
-        // Handle parenthesized groups (e.g., frame myframe: command (xy)=m)
-        const paren_start = this.advance(); // consume (
-        const paren_parts = [];
-        let paren_depth = 1;
-        let last_was_word = false;
-        while (!this.isAtEnd() && paren_depth > 0) {
-          if (this.check('LPAREN')) {
-            paren_depth++;
-            paren_parts.push(this.advance().value);
-            last_was_word = false;
-          } else if (this.check('RPAREN')) {
-            paren_depth--;
-            if (paren_depth > 0) {
-              paren_parts.push(this.advance().value);
-            }
-            last_was_word = false;
-          } else {
-            const current_is_word = this.check('WORD') ||
-                this.check('NUMBER') || this.check('MACRO_REF_LOCAL') ||
-                this.check('MACRO_REF_GLOBAL');
-            if (last_was_word && current_is_word) {
-              paren_parts.push(' ');
-            }
-            paren_parts.push(this.advance().value);
-            last_was_word = current_is_word;
-          }
-        }
-        const paren_content = paren_parts.join('');
-        const paren_end_pos = this.check('RPAREN')
-            ? this.peek().range.end
-            : this.previous().range.end;
-        if (this.check('RPAREN')) {
-          this.advance(); // consume closing paren
-        }
-        if (paren_content.trim()) {
-          varlist.push({
-            name: `(${paren_content})`,
-            range: this.makeRange(paren_start.range.start, paren_end_pos),
-          });
+        const paren_node = this.parseParenthesizedGroup();
+        if (paren_node) {
+          varlist.push(paren_node);
         }
       } else if (this.check('OPERATOR') && this.peek().value === '=') {
         // Stop at assignment operator
@@ -1325,6 +1250,65 @@ export class StataParser {
     return {
       name: path,
       range: { start: start_token.range.start, end: end_range }
+    };
+  }
+
+  /**
+   * Parse a parenthesized group from the token stream.
+   * Assumes the current token is LPAREN.
+   * Handles nested parentheses and preserves spacing between word-like tokens.
+   * 
+   * @returns IdentifierNode with the parenthesized content including surrounding
+   *          parens, or null if the parenthesized group is empty/whitespace-only
+   */
+  private parseParenthesizedGroup(): IdentifierNode | null {
+    const paren_start = this.advance(); // consume (
+    const paren_parts: string[] = [];
+    let paren_depth = 1;
+    let last_was_word = false;
+
+    while (!this.isAtEnd() && paren_depth > 0) {
+      if (this.check('LPAREN')) {
+        paren_depth++;
+        paren_parts.push(this.advance().value);
+        last_was_word = false;
+      } else if (this.check('RPAREN')) {
+        paren_depth--;
+        if (paren_depth > 0) {
+          paren_parts.push(this.advance().value);
+        }
+        last_was_word = false;
+      } else {
+        const current_is_word = this.check('WORD') ||
+            this.check('NUMBER') ||
+            this.check('MACRO_REF_LOCAL') ||
+            this.check('MACRO_REF_GLOBAL');
+        // Add space between consecutive word-like tokens
+        if (last_was_word && current_is_word) {
+          paren_parts.push(' ');
+        }
+        paren_parts.push(this.advance().value);
+        last_was_word = current_is_word;
+      }
+    }
+
+    const paren_content = paren_parts.join('');
+    const paren_end_pos = this.check('RPAREN')
+        ? this.peek().range.end
+        : this.previous().range.end;
+
+    if (this.check('RPAREN')) {
+      this.advance(); // consume closing paren
+    }
+
+    // Return null for empty/whitespace-only content
+    if (!paren_content.trim()) {
+      return null;
+    }
+
+    return {
+      name: `(${paren_content})`,
+      range: this.makeRange(paren_start.range.start, paren_end_pos),
     };
   }
 
