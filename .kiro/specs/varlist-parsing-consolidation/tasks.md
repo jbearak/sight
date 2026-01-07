@@ -6,37 +6,37 @@ This plan refactors `parseCommand` to delegate to `parseCommandBody` for standar
 
 ## Tasks
 
-- [ ] 1. Refactor parseCommand to delegate to parseCommandBody
-  - [ ] 1.1 Remove duplicated varlist parsing code from parseCommand
+- [x] 1. Refactor parseCommand to delegate to parseCommandBody
+  - [x] 1.1 Remove duplicated varlist parsing code from parseCommand
     - Locate the varlist parsing loop (lines ~870-910)
     - Remove file path coalescing code
     - Remove varlist while-loop with parenthesized groups and wildcards
     - _Requirements: 1.1, 1.4_
-  - [ ] 1.2 Remove duplicated expression and qualifier parsing from parseCommand
+  - [x] 1.2 Remove duplicated expression and qualifier parsing from parseCommand
     - Remove expression parsing after `=`
     - Remove if-qualifier parsing
     - Remove in-qualifier parsing
     - _Requirements: 1.1, 1.4_
-  - [ ] 1.3 Remove duplicated option parsing from parseCommand
+  - [x] 1.3 Remove duplicated option parsing from parseCommand
     - Remove option parsing loop after comma
     - Remove option argument parsing
     - _Requirements: 1.1, 1.4_
-  - [ ] 1.4 Add delegation to parseCommandBody
+  - [x] 1.4 Add delegation to parseCommandBody
     - After frame prefix check, add: `return this.parseCommandBody(command_token, prefixes, start_token);`
     - _Requirements: 1.1, 1.4_
 
-- [ ] 2. Verify existing tests pass
-  - [ ] 2.1 Run parser unit tests
+- [x] 2. Verify existing tests pass
+  - [x] 2.1 Run parser unit tests
     - Execute `bun test tests/unit/parser`
     - Ensure no regressions
     - _Requirements: 1.4, 2.1_
-  - [ ] 2.2 Run parser property tests
+  - [x] 2.2 Run parser property tests
     - Execute `bun test tests/property`
     - Verify frame-prefixed-parenthesized-varlist tests pass
     - _Requirements: 1.4, 2.1, 2.2_
 
 
-- [ ] 3. Checkpoint - Ensure all tests pass
+- [x] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 4. Write additional property tests
