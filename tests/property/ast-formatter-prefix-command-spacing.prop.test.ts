@@ -13,17 +13,12 @@ import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
 import { PrettyPrinter } from '../../src/pretty-printer';
 import { CodeFormatter } from '../../src/providers/formatter';
-import { DocumentState } from '../../src/document-store';
-import { ContextTracker } from '../../src/context-tracker';
-import { TextEdit } from 'vscode-languageserver';
 import {
     for_each_formatter_mode_property,
-    for_each_formatter_mode,
     create_formatter_config,
     FormatterMode,
 } from './helpers/formatter-test-utils';
-import { apply_edits } from './helpers';
-import { format_document } from '../../src/providers/formatter';
+import { apply_edits, create_document_state } from './helpers';
 import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('AST Formatter Prefix Command Spacing Property Tests', () => {
@@ -41,39 +36,6 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
         const lex_result = my_lexer.tokenize(source);
         const parse_result = my_parser.parse(lex_result.tokens);
         return my_printer.print(parse_result.ast);
-    }
-
-    /**
-     * Create a document state for formatting.
-     */
-    function create_document_state(source: string): DocumentState {
-        const lexer = new StataLexer();
-        const lex_result = lexer.tokenize(source);
-        const parser = new StataParser();
-        const parse_result = parser.parse(lex_result.tokens);
-        const context_tracker = new ContextTracker();
-        context_tracker.initialize_from_tokens(lex_result.tokens);
-
-        return {
-            uri: 'file:///test.do',
-            content: source,
-            version: 1,
-            ast: parse_result.ast,
-            tokens: lex_result.tokens,
-            line_offsets: lex_result.line_offsets,
-            symbols: {
-                localMacros: new Map(),
-                globalMacros: new Map(),
-                programs: new Map(),
-                scalars: new Map(),
-                matrices: new Map(),
-                variables: new Map(),
-            },
-            diagnostics: [],
-            context_ranges: [],
-            context_tracker,
-            forward_calls: [],
-        };
     }
 
     /**
@@ -237,35 +199,32 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
      * Validates: Requirements 7.1, 7.2, 7.3
      */
     describe('Property 7: Prefix Command Chain Spacing', () => {
-        it('should add spaces between multiple prefix commands', () => {
-            const prefix1_gen = fc.constantFrom('quietly', 'capture', 'noisily');
-            const prefix2_gen = fc.constantFrom('quietly', 'capture', 'noisily');
-            const command_gen = fc.constantFrom('display', 'summarize', 'list');
+        // Dual-mode property test
+        for_each_formatter_mode_property(
+            'should add spaces between multiple prefix commands',
+            fc.tuple(
+                fc.constantFrom('quietly', 'capture', 'noisily'),
+                fc.constantFrom('quietly', 'capture', 'noisily'),
+                fc.constantFrom('display', 'summarize', 'list')
+            ),
+            (mode, [prefix1, prefix2, command]) => {
+                // Skip if same prefix (not typical usage)
+                if (prefix1 === prefix2) return true;
 
-            fc.assert(
-                fc.property(prefix1_gen, prefix2_gen, command_gen, (prefix1, prefix2, command) => {
-                    // Skip if same prefix (not typical usage)
-                    if (prefix1 === prefix2) return true;
+                const source = `${prefix1} ${prefix2}: ${command}`;
+                const output = formatWithMode(source, mode);
 
-                    const source = `${prefix1} ${prefix2}: ${command}`;
-                    const output = parseAndFormat(source);
+                // Should be on single line
+                const lines = output.trim().split('\n');
+                expect(lines.length).toBe(1);
 
-                    // Should be on single line
-                    const lines = output.trim().split('\n');
-                    if (lines.length !== 1) {
-                        return false;
-                    }
+                // Should have spaces between prefixes
+                expect(output).toContain(`${prefix1} `);
 
-                    // Should have spaces between prefixes
-                    if (!output.includes(`${prefix1} `)) {
-                        return false;
-                    }
-
-                    return true;
-                }),
-                { numRuns: 100 }
-            );
-        });
+                return true;
+            },
+            100
+        );
 
         it('should format capture quietly: display correctly', () => {
             const output = parseAndFormat('capture quietly: display "test"');
