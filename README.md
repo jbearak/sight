@@ -804,7 +804,9 @@ local result `macro_from_program'
 local result `macro_from_program'  // @lsp-ignore
 ```
 
-This is useful for macros created by `c_local` in called programs, where the LSP cannot statically determine that the macro will be defined.
+<a id="what-the-lsp-can-detect"></a>
+
+This is useful when the LSP cannot automatically detect that a macro will be defined. The LSP can trace `do`/`run`/`include` calls to find macros defined in other files, and it can detect macros created by called programs when the macro name is fixed or set via a program option. In other situations, you can use `@lsp-ignore` or `@lsp-ignore-next` to suppress diagnostics for a specific line, or `@lsp-local` to declare the macro to the LSP.
 
 #### Declaring Symbols with Directives
 
@@ -862,7 +864,7 @@ my_utility arg1 arg2
 - Trailing whitespace after the symbol name is allowed
 
 **When to use declaration directives:**
-- When a macro is created by `c_local` in a called program
+- When a macro is created by `c_local` in a called program and the LSP cannot detect it (see [what the LSP can detect](#what-the-lsp-can-detect))
 - When symbols are defined by external Stata commands or plugins
 - When symbols are conditionally defined in ways the LSP cannot analyze
 - When working with dynamically generated code
