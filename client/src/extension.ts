@@ -71,7 +71,9 @@ export function activate(context: ExtensionContext) {
         documentSelector: [{ scheme: 'file', language: 'stata' }],
         synchronize: {
             // Notify the server about file changes to '.clientrc files contained in the workspace
-            fileEvents: workspace.createFileSystemWatcher('**/*.{do,ado}')
+            fileEvents: workspace.createFileSystemWatcher('**/*.{do,ado}'),
+            // Synchronize the 'sight' configuration section with the server
+            configurationSection: 'sight'
         }
     };
 
