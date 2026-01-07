@@ -22,6 +22,7 @@ import {
     create_formatter_config,
     FormatterMode,
 } from './helpers/formatter-test-utils';
+import { apply_edits } from './helpers';
 import { format_document } from '../../src/providers/formatter';
 import { arbitrary_non_reserved_identifier } from './generators';
 
@@ -40,17 +41,6 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
         const lex_result = my_lexer.tokenize(source);
         const parse_result = my_parser.parse(lex_result.tokens);
         return my_printer.print(parse_result.ast);
-    }
-
-    /**
-     * Apply text edits to source to get formatted result.
-     */
-    function apply_edits(source: string, edits: TextEdit[]): string {
-        if (edits.length === 0) return source;
-        if (edits.length === 1) {
-            return edits[0].newText;
-        }
-        return edits[0].newText;
     }
 
     /**

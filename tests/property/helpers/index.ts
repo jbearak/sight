@@ -39,3 +39,6 @@ export {
   range_contains,
   merge_ranges,
 } from './position-utils';
+
+// Text edit utilities
+export { apply_edits, find_command_nodes } from './text-edit-utils';

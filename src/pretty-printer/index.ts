@@ -292,8 +292,12 @@ export class PrettyPrinter {
     private printPrefix(prefix: PrefixNode): string {
         let result = prefix.name;
 
+        // Handle frame prefix with frame name
+        if (prefix.frameName) {
+            result += ' ' + prefix.frameName;
+        }
         // Handle 'by' prefix with variable list
-        if (prefix.varlist && prefix.varlist.length > 0) {
+        else if (prefix.varlist && prefix.varlist.length > 0) {
             result += ' ' + prefix.varlist.join(' ');
         }
 
