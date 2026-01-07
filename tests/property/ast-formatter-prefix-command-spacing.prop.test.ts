@@ -22,6 +22,17 @@ import {
 import { apply_edits, create_document_state } from './helpers';
 import { arbitrary_non_reserved_identifier } from './generators';
 
+/**
+ * Format source using CodeFormatter with specified mode.
+ */
+function formatWithMode(source: string, mode: FormatterMode): string {
+    const config = create_formatter_config(mode);
+    const doc_state = create_document_state(source);
+    const formatter = new CodeFormatter();
+    const edits = formatter.format(doc_state, { tabSize: 4, insertSpaces: true }, config);
+    return apply_edits(source, edits);
+}
+
 describe('AST Formatter Prefix Command Spacing Property Tests', () => {
     let my_parser: StataParser;
     let my_lexer: StataLexer;
@@ -37,17 +48,6 @@ describe('AST Formatter Prefix Command Spacing Property Tests', () => {
         const lex_result = my_lexer.tokenize(source);
         const parse_result = my_parser.parse(lex_result.tokens);
         return my_printer.print(parse_result.ast);
-    }
-
-    /**
-     * Format source using CodeFormatter with specified mode.
-     */
-    function formatWithMode(source: string, mode: FormatterMode): string {
-        const config = create_formatter_config(mode);
-        const doc_state = create_document_state(source);
-        const formatter = new CodeFormatter();
-        const edits = formatter.format(doc_state, { tabSize: 4, insertSpaces: true }, config);
-        return apply_edits(source, edits);
     }
 
     /**
@@ -249,17 +249,6 @@ describe('AST Formatter Prefix Command Spacing Unit Tests', () => {
         const lex_result = my_lexer.tokenize(source);
         const parse_result = my_parser.parse(lex_result.tokens);
         return my_printer.print(parse_result.ast);
-    }
-
-    /**
-     * Format source using CodeFormatter with specified mode.
-     */
-    function formatWithMode(source: string, mode: FormatterMode): string {
-        const config = create_formatter_config(mode);
-        const doc_state = create_document_state(source);
-        const formatter = new CodeFormatter();
-        const edits = formatter.format(doc_state, { tabSize: 4, insertSpaces: true }, config);
-        return apply_edits(source, edits);
     }
 
     describe('Task 2.3: Unit tests for prefix colon examples', () => {

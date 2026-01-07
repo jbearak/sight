@@ -19,9 +19,6 @@ import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { StataLSPConfig, StataDiagnosticCode } from '../../src/types';
 import { create_document_state } from './helpers/document-utils';
 import { arbitrary_identifier } from './generators';
-import { StataLexer } from '../../src/lexer';
-import { StataParser } from '../../src/parser';
-import { PrettyPrinter } from '../../src/pretty-printer';
 
 describe('Inline Expression Evaluation Property Tests', () => {
     let my_diagnostics_provider: DiagnosticsProvider;
@@ -321,6 +318,26 @@ describe('Inline Expression Evaluation Property Tests', () => {
  * Validates: Requirements 4.1, 4.2, 4.3
  */
 
+import { CodeFormatter } from '../../src/providers/formatter';
+import {
+    for_each_formatter_mode,
+    for_each_formatter_mode_property,
+    create_formatter_config,
+    FormatterMode,
+} from './helpers/formatter-test-utils';
+import { apply_edits } from './helpers';
+
+/**
+ * Format source using CodeFormatter with specified mode.
+ */
+function formatWithMode(source: string, mode: FormatterMode): string {
+    const config = create_formatter_config(mode);
+    const doc_state = create_document_state(source);
+    const formatter = new CodeFormatter();
+    const edits = formatter.format(doc_state, { tabSize: 4, insertSpaces: true }, config);
+    return apply_edits(source, edits);
+}
+
 describe('Formatter Spacing Property Tests', () => {
     /**
      * Generator for extended macro function names.
@@ -363,55 +380,36 @@ describe('Formatter Spacing Property Tests', () => {
      * Validates: Requirements 4.1, 4.3
      */
     describe('Property 4: Extended Macro Function Spacing', () => {
-        it('should preserve space before colon in extended macro functions', () => {
-            fc.assert(
-                fc.property(
-                    arbitrary_identifier(),
-                    arbitrary_extended_function_name(),
-                    arbitrary_identifier(),
-                    (my_macro_name, my_func_name, my_arg) => {
-                        const my_source = `local ${my_macro_name} : ${my_func_name} ${my_arg}`;
+        for_each_formatter_mode_property(
+            'should preserve space before colon in extended macro functions',
+            fc.tuple(
+                arbitrary_identifier(),
+                arbitrary_extended_function_name(),
+                arbitrary_identifier()
+            ),
+            (mode, [my_macro_name, my_func_name, my_arg]) => {
+                const my_source = `local ${my_macro_name} : ${my_func_name} ${my_arg}`;
+                const my_formatted = formatWithMode(my_source, mode);
 
-                        const my_lexer = new StataLexer();
-                        const my_lex_result = my_lexer.tokenize(my_source);
-                        const my_parser = new StataParser();
-                        const my_parse_result = my_parser.parse(my_lex_result.tokens);
+                // Should have space before colon (` : `)
+                return my_formatted.includes(' : ');
+            },
+            100
+        );
 
-                        if (!my_parse_result.ast || my_parse_result.errors.length > 0) {
-                            return true; // Skip invalid inputs
-                        }
-
-                        const my_printer = new PrettyPrinter();
-                        const my_formatted = my_printer.print(my_parse_result.ast);
-
-                        // Should have space before colon (` : `)
-                        return my_formatted.includes(' : ');
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
-
-        it('should normalize missing space before colon', () => {
+        for_each_formatter_mode('should normalize missing space before colon', (mode) => {
             // Test that input without space before colon gets normalized
+            // Note: source-preserving mode preserves original spacing, so this only applies to AST mode
             const my_source = 'local x: type mpg';
-
-            const my_lexer = new StataLexer();
-            const my_lex_result = my_lexer.tokenize(my_source);
-            const my_parser = new StataParser();
-            const my_parse_result = my_parser.parse(my_lex_result.tokens);
-
-            if (!my_parse_result.ast || my_parse_result.errors.length > 0) {
-                // Parser may not recognize this as extended function
-                return;
-            }
-
-            const my_printer = new PrettyPrinter();
-            const my_formatted = my_printer.print(my_parse_result.ast);
+            const my_formatted = formatWithMode(my_source, mode);
 
             // If parsed as extended function, should have space before colon
+            // Only AST mode normalizes spacing; source-preserving mode preserves original
             if (my_formatted.includes(':')) {
-                expect(my_formatted.includes(' : ')).toBe(true);
+                if (mode === 'ast') {
+                    expect(my_formatted.includes(' : ')).toBe(true);
+                }
+                // source-preserving mode preserves original spacing, so no assertion
             }
         });
     });
@@ -426,31 +424,17 @@ describe('Formatter Spacing Property Tests', () => {
      * Validates: Requirements 4.2
      */
     describe('Property 5: Prefix Command Spacing Preserved', () => {
-        it('should NOT add space before colon in prefix commands', () => {
-            fc.assert(
-                fc.property(
-                    arbitrary_prefix_command(),
-                    (my_prefix) => {
-                        const my_source = `${my_prefix}: display "hello"`;
+        for_each_formatter_mode_property(
+            'should NOT add space before colon in prefix commands',
+            arbitrary_prefix_command(),
+            (mode, my_prefix) => {
+                const my_source = `${my_prefix}: display "hello"`;
+                const my_formatted = formatWithMode(my_source, mode);
 
-                        const my_lexer = new StataLexer();
-                        const my_lex_result = my_lexer.tokenize(my_source);
-                        const my_parser = new StataParser();
-                        const my_parse_result = my_parser.parse(my_lex_result.tokens);
-
-                        if (!my_parse_result.ast || my_parse_result.errors.length > 0) {
-                            return true; // Skip invalid inputs
-                        }
-
-                        const my_printer = new PrettyPrinter();
-                        const my_formatted = my_printer.print(my_parse_result.ast);
-
-                        // Should have colon attached to prefix (no space before)
-                        return my_formatted.includes(`${my_prefix}:`);
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
+                // Should have colon attached to prefix (no space before)
+                return my_formatted.includes(`${my_prefix}:`);
+            },
+            100
+        );
     });
 });
