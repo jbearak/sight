@@ -54,18 +54,18 @@ This plan refactors `parseCommand` to delegate to `parseCommandBody` for standar
     - Verify path tokens are coalesced correctly
     - **Validates: Requirements 2.4**
 
-- [ ] 5. Verify special commands still work
-  - [ ] 5.1 Test unab command parsing
+- [x] 5. Verify special commands still work
+  - [x] 5.1 Test unab command parsing
     - Verify `unab macroname : varlist` parses correctly
     - _Requirements: 1.2_
-  - [ ] 5.2 Test args command parsing
+  - [x] 5.2 Test args command parsing
     - Verify `args name1 name2` parses correctly
     - _Requirements: 1.2_
-  - [ ] 5.3 Test frame prefix parsing
+  - [x] 5.3 Test frame prefix parsing
     - Verify `frame name: command` parses correctly
     - _Requirements: 1.3_
 
-- [ ] 6. Final checkpoint - Ensure all tests pass
+- [x] 6. Final checkpoint - Ensure all tests pass
   - Run full test suite: `bun run test`
   - Ensure all tests pass, ask the user if questions arise.
 
