@@ -122,8 +122,12 @@ describe('Wildcard operator detection (Property 7)', () => {
                 const cmd = the_commands[0];
                 expect(cmd.varlist).toBeDefined();
                 
-                // Check that wildcard is in varlist
-                const has_wildcard = cmd.varlist!.some(v => v.name === '*' || v.name === '?');
+                // Check that wildcard is in varlist (either as separate item or coalesced)
+                // With coalescing, patterns like "var*" become a single item with name "var*"
+                const has_wildcard = cmd.varlist!.some(v => 
+                    v.name === '*' || v.name === '?' || 
+                    v.name.includes('*') || v.name.includes('?')
+                );
                 expect(has_wildcard).toBe(true);
             }),
             { numRuns: 100 }
@@ -163,9 +167,12 @@ describe('Wildcard preservation in frame commands (Property 3)', () => {
                 expect(cmd.prefix).toBeDefined();
                 expect(cmd.prefix!.some(p => p.name === 'frame')).toBe(true);
                 
-                // Should have wildcard in varlist
+                // Should have wildcard in varlist (either as separate item or coalesced)
                 expect(cmd.varlist).toBeDefined();
-                const has_wildcard = cmd.varlist!.some(v => v.name === '*' || v.name === '?');
+                const has_wildcard = cmd.varlist!.some(v => 
+                    v.name === '*' || v.name === '?' ||
+                    v.name.includes('*') || v.name.includes('?')
+                );
                 expect(has_wildcard).toBe(true);
             }),
             { numRuns: 100 }
@@ -181,7 +188,11 @@ describe('Wildcard preservation in frame commands (Property 3)', () => {
             // First parse
             const ast1 = parse(source);
             const cmd1 = find_command_nodes(ast1)[0];
-            const wildcards1 = cmd1.varlist?.filter(v => v.name === '*' || v.name === '?') ?? [];
+            // With coalescing, wildcards may be part of combined names like "var*"
+            const wildcards1 = cmd1.varlist?.filter(v => 
+                v.name === '*' || v.name === '?' ||
+                v.name.includes('*') || v.name.includes('?')
+            ) ?? [];
             
             // Format
             const doc_state = create_document_state(source);
@@ -192,7 +203,10 @@ describe('Wildcard preservation in frame commands (Property 3)', () => {
             // Second parse
             const ast2 = parse(formatted);
             const cmd2 = find_command_nodes(ast2)[0];
-            const wildcards2 = cmd2.varlist?.filter(v => v.name === '*' || v.name === '?') ?? [];
+            const wildcards2 = cmd2.varlist?.filter(v => 
+                v.name === '*' || v.name === '?' ||
+                v.name.includes('*') || v.name.includes('?')
+            ) ?? [];
             
             // Wildcards should be preserved
             expect(wildcards2.length).toBe(wildcards1.length);
@@ -212,9 +226,12 @@ describe('Wildcard AST locations (Property 8.3)', () => {
                 const the_commands = find_command_nodes(ast);
                 
                 for (const my_cmd of the_commands) {
-                    // Wildcards should be in varlist
+                    // Wildcards should be in varlist (either as separate items or coalesced)
                     if (my_cmd.varlist) {
-                        const wildcards_in_varlist = my_cmd.varlist.filter(v => v.name === '*' || v.name === '?');
+                        const wildcards_in_varlist = my_cmd.varlist.filter(v => 
+                            v.name === '*' || v.name === '?' ||
+                            v.name.includes('*') || v.name.includes('?')
+                        );
                         // If source has wildcard, it should be in varlist
                         if (source.includes('*') || source.includes('?')) {
                             expect(wildcards_in_varlist.length).toBeGreaterThan(0);

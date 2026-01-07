@@ -984,9 +984,21 @@ export class StataParser {
           this.check('NUMBER') || is_wildcard;
       if (is_varlist_token) {
         const var_token = this.advance();
+        let name = var_token.value;
+        let end_range = var_token.range.end;
+        
+        // Coalesce adjacent wildcard tokens (e.g., var* -> single item "var*")
+        // Only coalesce if the wildcard immediately follows (no whitespace)
+        while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
+               this.isAdjacentToken(this.previous(), this.peek())) {
+          const wildcard_token = this.advance();
+          name += wildcard_token.value;
+          end_range = wildcard_token.range.end;
+        }
+        
         varlist.push({
-          name: var_token.value,
-          range: var_token.range,
+          name: name,
+          range: { start: var_token.range.start, end: end_range },
         });
       } else if (this.check('LPAREN')) {
         const paren_node = this.parseParenthesizedGroup();
@@ -1235,12 +1247,24 @@ export class StataParser {
     
     // Parse variable list after colon
     while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
-            this.check('MACRO_REF_GLOBAL')) &&
+            this.check('MACRO_REF_GLOBAL') ||
+            (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
            !this.check('COMMA') && !this.isTrivia()) {
       const var_token = this.advance();
+      let name = var_token.value;
+      let end_range = var_token.range.end;
+      
+      // Coalesce adjacent wildcard tokens
+      while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
+             this.isAdjacentToken(this.previous(), this.peek())) {
+        const wildcard_token = this.advance();
+        name += wildcard_token.value;
+        end_range = wildcard_token.range.end;
+      }
+      
       varlist.push({
-        name: var_token.value,
-        range: var_token.range,
+        name: name,
+        range: { start: var_token.range.start, end: end_range },
       });
     }
     
@@ -2312,12 +2336,24 @@ export class StataParser {
     
     // Parse variable list after colon
     while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
-            this.check('MACRO_REF_GLOBAL')) &&
+            this.check('MACRO_REF_GLOBAL') ||
+            (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
            !this.check('COMMA') && !this.isTrivia()) {
       const var_token = this.advance();
+      let name = var_token.value;
+      let end_range = var_token.range.end;
+      
+      // Coalesce adjacent wildcard tokens
+      while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
+             this.isAdjacentToken(this.previous(), this.peek())) {
+        const wildcard_token = this.advance();
+        name += wildcard_token.value;
+        end_range = wildcard_token.range.end;
+      }
+      
       varlist.push({
-        name: var_token.value,
-        range: var_token.range,
+        name: name,
+        range: { start: var_token.range.start, end: end_range },
       });
     }
     
@@ -2501,6 +2537,29 @@ export class StataParser {
 
   private isAtEnd(): boolean {
     return this.peek().type === 'EOF';
+  }
+
+  /**
+   * Check if two tokens are adjacent (no whitespace between them).
+   * Adjacent means prev_token.range.end equals next_token.range.start.
+   */
+  private isAdjacentToken(prev_token: Token, next_token: Token): boolean {
+    return prev_token.range.end.line === next_token.range.start.line &&
+           prev_token.range.end.character === next_token.range.start.character;
+  }
+
+  /**
+   * Check if a token is a wildcard operator (* or ?).
+   * Note: * is tokenized as OPERATOR, but ? may be tokenized as WORD.
+   */
+  private isWildcardToken(token: Token): boolean {
+    if (token.value === '*' && token.type === 'OPERATOR') {
+      return true;
+    }
+    if (token.value === '?' && (token.type === 'OPERATOR' || token.type === 'WORD')) {
+      return true;
+    }
+    return false;
   }
 
   private peek(): Token {
