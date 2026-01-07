@@ -23,6 +23,7 @@ import {
     create_formatter_config,
     FormatterMode,
 } from './helpers/formatter-test-utils';
+import { apply_edits } from './helpers';
 
 /**
  * Helper to create a Range object.
@@ -47,17 +48,6 @@ function parse_source(source: string): StataAST {
     const parser = new StataParser();
     const lex_result = lexer.tokenize(source);
     return parser.parse(lex_result.tokens).ast;
-}
-
-/**
- * Apply text edits to source to get formatted result.
- */
-function apply_edits(source: string, edits: TextEdit[]): string {
-    if (edits.length === 0) return source;
-    if (edits.length === 1) {
-        return edits[0].newText;
-    }
-    return edits[0].newText;
 }
 
 /**

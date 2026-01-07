@@ -205,6 +205,7 @@ export interface PrefixNode {
   name: string;
   fullName: string;
   varlist?: string[];
+  frameName?: string;  // For frame prefixes with frame names
   has_colon?: boolean;
   range: Range;
 }

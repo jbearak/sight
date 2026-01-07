@@ -336,7 +336,7 @@ export class StataParser {
   }
 
   private parseProgramDefinition(): ProgramNode {
-    const startToken = this.advance(); // consume 'program'
+    const start_token = this.advance(); // consume 'program'
 
     if (!this.checkWord('define')) {
       this.addError('Expected "define" after "program"', this.peek().range);
@@ -353,8 +353,8 @@ export class StataParser {
       throw new Error('Missing program name');
     }
 
-    const nameToken = this.advance();
-    const programName = nameToken.value;
+    const name_token = this.advance();
+    const program_name = name_token.value;
 
     // Skip any additional parameters/options for now
     this.skipToStatementEnd();
@@ -377,7 +377,7 @@ export class StataParser {
     if (this.checkWord('end')) {
       this.advance();
     } else {
-      this.addError('Missing "end" for program definition', startToken.range);
+      this.addError('Missing "end" for program definition', start_token.range);
     }
 
     // Extract and merge signatures from syntax nodes
@@ -385,10 +385,13 @@ export class StataParser {
 
     return {
       type: 'program',
-      name: programName,
+      name: program_name,
       body,
       signature: merged_signature,
-      range: this.makeRange(startToken.range.start, this.previous().range.end),
+      range: this.makeRange(
+        start_token.range.start,
+        this.previous().range.end
+      ),
     };
   }
 
@@ -675,22 +678,22 @@ export class StataParser {
 
 
   private parseCommand(): CommandNode {
-    const startToken = this.peek();
-    const command_start_line = startToken.range.start.line;
+    const start_token = this.peek();
+    const command_start_line = start_token.range.start.line;
 
     // Parse prefix commands (by, quietly, capture, etc.)
     const prefixes: PrefixNode[] = [];
     while (this.isPrefixCommand(this.peek().value)) {
-      const prefixToken = this.advance();
+      const prefix_token = this.advance();
       const prefix: PrefixNode = {
         type: 'prefix',
-        name: prefixToken.value,
-        fullName: prefixToken.value, // TODO: expand abbreviations
-        range: prefixToken.range,
+        name: prefix_token.value,
+        fullName: prefix_token.value, // TODO: expand abbreviations
+        range: prefix_token.range,
       };
 
       // Handle 'by' prefix with variable list
-      if (prefixToken.value === 'by') {
+      if (prefix_token.value === 'by') {
         if (this.check('COLON')) {
           // by varlist: command
           // TODO: parse variable list before colon
@@ -708,29 +711,37 @@ export class StataParser {
       prefixes.push(prefix);
     }
 
-    const commandToken = this.peek();
+    const peeked_token = this.peek();
 
-    // Check if this is a syntax command after prefixes (e.g., qui syntax anything [if] [in])
-    // This must be checked before embedded language blocks to ensure proper parsing
+    // Check if this is a syntax command after prefixes
+    // (e.g., qui syntax anything [if] [in])
+    // This must be checked before embedded language blocks
     if (this.checkWord('syntax')) {
       const syntax_node = this.parseSyntaxCommand();
       // Attach prefixes to the syntax node
       if (prefixes.length > 0) {
         syntax_node.prefix = prefixes;
         // Update range to include prefixes
-        syntax_node.range = this.makeRange(startToken.range.start, syntax_node.range.end);
+        syntax_node.range = this.makeRange(
+          start_token.range.start,
+          syntax_node.range.end
+        );
       }
       return syntax_node as unknown as CommandNode;
     }
 
-    // Check if this is an embedded language block after prefixes (e.g., capture mata: ...)
+    // Check if this is an embedded language block after prefixes
+    // (e.g., capture mata: ...)
     if (this.check('MATA_START') || this.check('MATA_INLINE')) {
       const embedded_node = this.parseEmbeddedLanguageBlock('mata');
       // Attach prefixes to the embedded block
       if (prefixes.length > 0) {
         embedded_node.prefix = prefixes;
         // Update range to include prefixes
-        embedded_node.range = this.makeRange(startToken.range.start, embedded_node.range.end);
+        embedded_node.range = this.makeRange(
+          start_token.range.start,
+          embedded_node.range.end
+        );
       }
       return embedded_node as unknown as CommandNode;
     }
@@ -740,7 +751,10 @@ export class StataParser {
       if (prefixes.length > 0) {
         embedded_node.prefix = prefixes;
         // Update range to include prefixes
-        embedded_node.range = this.makeRange(startToken.range.start, embedded_node.range.end);
+        embedded_node.range = this.makeRange(
+          start_token.range.start,
+          embedded_node.range.end
+        );
       }
       return embedded_node as unknown as CommandNode;
     }
@@ -751,8 +765,9 @@ export class StataParser {
       const lbrace_token = this.advance(); // consume {
 
       // Validate open brace placement
-      // has_condition_before is true if the brace is on the same line as the prefix command
-      const has_condition_before = lbrace_token.range.start.line === command_start_line;
+      // has_condition_before is true if brace is on same line as prefix command
+      const has_condition_before =
+          lbrace_token.range.start.line === command_start_line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
       const body: StataNode[] = [];
@@ -777,7 +792,10 @@ export class StataParser {
         fullName: '{',
         expression: undefined,
         body,
-        range: this.makeRange(startToken.range.start, this.previous().range.end),
+        range: this.makeRange(
+          start_token.range.start,
+          this.previous().range.end
+        ),
       };
     }
 
@@ -815,13 +833,13 @@ export class StataParser {
           type: 'prefix',
           name: 'frame',
           fullName: 'frame',
-          varlist: [frame_name_token.value],
+          frameName: frame_name_token.value,
           has_colon: true,
           range: this.makeRange(command_token.range.start, this.previous().range.end),
         };
         
         // Use shared helper for consistent frame prefix parsing
-        return this.parseFramePrefixedCommand(frame_prefix, prefixes, startToken);
+        return this.parseFramePrefixedCommand(frame_prefix, prefixes, start_token);
       } else {
         // Not frame prefix syntax, backtrack
         this.current = saved_pos;
@@ -833,15 +851,20 @@ export class StataParser {
     const varlist: IdentifierNode[] = [];
     
     // For file commands, try to parse the first argument as a file path
-    if (isFileCommand(commandName) && (this.check('WORD') || this.check('NUMBER') || this.check('OPERATOR') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL'))) {
-      const filePath = this.parseFilePathArgument();
-      if (filePath) {
-        varlist.push(filePath);
+    const is_file_cmd = isFileCommand(commandName);
+    const has_file_arg = this.check('WORD') || this.check('NUMBER') ||
+        this.check('OPERATOR') || this.check('STRING') ||
+        this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
+    if (is_file_cmd && has_file_arg) {
+      const file_path = this.parseFilePathArgument();
+      if (file_path) {
+        varlist.push(file_path);
       }
     }
     
     // Parse remaining arguments normally (including parenthesized groups)
-    while (!this.check('COMMA') && !this.isTrivia() && !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+    while (!this.check('COMMA') && !this.isTrivia() &&
+           !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Stop at 'if' keyword for if-qualifier
       if (this.checkWord('if')) {
         break;
@@ -852,16 +875,20 @@ export class StataParser {
       }
       
       // Check for wildcard operators (* and ?) which are valid in varlists
-      const is_wildcard = this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?');
+      const is_wildcard = this.check('OPERATOR') &&
+          (this.peek().value === '*' || this.peek().value === '?');
       
-      if (this.check('WORD') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') || this.check('NUMBER') || is_wildcard) {
-        const varToken = this.advance();
+      const is_varlist_token = this.check('WORD') || this.check('STRING') ||
+          this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') ||
+          this.check('NUMBER') || is_wildcard;
+      if (is_varlist_token) {
+        const var_token = this.advance();
         varlist.push({
-          name: varToken.value,
-          range: varToken.range,
+          name: var_token.value,
+          range: var_token.range,
         });
       } else if (this.check('LPAREN')) {
-        // Handle parenthesized groups (e.g., getmata (var1 var2)=matrix, exit(1))
+        // Handle parenthesized groups (e.g., getmata (var1 var2)=matrix)
         // Capture the entire parenthesized expression as a single varlist item
         const paren_start = this.advance(); // consume (
         const paren_parts = [];
@@ -879,8 +906,9 @@ export class StataParser {
             }
             last_was_word = false;
           } else {
-            const current_is_word = this.check('WORD') || this.check('NUMBER') || 
-                                    this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
+            const current_is_word = this.check('WORD') ||
+                this.check('NUMBER') || this.check('MACRO_REF_LOCAL') ||
+                this.check('MACRO_REF_GLOBAL');
             // Add space between consecutive word-like tokens
             if (last_was_word && current_is_word) {
               paren_parts.push(' ');
@@ -890,7 +918,9 @@ export class StataParser {
           }
         }
         const paren_content = paren_parts.join('');
-        const paren_end_pos = this.check('RPAREN') ? this.peek().range.end : this.previous().range.end;
+        const paren_end_pos = this.check('RPAREN')
+            ? this.peek().range.end
+            : this.previous().range.end;
         if (this.check('RPAREN')) {
           this.advance(); // consume closing paren
         }
@@ -937,14 +967,15 @@ export class StataParser {
       this.advance(); // consume comma
 
       // Stop at statement terminator, end of file, or comment (trivia)
-      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+      while (!this.check('STATEMENT_TERMINATOR') &&
+             !this.isAtEnd() && !this.isTrivia()) {
         if (this.check('WORD')) {
-          const optionToken = this.advance();
+          const option_token = this.advance();
           const option: OptionNode = {
             type: 'option',
-            name: optionToken.value,
-            fullName: optionToken.value, // TODO: expand abbreviations
-            range: optionToken.range,
+            name: option_token.value,
+            fullName: option_token.value, // TODO: expand abbreviations
+            range: option_token.range,
           };
 
           // Check for option argument
@@ -971,35 +1002,36 @@ export class StataParser {
       expression,
       ifExpression,
       inExpression,
-      range: this.makeRange(startToken.range.start, this.previous().range.end),
+      range: this.makeRange(start_token.range.start, this.previous().range.end),
     };
   }
 
   /**
    * Parse a frame-prefixed command after the frame prefix has been identified.
-   * Shared logic used by both parseCommand and parseFrameBlock to ensure consistent
-   * handling of frame prefix syntax: frame name: [prefix...] command [args]
+   * Shared logic used by both parseCommand and parseFrameBlock to ensure
+   * consistent handling of frame prefix syntax:
+   * frame name: [prefix...] command [args]
    * 
-   * @param frame_prefix - The frame prefix node (already created with has_colon=true)
-   * @param prefixes - Array of prefix nodes to append to (frame_prefix will be added)
-   * @param startToken - The original start token for range calculation
+   * @param frame_prefix - The frame prefix node (has_colon=true)
+   * @param prefixes - Array of prefix nodes to append to
+   * @param start_token - The original start token for range calculation
    * @returns CommandNode representing the frame-prefixed command
    */
   private parseFramePrefixedCommand(
     frame_prefix: PrefixNode,
     prefixes: PrefixNode[],
-    startToken: Token
+    start_token: Token
   ): CommandNode {
     prefixes.push(frame_prefix);
     
     // Parse any additional prefix commands (e.g., frame name: quietly: command)
     while (this.isPrefixCommand(this.peek().value)) {
-      const prefixToken = this.advance();
+      const prefix_token = this.advance();
       const prefix: PrefixNode = {
         type: 'prefix',
-        name: prefixToken.value,
-        fullName: prefixToken.value,
-        range: prefixToken.range,
+        name: prefix_token.value,
+        fullName: prefix_token.value,
+        range: prefix_token.range,
       };
       // Consume colon after any prefix command
       if (this.check('COLON')) {
@@ -1010,54 +1042,73 @@ export class StataParser {
     }
     
     // Now parse the main command
-    if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
-      this.addError('Expected command name after frame prefix', this.peek().range);
+    if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') &&
+        !this.check('MACRO_REF_GLOBAL')) {
+      this.addError(
+        'Expected command name after frame prefix',
+        this.peek().range
+      );
       return {
         type: 'command',
         prefix: prefixes,
         name: '',
         fullName: '',
-        range: this.makeRange(startToken.range.start, this.previous().range.end),
+        range: this.makeRange(
+          start_token.range.start,
+          this.previous().range.end
+        ),
       };
     }
     
     const command_token = this.advance();
-    const commandName = command_token.value;
+    const command_name = command_token.value;
     
     // Special handling for unab command: unab macroname : varlist
-    if (commandName === 'unab') {
+    if (command_name === 'unab') {
       const unab_node = this.parseUnabCommandBody(command_token);
       unab_node.prefix = prefixes;
-      unab_node.range = this.makeRange(startToken.range.start, unab_node.range.end);
+      unab_node.range = this.makeRange(
+        start_token.range.start,
+        unab_node.range.end
+      );
       return unab_node;
     }
     
     // Use parseCommandBody for consistent varlist/option parsing
     // This ensures wildcards and other features work the same way
-    return this.parseCommandBody(command_token, prefixes, startToken);
+    return this.parseCommandBody(command_token, prefixes, start_token);
   }
 
   /**
    * Parse the body of a command (varlist, expression, qualifiers, options).
    * Used when the command name has already been consumed.
    */
-  private parseCommandBody(command_token: Token, prefixes: PrefixNode[], startToken: Token): CommandNode {
-    const commandName = command_token.value;
+  private parseCommandBody(
+    command_token: Token,
+    prefixes: PrefixNode[],
+    start_token: Token
+  ): CommandNode {
+    const command_name = command_token.value;
     
-    // Parse variable list (stop at comma, statement terminator, comment, or 'if' keyword)
-    // Use file path coalescing for file commands
+    // Parse variable list (stop at comma, statement terminator, comment,
+    // or 'if' keyword). Use file path coalescing for file commands.
     const varlist: IdentifierNode[] = [];
     
     // For file commands, try to parse the first argument as a file path
-    if (isFileCommand(commandName) && (this.check('WORD') || this.check('NUMBER') || this.check('OPERATOR') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL'))) {
-      const filePath = this.parseFilePathArgument();
-      if (filePath) {
-        varlist.push(filePath);
+    const is_file_cmd = isFileCommand(command_name);
+    const has_file_arg = this.check('WORD') || this.check('NUMBER') ||
+        this.check('OPERATOR') || this.check('STRING') ||
+        this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
+    if (is_file_cmd && has_file_arg) {
+      const file_path = this.parseFilePathArgument();
+      if (file_path) {
+        varlist.push(file_path);
       }
     }
     
     // Parse remaining arguments normally (including parenthesized groups)
-    while (!this.check('COMMA') && !this.isTrivia() && !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+    while (!this.check('COMMA') && !this.isTrivia() &&
+           !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Stop at 'if' keyword for if-qualifier
       if (this.checkWord('if')) {
         break;
@@ -1069,13 +1120,17 @@ export class StataParser {
       
       // Check for wildcard operators (* and ?) which are valid in varlists
       // This mirrors the logic in parseCommand for consistency
-      const is_wildcard = this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?');
+      const is_wildcard = this.check('OPERATOR') &&
+          (this.peek().value === '*' || this.peek().value === '?');
       
-      if (this.check('WORD') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') || this.check('NUMBER') || is_wildcard) {
-        const varToken = this.advance();
+      const is_varlist_token = this.check('WORD') || this.check('STRING') ||
+          this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') ||
+          this.check('NUMBER') || is_wildcard;
+      if (is_varlist_token) {
+        const var_token = this.advance();
         varlist.push({
-          name: varToken.value,
-          range: varToken.range,
+          name: var_token.value,
+          range: var_token.range,
         });
       } else if (this.check('OPERATOR') && this.peek().value === '=') {
         // Stop at assignment operator
@@ -1140,14 +1195,14 @@ export class StataParser {
     return {
       type: 'command',
       prefix: prefixes.length > 0 ? prefixes : undefined,
-      name: commandName,
-      fullName: commandName,
+      name: command_name,
+      fullName: command_name,
       varlist: varlist.length > 0 ? varlist : undefined,
       options: options.length > 0 ? options : undefined,
       expression,
       ifExpression,
       inExpression,
-      range: this.makeRange(startToken.range.start, this.previous().range.end),
+      range: this.makeRange(start_token.range.start, this.previous().range.end),
     };
   }
 
@@ -1223,8 +1278,11 @@ export class StataParser {
   /**
    * Parse unab command: unab macroname : varlist
    */
-  private parseUnabCommand(commandToken: Token, prefixes: PrefixNode[]): CommandNode {
-    const startPos = commandToken.range.start;
+  private parseUnabCommand(
+    command_token: Token,
+    prefixes: PrefixNode[]
+  ): CommandNode {
+    const start_pos = command_token.range.start;
     
     // Parse macro name
     if (!this.check('WORD')) {
@@ -1232,32 +1290,37 @@ export class StataParser {
       throw new Error('Missing macro name in unab command');
     }
     
-    const macroNameToken = this.advance();
+    const macro_name_token = this.advance();
     const varlist: IdentifierNode[] = [
       {
-        name: macroNameToken.value,
-        range: macroNameToken.range,
+        name: macro_name_token.value,
+        range: macro_name_token.range,
       }
     ];
     
     // Track whether we found a colon - stored in dedicated field, not varlist
-    // This keeps varlists pure (only variable names) while preserving syntax info
+    // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
     
     // Expect colon
     if (!this.check('COLON')) {
-      this.addError('Expected ":" after macro name in unab command', this.peek().range);
+      this.addError(
+        'Expected ":" after macro name in unab command',
+        this.peek().range
+      );
     } else {
       this.advance(); // consume colon
       has_colon_before_varlist = true;
     }
     
     // Parse variable list after colon
-    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) && !this.check('COMMA') && !this.isTrivia()) {
-      const varToken = this.advance();
+    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
+            this.check('MACRO_REF_GLOBAL')) &&
+           !this.check('COMMA') && !this.isTrivia()) {
+      const var_token = this.advance();
       varlist.push({
-        name: varToken.value,
-        range: varToken.range,
+        name: var_token.value,
+        range: var_token.range,
       });
     }
     
@@ -1266,14 +1329,15 @@ export class StataParser {
     if (this.check('COMMA')) {
       this.advance(); // consume comma
 
-      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+      while (!this.check('STATEMENT_TERMINATOR') &&
+             !this.isAtEnd() && !this.isTrivia()) {
         if (this.check('WORD')) {
-          const optionToken = this.advance();
+          const option_token = this.advance();
           const option: OptionNode = {
             type: 'option',
-            name: optionToken.value,
-            fullName: optionToken.value,
-            range: optionToken.range,
+            name: option_token.value,
+            fullName: option_token.value,
+            range: option_token.range,
           };
 
           // Check for option argument
@@ -1299,27 +1363,34 @@ export class StataParser {
       has_colon_before_varlist,
       options: options.length > 0 ? options : undefined,
       expression: undefined,
-      range: this.makeRange(startPos, this.previous().range.end),
+      range: this.makeRange(start_pos, this.previous().range.end),
     };
   }
 
   /**
    * Parse args command: args name1 [name2 ...]
-   * The args command doesn't support if/in qualifiers, so 'if' and 'in' are valid macro names.
+   * The args command doesn't support if/in qualifiers,
+   * so 'if' and 'in' are valid macro names.
    */
-  private parseArgsCommand(commandToken: Token, prefixes: PrefixNode[]): CommandNode {
-    const startPos = commandToken.range.start;
+  private parseArgsCommand(
+    command_token: Token,
+    prefixes: PrefixNode[]
+  ): CommandNode {
+    const start_pos = command_token.range.start;
     
     // Parse macro names - all WORD tokens until statement terminator or trivia
     // Unlike regular commands, 'if' and 'in' are valid macro names here
     const varlist: IdentifierNode[] = [];
     
-    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
-      if (this.check('WORD') || this.check('STRING') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) {
-        const varToken = this.advance();
+    while (!this.check('STATEMENT_TERMINATOR') &&
+           !this.isAtEnd() && !this.isTrivia()) {
+      const is_varlist_token = this.check('WORD') || this.check('STRING') ||
+          this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
+      if (is_varlist_token) {
+        const var_token = this.advance();
         varlist.push({
-          name: varToken.value,
-          range: varToken.range,
+          name: var_token.value,
+          range: var_token.range,
         });
       } else {
         // Stop at other tokens
@@ -1335,7 +1406,7 @@ export class StataParser {
       varlist: varlist.length > 0 ? varlist : undefined,
       options: undefined,
       expression: undefined,
-      range: this.makeRange(startPos, this.previous().range.end),
+      range: this.makeRange(start_pos, this.previous().range.end),
     };
   }
 
@@ -2221,7 +2292,7 @@ export class StataParser {
         type: 'prefix',
         name: 'frame',
         fullName: 'frame',
-        varlist: [name_token.value],
+        frameName: name_token.value,
         has_colon: true,
         range: this.makeRange(frame_token.range.start, this.previous().range.end),
       };
@@ -2279,8 +2350,8 @@ export class StataParser {
    * Parse the body of an unab command (after the command name has been consumed).
    * unab macroname : varlist
    */
-  private parseUnabCommandBody(commandToken: Token): CommandNode {
-    const startPos = commandToken.range.start;
+  private parseUnabCommandBody(command_token: Token): CommandNode {
+    const start_pos = command_token.range.start;
     
     // Parse macro name
     if (!this.check('WORD')) {
@@ -2289,36 +2360,41 @@ export class StataParser {
         type: 'command',
         name: 'unab',
         fullName: 'unab',
-        range: this.makeRange(startPos, this.previous().range.end),
+        range: this.makeRange(start_pos, this.previous().range.end),
       };
     }
     
-    const macroNameToken = this.advance();
+    const macro_name_token = this.advance();
     const varlist: IdentifierNode[] = [
       {
-        name: macroNameToken.value,
-        range: macroNameToken.range,
+        name: macro_name_token.value,
+        range: macro_name_token.range,
       }
     ];
     
     // Track whether we found a colon - stored in dedicated field, not varlist
-    // This keeps varlists pure (only variable names) while preserving syntax info
+    // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
     
     // Expect colon
     if (!this.check('COLON')) {
-      this.addError('Expected ":" after macro name in unab command', this.peek().range);
+      this.addError(
+        'Expected ":" after macro name in unab command',
+        this.peek().range
+      );
     } else {
       this.advance(); // consume colon
       has_colon_before_varlist = true;
     }
     
     // Parse variable list after colon
-    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL')) && !this.check('COMMA') && !this.isTrivia()) {
-      const varToken = this.advance();
+    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
+            this.check('MACRO_REF_GLOBAL')) &&
+           !this.check('COMMA') && !this.isTrivia()) {
+      const var_token = this.advance();
       varlist.push({
-        name: varToken.value,
-        range: varToken.range,
+        name: var_token.value,
+        range: var_token.range,
       });
     }
     
@@ -2326,14 +2402,15 @@ export class StataParser {
     const options: OptionNode[] = [];
     if (this.check('COMMA')) {
       this.advance();
-      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+      while (!this.check('STATEMENT_TERMINATOR') &&
+             !this.isAtEnd() && !this.isTrivia()) {
         if (this.check('WORD')) {
-          const optionToken = this.advance();
+          const option_token = this.advance();
           const option: OptionNode = {
             type: 'option',
-            name: optionToken.value,
-            fullName: optionToken.value,
-            range: optionToken.range,
+            name: option_token.value,
+            fullName: option_token.value,
+            range: option_token.range,
           };
           if (this.check('LPAREN')) {
             const parsed = this.parse_option_argument_inside_parens();
@@ -2355,7 +2432,7 @@ export class StataParser {
       has_colon_before_varlist,
       options: options.length > 0 ? options : undefined,
       expression: undefined,
-      range: this.makeRange(startPos, this.previous().range.end),
+      range: this.makeRange(start_pos, this.previous().range.end),
     };
   }
 
