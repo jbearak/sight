@@ -750,18 +750,19 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | `sight.diagnostics.undefinedVariableEnabled`   | boolean | `false`         | Enable checking for undefined variables                                                                               |
 | `sight.diagnostics.indentation`                | boolean | `false`         | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
 
-#### Why Indentation Diagnostics Are Disabled by Default
-
-Unlike Python, Stata ignores indentation - it's purely stylistic and doesn't affect code execution. Indentation diagnostics are disabled by default for several reasons:
-
-1. **Stylistic, not semantic**: "Wrong" indentation won't break your code
-2. **Legacy codebase noise**: Existing codebases may produce many warnings, causing alert fatigue
-3. **Subjective preferences**: Teams may have different indentation conventions
-4. **Opt-in philosophy**: Mature LSPs (TypeScript, ESLint) default stylistic rules to off
-
-To enable indentation diagnostics:
-- **VS Code**: Set `sight.diagnostics.indentation` to `true` in Settings
-- **Project config**: Add `"diagnostics": { "indentation": true }` to `.sight.json`
+<a name="why-indentation-diagnostics-disabled"></a>
+> **Why Indentation Diagnostics Are Disabled by Default**
+>
+> Unlike Python, Stata ignores indentation - it's purely stylistic and doesn't affect code execution. Indentation diagnostics are disabled by default for several reasons:
+>
+> 1. **Stylistic, not semantic**: "Wrong" indentation won't break your code
+> 2. **Legacy codebase noise**: Existing codebases may produce many warnings, causing alert fatigue
+> 3. **Subjective preferences**: Teams may have different indentation conventions
+> 4. **Opt-in philosophy**: Mature LSPs (TypeScript, ESLint) default stylistic rules to off
+>
+> To enable indentation diagnostics:
+> - **VS Code**: Set `sight.diagnostics.indentation` to `true` in Settings
+> - **Project config**: Add `"diagnostics": { "indentation": true }` to `.sight.json`
 
 #### Forward Reference Detection
 
