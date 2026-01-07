@@ -61,11 +61,13 @@ This feature addresses two related improvements to Stata macro handling in the L
 2. WHEN formatting a prefix command (e.g., `quietly: display`), THE Formatter SHALL NOT add a space before the colon (existing behavior)
 3. WHEN the original code has no space before the colon in a macro assignment, THE Formatter SHALL add a space to normalize the style
 
-### Requirement 5: Completion and Hover for Inline Expressions
+### Requirement 5: Completion and Hover for Inline Expressions (Out of Scope)
+
+**Status:** Deferred to future enhancement. The current implementation focuses on eliminating false positive warnings. Completion and hover enhancements for inline expressions may be added in a future iteration.
 
 **User Story:** As a Stata developer, I want completion and hover to work appropriately with inline expressions, so that I get helpful IDE features.
 
-#### Acceptance Criteria
+#### Acceptance Criteria (Deferred)
 
 1. WHEN the cursor is inside an inline expression (`` `=...| ``), THE Completion_Provider SHALL offer expression-appropriate completions (functions, variables, macros)
 2. WHEN hovering over an inline expression, THE Hover_Provider SHALL display information about the expression type
