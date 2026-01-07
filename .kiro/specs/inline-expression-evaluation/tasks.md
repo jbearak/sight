@@ -6,18 +6,18 @@ This implementation adds support for inline colon-expression syntax (`` `:functi
 
 ## Tasks
 
-- [ ] 1. Add inline extended function detection to analyzer
-  - [ ] 1.1 Add `is_inline_extended_function` method to SemanticAnalyzer
+- [x] 1. Add inline extended function detection to analyzer
+  - [x] 1.1 Add `is_inline_extended_function` method to SemanticAnalyzer
     - Add method that checks if content starts with `:`
     - Mirror the existing `is_expression_evaluation` pattern
     - _Requirements: 3.1, 3.2_
 
-  - [ ] 1.2 Update `check_token_macro_references` to skip inline extended functions
+  - [x] 1.2 Update `check_token_macro_references` to skip inline extended functions
     - Add check for `is_inline_extended_function` after `is_expression_evaluation` check
     - Skip tokens that start with `:` (inline extended functions)
     - _Requirements: 3.2_
 
-  - [ ] 1.3 Write property test for inline expression no warning (Property 1)
+  - [x] 1.3 Write property test for inline expression no warning (Property 1)
     - **Property 1: Inline Expression No Warning**
     - **Validates: Requirements 1.2, 3.2**
 

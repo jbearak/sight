@@ -2275,6 +2275,11 @@ export class SemanticAnalyzer {
                     continue;
                 }
                 
+                // Skip inline extended function macros - they use `:function' syntax
+                if (macro_name && this.is_inline_extended_function(macro_name)) {
+                    continue;
+                }
+                
                 // Check for invalid characters in local macro reference
                 if (macro_name && this.has_invalid_macro_char(macro_name)) {
                     diagnostics.push({
@@ -2451,6 +2456,22 @@ export class SemanticAnalyzer {
      */
     private is_expression_evaluation(content: string): boolean {
         return content.startsWith('=');
+    }
+
+    /**
+     * Check if a macro content represents an inline extended function.
+     * Inline extended functions use `:function' syntax for inline evaluation.
+     * 
+     * Examples:
+     * - `:type mpg' → content is ":type mpg" (type function)
+     * - `:format price' → content is ":format price" (format function)
+     * - `:variable label mpg' → content is ":variable label mpg" (variable label)
+     * 
+     * @param content The extracted macro name content (without outer delimiters)
+     * @returns true if the content is an inline extended function (starts with :)
+     */
+    private is_inline_extended_function(content: string): boolean {
+        return content.startsWith(':');
     }
 
     /**
