@@ -234,11 +234,26 @@ export function arbitrary_numlist(): fc.Arbitrary<string> {
 export const RESERVED_QUALIFIER_KEYWORDS = ['if', 'in'];
 
 /**
+ * Prefix commands that modify how subsequent commands execute.
+ * These cannot be used as regular command names in tests because the parser
+ * treats them specially (e.g., `by varlist: command`).
+ */
+export const PREFIX_COMMANDS = ['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi'];
+
+/**
+ * File commands that use path coalescing. These cannot be used as regular
+ * command names in varlist tests because they coalesce tokens into file paths.
+ */
+export const FILE_COMMANDS = ['do', 'run', 'include', 'use', 'save', 'append', 'merge', 'import', 'export', 'cd', 'adopath'];
+
+/**
  * Generate valid Stata identifiers that exclude reserved qualifier keywords.
  * Use this for variable names that appear immediately after a command.
  */
 export function arbitrary_non_reserved_identifier(): fc.Arbitrary<string> {
   return arbitrary_identifier().filter(
-    (id) => !RESERVED_QUALIFIER_KEYWORDS.includes(id)
+    (id) => !RESERVED_QUALIFIER_KEYWORDS.includes(id) &&
+            !PREFIX_COMMANDS.includes(id) &&
+            !FILE_COMMANDS.includes(id)
   );
 }
