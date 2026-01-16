@@ -2,8 +2,8 @@
   "languages": {
     "stata": {
       "name": "sight-language-server",
-      "command": "node",
-      "args": ["/Users/jmb/hobby/sight/dist/sight-server.js", "--stdio"],
+      "command": "sight-language-server",
+      "args": ["--stdio"],
       "file_extensions": ["do", "ado", "doh", "mata"],
       "project_patterns": [".sight.json"],
       "exclude_patterns": ["**/node_modules/**", "**/dist/**"],
