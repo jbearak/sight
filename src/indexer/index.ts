@@ -17,6 +17,8 @@ import {
     Directive,
     ScalarSymbol,
     MatrixSymbol,
+    Token,
+    ContextRange,
 } from '../types';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
@@ -34,11 +36,18 @@ const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
 const INDEX_DEBOUNCE_MS = 200;
 
+export interface IndexedFileData {
+    uri: string;
+    tokens: Token[];
+    context_ranges?: ContextRange[];
+}
+
 /**
  * Workspace Indexer for Sight.
  */
 export class WorkspaceIndexer {
     private symbol_index: Map<string, { symbols: SymbolTable; directives: Directive[] }> = new Map();
+    private token_index: Map<string, Token[]> = new Map();
     private enabled = true;
     private lexer = new StataLexer();
     private parser = new StataParser();
@@ -225,7 +234,8 @@ export class WorkspaceIndexer {
                 file_uri
             );
 
-            // Scalars/matrices are extracted by the analyzer.
+            // Store tokens and symbols
+            this.token_index.set(file_uri, lexResult.tokens);
             this.symbol_index.set(file_uri, {
                 symbols: analyzeResult.symbols,
                 directives: directive_result.directives
@@ -309,6 +319,7 @@ export class WorkspaceIndexer {
         if (this.symbol_index.delete(file_uri)) {
             this.version++;
         }
+        this.token_index.delete(file_uri);
         this.skipped_files.delete(file_path);
     }
 
@@ -443,6 +454,25 @@ export class WorkspaceIndexer {
      */
     set_max_indexed_files(limit: number): void {
         this.max_indexed_files = limit;
+    }
+
+    /**
+     * Get all indexed files with their tokens.
+     * Used by ReferencesProvider for workspace-wide search.
+     */
+    get_indexed_files(): Map<string, IndexedFileData> {
+        const indexed_files = new Map<string, IndexedFileData>();
+        
+        for (const [uri, entry] of this.symbol_index.entries()) {
+            const tokens = this.token_index.get(uri) || [];
+            indexed_files.set(uri, {
+                uri,
+                tokens,
+                // TODO: Add context_ranges if needed for embedded language support
+            });
+        }
+        
+        return indexed_files;
     }
 
     /**

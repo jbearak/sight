@@ -159,8 +159,9 @@ export class ReferencesProvider {
             include_declaration: context.includeDeclaration
         };
 
-        // Search current document tokens
         const locations: Location[] = [];
+
+        // 1. Search current document tokens (fresh/in-memory content)
         if (document.tokens) {
             const matches = this.scan_tokens_for_references(
                 document.tokens,
@@ -173,6 +174,39 @@ export class ReferencesProvider {
                     uri: match.uri,
                     range: match.range
                 });
+            }
+        }
+
+        // 2. Search all other indexed files from WorkspaceIndexer
+        if (workspace_indexer) {
+            const indexed_files = workspace_indexer.get_indexed_files();
+            let file_count = 0;
+            
+            for (const [uri, file_data] of indexed_files.entries()) {
+                // Skip the current document (already searched with fresh content)
+                if (uri === document.uri) {
+                    continue;
+                }
+                
+                const matches = this.scan_tokens_for_references(
+                    file_data.tokens,
+                    uri,
+                    search_context,
+                    file_data.context_ranges
+                );
+                
+                for (const match of matches) {
+                    locations.push({
+                        uri: match.uri,
+                        range: match.range
+                    });
+                }
+                
+                // Yield to event loop periodically to avoid blocking
+                file_count++;
+                if (file_count % 10 === 0) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
             }
         }
 
