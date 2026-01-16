@@ -16,6 +16,8 @@ import {
     HoverParams,
     Definition,
     DefinitionParams,
+    Location,
+    ReferenceParams,
     DocumentSymbol,
     DocumentSymbolParams,
     WorkspaceSymbol,
@@ -34,6 +36,7 @@ import { DiagnosticsProvider } from './providers/diagnostics';
 import { CompletionProvider } from './providers/completion';
 import { HoverProvider } from './providers/hover';
 import { DefinitionProvider } from './providers/definition';
+import { ReferencesProvider } from './providers/references';
 import { SymbolProvider } from './providers/symbols';
 import { CodeFormatter } from './providers/formatter';
 import { WorkspaceIndexer } from './indexer';
@@ -53,6 +56,7 @@ export interface HandlerDependencies {
     completion_provider: CompletionProvider | null;
     hover_provider: HoverProvider | null;
     definition_provider: DefinitionProvider | null;
+    references_provider: ReferencesProvider | null;
     symbol_provider: SymbolProvider | null;
     formatter_provider: CodeFormatter | null;
     workspace_indexer: WorkspaceIndexer | null;
@@ -185,6 +189,7 @@ export function create_initialize_handler(
                 },
                 hoverProvider: true,
                 definitionProvider: true,
+                referencesProvider: true,
                 documentSymbolProvider: true,
                 workspaceSymbolProvider: true,
                 documentFormattingProvider: true,
@@ -423,6 +428,31 @@ export function create_definition_handler(
                 max_forward_depth: config.cross_file?.max_forward_depth,
             },
             token
+        );
+    };
+}
+
+/**
+ * Creates the references handler that provides find-references.
+ *
+ * @param deps - Handler dependencies
+ * @returns Handler function for references requests
+ */
+export function create_references_handler(
+    deps: HandlerDependencies
+): (params: ReferenceParams, token?: CancellationToken) => Promise<Location[] | null> {
+    return async (params: ReferenceParams, token?: CancellationToken): Promise<Location[] | null> => {
+        const document_state = deps.document_store.get(params.textDocument.uri);
+        if (!document_state || !deps.references_provider) {
+            return null;
+        }
+
+        return await deps.references_provider.get_references(
+            document_state,
+            params.position,
+            params.context,
+            deps.workspace_indexer || undefined,
+            document_state.context_tracker
         );
     };
 }

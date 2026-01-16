@@ -17,6 +17,7 @@ import { DiagnosticsProvider } from './providers/diagnostics';
 import { CompletionProvider } from './providers/completion';
 import { HoverProvider } from './providers/hover';
 import { DefinitionProvider } from './providers/definition';
+import { ReferencesProvider } from './providers/references';
 import { SymbolProvider } from './providers/symbols';
 import { CodeFormatter } from './providers/formatter';
 import { command_database } from './command-database';
@@ -48,6 +49,7 @@ import {
     create_completion_resolve_handler,
     create_hover_handler,
     create_definition_handler,
+    create_references_handler,
     create_document_symbol_handler,
     create_workspace_symbol_handler,
     create_formatting_handler,
@@ -105,6 +107,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let completion_provider: CompletionProvider | null = null;
     let hover_provider: HoverProvider | null = null;
     let definition_provider: DefinitionProvider | null = null;
+    let references_provider: ReferencesProvider | null = null;
     let symbol_provider: SymbolProvider | null = null;
     let formatter_provider: CodeFormatter | null = null;
     let workspace_indexer: WorkspaceIndexer | null = null;
@@ -343,6 +346,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             completion_provider,
             hover_provider,
             definition_provider,
+            references_provider,
             symbol_provider,
             formatter_provider,
             workspace_indexer,
@@ -566,6 +570,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             );
             hover_provider = new HoverProvider(command_database);
             definition_provider = new DefinitionProvider();
+            references_provider = new ReferencesProvider();
             symbol_provider = new SymbolProvider();
             formatter_provider = new CodeFormatter();
             workspace_indexer = new WorkspaceIndexer();
@@ -765,6 +770,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
     connection.onDefinition((params, token) => {
         const deps = get_handler_dependencies();
         return create_definition_handler(deps)(params, token);
+    });
+
+    connection.onReferences((params, token) => {
+        const deps = get_handler_dependencies();
+        return create_references_handler(deps)(params, token);
     });
 
     connection.onDocumentSymbol((params) => {
