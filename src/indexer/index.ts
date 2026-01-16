@@ -29,6 +29,7 @@ import {
 } from '../analyzer';
 import { DirectiveParser } from '../directive-parser';
 import { ScopeResolver } from '../scope-resolver';
+import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { compute_line_offsets } from '../utils/line-utils';
 
@@ -48,6 +49,7 @@ export interface IndexedFileData {
 export class WorkspaceIndexer {
     private symbol_index: Map<string, { symbols: SymbolTable; directives: Directive[] }> = new Map();
     private token_index: Map<string, Token[]> = new Map();
+    private context_ranges_index: Map<string, ContextRange[]> = new Map();
     private enabled = true;
     private lexer = new StataLexer();
     private parser = new StataParser();
@@ -234,8 +236,14 @@ export class WorkspaceIndexer {
                 file_uri
             );
 
-            // Store tokens and symbols
+            // Compute context ranges for embedded language support
+            const context_tracker = new ContextTracker();
+            context_tracker.initialize_from_tokens(lexResult.tokens, content);
+            const context_ranges = context_tracker.get_all_context_ranges();
+
+            // Store tokens, context ranges, and symbols
             this.token_index.set(file_uri, lexResult.tokens);
+            this.context_ranges_index.set(file_uri, context_ranges);
             this.symbol_index.set(file_uri, {
                 symbols: analyzeResult.symbols,
                 directives: directive_result.directives
@@ -320,6 +328,7 @@ export class WorkspaceIndexer {
             this.version++;
         }
         this.token_index.delete(file_uri);
+        this.context_ranges_index.delete(file_uri);
         this.skipped_files.delete(file_path);
     }
 
@@ -465,10 +474,11 @@ export class WorkspaceIndexer {
         
         for (const [uri, entry] of this.symbol_index.entries()) {
             const tokens = this.token_index.get(uri) || [];
+            const context_ranges = this.context_ranges_index.get(uri);
             indexed_files.set(uri, {
                 uri,
                 tokens,
-                // TODO: Add context_ranges if needed for embedded language support
+                context_ranges,
             });
         }
         
