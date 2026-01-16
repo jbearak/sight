@@ -282,8 +282,17 @@ export class ReferencesProvider {
 
         // Handle includeDeclaration flag
         if (context.includeDeclaration && definition) {
-            // Add definition to results
-            locations.push(definition);
+            // Add definition to results if not already present (avoid duplicates)
+            const already_has_definition = locations.some(loc =>
+                loc.uri === definition.uri &&
+                loc.range.start.line === definition.range.start.line &&
+                loc.range.start.character === definition.range.start.character &&
+                loc.range.end.line === definition.range.end.line &&
+                loc.range.end.character === definition.range.end.character
+            );
+            if (!already_has_definition) {
+                locations.push(definition);
+            }
         } else if (!context.includeDeclaration && definition) {
             // Filter out definition from results
             const filtered_locations = locations.filter(loc => 
@@ -505,7 +514,17 @@ export class ReferencesProvider {
 
         // Handle includeDeclaration flag
         if (context.includeDeclaration && definition) {
-            locations.push(definition);
+            // Add definition to results if not already present (avoid duplicates)
+            const already_has_definition = locations.some(loc =>
+                loc.uri === definition.uri &&
+                loc.range.start.line === definition.range.start.line &&
+                loc.range.start.character === definition.range.start.character &&
+                loc.range.end.line === definition.range.end.line &&
+                loc.range.end.character === definition.range.end.character
+            );
+            if (!already_has_definition) {
+                locations.push(definition);
+            }
         } else if (!context.includeDeclaration && definition) {
             const filtered_locations = locations.filter(loc => 
                 !(loc.uri === definition.uri && 
