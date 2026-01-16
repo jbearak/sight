@@ -12,7 +12,7 @@ import {
     ReferenceContext,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
-import { LanguageContext } from '../types';
+import { LanguageContext, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
@@ -23,6 +23,11 @@ export interface ReferenceSearchContext {
     include_declaration: boolean;
 }
 
+export interface TokenMatch {
+    uri: string;
+    range: Range;
+}
+
 export interface IdentifiedSymbol {
     name: string;
     type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix';
@@ -30,6 +35,85 @@ export interface IdentifiedSymbol {
 }
 
 export class ReferencesProvider {
+    /**
+     * Extract symbol name from local macro token value.
+     * Strips backtick and quote from `name' format.
+     */
+    private extract_local_macro_name(token_value: string): string {
+        if (token_value.startsWith('`') && token_value.endsWith("'")) {
+            return token_value.slice(1, -1);
+        }
+        return token_value;
+    }
+
+    /**
+     * Extract symbol name from global macro token value.
+     * Strips $ and braces from $name or ${name} formats.
+     */
+    private extract_global_macro_name(token_value: string): string {
+        if (token_value.startsWith('${') && token_value.endsWith('}')) {
+            return token_value.slice(2, -1);
+        }
+        if (token_value.startsWith('$')) {
+            return token_value.slice(1);
+        }
+        return token_value;
+    }
+
+    /**
+     * Scan tokens in a file for references to a symbol.
+     * 
+     * @param tokens - Tokens from the file
+     * @param uri - File URI
+     * @param search_context - Symbol to search for
+     * @param context_ranges - Embedded language context ranges (optional)
+     * @returns Array of matching token locations
+     */
+    scan_tokens_for_references(
+        tokens: Token[],
+        uri: string,
+        search_context: ReferenceSearchContext,
+        context_ranges?: ContextRange[]
+    ): TokenMatch[] {
+        const matches: TokenMatch[] = [];
+
+        for (const token of tokens) {
+            let token_name: string | null = null;
+
+            // Extract name based on token type and search context
+            switch (search_context.symbol_type) {
+                case 'local_macro':
+                    if (token.type === 'MACRO_REF_LOCAL') {
+                        token_name = this.extract_local_macro_name(token.value);
+                    }
+                    break;
+                case 'global_macro':
+                    if (token.type === 'MACRO_REF_GLOBAL') {
+                        token_name = this.extract_global_macro_name(token.value);
+                    }
+                    break;
+                case 'program':
+                case 'variable':
+                case 'scalar':
+                case 'matrix':
+                    if (token.type === 'WORD') {
+                        token_name = token.value;
+                    }
+                    break;
+            }
+
+            // Case-sensitive comparison
+            if (token_name === search_context.symbol_name) {
+                matches.push({
+                    uri,
+                    range: token.range
+                });
+            }
+        }
+
+        return matches;
+    }
+
     /**
      * Find all references to the symbol at the given position.
      * 
@@ -68,9 +152,31 @@ export class ReferencesProvider {
             return [];
         }
 
-        // TODO: Implement actual reference search in Task 2
-        // For now, return empty array as per requirements
-        return [];
+        // Create search context
+        const search_context: ReferenceSearchContext = {
+            symbol_name: identified_symbol.name,
+            symbol_type: identified_symbol.type,
+            include_declaration: context.includeDeclaration
+        };
+
+        // Search current document tokens
+        const locations: Location[] = [];
+        if (document.tokens) {
+            const matches = this.scan_tokens_for_references(
+                document.tokens,
+                document.uri,
+                search_context
+            );
+            
+            for (const match of matches) {
+                locations.push({
+                    uri: match.uri,
+                    range: match.range
+                });
+            }
+        }
+
+        return locations;
     }
 
     /**
