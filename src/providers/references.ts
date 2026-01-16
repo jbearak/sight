@@ -115,6 +115,43 @@ export class ReferencesProvider {
     }
 
     /**
+     * Find the definition location for a symbol.
+     */
+    private find_definition(
+        document: DocumentState,
+        symbol_name: string,
+        symbol_type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix'
+    ): Location | null {
+        const symbols = document.symbols;
+        
+        switch (symbol_type) {
+            case 'local_macro':
+                const local_macro = symbols.localMacros.get(symbol_name);
+                return local_macro ? { uri: local_macro.location.uri, range: local_macro.location.range } : null;
+            
+            case 'global_macro':
+                const global_macro = symbols.globalMacros.get(symbol_name);
+                return global_macro ? { uri: global_macro.location.uri, range: global_macro.location.range } : null;
+            
+            case 'program':
+                const program = symbols.programs.get(symbol_name);
+                return program ? { uri: program.location.uri, range: program.location.range } : null;
+            
+            case 'variable':
+                const variable = symbols.variables.get(symbol_name);
+                return variable ? { uri: variable.location.uri, range: variable.location.range } : null;
+            
+            case 'scalar':
+                const scalar = symbols.scalars.get(symbol_name);
+                return scalar ? { uri: scalar.location.uri, range: scalar.location.range } : null;
+            
+            case 'matrix':
+                const matrix = symbols.matrices.get(symbol_name);
+                return matrix ? { uri: matrix.location.uri, range: matrix.location.range } : null;
+        }
+    }
+
+    /**
      * Find all references to the symbol at the given position.
      * 
      * @param document - The document state
@@ -160,6 +197,9 @@ export class ReferencesProvider {
         };
 
         const locations: Location[] = [];
+
+        // Find definition if needed for includeDeclaration handling
+        const definition = this.find_definition(document, identified_symbol.name, identified_symbol.type);
 
         // 1. Search current document tokens (fresh/in-memory content)
         if (document.tokens) {
@@ -208,6 +248,22 @@ export class ReferencesProvider {
                     await new Promise(resolve => setTimeout(resolve, 0));
                 }
             }
+        }
+
+        // Handle includeDeclaration flag
+        if (context.includeDeclaration && definition) {
+            // Add definition as first result
+            locations.unshift(definition);
+        } else if (!context.includeDeclaration && definition) {
+            // Filter out definition from results
+            const filtered_locations = locations.filter(loc => 
+                !(loc.uri === definition.uri && 
+                  loc.range.start.line === definition.range.start.line &&
+                  loc.range.start.character === definition.range.start.character &&
+                  loc.range.end.line === definition.range.end.line &&
+                  loc.range.end.character === definition.range.end.character)
+            );
+            return filtered_locations;
         }
 
         return locations;
