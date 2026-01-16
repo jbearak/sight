@@ -235,7 +235,8 @@ export class ReferencesProvider {
             const matches = this.scan_tokens_for_references(
                 document.tokens,
                 document.uri,
-                search_context
+                search_context,
+                document.context_ranges
             );
             
             for (const match of matches) {
