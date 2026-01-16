@@ -252,8 +252,8 @@ export class ReferencesProvider {
 
         // Handle includeDeclaration flag
         if (context.includeDeclaration && definition) {
-            // Add definition as first result
-            locations.unshift(definition);
+            // Add definition to results
+            locations.push(definition);
         } else if (!context.includeDeclaration && definition) {
             // Filter out definition from results
             const filtered_locations = locations.filter(loc => 
@@ -263,10 +263,28 @@ export class ReferencesProvider {
                   loc.range.end.line === definition.range.end.line &&
                   loc.range.end.character === definition.range.end.character)
             );
-            return filtered_locations;
+            return this.sort_locations(filtered_locations);
         }
 
-        return locations;
+        return this.sort_locations(locations);
+    }
+
+    /**
+     * Sort locations by URI, then line, then character.
+     */
+    private sort_locations(locations: Location[]): Location[] {
+        return locations.sort((a, b) => {
+            // First compare by URI
+            if (a.uri < b.uri) return -1;
+            if (a.uri > b.uri) return 1;
+            // Then by line
+            if (a.range.start.line < b.range.start.line) return -1;
+            if (a.range.start.line > b.range.start.line) return 1;
+            // Then by character
+            if (a.range.start.character < b.range.start.character) return -1;
+            if (a.range.start.character > b.range.start.character) return 1;
+            return 0;
+        });
     }
 
     /**
