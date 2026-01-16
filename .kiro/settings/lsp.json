@@ -1,22 +1,13 @@
 {
   "languages": {
     "stata": {
-      "name": "Sight",
-      "command": "sight-language-server",
-      "args": ["--stdio"],
+      "name": "sight-language-server",
+      "command": "node",
+      "args": ["/Users/jmb/hobby/sight/dist/sight-server.js", "--stdio"],
       "file_extensions": ["do", "ado", "doh", "mata"],
       "project_patterns": [".sight.json"],
-      "exclude_patterns": [],
-      "request_timeout_secs": 60
-    },
-    "typescript": {
-      "name": "typescript-language-server",
-      "command": "typescript-language-server",
-      "args": ["--stdio"],
-      "file_extensions": ["ts", "js", "tsx", "jsx"],
-      "project_patterns": ["package.json", "tsconfig.json"],
       "exclude_patterns": ["**/node_modules/**", "**/dist/**"],
-      "request_timeout_secs": 60
+      "multi_workspace": false
     }
   }
 }
