@@ -38,21 +38,21 @@ This document specifies the technical design for adding Zed editor extension sup
 
 ```
 sight/
-├── zed-extension/                    # Zed extension root
-│   ├── extension.toml                # Extension manifest
-│   ├── Cargo.toml                    # Rust project config
-│   ├── LICENSE                       # GPL-3.0 license
+├── zed-extension/                    # Zed extension root (Req 1.1)
+│   ├── extension.toml                # Extension manifest (Req 1.2)
+│   ├── Cargo.toml                    # Rust project config (Req 1.3)
+│   ├── LICENSE                       # GPL-3.0 license (Req 1.6)
 │   ├── src/
-│   │   └── lib.rs                    # Extension implementation
+│   │   └── lib.rs                    # Extension implementation (Req 1.4)
 │   ├── languages/
-│   │   └── stata/
-│   │       ├── config.toml           # Language configuration
-│   │       ├── highlights.scm        # Syntax highlighting queries
-│   │       ├── brackets.scm          # Bracket matching queries
-│   │       ├── indents.scm           # Auto-indentation queries
-│   │       └── outline.scm           # Code outline queries
-│   ├── tree-sitter-stata/            # Tree-sitter grammar
-│   │   ├── grammar.js                # Grammar definition
+│   │   └── stata/                    # Language config directory (Req 1.5)
+│   │       ├── config.toml           # Language configuration (Req 2.3)
+│   │       ├── highlights.scm        # Syntax highlighting queries (Req 4.1)
+│   │       ├── brackets.scm          # Bracket matching queries (Req 5.1)
+│   │       ├── indents.scm           # Auto-indentation queries (Req 6.1)
+│   │       └── outline.scm           # Code outline queries (Req 7.1)
+│   ├── tree-sitter-stata/            # Tree-sitter grammar (Req 3.3)
+│   │   ├── grammar.js                # Grammar definition (Req 3.1)
 │   │   ├── package.json              # Node package for tree-sitter
 │   │   ├── bindings/
 │   │   │   └── rust/
@@ -62,20 +62,22 @@ sight/
 │   │       ├── parser.c
 │   │       └── tree_sitter/
 │   │           └── parser.h
-│   └── server/                       # Bundled LSP server (after build)
-│       ├── sight-server              # Compiled binary
+│   └── server/                       # Bundled LSP server (Req 11.1)
+│       ├── sight-server              # Compiled binary (Req 10.4)
 │       └── command-database/
 │           └── caches/
-│               └── v18.json
+│               └── v18.json          # Command database (Req 11.4)
 ├── client/                           # VS Code extension (existing)
 ├── src/                              # LSP server source (existing)
 └── scripts/
-    └── bump-version.ts               # Updated for Zed extension
+    └── bump-version.ts               # Updated for Zed extension (Req 13.3)
 ```
 
 ## Component Design
 
 ### Component 1: Extension Manifest (extension.toml)
+
+**Validates: Requirements 1.2, 2.1, 12.1-12.6**
 
 Declares extension metadata and registers the Stata language with its grammar and language server.
 
@@ -98,6 +100,8 @@ languages = ["stata"]
 ```
 
 ### Component 2: Rust Extension Implementation (src/lib.rs)
+
+**Validates: Requirements 1.4, 10.1-10.5, 11.1-11.3**
 
 Implements the `zed_extension_api::Extension` trait. With the "Fat Bundle" strategy, the implementation is significantly simplified as the binary is guaranteed to be present in the extension directory.
 
@@ -143,6 +147,8 @@ zed::register_extension!(SightExtension);
 ```
 
 ### Component 3: Tree-sitter Grammar (tree-sitter-stata/grammar.js)
+
+**Validates: Requirements 3.1-3.19**
 
 Defines the Stata grammar for parsing. Key design decisions:
 
@@ -364,6 +370,8 @@ An external scanner is required to correctly parse Mata blocks, consuming all co
 
 ### Component 4: Language Configuration (languages/stata/config.toml)
 
+**Validates: Requirements 2.2-2.4, 8.1-8.7, 9.1-9.4**
+
 ```toml
 name = "Stata"
 grammar = "stata"
@@ -384,6 +392,8 @@ word_characters = ["_"]
 ```
 
 ### Component 5: Syntax Highlighting Queries (languages/stata/highlights.scm)
+
+**Validates: Requirements 4.1-4.9**
 
 ```scheme
 ; Comments
@@ -435,6 +445,8 @@ word_characters = ["_"]
 
 ### Component 6: Bracket Matching Queries (languages/stata/brackets.scm)
 
+**Validates: Requirements 5.1-5.6**
+
 ```scheme
 ("{" @open "}" @close)
 ("[" @open "]" @close)
@@ -444,6 +456,8 @@ word_characters = ["_"]
 ```
 
 ### Component 7: Indentation Queries (languages/stata/indents.scm)
+
+**Validates: Requirements 6.1-6.3**
 
 ```scheme
 ; Indent after block openers
@@ -462,12 +476,16 @@ word_characters = ["_"]
 
 ### Component 8: Outline Queries (languages/stata/outline.scm)
 
+**Validates: Requirements 7.1-7.3**
+
 ```scheme
 (program_definition
   name: (identifier) @name) @item
 ```
 
 ### Component 9: Build Process Integration
+
+**Validates: Requirements 13.3, 13.4, 13.5**
 
 #### Build Script Updates
 
@@ -512,7 +530,68 @@ update_cargo_toml("zed-extension/Cargo.toml", new_version);
 console.log("Updated zed-extension/extension.toml and zed-extension/Cargo.toml");
 ```
 
+### Component 10: Documentation Updates
+
+**Validates: Requirements 16 (Documentation Acceptance Criteria)**
+
+The following documentation files need updates to reflect the Zed extension:
+
+#### DEVELOPMENT.md Updates
+
+Add a new section documenting Zed extension development:
+
+```markdown
+## Zed Extension Development
+
+### Prerequisites
+
+- **Rust** (stable toolchain): For compiling the extension to WASM
+- **Cargo**: Rust package manager
+- **tree-sitter-cli**: For generating the Tree-sitter parser (`npm install -g tree-sitter-cli`)
+- **Bun**: For building the LSP server binary
+
+### Build Process
+
+1. Generate the Tree-sitter grammar:
+   ```bash
+   cd zed-extension/tree-sitter-stata
+   tree-sitter generate
+   ```
+
+2. Build the WASM extension:
+   ```bash
+   cd zed-extension
+   cargo build --release --target wasm32-wasi
+   ```
+
+3. Bundle the LSP server:
+   ```bash
+   bun build --compile --outfile=zed-extension/server/sight-server ./src/server.ts
+   ```
+
+4. Copy command database caches:
+   ```bash
+   cp -r src/command-database/caches/* zed-extension/server/command-database/caches/
+   ```
+
+### Testing Locally
+
+Install as a dev extension by symlinking to Zed's extension directory:
+```bash
+ln -s $(pwd)/zed-extension ~/.config/zed/extensions/installed/sight
+```
+```
+
+#### AGENTS.md Updates
+
+Add Zed extension to the system overview section, documenting:
+- The `zed-extension/` directory structure
+- Tree-sitter grammar location and purpose
+- Relationship to the existing VS Code client
+
 ### Component 11: Release Automation (CI/CD)
+
+**Validates: Requirements 16.1-16.6**
 
 The CI pipeline creates installable extension archives for each platform.
 
@@ -602,6 +681,8 @@ jobs:
 ```
 
 ### Component 12: Setup Script Integration
+
+**Validates: Requirements 14.1-14.5**
 
 Update `setup.sh` to include Zed extension:
 
