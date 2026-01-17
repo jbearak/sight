@@ -1,0 +1,208 @@
+# Requirements Document
+
+## Introduction
+
+This document specifies the requirements for adding Zed editor extension support to the Sight LSP project. The extension will provide Stata language support in Zed with feature parity to the existing VS Code extension, including syntax highlighting via Tree-sitter, LSP integration, and Stata-specific editing features like auto-closing pairs for local macro quotes.
+
+## Glossary
+
+- **Zed_Extension**: A WebAssembly-based plugin that integrates language support into the Zed editor, written in Rust and compiled to WASM
+- **Tree_Sitter**: An incremental parsing library used by Zed for syntax highlighting and code analysis
+- **Tree_Sitter_Grammar**: A parser definition that describes the syntax of a programming language for Tree-sitter
+- **Highlights_Query**: A Tree-sitter query file (.scm) that maps syntax tree nodes to highlight capture names
+- **LSP**: Language Server Protocol - a standardized protocol for communication between editors and language servers
+- **Sight_Server**: The existing Stata LSP server implementation that provides completions, diagnostics, hover, and go-to-definition
+- **Local_Macro**: A Stata macro defined with `local` command, referenced using backtick-quote syntax (`` `name' ``)
+- **Global_Macro**: A Stata macro defined with `global` command, referenced using `$name` or `${name}` syntax
+- **Compound_String**: A Stata string literal using backtick-double-quote syntax (`` `"..."' ``) that supports nesting
+- **Extension_Manifest**: The `extension.toml` file that declares extension metadata, grammars, and language servers
+
+## Requirements
+
+### Requirement 1: Extension Directory Structure
+
+**User Story:** As a developer, I want the Zed extension to follow Zed's standard directory structure, so that it can be properly recognized and loaded by Zed.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL be located in a `zed-extension/` directory at the project root (parallel to `client/`)
+2. THE Zed_Extension SHALL contain an `extension.toml` file with required metadata (id, name, version, schema_version, authors, description, repository)
+3. THE Zed_Extension SHALL contain a `Cargo.toml` file for Rust/WebAssembly compilation
+4. THE Zed_Extension SHALL contain a `src/lib.rs` file implementing the extension trait
+5. THE Zed_Extension SHALL contain a `languages/stata/` directory with language configuration files
+6. THE Zed_Extension SHALL include a LICENSE file with GPL-3.0 license (consistent with the rest of the Sight project)
+
+### Requirement 2: Language Registration
+
+**User Story:** As a Stata developer using Zed, I want Stata files to be automatically recognized, so that I get language support when opening them.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL register the Stata language with identifier "stata"
+2. THE Zed_Extension SHALL associate file extensions `.do`, `.ado`, and `.mata` with the Stata language
+3. THE Zed_Extension SHALL provide a `config.toml` file in `languages/stata/` with language configuration
+4. WHEN a user opens a file with extension `.do`, `.ado`, or `.mata`, THEN the Zed_Extension SHALL activate Stata language support
+
+### Requirement 3: Tree-sitter Grammar Creation
+
+**User Story:** As a Stata developer, I want syntax highlighting in Zed that matches the VS Code extension, so that I have a consistent experience across editors.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL create a new Tree-sitter grammar for Stata based on the existing TextMate grammar (`client/syntaxes/stata.tmLanguage.json`)
+2. THE Tree_Sitter_Grammar SHALL be included within the Zed extension directory (not a separate repository)
+3. THE Tree_Sitter_Grammar source files SHALL be located in `zed-extension/tree-sitter-stata/` directory
+4. THE Tree_Sitter_Grammar SHALL recognize all commands, programs, and keywords that the TextMate grammar recognizes
+3. THE Tree_Sitter_Grammar SHALL parse comments (line comments with `//`, `*`, `///` and block comments with `/* */`)
+4. THE Tree_Sitter_Grammar SHALL parse string literals (double-quoted strings and compound strings with `` `"..."' `` syntax)
+5. THE Tree_Sitter_Grammar SHALL parse local macro references with `` `name' `` syntax, supporting nesting up to 6 levels (matching TextMate grammar depth)
+6. THE Tree_Sitter_Grammar SHALL parse global macro references with `$name` and `${name}` syntax
+7. THE Tree_Sitter_Grammar SHALL parse program definitions (`program define name ... end` and `program name ... end`)
+8. THE Tree_Sitter_Grammar SHALL parse control flow keywords (`if`, `else`, `foreach`, `forvalues`, `forv`, `while`, `continue`, `break`, `end`)
+9. THE Tree_Sitter_Grammar SHALL parse prefix keywords (`by`, `bysort`, `bys`, `quietly`, `qui`, `noisily`, `noi`, `capture`, `cap`, `sortpreserve`)
+10. THE Tree_Sitter_Grammar SHALL parse file execution commands (`do`, `run`, `include`)
+11. THE Tree_Sitter_Grammar SHALL parse data commands (`generate`, `gen`, `egen`, `replace`, `drop`, `keep`, `use`, `save`, `merge`, `append`, etc.)
+12. THE Tree_Sitter_Grammar SHALL parse output commands (`display`, `list`, `tabulate`, `describe`, `summarize`, etc.)
+13. THE Tree_Sitter_Grammar SHALL parse macro commands (`local`, `global`, `tempvar`, `tempname`, `tempfile`)
+14. THE Tree_Sitter_Grammar SHALL parse Mata blocks (`mata ... end`)
+15. THE Tree_Sitter_Grammar SHALL parse Stata types (`byte`, `int`, `long`, `float`, `double`, `str1`-`str2045`, `strL`)
+16. THE Tree_Sitter_Grammar SHALL parse built-in variables (`_n`, `_N`, `_b`, `_coef`, `_cons`, `_rc`, `_se`, `_pi`)
+17. THE Tree_Sitter_Grammar SHALL parse missing values (`.`, `.a`-`.z`)
+18. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment)
+19. THE Tree_Sitter_Grammar SHALL parse numeric literals (integers, decimals, scientific notation)
+
+### Requirement 4: Syntax Highlighting Queries
+
+**User Story:** As a Stata developer, I want comprehensive syntax highlighting, so that different code elements are visually distinguishable.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL provide a `highlights.scm` file with Tree-sitter queries for syntax highlighting
+2. THE Highlights_Query SHALL highlight comments with `@comment` capture
+3. THE Highlights_Query SHALL highlight string literals with `@string` capture
+4. THE Highlights_Query SHALL highlight local and global macros with `@variable` capture
+5. THE Highlights_Query SHALL highlight keywords with `@keyword` capture
+6. THE Highlights_Query SHALL highlight program names with `@function` capture
+7. THE Highlights_Query SHALL highlight numeric literals with `@number` capture
+8. THE Highlights_Query SHALL highlight operators with `@operator` capture
+9. THE Highlights_Query SHALL highlight Stata types (byte, int, long, float, double, str*) with `@type` capture
+
+### Requirement 5: Bracket Matching
+
+**User Story:** As a Stata developer, I want bracket matching support, so that I can easily navigate paired delimiters.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL provide a `brackets.scm` file with bracket matching queries
+2. THE Zed_Extension SHALL match curly braces `{` and `}`
+3. THE Zed_Extension SHALL match square brackets `[` and `]`
+4. THE Zed_Extension SHALL match parentheses `(` and `)`
+5. THE Zed_Extension SHALL match double quotes `"` and `"`
+6. THE Zed_Extension SHALL match Stata local macro delimiters `` ` `` (backtick) and `'` (single quote)
+
+### Requirement 6: Auto-indentation Rules
+
+**User Story:** As a Stata developer, I want automatic indentation, so that my code is properly formatted as I type.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL provide an `indents.scm` file with indentation queries
+2. WHEN a user opens a block with `program`, `if`, `else`, `foreach`, `forvalues`, or `while`, THEN the Zed_Extension SHALL increase indentation for subsequent lines
+3. WHEN a user types `end`, `else`, or `}`, THEN the Zed_Extension SHALL decrease indentation
+
+### Requirement 7: Code Outline Support
+
+**User Story:** As a Stata developer, I want to see a code outline, so that I can navigate to program definitions quickly.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL provide an `outline.scm` file with outline queries
+2. THE Zed_Extension SHALL include program definitions in the code outline
+3. THE Zed_Extension SHALL display program names as outline items
+
+### Requirement 8: Auto-closing Pairs Configuration
+
+**User Story:** As a Stata developer, I want auto-closing pairs for brackets and Stata's unique quote syntax, so that I can type faster.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL configure auto-closing for curly braces `{` → `}`
+2. THE Zed_Extension SHALL configure auto-closing for square brackets `[` → `]`
+3. THE Zed_Extension SHALL configure auto-closing for parentheses `(` → `)`
+4. THE Zed_Extension SHALL configure auto-closing for double quotes `"` → `"`
+5. THE Zed_Extension SHALL configure auto-closing for Stata local macro quotes: `` ` `` → `'`
+6. THE Zed_Extension SHALL support auto-closing pairs inside double-quoted strings
+7. THE Zed_Extension SHALL support auto-closing pairs inside compound strings (`` `"..."' ``)
+8. IF Zed's built-in auto-closing pairs feature cannot handle nested macro quotes inside strings, THEN the Zed_Extension SHALL implement custom logic to handle these cases
+
+### Requirement 9: Comment Configuration
+
+**User Story:** As a Stata developer, I want to toggle comments using keyboard shortcuts, so that I can quickly comment and uncomment code.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL configure line comment prefixes in the language config
+2. THE Zed_Extension SHALL configure `//` as the primary line comment prefix
+3. IF Zed supports multiple line comment prefixes, THEN the Zed_Extension SHALL also configure `*` as an alternative line comment prefix
+4. THE Zed_Extension SHALL configure `/*` and `*/` as block comment delimiters
+
+### Requirement 10: LSP Integration
+
+**User Story:** As a Stata developer, I want LSP features like completions, diagnostics, and go-to-definition, so that I have a productive editing experience.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL implement the `language_server_command` method to start the Sight_Server
+2. THE Zed_Extension SHALL bundle the Sight_Server binary as part of the extension (similar to the VS Code extension)
+3. THE Zed_Extension SHALL start the Sight_Server with `--stdio` transport
+4. THE Zed_Extension SHALL register the language server for the Stata language
+5. THE Zed_Extension SHALL pass appropriate initialization options to the Sight_Server
+
+### Requirement 11: Server Binary Bundling
+
+**User Story:** As a Zed user, I want the LSP server to be bundled with the extension, so that it works immediately without additional downloads.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension SHALL include the bundled Sight_Server JavaScript file in the extension package
+2. THE Zed_Extension SHALL include the command database caches required by the Sight_Server
+3. THE Zed_Extension SHALL locate the bundled server relative to the extension directory
+4. THE build process SHALL copy the server bundle to the Zed extension directory
+
+### Requirement 12: Extension Metadata
+
+**User Story:** As a Zed user browsing extensions, I want clear metadata about the Stata extension, so that I can understand what it provides.
+
+#### Acceptance Criteria
+
+1. THE Extension_Manifest SHALL specify id as "sight" (matching the project name)
+2. THE Extension_Manifest SHALL specify name as "Sight - Stata Language Server" (matching the VS Code extension display name)
+3. THE Extension_Manifest SHALL specify a description as "Language support for Stata using LSP" (matching the VS Code extension)
+4. THE Extension_Manifest SHALL specify the repository URL as "https://github.com/jbearak/sight"
+5. THE Extension_Manifest SHALL specify authors
+6. THE Extension_Manifest SHALL use schema_version 1
+
+### Requirement 13: Version Synchronization
+
+**User Story:** As a maintainer, I want the Zed extension version to stay synchronized with the main project version, so that releases are consistent across all platforms.
+
+#### Acceptance Criteria
+
+1. THE Zed_Extension version in `extension.toml` SHALL match the version in the root `package.json`
+2. THE Zed_Extension version in `Cargo.toml` SHALL match the version in the root `package.json`
+3. WHEN the version bump scripts (`scripts/bump-version.ts`) are run, THEN the Zed_Extension version files SHALL be updated automatically
+4. THE version bump script SHALL update `zed-extension/extension.toml`
+5. THE version bump script SHALL update `zed-extension/Cargo.toml`
+
+
+### Requirement 14: Setup Script Integration
+
+**User Story:** As a developer setting up the project, I want the setup script to build and install the Zed extension automatically, so that I can start using it immediately.
+
+#### Acceptance Criteria
+
+1. THE setup.sh script SHALL build the Zed extension as part of the setup process
+2. THE setup.sh script SHALL check if Zed is installed on the system
+3. IF Zed is installed, THEN the setup.sh script SHALL install the Zed extension as a dev extension
+4. THE setup.sh script SHALL handle the case where Zed is not installed gracefully (skip installation without error)
+5. THE setup.sh script SHALL provide feedback to the user about whether the Zed extension was installed
