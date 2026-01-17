@@ -11,30 +11,25 @@
 - [ ] 1.6 Copy LICENSE file (GPL-3.0) to `zed-extension/LICENSE`
 
 ## Task 2: Create Tree-sitter Grammar
-**Validates: Requirements 3.1-3.21**
+**Validates: Requirements 3.1-3.12**
 
 - [ ] 2.1 Create `zed-extension/tree-sitter-stata/` directory structure with `package.json`, `grammar.js`, and Rust bindings
-- [ ] 2.2 Implement grammar rules for comments (line comments with `//`, `*`, `///` and block comments with `/* */`)
-- [ ] 2.3 Implement grammar rules for string literals (double-quoted strings and compound strings with `` `"..."' `` syntax)
-- [ ] 2.4 Implement grammar rules for local macro references with `` `name' `` syntax, supporting nesting up to 6 levels
-- [ ] 2.5 Implement grammar rules for global macro references with `$name` and `${name}` syntax
-- [ ] 2.6 Implement grammar rules for program definitions (`program define name ... end` and `program name ... end`)
-- [ ] 2.7 Implement grammar rules for control flow keywords (`if`, `else`, `foreach`, `forvalues`, `forv`, `while`, `continue`, `break`, `end`)
-- [ ] 2.8 Implement grammar rules for prefix keywords (`by`, `bysort`, `bys`, `quietly`, `qui`, `noisily`, `noi`, `capture`, `cap`, `sortpreserve`)
-- [ ] 2.9 Implement grammar rules for file execution commands (`do`, `run`, `include`)
-- [ ] 2.10 Implement grammar rules for data commands (`generate`, `gen`, `egen`, `replace`, `drop`, `keep`, `use`, `save`, `merge`, `append`, etc.)
-- [ ] 2.11 Implement grammar rules for output commands (`display`, `list`, `tabulate`, `describe`, `summarize`, etc.)
-- [ ] 2.12 Implement grammar rules for macro commands (`local`, `global`, `tempvar`, `tempname`, `tempfile`)
-- [ ] 2.13 Implement grammar rules for Mata blocks (`mata ... end`) with external scanner
-- [ ] 2.14 Implement grammar rules for Stata types (`byte`, `int`, `long`, `float`, `double`, `str1`-`str2045`, `strL`)
-- [ ] 2.15 Implement grammar rules for built-in variables (`_n`, `_N`, `_b`, `_coef`, `_cons`, `_rc`, `_se`, `_pi`)
-- [ ] 2.16 Implement grammar rules for missing values (`.`, `.a`-`.z`)
-- [ ] 2.17 Implement grammar rules for operators (arithmetic, comparison, logical, assignment)
-- [ ] 2.18 Implement grammar rules for numeric literals (integers, decimals, scientific notation)
-- [ ] 2.19 Create external scanner (`src/scanner.c`) for Mata block content handling
+- [ ] 2.2 Implement grammar rules for comments:
+  - `//` and `///` line comments
+  - `*` comments ONLY when `*` is the first non-whitespace token on the line (requires line-awareness)
+  - `/* ... */` block comments
+- [ ] 2.3 Implement grammar rules for string literals (double-quoted strings and compound strings with `` `\"...\"' `` syntax)
+- [ ] 2.4 Implement grammar rules for local and global macro references (`` `name' ``, `$name`, `${name}`)
+- [ ] 2.5 Implement grammar rules for program definitions (`program define name ... end` and `program name ... end`)
+- [ ] 2.6 Implement grammar rules for Mata blocks (`mata ... end`) with external scanner support
+- [ ] 2.7 Implement generic command parsing (treat command names as identifiers; avoid embedding a versioned command list)
+- [ ] 2.8 Implement basic atoms for highlighting (identifiers, numbers, missing values, built-in variables) and operator tokens as needed
+- [ ] 2.9 Create/extend external scanner (`src/scanner.c`) to support:
+  - Mata block content tokenization (`$._mata_block_content`)
+  - line-start detection token (`$._line_start`) to safely recognize `*` comments
 
 ## Task 3: Create Language Configuration Files
-**Validates: Requirements 2.2-2.4, 8.1-8.7, 9.1-9.4**
+**Validates: Requirements 2.2-2.4, 8.1-8.6, 9.1-9.4**
 
 - [ ] 3.1 Create `zed-extension/languages/stata/config.toml` with language configuration
 - [ ] 3.2 Configure file extension associations (`.do`, `.ado`, `.mata`)
@@ -102,16 +97,14 @@
 - [ ] 10.3 Update `DEVELOPMENT.md` with local testing instructions for Zed extension
 - [ ] 10.4 Update `AGENTS.md` to include Zed extension in system overview
 
-## Task 11: Create Release Automation
+## Task 11: Extend Existing Release Workflows (CI)
 **Validates: Requirements 16.1-16.6**
 
-- [ ] 11.1 Create `.github/workflows/release-extension.yml` workflow file
-- [ ] 11.2 Configure workflow to trigger on new tags
-- [ ] 11.3 Add build matrix for all target platforms (macOS arm64, Linux x64/arm64, Windows x64/arm64)
-- [ ] 11.4 Add steps to build server binary for each platform
-- [ ] 11.5 Add steps to build WASM extension
-- [ ] 11.6 Add steps to assemble extension bundle with all required files
-- [ ] 11.7 Add steps to create and upload platform-specific archives to GitHub Release
+- [ ] 11.1 Extend `.github/workflows/release-build.yml` to build Zed extension archives for each target platform
+- [ ] 11.2 Add steps in `release-build.yml` to build the Zed WASM extension, assemble the extension bundle, and compress into platform archives
+- [ ] 11.3 Upload the Zed extension archives as part of the existing workflow artifacts for the tag build
+- [ ] 11.4 Extend `.github/workflows/release-publish.yml` to download the Zed extension archives from the matching `release-build.yml` run
+- [ ] 11.5 In `release-publish.yml`, attach the Zed extension archives to the GitHub Release for the selected tag
 
 ## Task 12: Property-Based Tests
 **Validates: Design Correctness Properties 1-5**

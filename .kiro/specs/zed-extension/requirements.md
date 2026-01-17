@@ -52,24 +52,19 @@ This document specifies the requirements for adding Zed editor extension support
 1. THE Zed_Extension SHALL create a new Tree-sitter grammar for Stata based on the existing TextMate grammar (`client/syntaxes/stata.tmLanguage.json`)
 2. THE Tree_Sitter_Grammar SHALL be included within the Zed extension directory (not a separate repository)
 3. THE Tree_Sitter_Grammar source files SHALL be located in `zed-extension/tree-sitter-stata/` directory
-4. THE Tree_Sitter_Grammar SHALL recognize all commands, programs, and keywords that the TextMate grammar recognizes
-5. THE Tree_Sitter_Grammar SHALL parse comments (line comments with `//`, `*`, `///` and block comments with `/* */`)
-6. THE Tree_Sitter_Grammar SHALL parse string literals (double-quoted strings and compound strings with `` `"..."' `` syntax)
-7. THE Tree_Sitter_Grammar SHALL parse local macro references with `` `name' `` syntax, supporting nesting up to 6 levels (matching TextMate grammar depth)
+4. THE Tree_Sitter_Grammar SHALL focus on parsing Stata structure needed for editor features (comments, strings, macro syntax, blocks, basic statements) rather than embedding a versioned list of built-in commands/keywords
+5. THE Tree_Sitter_Grammar SHALL parse comments:
+   - `//` line comments
+   - `///` line-continuation comments
+   - `*` line comments ONLY when `*` is the first non-whitespace token on the line
+   - `/* ... */` block comments
+6. THE Tree_Sitter_Grammar SHALL parse string literals (double-quoted strings and compound strings with `` `\"...\"' `` syntax)
+7. THE Tree_Sitter_Grammar SHALL parse local macro references with `` `name' `` syntax
 8. THE Tree_Sitter_Grammar SHALL parse global macro references with `$name` and `${name}` syntax
 9. THE Tree_Sitter_Grammar SHALL parse program definitions (`program define name ... end` and `program name ... end`)
-10. THE Tree_Sitter_Grammar SHALL parse control flow keywords (`if`, `else`, `foreach`, `forvalues`, `forv`, `while`, `continue`, `break`, `end`)
-11. THE Tree_Sitter_Grammar SHALL parse prefix keywords (`by`, `bysort`, `bys`, `quietly`, `qui`, `noisily`, `noi`, `capture`, `cap`, `sortpreserve`)
-12. THE Tree_Sitter_Grammar SHALL parse file execution commands (`do`, `run`, `include`)
-13. THE Tree_Sitter_Grammar SHALL parse data commands (`generate`, `gen`, `egen`, `replace`, `drop`, `keep`, `use`, `save`, `merge`, `append`, etc.)
-14. THE Tree_Sitter_Grammar SHALL parse output commands (`display`, `list`, `tabulate`, `describe`, `summarize`, etc.)
-15. THE Tree_Sitter_Grammar SHALL parse macro commands (`local`, `global`, `tempvar`, `tempname`, `tempfile`)
-16. THE Tree_Sitter_Grammar SHALL parse Mata blocks (`mata ... end`)
-17. THE Tree_Sitter_Grammar SHALL parse Stata types (`byte`, `int`, `long`, `float`, `double`, `str1`-`str2045`, `strL`)
-18. THE Tree_Sitter_Grammar SHALL parse built-in variables (`_n`, `_N`, `_b`, `_coef`, `_cons`, `_rc`, `_se`, `_pi`)
-19. THE Tree_Sitter_Grammar SHALL parse missing values (`.`, `.a`-`.z`)
-20. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment)
-21. THE Tree_Sitter_Grammar SHALL parse numeric literals (integers, decimals, scientific notation)
+10. THE Tree_Sitter_Grammar SHALL parse Mata blocks (`mata ... end`)
+11. THE Tree_Sitter_Grammar SHALL parse basic literals and atoms needed for highlighting (identifiers, numbers, missing values, built-in variables)
+12. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment) sufficiently for tokenization/highlighting
 
 ### Requirement 4: Syntax Highlighting Queries
 
@@ -131,8 +126,7 @@ This document specifies the requirements for adding Zed editor extension support
 3. THE Zed_Extension SHALL configure auto-closing for parentheses `(` → `)`
 4. THE Zed_Extension SHALL configure auto-closing for double quotes `"` → `"`
 5. THE Zed_Extension SHALL configure auto-closing for Stata local macro quotes: `` ` `` → `'`
-6. THE Zed_Extension SHALL support auto-closing pairs inside double-quoted strings
-7. THE Zed_Extension SHALL support auto-closing pairs inside compound strings (`` `\"...\"' ``)
+6. THE Zed_Extension SHALL rely on Zed's built-in bracket/autoclose engine behavior for interactions inside strings/compound strings (no custom runtime quote logic in the extension)
 
 ### Requirement 9: Comment Configuration
 
@@ -220,18 +214,18 @@ This document specifies the requirements for adding Zed editor extension support
 
 ### Requirement 16: Release Automation (CI/CD)
 
-**User Story:** As a maintainer, I want to automatically generate installable extension archives for all platforms.
+**User Story:** As a maintainer, I want to automatically generate installable Zed extension archives as part of the existing release pipeline.
 
 #### Acceptance Criteria
 
-1. THE project SHALL include a GitHub Actions workflow (`release.yml`).
-2. THE workflow SHALL trigger on new tags.
-3. THE workflow SHALL build separate extension archives (e.g., `.tar.gz`) for each target:
+1. THE project SHALL extend the existing tag-triggered GitHub Actions workflow `.github/workflows/release-build.yml` ("Release Build") to build Zed extension archives for each supported platform.
+2. The build SHALL produce separate extension archives for each target:
     *   macOS arm64
     *   Linux x86_64
     *   Linux aarch64
     *   Windows x86_64
     *   Windows arm64
-4. EACH archive SHALL contain the full extension structure: `extension.toml`, `extension.wasm`, `languages/`, `tree-sitter-stata/`, AND the target-specific `server/sight-server` binary.
-5. THE workflow SHALL upload these archives as assets to the GitHub Release.
-6. THE archive names SHALL follow the convention: `sight-zed-extension-{os}-{arch}.tar.gz`.
+3. EACH archive SHALL contain the full extension structure: `extension.toml`, `extension.wasm`, `languages/`, `tree-sitter-stata/`, AND the target-specific `server/sight-server` binary.
+4. The build workflow SHALL upload the archives as GitHub Actions workflow artifacts, alongside the existing release artifacts.
+5. THE project SHALL extend the existing manually-triggered GitHub Actions workflow `.github/workflows/release-publish.yml` ("Release Publish", triggered via `workflow_dispatch`) to attach the Zed extension archives to the GitHub Release for the selected tag.
+6. The archive names SHALL follow the convention: `sight-zed-extension-{os}-{arch}.tar.gz` (or `.zip` on Windows if preferred, but the naming scheme must be consistent and documented).

@@ -87,7 +87,7 @@ name = "Sight - Stata Language Server"
 description = "Language support for Stata using LSP"
 version = "0.1.8"
 schema_version = 1
-authors = ["AWS Kiro <kiro@amazon.com>"]
+authors = ["Jonathan Marc Bearak"]
 repository = "https://github.com/jbearak/sight"
 
 [grammars.stata]
@@ -99,6 +99,8 @@ name = "Sight"
 languages = ["stata"]
 ```
 
+Note: keep `authors` accurate (do not leave placeholder values).
+
 ### Component 2: Rust Extension Implementation (src/lib.rs)
 
 **Validates: Requirements 1.4, 10.1-10.5, 11.1-11.3**
@@ -107,7 +109,6 @@ Implements the `zed_extension_api::Extension` trait. With the "Fat Bundle" strat
 
 ```rust
 use zed_extension_api::{self as zed, Result};
-use std::fs;
 
 struct SightExtension;
 
@@ -119,24 +120,25 @@ impl zed::Extension for SightExtension {
     fn language_server_command(
         &mut self,
         _language_server_id: &zed::LanguageServerId,
-        worktree: &zed::Worktree,
+        _worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        // The binary is guaranteed to be bundled at ./server/sight-server
-        // In Zed WASM, current_dir() is the extension root.
-        let server_path = std::env::current_dir()
-            .unwrap()
+        // The binary is guaranteed to be bundled at ./server/sight-server.
+        // NOTE: confirm Zed's extension working directory contract; if it differs,
+        // switch to a Zed-provided API for locating bundled assets.
+        let server_path = std::env::current_dir()?
             .join("server")
             .join("sight-server");
-            
+
         if !server_path.exists() {
-             return Err(format!(
-                 "Sight server binary not found at {:?}. This extension bundle may be corrupt or for the wrong platform.", 
-                 server_path
-             ).into());
+            return Err(format!(
+                "Sight server binary not found at {:?}. This extension bundle may be corrupt or for the wrong platform.",
+                server_path
+            )
+            .into());
         }
 
         Ok(zed::Command {
-            command: server_path.to_string_lossy().to_string(),
+            command: server_path.to_string_lossy().into_owned(),
             args: vec!["--stdio".to_string()],
             env: Default::default(),
         })
@@ -158,26 +160,34 @@ Defines the Stata grammar for parsing. Key design decisions:
 4. **Embedded languages**: Recognize Mata blocks using an external scanner for robustness
 
 ```javascript
+// Minimal, buildable starting point.
+// Notes:
+// - This deliberately does NOT attempt to encode a full list of Stata commands.
+// - Disambiguating `*` (comment vs multiplication) requires line-awareness; this
+//   example uses an external token to represent "start of line".
+
 module.exports = grammar({
   name: 'stata',
 
-  // Use external scanner for Mata blocks to correctly handle arbitrary content ending with 'end'
   externals: $ => [
-    $._mata_block_content,
+    $._line_start,          // emitted by an external scanner at beginning-of-line
+    $._mata_block_content,  // emitted by an external scanner
   ],
 
-  extras: $ => [/\s/],
+  // Only treat spaces/tabs as extras; keep newlines meaningful for line-aware rules.
+  extras: $ => [/[ \t]+/],
 
   rules: {
-    source_file: $ => repeat($._statement),
+    source_file: $ => repeat(choice($._statement, $._newline)),
+
+    _newline: _ => /\r?\n/,
 
     _statement: $ => choice(
       $.comment,
       $.program_definition,
-      $.control_flow,
-      $.command,
-      $.macro_definition,
       $.mata_block,
+      $.macro_definition,
+      $.command,
     ),
 
     // Comments
@@ -185,31 +195,27 @@ module.exports = grammar({
       $.line_comment,
       $.block_comment,
     ),
-    
-    line_comment: $ => choice(
-      seq('//', /.*/),
-      seq('///', /.*/),
-      seq(/^\s*\*/, /.*/),
-    ),
-    
-    block_comment: $ => seq('/*', /[^*]*\*+([^/*][^*]*\*+)*/, '/'),
 
-    // Strings with nested macro support
-    string: $ => choice(
-      $.double_string,
-      $.compound_string,
+    line_comment: $ => choice(
+      token(seq('//', /[^\n]*/)),
+      token(seq('///', /[^\n]*/)),
+      // `*` is a comment only if it is the first non-whitespace token on the line.
+      token(seq($._line_start, '*', /[^\n]*/)),
     ),
-    
-    double_string: $ => seq('"', repeat(choice(/[^"\\`$]+/, $.local_macro, $.global_macro, '""')), '"'),
-    
-    compound_string: $ => seq('`"', repeat(choice(/[^"'`$]+/, $.local_macro, $.global_macro, $.compound_string)), '"\''),
+
+    block_comment: $ => token(seq('/*', /[^]*?/, '*/')),
+
+    // Strings
+    double_string: $ => token(seq('"', repeat(choice(/[^"\\\n]+/, /\\./, '""')), '"')),
+    compound_string: $ => token(seq('`"', repeat(choice(/[^"\\\n]+/, /\\./, '""')), "\"'")),
+
+    string: $ => choice($.double_string, $.compound_string),
 
     // Macros
-    local_macro: $ => seq('`', $.identifier, '\''),
-    
+    local_macro: $ => token(seq('`', $.identifier, "'")),
     global_macro: $ => choice(
-      seq('$', $.identifier),
-      seq('${', $.identifier, '}'),
+      token(seq('$', $.identifier)),
+      token(seq('${', $.identifier, '}')),
     ),
 
     // Program definitions
@@ -217,68 +223,30 @@ module.exports = grammar({
       'program',
       optional('define'),
       field('name', $.identifier),
-      repeat($._statement),
+      repeat(choice($._statement, $._newline)),
       'end',
-    ),
-
-    // Control flow
-    control_flow: $ => choice(
-      $.if_statement,
-      $.foreach_loop,
-      $.forvalues_loop,
-      $.while_loop,
-    ),
-
-    if_statement: $ => prec.right(seq(
-      'if',
-      $._expression,
-      '{',
-      repeat($._statement),
-      '}',
-      optional(seq('else', choice($.if_statement, seq('{', repeat($._statement), '}')))),
-    )),
-
-    foreach_loop: $ => seq(
-      'foreach',
-      $.identifier,
-      choice('in', 'of'),
-      $._expression,
-      '{',
-      repeat($._statement),
-      '}',
-    ),
-
-    forvalues_loop: $ => seq(
-      choice('forvalues', 'forv'),
-      $.identifier,
-      '=',
-      $._numlist,
-      '{',
-      repeat($._statement),
-      '}',
-    ),
-
-    while_loop: $ => seq(
-      'while',
-      $._expression,
-      '{',
-      repeat($._statement),
-      '}',
     ),
 
     // Mata blocks
     mata_block: $ => seq(
       'mata',
       optional(':'),
-      $._mata_block_content, // Handled by external scanner
+      $._mata_block_content,
       'end',
     ),
 
-    // Commands (simplified - full list in actual implementation)
+    // Macro definitions
+    macro_definition: $ => choice(
+      seq(choice('local', 'loc'), $.identifier, optional($._rest_of_line)),
+      seq(choice('global', 'gl'), $.identifier, optional($._rest_of_line)),
+      seq(choice('tempvar', 'tempname', 'tempfile'), repeat1($.identifier)),
+    ),
+
+    // Commands (generic)
     command: $ => seq(
       optional($.prefix),
-      $.command_name,
-      optional($._arguments),
+      field('name', $.identifier),
+      optional($._rest_of_line),
     ),
 
     prefix: $ => choice(
@@ -289,73 +257,20 @@ module.exports = grammar({
       'sortpreserve',
     ),
 
-    command_name: $ => $.identifier,
+    _rest_of_line: _ => token(/[^\n]+/),
 
-    // Macro definitions
-    macro_definition: $ => choice(
-      seq(choice('local', 'loc'), $.identifier, optional($._expression)),
-      seq(choice('global', 'gl'), $.identifier, optional($._expression)),
-      seq(choice('tempvar', 'tempname', 'tempfile'), repeat1($.identifier)),
-    ),
+    // Atoms
+    number: _ => /\d+(\.\d+)?([eE][+-]?\d+)?/,
+    missing_value: _ => /\.[a-z]?/,
+    builtin_variable: _ => choice('_n', '_N', '_b', '_coef', '_cons', '_rc', '_se', '_pi'),
 
-    // Types
-    type: $ => choice(
-      'byte', 'int', 'long', 'float', 'double',
-      /str[1-9]/, /str[1-9][0-9]/, /str[1-9][0-9][0-9]/,
-      /str1[0-9][0-9][0-9]/, /str20[0-3][0-9]/, /str204[0-5]/,
-      'strL',
-    ),
-
-    // Built-in variables
-    builtin_variable: $ => choice(
-      '_n', '_N', '_b', '_coef', '_cons', '_rc', '_se', '_pi',
-    ),
-
-    // Missing values
-    missing_value: $ => /\.[a-z]?/,
-
-    // Operators
-    operator: $ => choice(
-      // Arithmetic
-      '+', '-', '*', '/', '^',
-      // Comparison
-      '==', '!=', '~=', '<', '>', '<=', '>=',
-      // Logical
-      '&', '|', '!', '~',
-      // Assignment
-      '=',
-    ),
-
-    // Numbers
-    number: $ => /\d+(\.\d+)?([eE][+-]?\d+)?/,
-
-    // Identifiers
-    identifier: $ => /[a-zA-Z_][a-zA-Z0-9_]*/,
-
-    // Expressions (simplified)
-    _expression: $ => choice(
-      $.identifier,
-      $.number,
-      $.string,
-      $.local_macro,
-      $.global_macro,
-      $.builtin_variable,
-      $.missing_value,
-      // ... binary expressions, function calls, etc.
-    ),
-
-    _arguments: $ => repeat1(choice(
-      $.identifier,
-      $.number,
-      $.string,
-      $.local_macro,
-      $.global_macro,
-    )),
-
-    _numlist: $ => /[0-9\/\(\)]+/,
+    identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
   },
 });
 ```
+
+#### External Scanner Notes
+This design requires an external scanner to emit `$._line_start` at the beginning of each line (after any indentation) so that `*` comments can be recognized without mis-parsing multiplication.
 
 #### External Scanner (tree-sitter-stata/src/scanner.c)
 
@@ -593,16 +508,19 @@ Add Zed extension to the system overview section, documenting:
 
 **Validates: Requirements 16.1-16.6**
 
-The CI pipeline creates installable extension archives for each platform.
+The CI pipeline reuses the existing release workflows and extends them to include the Zed extension:
+1. `.github/workflows/release-build.yml` (tag-triggered) builds the Zed extension archives and uploads them as workflow artifacts.
+2. `.github/workflows/release-publish.yml` (`workflow_dispatch`) downloads the artifacts from the matching build run and attaches the Zed extension archives to the GitHub Release.
 
 **File**: `.github/workflows/release-extension.yml`
 
 ```yaml
-name: Release Extension
+name: Build Zed Extension
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build-extension:
@@ -706,10 +624,11 @@ jobs:
           cd bundle
           Compress-Archive -Path sight -DestinationPath ../sight-zed-extension-${{ matrix.target }}.zip
 
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v1
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: sight-zed-extension-${{ matrix.target }}
+          path: |
             sight-zed-extension-${{ matrix.target }}.tar.gz
             sight-zed-extension-${{ matrix.target }}.zip
 ```
