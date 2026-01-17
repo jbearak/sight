@@ -168,34 +168,34 @@ These enhancements bring the Tree-sitter grammar to parity with the TextMate gra
 ## Task 13: Property-Based Tests
 **Validates: Design Correctness Properties 1-10**
 
-- [ ] 13.1 Create PBT file `tests/property/zed-extension-grammar.prop.test.ts`
-- [ ] 13.2 Implement Property 1: Line comments preserve arbitrary content
-- [ ] 13.3 Implement Property 2: Block comments preserve arbitrary content
-- [ ] 13.4 Implement Property 3: Nested local macros parse to correct depth (1-6)
-- [ ] 13.5 Implement Property 4: Nested compound strings parse to correct depth (1-6)
-- [ ] 13.6 Implement Property 5: All Mata block forms parse as mata_block
-- [ ] 13.7 Implement Property 6: Double strings preserve arbitrary content
-- [ ] 13.8 Implement Property 7: Global macros parse with valid identifiers
-- [ ] 13.9 Implement Property 8: Program definitions parse with valid names
-- [ ] 13.10 Implement Property 9: Valid Stata identifiers parse correctly
-- [ ] 13.11 Implement Property 10: Numbers parse in all valid formats
+- [x] 13.1 Create PBT file `tests/property/zed-extension-grammar.prop.test.ts`
+- [x] 13.2 Implement Property 1: Line comments preserve arbitrary content
+- [x] 13.3 Implement Property 2: Block comments preserve arbitrary content
+- [x] 13.4 Implement Property 3: Nested local macros parse to correct depth (1-6)
+- [x] 13.5 Implement Property 4: Nested compound strings parse to correct depth (1-6)
+- [x] 13.6 Implement Property 5: All Mata block forms parse as mata_block
+- [x] 13.7 Implement Property 6: Double strings preserve arbitrary content
+- [x] 13.8 Implement Property 7: Global macros parse with valid identifiers
+- [x] 13.9 Implement Property 8: Program definitions parse with valid names
+- [x] 13.10 Implement Property 9: Valid Stata identifiers parse correctly
+- [x] 13.11 Implement Property 10: Numbers parse in all valid formats
 
 ## Task 14: TextMate Parity Tests
 **Validates: Requirements 3.1 (Tree-sitter grammar based on TextMate grammar)**
 
 These tests verify the Tree-sitter grammar produces equivalent node types for constructs that the TextMate grammar highlights.
 
-- [ ] 14.1 Create parity test file `tests/unit/zed-extension-textmate-parity.test.ts`
-- [ ] 14.2 Add parity tests for comment scopes (comment.block, comment.line.star, comment.line.double-slash, comment.line.triple-slash)
-- [ ] 14.3 Add parity tests for string scopes (string.quoted.double, string.quoted.compound.depth1-6)
-- [ ] 14.4 Add parity tests for macro scopes (variable.other.macro.local.depth1-6, variable.other.macro.global)
-- [ ] 14.5 Add parity tests for Mata block scopes (keyword.control.mata, meta.embedded.block.mata)
-- [ ] 14.6 Add parity tests for program definition scopes (storage.type.function, entity.name.function)
-- [ ] 14.7 Add parity tests for keyword scopes (keyword.control.conditional, keyword.control.flow, keyword.control.prefix)
-- [ ] 14.8 Add parity tests for type scopes (support.type.stata for byte, int, long, float, double, str*)
-- [ ] 14.9 Add parity tests for built-in variable scopes (_n, _N, _b, _coef, _cons, _rc, _se, _pi)
-- [ ] 14.10 Add parity tests for missing value scopes (., .a, .b, ..., .z)
-- [ ] 14.11 Add parity tests for operator scopes (arithmetic, comparison, logical, assignment)
-- [ ] 14.12 Add parity tests for number scopes (integer, decimal, scientific notation)
-- [ ] 14.13 Add parity tests for macros inside double strings (global macro expansion)
-- [ ] 14.14 Add parity tests for global macros inside local macros
+- [x] 14.1 Create parity test file `tests/unit/zed-extension-textmate-parity.test.ts`
+- [x] 14.2 Add parity tests for comment scopes (comment.block, comment.line.star, comment.line.double-slash, comment.line.triple-slash)
+- [x] 14.3 Add parity tests for string scopes (string.quoted.double, string.quoted.compound.depth1-6)
+- [x] 14.4 Add parity tests for macro scopes (variable.other.macro.local.depth1-6, variable.other.macro.global)
+- [x] 14.5 Add parity tests for Mata block scopes (keyword.control.mata, meta.embedded.block.mata)
+- [x] 14.6 Add parity tests for program definition scopes (storage.type.function, entity.name.function)
+- [x] 14.7 Add parity tests for keyword scopes (keyword.control.conditional, keyword.control.flow, keyword.control.prefix)
+- [x] 14.8 Add parity tests for type scopes (support.type.stata for byte, int, long, float, double, str*)
+- [x] 14.9 Add parity tests for built-in variable scopes (_n, _N, _b, _coef, _cons, _rc, _se, _pi)
+- [x] 14.10 Add parity tests for missing value scopes (., .a, .b, ..., .z)
+- [x] 14.11 Add parity tests for operator scopes (arithmetic, comparison, logical, assignment)
+- [x] 14.12 Add parity tests for number scopes (integer, decimal, scientific notation)
+- [x] 14.13 Add parity tests for macros inside double strings (global macro expansion)
+- [x] 14.14 Add parity tests for global macros inside local macros
