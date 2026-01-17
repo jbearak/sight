@@ -220,69 +220,14 @@ export class ReferencesProvider {
             return [];
         }
 
-        // Create search context
-        const search_context: ReferenceSearchContext = {
-            symbol_name: identified_symbol.name,
-            symbol_type: identified_symbol.type,
-            include_declaration: context.includeDeclaration
-        };
-
-        const locations: Location[] = [];
-
-        // Find definition if needed for includeDeclaration handling
-        const definition = this.find_definition(document, identified_symbol.name, identified_symbol.type);
-
-        // 1. Search current document tokens (fresh/in-memory content)
-        if (document.tokens) {
-            const matches = this.scan_tokens_for_references(
-                document.tokens,
-                document.uri,
-                search_context,
-                document.context_ranges
-            );
-            
-            for (const match of matches) {
-                locations.push({
-                    uri: match.uri,
-                    range: match.range
-                });
-            }
-        }
-
-        // 2. Search all other indexed files from WorkspaceIndexer
-        if (workspace_indexer) {
-            const indexed_files = workspace_indexer.get_indexed_files();
-            let file_count = 0;
-            
-            for (const [uri, file_data] of indexed_files.entries()) {
-                // Skip the current document (already searched with fresh content)
-                if (uri === document.uri) {
-                    continue;
-                }
-                
-                const matches = this.scan_tokens_for_references(
-                    file_data.tokens,
-                    uri,
-                    search_context,
-                    file_data.context_ranges
-                );
-                
-                for (const match of matches) {
-                    locations.push({
-                        uri: match.uri,
-                        range: match.range
-                    });
-                }
-                
-                // Yield to event loop periodically to avoid blocking
-                file_count++;
-                if (file_count % 10 === 0) {
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                }
-            }
-        }
-
-        return this.apply_include_declaration(locations, definition, context.includeDeclaration);
+        return this.collect_references(
+            document,
+            identified_symbol.name,
+            identified_symbol.type,
+            context.includeDeclaration,
+            workspace_indexer,
+            document.context_ranges
+        );
     }
 
     /**
@@ -447,65 +392,74 @@ export class ReferencesProvider {
             return [];
         }
 
-        // Create search context for macro
+        return this.collect_references(
+            document,
+            identified_symbol.name,
+            identified_symbol.type,
+            context.includeDeclaration,
+            workspace_indexer,
+            undefined // No context_ranges filtering for macros (they work across all contexts)
+        );
+    }
+
+    /**
+     * Shared helper to collect references across current document and workspace.
+     */
+    private async collect_references(
+        document: DocumentState,
+        symbol_name: string,
+        symbol_type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix',
+        include_declaration: boolean,
+        workspace_indexer?: WorkspaceIndexer,
+        context_ranges?: ContextRange[]
+    ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
-            symbol_name: identified_symbol.name,
-            symbol_type: identified_symbol.type,
-            include_declaration: context.includeDeclaration
+            symbol_name,
+            symbol_type,
+            include_declaration
         };
 
         const locations: Location[] = [];
+        const definition = this.find_definition(document, symbol_name, symbol_type);
 
-        // Find definition if needed
-        const definition = this.find_definition(document, identified_symbol.name, identified_symbol.type);
-
-        // Search current document tokens (macros work across all contexts)
+        // Search current document
         if (document.tokens) {
             const matches = this.scan_tokens_for_references(
                 document.tokens,
                 document.uri,
-                search_context
+                search_context,
+                context_ranges
             );
-            
             for (const my_match of matches) {
-                locations.push({
-                    uri: my_match.uri,
-                    range: my_match.range
-                });
+                locations.push({ uri: my_match.uri, range: my_match.range });
             }
         }
 
-        // Search workspace indexed files
+        // Search workspace
         if (workspace_indexer) {
             const indexed_files = workspace_indexer.get_indexed_files();
             let file_count = 0;
             
             for (const [uri, file_data] of indexed_files.entries()) {
-                if (uri === document.uri) {
-                    continue;
-                }
+                if (uri === document.uri) continue;
                 
                 const matches = this.scan_tokens_for_references(
                     file_data.tokens,
                     uri,
-                    search_context
+                    search_context,
+                    context_ranges ? file_data.context_ranges : undefined
                 );
-                
                 for (const my_match of matches) {
-                    locations.push({
-                        uri: my_match.uri,
-                        range: my_match.range
-                    });
+                    locations.push({ uri: my_match.uri, range: my_match.range });
                 }
                 
-                file_count++;
-                if (file_count % 10 === 0) {
+                if (++file_count % 10 === 0) {
                     await new Promise(resolve => setTimeout(resolve, 0));
                 }
             }
         }
 
-        return this.apply_include_declaration(locations, definition, context.includeDeclaration);
+        return this.apply_include_declaration(locations, definition, include_declaration);
     }
 
     /**
