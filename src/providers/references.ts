@@ -457,7 +457,7 @@ export class ReferencesProvider {
                     file_data.tokens,
                     uri,
                     search_context,
-                    context_ranges ? file_data.context_ranges : undefined
+                    file_data.context_ranges
                 );
                 for (const my_match of matches) {
                     locations.push({ uri: my_match.uri, range: my_match.range });
