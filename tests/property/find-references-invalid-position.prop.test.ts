@@ -10,9 +10,35 @@ import * as fc from 'fast-check';
 import { ReferencesProvider } from '../../src/providers/references';
 import { DocumentState } from '../../src/document-store';
 import { Position } from 'vscode-languageserver';
+import { StataLexer } from '../../src/lexer';
 
 describe('ReferencesProvider - Invalid Position Property Tests', () => {
     const references_provider = new ReferencesProvider();
+    const lexer = new StataLexer();
+
+    function create_document_state(content: string): DocumentState {
+        const lexer_result = lexer.tokenize(content);
+        return {
+            uri: 'test://test.do',
+            content,
+            version: 1,
+            tokens: lexer_result.tokens,
+            ast: null as any,
+            symbols: {
+                programs: new Map(),
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                variables: new Map(),
+                scalars: new Map(),
+                matrices: new Map(),
+            },
+            diagnostics: [],
+            context_ranges: [],
+            context_tracker: null as any,
+            line_offsets: lexer_result.line_offsets,
+            forward_calls: [],
+        };
+    }
 
     test('Property 2: Empty Result for Invalid Position', async () => {
         await fc.assert(
@@ -33,22 +59,7 @@ describe('ReferencesProvider - Invalid Position Property Tests', () => {
                     character: fc.integer({ min: 0, max: 20 })
                 }),
                 async ({ content, line, character }) => {
-                    const document: DocumentState = {
-                        uri: 'test://test.do',
-                        content,
-                        version: 1,
-                        tokens: [],
-                        ast: { nodes: [] },
-                        symbols: {
-                            programs: new Map(),
-                            localMacros: new Map(),
-                            globalMacros: new Map(),
-                            variables: new Map(),
-                            scalars: new Map(),
-                            matrices: new Map(),
-                        },
-                        line_offsets: undefined,
-                    };
+                    const document = create_document_state(content);
 
                     const position: Position = { line, character };
                     const context = { includeDeclaration: true };
@@ -76,22 +87,7 @@ describe('ReferencesProvider - Invalid Position Property Tests', () => {
                     character: fc.integer({ min: 0, max: 50 })
                 }),
                 async ({ content, line, character }) => {
-                    const document: DocumentState = {
-                        uri: 'test://test.do',
-                        content,
-                        version: 1,
-                        tokens: [],
-                        ast: { nodes: [] },
-                        symbols: {
-                            programs: new Map(),
-                            localMacros: new Map(),
-                            globalMacros: new Map(),
-                            variables: new Map(),
-                            scalars: new Map(),
-                            matrices: new Map(),
-                        },
-                        line_offsets: undefined,
-                    };
+                    const document = create_document_state(content);
 
                     const position: Position = { line, character };
                     const context = { includeDeclaration: true };

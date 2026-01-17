@@ -442,6 +442,7 @@ export function create_references_handler(
     deps: HandlerDependencies
 ): (params: ReferenceParams, token?: CancellationToken) => Promise<Location[] | null> {
     return async (params: ReferenceParams, token?: CancellationToken): Promise<Location[] | null> => {
+        await deps.document_store.wait_for_update(params.textDocument.uri);
         const document_state = deps.document_store.get(params.textDocument.uri);
         if (!document_state || !deps.references_provider) {
             return null;

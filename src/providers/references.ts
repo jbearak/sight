@@ -61,25 +61,21 @@ export class ReferencesProvider {
     }
 
     /**
-     * Check if a position is within an embedded language context.
+     * Build a Set of line numbers that are within embedded language contexts.
+     * O(m) preprocessing to enable O(1) lookup per token.
      */
-    private is_in_embedded_context(
-        position: Position,
-        context_ranges?: ContextRange[]
-    ): boolean {
-        if (!context_ranges || context_ranges.length === 0) {
-            return false;
-        }
+    private build_embedded_context_lines(context_ranges?: ContextRange[]): Set<number> {
+        const embedded_lines = new Set<number>();
+        if (!context_ranges) return embedded_lines;
 
         for (const my_range of context_ranges) {
             if (my_range.context !== LanguageContext.STATA) {
-                // Check if position is within this embedded context range
-                if (this.position_in_range(position, my_range.range)) {
-                    return true;
+                for (let line = my_range.range.start.line; line <= my_range.range.end.line; line++) {
+                    embedded_lines.add(line);
                 }
             }
         }
-        return false;
+        return embedded_lines;
     }
 
     /**
@@ -100,6 +96,9 @@ export class ReferencesProvider {
         const matches: TokenMatch[] = [];
         const is_macro = search_context.symbol_type === 'local_macro' || 
                          search_context.symbol_type === 'global_macro';
+
+        // Pre-build embedded context lookup for O(1) checks - avoids O(n*m)
+        const embedded_lines = is_macro ? null : this.build_embedded_context_lines(context_ranges);
 
         for (const token of tokens) {
             let token_name: string | null = null;
@@ -128,8 +127,8 @@ export class ReferencesProvider {
 
             // Case-sensitive comparison
             if (token_name === search_context.symbol_name) {
-                // For non-macro symbols, exclude matches in embedded contexts
-                if (!is_macro && this.is_in_embedded_context(token.range.start, context_ranges)) {
+                // For non-macro symbols, exclude matches in embedded contexts (O(1) lookup)
+                if (embedded_lines && embedded_lines.has(token.range.start.line)) {
                     continue;
                 }
                 
@@ -154,29 +153,32 @@ export class ReferencesProvider {
         const symbols = document.symbols;
         
         switch (symbol_type) {
-            case 'local_macro':
+            case 'local_macro': {
                 const local_macro = symbols.localMacros.get(symbol_name);
                 return local_macro ? { uri: local_macro.location.uri, range: local_macro.location.range } : null;
-            
-            case 'global_macro':
+            }
+            case 'global_macro': {
                 const global_macro = symbols.globalMacros.get(symbol_name);
                 return global_macro ? { uri: global_macro.location.uri, range: global_macro.location.range } : null;
-            
-            case 'program':
+            }
+            case 'program': {
                 const program = symbols.programs.get(symbol_name);
                 return program ? { uri: program.location.uri, range: program.location.range } : null;
-            
-            case 'variable':
+            }
+            case 'variable': {
                 const variable = symbols.variables.get(symbol_name);
                 return variable ? { uri: variable.location.uri, range: variable.location.range } : null;
-            
-            case 'scalar':
+            }
+            case 'scalar': {
                 const scalar = symbols.scalars.get(symbol_name);
                 return scalar ? { uri: scalar.location.uri, range: scalar.location.range } : null;
-            
-            case 'matrix':
+            }
+            case 'matrix': {
                 const matrix = symbols.matrices.get(symbol_name);
                 return matrix ? { uri: matrix.location.uri, range: matrix.location.range } : null;
+            }
+            default:
+                return null;
         }
     }
 
@@ -280,8 +282,19 @@ export class ReferencesProvider {
             }
         }
 
-        // Handle includeDeclaration flag
-        if (context.includeDeclaration && definition) {
+        return this.apply_include_declaration(locations, definition, context.includeDeclaration);
+    }
+
+    /**
+     * Apply includeDeclaration logic to locations.
+     * Shared between get_references and get_macro_references_only.
+     */
+    private apply_include_declaration(
+        locations: Location[],
+        definition: Location | null,
+        include_declaration: boolean
+    ): Location[] {
+        if (include_declaration && definition) {
             // Add definition to results if not already present (avoid duplicates)
             const already_has_definition = locations.some(loc =>
                 loc.uri === definition.uri &&
@@ -293,7 +306,7 @@ export class ReferencesProvider {
             if (!already_has_definition) {
                 locations.push(definition);
             }
-        } else if (!context.includeDeclaration && definition) {
+        } else if (!include_declaration && definition) {
             // Filter out definition from results
             const filtered_locations = locations.filter(loc => 
                 !(loc.uri === definition.uri && 
@@ -304,7 +317,6 @@ export class ReferencesProvider {
             );
             return this.sort_locations(filtered_locations);
         }
-
         return this.sort_locations(locations);
     }
 
@@ -408,19 +420,16 @@ export class ReferencesProvider {
                         case 'MACRO_REF_GLOBAL':
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
-                            // Could be program, variable, scalar, or matrix - default to program
-                            return { name: word, type: 'program', range };
+                            // Could be program, variable, scalar, or matrix - need better heuristics
+                            // For now, return null to avoid false positives
+                            return null;
                     }
                 }
             }
         }
 
-        // Default to program if we can't determine the type
-        return {
-            name: word,
-            type: 'program',
-            range,
-        };
+        // Return null if we can't determine the type reliably
+        return null;
     }
 
     /**
@@ -496,31 +505,7 @@ export class ReferencesProvider {
             }
         }
 
-        // Handle includeDeclaration flag
-        if (context.includeDeclaration && definition) {
-            // Add definition to results if not already present (avoid duplicates)
-            const already_has_definition = locations.some(loc =>
-                loc.uri === definition.uri &&
-                loc.range.start.line === definition.range.start.line &&
-                loc.range.start.character === definition.range.start.character &&
-                loc.range.end.line === definition.range.end.line &&
-                loc.range.end.character === definition.range.end.character
-            );
-            if (!already_has_definition) {
-                locations.push(definition);
-            }
-        } else if (!context.includeDeclaration && definition) {
-            const filtered_locations = locations.filter(loc => 
-                !(loc.uri === definition.uri && 
-                  loc.range.start.line === definition.range.start.line &&
-                  loc.range.start.character === definition.range.start.character &&
-                  loc.range.end.line === definition.range.end.line &&
-                  loc.range.end.character === definition.range.end.character)
-            );
-            return this.sort_locations(filtered_locations);
-        }
-
-        return this.sort_locations(locations);
+        return this.apply_include_declaration(locations, definition, context.includeDeclaration);
     }
 
     /**

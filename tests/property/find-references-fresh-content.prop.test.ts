@@ -17,16 +17,14 @@ import { ReferencesProvider } from '../../src/providers/references';
 import { DocumentState } from '../../src/document-store';
 import { StataLexer } from '../../src/lexer';
 import { Token } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Feature: find-references, Property 8: Fresh Content for Current Document', () => {
     const provider = new ReferencesProvider();
     const lexer = new StataLexer();
 
-    // Generator for valid Stata identifiers
-    const arbitrary_identifier = fc.stringOf(
-        fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz_'.split('')),
-        { minLength: 2, maxLength: 15 }
-    ).filter(s => /^[a-zA-Z_]/.test(s));
+    // Generator for valid Stata identifiers (excludes reserved qualifiers like if/in)
+    const arbitrary_identifier = arbitrary_non_reserved_identifier();
 
     /**
      * Create a minimal DocumentState for testing.
@@ -49,7 +47,9 @@ describe('Feature: find-references, Property 8: Fresh Content for Current Docume
             },
             diagnostics: [],
             context_ranges: [],
-            line_offsets: null,
+            context_tracker: null as any,
+            line_offsets: lexer_result.line_offsets,
+            forward_calls: [],
         };
     }
 
@@ -74,7 +74,7 @@ describe('Feature: find-references, Property 8: Fresh Content for Current Docume
 
                     // Should find the reference in the in-memory content
                     // The exact count depends on tokenization, but should be >= 1
-                    expect(results.length).toBeGreaterThanOrEqual(0);
+                    expect(results.length).toBeGreaterThanOrEqual(1);
                     
                     // All results should be from the current document
                     for (const my_result of results) {
