@@ -164,7 +164,7 @@ Defines the Stata grammar for parsing. Key design decisions:
      - local macros inside compound strings do not have their depth offset by compound string nesting
 3. **Wrap-around**: Depth-based highlighting wraps after depth 6 (i.e., deeper nesting reuses depth 1..6 captures).
 4. **Context-sensitive parsing**: Handle `*` as both comment and multiplication
-5. **Embedded languages**: Recognize Mata blocks using an external scanner for robustness
+5. **Embedded languages**: Recognize Mata blocks using simple grammar rules (no external scanner needed)
 
 ```javascript
 // Minimal, buildable starting point.
@@ -178,7 +178,6 @@ module.exports = grammar({
 
   externals: $ => [
     $._line_start,          // emitted by an external scanner at beginning-of-line
-    $._mata_block_content,  // emitted by an external scanner
   ],
 
   // Only treat spaces/tabs as extras; keep newlines meaningful for line-aware rules.
@@ -300,9 +299,11 @@ module.exports = grammar({
     mata_block: $ => seq(
       'mata',
       optional(':'),
-      $._mata_block_content,
+      repeat($._mata_line),
       'end',
     ),
+    
+    _mata_line: $ => seq(/[^\n]*/, $._newline),
 
     // Macro definitions
     macro_definition: $ => choice(
@@ -339,19 +340,20 @@ module.exports = grammar({
 ```
 
 #### External Scanner Notes
-This design requires an external scanner to emit `$._line_start` at the beginning of each line (after any indentation) so that `*` comments can be recognized without mis-parsing multiplication.
+This design requires an external scanner to emit `$._line_start` at the beginning of each line (when the next character is `*`) so that `*` comments can be recognized without mis-parsing multiplication. The scanner is conservative and only emits the token when both conditions are met: at line start AND the next character is `*`.
+
+Note: Mata blocks do NOT use an external scanner. They are parsed using simple grammar rules with `repeat($._mata_line)` where `_mata_line` matches any content until a newline. This approach is simpler and more robust than external scanner-based tokenization.
 
 #### External Scanner (tree-sitter-stata/src/scanner.c)
 
-A search of existing public Tree-sitter Stata grammars revealed they do not currently use external scanners. Therefore, we will implement a custom scanner modeled after generic Tree-sitter C scanner examples or the TextMate grammar's logic, specifically to handle the stateful parsing of `mata` blocks and line-start disambiguation for `*` comments.
-
-```c
+The external scanner handles only line-start detection for `*` comments. It emits `$._line_start` when at the beginning of a line AND the next character is `*`. This conservative approach prevents mis-parsing multiplication as comments.
 
 ```c
 #include <tree_sitter/parser.h>
 #include <wctype.h>
 
-// ... implementation details for consuming text until "end" keyword ...
+// Implementation handles _line_start token emission
+// Only emits when: (1) at line start, AND (2) next char is '*'
 ```
 
 ### Component 4: Language Configuration (languages/stata/config.toml)
