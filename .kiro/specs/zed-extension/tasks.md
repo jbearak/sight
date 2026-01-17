@@ -27,6 +27,7 @@
 - [ ] 2.9 Create/extend external scanner (`src/scanner.c`) to support:
   - Mata block content tokenization (`$._mata_block_content`)
   - line-start detection token (`$._line_start`) to safely recognize `*` comments
+  - (Note: existing public grammars lack this; implement custom scanner based on generic examples/TextMate logic)
 
 ## Task 3: Create Language Configuration Files
 **Validates: Requirements 2.2-2.4, 8.1-8.6, 9.1-9.4**
@@ -47,7 +48,8 @@
 - [ ] 4.4 Add highlight queries for local and global macros (`@variable`)
 - [ ] 4.5 Add highlight queries for keywords (`@keyword`)
 - [ ] 4.6 Add highlight queries for program names (`@function`)
-- [ ] 4.7 Add highlight queries for numeric literals (`@number`)
+- [ ] 4.7 Add highlight queries for generic commands (`@function`)
+- [ ] 4.8 Add highlight queries for numeric literals (`@number`)
 - [ ] 4.8 Add highlight queries for operators (`@operator`)
 - [ ] 4.9 Add highlight queries for Stata types (`@type`)
 
@@ -79,6 +81,7 @@
 
 - [ ] 8.1 Update `scripts/bump-version.ts` to update `zed-extension/extension.toml` version
 - [ ] 8.2 Update `scripts/bump-version.ts` to update `zed-extension/Cargo.toml` version
+- [ ] 8.3 Update `scripts/bump-version.ts` to update `zed-extension/tree-sitter-stata/package.json` version
 
 ## Task 9: Update Setup Script
 **Validates: Requirements 14.1-14.5**

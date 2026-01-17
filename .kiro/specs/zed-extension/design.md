@@ -274,7 +274,9 @@ This design requires an external scanner to emit `$._line_start` at the beginnin
 
 #### External Scanner (tree-sitter-stata/src/scanner.c)
 
-An external scanner is required to correctly parse Mata blocks, consuming all content until the `end` keyword is encountered on a new line or in a valid closing context.
+A search of existing public Tree-sitter Stata grammars revealed they do not currently use external scanners. Therefore, we will implement a custom scanner modeled after generic Tree-sitter C scanner examples or the TextMate grammar's logic, specifically to handle the stateful parsing of `mata` blocks and line-start disambiguation for `*` comments.
+
+```c
 
 ```c
 #include <tree_sitter/parser.h>
@@ -355,7 +357,10 @@ word_characters = ["_"]
 
 ; Mata
 (mata_block "mata" @keyword)
-(mata_block "end" @keyword)
+(mata_block \"end\" @keyword)
+
+; Generic commands
+(command name: (identifier) @function)
 ```
 
 ### Component 6: Bracket Matching Queries (languages/stata/brackets.scm)
@@ -439,10 +444,17 @@ function update_cargo_toml(path: string, new_version: string): void {
     writeFileSync(path, content);
 }
 
+function update_package_json(path: string, new_version: string): void {
+    const content = JSON.parse(readFileSync(path, \"utf-8\"));
+    content.version = new_version;
+    writeFileSync(path, JSON.stringify(content, null, 2) + \"\\n\");
+}
+
 // In main:
-update_extension_toml("zed-extension/extension.toml", new_version);
-update_cargo_toml("zed-extension/Cargo.toml", new_version);
-console.log("Updated zed-extension/extension.toml and zed-extension/Cargo.toml");
+update_extension_toml(\"zed-extension/extension.toml\", new_version);
+update_cargo_toml(\"zed-extension/Cargo.toml\", new_version);
+update_package_json(\"zed-extension/tree-sitter-stata/package.json\", new_version);
+console.log(\"Updated zed-extension files\");
 ```
 
 ### Component 10: Documentation Updates

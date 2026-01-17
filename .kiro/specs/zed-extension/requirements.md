@@ -81,6 +81,7 @@ This document specifies the requirements for adding Zed editor extension support
 7. THE Highlights_Query SHALL highlight numeric literals with `@number` capture
 8. THE Highlights_Query SHALL highlight operators with `@operator` capture
 9. THE Highlights_Query SHALL highlight Stata types (byte, int, long, float, double, str*) with `@type` capture
+10. THE Highlights_Query SHALL highlight generic commands (e.g., `generate`, `regress`) with `@function` capture
 
 ### Requirement 5: Bracket Matching
 
@@ -187,6 +188,7 @@ This document specifies the requirements for adding Zed editor extension support
 3. WHEN the version bump scripts (`scripts/bump-version.ts`) are run, THEN the Zed_Extension version files SHALL be updated automatically
 4. THE version bump script SHALL update `zed-extension/extension.toml`
 5. THE version bump script SHALL update `zed-extension/Cargo.toml`
+6. THE version bump script SHALL update `zed-extension/tree-sitter-stata/package.json`
 
 
 ### Requirement 14: Setup Script Integration
