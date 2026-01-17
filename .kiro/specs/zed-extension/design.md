@@ -356,7 +356,9 @@ A search of existing public Tree-sitter Stata grammars revealed they do not curr
 
 ### Component 4: Language Configuration (languages/stata/config.toml)
 
-**Validates: Requirements 2.2-2.4, 8.1-8.7, 9.1-9.4**
+**Validates: Requirements 2.2-2.4, 8.1-8.6, 9.1-9.4**
+
+Configures language settings including file associations, auto-closing pairs, and comment delimiters. The extension relies on Zed's built-in bracket/autoclose engine for handling interactions inside strings and compound strings (Requirement 8.6) - no custom runtime quote logic is needed in the extension.
 
 ```toml
 name = "Stata"
@@ -370,12 +372,21 @@ brackets = [
   { start = "{", end = "}", close = true, newline = true },
   { start = "[", end = "]", close = true, newline = false },
   { start = "(", end = ")", close = true, newline = false },
-  { start = "\"", end = "\"", close = true, newline = false, not_in = ["string"] },
+  { start = "\"", end = "\"", close = true, newline = false },
   { start = "`", end = "'", close = true, newline = false },
 ]
 
 word_characters = ["_"]
 ```
+
+**Design Decision - Compound String Auto-Closing**: Stata's compound strings use `` `"..."' `` delimiters and support nesting via alternating quote styles: `` `"outer `"inner"' outer"' ``. This requires `""` auto-closing to work *inside* compound strings.
+
+We intentionally omit `not_in = ["string"]` for double quotes because:
+1. The Tree-sitter grammar defines compound strings as `compound_string_depth_N` nodes, which may not be recognized by Zed as "string" context anyway
+2. Even if they were, we *want* `""` pairs to auto-close inside compound strings to support the nested pattern
+3. The minor inconvenience of `""` auto-closing inside regular double-quoted strings is acceptable given Stata's compound string semantics
+
+If testing reveals issues with unwanted auto-closing in regular strings, we can explore whether Zed's `not_in` can target specific node types (e.g., `not_in = ["double_string"]` but not compound strings).
 
 ### Component 5: Syntax Highlighting Queries (languages/stata/highlights.scm)
 
@@ -538,17 +549,19 @@ function update_cargo_toml(path: string, new_version: string): void {
 }
 
 function update_package_json(path: string, new_version: string): void {
-    const content = JSON.parse(readFileSync(path, \"utf-8\"));
+    const content = JSON.parse(readFileSync(path, "utf-8"));
     content.version = new_version;
-    writeFileSync(path, JSON.stringify(content, null, 2) + \"\\n\");
+    writeFileSync(path, JSON.stringify(content, null, 2) + "\n");
 }
 
 // In main:
-update_extension_toml(\"zed-extension/extension.toml\", new_version);
-update_cargo_toml(\"zed-extension/Cargo.toml\", new_version);
-update_package_json(\"zed-extension/tree-sitter-stata/package.json\", new_version);
-console.log(\"Updated zed-extension files\");
+update_extension_toml("zed-extension/extension.toml", new_version);
+update_cargo_toml("zed-extension/Cargo.toml", new_version);
+update_package_json("zed-extension/tree-sitter-stata/package.json", new_version);
+console.log("Updated zed-extension files");
 ```
+
+**Design Decision**: All three Zed extension version files (extension.toml, Cargo.toml, tree-sitter-stata/package.json) are updated together to maintain consistency across the extension ecosystem. This ensures the Tree-sitter grammar version stays synchronized with the extension version.
 
 ### Component 10: Documentation Updates
 
@@ -613,23 +626,20 @@ Add Zed extension to the system overview section, documenting:
 
 **Validates: Requirements 16.1-16.6**
 
-The CI pipeline reuses the existing release workflows and extends them to include the Zed extension:
+The CI pipeline extends the existing release workflows to include the Zed extension:
 1. `.github/workflows/release-build.yml` (tag-triggered) builds the Zed extension archives and uploads them as workflow artifacts.
 2. `.github/workflows/release-publish.yml` (`workflow_dispatch`) downloads the artifacts from the matching build run and attaches the Zed extension archives to the GitHub Release.
 
-**File**: `.github/workflows/release-extension.yml`
+**Archive Naming Convention**: Archives follow the pattern `sight-zed-extension-{target}.tar.gz` (or `.zip` on Windows), where `{target}` matches the existing binary target naming (e.g., `darwin-arm64`, `linux-x64`).
+
+**File**: Extend `.github/workflows/release-build.yml`
 
 ```yaml
-name: Build Zed Extension
+# Add to existing release-build.yml workflow
+# This shows the Zed extension build job to add
 
-on:
-  push:
-    tags:
-      - 'v*'
-
-jobs:
-  build-extension:
-    name: Build Extension (${{ matrix.target }})
+  build-zed-extension:
+    name: Build Zed Extension (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -736,6 +746,28 @@ jobs:
           path: |
             sight-zed-extension-${{ matrix.target }}.tar.gz
             sight-zed-extension-${{ matrix.target }}.zip
+```
+
+**File**: Extend `.github/workflows/release-publish.yml`
+
+Add steps to download and attach Zed extension archives:
+
+```yaml
+# Add to existing release-publish.yml workflow
+
+      - name: Download Zed Extension Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sight-zed-extension-*
+          merge-multiple: true
+          
+      - name: Attach Zed Extensions to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          files: |
+            sight-zed-extension-*.tar.gz
+            sight-zed-extension-*.zip
 ```
 
 ### Component 12: Setup Script Integration
