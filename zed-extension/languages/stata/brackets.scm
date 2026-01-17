@@ -3,3 +3,17 @@
 
 ; Curly braces
 ("{" @open "}" @close)
+
+; Square brackets
+(lbracket) @open
+(rbracket) @close
+
+; Parentheses
+(lparen) @open
+(rparen) @close
+
+; Double quotes
+("\"" @open "\"" @close)
+
+; Stata local macro delimiters (backtick and single quote)
+("`" @open "'" @close)
