@@ -360,6 +360,56 @@ compiles to WASM and bundles a standalone `sight-server` binary for LSP features
 - VS Code extension is JavaScript/TypeScript; Zed extension is Rust compiled to WASM
 - Both bundle the same `sight-server` binary for completions, diagnostics, hover, etc.
 
+### Zed + Tree-sitter Alignment (Avoiding Grammar Load Failures)
+
+Zed will fail to load the Stata language if **any** query references node types
+that the grammar does not emit. Keeping the Zed extension and the
+`tree-sitter-stata` repo aligned is more than pinning `extension.toml` to a SHA.
+
+**Alignment rules**
+- Every node referenced in `zed-extension/languages/stata/*.scm` MUST exist in
+  the grammar at the pinned SHA. If a node is removed/renamed, update queries.
+- Conversely, if the spec requires bracket/paren matching, the grammar MUST emit
+  nodes for those tokens (or queries must use only tokens the grammar emits).
+- Treat query changes as **grammar changes**: update tests in
+  `tree-sitter-stata/tests/` and keep `sight/zed-extension/languages/stata/*.scm`
+  in sync.
+
+**Common failure modes**
+- `Error loading highlights query ... Invalid node type "X"`  
+  → Query references a node not emitted by the grammar.
+- `Error loading brackets query ... Invalid node type "["`  
+  → Bracket queries must reference emitted nodes, not raw characters.
+- `failed to fetch revision <sha>`  
+  → `extension.toml` points at a bad/typoed SHA or stale cache.
+- `Sight server binary not found ... extensions/work/...`  
+  → Dev extension runs from `extensions/work/`, but assets live under
+    `extensions/installed/`; the extension must resolve the binary accordingly.
+
+**Debugging checklist**
+1. Check Zed logs:
+   - `~/Library/Logs/Zed/zed.log`
+   - Look for `failed to load language Stata`, `Invalid node type`, or
+     grammar fetch errors.
+2. Verify the grammar checkout:
+   - `~/Library/Application Support/Zed/extensions/installed/sight/grammars/stata`
+   - Confirm it’s a git clone and at the SHA in `extension.toml`.
+3. Verify extension assets:
+   - `~/Library/Application Support/Zed/extensions/installed/sight/server/sight-server`
+4. Clear caches and rebuild:
+   - `rm -rf ~/Library/Application\ Support/Zed/extensions/installed/sight/grammars`
+   - `rm -rf ~/Library/Application\ Support/Zed/extensions/work/sight`
+   - Run **Extensions: Rebuild**, then restart Zed.
+
+**When changing grammar or queries**
+- In `tree-sitter-stata`:
+  - Update `grammar.js` and regenerate parser (`npx tree-sitter generate --no-bindings --abi 14`)
+  - Run `npm test` (corpus) and `bun test` (unit/property)
+- In `sight`:
+  - Update `zed-extension/languages/stata/*.scm`
+  - Update `zed-extension/extension.toml` `rev` to the new grammar SHA
+  - Rebuild Zed extension after pulling changes
+
 ### Utilities and Support
 
 **Utilities** (`src/utils/`): Shared helpers for runtime and performance:
