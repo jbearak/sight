@@ -126,14 +126,10 @@ export function arbitrary_option_name(): fc.Arbitrary<string> {
 }
 
 /**
- * Generate local macro references: `name` or `{name}`
+ * Generate local macro references: `name'
  */
 export function arbitrary_local_macro_ref(): fc.Arbitrary<string> {
-  return arbitrary_macro_name().map((my_name) =>
-    fc.sample(fc.boolean(), 1)[0]
-      ? `\`${my_name}'`
-      : `\`${my_name}'`
-  );
+  return arbitrary_macro_name().map((my_name) => `\`${my_name}'`);
 }
 
 /**
