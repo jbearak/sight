@@ -1,6 +1,7 @@
 {
   "name": "tree-sitter-stata",
   "version": "0.1.8",
+  "type": "commonjs",
   "description": "Tree-sitter grammar for Stata",
   "main": "bindings/node",
   "types": "bindings/node",
