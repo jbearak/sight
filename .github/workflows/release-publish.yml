@@ -101,6 +101,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download Zed extension artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          # Find the successful build run for this tag
+          BUILD_RUN_ID=$(gh run list --workflow=release-build.yml --status=success --limit=10 --json databaseId,headBranch | jq -r ".[] | select(.headBranch == \"${{ inputs.tag }}\") | .databaseId" | head -1)
+          
+          if [ -z "$BUILD_RUN_ID" ]; then
+            echo "ERROR: No successful build run found for tag ${{ inputs.tag }}"
+            exit 1
+          fi
+          
+          echo "Downloading Zed extension artifacts from build run: $BUILD_RUN_ID"
+          
+          # Download each Zed extension artifact
+          for target in darwin-arm64 linux-x64 linux-arm64 windows-x64 windows-arm64; do
+            echo "Downloading sight-zed-extension-$target..."
+            gh run download "$BUILD_RUN_ID" --name "sight-zed-extension-$target" --dir "zed-extensions" || echo "Warning: sight-zed-extension-$target not found"
+          done
+          
+          # List downloaded files
+          echo "Downloaded Zed extension files:"
+          ls -la zed-extensions/ 2>/dev/null || echo "No Zed extension files downloaded"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Verify checksums
         shell: bash
         run: |
@@ -115,6 +142,20 @@ jobs:
           (cd dist && sha256sum -c sight-server.js.sha256)
           if ls client/*.vsix.sha256 >/dev/null 2>&1; then
             (cd client && sha256sum -c *.vsix.sha256)
+          fi
+
+      - name: Verify Zed extension checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d zed-extensions ]; then
+            cd zed-extensions
+            for checksum_file in *.sha256; do
+              if [ -f "$checksum_file" ]; then
+                echo "Verifying $checksum_file..."
+                sha256sum -c "$checksum_file"
+              fi
+            done
           fi
 
       - name: Publish to VS Code Marketplace
@@ -149,5 +190,9 @@ jobs:
             dist/sight-server.js.sha256
             client/*.vsix
             client/*.vsix.sha256
+            zed-extensions/sight-zed-extension-*.tar.gz
+            zed-extensions/sight-zed-extension-*.tar.gz.sha256
+            zed-extensions/sight-zed-extension-*.zip
+            zed-extensions/sight-zed-extension-*.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -216,4 +216,111 @@ echo "Installing binary to ~/bin..."
 bun run install:binary
 echo ""
 
+# Step 5: Build and install Zed extension
+echo "Building Zed extension..."
+
+# Check for required tools
+HAS_TREE_SITTER=false
+HAS_CARGO=false
+
+if command -v tree-sitter &> /dev/null; then
+    HAS_TREE_SITTER=true
+fi
+
+if command -v cargo &> /dev/null; then
+    HAS_CARGO=true
+fi
+
+if [ "$HAS_TREE_SITTER" = true ] && [ "$HAS_CARGO" = true ]; then
+    # Build Tree-sitter grammar
+    echo "  Generating Tree-sitter grammar..."
+    cd zed-extension/tree-sitter-stata
+    if tree-sitter generate &> /dev/null; then
+        echo -e "  ${GREEN}✓ Tree-sitter grammar generated${NC}"
+    else
+        echo -e "  ${YELLOW}Warning: Tree-sitter grammar generation failed${NC}"
+    fi
+    cd ../..
+    
+    # Copy server binary to Zed extension
+    echo "  Bundling server binary..."
+    mkdir -p zed-extension/server/command-database/caches
+    
+    # Try to copy the platform-specific binary first, then fall back to JS bundle
+    BINARY_COPIED=false
+    
+    # Find the binary for the current platform
+    if [ -d "bin" ]; then
+        # Look for platform-specific binary in bin/
+        for binary in bin/sight-server-*; do
+            if [ -f "$binary" ]; then
+                cp "$binary" zed-extension/server/sight-server
+                BINARY_COPIED=true
+                break
+            fi
+        done
+    fi
+    
+    # Fall back to JS bundle if no binary found
+    if [ "$BINARY_COPIED" = false ] && [ -f "dist/sight-server.js" ]; then
+        cp dist/sight-server.js zed-extension/server/sight-server
+        BINARY_COPIED=true
+    fi
+    
+    if [ "$BINARY_COPIED" = true ]; then
+        echo -e "  ${GREEN}✓ Server binary bundled${NC}"
+    else
+        echo -e "  ${YELLOW}Warning: No server binary found to bundle${NC}"
+    fi
+    
+    # Copy command database caches
+    echo "  Copying command database caches..."
+    if [ -d "src/command-database/caches" ]; then
+        cp -r src/command-database/caches/* zed-extension/server/command-database/caches/ 2>/dev/null || true
+        echo -e "  ${GREEN}✓ Command database caches copied${NC}"
+    else
+        echo -e "  ${YELLOW}Warning: Command database caches not found${NC}"
+    fi
+    
+    echo -e "${GREEN}✓ Zed extension built${NC}"
+    echo ""
+    
+    # Install to Zed if available
+    if command -v zed &> /dev/null; then
+        echo "Installing Zed extension as dev extension..."
+        
+        # Determine Zed extensions directory (check both macOS locations)
+        ZED_EXT_DIR=""
+        if [ -d "$HOME/.config/zed/extensions" ]; then
+            ZED_EXT_DIR="$HOME/.config/zed/extensions/installed/sight"
+        elif [ -d "$HOME/Library/Application Support/Zed/extensions" ]; then
+            ZED_EXT_DIR="$HOME/Library/Application Support/Zed/extensions/installed/sight"
+        else
+            # Default to ~/.config/zed (will be created)
+            ZED_EXT_DIR="$HOME/.config/zed/extensions/installed/sight"
+        fi
+        
+        # Create parent directory if needed
+        mkdir -p "$(dirname "$ZED_EXT_DIR")"
+        
+        # Remove existing symlink/directory and create new symlink
+        rm -rf "$ZED_EXT_DIR"
+        ln -s "$(pwd)/zed-extension" "$ZED_EXT_DIR"
+        
+        echo -e "${GREEN}✓ Zed extension installed to: $ZED_EXT_DIR${NC}"
+    else
+        echo -e "${YELLOW}Zed not found - skipping Zed extension installation${NC}"
+        echo "  To install manually, symlink zed-extension/ to your Zed extensions directory"
+    fi
+else
+    echo -e "${YELLOW}tree-sitter or cargo not found - skipping Zed extension build${NC}"
+    if [ "$HAS_TREE_SITTER" = false ]; then
+        echo "  Missing: tree-sitter (install with: npm install -g tree-sitter-cli)"
+    fi
+    if [ "$HAS_CARGO" = false ]; then
+        echo "  Missing: cargo (install with: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh)"
+    fi
+fi
+echo ""
+
 echo "=== Setup Complete ==="

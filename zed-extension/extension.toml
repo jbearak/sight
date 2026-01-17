@@ -1,0 +1,15 @@
+id = "sight"
+name = "Sight - Stata Language Server"
+description = "Language support for Stata using LSP"
+version = "0.1.8"
+schema_version = 1
+authors = ["Jonathan Marc Bearak"]
+repository = "https://github.com/jbearak/sight"
+
+[grammars.stata]
+repository = "."
+path = "tree-sitter-stata"
+
+[language_servers.sight]
+name = "Sight"
+languages = ["stata"]

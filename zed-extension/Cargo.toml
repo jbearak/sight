@@ -1,0 +1,13 @@
+[package]
+name = "sight-extension"
+version = "0.1.8"
+edition = "2021"
+license = "GPL-3.0"
+description = "Zed extension for Stata language support using the Sight LSP"
+repository = "https://github.com/jbearak/sight"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.1.0"

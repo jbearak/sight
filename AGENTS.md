@@ -41,7 +41,8 @@ Source Code → Lexer → Parser → Analyzer → Providers → LSP Response
 
 At runtime, the LSP server entrypoint is `src/server.ts` (Node IPC transport),
 and request/notification logic is factored into handler factories in
-`src/server-handlers.ts`. A VS Code client extension lives in `client/`.
+`src/server-handlers.ts`. Editor extensions live in `client/` (VS Code) and
+`zed-extension/` (Zed).
 
 **Data Flow:**
 1. Document changes trigger re-lexing and re-parsing (debounced via `DocumentDebounceManager`)
@@ -307,9 +308,9 @@ different types of SMCL content:
 - `stored-results-extractor.ts` - Stored results parsing  
 - `syntax-extractor.ts` - Command syntax extraction
 
-### Client Extension
+### Client Extensions
 
-**Client Extension** (`client/`): VS Code extension that launches the bundled
+**VS Code Extension** (`client/`): VS Code extension that launches the bundled
 server and wires up file watching. Includes:
 - **quote-auto-close.ts**: Document change listener for Stata quote auto-closing
 - **quote-auto-close-core.ts**: Core logic for computing quote auto-close actions
@@ -327,6 +328,37 @@ conflicts with other extensions. Features:
 - Standalone double quote: `"` → `"|"`
 - Skip-over behavior: typing closing characters (`'`, `"`) skips over existing
   auto-inserted closers instead of duplicating them
+
+**Zed Extension** (`zed-extension/`): Zed editor extension providing Stata
+language support via Tree-sitter grammar and LSP integration. Structure:
+- **extension.toml**: Extension manifest (id, name, version, grammars, language servers)
+- **Cargo.toml**: Rust project config for WASM compilation
+- **src/lib.rs**: Extension trait implementation that spawns the bundled LSP server
+- **languages/stata/**: Language configuration files
+  - `config.toml`: File associations (`.do`, `.ado`, `.mata`), comment delimiters, auto-closing pairs
+  - `highlights.scm`: Tree-sitter queries for syntax highlighting (depth-based for nested constructs)
+  - `brackets.scm`: Bracket matching queries
+  - `indents.scm`: Auto-indentation queries
+  - `outline.scm`: Code outline queries for program definitions
+- **tree-sitter-stata/**: Custom Tree-sitter grammar for Stata
+  - `grammar.js`: Grammar definition with depth-encoded nodes for nested highlighting
+  - `src/scanner.c`: External scanner for Mata block content and line-start detection
+  - `bindings/rust/`: Rust bindings for tree-sitter integration
+- **server/**: Bundled LSP server binary and command database caches (populated at build time)
+
+**Zed Extension Architecture**: Unlike the VS Code extension which uses TextMate
+grammar for syntax highlighting, the Zed extension uses a custom Tree-sitter
+grammar. This grammar encodes nesting depth directly in the parse tree (up to
+depth 6 with wrap-around) for compound strings and local macros, enabling
+depth-based syntax highlighting similar to the VS Code extension. The extension
+compiles to WASM and bundles a standalone `sight-server` binary for LSP features.
+
+**Relationship to VS Code Extension**: Both extensions share the same LSP server
+(`src/server.ts`) for language intelligence features. The key differences are:
+- VS Code uses TextMate grammar (`client/syntaxes/stata.tmLanguage.json`) for highlighting
+- Zed uses Tree-sitter grammar (`zed-extension/tree-sitter-stata/grammar.js`) for highlighting
+- VS Code extension is JavaScript/TypeScript; Zed extension is Rust compiled to WASM
+- Both bundle the same `sight-server` binary for completions, diagnostics, hover, etc.
 
 ### Utilities and Support
 

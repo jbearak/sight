@@ -181,3 +181,74 @@ gh release create vx.y.z \
   - `smcl-parser/`: Parser for Stata's SMCL help file format.
 - `client/`: VS Code extension source code and configuration.
 - `tests/`: Unit, integration, and property-based tests.
+- `zed-extension/`: Zed editor extension (Tree-sitter grammar, WASM extension, language config).
+
+## Zed Extension Development
+
+### Prerequisites
+
+In addition to Bun (required for the main project), the Zed extension requires:
+
+- **Rust** (stable toolchain): For compiling the extension to WASM
+- **Cargo**: Rust package manager (included with Rust)
+- **wasm32-wasi target**: Install with `rustup target add wasm32-wasi`
+- **tree-sitter-cli**: For generating the Tree-sitter parser (`bun install -g tree-sitter-cli` or `npm install -g tree-sitter-cli`)
+
+### Build Process
+
+1. Generate the Tree-sitter grammar:
+   ```bash
+   cd zed-extension/tree-sitter-stata
+   tree-sitter generate
+   ```
+
+2. Build the WASM extension:
+   ```bash
+   cd zed-extension
+   cargo build --release --target wasm32-wasi
+   ```
+
+3. Bundle the LSP server (creates a standalone binary):
+   ```bash
+   bun build --compile --outfile=zed-extension/server/sight-server ./src/server.ts
+   ```
+
+4. Copy command database caches:
+   ```bash
+   mkdir -p zed-extension/server/command-database/caches
+   cp -r src/command-database/caches/* zed-extension/server/command-database/caches/
+   ```
+
+### Testing Locally
+
+Install as a dev extension by symlinking to Zed's extension directory:
+
+**macOS/Linux:**
+```bash
+mkdir -p ~/.config/zed/extensions/installed
+ln -s $(pwd)/zed-extension ~/.config/zed/extensions/installed/sight
+```
+
+After symlinking, restart Zed to load the extension. Open a `.do` file to verify syntax highlighting and LSP features are working.
+
+### Zed Extension Structure
+
+```
+zed-extension/
+├── extension.toml          # Extension manifest (id, name, version)
+├── Cargo.toml              # Rust project config for WASM compilation
+├── src/lib.rs              # Extension trait implementation
+├── languages/stata/        # Language configuration
+│   ├── config.toml         # File associations, comments, brackets
+│   ├── highlights.scm      # Syntax highlighting queries
+│   ├── brackets.scm        # Bracket matching queries
+│   ├── indents.scm         # Auto-indentation queries
+│   └── outline.scm         # Code outline queries
+├── tree-sitter-stata/      # Tree-sitter grammar
+│   ├── grammar.js          # Grammar definition
+│   ├── src/scanner.c       # External scanner for Mata blocks
+│   └── bindings/rust/      # Rust bindings for tree-sitter
+└── server/                 # Bundled LSP server (after build)
+    ├── sight-server        # Compiled binary
+    └── command-database/   # Command metadata caches
+```

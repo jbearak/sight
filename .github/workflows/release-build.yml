@@ -77,3 +77,141 @@ jobs:
             dist/sight-server.js.sha256
             client/*.vsix
             client/*.vsix.sha256
+
+  # Build Zed extension WASM (platform-independent, only needs to run once)
+  build-zed-wasm:
+    name: Build Zed Extension WASM
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASM extension
+        run: |
+          cd zed-extension
+          cargo build --release --target wasm32-wasip1
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: zed-extension-wasm
+          if-no-files-found: error
+          retention-days: 30
+          path: zed-extension/target/wasm32-wasip1/release/sight_extension.wasm
+
+  # Build Zed extension archives for each target platform
+  build-zed-extension:
+    name: Build Zed Extension (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    needs: build-zed-wasm
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Aligned with existing TARGETS in scripts/build-binary.ts
+          - target: darwin-arm64
+            bun-target: bun-darwin-arm64
+            server-binary: sight-server
+            archive-ext: tar.gz
+          - target: linux-x64
+            bun-target: bun-linux-x64
+            server-binary: sight-server
+            archive-ext: tar.gz
+          - target: linux-arm64
+            bun-target: bun-linux-arm64
+            server-binary: sight-server
+            archive-ext: tar.gz
+          - target: windows-x64
+            bun-target: bun-windows-x64
+            server-binary: sight-server.exe
+            archive-ext: zip
+          - target: windows-arm64
+            bun-target: bun-windows-arm64
+            server-binary: sight-server.exe
+            archive-ext: zip
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          name: zed-extension-wasm
+          path: wasm-artifact
+
+      - name: Build Server Binary
+        run: |
+          bun build --compile --target=${{ matrix.bun-target }} --outfile=${{ matrix.server-binary }} ./src/server.ts
+
+      - name: Assemble Extension Bundle
+        run: |
+          mkdir -p bundle/sight/server/command-database/caches
+          mkdir -p bundle/sight/languages/stata
+
+          # Copy extension manifest
+          cp zed-extension/extension.toml bundle/sight/
+
+          # Copy WASM extension
+          cp wasm-artifact/sight_extension.wasm bundle/sight/extension.wasm
+
+          # Copy language config files
+          cp zed-extension/languages/stata/* bundle/sight/languages/stata/
+
+          # Copy tree-sitter grammar (excluding build artifacts)
+          mkdir -p bundle/sight/tree-sitter-stata/bindings/rust
+          mkdir -p bundle/sight/tree-sitter-stata/queries
+          mkdir -p bundle/sight/tree-sitter-stata/src
+          cp zed-extension/tree-sitter-stata/grammar.js bundle/sight/tree-sitter-stata/
+          cp zed-extension/tree-sitter-stata/package.json bundle/sight/tree-sitter-stata/
+          cp zed-extension/tree-sitter-stata/Cargo.toml bundle/sight/tree-sitter-stata/
+          cp -r zed-extension/tree-sitter-stata/bindings/rust/* bundle/sight/tree-sitter-stata/bindings/rust/ 2>/dev/null || true
+          cp -r zed-extension/tree-sitter-stata/queries/* bundle/sight/tree-sitter-stata/queries/ 2>/dev/null || true
+          cp -r zed-extension/tree-sitter-stata/src/* bundle/sight/tree-sitter-stata/src/ 2>/dev/null || true
+
+          # Copy server binary
+          cp ${{ matrix.server-binary }} bundle/sight/server/
+
+          # Copy command database caches
+          cp -r src/command-database/caches/* bundle/sight/server/command-database/caches/
+
+      - name: Create Archive (tar.gz)
+        if: matrix.archive-ext == 'tar.gz'
+        run: |
+          cd bundle
+          tar -czf ../sight-zed-extension-${{ matrix.target }}.tar.gz sight/
+
+      - name: Create Archive (zip)
+        if: matrix.archive-ext == 'zip'
+        run: |
+          cd bundle
+          zip -r ../sight-zed-extension-${{ matrix.target }}.zip sight/
+
+      - name: Calculate checksum
+        run: |
+          if [ "${{ matrix.archive-ext }}" = "tar.gz" ]; then
+            sha256sum sight-zed-extension-${{ matrix.target }}.tar.gz > sight-zed-extension-${{ matrix.target }}.tar.gz.sha256
+          else
+            sha256sum sight-zed-extension-${{ matrix.target }}.zip > sight-zed-extension-${{ matrix.target }}.zip.sha256
+          fi
+
+      - name: Upload Zed extension artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sight-zed-extension-${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            sight-zed-extension-${{ matrix.target }}.${{ matrix.archive-ext }}
+            sight-zed-extension-${{ matrix.target }}.${{ matrix.archive-ext }}.sha256
