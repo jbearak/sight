@@ -163,8 +163,8 @@ This document specifies the requirements for adding Zed editor extension support
 2. THE Zed_Extension SHALL bundle the Sight_Server binary as part of the extension (similar to the VS Code extension)
 3. THE Zed_Extension SHALL start the Sight_Server with `--stdio` transport
 4. THE Sight_Server SHALL be compiled into a standalone executable (e.g., using `bun build --compile`) to remove runtime dependencies for the end user
-4. THE Zed_Extension SHALL register the language server for the Stata language
-5. THE Zed_Extension SHALL pass appropriate initialization options to the Sight_Server
+5. THE Zed_Extension SHALL register the language server for the Stata language
+6. THE Zed_Extension SHALL pass appropriate initialization options to the Sight_Server
 
 ### Requirement 11: Server Provisioning Strategy
 

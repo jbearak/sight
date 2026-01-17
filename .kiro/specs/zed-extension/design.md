@@ -864,9 +864,9 @@ fc.property(
 ```
 
 ### Property 3: Version Synchronization
-**Validates: Requirements 13.1, 13.2**
+**Validates: Requirements 13.1-13.6**
 
-After running the version bump script, all version fields (package.json, client/package.json, extension.toml, Cargo.toml) SHALL contain the same version string.
+After running the version bump script, all version fields (package.json, client/package.json, extension.toml, Cargo.toml, tree-sitter-stata/package.json) SHALL contain the same version string.
 
 ```typescript
 // Property: All version files stay synchronized
@@ -881,28 +881,29 @@ fc.property(
         const client_version = JSON.parse(readFileSync('client/package.json')).version;
         const extension_toml = readFileSync('zed-extension/extension.toml', 'utf-8');
         const cargo_toml = readFileSync('zed-extension/Cargo.toml', 'utf-8');
+        const ts_package = JSON.parse(readFileSync('zed-extension/tree-sitter-stata/package.json')).version;
         
         const ext_version = extension_toml.match(/^version = "(.+)"$/m)?.[1];
         const cargo_version = cargo_toml.match(/^version = "(.+)"$/m)?.[1];
         
         return root_version === client_version &&
                root_version === ext_version &&
-               root_version === cargo_version;
+               root_version === cargo_version &&
+               root_version === ts_package;
     }
 );
 ```
 
 ### Property 4: Highlight Queries Cover All Node Types
-**Validates: Requirements 4.2-4.9**
+**Validates: Requirements 4.2-4.13**
 
-For each syntax node type that should be highlighted, the highlights.scm file SHALL contain a corresponding capture rule.
+For each syntax node type that should be highlighted, the highlights.scm file SHALL contain a corresponding capture rule. Depth-based captures (1-6) are required for compound strings and local macros.
 
 ```typescript
 // Property: All highlightable node types have capture rules
 const REQUIRED_CAPTURES = [
     ['comment', '@comment'],
     ['string', '@string'],
-    ['local_macro', '@variable'],
     ['global_macro', '@variable'],
     ['keyword', '@keyword'],
     ['program_definition', '@function'],
@@ -911,8 +912,24 @@ const REQUIRED_CAPTURES = [
     ['type', '@type'],
 ];
 
+// Depth-based captures for compound strings and local macros
+const DEPTH_CAPTURES = [
+    ['compound_string_depth_1', '@string.depth.1'],
+    ['compound_string_depth_2', '@string.depth.2'],
+    ['compound_string_depth_3', '@string.depth.3'],
+    ['compound_string_depth_4', '@string.depth.4'],
+    ['compound_string_depth_5', '@string.depth.5'],
+    ['compound_string_depth_6', '@string.depth.6'],
+    ['local_macro_depth_1', '@variable.macro.local.depth.1'],
+    ['local_macro_depth_2', '@variable.macro.local.depth.2'],
+    ['local_macro_depth_3', '@variable.macro.local.depth.3'],
+    ['local_macro_depth_4', '@variable.macro.local.depth.4'],
+    ['local_macro_depth_5', '@variable.macro.local.depth.5'],
+    ['local_macro_depth_6', '@variable.macro.local.depth.6'],
+];
+
 fc.property(
-    fc.constantFrom(...REQUIRED_CAPTURES),
+    fc.constantFrom(...REQUIRED_CAPTURES, ...DEPTH_CAPTURES),
     ([node_type, capture]) => {
         const highlights = readFileSync('zed-extension/languages/stata/highlights.scm', 'utf-8');
         return highlights.includes(capture);
