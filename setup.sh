@@ -220,27 +220,15 @@ echo ""
 echo "Building Zed extension..."
 
 # Check for required tools
-HAS_TREE_SITTER=false
 HAS_CARGO=false
-
-if command -v tree-sitter &> /dev/null; then
-    HAS_TREE_SITTER=true
-fi
 
 if command -v cargo &> /dev/null; then
     HAS_CARGO=true
 fi
 
-if [ "$HAS_TREE_SITTER" = true ] && [ "$HAS_CARGO" = true ]; then
-    # Build Tree-sitter grammar
-    echo "  Generating Tree-sitter grammar..."
-    cd zed-extension/tree-sitter-stata
-    if tree-sitter generate &> /dev/null; then
-        echo -e "  ${GREEN}✓ Tree-sitter grammar generated${NC}"
-    else
-        echo -e "  ${YELLOW}Warning: Tree-sitter grammar generation failed${NC}"
-    fi
-    cd ../..
+if [ "$HAS_CARGO" = true ]; then
+    # Note: Tree-sitter grammar is now fetched from external repository
+    # (https://github.com/jbearak/tree-sitter-stata) by Zed during extension installation
     
     # Build Zed extension to WASM
     echo "  Compiling Zed extension to WASM..."
@@ -375,13 +363,8 @@ if [ "$HAS_TREE_SITTER" = true ] && [ "$HAS_CARGO" = true ]; then
         echo "  To install manually, symlink zed-extension/ to your Zed extensions directory"
     fi
 else
-    echo -e "${YELLOW}tree-sitter or cargo not found - skipping Zed extension build${NC}"
-    if [ "$HAS_TREE_SITTER" = false ]; then
-        echo "  Missing: tree-sitter (install with: npm install -g tree-sitter-cli)"
-    fi
-    if [ "$HAS_CARGO" = false ]; then
-        echo "  Missing: cargo (install with: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh)"
-    fi
+    echo -e "${YELLOW}cargo not found - skipping Zed extension build${NC}"
+    echo "  Missing: cargo (install with: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh)"
 fi
 echo ""
 
