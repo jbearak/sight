@@ -116,10 +116,8 @@ describe('Feature: find-references, Property 1: Symbol Identification and Search
         );
     });
 
-    it.skip('should find all program references (Req 1.3)', async () => {
-        // Skipped: identify_symbol_at_position returns null for WORD tokens
-        // to avoid false positives. Program references require better heuristics
-        // to distinguish from variables, scalars, and matrices.
+    it('should find all program references (Req 1.3)', async () => {
+        // Program references require the program to be in the symbol table
         await fc.assert(
             fc.asyncProperty(
                 arbitrary_identifier,
@@ -136,10 +134,17 @@ describe('Feature: find-references, Property 1: Symbol Identification and Search
                         'file:///workspace/program.do',
                         content
                     );
+                    
+                    // Add program to symbol table with a different location (simulating definition elsewhere)
+                    document.symbols.programs.set(program_name, {
+                        name: program_name,
+                        sourceUri: 'file:///workspace/other.do',
+                        location: { uri: 'file:///workspace/other.do', range: { start: { line: 0, character: 0 }, end: { line: 0, character: program_name.length } } },
+                    });
 
                     const results = await provider.get_references(
                         document,
-                        { line: 0, character: 2 },
+                        { line: 0, character: 0 },
                         { includeDeclaration: false }
                     );
 

@@ -355,7 +355,6 @@ export class ReferencesProvider {
         }
 
         // For other symbols, we need to check the token type at position
-        // This is a simplified implementation - actual token analysis would be more precise
         if (document.tokens) {
             for (const token of document.tokens) {
                 if (this.position_in_range(position, token.range)) {
@@ -365,8 +364,19 @@ export class ReferencesProvider {
                         case 'MACRO_REF_GLOBAL':
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
-                            // Could be program, variable, scalar, or matrix - need better heuristics
-                            // For now, return null to avoid false positives
+                            // Use symbol table to determine type - avoids false positives
+                            if (document.symbols.programs.has(word)) {
+                                return { name: word, type: 'program', range };
+                            }
+                            if (document.symbols.variables.has(word)) {
+                                return { name: word, type: 'variable', range };
+                            }
+                            if (document.symbols.scalars.has(word)) {
+                                return { name: word, type: 'scalar', range };
+                            }
+                            if (document.symbols.matrices.has(word)) {
+                                return { name: word, type: 'matrix', range };
+                            }
                             return null;
                     }
                 }
