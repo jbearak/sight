@@ -152,6 +152,47 @@ zed::register_extension!(SightExtension);
 
 **Validates: Requirements 3.1-3.19**
 
+#### Architectural Note: Zed Highlighting vs VS Code
+
+**Important**: Zed's highlighting architecture differs significantly from VS Code:
+
+| Feature | VS Code | Zed |
+|---------|---------|-----|
+| Base syntax highlighting | TextMate grammar | Tree-sitter grammar |
+| Semantic highlighting | LSP semantic tokens | **Not supported** (Issue #7450) |
+| Structure features | TextMate + LSP | Tree-sitter |
+
+Since Zed does NOT support LSP semantic tokens, **all highlighting must come from the Tree-sitter grammar**. In VS Code, the TextMate grammar provides base highlighting and the LSP can augment it with semantic information (e.g., distinguishing built-in functions from user functions). In Zed, Tree-sitter is the sole source of highlighting.
+
+**Scope Decision**: We intentionally do NOT embed command/function lists in the Tree-sitter grammar because:
+
+1. **Maintenance burden**: Stata versions change, and embedding command lists would require grammar updates for each Stata release
+2. **Grammar bloat**: The TextMate grammar's command lists add significant size; Tree-sitter grammars should be lean
+3. **LSP handles semantics**: The Sight LSP server already provides semantic information (completions, hover, diagnostics) - duplicating this in the grammar is unnecessary
+4. **Syntactic vs semantic**: Tree-sitter is a syntactic parser, not a semantic analyzer. It cannot determine whether `myprogram` is a built-in command or user-defined program.
+
+**What the grammar DOES highlight** (syntactic constructs):
+- Comments (all 4 styles)
+- Strings (double, compound with depth)
+- Macros (local with depth, global)
+- Control flow keywords (`if`, `else`, `foreach`, `forvalues`, `while`, `continue`, `break`, `end`)
+- Type keywords (`byte`, `int`, `long`, `float`, `double`, `str*`, `strL`)
+- Built-in variables (`_n`, `_N`, `_b`, `_coef`, `_cons`, `_rc`, `_se`, `_pi`, `_skip`, `_dup`, `_newline`, `_column`, `_continue`, `_request`, `_char`)
+- Operators (arithmetic, comparison, logical, assignment, interaction `#`)
+- Program definitions (keyword + name)
+- Mata blocks (all 5 forms)
+- Generic commands (as function calls - the LSP provides semantic detail via hover/completion)
+
+**What the grammar does NOT highlight** (semantic constructs - handled by LSP):
+- Built-in commands vs user programs (all commands highlighted as `@function`)
+- Built-in functions vs user functions
+- Defined vs undefined variables/macros
+- Command options and subcommands
+
+This approach provides good base highlighting while keeping the grammar maintainable and letting the LSP handle semantic intelligence.
+
+---
+
 Defines the Stata grammar for parsing. Key design decisions:
 
 1. **Precedence levels**: Handle operator precedence correctly
