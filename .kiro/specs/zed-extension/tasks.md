@@ -121,11 +121,30 @@
 - [x] 11.4 Extend `.github/workflows/release-publish.yml` to download the Zed extension archives from the matching `release-build.yml` run
 - [x] 11.5 In `release-publish.yml`, attach the Zed extension archives to the GitHub Release for the selected tag
 
-## Task 12: Property-Based Tests
-**Validates: Design Correctness Properties 1-5**
+## Task 12: Unit Tests
+**Validates: Testing Strategy - Unit Tests**
 
-- [ ]* 12.1 Create property test for grammar parsing all comment styles (Property 1)
-- [ ]* 12.2 Create property test for nested local macro parsing up to depth 6 (Property 2)
-- [ ]* 12.3 Create property test for version synchronization across all config files (Property 3)
-- [ ]* 12.4 Create property test for highlight queries covering all node types (Property 4)
-- [ ]* 12.5 Create property test for symmetric bracket pairs in brackets.scm (Property 5)
+- [ ]* 12.1 Create grammar unit test file `tests/unit/zed-extension-grammar.test.ts`
+- [ ]* 12.2 Add unit tests for comment parsing (all 4 comment styles)
+- [ ]* 12.3 Add unit tests for string parsing (double strings, compound strings, escaped quotes)
+- [ ]* 12.4 Add unit tests for macro parsing (local macros, global macros, positional args)
+- [ ]* 12.5 Add unit tests for Mata block parsing (all 5 forms)
+- [ ]* 12.6 Add unit tests for program definition parsing (with/without `define`)
+- [ ]* 12.7 Add unit tests for macro definition parsing (local, global, tempvar)
+- [ ]* 12.8 Add unit tests for query file coverage (highlights.scm, brackets.scm, indents.scm)
+- [ ]* 12.9 Add unit tests for configuration files (extension.toml, config.toml, version consistency)
+
+## Task 13: Property-Based Tests
+**Validates: Design Correctness Properties 1-10**
+
+- [ ]* 13.1 Create PBT file `tests/property/zed-extension-grammar.prop.test.ts`
+- [ ]* 13.2 Implement Property 1: Line comments preserve arbitrary content
+- [ ]* 13.3 Implement Property 2: Block comments preserve arbitrary content
+- [ ]* 13.4 Implement Property 3: Nested local macros parse to correct depth (1-6)
+- [ ]* 13.5 Implement Property 4: Nested compound strings parse to correct depth (1-6)
+- [ ]* 13.6 Implement Property 5: All Mata block forms parse as mata_block
+- [ ]* 13.7 Implement Property 6: Double strings preserve arbitrary content
+- [ ]* 13.8 Implement Property 7: Global macros parse with valid identifiers
+- [ ]* 13.9 Implement Property 8: Program definitions parse with valid names
+- [ ]* 13.10 Implement Property 9: Valid Stata identifiers parse correctly
+- [ ]* 13.11 Implement Property 10: Numbers parse in all valid formats

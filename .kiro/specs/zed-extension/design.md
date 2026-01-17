@@ -828,150 +828,254 @@ fi
 
 ## Correctness Properties
 
-### Property 1: Grammar Parses All Comment Styles
+### Property 1: Line Comments Preserve Arbitrary Content
 **Validates: Requirements 3.5**
 
-For any valid Stata comment (line comment with `//`, `*`, `///`, or block comment with `/* */`), the Tree-sitter grammar SHALL produce a comment node.
+For any arbitrary text content (excluding newlines), wrapping it in a line comment (`//`, `///`, or `*` at line start) SHALL produce a valid comment node, and the content SHALL be preserved in the parse tree.
 
 ```typescript
-// Property: All comment styles produce comment nodes
+// Property: Line comments preserve arbitrary content
+fc.property(
+    fc.tuple(
+        fc.constantFrom('//', '///', '* '),
+        fc.string().filter(s => !s.includes('\n') && !s.includes('\r'))
+    ),
+    ([prefix, content]) => {
+        const source = prefix === '* ' ? `* ${content}` : `${prefix} ${content}`;
+        const tree = parser.parse(source);
+        const comment_node = tree.rootNode.descendantsOfType('line_comment')[0];
+        return comment_node !== undefined && comment_node.text.includes(content);
+    }
+);
+```
+
+### Property 2: Block Comments Preserve Arbitrary Content
+**Validates: Requirements 3.5**
+
+For any arbitrary text content (excluding `*/`), wrapping it in a block comment SHALL produce a valid block_comment node.
+
+```typescript
+// Property: Block comments preserve arbitrary content
+fc.property(
+    fc.string().filter(s => !s.includes('*/')),
+    (content) => {
+        const source = `/* ${content} */`;
+        const tree = parser.parse(source);
+        const comment_node = tree.rootNode.descendantsOfType('block_comment')[0];
+        return comment_node !== undefined;
+    }
+);
+```
+
+### Property 3: Nested Local Macros Parse to Correct Depth
+**Validates: Requirements 3.7, 3.13, 3.14**
+
+For any nesting depth 1-6, a nested local macro reference SHALL parse to a tree with the correct depth of `local_macro_depth_N` nodes.
+
+```typescript
+// Property: Nested local macros parse to correct depth
+fc.property(
+    fc.tuple(
+        fc.integer({ min: 1, max: 6 }),
+        fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]*$/).filter(s => s.length > 0 && s.length < 20)
+    ),
+    ([depth, name]) => {
+        const macro = '`'.repeat(depth) + name + "'".repeat(depth);
+        const tree = parser.parse(`display ${macro}`);
+        
+        // Find the outermost local macro node
+        const find_macro_depth = (node: any): number => {
+            for (let i = 1; i <= 6; i++) {
+                if (node.type === `local_macro_depth_${i}`) {
+                    // Check for nested macro
+                    for (const child of node.children) {
+                        const child_depth = find_macro_depth(child);
+                        if (child_depth > 0) return child_depth + 1;
+                    }
+                    return 1;
+                }
+            }
+            for (const child of node.children || []) {
+                const d = find_macro_depth(child);
+                if (d > 0) return d;
+            }
+            return 0;
+        };
+        
+        return find_macro_depth(tree.rootNode) === depth;
+    }
+);
+```
+
+### Property 4: Nested Compound Strings Parse to Correct Depth
+**Validates: Requirements 3.6, 3.13, 3.14**
+
+For any nesting depth 1-6, a nested compound string SHALL parse to a tree with the correct depth of `compound_string_depth_N` nodes.
+
+```typescript
+// Property: Nested compound strings parse to correct depth
+fc.property(
+    fc.tuple(
+        fc.integer({ min: 1, max: 6 }),
+        fc.string().filter(s => !s.includes('`') && !s.includes("'") && !s.includes('"') && !s.includes('\n'))
+    ),
+    ([depth, content]) => {
+        // Build nested compound string: `"outer `"inner"' outer"'
+        let str = content;
+        for (let i = 0; i < depth; i++) {
+            str = '`"' + str + "\"'";
+        }
+        const tree = parser.parse(`display ${str}`);
+        
+        const find_compound_depth = (node: any): number => {
+            for (let i = 1; i <= 6; i++) {
+                if (node.type === `compound_string_depth_${i}`) {
+                    for (const child of node.children) {
+                        const child_depth = find_compound_depth(child);
+                        if (child_depth > 0) return child_depth + 1;
+                    }
+                    return 1;
+                }
+            }
+            for (const child of node.children || []) {
+                const d = find_compound_depth(child);
+                if (d > 0) return d;
+            }
+            return 0;
+        };
+        
+        return find_compound_depth(tree.rootNode) === depth;
+    }
+);
+```
+
+### Property 5: Mata Block Forms All Parse as mata_block
+**Validates: Requirements 3.10**
+
+All five Mata block forms SHALL parse to a `mata_block` node.
+
+```typescript
+// Property: All Mata block forms parse as mata_block
+fc.property(
+    fc.constantFrom(
+        'mata 1 + 2',                           // inline without colon
+        'mata: 3 + 4',                          // inline with colon
+        'mata\nreal x\nend',                    // multiline without colon
+        'mata:\nreal y\nend',                   // multiline with colon
+        'mata {\n    real z\n}',                // brace-delimited
+    ),
+    (source) => {
+        const tree = parser.parse(source);
+        const mata_nodes = tree.rootNode.descendantsOfType('mata_block');
+        return mata_nodes.length === 1;
+    }
+);
+```
+
+### Property 6: Double Strings Preserve Content
+**Validates: Requirements 3.6**
+
+For any string content (excluding unescaped quotes and newlines), wrapping in double quotes SHALL produce a valid double_string node.
+
+```typescript
+// Property: Double strings preserve content
+fc.property(
+    fc.string().filter(s => !s.includes('"') && !s.includes('\n') && !s.includes('\r')),
+    (content) => {
+        const source = `display "${content}"`;
+        const tree = parser.parse(source);
+        const string_nodes = tree.rootNode.descendantsOfType('double_string');
+        return string_nodes.length >= 1;
+    }
+);
+```
+
+### Property 7: Global Macros Parse with Valid Identifiers
+**Validates: Requirements 3.8**
+
+For any valid Stata identifier, both `$name` and `${name}` forms SHALL parse as global_macro nodes.
+
+```typescript
+// Property: Global macros parse with valid identifiers
+fc.property(
+    fc.tuple(
+        fc.constantFrom('$', '${'),
+        fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]*$/).filter(s => s.length > 0 && s.length < 32)
+    ),
+    ([prefix, name]) => {
+        const macro = prefix === '${' ? `\${${name}}` : `$${name}`;
+        const source = `display ${macro}`;
+        const tree = parser.parse(source);
+        const global_nodes = tree.rootNode.descendantsOfType('global_macro');
+        return global_nodes.length >= 1;
+    }
+);
+```
+
+### Property 8: Program Definitions Parse with Valid Names
+**Validates: Requirements 3.9**
+
+For any valid Stata identifier as program name, both `program name` and `program define name` forms SHALL parse as program_definition nodes with the correct name field.
+
+```typescript
+// Property: Program definitions parse with valid names
+fc.property(
+    fc.tuple(
+        fc.boolean(),  // whether to include 'define'
+        fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]*$/).filter(s => s.length > 0 && s.length < 32)
+    ),
+    ([use_define, name]) => {
+        const source = use_define 
+            ? `program define ${name}\nend`
+            : `program ${name}\nend`;
+        const tree = parser.parse(source);
+        const prog_nodes = tree.rootNode.descendantsOfType('program_definition');
+        if (prog_nodes.length !== 1) return false;
+        const name_field = prog_nodes[0].childForFieldName('name');
+        return name_field !== null && name_field.text === name;
+    }
+);
+```
+
+### Property 9: Identifiers Accept Valid Stata Names
+**Validates: Requirements 3.11**
+
+Any string matching the Stata identifier pattern `[A-Za-z_][A-Za-z0-9_]*` SHALL parse as an identifier when used as a command name.
+
+```typescript
+// Property: Valid identifiers parse correctly
+fc.property(
+    fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]*$/).filter(s => s.length > 0 && s.length < 32),
+    (name) => {
+        const tree = parser.parse(name);
+        // Should parse as a command with the identifier as name
+        const has_identifier = tree.rootNode.descendantsOfType('identifier').some(
+            node => node.text === name
+        );
+        return has_identifier;
+    }
+);
+```
+
+### Property 10: Numbers Parse in All Valid Formats
+**Validates: Requirements 3.11**
+
+Integer, decimal, and scientific notation numbers SHALL all parse as number nodes.
+
+```typescript
+// Property: Numbers parse in all valid formats
 fc.property(
     fc.oneof(
-        fc.constant('// comment'),
-        fc.constant('/// continuation comment'),
-        fc.constant('* line comment'),
-        fc.constant('/* block comment */'),
+        fc.integer({ min: 0, max: 999999 }).map(n => n.toString()),
+        fc.float({ min: 0, max: 999999, noNaN: true }).map(n => n.toFixed(3)),
+        fc.tuple(fc.float({ min: 1, max: 99, noNaN: true }), fc.integer({ min: -10, max: 10 }))
+            .map(([base, exp]) => `${base.toFixed(2)}e${exp >= 0 ? '+' : ''}${exp}`)
     ),
-    (comment_text) => {
-        const tree = parser.parse(comment_text);
-        const root = tree.rootNode;
-        return root.descendantsOfType('comment').length > 0 ||
-               root.descendantsOfType('line_comment').length > 0 ||
-               root.descendantsOfType('block_comment').length > 0;
-    }
-);
-```
-
-### Property 2: Grammar Parses Nested Local Macros
-**Validates: Requirements 3.7**
-
-For any nested local macro reference up to depth 6, the Tree-sitter grammar SHALL correctly parse the nesting structure.
-
-```typescript
-// Property: Nested macros parse correctly up to depth 6
-fc.property(
-    fc.integer({ min: 1, max: 6 }),
-    (depth) => {
-        const macro = '`'.repeat(depth) + 'name' + '\''.repeat(depth);
-        const tree = parser.parse(`display ${macro}`);
-        // Verify correct nesting depth in AST
-        let node = tree.rootNode.descendantsOfType('local_macro')[0];
-        let actual_depth = 0;
-        while (node) {
-            actual_depth++;
-            node = node.descendantsOfType('local_macro')[0];
-        }
-        return actual_depth === depth;
-    }
-);
-```
-
-### Property 3: Version Synchronization
-**Validates: Requirements 13.1-13.6**
-
-After running the version bump script, all version fields (package.json, client/package.json, extension.toml, Cargo.toml, tree-sitter-stata/package.json) SHALL contain the same version string.
-
-```typescript
-// Property: All version files stay synchronized
-fc.property(
-    fc.constantFrom('patch', 'minor', 'major'),
-    async (bump_type) => {
-        // Run bump script
-        await exec(`bun scripts/bump-version.ts ${bump_type}`);
-        
-        // Read all version files
-        const root_version = JSON.parse(readFileSync('package.json')).version;
-        const client_version = JSON.parse(readFileSync('client/package.json')).version;
-        const extension_toml = readFileSync('zed-extension/extension.toml', 'utf-8');
-        const cargo_toml = readFileSync('zed-extension/Cargo.toml', 'utf-8');
-        const ts_package = JSON.parse(readFileSync('zed-extension/tree-sitter-stata/package.json')).version;
-        
-        const ext_version = extension_toml.match(/^version = "(.+)"$/m)?.[1];
-        const cargo_version = cargo_toml.match(/^version = "(.+)"$/m)?.[1];
-        
-        return root_version === client_version &&
-               root_version === ext_version &&
-               root_version === cargo_version &&
-               root_version === ts_package;
-    }
-);
-```
-
-### Property 4: Highlight Queries Cover All Node Types
-**Validates: Requirements 4.2-4.13**
-
-For each syntax node type that should be highlighted, the highlights.scm file SHALL contain a corresponding capture rule. Depth-based captures (1-6) are required for compound strings and local macros.
-
-```typescript
-// Property: All highlightable node types have capture rules
-const REQUIRED_CAPTURES = [
-    ['comment', '@comment'],
-    ['string', '@string'],
-    ['global_macro', '@variable'],
-    ['keyword', '@keyword'],
-    ['program_definition', '@function'],
-    ['number', '@number'],
-    ['operator', '@operator'],
-    ['type', '@type'],
-];
-
-// Depth-based captures for compound strings and local macros
-const DEPTH_CAPTURES = [
-    ['compound_string_depth_1', '@string.depth.1'],
-    ['compound_string_depth_2', '@string.depth.2'],
-    ['compound_string_depth_3', '@string.depth.3'],
-    ['compound_string_depth_4', '@string.depth.4'],
-    ['compound_string_depth_5', '@string.depth.5'],
-    ['compound_string_depth_6', '@string.depth.6'],
-    ['local_macro_depth_1', '@variable.macro.local.depth.1'],
-    ['local_macro_depth_2', '@variable.macro.local.depth.2'],
-    ['local_macro_depth_3', '@variable.macro.local.depth.3'],
-    ['local_macro_depth_4', '@variable.macro.local.depth.4'],
-    ['local_macro_depth_5', '@variable.macro.local.depth.5'],
-    ['local_macro_depth_6', '@variable.macro.local.depth.6'],
-];
-
-fc.property(
-    fc.constantFrom(...REQUIRED_CAPTURES, ...DEPTH_CAPTURES),
-    ([node_type, capture]) => {
-        const highlights = readFileSync('zed-extension/languages/stata/highlights.scm', 'utf-8');
-        return highlights.includes(capture);
-    }
-);
-```
-
-### Property 5: Bracket Pairs Are Symmetric
-**Validates: Requirements 5.2-5.6**
-
-For each bracket pair defined in brackets.scm, there SHALL be both an @open and @close capture.
-
-```typescript
-// Property: All bracket pairs have open and close captures
-const BRACKET_PAIRS = [
-    ['{', '}'],
-    ['[', ']'],
-    ['(', ')'],
-    ['"', '"'],
-    ['`', '\''],
-];
-
-fc.property(
-    fc.constantFrom(...BRACKET_PAIRS),
-    ([open, close]) => {
-        const brackets = readFileSync('zed-extension/languages/stata/brackets.scm', 'utf-8');
-        const has_open = brackets.includes(`"${open}" @open`);
-        const has_close = brackets.includes(`"${close}" @close`);
-        return has_open && has_close;
+    (num_str) => {
+        const source = `display ${num_str}`;
+        const tree = parser.parse(source);
+        const num_nodes = tree.rootNode.descendantsOfType('number');
+        return num_nodes.length >= 1;
     }
 );
 ```
@@ -980,9 +1084,69 @@ fc.property(
 
 ### Unit Tests
 
-1. **Grammar Tests**: Parse sample Stata files and verify AST structure
-2. **Query Tests**: Verify highlight/bracket/indent queries produce expected captures
-3. **Extension Tests**: Verify lib.rs correctly locates and spawns the server
+Unit tests verify specific examples and edge cases with deterministic inputs.
+
+#### Grammar Unit Tests
+1. **Comment Parsing**: Verify each comment style parses correctly
+   - `// line comment` → line_comment node
+   - `/// continuation` → line_comment node
+   - `* star comment` (at line start) → line_comment node
+   - `/* block */` → block_comment node
+   - Nested block comments
+
+2. **String Parsing**: Verify string literals parse correctly
+   - `"simple string"` → double_string node
+   - `"string with ""escaped"" quotes"` → double_string node
+   - `` `"compound string"' `` → compound_string_depth_1 node
+   - Empty strings
+
+3. **Macro Parsing**: Verify macro references parse correctly
+   - `` `local' `` → local_macro_depth_1 node
+   - `$global` → global_macro node
+   - `${global}` → global_macro node
+   - Numeric positional args: `` `1' ``, `` `0' ``
+
+4. **Mata Block Parsing**: Verify all 5 Mata forms parse correctly
+   - `mata expr` (inline)
+   - `mata: expr` (inline with colon)
+   - `mata\n...\nend` (multiline)
+   - `mata:\n...\nend` (multiline with colon)
+   - `mata { ... }` (brace-delimited)
+
+5. **Program Definition Parsing**: Verify program definitions parse correctly
+   - `program name\nend`
+   - `program define name\nend`
+   - Program with body content
+
+6. **Macro Definition Parsing**: Verify macro definitions parse correctly
+   - `local name value`
+   - `global name value`
+   - `tempvar name1 name2`
+
+#### Query File Unit Tests
+1. **Highlights Coverage**: Verify highlights.scm contains captures for all required node types
+2. **Brackets Symmetry**: Verify brackets.scm has matching @open/@close for all pairs
+3. **Indents Rules**: Verify indents.scm has @indent/@outdent for block constructs
+
+#### Configuration Unit Tests
+1. **Extension Manifest**: Verify extension.toml has all required fields
+2. **Language Config**: Verify config.toml has correct file associations and comment delimiters
+3. **Version Consistency**: Verify all version files match (without running bump script)
+
+### Property-Based Tests
+
+Property-based tests verify universal properties hold across randomly generated inputs.
+
+1. **Line Comment Content Preservation** (Property 1): Any text wrapped in `//` parses as comment
+2. **Block Comment Content Preservation** (Property 2): Any text wrapped in `/* */` parses as comment
+3. **Nested Local Macro Depth** (Property 3): Depth 1-6 nesting parses to correct tree depth
+4. **Nested Compound String Depth** (Property 4): Depth 1-6 nesting parses to correct tree depth
+5. **Mata Block Forms** (Property 5): All 5 forms parse as mata_block
+6. **Double String Content** (Property 6): Arbitrary content in quotes parses as string
+7. **Global Macro Identifiers** (Property 7): Valid identifiers parse in both `$` forms
+8. **Program Definition Names** (Property 8): Valid identifiers parse as program names
+9. **Identifier Validity** (Property 9): Stata identifier pattern parses correctly
+10. **Number Formats** (Property 10): Integer, decimal, scientific notation all parse
 
 ### Integration Tests
 
