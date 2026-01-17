@@ -286,7 +286,14 @@ if [ "$HAS_TREE_SITTER" = true ] && [ "$HAS_CARGO" = true ]; then
     echo ""
     
     # Install to Zed if available
+    ZED_CMD=""
     if command -v zed &> /dev/null; then
+        ZED_CMD="zed"
+    elif [ -x "/Applications/Zed.app/Contents/MacOS/cli" ]; then
+        ZED_CMD="/Applications/Zed.app/Contents/MacOS/cli"
+    fi
+    
+    if [ -n "$ZED_CMD" ]; then
         echo "Installing Zed extension as dev extension..."
         
         # Determine Zed extensions directory (check both macOS locations)
