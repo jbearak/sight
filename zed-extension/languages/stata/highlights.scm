@@ -66,14 +66,9 @@
 ; Prefix keywords
 (prefix) @keyword
 
-; Additional keywords for common constructs
-[
-  "in"
-  "using"
-  "do"
-  "run"
-  "include"
-] @keyword
+; Additional keywords parsed as identifiers
+((identifier) @keyword
+  (#match? @keyword "^(in|using|do|run|include)$"))
 
 ; =============================================================================
 ; TYPES
