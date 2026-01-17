@@ -39,6 +39,35 @@
 - [x] 2.10 Create external scanner (`src/scanner.c`) to support:
   - line-start detection token (`$._line_start`) to safely recognize `*` comments
 
+## Task 2b: Enhance Tree-sitter Grammar for TextMate Parity
+**Validates: Requirements 3.6, 3.12, 3.16-3.19**
+
+These enhancements bring the Tree-sitter grammar to parity with the TextMate grammar for syntax highlighting.
+
+- [ ] 2b.1 Add global macro references inside double strings:
+  - Update `double_string` to allow `$name` and `${name}` patterns inside
+  - Ensure global_macro nodes are created within the string
+- [ ] 2b.2 Add global macro references inside local macros:
+  - Update `local_macro_depth_*` rules to allow `global_macro` as content
+  - Example: `` `$global' `` should parse with nested global_macro
+- [ ] 2b.3 Add control flow keyword nodes:
+  - Conditional keywords: `if`, `else`
+  - Loop keywords: `foreach`, `forvalues`, `forv`, `while`
+  - Control keywords: `continue`, `break`
+  - Block terminator: `end`
+- [ ] 2b.4 Add Stata type keyword nodes:
+  - Numeric types: `byte`, `int`, `long`, `float`, `double`
+  - String types: `str1` through `str2045`, `strL` (use regex pattern)
+- [ ] 2b.5 Expand built-in variables to include all TextMate-recognized variables:
+  - Add: `_skip`, `_dup`, `_newline`, `_column`, `_continue`, `_request`, `_char`
+- [ ] 2b.6 Add interaction operator `#` to operator list
+- [ ] 2b.7 Update highlights.scm with captures for new node types:
+  - Control flow keywords → `@keyword`
+  - Type keywords → `@type`
+  - New built-in variables → `@variable.builtin`
+  - Interaction operator → `@operator`
+- [ ] 2b.8 Regenerate parser and verify all tests pass
+
 ## Task 3: Create Language Configuration Files
 **Validates: Requirements 2.2-2.4, 8.1-8.6, 9.1-9.4**
 

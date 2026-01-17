@@ -150,7 +150,7 @@ zed::register_extension!(SightExtension);
 
 ### Component 3: Tree-sitter Grammar (tree-sitter-stata/grammar.js)
 
-**Validates: Requirements 3.1-3.15**
+**Validates: Requirements 3.1-3.19**
 
 Defines the Stata grammar for parsing. Key design decisions:
 
@@ -165,6 +165,11 @@ Defines the Stata grammar for parsing. Key design decisions:
 3. **Wrap-around**: Depth-based highlighting wraps after depth 6 (i.e., deeper nesting reuses depth 1..6 captures).
 4. **Context-sensitive parsing**: Handle `*` as both comment and multiplication
 5. **Embedded languages**: Recognize Mata blocks using simple grammar rules (no external scanner needed)
+6. **Macro expansion in strings**: Allow global macro references (`$name`, `${name}`) inside double-quoted strings
+7. **Nested macro references**: Allow global macros inside local macros (e.g., `` `$global' ``)
+8. **Control flow keywords**: Parse `if`, `else`, `foreach`, `forvalues`, `while`, `continue`, `break` as distinct keyword nodes
+9. **Type keywords**: Parse Stata types (`byte`, `int`, `long`, `float`, `double`, `str1`-`str2045`, `strL`)
+10. **Complete built-in variables**: Include all TextMate-recognized built-in variables
 
 ```javascript
 // Minimal, buildable starting point.
@@ -338,15 +343,80 @@ module.exports = grammar({
 
     _rest_of_line: _ => token(/[^\n]+/),
 
+    // Control flow keywords (parsed as distinct nodes for highlighting)
+    control_keyword: _ => choice(
+      'if', 'else',                              // Conditional
+      'foreach', 'forvalues', 'forv', 'while',  // Loop
+      'continue', 'break',                       // Control
+      'end',                                     // Block terminator
+    ),
+
+    // Type keywords
+    type_keyword: _ => choice(
+      'byte', 'int', 'long', 'float', 'double',  // Numeric types
+      /str[1-9]/, /str[1-9][0-9]/, /str[1-9][0-9][0-9]/, /str[12][0-9][0-9][0-9]/, /str20[0-3][0-9]/, /str204[0-5]/,  // String types str1-str2045
+      'strL',                                     // Long string type
+    ),
+
     // Atoms
     number: _ => /\d+(\.\d+)?([eE][+-]?\d+)?/,
     missing_value: _ => /\.[a-z]?/,
-    builtin_variable: _ => choice('_n', '_N', '_b', '_coef', '_cons', '_rc', '_se', '_pi'),
+    builtin_variable: _ => choice(
+      '_n', '_N',                                          // Observation
+      '_b', '_coef', '_cons', '_rc', '_se',                // Estimation
+      '_pi',                                               // Constants
+      '_skip', '_dup', '_newline', '_column', '_continue', '_request', '_char',  // Display
+    ),
+
+    // Operators (including interaction operator #)
+    operator: _ => choice(
+      '+', '-', '*', '/', '^',           // Arithmetic
+      '==', '!=', '~=', '<', '>', '<=', '>=',  // Comparison
+      '&', '|', '!', '~',                // Logical
+      '=',                               // Assignment
+      '#',                               // Interaction
+    ),
 
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
   },
 });
 ```
+
+#### Grammar Enhancements for TextMate Parity
+
+The following enhancements bring the Tree-sitter grammar to parity with the TextMate grammar:
+
+**1. Global macros inside double strings:**
+```javascript
+// Update double_string to allow macro expansion
+double_string: $ => seq(
+  '"',
+  repeat(choice(
+    /[^"$\\\r\n]+/,           // Regular content (excluding $)
+    /\\./,                     // Escape sequences
+    '""',                      // Escaped quote
+    $.global_macro,            // Allow $name and ${name}
+  )),
+  '"',
+),
+```
+
+**2. Global macros inside local macros:**
+```javascript
+// Update local_macro_depth_* to allow global_macro
+local_macro_depth_1: $ => seq(
+  '`',
+  choice(
+    $.local_macro_depth_2,
+    $.global_macro,            // Allow $global inside `...'
+    $._macro_name,
+  ),
+  "'",
+),
+```
+
+**3. Control flow and type keywords:**
+These are parsed as distinct node types so highlights.scm can apply appropriate captures.
 
 #### External Scanner Notes
 This design requires an external scanner to emit `$._line_start` at the beginning of each line (when the next character is `*`) so that `*` comments can be recognized without mis-parsing multiplication. The scanner is conservative and only emits the token when both conditions are met: at line start AND the next character is `*`.
@@ -437,11 +507,13 @@ Important behaviors:
 (local_macro_depth_5) @variable.macro.local.depth.5
 (local_macro_depth_6) @variable.macro.local.depth.6
 
-; Global macros (non-depth)
+; Global macros (non-depth) - including inside strings and local macros
 (global_macro) @variable
 
-; Keywords
-["if" "else" "foreach" "forvalues" "forv" "while" "continue" "break" "end"] @keyword
+; Control flow keywords
+(control_keyword) @keyword
+
+; Prefix keywords
 ["by" "bysort" "bys" "quietly" "qui" "noisily" "noi" "capture" "cap" "sortpreserve"] @keyword
 ["in" "using"] @keyword
 ["do" "run" "include"] @keyword
@@ -456,9 +528,9 @@ Important behaviors:
 ["local" "loc" "global" "gl" "tempvar" "tempname" "tempfile"] @keyword
 
 ; Types
-(type) @type
+(type_keyword) @type
 
-; Built-in variables
+; Built-in variables (all TextMate-recognized)
 (builtin_variable) @variable.builtin
 
 ; Missing values
@@ -467,7 +539,7 @@ Important behaviors:
 ; Numbers
 (number) @number
 
-; Operators
+; Operators (including interaction #)
 (operator) @operator
 
 ; Mata blocks - all forms (multiline, brace-delimited, inline)

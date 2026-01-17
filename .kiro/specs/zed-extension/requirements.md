@@ -58,7 +58,10 @@ This document specifies the requirements for adding Zed editor extension support
    - `///` line-continuation comments
    - `*` line comments ONLY when `*` is the first non-whitespace token on the line
    - `/* ... */` block comments
-6. THE Tree_Sitter_Grammar SHALL parse string literals (double-quoted strings and compound strings with `` `\"...\"' `` syntax)
+6. THE Tree_Sitter_Grammar SHALL parse string literals:
+   - Double-quoted strings with `"..."` syntax
+   - Compound strings with `` `\"...\"' `` syntax
+   - Macro references inside double strings (global macros with `$name` or `${name}`)
 7. THE Tree_Sitter_Grammar SHALL parse local macro references with `` `name' `` syntax
 8. THE Tree_Sitter_Grammar SHALL parse global macro references with `$name` and `${name}` syntax
 9. THE Tree_Sitter_Grammar SHALL parse program definitions (`program define name ... end` and `program name ... end`)
@@ -69,7 +72,7 @@ This document specifies the requirements for adding Zed editor extension support
     - Inline expressions: `mata:` followed by expression on the same line (no `end` required)
     - Inline expressions without colon: `mata` followed by expression on the same line (no `end` required)
 11. THE Tree_Sitter_Grammar SHALL parse basic literals and atoms needed for highlighting (identifiers, numbers, missing values, built-in variables)
-12. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment) sufficiently for tokenization/highlighting
+12. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment, interaction `#`) sufficiently for tokenization/highlighting
 13. THE Tree_Sitter_Grammar SHALL support nested highlighting depth for:
     - compound strings
     - local macro references
@@ -78,6 +81,18 @@ This document specifies the requirements for adding Zed editor extension support
     - local macro depth SHALL be based only on nested local macros
     - compound string depth SHALL be based only on nested compound strings
     - local macros inside compound strings SHALL NOT have their depth offset by compound string nesting
+16. THE Tree_Sitter_Grammar SHALL parse control flow keywords as distinct keyword nodes:
+    - Conditional: `if`, `else`
+    - Loop: `foreach`, `forvalues`, `forv`, `while`, `continue`, `break`
+17. THE Tree_Sitter_Grammar SHALL parse Stata type keywords:
+    - Numeric types: `byte`, `int`, `long`, `float`, `double`
+    - String types: `str1` through `str2045`, `strL`
+18. THE Tree_Sitter_Grammar SHALL parse all built-in variables:
+    - Observation: `_n`, `_N`
+    - Estimation: `_b`, `_coef`, `_cons`, `_rc`, `_se`
+    - Constants: `_pi`
+    - Display: `_skip`, `_dup`, `_newline`, `_column`, `_continue`, `_request`, `_char`
+19. THE Tree_Sitter_Grammar SHALL allow global macro references inside local macro references (e.g., `` `$global' ``)
 
 ### Requirement 4: Syntax Highlighting Queries
 
