@@ -180,6 +180,18 @@ end`;
             expect(variable?.source).toBe('gen');
         });
 
+        it('should NOT register local macro references as variables in gen', () => {
+            const result = analyze('gen `my_var\' = 1');
+            
+            expect(result.symbols.variables.has('`my_var\'')).toBe(false);
+        });
+
+        it('should NOT register global macro references as variables in gen', () => {
+            const result = analyze('gen $my_var = 1');
+            
+            expect(result.symbols.variables.has('$my_var')).toBe(false);
+        });
+
         it('should extract variables from egen command', () => {
             const result = analyze('egen total = sum(x)');
             
@@ -188,12 +200,36 @@ end`;
             expect(variable?.source).toBe('egen');
         });
 
+        it('should NOT register local macro references as variables in egen', () => {
+            const result = analyze('egen `my_var\' = mean(x)');
+            
+            expect(result.symbols.variables.has('`my_var\'')).toBe(false);
+        });
+
+        it('should NOT register global macro references as variables in egen', () => {
+            const result = analyze('egen $my_var = mean(x)');
+            
+            expect(result.symbols.variables.has('$my_var')).toBe(false);
+        });
+
         it('should extract variables from input command', () => {
             const result = analyze('input var1 var2 var3');
             
             expect(result.symbols.variables.has('var1')).toBe(true);
             expect(result.symbols.variables.has('var2')).toBe(true);
             expect(result.symbols.variables.has('var3')).toBe(true);
+        });
+
+        it('should NOT register local macro references as variables in input', () => {
+            const result = analyze('input `my_var\'');
+            
+            expect(result.symbols.variables.has('`my_var\'')).toBe(false);
+        });
+
+        it('should NOT register global macro references as variables in input', () => {
+            const result = analyze('input $my_var');
+            
+            expect(result.symbols.variables.has('$my_var')).toBe(false);
         });
 
         it('should extract variables from grouped rename command', () => {
@@ -206,12 +242,43 @@ end`;
             expect(result.symbols.variables.get('new2')?.source).toBe('rename');
         });
 
+        it('should NOT register local macro references as variables in confirm variable', () => {
+            const result = analyze('capture confirm variable `my_var\'');
+            
+            expect(result.symbols.variables.has('`my_var\'')).toBe(false);
+        });
+
+        it('should NOT register global macro references as variables in confirm variable', () => {
+            const result = analyze('capture confirm variable $my_var');
+            
+            expect(result.symbols.variables.has('$my_var')).toBe(false);
+        });
+
         it('should NOT extract variables from grouped rename with wildcard patterns', () => {
             const result = analyze('rename (old1 old2) (* new2)');
 
             for (const [_name, variable] of result.symbols.variables) {
                 expect(variable.source).not.toBe('rename');
             }
+        });
+
+        it('should NOT register local macro references as variables in simple rename', () => {
+            const result = analyze('rename old `my_var\'');
+            
+            expect(result.symbols.variables.has('`my_var\'')).toBe(false);
+        });
+
+        it('should NOT register global macro references as variables in simple rename', () => {
+            const result = analyze('rename old $my_var');
+            
+            expect(result.symbols.variables.has('$my_var')).toBe(false);
+        });
+
+        it('should NOT register macro references as variables in grouped rename', () => {
+            const result = analyze('rename (old1 old2) (`new1\' $new2)');
+            
+            expect(result.symbols.variables.has('`new1\'')).toBe(false);
+            expect(result.symbols.variables.has('$new2')).toBe(false);
         });
 
         it('should NOT extract variables from simple wildcard/stub rename forms', () => {

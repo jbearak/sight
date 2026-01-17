@@ -1262,6 +1262,11 @@ export class SemanticAnalyzer {
         // (may be preceded by type in some cases, but we'll take first as approximation)
         const first_var = node.varlist[0];
 
+        // Skip macro references - they are not actual variable definitions
+        if (this.is_macro_reference(first_var.name)) {
+            return;
+        }
+
         const var_symbol: VariableSymbol = {
             name: first_var.name,
             location: { uri: this.uri, range: first_var.range },
@@ -1283,6 +1288,11 @@ export class SemanticAnalyzer {
 
         const first_var = node.varlist[0];
 
+        // Skip macro references - they are not actual variable definitions
+        if (this.is_macro_reference(first_var.name)) {
+            return;
+        }
+
         const var_symbol: VariableSymbol = {
             name: first_var.name,
             location: { uri: this.uri, range: first_var.range },
@@ -1303,6 +1313,11 @@ export class SemanticAnalyzer {
         }
 
         for (const var_node of node.varlist) {
+            // Skip macro references - they are not actual variable definitions
+            if (this.is_macro_reference(var_node.name)) {
+                continue;
+            }
+
             const var_symbol: VariableSymbol = {
                 name: var_node.name,
                 location: { uri: this.uri, range: var_node.range },
@@ -1418,6 +1433,12 @@ export class SemanticAnalyzer {
         }
 
         const new_var = node.varlist[1];
+
+        // Skip macro references - they are not actual variable definitions
+        if (this.is_macro_reference(new_var.name)) {
+            return;
+        }
+
         const var_symbol: VariableSymbol = {
             name: new_var.name,
             location: { uri: this.uri, range: new_var.range },
@@ -1444,6 +1465,11 @@ export class SemanticAnalyzer {
         for (const my_name of the_names) {
             // Skip wildcards
             if (this.contains_wildcard(my_name)) {
+                continue;
+            }
+
+            // Skip macro references - they are not actual variable definitions
+            if (this.is_macro_reference(my_name)) {
                 continue;
             }
 
@@ -1489,6 +1515,11 @@ export class SemanticAnalyzer {
 
         // The second item is the variable name
         const var_node = node.varlist[1];
+
+        // Skip macro references - they are not actual variable definitions
+        if (this.is_macro_reference(var_node.name)) {
+            return;
+        }
 
         const var_symbol: VariableSymbol = {
             name: var_node.name,
@@ -2472,6 +2503,21 @@ export class SemanticAnalyzer {
      */
     private is_inline_extended_function(content: string): boolean {
         return content.startsWith(':');
+    }
+
+    /**
+     * Check if a varlist item name is a macro reference rather than a plain identifier.
+     * Local macro references: `name' (backtick + name + single quote)
+     * Global macro references: $name or ${name}
+     */
+    private is_macro_reference(name: string): boolean {
+        if (name.startsWith('`') && name.endsWith("'")) {
+            return true;
+        }
+        if (name.startsWith('$')) {
+            return true;
+        }
+        return false;
     }
 
     /**
