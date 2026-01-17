@@ -611,11 +611,9 @@ jobs:
     strategy:
       matrix:
         include:
+          # Aligned with existing TARGETS in scripts/build-binary.ts
           - os: macos-latest
-            target: macos-x64
-            bun-target: bun-darwin-x64
-          - os: macos-latest
-            target: macos-arm64
+            target: darwin-arm64
             bun-target: bun-darwin-arm64
           - os: ubuntu-latest
             target: linux-x64
@@ -623,6 +621,12 @@ jobs:
           - os: ubuntu-latest
             target: linux-arm64
             bun-target: bun-linux-arm64
+          - os: windows-latest
+            target: windows-x64
+            bun-target: bun-windows-x64
+          - os: windows-latest
+            target: windows-arm64
+            bun-target: bun-windows-arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -651,7 +655,8 @@ jobs:
           cargo build --release --target wasm32-wasi
 
       # 4. Assemble Extension Bundle
-      - name: Assemble Bundle
+      - name: Assemble Bundle (Unix)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p bundle/sight
           # Copy extension manifest and code
@@ -668,16 +673,45 @@ jobs:
           cp sight-server bundle/sight/server/
           cp -r src/command-database/caches/* bundle/sight/server/command-database/caches/
 
+      - name: Assemble Bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bundle/sight
+          # Copy extension manifest and code
+          Copy-Item zed-extension/extension.toml bundle/sight/
+          Copy-Item zed-extension/target/wasm32-wasi/release/sight_extension.wasm bundle/sight/extension.wasm
+          
+          # Copy language config and grammar
+          New-Item -ItemType Directory -Force -Path bundle/sight/languages/stata
+          Copy-Item zed-extension/languages/stata/* bundle/sight/languages/stata/
+          Copy-Item -Recurse zed-extension/tree-sitter-stata bundle/sight/
+          
+          # Copy server binary and caches
+          New-Item -ItemType Directory -Force -Path bundle/sight/server/command-database/caches
+          Copy-Item sight-server.exe bundle/sight/server/
+          Copy-Item -Recurse src/command-database/caches/* bundle/sight/server/command-database/caches/
+
       # 5. Compress and Upload
-      - name: Create Archive
+      - name: Create Archive (Unix)
+        if: runner.os != 'Windows'
         run: |
           cd bundle
           tar -czf ../sight-zed-extension-${{ matrix.target }}.tar.gz sight/
 
+      - name: Create Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd bundle
+          Compress-Archive -Path sight -DestinationPath ../sight-zed-extension-${{ matrix.target }}.zip
+
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
-          files: sight-zed-extension-${{ matrix.target }}.tar.gz
+          files: |
+            sight-zed-extension-${{ matrix.target }}.tar.gz
+            sight-zed-extension-${{ matrix.target }}.zip
 ```
 
 ### Component 12: Setup Script Integration

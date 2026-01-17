@@ -227,10 +227,11 @@ This document specifies the requirements for adding Zed editor extension support
 1. THE project SHALL include a GitHub Actions workflow (`release.yml`).
 2. THE workflow SHALL trigger on new tags.
 3. THE workflow SHALL build separate extension archives (e.g., `.tar.gz`) for each target:
-    *   macOS x86_64
     *   macOS arm64
     *   Linux x86_64
     *   Linux aarch64
+    *   Windows x86_64
+    *   Windows arm64
 4. EACH archive SHALL contain the full extension structure: `extension.toml`, `extension.wasm`, `languages/`, `tree-sitter-stata/`, AND the target-specific `server/sight-server` binary.
 5. THE workflow SHALL upload these archives as assets to the GitHub Release.
 6. THE archive names SHALL follow the convention: `sight-zed-extension-{os}-{arch}.tar.gz`.
