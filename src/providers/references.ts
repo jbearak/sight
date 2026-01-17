@@ -61,25 +61,21 @@ export class ReferencesProvider {
     }
 
     /**
-     * Check if a position is within an embedded language context.
+     * Build a Set of line numbers that are within embedded language contexts.
+     * O(m) preprocessing to enable O(1) lookup per token.
      */
-    private is_in_embedded_context(
-        position: Position,
-        context_ranges?: ContextRange[]
-    ): boolean {
-        if (!context_ranges || context_ranges.length === 0) {
-            return false;
-        }
+    private build_embedded_context_lines(context_ranges?: ContextRange[]): Set<number> {
+        const embedded_lines = new Set<number>();
+        if (!context_ranges) return embedded_lines;
 
         for (const my_range of context_ranges) {
             if (my_range.context !== LanguageContext.STATA) {
-                // Check if position is within this embedded context range
-                if (this.position_in_range(position, my_range.range)) {
-                    return true;
+                for (let line = my_range.range.start.line; line <= my_range.range.end.line; line++) {
+                    embedded_lines.add(line);
                 }
             }
         }
-        return false;
+        return embedded_lines;
     }
 
     /**
@@ -100,6 +96,9 @@ export class ReferencesProvider {
         const matches: TokenMatch[] = [];
         const is_macro = search_context.symbol_type === 'local_macro' || 
                          search_context.symbol_type === 'global_macro';
+
+        // Pre-build embedded context lookup for O(1) checks - avoids O(n*m)
+        const embedded_lines = is_macro ? null : this.build_embedded_context_lines(context_ranges);
 
         for (const token of tokens) {
             let token_name: string | null = null;
@@ -128,8 +127,8 @@ export class ReferencesProvider {
 
             // Case-sensitive comparison
             if (token_name === search_context.symbol_name) {
-                // For non-macro symbols, exclude matches in embedded contexts
-                if (!is_macro && this.is_in_embedded_context(token.range.start, context_ranges)) {
+                // For non-macro symbols, exclude matches in embedded contexts (O(1) lookup)
+                if (embedded_lines && embedded_lines.has(token.range.start.line)) {
                     continue;
                 }
                 
@@ -154,29 +153,32 @@ export class ReferencesProvider {
         const symbols = document.symbols;
         
         switch (symbol_type) {
-            case 'local_macro':
+            case 'local_macro': {
                 const local_macro = symbols.localMacros.get(symbol_name);
                 return local_macro ? { uri: local_macro.location.uri, range: local_macro.location.range } : null;
-            
-            case 'global_macro':
+            }
+            case 'global_macro': {
                 const global_macro = symbols.globalMacros.get(symbol_name);
                 return global_macro ? { uri: global_macro.location.uri, range: global_macro.location.range } : null;
-            
-            case 'program':
+            }
+            case 'program': {
                 const program = symbols.programs.get(symbol_name);
                 return program ? { uri: program.location.uri, range: program.location.range } : null;
-            
-            case 'variable':
+            }
+            case 'variable': {
                 const variable = symbols.variables.get(symbol_name);
                 return variable ? { uri: variable.location.uri, range: variable.location.range } : null;
-            
-            case 'scalar':
+            }
+            case 'scalar': {
                 const scalar = symbols.scalars.get(symbol_name);
                 return scalar ? { uri: scalar.location.uri, range: scalar.location.range } : null;
-            
-            case 'matrix':
+            }
+            case 'matrix': {
                 const matrix = symbols.matrices.get(symbol_name);
                 return matrix ? { uri: matrix.location.uri, range: matrix.location.range } : null;
+            }
+            default:
+                return null;
         }
     }
 
@@ -218,70 +220,26 @@ export class ReferencesProvider {
             return [];
         }
 
-        // Create search context
-        const search_context: ReferenceSearchContext = {
-            symbol_name: identified_symbol.name,
-            symbol_type: identified_symbol.type,
-            include_declaration: context.includeDeclaration
-        };
+        return this.collect_references(
+            document,
+            identified_symbol.name,
+            identified_symbol.type,
+            context.includeDeclaration,
+            workspace_indexer,
+            document.context_ranges
+        );
+    }
 
-        const locations: Location[] = [];
-
-        // Find definition if needed for includeDeclaration handling
-        const definition = this.find_definition(document, identified_symbol.name, identified_symbol.type);
-
-        // 1. Search current document tokens (fresh/in-memory content)
-        if (document.tokens) {
-            const matches = this.scan_tokens_for_references(
-                document.tokens,
-                document.uri,
-                search_context,
-                document.context_ranges
-            );
-            
-            for (const match of matches) {
-                locations.push({
-                    uri: match.uri,
-                    range: match.range
-                });
-            }
-        }
-
-        // 2. Search all other indexed files from WorkspaceIndexer
-        if (workspace_indexer) {
-            const indexed_files = workspace_indexer.get_indexed_files();
-            let file_count = 0;
-            
-            for (const [uri, file_data] of indexed_files.entries()) {
-                // Skip the current document (already searched with fresh content)
-                if (uri === document.uri) {
-                    continue;
-                }
-                
-                const matches = this.scan_tokens_for_references(
-                    file_data.tokens,
-                    uri,
-                    search_context,
-                    file_data.context_ranges
-                );
-                
-                for (const match of matches) {
-                    locations.push({
-                        uri: match.uri,
-                        range: match.range
-                    });
-                }
-                
-                // Yield to event loop periodically to avoid blocking
-                file_count++;
-                if (file_count % 10 === 0) {
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                }
-            }
-        }
-
-        // Handle includeDeclaration flag
-        if (context.includeDeclaration && definition) {
+    /**
+     * Apply includeDeclaration logic to locations.
+     * Shared between get_references and get_macro_references_only.
+     */
+    private apply_include_declaration(
+        locations: Location[],
+        definition: Location | null,
+        include_declaration: boolean
+    ): Location[] {
+        if (include_declaration && definition) {
             // Add definition to results if not already present (avoid duplicates)
             const already_has_definition = locations.some(loc =>
                 loc.uri === definition.uri &&
@@ -293,7 +251,7 @@ export class ReferencesProvider {
             if (!already_has_definition) {
                 locations.push(definition);
             }
-        } else if (!context.includeDeclaration && definition) {
+        } else if (!include_declaration && definition) {
             // Filter out definition from results
             const filtered_locations = locations.filter(loc => 
                 !(loc.uri === definition.uri && 
@@ -304,7 +262,6 @@ export class ReferencesProvider {
             );
             return this.sort_locations(filtered_locations);
         }
-
         return this.sort_locations(locations);
     }
 
@@ -398,7 +355,6 @@ export class ReferencesProvider {
         }
 
         // For other symbols, we need to check the token type at position
-        // This is a simplified implementation - actual token analysis would be more precise
         if (document.tokens) {
             for (const token of document.tokens) {
                 if (this.position_in_range(position, token.range)) {
@@ -408,19 +364,27 @@ export class ReferencesProvider {
                         case 'MACRO_REF_GLOBAL':
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
-                            // Could be program, variable, scalar, or matrix - default to program
-                            return { name: word, type: 'program', range };
+                            // Use symbol table to determine type - avoids false positives
+                            if (document.symbols.programs.has(word)) {
+                                return { name: word, type: 'program', range };
+                            }
+                            if (document.symbols.variables.has(word)) {
+                                return { name: word, type: 'variable', range };
+                            }
+                            if (document.symbols.scalars.has(word)) {
+                                return { name: word, type: 'scalar', range };
+                            }
+                            if (document.symbols.matrices.has(word)) {
+                                return { name: word, type: 'matrix', range };
+                            }
+                            return null;
                     }
                 }
             }
         }
 
-        // Default to program if we can't determine the type
-        return {
-            name: word,
-            type: 'program',
-            range,
-        };
+        // Return null if we can't determine the type reliably
+        return null;
     }
 
     /**
@@ -438,89 +402,74 @@ export class ReferencesProvider {
             return [];
         }
 
-        // Create search context for macro
+        return this.collect_references(
+            document,
+            identified_symbol.name,
+            identified_symbol.type,
+            context.includeDeclaration,
+            workspace_indexer,
+            undefined // No context_ranges filtering for macros (they work across all contexts)
+        );
+    }
+
+    /**
+     * Shared helper to collect references across current document and workspace.
+     */
+    private async collect_references(
+        document: DocumentState,
+        symbol_name: string,
+        symbol_type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix',
+        include_declaration: boolean,
+        workspace_indexer?: WorkspaceIndexer,
+        context_ranges?: ContextRange[]
+    ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
-            symbol_name: identified_symbol.name,
-            symbol_type: identified_symbol.type,
-            include_declaration: context.includeDeclaration
+            symbol_name,
+            symbol_type,
+            include_declaration
         };
 
         const locations: Location[] = [];
+        const definition = this.find_definition(document, symbol_name, symbol_type);
 
-        // Find definition if needed
-        const definition = this.find_definition(document, identified_symbol.name, identified_symbol.type);
-
-        // Search current document tokens (macros work across all contexts)
+        // Search current document
         if (document.tokens) {
             const matches = this.scan_tokens_for_references(
                 document.tokens,
                 document.uri,
-                search_context
+                search_context,
+                context_ranges
             );
-            
             for (const my_match of matches) {
-                locations.push({
-                    uri: my_match.uri,
-                    range: my_match.range
-                });
+                locations.push({ uri: my_match.uri, range: my_match.range });
             }
         }
 
-        // Search workspace indexed files
+        // Search workspace
         if (workspace_indexer) {
             const indexed_files = workspace_indexer.get_indexed_files();
             let file_count = 0;
             
             for (const [uri, file_data] of indexed_files.entries()) {
-                if (uri === document.uri) {
-                    continue;
-                }
+                if (uri === document.uri) continue;
                 
                 const matches = this.scan_tokens_for_references(
                     file_data.tokens,
                     uri,
-                    search_context
+                    search_context,
+                    file_data.context_ranges
                 );
-                
                 for (const my_match of matches) {
-                    locations.push({
-                        uri: my_match.uri,
-                        range: my_match.range
-                    });
+                    locations.push({ uri: my_match.uri, range: my_match.range });
                 }
                 
-                file_count++;
-                if (file_count % 10 === 0) {
+                if (++file_count % 10 === 0) {
                     await new Promise(resolve => setTimeout(resolve, 0));
                 }
             }
         }
 
-        // Handle includeDeclaration flag
-        if (context.includeDeclaration && definition) {
-            // Add definition to results if not already present (avoid duplicates)
-            const already_has_definition = locations.some(loc =>
-                loc.uri === definition.uri &&
-                loc.range.start.line === definition.range.start.line &&
-                loc.range.start.character === definition.range.start.character &&
-                loc.range.end.line === definition.range.end.line &&
-                loc.range.end.character === definition.range.end.character
-            );
-            if (!already_has_definition) {
-                locations.push(definition);
-            }
-        } else if (!context.includeDeclaration && definition) {
-            const filtered_locations = locations.filter(loc => 
-                !(loc.uri === definition.uri && 
-                  loc.range.start.line === definition.range.start.line &&
-                  loc.range.start.character === definition.range.start.character &&
-                  loc.range.end.line === definition.range.end.line &&
-                  loc.range.end.character === definition.range.end.character)
-            );
-            return this.sort_locations(filtered_locations);
-        }
-
-        return this.sort_locations(locations);
+        return this.apply_include_declaration(locations, definition, include_declaration);
     }
 
     /**

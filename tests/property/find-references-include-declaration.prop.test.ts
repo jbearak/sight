@@ -12,6 +12,7 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer, AnalysisResult } from '../../src/analyzer';
 import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol, ScalarSymbol, MatrixSymbol } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Find References - Include Declaration Properties', () => {
     const references_provider = new ReferencesProvider();
@@ -44,8 +45,8 @@ describe('Find References - Include Declaration Properties', () => {
         };
     }
 
-    // Arbitraries for generating test data
-    const symbol_name_arb = fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]*$/);
+    // Arbitraries for generating test data (excludes reserved qualifiers like if/in)
+    const symbol_name_arb = arbitrary_non_reserved_identifier();
     const position_arb = fc.record({
         line: fc.integer({ min: 0, max: 10 }),
         character: fc.integer({ min: 0, max: 50 })

@@ -12,6 +12,7 @@ import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { ReferencesProvider, ReferenceSearchContext } from '../../src/providers/references';
 import { Token, ContextRange, LanguageContext } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 /**
  * Helper to create a ContextRange with required fields.
@@ -41,11 +42,8 @@ function create_context_range(
 describe('Feature: find-references, Property 9: Macros Cross Embedded Contexts', () => {
     const provider = new ReferencesProvider();
 
-    // Generator for valid Stata identifiers
-    const arbitrary_identifier = fc.stringOf(
-        fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz_'.split('')),
-        { minLength: 2, maxLength: 10 }
-    ).filter(s => /^[a-zA-Z_]/.test(s));
+    // Generator for valid Stata identifiers (excludes reserved qualifiers like if/in)
+    const arbitrary_identifier = arbitrary_non_reserved_identifier();
 
     it('should include local macro references in Mata blocks', () => {
         fc.assert(

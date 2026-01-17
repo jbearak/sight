@@ -136,47 +136,50 @@ describe('Workspace Symbol Completeness Property Tests', () => {
                     );
 
                     const my_lower_query = my_query.toLowerCase();
-                    const my_result_names = new Set(my_results.map((r) => r.name));
+                    // Use composite key with containerName to avoid collisions
+                    const my_result_keys = new Set(
+                        my_results.map((r) => `${r.containerName}:${r.name}`)
+                    );
 
                     // Check programs
                     for (const my_prog of my_symbols.programs || []) {
                         if (my_prog.name.toLowerCase().includes(my_lower_query)) {
-                            if (!my_result_names.has(my_prog.name)) return false;
+                            if (!my_result_keys.has(`Program:${my_prog.name}`)) return false;
                         }
                     }
 
                     // Check global macros
                     for (const my_macro of my_symbols.globalMacros || []) {
                         if (my_macro.name.toLowerCase().includes(my_lower_query)) {
-                            if (!my_result_names.has(my_macro.name)) return false;
+                            if (!my_result_keys.has(`Global Macro:${my_macro.name}`)) return false;
                         }
                     }
 
                     // Check local macros (name format: `name')
                     for (const my_macro of my_symbols.localMacros || []) {
                         if (my_macro.name.toLowerCase().includes(my_lower_query)) {
-                            if (!my_result_names.has(`\`${my_macro.name}'`)) return false;
+                            if (!my_result_keys.has(`Local Macro:\`${my_macro.name}'`)) return false;
                         }
                     }
 
                     // Check variables
                     for (const my_var of my_symbols.variables || []) {
                         if (my_var.name.toLowerCase().includes(my_lower_query)) {
-                            if (!my_result_names.has(my_var.name)) return false;
+                            if (!my_result_keys.has(`Variable:${my_var.name}`)) return false;
                         }
                     }
 
                     // Check scalars
                     for (const my_scalar of my_symbols.scalars || []) {
                         if (my_scalar.name.toLowerCase().includes(my_lower_query)) {
-                            if (!my_result_names.has(my_scalar.name)) return false;
+                            if (!my_result_keys.has(`Scalar:${my_scalar.name}`)) return false;
                         }
                     }
 
                     // Check matrices
                     for (const my_matrix of my_symbols.matrices || []) {
                         if (my_matrix.name.toLowerCase().includes(my_lower_query)) {
-                            if (!my_result_names.has(my_matrix.name)) return false;
+                            if (!my_result_keys.has(`Matrix:${my_matrix.name}`)) return false;
                         }
                     }
 

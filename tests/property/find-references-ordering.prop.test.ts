@@ -17,16 +17,14 @@ import { ReferencesProvider } from '../../src/providers/references';
 import { DocumentState } from '../../src/document-store';
 import { StataLexer } from '../../src/lexer';
 import { Location } from 'vscode-languageserver';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Feature: find-references, Property 6: Deterministic Ordering', () => {
     const provider = new ReferencesProvider();
     const lexer = new StataLexer();
 
-    // Generator for valid Stata identifiers
-    const arbitrary_identifier = fc.stringOf(
-        fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz_'.split('')),
-        { minLength: 2, maxLength: 10 }
-    ).filter(s => /^[a-zA-Z_]/.test(s));
+    // Generator for valid Stata identifiers (excludes reserved qualifiers like if/in)
+    const arbitrary_identifier = arbitrary_non_reserved_identifier();
 
     /**
      * Create a minimal DocumentState for testing.
@@ -49,7 +47,9 @@ describe('Feature: find-references, Property 6: Deterministic Ordering', () => {
             },
             diagnostics: [],
             context_ranges: [],
-            line_offsets: null,
+            context_tracker: null as any,
+            line_offsets: lexer_result.line_offsets,
+            forward_calls: [],
         };
     }
 
@@ -95,9 +95,11 @@ describe('Feature: find-references, Property 6: Deterministic Ordering', () => {
                         content
                     );
 
+                    // Compute position from backtick in first line
+                    const my_backtick_idx = the_lines[0].indexOf('`');
                     const results = await provider.get_references(
                         document,
-                        { line: 0, character: 12 },
+                        { line: 0, character: my_backtick_idx + 1 },
                         { includeDeclaration: false }
                     );
 
