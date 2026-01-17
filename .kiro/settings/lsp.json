@@ -1,0 +1,13 @@
+{
+  "languages": {
+    "stata": {
+      "name": "sight-language-server",
+      "command": "sight-language-server",
+      "args": ["--stdio"],
+      "file_extensions": ["do", "ado", "doh", "mata"],
+      "project_patterns": [".sight.json"],
+      "exclude_patterns": ["**/node_modules/**", "**/dist/**"],
+      "multi_workspace": false
+    }
+  }
+}

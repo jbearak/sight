@@ -433,10 +433,16 @@ export class SymbolProvider {
         const symbols: SymbolInformation[] = [];
         const lower_query = query.toLowerCase();
 
-        // 1. Check workspace-wide symbols (programs and global macros)
+        // Build set of open document URIs to skip workspace entries that would be stale
+        const the_open_document_uris = new Set(
+            all_documents.map((my_document) => my_document.uri)
+        );
+
+        // 1. Check workspace-wide symbols (skip entries from open documents)
         if (workspace_symbols) {
             // Check programs
             for (const [name, program] of workspace_symbols.programs) {
+                if (the_open_document_uris.has(program.sourceUri)) continue;
                 if (program.name.toLowerCase().includes(lower_query)) {
                     symbols.push({
                         name: program.name,
@@ -452,6 +458,7 @@ export class SymbolProvider {
 
             // Check global macros
             for (const [name, macro] of workspace_symbols.globalMacros) {
+                if (the_open_document_uris.has(macro.sourceUri)) continue;
                 if (name.toLowerCase().includes(lower_query)) {
                     symbols.push({
                         name: `${name}`,
@@ -461,6 +468,70 @@ export class SymbolProvider {
                             range: macro.location.range,
                         },
                         containerName: 'Global Macro',
+                    });
+                }
+            }
+
+            // Check local macros
+            for (const [name, macro] of workspace_symbols.localMacros) {
+                if (the_open_document_uris.has(macro.sourceUri)) continue;
+                if (name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: `\`${name}'`,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: macro.sourceUri,
+                            range: macro.location.range,
+                        },
+                        containerName: 'Local Macro',
+                    });
+                }
+            }
+
+            // Check variables
+            for (const [name, variable] of workspace_symbols.variables) {
+                if (the_open_document_uris.has(variable.sourceUri)) continue;
+                if (name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: name,
+                        kind: SymbolKind.Field,
+                        location: {
+                            uri: variable.sourceUri,
+                            range: variable.location.range,
+                        },
+                        containerName: 'Variable',
+                    });
+                }
+            }
+
+            // Check scalars
+            for (const [name, scalar] of workspace_symbols.scalars) {
+                if (the_open_document_uris.has(scalar.sourceUri)) continue;
+                if (name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: name,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: scalar.sourceUri,
+                            range: scalar.location.range,
+                        },
+                        containerName: 'Scalar',
+                    });
+                }
+            }
+
+            // Check matrices
+            for (const [name, matrix] of workspace_symbols.matrices) {
+                if (the_open_document_uris.has(matrix.sourceUri)) continue;
+                if (name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: name,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: matrix.sourceUri,
+                            range: matrix.location.range,
+                        },
+                        containerName: 'Matrix',
                     });
                 }
             }

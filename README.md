@@ -685,16 +685,17 @@ Configure your editor's LSP client to run this command for `.do` and `.ado`, `.d
 
 #### Kiro CLI
 
-Create an `lsp.json` file in your project root:
+Create `.kiro/settings/lsp.json` in your project:
 
 ```json
 {
-  "servers": {
+  "languages": {
     "stata": {
+      "name": "sight-language-server",
       "command": "sight-language-server",
       "args": ["--stdio"],
-      "fileExtensions": [".do", ".ado", ".doh", ".mata"],
-      "rootMarkers": [".sight.json", "package.json"]
+      "file_extensions": ["do", "ado", "doh", "mata"],
+      "project_patterns": [".sight.json"]
     }
   }
 }

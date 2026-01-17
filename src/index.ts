@@ -7,6 +7,7 @@ export * from './providers/completion';
 export * from './providers/diagnostics';
 export * from './providers/hover';
 export * from './providers/definition';
+export * from './providers/references';
 export * from './providers/symbols';
 export * from './providers/formatter';
 export { CommandDatabase, command_database } from './command-database';
