@@ -51,17 +51,6 @@ sight/
 │   │       ├── brackets.scm          # Bracket matching queries (Req 5.1)
 │   │       ├── indents.scm           # Auto-indentation queries (Req 6.1)
 │   │       └── outline.scm           # Code outline queries (Req 7.1)
-│   ├── tree-sitter-stata/            # Tree-sitter grammar (Req 3.3)
-│   │   ├── grammar.js                # Grammar definition (Req 3.1)
-│   │   ├── package.json              # Node package for tree-sitter
-│   │   ├── bindings/
-│   │   │   └── rust/
-│   │   │       ├── lib.rs            # Rust bindings
-│   │   │       └── build.rs          # Build script
-│   │   └── src/                      # Generated parser (after build)
-│   │       ├── parser.c
-│   │       └── tree_sitter/
-│   │           └── parser.h
 │   └── server/                       # Bundled LSP server (Req 11.1)
 │       ├── sight-server              # Compiled binary (Req 10.4)
 │       └── command-database/
@@ -71,6 +60,7 @@ sight/
 ├── src/                              # LSP server source (existing)
 └── scripts/
     └── bump-version.ts               # Updated for Zed extension (Req 13.3)
+../tree-sitter-stata/                 # External grammar repo (referenced by extension.toml)
 ```
 
 ## Component Design
@@ -91,8 +81,8 @@ authors = ["Jonathan Marc Bearak"]
 repository = "https://github.com/jbearak/sight"
 
 [grammars.stata]
-repository = "."
-path = "tree-sitter-stata"
+repository = "https://github.com/jbearak/tree-sitter-stata"
+rev = "<commit-sha>"
 
 [language_servers.sight]
 name = "Sight"
@@ -148,7 +138,7 @@ impl zed::Extension for SightExtension {
 zed::register_extension!(SightExtension);
 ```
 
-### Component 3: Tree-sitter Grammar (tree-sitter-stata/grammar.js)
+### Component 3: Tree-sitter Grammar (external repo: tree-sitter-stata)
 
 **Validates: Requirements 3.1-3.19**
 
@@ -650,7 +640,7 @@ Add to `package.json`:
 {
   "scripts": {
     "build:zed": "bun scripts/build-zed-extension.ts",
-    "build:zed:grammar": "cd zed-extension/tree-sitter-stata && tree-sitter generate",
+    "build:zed:grammar": "cd ../tree-sitter-stata && tree-sitter generate",
     "build:zed:wasm": "cd zed-extension && cargo build --release --target wasm32-wasi"
   }
 }
@@ -683,11 +673,10 @@ function update_package_json(path: string, new_version: string): void {
 // In main:
 update_extension_toml("zed-extension/extension.toml", new_version);
 update_cargo_toml("zed-extension/Cargo.toml", new_version);
-update_package_json("zed-extension/tree-sitter-stata/package.json", new_version);
 console.log("Updated zed-extension files");
 ```
 
-**Design Decision**: All three Zed extension version files (extension.toml, Cargo.toml, tree-sitter-stata/package.json) are updated together to maintain consistency across the extension ecosystem. This ensures the Tree-sitter grammar version stays synchronized with the extension version.
+**Design Decision**: Zed extension version files (extension.toml, Cargo.toml) are updated in this repo. The Tree-sitter grammar version is maintained in the external tree-sitter-stata repo.
 
 ### Component 10: Documentation Updates
 
@@ -713,7 +702,7 @@ Add a new section documenting Zed extension development:
 
 1. Generate the Tree-sitter grammar:
    ```bash
-   cd zed-extension/tree-sitter-stata
+   cd ../tree-sitter-stata
    tree-sitter generate
    ```
 

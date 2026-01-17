@@ -13,7 +13,7 @@
 ## Task 2: Create Tree-sitter Grammar
 **Validates: Requirements 3.1-3.15**
 
-- [x] 2.1 Create `zed-extension/tree-sitter-stata/` directory structure with `package.json`, `grammar.js`, and Rust bindings (`bindings/rust/lib.rs`, `bindings/rust/build.rs`)
+- [x] 2.1 Create external `tree-sitter-stata` repository with `package.json`, `grammar.js`, and Rust bindings (`bindings/rust/lib.rs`, `bindings/rust/build.rs`)
 - [x] 2.2 Implement grammar rules for comments:
   - `//` and `///` line comments
   - `*` comments ONLY when `*` is the first non-whitespace token on the line (requires external scanner)
@@ -122,7 +122,7 @@ These enhancements bring the Tree-sitter grammar to parity with the TextMate gra
 
 - [x] 8.1 Update `scripts/bump-version.ts` to update `zed-extension/extension.toml` version
 - [x] 8.2 Update `scripts/bump-version.ts` to update `zed-extension/Cargo.toml` version
-- [x] 8.3 Update `scripts/bump-version.ts` to update `zed-extension/tree-sitter-stata/package.json` version
+- [x] 8.3 Update `scripts/bump-version.ts` to skip tree-sitter-stata package.json (lives in separate repo)
 
 ## Task 9: Update Setup Script
 **Validates: Requirements 14.1-14.5**

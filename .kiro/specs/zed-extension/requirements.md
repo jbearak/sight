@@ -50,8 +50,8 @@ This document specifies the requirements for adding Zed editor extension support
 #### Acceptance Criteria
 
 1. THE Zed_Extension SHALL create a new Tree-sitter grammar for Stata based on the existing TextMate grammar (`client/syntaxes/stata.tmLanguage.json`)
-2. THE Tree_Sitter_Grammar SHALL be included within the Zed extension directory (not a separate repository)
-3. THE Tree_Sitter_Grammar source files SHALL be located in `zed-extension/tree-sitter-stata/` directory
+2. THE Tree_Sitter_Grammar SHALL live in a separate repository (`tree-sitter-stata`) and be referenced from `extension.toml` via `repository` + `rev`
+3. THE Zed_Extension SHALL pin the Tree_Sitter_Grammar by commit SHA in `extension.toml` to ensure reproducible builds
 4. THE Tree_Sitter_Grammar SHALL focus on parsing Stata structure needed for editor features (comments, strings, macro syntax, blocks, basic statements) rather than embedding a versioned list of built-in commands/keywords
 5. THE Tree_Sitter_Grammar SHALL parse comments:
    - `//` line comments
@@ -221,7 +221,7 @@ This document specifies the requirements for adding Zed editor extension support
 3. WHEN the version bump scripts (`scripts/bump-version.ts`) are run, THEN the Zed_Extension version files SHALL be updated automatically
 4. THE version bump script SHALL update `zed-extension/extension.toml`
 5. THE version bump script SHALL update `zed-extension/Cargo.toml`
-6. THE version bump script SHALL update `zed-extension/tree-sitter-stata/package.json`
+6. THE version bump script SHALL NOT update the tree-sitter grammar package.json (it lives in a separate repo)
 
 
 ### Requirement 14: Setup Script Integration
