@@ -13,10 +13,10 @@
 ## Task 2: Create Tree-sitter Grammar
 **Validates: Requirements 3.1-3.15**
 
-- [ ] 2.1 Create `zed-extension/tree-sitter-stata/` directory structure with `package.json`, `grammar.js`, and Rust bindings
+- [ ] 2.1 Create `zed-extension/tree-sitter-stata/` directory structure with `package.json`, `grammar.js`, and Rust bindings (`bindings/rust/lib.rs`, `bindings/rust/build.rs`)
 - [ ] 2.2 Implement grammar rules for comments:
   - `//` and `///` line comments
-  - `*` comments ONLY when `*` is the first non-whitespace token on the line (requires line-awareness)
+  - `*` comments ONLY when `*` is the first non-whitespace token on the line (requires external scanner)
   - `/* ... */` block comments
 - [ ] 2.3 Implement grammar rules for string literals:
   - double-quoted strings
@@ -32,11 +32,10 @@
 - [ ] 2.6 Implement grammar rules for program definitions (`program define name ... end` and `program name ... end`)
 - [ ] 2.7 Implement grammar rules for Mata blocks (`mata ... end`) with external scanner support
 - [ ] 2.8 Implement generic command parsing (treat command names as identifiers; avoid embedding a versioned command list)
-- [ ] 2.9 Implement basic atoms for highlighting (identifiers, numbers, missing values, built-in variables) and operator tokens as needed
-- [ ] 2.10 Create/extend external scanner (`src/scanner.c`) to support:
+- [ ] 2.9 Implement basic atoms for highlighting (identifiers, numbers, missing values, built-in variables) and operator tokens
+- [ ] 2.10 Create external scanner (`src/scanner.c`) to support:
   - Mata block content tokenization (`$._mata_block_content`)
   - line-start detection token (`$._line_start`) to safely recognize `*` comments
-  - (Note: existing public grammars lack this; implement custom scanner based on generic examples/TextMate logic)
 
 ## Task 3: Create Language Configuration Files
 **Validates: Requirements 2.2-2.4, 8.1-8.6, 9.1-9.4**
@@ -88,7 +87,7 @@
 - [ ] 7.3 Add error handling for missing server binary
 
 ## Task 8: Update Version Synchronization Script
-**Validates: Requirements 13.1-13.5**
+**Validates: Requirements 13.1-13.6**
 
 - [ ] 8.1 Update `scripts/bump-version.ts` to update `zed-extension/extension.toml` version
 - [ ] 8.2 Update `scripts/bump-version.ts` to update `zed-extension/Cargo.toml` version
@@ -114,7 +113,7 @@
 ## Task 11: Extend Existing Release Workflows (CI)
 **Validates: Requirements 16.1-16.6**
 
-- [ ] 11.1 Extend `.github/workflows/release-build.yml` to build Zed extension archives for each target platform
+- [ ] 11.1 Extend `.github/workflows/release-build.yml` to build Zed extension archives for each target platform (darwin-arm64, linux-x64, linux-arm64, windows-x64, windows-arm64)
 - [ ] 11.2 Add steps in `release-build.yml` to build the Zed WASM extension, assemble the extension bundle, and compress into platform archives
 - [ ] 11.3 Upload the Zed extension archives as part of the existing workflow artifacts for the tag build
 - [ ] 11.4 Extend `.github/workflows/release-publish.yml` to download the Zed extension archives from the matching `release-build.yml` run
