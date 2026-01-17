@@ -53,23 +53,23 @@ This document specifies the requirements for adding Zed editor extension support
 2. THE Tree_Sitter_Grammar SHALL be included within the Zed extension directory (not a separate repository)
 3. THE Tree_Sitter_Grammar source files SHALL be located in `zed-extension/tree-sitter-stata/` directory
 4. THE Tree_Sitter_Grammar SHALL recognize all commands, programs, and keywords that the TextMate grammar recognizes
-3. THE Tree_Sitter_Grammar SHALL parse comments (line comments with `//`, `*`, `///` and block comments with `/* */`)
-4. THE Tree_Sitter_Grammar SHALL parse string literals (double-quoted strings and compound strings with `` `"..."' `` syntax)
-5. THE Tree_Sitter_Grammar SHALL parse local macro references with `` `name' `` syntax, supporting nesting up to 6 levels (matching TextMate grammar depth)
-6. THE Tree_Sitter_Grammar SHALL parse global macro references with `$name` and `${name}` syntax
-7. THE Tree_Sitter_Grammar SHALL parse program definitions (`program define name ... end` and `program name ... end`)
-8. THE Tree_Sitter_Grammar SHALL parse control flow keywords (`if`, `else`, `foreach`, `forvalues`, `forv`, `while`, `continue`, `break`, `end`)
-9. THE Tree_Sitter_Grammar SHALL parse prefix keywords (`by`, `bysort`, `bys`, `quietly`, `qui`, `noisily`, `noi`, `capture`, `cap`, `sortpreserve`)
-10. THE Tree_Sitter_Grammar SHALL parse file execution commands (`do`, `run`, `include`)
-11. THE Tree_Sitter_Grammar SHALL parse data commands (`generate`, `gen`, `egen`, `replace`, `drop`, `keep`, `use`, `save`, `merge`, `append`, etc.)
-12. THE Tree_Sitter_Grammar SHALL parse output commands (`display`, `list`, `tabulate`, `describe`, `summarize`, etc.)
-13. THE Tree_Sitter_Grammar SHALL parse macro commands (`local`, `global`, `tempvar`, `tempname`, `tempfile`)
-14. THE Tree_Sitter_Grammar SHALL parse Mata blocks (`mata ... end`)
-15. THE Tree_Sitter_Grammar SHALL parse Stata types (`byte`, `int`, `long`, `float`, `double`, `str1`-`str2045`, `strL`)
-16. THE Tree_Sitter_Grammar SHALL parse built-in variables (`_n`, `_N`, `_b`, `_coef`, `_cons`, `_rc`, `_se`, `_pi`)
-17. THE Tree_Sitter_Grammar SHALL parse missing values (`.`, `.a`-`.z`)
-18. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment)
-19. THE Tree_Sitter_Grammar SHALL parse numeric literals (integers, decimals, scientific notation)
+5. THE Tree_Sitter_Grammar SHALL parse comments (line comments with `//`, `*`, `///` and block comments with `/* */`)
+6. THE Tree_Sitter_Grammar SHALL parse string literals (double-quoted strings and compound strings with `` `"..."' `` syntax)
+7. THE Tree_Sitter_Grammar SHALL parse local macro references with `` `name' `` syntax, supporting nesting up to 6 levels (matching TextMate grammar depth)
+8. THE Tree_Sitter_Grammar SHALL parse global macro references with `$name` and `${name}` syntax
+9. THE Tree_Sitter_Grammar SHALL parse program definitions (`program define name ... end` and `program name ... end`)
+10. THE Tree_Sitter_Grammar SHALL parse control flow keywords (`if`, `else`, `foreach`, `forvalues`, `forv`, `while`, `continue`, `break`, `end`)
+11. THE Tree_Sitter_Grammar SHALL parse prefix keywords (`by`, `bysort`, `bys`, `quietly`, `qui`, `noisily`, `noi`, `capture`, `cap`, `sortpreserve`)
+12. THE Tree_Sitter_Grammar SHALL parse file execution commands (`do`, `run`, `include`)
+13. THE Tree_Sitter_Grammar SHALL parse data commands (`generate`, `gen`, `egen`, `replace`, `drop`, `keep`, `use`, `save`, `merge`, `append`, etc.)
+14. THE Tree_Sitter_Grammar SHALL parse output commands (`display`, `list`, `tabulate`, `describe`, `summarize`, etc.)
+15. THE Tree_Sitter_Grammar SHALL parse macro commands (`local`, `global`, `tempvar`, `tempname`, `tempfile`)
+16. THE Tree_Sitter_Grammar SHALL parse Mata blocks (`mata ... end`)
+17. THE Tree_Sitter_Grammar SHALL parse Stata types (`byte`, `int`, `long`, `float`, `double`, `str1`-`str2045`, `strL`)
+18. THE Tree_Sitter_Grammar SHALL parse built-in variables (`_n`, `_N`, `_b`, `_coef`, `_cons`, `_rc`, `_se`, `_pi`)
+19. THE Tree_Sitter_Grammar SHALL parse missing values (`.`, `.a`-`.z`)
+20. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment)
+21. THE Tree_Sitter_Grammar SHALL parse numeric literals (integers, decimals, scientific notation)
 
 ### Requirement 4: Syntax Highlighting Queries
 
@@ -207,26 +207,30 @@ This document specifies the requirements for adding Zed editor extension support
 4. THE setup.sh script SHALL handle the case where Zed is not installed gracefully (skip installation without error)
 5. THE setup.sh script SHALL provide feedback to the user about whether the Zed extension was installed
 
-### Requirement 16: Release Automation (CI/CD)
+### Requirement 15: Documentation
 
-**User Story:** As a maintainer, I want to automatically generate installable extension archives for all platforms.
-
-#### Acceptance Criteria
-
-1.  THE project SHALL include a GitHub Actions workflow (`release.yml`).
-2.  THE workflow SHALL trigger on new tags.
-3.  THE workflow SHALL build separate extension archives (e.g., `.tar.gz`) for each target:
-    *   macOS x86_64
-    *   macOS arm64
-    *   Linux x86_64
-    *   Linux aarch64
-4.  EACH archive SHALL contain the full extension structure: `extension.toml`, `extension.wasm`, `languages/`, `tree-sitter-stata/`, AND the target-specific `server/sight-server` binary.
-5.  THE workflow SHALL upload these archives as assets to the GitHub Release.
-6.  THE archive names SHALL follow the convention: `sight-zed-extension-{os}-{arch}.tar.gz`.
+**User Story:** As a developer or contributor, I want clear documentation about building and developing the Zed extension, so that I can understand the build process and contribute effectively.
 
 #### Acceptance Criteria
 
 1. THE `DEVELOPMENT.md` file SHALL document the build prerequisites (Rust, Cargo, Bun, Tree-sitter CLI)
 2. THE `DEVELOPMENT.md` file SHALL document the step-by-step build process for the Zed extension
 3. THE `AGENTS.md` file SHALL be updated to include the Zed extension in the system overview
-4. THE `setup.sh` script SHALL be updated to automate these build steps 
+4. THE `setup.sh` script SHALL be updated to automate these build steps
+
+### Requirement 16: Release Automation (CI/CD)
+
+**User Story:** As a maintainer, I want to automatically generate installable extension archives for all platforms.
+
+#### Acceptance Criteria
+
+1. THE project SHALL include a GitHub Actions workflow (`release.yml`).
+2. THE workflow SHALL trigger on new tags.
+3. THE workflow SHALL build separate extension archives (e.g., `.tar.gz`) for each target:
+    *   macOS x86_64
+    *   macOS arm64
+    *   Linux x86_64
+    *   Linux aarch64
+4. EACH archive SHALL contain the full extension structure: `extension.toml`, `extension.wasm`, `languages/`, `tree-sitter-stata/`, AND the target-specific `server/sight-server` binary.
+5. THE workflow SHALL upload these archives as assets to the GitHub Release.
+6. THE archive names SHALL follow the convention: `sight-zed-extension-{os}-{arch}.tar.gz`.

@@ -148,7 +148,7 @@ zed::register_extension!(SightExtension);
 
 ### Component 3: Tree-sitter Grammar (tree-sitter-stata/grammar.js)
 
-**Validates: Requirements 3.1-3.19**
+**Validates: Requirements 3.1-3.21**
 
 Defines the Stata grammar for parsing. Key design decisions:
 
@@ -532,7 +532,7 @@ console.log("Updated zed-extension/extension.toml and zed-extension/Cargo.toml")
 
 ### Component 10: Documentation Updates
 
-**Validates: Requirements 16 (Documentation Acceptance Criteria)**
+**Validates: Requirements 15.1-15.4**
 
 The following documentation files need updates to reflect the Zed extension:
 
