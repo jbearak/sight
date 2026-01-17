@@ -5,6 +5,14 @@ version = "0.1.8"
 schema_version = 1
 authors = ["Jonathan Marc Bearak"]
 repository = "https://github.com/jbearak/sight"
+themes = []
+icon_themes = []
+languages = ["languages/stata"]
+capabilities = []
+
+[lib]
+kind = "Rust"
+version = "0.1.0"
 
 [grammars.stata]
 repository = "."
@@ -12,4 +20,5 @@ path = "tree-sitter-stata"
 
 [language_servers.sight]
 name = "Sight"
+language = "Stata"
 languages = ["stata"]
