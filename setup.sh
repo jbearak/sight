@@ -261,10 +261,37 @@ if [ "$HAS_TREE_SITTER" = true ] && [ "$HAS_CARGO" = true ]; then
     
     # Build the extension
     cd zed-extension
+    
+    # Download WASI adapter if needed (required for component model)
+    ADAPTER_URL="https://github.com/bytecodealliance/wasmtime/releases/download/v22.0.0/wasi_snapshot_preview1.reactor.wasm"
+    ADAPTER_PATH="target/wasi_snapshot_preview1.reactor.wasm"
+    
+    mkdir -p target
+    if [ ! -f "$ADAPTER_PATH" ]; then
+        echo "  Downloading WASI adapter..."
+        if curl -L -o "$ADAPTER_PATH" "$ADAPTER_URL" --fail --silent; then
+            echo -e "  ${GREEN}✓ WASI adapter downloaded${NC}"
+        else
+            echo -e "  ${YELLOW}Warning: Failed to download WASI adapter${NC}"
+            # Create an empty file to prevent build script from failing on missing variable? 
+            # No, if download fails, the component new command will fail, which is handled.
+        fi
+    fi
+
     if cargo build --target "$WASM_TARGET" --release &> /dev/null; then
         echo -e "  ${GREEN}✓ Zed extension compiled${NC}"
-        # Copy WASM file to expected location
-        cp "target/$WASM_TARGET/release/sight_extension.wasm" extension.wasm
+        
+        # Convert WASM module to component (required by Zed)
+        if command -v wasm-tools &> /dev/null; then
+            if wasm-tools component new "target/$WASM_TARGET/release/sight_extension.wasm" -o extension.wasm --adapt "wasi_snapshot_preview1=$ADAPTER_PATH" &> /dev/null; then
+                echo -e "  ${GREEN}✓ WASM component created${NC}"
+            else
+                echo -e "  ${YELLOW}Warning: Failed to create WASM component (check adapter)${NC}"
+            fi
+        else
+            echo -e "  ${YELLOW}Warning: wasm-tools not found - install with: cargo install wasm-tools${NC}"
+            cp "target/$WASM_TARGET/release/sight_extension.wasm" extension.wasm
+        fi
     else
         echo -e "  ${YELLOW}Warning: Zed extension compilation failed${NC}"
     fi

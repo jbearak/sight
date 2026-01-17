@@ -192,29 +192,26 @@ In addition to Bun (required for the main project), the Zed extension requires:
 - **Rust** (stable toolchain): For compiling the extension to WASM
 - **Cargo**: Rust package manager (included with Rust)
 - **wasm32-wasip1 target**: Install with `rustup target add wasm32-wasip1`
-- **tree-sitter-cli**: For generating the Tree-sitter parser (`bun install -g tree-sitter-cli` or `npm install -g tree-sitter-cli`)
+
+> **Note:** The tree-sitter grammar is maintained in a [separate repository](https://github.com/jbearak/tree-sitter-stata) and fetched automatically by Zed. You only need `tree-sitter-cli` if you're contributing to the grammar itself.
 
 ### Build Process
 
-1. Generate the Tree-sitter grammar:
-   ```bash
-   cd zed-extension/tree-sitter-stata
-   tree-sitter generate
-   ```
+> **Note:** The tree-sitter grammar is now maintained in a separate repository and fetched automatically by Zed.
 
-2. Build the WASM extension:
+1. Build the WASM extension:
    ```bash
    cd zed-extension
    cargo build --release --target wasm32-wasip1
    cp target/wasm32-wasip1/release/sight_extension.wasm extension.wasm
    ```
 
-3. Bundle the LSP server (creates a standalone binary):
+2. Bundle the LSP server (creates a standalone binary):
    ```bash
    bun build --compile --outfile=zed-extension/server/sight-server ./src/server.ts
    ```
 
-4. Copy command database caches:
+3. Copy command database caches:
    ```bash
    mkdir -p zed-extension/server/command-database/caches
    cp -r src/command-database/caches/* zed-extension/server/command-database/caches/
@@ -236,7 +233,7 @@ After symlinking, restart Zed to load the extension. Open a `.do` file to verify
 
 ```
 zed-extension/
-├── extension.toml          # Extension manifest (id, name, version)
+├── extension.toml          # Extension manifest (id, name, version, grammar reference)
 ├── Cargo.toml              # Rust project config for WASM compilation
 ├── src/lib.rs              # Extension trait implementation
 ├── languages/stata/        # Language configuration
@@ -245,11 +242,48 @@ zed-extension/
 │   ├── brackets.scm        # Bracket matching queries
 │   ├── indents.scm         # Auto-indentation queries
 │   └── outline.scm         # Code outline queries
-├── tree-sitter-stata/      # Tree-sitter grammar
-│   ├── grammar.js          # Grammar definition
-│   ├── src/scanner.c       # External scanner for Mata blocks
-│   └── bindings/rust/      # Rust bindings for tree-sitter
 └── server/                 # Bundled LSP server (after build)
     ├── sight-server        # Compiled binary
     └── command-database/   # Command metadata caches
 ```
+
+> **Note:** The tree-sitter grammar is fetched from the external [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata) repository during extension installation. See "Tree-Sitter Grammar Repository" below for details.
+
+### Tree-Sitter Grammar Repository
+
+The tree-sitter grammar for Stata is maintained in a **separate repository**: [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata).
+
+This separation is required by Zed's architecture, which dynamically fetches tree-sitter grammars from external repositories during extension installation. The grammar cannot be bundled within the extension itself.
+
+#### Repository Relationship
+
+- **sight** (this repository): Contains the Zed extension configuration, language queries (highlights, brackets, indents, outline), and the LSP server
+- **tree-sitter-stata**: Contains the tree-sitter grammar definition (`grammar.js`), external scanner (`scanner.c`), generated parser files, and Rust/Node.js bindings
+
+#### Updating the Grammar Version
+
+When the tree-sitter-stata grammar is updated, you need to update the Zed extension to reference the new version:
+
+1. **Check the latest version** at [tree-sitter-stata releases](https://github.com/jbearak/tree-sitter-stata/releases)
+
+2. **Update `extension.toml`** in the `zed-extension/` directory:
+   ```toml
+   [grammars.stata]
+   repository = "https://github.com/jbearak/tree-sitter-stata"
+   rev = "v0.1.8"  # Update this to the new version tag
+   ```
+
+3. **Test the extension** by installing it locally in Zed (see "Testing Locally" above)
+
+4. **Commit and release** a new version of the sight extension
+
+#### Contributing Grammar Changes
+
+To contribute changes to the tree-sitter grammar itself:
+
+1. Clone the [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata) repository
+2. Make changes to `grammar.js` or `src/scanner.c`
+3. Run `tree-sitter generate` to regenerate the parser
+4. Run `tree-sitter test` to verify the grammar
+5. Submit a pull request to tree-sitter-stata
+6. After the PR is merged and a new version is tagged, update the sight extension as described above

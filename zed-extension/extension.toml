@@ -12,12 +12,11 @@ capabilities = []
 
 [lib]
 kind = "Rust"
-version = "0.1.0"
+version = "0.7.0"
 
 [grammars.stata]
-repository = "https://github.com/jbearak/sight"
-path = "zed-extension/tree-sitter-stata"
-rev = "main"
+repository = "https://github.com/jbearak/tree-sitter-stata"
+rev = "v0.1.8"
 
 [language_servers.sight]
 name = "Sight"
