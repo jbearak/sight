@@ -62,7 +62,12 @@ This document specifies the requirements for adding Zed editor extension support
 7. THE Tree_Sitter_Grammar SHALL parse local macro references with `` `name' `` syntax
 8. THE Tree_Sitter_Grammar SHALL parse global macro references with `$name` and `${name}` syntax
 9. THE Tree_Sitter_Grammar SHALL parse program definitions (`program define name ... end` and `program name ... end`)
-10. THE Tree_Sitter_Grammar SHALL parse Mata blocks (`mata ... end`)
+10. THE Tree_Sitter_Grammar SHALL parse Mata blocks in all valid forms:
+    - Multiline blocks: `mata` followed by newline, content lines, then `end` on its own line
+    - Multiline blocks with colon: `mata:` followed by newline, content lines, then `end` on its own line
+    - Brace-delimited blocks: `mata {` ... `}` (content between braces)
+    - Inline expressions: `mata:` followed by expression on the same line (no `end` required)
+    - Inline expressions without colon: `mata` followed by expression on the same line (no `end` required)
 11. THE Tree_Sitter_Grammar SHALL parse basic literals and atoms needed for highlighting (identifiers, numbers, missing values, built-in variables)
 12. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment) sufficiently for tokenization/highlighting
 13. THE Tree_Sitter_Grammar SHALL support nested highlighting depth for:

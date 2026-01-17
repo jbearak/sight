@@ -250,14 +250,24 @@ module.exports = grammar({
         // MATA BLOCKS
         // =========================================================================
 
-        mata_block: $ => seq(
-            'mata',
-            optional(':'),
-            repeat($._mata_line),
-            'end',
+        // Mata blocks - supports all valid forms:
+        // 1. mata\n...\nend (multiline)
+        // 2. mata:\n...\nend (multiline with colon)
+        // 3. mata { ... } (brace-delimited)
+        // 4. mata: expr (inline with colon)
+        // 5. mata expr (inline without colon)
+        mata_block: $ => choice(
+            // Brace-delimited: mata { ... }
+            seq('mata', optional(':'), '{', repeat($._mata_brace_content), '}'),
+            // Multiline: mata ... end
+            seq('mata', optional(':'), $._newline, repeat($._mata_line), 'end'),
+            // Inline: mata: expr or mata expr (on same line, no end required)
+            seq('mata', optional(':'), $._mata_inline_content),
         ),
         
         _mata_line: $ => seq(/[^\n]*/, $._newline),
+        _mata_inline_content: _ => token(prec(-1, /[^\n{]+/)),
+        _mata_brace_content: _ => /[^{}]+/,
 
         // =========================================================================
         // MACRO DEFINITIONS

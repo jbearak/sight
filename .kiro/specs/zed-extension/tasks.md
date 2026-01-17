@@ -30,7 +30,10 @@
   - wrap-around behavior after depth 6
   - local macro depth is based only on local macro nesting (not offset by compound string nesting)
 - [x] 2.6 Implement grammar rules for program definitions (`program define name ... end` and `program name ... end`)
-- [x] 2.7 Implement grammar rules for Mata blocks (`mata ... end`) using simple grammar rules
+- [x] 2.7 Implement grammar rules for Mata blocks in all valid forms:
+  - Multiline blocks: `mata` or `mata:` followed by newline, content, then `end`
+  - Brace-delimited blocks: `mata {` ... `}`
+  - Inline expressions: `mata:` or `mata` followed by expression on same line
 - [x] 2.8 Implement generic command parsing (treat command names as identifiers; avoid embedding a versioned command list)
 - [x] 2.9 Implement basic atoms for highlighting (identifiers, numbers, missing values, built-in variables) and operator tokens
 - [x] 2.10 Create external scanner (`src/scanner.c`) to support:
