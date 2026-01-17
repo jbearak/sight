@@ -99,62 +99,43 @@ languages = ["stata"]
 
 ### Component 2: Rust Extension Implementation (src/lib.rs)
 
-Implements the `zed_extension_api::Extension` trait to provide LSP integration.
+Implements the `zed_extension_api::Extension` trait. With the "Fat Bundle" strategy, the implementation is significantly simplified as the binary is guaranteed to be present in the extension directory.
 
 ```rust
 use zed_extension_api::{self as zed, Result};
 use std::fs;
 
-struct SightExtension {
-    cached_binary_path: Option<String>,
-}
+struct SightExtension;
 
 impl zed::Extension for SightExtension {
     fn new() -> Self {
-        Self {
-            cached_binary_path: None,
-        }
+        Self
     }
 
     fn language_server_command(
         &mut self,
-        language_server_id: &zed::LanguageServerId,
+        _language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        // Locate the bundled server binary relative to extension
-        let server_path = self.server_binary_path(worktree)?;
-        
+        // The binary is guaranteed to be bundled at ./server/sight-server
+        // In Zed WASM, current_dir() is the extension root.
+        let server_path = std::env::current_dir()
+            .unwrap()
+            .join("server")
+            .join("sight-server");
+            
+        if !server_path.exists() {
+             return Err(format!(
+                 "Sight server binary not found at {:?}. This extension bundle may be corrupt or for the wrong platform.", 
+                 server_path
+             ).into());
+        }
+
         Ok(zed::Command {
-            command: server_path,
+            command: server_path.to_string_lossy().to_string(),
             args: vec!["--stdio".to_string()],
             env: Default::default(),
         })
-    }
-}
-
-impl SightExtension {
-    fn server_binary_path(&mut self, worktree: &zed::Worktree) -> Result<String> {
-        if let Some(path) = &self.cached_binary_path {
-            if fs::metadata(path).is_ok() {
-                return Ok(path.clone());
-            }
-        }
-        
-        // Look for bundled binary in extension directory
-        let extension_dir = std::env::current_dir()
-            .map_err(|e| format!("Failed to get extension directory: {}", e))?;
-        
-        let binary_path = extension_dir
-            .join("server")
-            .join("sight-server");
-        
-        if binary_path.exists() {
-            let path_str = binary_path.to_string_lossy().to_string();
-            self.cached_binary_path = Some(path_str.clone());
-            return Ok(path_str);
-        }
-        
-        Err("Sight server binary not found. Please rebuild the extension.".into())
     }
 }
 
@@ -168,11 +149,16 @@ Defines the Stata grammar for parsing. Key design decisions:
 1. **Precedence levels**: Handle operator precedence correctly
 2. **Nested macros**: Support up to 6 levels of nesting (matching TextMate)
 3. **Context-sensitive parsing**: Handle `*` as both comment and multiplication
-4. **Embedded languages**: Recognize Mata blocks
+4. **Embedded languages**: Recognize Mata blocks using an external scanner for robustness
 
 ```javascript
 module.exports = grammar({
   name: 'stata',
+
+  // Use external scanner for Mata blocks to correctly handle arbitrary content ending with 'end'
+  externals: $ => [
+    $._mata_block_content,
+  ],
 
   extras: $ => [/\s/],
 
@@ -278,7 +264,7 @@ module.exports = grammar({
     mata_block: $ => seq(
       'mata',
       optional(':'),
-      repeat($._mata_statement),
+      $._mata_block_content, // Handled by external scanner
       'end',
     ),
 
@@ -361,10 +347,19 @@ module.exports = grammar({
     )),
 
     _numlist: $ => /[0-9\/\(\)]+/,
-
-    _mata_statement: $ => /.+/,
   },
 });
+```
+
+#### External Scanner (tree-sitter-stata/src/scanner.c)
+
+An external scanner is required to correctly parse Mata blocks, consuming all content until the `end` keyword is encountered on a new line or in a valid closing context.
+
+```c
+#include <tree_sitter/parser.h>
+#include <wctype.h>
+
+// ... implementation details for consuming text until "end" keyword ...
 ```
 
 ### Component 4: Language Configuration (languages/stata/config.toml)
@@ -517,7 +512,96 @@ update_cargo_toml("zed-extension/Cargo.toml", new_version);
 console.log("Updated zed-extension/extension.toml and zed-extension/Cargo.toml");
 ```
 
-### Component 10: Setup Script Integration
+### Component 11: Release Automation (CI/CD)
+
+The CI pipeline creates installable extension archives for each platform.
+
+**File**: `.github/workflows/release-extension.yml`
+
+```yaml
+name: Release Extension
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build-extension:
+    name: Build Extension (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos-x64
+            bun-target: bun-darwin-x64
+          - os: macos-latest
+            target: macos-arm64
+            bun-target: bun-darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+            bun-target: bun-linux-x64
+          - os: ubuntu-latest
+            target: linux-arm64
+            bun-target: bun-linux-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+      
+      # 1. Install dependencies
+      - name: Install dependencies
+        run: bun install
+
+      # 2. Build Server Binary
+      - name: Build Server Binary
+        run: |
+          bun build --compile --target=${{ matrix.bun-target }} --outfile=sight-server ./src/server.ts
+
+      # 3. Build WASM Extension (requires Rust)
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-wasi
+          override: true
+          
+      - name: Build WASM
+        run: |
+          cd zed-extension
+          cargo build --release --target wasm32-wasi
+
+      # 4. Assemble Extension Bundle
+      - name: Assemble Bundle
+        run: |
+          mkdir -p bundle/sight
+          # Copy extension manifest and code
+          cp zed-extension/extension.toml bundle/sight/
+          cp zed-extension/target/wasm32-wasi/release/sight_extension.wasm bundle/sight/extension.wasm
+          
+          # Copy language config and grammar
+          mkdir -p bundle/sight/languages/stata
+          cp zed-extension/languages/stata/* bundle/sight/languages/stata/
+          cp -r zed-extension/tree-sitter-stata bundle/sight/
+          
+          # Copy server binary and caches
+          mkdir -p bundle/sight/server/command-database/caches
+          cp sight-server bundle/sight/server/
+          cp -r src/command-database/caches/* bundle/sight/server/command-database/caches/
+
+      # 5. Compress and Upload
+      - name: Create Archive
+        run: |
+          cd bundle
+          tar -czf ../sight-zed-extension-${{ matrix.target }}.tar.gz sight/
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: sight-zed-extension-${{ matrix.target }}.tar.gz
+```
+
+### Component 12: Setup Script Integration
 
 Update `setup.sh` to include Zed extension:
 

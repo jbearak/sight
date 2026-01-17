@@ -132,8 +132,7 @@ This document specifies the requirements for adding Zed editor extension support
 4. THE Zed_Extension SHALL configure auto-closing for double quotes `"` → `"`
 5. THE Zed_Extension SHALL configure auto-closing for Stata local macro quotes: `` ` `` → `'`
 6. THE Zed_Extension SHALL support auto-closing pairs inside double-quoted strings
-7. THE Zed_Extension SHALL support auto-closing pairs inside compound strings (`` `"..."' ``)
-8. THE Zed_Extension SHALL implement custom logic in Rust for auto-closing pairs to correctly handle nested macro quotes inside strings, mirroring the VS Code extension's behavior
+7. THE Zed_Extension SHALL support auto-closing pairs inside compound strings (`` `\"...\"' ``)
 
 ### Requirement 9: Comment Configuration
 
@@ -159,18 +158,16 @@ This document specifies the requirements for adding Zed editor extension support
 4. THE Zed_Extension SHALL register the language server for the Stata language
 5. THE Zed_Extension SHALL pass appropriate initialization options to the Sight_Server
 
-### Requirement 11: Server Binary Bundling
+### Requirement 11: Server Provisioning Strategy
 
-**User Story:** As a Zed user, I want the LSP server to be bundled with the extension, so that it works immediately without additional downloads.
+**User Story:** As a user, I want a simple, offline-capable installation. As a maintainer, I want to distribute self-contained extension bundles.
 
 #### Acceptance Criteria
 
-1. THE Zed_Extension SHALL include the bundled Sight_Server JavaScript file in the extension package
-2. THE Zed_Extension SHALL include the command database caches required by the Sight_Server
-3. THE Zed_Extension SHALL locate the bundled server relative to the extension directory
-4. THE build process SHALL automatically compile the Sight_Server into a standalone binary
-5. THE build process SHALL copy the server binary to the Zed extension directory
-6. THE build process SHALL automatically compile the Tree-sitter grammar during the build
+1.  **Bundled Binary**: THE Zed_Extension SHALL always include the compiled `sight-server` binary directly in the extension package.
+2.  **Platform Specificity**: THE build process SHALL produce separate extension bundles for each supported platform (macOS/Linux, x64/arm64).
+3.  **No Runtime Downloads**: THE Zed_Extension SHALL NOT attempt to download any binaries or dependencies at runtime.
+4.  **Command Database**: THE Zed_Extension SHALL bundle the command database caches.
 
 ### Requirement 12: Extension Metadata
 
@@ -210,9 +207,22 @@ This document specifies the requirements for adding Zed editor extension support
 4. THE setup.sh script SHALL handle the case where Zed is not installed gracefully (skip installation without error)
 5. THE setup.sh script SHALL provide feedback to the user about whether the Zed extension was installed
 
-### Requirement 15: Build Process Documentation
+### Requirement 16: Release Automation (CI/CD)
 
-**User Story:** As a contributor, I want clear documentation on how to build and dev on the Zed extension, so that I can easily contribute to it.
+**User Story:** As a maintainer, I want to automatically generate installable extension archives for all platforms.
+
+#### Acceptance Criteria
+
+1.  THE project SHALL include a GitHub Actions workflow (`release.yml`).
+2.  THE workflow SHALL trigger on new tags.
+3.  THE workflow SHALL build separate extension archives (e.g., `.tar.gz`) for each target:
+    *   macOS x86_64
+    *   macOS arm64
+    *   Linux x86_64
+    *   Linux aarch64
+4.  EACH archive SHALL contain the full extension structure: `extension.toml`, `extension.wasm`, `languages/`, `tree-sitter-stata/`, AND the target-specific `server/sight-server` binary.
+5.  THE workflow SHALL upload these archives as assets to the GitHub Release.
+6.  THE archive names SHALL follow the convention: `sight-zed-extension-{os}-{arch}.tar.gz`.
 
 #### Acceptance Criteria
 
