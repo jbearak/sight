@@ -194,6 +194,19 @@ In addition to Bun (required for the main project), the Zed extension requires:
 - **wasm32-wasip1 target**: Install with `rustup target add wasm32-wasip1`
 
 > **Note:** The tree-sitter grammar is maintained in a [separate repository](https://github.com/jbearak/tree-sitter-stata) and fetched automatically by Zed. You only need `tree-sitter-cli` if you're contributing to the grammar itself.
+### Extension Layout (Dev Mode)
+
+When running as a dev extension, Zed executes the extension from:
+
+- `~/Library/Application Support/Zed/extensions/work/<extension-id>`
+
+But bundled assets (like the LSP binary) live under:
+
+- `~/Library/Application Support/Zed/extensions/installed/<extension-id>`
+
+The Sight extension therefore resolves the server binary from the work dir
+first, then falls back to the installed dir. If Zed can't start the language
+server, check that `extensions/installed/sight/server/sight-server` exists.
 
 ### Build Process
 
@@ -216,6 +229,19 @@ In addition to Bun (required for the main project), the Zed extension requires:
    mkdir -p zed-extension/server/command-database/caches
    cp -r src/command-database/caches/* zed-extension/server/command-database/caches/
    ```
+### Troubleshooting
+
+If Zed reports **"failed to load language Stata"** or **"Sight server binary not found"**:
+
+1. Ensure the dev extension is installed (Zed: Extensions → Install Dev Extension).
+2. Verify the server binary exists at:
+   - `~/Library/Application Support/Zed/extensions/installed/sight/server/sight-server`
+3. If the grammar fails to fetch, clear cached checkouts and rebuild:
+   ```bash
+   rm -rf ~/Library/Application\ Support/Zed/extensions/installed/sight/grammars
+   rm -rf ~/Library/Application\ Support/Zed/extensions/work/sight
+   ```
+4. Run **Extensions: Rebuild** and restart Zed.
 
 ### Testing Locally
 
