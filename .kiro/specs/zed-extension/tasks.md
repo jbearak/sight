@@ -11,20 +11,29 @@
 - [ ] 1.6 Copy LICENSE file (GPL-3.0) to `zed-extension/LICENSE`
 
 ## Task 2: Create Tree-sitter Grammar
-**Validates: Requirements 3.1-3.12**
+**Validates: Requirements 3.1-3.15**
 
 - [ ] 2.1 Create `zed-extension/tree-sitter-stata/` directory structure with `package.json`, `grammar.js`, and Rust bindings
 - [ ] 2.2 Implement grammar rules for comments:
   - `//` and `///` line comments
   - `*` comments ONLY when `*` is the first non-whitespace token on the line (requires line-awareness)
   - `/* ... */` block comments
-- [ ] 2.3 Implement grammar rules for string literals (double-quoted strings and compound strings with `` `\"...\"' `` syntax)
-- [ ] 2.4 Implement grammar rules for local and global macro references (`` `name' ``, `$name`, `${name}`)
-- [ ] 2.5 Implement grammar rules for program definitions (`program define name ... end` and `program name ... end`)
-- [ ] 2.6 Implement grammar rules for Mata blocks (`mata ... end`) with external scanner support
-- [ ] 2.7 Implement generic command parsing (treat command names as identifiers; avoid embedding a versioned command list)
-- [ ] 2.8 Implement basic atoms for highlighting (identifiers, numbers, missing values, built-in variables) and operator tokens as needed
-- [ ] 2.9 Create/extend external scanner (`src/scanner.c`) to support:
+- [ ] 2.3 Implement grammar rules for string literals:
+  - double-quoted strings
+  - compound strings with `` `\"...\"' `` syntax
+- [ ] 2.4 Implement grammar rules for local and global macro references:
+  - local macros with `` `name' `` syntax
+  - global macros with `$name` and `${name}` syntax
+- [ ] 2.5 Implement depth-encoded parsing for nested highlighting (up to depth 6):
+  - compound strings as `compound_string_depth_1` .. `compound_string_depth_6`
+  - local macros as `local_macro_depth_1` .. `local_macro_depth_6`
+  - wrap-around behavior after depth 6
+  - local macro depth is based only on local macro nesting (not offset by compound string nesting)
+- [ ] 2.6 Implement grammar rules for program definitions (`program define name ... end` and `program name ... end`)
+- [ ] 2.7 Implement grammar rules for Mata blocks (`mata ... end`) with external scanner support
+- [ ] 2.8 Implement generic command parsing (treat command names as identifiers; avoid embedding a versioned command list)
+- [ ] 2.9 Implement basic atoms for highlighting (identifiers, numbers, missing values, built-in variables) and operator tokens as needed
+- [ ] 2.10 Create/extend external scanner (`src/scanner.c`) to support:
   - Mata block content tokenization (`$._mata_block_content`)
   - line-start detection token (`$._line_start`) to safely recognize `*` comments
   - (Note: existing public grammars lack this; implement custom scanner based on generic examples/TextMate logic)
@@ -40,18 +49,20 @@
 - [ ] 3.6 Configure block comment delimiters (`/*`, `*/`)
 
 ## Task 4: Create Syntax Highlighting Queries
-**Validates: Requirements 4.1-4.9**
+**Validates: Requirements 4.1-4.13**
 
 - [ ] 4.1 Create `zed-extension/languages/stata/highlights.scm` file
 - [ ] 4.2 Add highlight queries for comments (`@comment`)
-- [ ] 4.3 Add highlight queries for string literals (`@string`)
-- [ ] 4.4 Add highlight queries for local and global macros (`@variable`)
-- [ ] 4.5 Add highlight queries for keywords (`@keyword`)
-- [ ] 4.6 Add highlight queries for program names (`@function`)
-- [ ] 4.7 Add highlight queries for generic commands (`@function`)
-- [ ] 4.8 Add highlight queries for numeric literals (`@number`)
-- [ ] 4.8 Add highlight queries for operators (`@operator`)
-- [ ] 4.9 Add highlight queries for Stata types (`@type`)
+- [ ] 4.3 Add highlight queries for double-quoted strings (`@string`)
+- [ ] 4.4 Add highlight queries for depth-based compound strings (distinct captures for depth 1-6)
+- [ ] 4.5 Add highlight queries for depth-based local macros (distinct captures for depth 1-6)
+- [ ] 4.6 Add highlight queries for global macros as non-depth (`@variable`)
+- [ ] 4.7 Add highlight queries for keywords (`@keyword`)
+- [ ] 4.8 Add highlight queries for program names (`@function`)
+- [ ] 4.9 Add highlight queries for generic commands (`@function`)
+- [ ] 4.10 Add highlight queries for numeric literals (`@number`)
+- [ ] 4.11 Add highlight queries for operators (`@operator`)
+- [ ] 4.12 Add highlight queries for Stata types (`@type`)
 
 ## Task 5: Create Bracket and Indentation Queries
 **Validates: Requirements 5.1-5.6, 6.1-6.3**

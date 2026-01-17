@@ -65,6 +65,14 @@ This document specifies the requirements for adding Zed editor extension support
 10. THE Tree_Sitter_Grammar SHALL parse Mata blocks (`mata ... end`)
 11. THE Tree_Sitter_Grammar SHALL parse basic literals and atoms needed for highlighting (identifiers, numbers, missing values, built-in variables)
 12. THE Tree_Sitter_Grammar SHALL parse operators (arithmetic, comparison, logical, assignment) sufficiently for tokenization/highlighting
+13. THE Tree_Sitter_Grammar SHALL support nested highlighting depth for:
+    - compound strings
+    - local macro references
+14. THE Tree_Sitter_Grammar SHALL encode depth in the parse tree up to depth 6 (and allow wrap-around behavior in highlighting via repeated captures).
+15. THE nested depth model SHALL be independent per construct:
+    - local macro depth SHALL be based only on nested local macros
+    - compound string depth SHALL be based only on nested compound strings
+    - local macros inside compound strings SHALL NOT have their depth offset by compound string nesting
 
 ### Requirement 4: Syntax Highlighting Queries
 
@@ -82,6 +90,11 @@ This document specifies the requirements for adding Zed editor extension support
 8. THE Highlights_Query SHALL highlight operators with `@operator` capture
 9. THE Highlights_Query SHALL highlight Stata types (byte, int, long, float, double, str*) with `@type` capture
 10. THE Highlights_Query SHALL highlight generic commands (e.g., `generate`, `regress`) with `@function` capture
+11. THE Highlights_Query SHALL support depth-based highlighting for nested constructs using distinct captures per depth (1-6) for:
+    - compound strings
+    - local macro references
+12. The depth-based captures SHALL apply to the entire span of the construct (delimiters and contents).
+13. Depth-based highlighting SHALL NOT be implemented for global macros (they remain a non-depth `@variable` capture).
 
 ### Requirement 5: Bracket Matching
 

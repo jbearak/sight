@@ -150,14 +150,21 @@ zed::register_extension!(SightExtension);
 
 ### Component 3: Tree-sitter Grammar (tree-sitter-stata/grammar.js)
 
-**Validates: Requirements 3.1-3.21**
+**Validates: Requirements 3.1-3.15**
 
 Defines the Stata grammar for parsing. Key design decisions:
 
 1. **Precedence levels**: Handle operator precedence correctly
-2. **Nested macros**: Support up to 6 levels of nesting (matching TextMate)
-3. **Context-sensitive parsing**: Handle `*` as both comment and multiplication
-4. **Embedded languages**: Recognize Mata blocks using an external scanner for robustness
+2. **Nested depth modeling for highlighting**:
+   - Support up to 6 levels of nesting for compound strings and local macros.
+   - Encode the nesting depth into the parse tree via distinct node types (or fields) per depth so that Zed highlight queries can target each depth with a distinct capture.
+   - Depth is independent per construct:
+     - local macro depth is based only on nested local macros
+     - compound string depth is based only on nested compound strings
+     - local macros inside compound strings do not have their depth offset by compound string nesting
+3. **Wrap-around**: Depth-based highlighting wraps after depth 6 (i.e., deeper nesting reuses depth 1..6 captures).
+4. **Context-sensitive parsing**: Handle `*` as both comment and multiplication
+5. **Embedded languages**: Recognize Mata blocks using an external scanner for robustness
 
 ```javascript
 // Minimal, buildable starting point.
@@ -206,13 +213,75 @@ module.exports = grammar({
     block_comment: $ => token(seq('/*', /[^]*?/, '*/')),
 
     // Strings
+    // NOTE: for depth-based highlighting we will model compound strings as nested nodes
+    // (up to depth 6) rather than a single token.
     double_string: $ => token(seq('"', repeat(choice(/[^"\\\n]+/, /\\./, '""')), '"')),
-    compound_string: $ => token(seq('`"', repeat(choice(/[^"\\\n]+/, /\\./, '""')), "\"'")),
 
-    string: $ => choice($.double_string, $.compound_string),
+    // Compound strings (depth 1-6; wrap-around behavior via nesting rules)
+    // Example structure (illustrative): compound_string_depth_1 contains
+    // compound_string_depth_2 and/or local_macro_depth_1 nodes.
+    // The exact internal structure may evolve as the grammar matures.
+    compound_string_depth_1: $ => seq('`"', repeat(choice(
+      $.compound_string_depth_2,
+      $.local_macro_depth_1,
+      $._compound_string_text
+    )), "\"'"),
+    compound_string_depth_2: $ => seq('`"', repeat(choice(
+      $.compound_string_depth_3,
+      $.local_macro_depth_1,
+      $._compound_string_text
+    )), "\"'"),
+    compound_string_depth_3: $ => seq('`"', repeat(choice(
+      $.compound_string_depth_4,
+      $.local_macro_depth_1,
+      $._compound_string_text
+    )), "\"'"),
+    compound_string_depth_4: $ => seq('`"', repeat(choice(
+      $.compound_string_depth_5,
+      $.local_macro_depth_1,
+      $._compound_string_text
+    )), "\"'"),
+    compound_string_depth_5: $ => seq('`"', repeat(choice(
+      $.compound_string_depth_6,
+      $.local_macro_depth_1,
+      $._compound_string_text
+    )), "\"'"),
+    compound_string_depth_6: $ => seq('`"', repeat(choice(
+      // wrap-around
+      $.compound_string_depth_1,
+      $.local_macro_depth_1,
+      $._compound_string_text
+    )), "\"'"),
+
+    // This is a stand-in for non-delimiter content inside a compound string.
+    // It intentionally excludes newlines.
+    _compound_string_text: _ => token(/[^\n]+/),
+
+    string: $ => choice(
+      $.double_string,
+      $.compound_string_depth_1,
+      $.compound_string_depth_2,
+      $.compound_string_depth_3,
+      $.compound_string_depth_4,
+      $.compound_string_depth_5,
+      $.compound_string_depth_6,
+    ),
 
     // Macros
-    local_macro: $ => token(seq('`', $.identifier, "'")),
+    // NOTE: for depth-based highlighting we will model local macros as nested nodes
+    // (up to depth 6) rather than a single token.
+    local_macro_depth_1: $ => seq('`', choice($.identifier, $.local_macro_depth_2), "'"),
+    local_macro_depth_2: $ => seq('`', choice($.identifier, $.local_macro_depth_3), "'"),
+    local_macro_depth_3: $ => seq('`', choice($.identifier, $.local_macro_depth_4), "'"),
+    local_macro_depth_4: $ => seq('`', choice($.identifier, $.local_macro_depth_5), "'"),
+    local_macro_depth_5: $ => seq('`', choice($.identifier, $.local_macro_depth_6), "'"),
+    local_macro_depth_6: $ => seq('`', choice(
+      // wrap-around
+      $.identifier,
+      $.local_macro_depth_1
+    ), "'"),
+
+    // Global macros remain non-depth.
     global_macro: $ => choice(
       token(seq('$', $.identifier)),
       token(seq('${', $.identifier, '}')),
@@ -310,7 +379,17 @@ word_characters = ["_"]
 
 ### Component 5: Syntax Highlighting Queries (languages/stata/highlights.scm)
 
-**Validates: Requirements 4.1-4.9**
+**Validates: Requirements 4.1-4.13**
+
+The Zed extension uses depth-based captures for nested compound strings and
+nested local macros. Depth is encoded in the Tree-sitter parse tree up to depth
+6, and highlighting wraps after depth 6.
+
+Important behaviors:
+- The capture applies to the entire span (delimiters and contents).
+- Local macro depth is based only on local macro nesting (not offset by being
+  inside a compound string).
+- Global macros remain non-depth and use the plain `@variable` capture.
 
 ```scheme
 ; Comments
@@ -319,10 +398,24 @@ word_characters = ["_"]
 
 ; Strings
 (double_string) @string
-(compound_string) @string
 
-; Macros
-(local_macro) @variable
+; Compound strings (depth 1-6)
+(compound_string_depth_1) @string.depth.1
+(compound_string_depth_2) @string.depth.2
+(compound_string_depth_3) @string.depth.3
+(compound_string_depth_4) @string.depth.4
+(compound_string_depth_5) @string.depth.5
+(compound_string_depth_6) @string.depth.6
+
+; Local macros (depth 1-6)
+(local_macro_depth_1) @variable.macro.local.depth.1
+(local_macro_depth_2) @variable.macro.local.depth.2
+(local_macro_depth_3) @variable.macro.local.depth.3
+(local_macro_depth_4) @variable.macro.local.depth.4
+(local_macro_depth_5) @variable.macro.local.depth.5
+(local_macro_depth_6) @variable.macro.local.depth.6
+
+; Global macros (non-depth)
 (global_macro) @variable
 
 ; Keywords
