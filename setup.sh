@@ -242,6 +242,35 @@ if [ "$HAS_TREE_SITTER" = true ] && [ "$HAS_CARGO" = true ]; then
     fi
     cd ../..
     
+    # Build Zed extension to WASM
+    echo "  Compiling Zed extension to WASM..."
+    
+    # Determine correct WASM target (wasm32-wasip1 for newer Rust, wasm32-wasi for older)
+    WASM_TARGET="wasm32-wasi"
+    if rustup target list 2>/dev/null | grep -q "wasm32-wasip1"; then
+        WASM_TARGET="wasm32-wasip1"
+    fi
+    
+    # Check if target is installed
+    if ! rustup target list --installed 2>/dev/null | grep -q "$WASM_TARGET"; then
+        echo "  Installing $WASM_TARGET target..."
+        if rustup target add "$WASM_TARGET" &> /dev/null; then
+            echo -e "  ${GREEN}✓ $WASM_TARGET target installed${NC}"
+        else
+            echo -e "  ${YELLOW}Warning: Failed to install $WASM_TARGET target${NC}"
+            echo "  Run manually: rustup target add $WASM_TARGET"
+        fi
+    fi
+    
+    # Build the extension
+    cd zed-extension
+    if cargo build --target "$WASM_TARGET" --release &> /dev/null; then
+        echo -e "  ${GREEN}✓ Zed extension compiled${NC}"
+    else
+        echo -e "  ${YELLOW}Warning: Zed extension compilation failed${NC}"
+    fi
+    cd ..
+    
     # Copy server binary to Zed extension
     echo "  Bundling server binary..."
     mkdir -p zed-extension/server/command-database/caches

@@ -15,7 +15,8 @@ impl zed::Extension for SightExtension {
         // The binary is guaranteed to be bundled at ./server/sight-server.
         // NOTE: confirm Zed's extension working directory contract; if it differs,
         // switch to a Zed-provided API for locating bundled assets.
-        let server_path = std::env::current_dir()?
+        let server_path = std::env::current_dir()
+            .map_err(|e| format!("Failed to get current directory: {}", e))?
             .join("server")
             .join("sight-server");
 

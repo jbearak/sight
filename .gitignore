@@ -16,6 +16,10 @@ coverage/
 *.vsix
 client/server/
 .tmp/
+# Zed extension build artifacts
+zed-extension/target/
+zed-extension/server/
+zed-extension/Cargo.lock
 .kiro/specs/do-command-arguments/scratch.do
 .kiro/specs/c-local-cross-file-support/scratch.do
 scratch.do
