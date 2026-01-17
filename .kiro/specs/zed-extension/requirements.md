@@ -133,7 +133,7 @@ This document specifies the requirements for adding Zed editor extension support
 5. THE Zed_Extension SHALL configure auto-closing for Stata local macro quotes: `` ` `` → `'`
 6. THE Zed_Extension SHALL support auto-closing pairs inside double-quoted strings
 7. THE Zed_Extension SHALL support auto-closing pairs inside compound strings (`` `"..."' ``)
-8. IF Zed's built-in auto-closing pairs feature cannot handle nested macro quotes inside strings, THEN the Zed_Extension SHALL implement custom logic to handle these cases
+8. THE Zed_Extension SHALL implement custom logic in Rust for auto-closing pairs to correctly handle nested macro quotes inside strings, mirroring the VS Code extension's behavior
 
 ### Requirement 9: Comment Configuration
 
@@ -155,6 +155,7 @@ This document specifies the requirements for adding Zed editor extension support
 1. THE Zed_Extension SHALL implement the `language_server_command` method to start the Sight_Server
 2. THE Zed_Extension SHALL bundle the Sight_Server binary as part of the extension (similar to the VS Code extension)
 3. THE Zed_Extension SHALL start the Sight_Server with `--stdio` transport
+4. THE Sight_Server SHALL be compiled into a standalone executable (e.g., using `bun build --compile`) to remove runtime dependencies for the end user
 4. THE Zed_Extension SHALL register the language server for the Stata language
 5. THE Zed_Extension SHALL pass appropriate initialization options to the Sight_Server
 
@@ -167,7 +168,9 @@ This document specifies the requirements for adding Zed editor extension support
 1. THE Zed_Extension SHALL include the bundled Sight_Server JavaScript file in the extension package
 2. THE Zed_Extension SHALL include the command database caches required by the Sight_Server
 3. THE Zed_Extension SHALL locate the bundled server relative to the extension directory
-4. THE build process SHALL copy the server bundle to the Zed extension directory
+4. THE build process SHALL automatically compile the Sight_Server into a standalone binary
+5. THE build process SHALL copy the server binary to the Zed extension directory
+6. THE build process SHALL automatically compile the Tree-sitter grammar during the build
 
 ### Requirement 12: Extension Metadata
 
@@ -206,3 +209,14 @@ This document specifies the requirements for adding Zed editor extension support
 3. IF Zed is installed, THEN the setup.sh script SHALL install the Zed extension as a dev extension
 4. THE setup.sh script SHALL handle the case where Zed is not installed gracefully (skip installation without error)
 5. THE setup.sh script SHALL provide feedback to the user about whether the Zed extension was installed
+
+### Requirement 15: Build Process Documentation
+
+**User Story:** As a contributor, I want clear documentation on how to build and dev on the Zed extension, so that I can easily contribute to it.
+
+#### Acceptance Criteria
+
+1. THE `DEVELOPMENT.md` file SHALL document the build prerequisites (Rust, Cargo, Bun, Tree-sitter CLI)
+2. THE `DEVELOPMENT.md` file SHALL document the step-by-step build process for the Zed extension
+3. THE `AGENTS.md` file SHALL be updated to include the Zed extension in the system overview
+4. THE `setup.sh` script SHALL be updated to automate these build steps 
