@@ -334,22 +334,6 @@ export class ReferencesProvider {
         position: Position
     ): { word: string; range: Range } | null {
         const line = get_line_text(document, position.line);
-        
-        // Check if line exists
-        if (document.line_offsets) {
-            if (position.line >= document.line_offsets.length) return null;
-        } else {
-            if (line === '' && position.line > 0) {
-                let newline_count = 0;
-                for (let i = 0; i < document.content.length; i++) {
-                    if (document.content[i] === '\n') {
-                        newline_count++;
-                    }
-                }
-                if (position.line > newline_count) return null;
-            }
-        }
-        
         const character = position.character;
 
         // Find the start of the word
