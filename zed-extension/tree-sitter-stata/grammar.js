@@ -74,15 +74,17 @@ module.exports = grammar({
         // STRINGS
         // =========================================================================
 
-        double_string: _ => token(seq(
+        // Double strings with global macro expansion support
+        double_string: $ => seq(
             '"',
             repeat(choice(
-                /[^"\\\r\n]+/,
-                /\\./,
-                '""',
+                /[^"$\\\r\n]+/,   // Regular content (excluding $)
+                /\\./,            // Escape sequences
+                '""',             // Escaped quote
+                $.global_macro,   // Allow $name and ${name}
             )),
             '"',
-        )),
+        ),
 
         // Compound strings with depth encoding (1-6, wrap-around)
         compound_string_depth_1: $ => seq(
@@ -182,39 +184,40 @@ module.exports = grammar({
         // =========================================================================
 
         // Local macros with depth encoding (1-6, wrap-around)
+        // Also allows global macros inside local macros (e.g., `$global')
         local_macro_depth_1: $ => seq(
             '`',
-            choice($.local_macro_depth_2, $._macro_name),
+            choice($.local_macro_depth_2, $.global_macro, $._macro_name),
             "'",
         ),
 
         local_macro_depth_2: $ => seq(
             '`',
-            choice($.local_macro_depth_3, $._macro_name),
+            choice($.local_macro_depth_3, $.global_macro, $._macro_name),
             "'",
         ),
 
         local_macro_depth_3: $ => seq(
             '`',
-            choice($.local_macro_depth_4, $._macro_name),
+            choice($.local_macro_depth_4, $.global_macro, $._macro_name),
             "'",
         ),
 
         local_macro_depth_4: $ => seq(
             '`',
-            choice($.local_macro_depth_5, $._macro_name),
+            choice($.local_macro_depth_5, $.global_macro, $._macro_name),
             "'",
         ),
 
         local_macro_depth_5: $ => seq(
             '`',
-            choice($.local_macro_depth_6, $._macro_name),
+            choice($.local_macro_depth_6, $.global_macro, $._macro_name),
             "'",
         ),
 
         local_macro_depth_6: $ => seq(
             '`',
-            choice($.local_macro_depth_1, $._macro_name),
+            choice($.local_macro_depth_1, $.global_macro, $._macro_name),
             "'",
         ),
 
@@ -303,6 +306,27 @@ module.exports = grammar({
         // ATOMS
         // =========================================================================
 
+        // Control flow keywords (parsed as distinct nodes for highlighting)
+        control_keyword: _ => choice(
+            'if', 'else',                              // Conditional
+            'foreach', 'forvalues', 'forv', 'while',  // Loop
+            'continue', 'break',                       // Control
+            'end',                                     // Block terminator
+        ),
+
+        // Type keywords
+        type_keyword: _ => choice(
+            'byte', 'int', 'long', 'float', 'double',  // Numeric types
+            // String types str1-str2045 (using regex patterns)
+            /str[1-9]/,
+            /str[1-9][0-9]/,
+            /str[1-9][0-9][0-9]/,
+            /str1[0-9][0-9][0-9]/,
+            /str20[0-3][0-9]/,
+            /str204[0-5]/,
+            'strL',                                     // Long string type
+        ),
+
         number: _ => token(choice(
             /[0-9]+/,
             /[0-9]+\.[0-9]*/,
@@ -313,7 +337,14 @@ module.exports = grammar({
         missing_value: _ => /\.[a-z]?/,
 
         builtin_variable: _ => choice(
-            '_n', '_N', '_b', '_coef', '_cons', '_rc', '_se', '_pi',
+            // Observation
+            '_n', '_N',
+            // Estimation
+            '_b', '_coef', '_cons', '_rc', '_se',
+            // Constants
+            '_pi',
+            // Display
+            '_skip', '_dup', '_newline', '_column', '_continue', '_request', '_char',
         ),
 
         identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
@@ -323,6 +354,7 @@ module.exports = grammar({
             '==', '!=', '~=', '<', '>', '<=', '>=',
             '&', '|', '!', '~',
             '=',
+            '#',  // Interaction operator
         ),
     },
 });

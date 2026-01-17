@@ -149,40 +149,41 @@
       }
     },
     "double_string": {
-      "type": "TOKEN",
-      "content": {
-        "type": "SEQ",
-        "members": [
-          {
-            "type": "STRING",
-            "value": "\""
-          },
-          {
-            "type": "REPEAT",
-            "content": {
-              "type": "CHOICE",
-              "members": [
-                {
-                  "type": "PATTERN",
-                  "value": "[^\"\\\\\\r\\n]+"
-                },
-                {
-                  "type": "PATTERN",
-                  "value": "\\\\."
-                },
-                {
-                  "type": "STRING",
-                  "value": "\"\""
-                }
-              ]
-            }
-          },
-          {
-            "type": "STRING",
-            "value": "\""
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "\""
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "PATTERN",
+                "value": "[^\"$\\\\\\r\\n]+"
+              },
+              {
+                "type": "PATTERN",
+                "value": "\\\\."
+              },
+              {
+                "type": "STRING",
+                "value": "\"\""
+              },
+              {
+                "type": "SYMBOL",
+                "name": "global_macro"
+              }
+            ]
           }
-        ]
-      }
+        },
+        {
+          "type": "STRING",
+          "value": "\""
+        }
+      ]
     },
     "compound_string_depth_1": {
       "type": "SEQ",
@@ -494,6 +495,10 @@
             },
             {
               "type": "SYMBOL",
+              "name": "global_macro"
+            },
+            {
+              "type": "SYMBOL",
               "name": "_macro_name"
             }
           ]
@@ -517,6 +522,10 @@
             {
               "type": "SYMBOL",
               "name": "local_macro_depth_3"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "global_macro"
             },
             {
               "type": "SYMBOL",
@@ -546,6 +555,10 @@
             },
             {
               "type": "SYMBOL",
+              "name": "global_macro"
+            },
+            {
+              "type": "SYMBOL",
               "name": "_macro_name"
             }
           ]
@@ -569,6 +582,10 @@
             {
               "type": "SYMBOL",
               "name": "local_macro_depth_5"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "global_macro"
             },
             {
               "type": "SYMBOL",
@@ -598,6 +615,10 @@
             },
             {
               "type": "SYMBOL",
+              "name": "global_macro"
+            },
+            {
+              "type": "SYMBOL",
               "name": "_macro_name"
             }
           ]
@@ -621,6 +642,10 @@
             {
               "type": "SYMBOL",
               "name": "local_macro_depth_1"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "global_macro"
             },
             {
               "type": "SYMBOL",
@@ -1081,6 +1106,100 @@
         }
       }
     },
+    "control_keyword": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "if"
+        },
+        {
+          "type": "STRING",
+          "value": "else"
+        },
+        {
+          "type": "STRING",
+          "value": "foreach"
+        },
+        {
+          "type": "STRING",
+          "value": "forvalues"
+        },
+        {
+          "type": "STRING",
+          "value": "forv"
+        },
+        {
+          "type": "STRING",
+          "value": "while"
+        },
+        {
+          "type": "STRING",
+          "value": "continue"
+        },
+        {
+          "type": "STRING",
+          "value": "break"
+        },
+        {
+          "type": "STRING",
+          "value": "end"
+        }
+      ]
+    },
+    "type_keyword": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "byte"
+        },
+        {
+          "type": "STRING",
+          "value": "int"
+        },
+        {
+          "type": "STRING",
+          "value": "long"
+        },
+        {
+          "type": "STRING",
+          "value": "float"
+        },
+        {
+          "type": "STRING",
+          "value": "double"
+        },
+        {
+          "type": "PATTERN",
+          "value": "str[1-9]"
+        },
+        {
+          "type": "PATTERN",
+          "value": "str[1-9][0-9]"
+        },
+        {
+          "type": "PATTERN",
+          "value": "str[1-9][0-9][0-9]"
+        },
+        {
+          "type": "PATTERN",
+          "value": "str1[0-9][0-9][0-9]"
+        },
+        {
+          "type": "PATTERN",
+          "value": "str20[0-3][0-9]"
+        },
+        {
+          "type": "PATTERN",
+          "value": "str204[0-5]"
+        },
+        {
+          "type": "STRING",
+          "value": "strL"
+        }
+      ]
+    },
     "number": {
       "type": "TOKEN",
       "content": {
@@ -1143,6 +1262,34 @@
         {
           "type": "STRING",
           "value": "_pi"
+        },
+        {
+          "type": "STRING",
+          "value": "_skip"
+        },
+        {
+          "type": "STRING",
+          "value": "_dup"
+        },
+        {
+          "type": "STRING",
+          "value": "_newline"
+        },
+        {
+          "type": "STRING",
+          "value": "_column"
+        },
+        {
+          "type": "STRING",
+          "value": "_continue"
+        },
+        {
+          "type": "STRING",
+          "value": "_request"
+        },
+        {
+          "type": "STRING",
+          "value": "_char"
         }
       ]
     },
@@ -1220,6 +1367,10 @@
         {
           "type": "STRING",
           "value": "="
+        },
+        {
+          "type": "STRING",
+          "value": "#"
         }
       ]
     }

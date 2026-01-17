@@ -44,29 +44,29 @@
 
 These enhancements bring the Tree-sitter grammar to parity with the TextMate grammar for syntax highlighting.
 
-- [ ] 2b.1 Add global macro references inside double strings:
+- [x] 2b.1 Add global macro references inside double strings:
   - Update `double_string` to allow `$name` and `${name}` patterns inside
   - Ensure global_macro nodes are created within the string
-- [ ] 2b.2 Add global macro references inside local macros:
+- [x] 2b.2 Add global macro references inside local macros:
   - Update `local_macro_depth_*` rules to allow `global_macro` as content
   - Example: `` `$global' `` should parse with nested global_macro
-- [ ] 2b.3 Add control flow keyword nodes:
+- [x] 2b.3 Add control flow keyword nodes:
   - Conditional keywords: `if`, `else`
   - Loop keywords: `foreach`, `forvalues`, `forv`, `while`
   - Control keywords: `continue`, `break`
   - Block terminator: `end`
-- [ ] 2b.4 Add Stata type keyword nodes:
+- [x] 2b.4 Add Stata type keyword nodes:
   - Numeric types: `byte`, `int`, `long`, `float`, `double`
   - String types: `str1` through `str2045`, `strL` (use regex pattern)
-- [ ] 2b.5 Expand built-in variables to include all TextMate-recognized variables:
+- [x] 2b.5 Expand built-in variables to include all TextMate-recognized variables:
   - Add: `_skip`, `_dup`, `_newline`, `_column`, `_continue`, `_request`, `_char`
-- [ ] 2b.6 Add interaction operator `#` to operator list
-- [ ] 2b.7 Update highlights.scm with captures for new node types:
+- [x] 2b.6 Add interaction operator `#` to operator list
+- [x] 2b.7 Update highlights.scm with captures for new node types:
   - Control flow keywords → `@keyword`
   - Type keywords → `@type`
   - New built-in variables → `@variable.builtin`
   - Interaction operator → `@operator`
-- [ ] 2b.8 Regenerate parser and verify all tests pass
+- [x] 2b.8 Regenerate parser and verify all tests pass
 
 ## Task 3: Create Language Configuration Files
 **Validates: Requirements 2.2-2.4, 8.1-8.6, 9.1-9.4**
@@ -153,17 +153,17 @@ These enhancements bring the Tree-sitter grammar to parity with the TextMate gra
 ## Task 12: Unit Tests
 **Validates: Testing Strategy - Unit Tests**
 
-- [ ] 12.1 Create grammar unit test file `tests/unit/zed-extension-grammar.test.ts`
-- [ ] 12.2 Add unit tests for comment parsing (all 4 comment styles)
-- [ ] 12.3 Add unit tests for string parsing (double strings, compound strings, escaped quotes)
-- [ ] 12.4 Add unit tests for macro parsing (local macros, global macros, positional args)
-- [ ] 12.5 Add unit tests for Mata block parsing (all 5 forms)
-- [ ] 12.6 Add unit tests for program definition parsing (with/without `define`)
-- [ ] 12.7 Add unit tests for macro definition parsing (local, global, tempvar)
-- [ ] 12.8 Add unit tests for query file coverage (highlights.scm, brackets.scm, indents.scm)
-- [ ] 12.9 Add unit tests for configuration files (extension.toml, config.toml, version consistency)
-- [ ] 12.10 Add unit tests for macros inside strings (global macros in double strings, local macros in compound strings)
-- [ ] 12.11 Add unit tests for global macros inside local macros (nested macro references)
+- [x] 12.1 Create grammar unit test file `tests/unit/zed-extension-grammar.test.ts`
+- [x] 12.2 Add unit tests for comment parsing (all 4 comment styles)
+- [x] 12.3 Add unit tests for string parsing (double strings, compound strings, escaped quotes)
+- [x] 12.4 Add unit tests for macro parsing (local macros, global macros, positional args)
+- [x] 12.5 Add unit tests for Mata block parsing (all 5 forms)
+- [x] 12.6 Add unit tests for program definition parsing (with/without `define`)
+- [x] 12.7 Add unit tests for macro definition parsing (local, global, tempvar)
+- [x] 12.8 Add unit tests for query file coverage (highlights.scm, brackets.scm, indents.scm)
+- [x] 12.9 Add unit tests for configuration files (extension.toml, config.toml, version consistency)
+- [x] 12.10 Add unit tests for macros inside strings (global macros in double strings, local macros in compound strings)
+- [x] 12.11 Add unit tests for global macros inside local macros (nested macro references)
 
 ## Task 13: Property-Based Tests
 **Validates: Design Correctness Properties 1-10**
