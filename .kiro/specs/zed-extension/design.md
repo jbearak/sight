@@ -1099,12 +1099,14 @@ Unit tests verify specific examples and edge cases with deterministic inputs.
    - `"string with ""escaped"" quotes"` → double_string node
    - `` `"compound string"' `` → compound_string_depth_1 node
    - Empty strings
+   - Macros inside strings (global macros in double strings)
 
 3. **Macro Parsing**: Verify macro references parse correctly
    - `` `local' `` → local_macro_depth_1 node
    - `$global` → global_macro node
    - `${global}` → global_macro node
    - Numeric positional args: `` `1' ``, `` `0' ``
+   - Global macros inside local macros: `` `$global' ``
 
 4. **Mata Block Parsing**: Verify all 5 Mata forms parse correctly
    - `mata expr` (inline)
@@ -1147,6 +1149,49 @@ Property-based tests verify universal properties hold across randomly generated 
 8. **Program Definition Names** (Property 8): Valid identifiers parse as program names
 9. **Identifier Validity** (Property 9): Stata identifier pattern parses correctly
 10. **Number Formats** (Property 10): Integer, decimal, scientific notation all parse
+
+### TextMate Parity Tests
+
+Parity tests verify the Tree-sitter grammar produces equivalent highlighting for constructs covered by the TextMate grammar. These tests compare the node types/captures produced by Tree-sitter against the expected TextMate scopes.
+
+**Scope Mapping** (TextMate → Tree-sitter):
+| TextMate Scope | Tree-sitter Node/Capture |
+|----------------|--------------------------|
+| `comment.block.stata` | `block_comment` → `@comment` |
+| `comment.line.star.stata` | `line_comment` → `@comment` |
+| `comment.line.double-slash.stata` | `line_comment` → `@comment` |
+| `comment.line.triple-slash.stata` | `line_comment` → `@comment` |
+| `string.quoted.double.stata` | `double_string` → `@string` |
+| `string.quoted.compound.depth1-6.stata` | `compound_string_depth_1-6` → `@string.depth.1-6` |
+| `variable.other.macro.local.depth1-6.stata` | `local_macro_depth_1-6` → `@variable.macro.local.depth.1-6` |
+| `variable.other.macro.global.stata` | `global_macro` → `@variable` |
+| `keyword.control.mata.stata` | `mata_block` "mata"/"end" → `@keyword` |
+| `storage.type.function.stata` | `program_definition` "program" → `@keyword` |
+| `entity.name.function.stata` | `program_definition` name → `@function` |
+| `keyword.control.conditional.stata` | "if"/"else" → `@keyword` |
+| `keyword.control.flow.stata` | "foreach"/"forvalues"/"while" → `@keyword` |
+| `keyword.control.prefix.stata` | `prefix` → `@keyword` |
+| `support.type.stata` | type keywords → `@type` |
+| `variable.language.stata` | `builtin_variable` → `@variable.builtin` |
+| `constant.language.missing.stata` | `missing_value` → `@constant` |
+| `keyword.operator.*.stata` | `operator` → `@operator` |
+| `constant.numeric.stata` | `number` → `@number` |
+
+**Parity Test Categories**:
+1. Comments (4 styles)
+2. Strings (double, compound depth 1-6)
+3. Macros (local depth 1-6, global, nested)
+4. Mata blocks (keyword highlighting)
+5. Program definitions (keyword + name)
+6. Control flow keywords
+7. Prefix keywords
+8. Types
+9. Built-in variables
+10. Missing values
+11. Operators
+12. Numbers
+13. Macros inside strings
+14. Global macros inside local macros
 
 ### Integration Tests
 

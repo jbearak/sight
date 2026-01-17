@@ -133,6 +133,8 @@
 - [ ]* 12.7 Add unit tests for macro definition parsing (local, global, tempvar)
 - [ ]* 12.8 Add unit tests for query file coverage (highlights.scm, brackets.scm, indents.scm)
 - [ ]* 12.9 Add unit tests for configuration files (extension.toml, config.toml, version consistency)
+- [ ]* 12.10 Add unit tests for macros inside strings (global macros in double strings, local macros in compound strings)
+- [ ]* 12.11 Add unit tests for global macros inside local macros (nested macro references)
 
 ## Task 13: Property-Based Tests
 **Validates: Design Correctness Properties 1-10**
@@ -148,3 +150,23 @@
 - [ ]* 13.9 Implement Property 8: Program definitions parse with valid names
 - [ ]* 13.10 Implement Property 9: Valid Stata identifiers parse correctly
 - [ ]* 13.11 Implement Property 10: Numbers parse in all valid formats
+
+## Task 14: TextMate Parity Tests
+**Validates: Requirements 3.1 (Tree-sitter grammar based on TextMate grammar)**
+
+These tests verify the Tree-sitter grammar produces equivalent node types for constructs that the TextMate grammar highlights.
+
+- [ ]* 14.1 Create parity test file `tests/unit/zed-extension-textmate-parity.test.ts`
+- [ ]* 14.2 Add parity tests for comment scopes (comment.block, comment.line.star, comment.line.double-slash, comment.line.triple-slash)
+- [ ]* 14.3 Add parity tests for string scopes (string.quoted.double, string.quoted.compound.depth1-6)
+- [ ]* 14.4 Add parity tests for macro scopes (variable.other.macro.local.depth1-6, variable.other.macro.global)
+- [ ]* 14.5 Add parity tests for Mata block scopes (keyword.control.mata, meta.embedded.block.mata)
+- [ ]* 14.6 Add parity tests for program definition scopes (storage.type.function, entity.name.function)
+- [ ]* 14.7 Add parity tests for keyword scopes (keyword.control.conditional, keyword.control.flow, keyword.control.prefix)
+- [ ]* 14.8 Add parity tests for type scopes (support.type.stata for byte, int, long, float, double, str*)
+- [ ]* 14.9 Add parity tests for built-in variable scopes (_n, _N, _b, _coef, _cons, _rc, _se, _pi)
+- [ ]* 14.10 Add parity tests for missing value scopes (., .a, .b, ..., .z)
+- [ ]* 14.11 Add parity tests for operator scopes (arithmetic, comparison, logical, assignment)
+- [ ]* 14.12 Add parity tests for number scopes (integer, decimal, scientific notation)
+- [ ]* 14.13 Add parity tests for macros inside double strings (global macro expansion)
+- [ ]* 14.14 Add parity tests for global macros inside local macros
