@@ -20,6 +20,7 @@ client/server/
 zed-extension/target/
 zed-extension/server/
 zed-extension/Cargo.lock
+zed-extension/extension.wasm
 .kiro/specs/do-command-arguments/scratch.do
 .kiro/specs/c-local-cross-file-support/scratch.do
 scratch.do

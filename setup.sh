@@ -245,11 +245,8 @@ if [ "$HAS_TREE_SITTER" = true ] && [ "$HAS_CARGO" = true ]; then
     # Build Zed extension to WASM
     echo "  Compiling Zed extension to WASM..."
     
-    # Determine correct WASM target (wasm32-wasip1 for newer Rust, wasm32-wasi for older)
-    WASM_TARGET="wasm32-wasi"
-    if rustup target list 2>/dev/null | grep -q "wasm32-wasip1"; then
-        WASM_TARGET="wasm32-wasip1"
-    fi
+    # Use wasm32-wasip1 (required by Zed for WASM components)
+    WASM_TARGET="wasm32-wasip1"
     
     # Check if target is installed
     if ! rustup target list --installed 2>/dev/null | grep -q "$WASM_TARGET"; then
@@ -266,6 +263,8 @@ if [ "$HAS_TREE_SITTER" = true ] && [ "$HAS_CARGO" = true ]; then
     cd zed-extension
     if cargo build --target "$WASM_TARGET" --release &> /dev/null; then
         echo -e "  ${GREEN}✓ Zed extension compiled${NC}"
+        # Copy WASM file to expected location
+        cp "target/$WASM_TARGET/release/sight_extension.wasm" extension.wasm
     else
         echo -e "  ${YELLOW}Warning: Zed extension compilation failed${NC}"
     fi

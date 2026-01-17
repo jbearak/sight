@@ -191,7 +191,7 @@ In addition to Bun (required for the main project), the Zed extension requires:
 
 - **Rust** (stable toolchain): For compiling the extension to WASM
 - **Cargo**: Rust package manager (included with Rust)
-- **wasm32-wasi target**: Install with `rustup target add wasm32-wasi`
+- **wasm32-wasip1 target**: Install with `rustup target add wasm32-wasip1`
 - **tree-sitter-cli**: For generating the Tree-sitter parser (`bun install -g tree-sitter-cli` or `npm install -g tree-sitter-cli`)
 
 ### Build Process
@@ -205,7 +205,8 @@ In addition to Bun (required for the main project), the Zed extension requires:
 2. Build the WASM extension:
    ```bash
    cd zed-extension
-   cargo build --release --target wasm32-wasi
+   cargo build --release --target wasm32-wasip1
+   cp target/wasm32-wasip1/release/sight_extension.wasm extension.wasm
    ```
 
 3. Bundle the LSP server (creates a standalone binary):

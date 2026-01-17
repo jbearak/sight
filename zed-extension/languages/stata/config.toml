@@ -1,6 +1,6 @@
 name = "Stata"
 grammar = "stata"
-path_suffixes = ["do", "ado", "mata"]
+path_suffixes = ["do", "ado", "doh", "mata"]
 line_comments = ["// ", "* "]
 block_comment = ["/* ", " */"]
 autoclose_before = ";:.,=}])>` \n\t"
