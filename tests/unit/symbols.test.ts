@@ -1331,3 +1331,168 @@ describe('Local Macro Nesting', () => {
         expect(my_inner?.children?.[0].name).toBe('`x\'');
     });
 });
+
+
+describe('Workspace Index Symbol Types', () => {
+    let symbol_provider: SymbolProvider;
+
+    beforeEach(() => {
+        symbol_provider = new SymbolProvider();
+    });
+
+    /**
+     * Helper to create a workspace symbol table for testing.
+     */
+    function create_workspace_symbols(symbols?: Partial<SymbolTable>): SymbolTable {
+        return {
+            programs: symbols?.programs || new Map(),
+            localMacros: symbols?.localMacros || new Map(),
+            globalMacros: symbols?.globalMacros || new Map(),
+            variables: symbols?.variables || new Map(),
+            scalars: symbols?.scalars || new Map(),
+            matrices: symbols?.matrices || new Map(),
+        };
+    }
+
+    describe('Variables from Workspace Index', () => {
+        it('should include variables from workspace_symbols in results', () => {
+            const my_workspace_symbols = create_workspace_symbols({
+                variables: new Map([
+                    [
+                        'myvar',
+                        {
+                            name: 'myvar',
+                            sourceUri: 'file:///workspace/data.do',
+                            location: {
+                                uri: 'file:///workspace/data.do',
+                                range: {
+                                    start: { line: 5, character: 0 },
+                                    end: { line: 5, character: 10 },
+                                },
+                            },
+                        },
+                    ],
+                ]),
+            });
+
+            const my_symbols = symbol_provider.get_workspace_symbols(
+                'myvar',
+                [],
+                my_workspace_symbols
+            );
+
+            expect(my_symbols.length).toBe(1);
+            expect(my_symbols[0].name).toBe('myvar');
+            expect(my_symbols[0].kind).toBe(SymbolKind.Field);
+            expect(my_symbols[0].containerName).toBe('Variable');
+            expect(my_symbols[0].location.uri).toBe('file:///workspace/data.do');
+        });
+    });
+
+    describe('Scalars from Workspace Index', () => {
+        it('should include scalars from workspace_symbols in results', () => {
+            const my_workspace_symbols = create_workspace_symbols({
+                scalars: new Map([
+                    [
+                        'my_scalar',
+                        {
+                            name: 'my_scalar',
+                            sourceUri: 'file:///workspace/analysis.do',
+                            location: {
+                                uri: 'file:///workspace/analysis.do',
+                                range: {
+                                    start: { line: 10, character: 0 },
+                                    end: { line: 10, character: 20 },
+                                },
+                            },
+                        },
+                    ],
+                ]),
+            });
+
+            const my_symbols = symbol_provider.get_workspace_symbols(
+                'scalar',
+                [],
+                my_workspace_symbols
+            );
+
+            expect(my_symbols.length).toBe(1);
+            expect(my_symbols[0].name).toBe('my_scalar');
+            expect(my_symbols[0].kind).toBe(SymbolKind.Variable);
+            expect(my_symbols[0].containerName).toBe('Scalar');
+            expect(my_symbols[0].location.uri).toBe('file:///workspace/analysis.do');
+        });
+    });
+
+    describe('Matrices from Workspace Index', () => {
+        it('should include matrices from workspace_symbols in results', () => {
+            const my_workspace_symbols = create_workspace_symbols({
+                matrices: new Map([
+                    [
+                        'coef_matrix',
+                        {
+                            name: 'coef_matrix',
+                            sourceUri: 'file:///workspace/regression.do',
+                            location: {
+                                uri: 'file:///workspace/regression.do',
+                                range: {
+                                    start: { line: 15, character: 0 },
+                                    end: { line: 15, character: 25 },
+                                },
+                            },
+                        },
+                    ],
+                ]),
+            });
+
+            const my_symbols = symbol_provider.get_workspace_symbols(
+                'matrix',
+                [],
+                my_workspace_symbols
+            );
+
+            expect(my_symbols.length).toBe(1);
+            expect(my_symbols[0].name).toBe('coef_matrix');
+            expect(my_symbols[0].kind).toBe(SymbolKind.Variable);
+            expect(my_symbols[0].containerName).toBe('Matrix');
+            expect(my_symbols[0].location.uri).toBe('file:///workspace/regression.do');
+        });
+    });
+
+    describe('Local Macros from Workspace Index', () => {
+        it('should include local macros from workspace_symbols in results', () => {
+            const my_workspace_symbols = create_workspace_symbols({
+                localMacros: new Map([
+                    [
+                        'varlist',
+                        {
+                            name: 'varlist',
+                            sourceUri: 'file:///workspace/utils.do',
+                            scope: 'local',
+                            value: 'x y z',
+                            location: {
+                                uri: 'file:///workspace/utils.do',
+                                range: {
+                                    start: { line: 3, character: 0 },
+                                    end: { line: 3, character: 18 },
+                                },
+                            },
+                        },
+                    ],
+                ]),
+            });
+
+            const my_symbols = symbol_provider.get_workspace_symbols(
+                'varlist',
+                [],
+                my_workspace_symbols
+            );
+
+            expect(my_symbols.length).toBe(1);
+            expect(my_symbols[0].name).toBe('`varlist\'');
+            expect(my_symbols[0].kind).toBe(SymbolKind.Variable);
+            expect(my_symbols[0].containerName).toBe('Local Macro');
+            expect(my_symbols[0].location.uri).toBe('file:///workspace/utils.do');
+        });
+    });
+});

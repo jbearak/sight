@@ -433,7 +433,7 @@ export class SymbolProvider {
         const symbols: SymbolInformation[] = [];
         const lower_query = query.toLowerCase();
 
-        // 1. Check workspace-wide symbols (programs and global macros)
+        // 1. Check workspace-wide symbols
         if (workspace_symbols) {
             // Check programs
             for (const [name, program] of workspace_symbols.programs) {
@@ -461,6 +461,66 @@ export class SymbolProvider {
                             range: macro.location.range,
                         },
                         containerName: 'Global Macro',
+                    });
+                }
+            }
+
+            // Check local macros
+            for (const [name, macro] of workspace_symbols.localMacros) {
+                if (name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: `\`${name}'`,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: macro.sourceUri,
+                            range: macro.location.range,
+                        },
+                        containerName: 'Local Macro',
+                    });
+                }
+            }
+
+            // Check variables
+            for (const [name, variable] of workspace_symbols.variables) {
+                if (name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: name,
+                        kind: SymbolKind.Field,
+                        location: {
+                            uri: variable.sourceUri,
+                            range: variable.location.range,
+                        },
+                        containerName: 'Variable',
+                    });
+                }
+            }
+
+            // Check scalars
+            for (const [name, scalar] of workspace_symbols.scalars) {
+                if (name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: name,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: scalar.sourceUri,
+                            range: scalar.location.range,
+                        },
+                        containerName: 'Scalar',
+                    });
+                }
+            }
+
+            // Check matrices
+            for (const [name, matrix] of workspace_symbols.matrices) {
+                if (name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: name,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: matrix.sourceUri,
+                            range: matrix.location.range,
+                        },
+                        containerName: 'Matrix',
                     });
                 }
             }
