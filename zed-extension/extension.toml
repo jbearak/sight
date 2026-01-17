@@ -16,7 +16,7 @@ version = "0.7.0"
 
 [grammars.stata]
 repository = "https://github.com/jbearak/tree-sitter-stata"
-rev = "a7309afae4b73712d423c4933330035f6aabed10"
+rev = "d31a844c6d0d8288229b5b5336eba0861f820813"
 
 [language_servers.sight]
 name = "Sight"
