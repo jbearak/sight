@@ -12,21 +12,38 @@ impl zed::Extension for SightExtension {
         _language_server_id: &zed::LanguageServerId,
         _worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        // The binary is guaranteed to be bundled at ./server/sight-server.
-        // NOTE: confirm Zed's extension working directory contract; if it differs,
-        // switch to a Zed-provided API for locating bundled assets.
-        let server_path = std::env::current_dir()
-            .map_err(|e| format!("Failed to get current directory: {}", e))?
-            .join("server")
-            .join("sight-server");
+        // The binary should be bundled at ./server/sight-server. When running as a
+        // dev extension, Zed executes from extensions/work/<id>, and the server
+        // lives under extensions/installed/<id>. Fall back to that path.
+        let work_dir = std::env::current_dir()
+            .map_err(|e| format!("Failed to get current directory: {}", e))?;
 
-        if !server_path.exists() {
-            return Err(format!(
-                "Sight server binary not found at {:?}. This extension bundle may be corrupt or for the wrong platform.",
-                server_path
-            )
-            .into());
+        let mut candidate_paths = Vec::new();
+        candidate_paths.push(
+            work_dir
+                .join("server")
+                .join("sight-server"),
+        );
+
+        if let Some(extensions_dir) = work_dir.parent().and_then(|p| p.parent()) {
+            candidate_paths.push(
+                extensions_dir
+                    .join("installed")
+                    .join("sight")
+                    .join("server")
+                    .join("sight-server"),
+            );
         }
+
+        let server_path = candidate_paths
+            .into_iter()
+            .find(|path| path.exists())
+            .ok_or_else(|| {
+                format!(
+                    "Sight server binary not found. Tried work dir and installed dir relative to {:?}.",
+                    work_dir
+                )
+            })?;
 
         Ok(zed::Command {
             command: server_path.to_string_lossy().into_owned(),
