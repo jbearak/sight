@@ -1,7 +1,7 @@
 id = "sight"
 name = "Sight - Stata Language Server"
 description = "Language support for Stata using LSP"
-version = "0.1.9"
+version = "0.1.10"
 schema_version = 1
 authors = ["Jonathan Marc Bearak"]
 repository = "https://github.com/jbearak/sight"
