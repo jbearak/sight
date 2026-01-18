@@ -43,14 +43,9 @@ impl SightExtension {
             _ => return Err(format!("Unsupported platform: {:?} {:?}", platform, arch)),
         };
 
-        let binary_path = format!("sight-server-{}/{}", SERVER_VERSION, asset_name);
+        let binary_path = asset_name.to_string();
 
         if std::fs::metadata(&binary_path).is_err() {
-            zed::set_language_server_installation_status(
-                &zed::LanguageServerId::new("sight"),
-                &zed::LanguageServerInstallationStatus::Downloading,
-            );
-
             let release = zed::github_release_by_tag_name("jbearak/sight", SERVER_VERSION)
                 .map_err(|e| format!("Failed to fetch release: {}", e))?;
 

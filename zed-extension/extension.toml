@@ -21,7 +21,6 @@ rev = "872da1d652dd32cc871ea4a3c3f84bdea7c68c8c"
 [language_servers.sight]
 name = "Sight"
 language = "Stata"
-languages = []
 
 [context_servers]
 
