@@ -180,8 +180,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
         let result = document_settings.get(resource);
         if (!result) {
+            // Handle empty or invalid URIs (e.g., from Zed)
+            const scope_uri = resource && resource.trim() !== '' ? resource : undefined;
+            
             result = connection.workspace.getConfiguration({
-                scopeUri: resource,
+                scopeUri: scope_uri,
                 section: 'sight',
             }).then((config) => {
                 let init_partial = (init_options_config as any)?.['sight'] ?? init_options_config;
