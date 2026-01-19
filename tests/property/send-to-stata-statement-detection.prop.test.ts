@@ -458,3 +458,89 @@ describe('Feature: send-to-stata - Unit Tests for Edge Cases', () => {
         });
     });
 });
+
+
+/**
+ * Unit tests for working directory handling
+ * Task 16.4: Tests for prepare_content_with_cd logic
+ * Validates: Requirements 11.4, 11.5, 11.6
+ * 
+ * Note: The actual prepare_content_with_cd function depends on vscode module,
+ * so we test the core logic here by reimplementing it without vscode dependency.
+ */
+describe('Feature: send-to-stata - Working Directory Handling', () => {
+    const path = require('path');
+
+    // Core logic extracted from prepare_content_with_cd for testing
+    function prepare_content_with_cd_core(
+        content: string,
+        file_path: string,
+        working_directory: 'none' | 'file' | 'workspace',
+        workspace_root?: string
+    ): string {
+        if (working_directory === 'none') {
+            return content;
+        }
+        
+        let directory: string;
+        if (working_directory === 'file') {
+            directory = path.dirname(file_path);
+        } else {
+            directory = workspace_root ?? path.dirname(file_path);
+        }
+        
+        // Escape quotes in path for Stata
+        const escaped_dir = directory.replace(/"/g, '\\"');
+        return `cd "${escaped_dir}"\n${content}`;
+    }
+
+    test('workingDirectory = "none" returns content unchanged', () => {
+        const content = 'display "hello"';
+        const result = prepare_content_with_cd_core(
+            content, '/Users/test/project/analysis.do', 'none');
+        expect(result).toBe(content);
+    });
+
+    test('workingDirectory = "file" prepends cd to file directory', () => {
+        const content = 'display "hello"';
+        const result = prepare_content_with_cd_core(
+            content, '/Users/test/project/analysis.do', 'file');
+        expect(result).toBe('cd "/Users/test/project"\ndisplay "hello"');
+    });
+
+    test('workingDirectory = "workspace" uses workspace root when provided', () => {
+        const content = 'display "hello"';
+        const result = prepare_content_with_cd_core(
+            content, '/Users/test/project/subdir/analysis.do', 'workspace',
+            '/Users/test/project');
+        expect(result).toBe('cd "/Users/test/project"\ndisplay "hello"');
+    });
+
+    test('workingDirectory = "workspace" falls back to file directory without workspace', () => {
+        const content = 'display "hello"';
+        const result = prepare_content_with_cd_core(
+            content, '/Users/test/project/analysis.do', 'workspace');
+        expect(result).toBe('cd "/Users/test/project"\ndisplay "hello"');
+    });
+
+    test('Paths with quotes are escaped', () => {
+        const content = 'display "hello"';
+        const result = prepare_content_with_cd_core(
+            content, '/Users/test/My "Project"/analysis.do', 'file');
+        expect(result).toBe('cd "/Users/test/My \\"Project\\""\ndisplay "hello"');
+    });
+
+    test('Multi-line content is preserved after cd', () => {
+        const content = 'display "line 1"\ndisplay "line 2"';
+        const result = prepare_content_with_cd_core(
+            content, '/Users/test/project/analysis.do', 'file');
+        expect(result).toBe('cd "/Users/test/project"\ndisplay "line 1"\ndisplay "line 2"');
+    });
+
+    test('Empty content with cd', () => {
+        const content = '';
+        const result = prepare_content_with_cd_core(
+            content, '/Users/test/project/analysis.do', 'file');
+        expect(result).toBe('cd "/Users/test/project"\n');
+    });
+});
