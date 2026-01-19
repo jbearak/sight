@@ -29,3 +29,8 @@ export {
     detect_stata_app,
     clear_stata_cache
 } from './stata-detector';
+
+export {
+    escape_for_applescript,
+    send_to_stata_app
+} from './applescript';
