@@ -242,7 +242,7 @@ describe('Feature: send-to-stata - Upward/Downward Extraction Properties', () =>
         ), { numRuns: 100 });
     });
 
-    test('Property 5: Upward bounds end at cursor line', () => {
+    test('Property 5: Upward bounds end at cursor line for simple statements', () => {
         fc.assert(fc.property(
             fc.array(simple_statement_gen, { minLength: 1, maxLength: 10 }),
             fc.integer({ min: 0, max: 9 }),
@@ -255,6 +255,25 @@ describe('Feature: send-to-stata - Upward/Downward Extraction Properties', () =>
                 expect(bounds.end_line).toBe(cursor);
             }
         ), { numRuns: 100 });
+    });
+
+    test('Property 5: Upward includes complete statement when cursor on continuation', () => {
+        // Create document with multi-line statement
+        const content = [
+            'display "before"',
+            'gen x = 1 ///',
+            '    + 2 ///',
+            '    + 3',
+            'display "after"'
+        ].join('\n');
+        const document = create_mock_document(content);
+
+        // Cursor on line 1 (first line of multi-line statement with ///)
+        const bounds = get_upward_bounds(document as any, 1);
+        
+        // Should extend to line 3 (end of statement)
+        expect(bounds.start_line).toBe(0);
+        expect(bounds.end_line).toBe(3);
     });
 
     test('Property 6: Downward bounds end at last line', () => {

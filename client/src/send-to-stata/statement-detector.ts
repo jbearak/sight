@@ -37,7 +37,18 @@ export function get_upward_bounds(
     document: vscode.TextDocument, 
     line: number
 ): StatementBounds {
-    return { start_line: 0, end_line: line };
+    let end_line = line;
+    
+    // If cursor line has continuation, extend to include complete statement
+    while (end_line < document.lineCount - 1) {
+        const current_line = document.lineAt(end_line).text;
+        if (!ends_with_continuation(current_line)) {
+            break;
+        }
+        end_line++;
+    }
+    
+    return { start_line: 0, end_line };
 }
 
 export function get_downward_bounds(

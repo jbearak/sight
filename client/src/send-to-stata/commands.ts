@@ -84,9 +84,15 @@ async function handle_send_command(
         const my_temp_file = await create_temp_file(my_code);
 
         if (target === 'app') {
+            if (process.platform === 'win32') {
+                vscode.window.showErrorMessage(
+                    'Windows support coming soon. Use terminal mode for now.');
+                return;
+            }
             if (process.platform !== 'darwin') {
                 vscode.window.showErrorMessage(
-                    'Stata application mode is only available on macOS');
+                    'Stata application mode is only available on macOS. ' +
+                    'Use terminal mode instead.');
                 return;
             }
             
