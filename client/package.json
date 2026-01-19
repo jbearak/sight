@@ -286,6 +286,87 @@
         "when": "editorTextFocus && editorLangId == stata"
       }
     ],
+    "submenus": [
+      {
+        "id": "sight.sendToStata",
+        "label": "Send to Stata"
+      },
+      {
+        "id": "sight.sendToStata.terminal",
+        "label": "Terminal"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "submenu": "sight.sendToStata",
+          "when": "editorLangId == stata",
+          "group": "navigation"
+        }
+      ],
+      "sight.sendToStata": [
+        {
+          "command": "sight.doLineOrSelection",
+          "group": "1_do@1",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.doUpwardLines",
+          "group": "1_do@2",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.doDownwardLines",
+          "group": "1_do@3",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.doFile",
+          "group": "1_do@4",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.includeLineOrSelection",
+          "group": "2_include@1",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.includeFile",
+          "group": "2_include@2",
+          "when": "isMac"
+        },
+        {
+          "submenu": "sight.sendToStata.terminal",
+          "group": "3_terminal"
+        }
+      ],
+      "sight.sendToStata.terminal": [
+        {
+          "command": "sight.terminal.doLineOrSelection",
+          "group": "1_do@1"
+        },
+        {
+          "command": "sight.terminal.doUpwardLines",
+          "group": "1_do@2"
+        },
+        {
+          "command": "sight.terminal.doDownwardLines",
+          "group": "1_do@3"
+        },
+        {
+          "command": "sight.terminal.doFile",
+          "group": "1_do@4"
+        },
+        {
+          "command": "sight.terminal.includeLineOrSelection",
+          "group": "2_include@1"
+        },
+        {
+          "command": "sight.terminal.includeFile",
+          "group": "2_include@2"
+        }
+      ]
+    },
     "configurationDefaults": {
       "[stata]": {
         "editor.quickSuggestions": {
