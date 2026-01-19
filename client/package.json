@@ -274,6 +274,22 @@
       {
         "command": "sight.terminal.includeFile",
         "title": "Sight: Terminal - Include File"
+      },
+      {
+        "command": "sight.cdWorkspace",
+        "title": "Sight: CD into Workspace Folder"
+      },
+      {
+        "command": "sight.cdFile",
+        "title": "Sight: CD into File Folder"
+      },
+      {
+        "command": "sight.terminal.cdWorkspace",
+        "title": "Sight: Terminal - CD into Workspace Folder"
+      },
+      {
+        "command": "sight.terminal.cdFile",
+        "title": "Sight: Terminal - CD into File Folder"
       }
     ],
     "keybindings": [
@@ -357,8 +373,18 @@
           "when": "isMac"
         },
         {
+          "command": "sight.cdWorkspace",
+          "group": "3_cd@1",
+          "when": "sight.cdMenuVisible && isMac"
+        },
+        {
+          "command": "sight.cdFile",
+          "group": "3_cd@2",
+          "when": "sight.cdMenuVisible && isMac"
+        },
+        {
           "submenu": "sight.sendToStata.terminal",
-          "group": "3_terminal"
+          "group": "4_terminal"
         }
       ],
       "sight.sendToStata.terminal": [
@@ -385,6 +411,16 @@
         {
           "command": "sight.terminal.includeFile",
           "group": "2_include@2"
+        },
+        {
+          "command": "sight.terminal.cdWorkspace",
+          "group": "3_cd@1",
+          "when": "sight.cdMenuVisible"
+        },
+        {
+          "command": "sight.terminal.cdFile",
+          "group": "3_cd@2",
+          "when": "sight.cdMenuVisible"
         }
       ]
     },
