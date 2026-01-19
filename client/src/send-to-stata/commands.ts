@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import {
     detect_statement,
     get_statement_text,
@@ -10,6 +11,31 @@ import {
     send_to_terminal,
     StataCommand
 } from './index';
+
+/**
+ * Prepends a cd command to the content based on workingDirectory setting.
+ */
+export function prepare_content_with_cd(
+    content: string,
+    document: vscode.TextDocument,
+    working_directory: 'none' | 'file' | 'workspace'
+): string {
+    if (working_directory === 'none') {
+        return content;
+    }
+    
+    let directory: string;
+    if (working_directory === 'file') {
+        directory = path.dirname(document.uri.fsPath);
+    } else {
+        const workspace_folder = vscode.workspace.getWorkspaceFolder(document.uri);
+        directory = workspace_folder?.uri.fsPath ?? path.dirname(document.uri.fsPath);
+    }
+    
+    // Escape quotes in path for Stata
+    const escaped_dir = directory.replace(/"/g, '\\"');
+    return `cd "${escaped_dir}"\n${content}`;
+}
 
 async function handle_send_command(
     mode: 'statement' | 'upward' | 'downward' | 'file',
@@ -48,6 +74,11 @@ async function handle_send_command(
     } else {
         my_code = my_editor.document.getText();
     }
+
+    // Apply working directory prefix if configured
+    const working_dir = my_config.get<'none' | 'file' | 'workspace'>(
+        'workingDirectory', 'none');
+    my_code = prepare_content_with_cd(my_code, my_editor.document, working_dir);
 
     try {
         const my_temp_file = await create_temp_file(my_code);

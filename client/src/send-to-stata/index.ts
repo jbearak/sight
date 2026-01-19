@@ -42,5 +42,6 @@ export {
 } from './terminal';
 
 export {
-    register_send_to_stata_commands
+    register_send_to_stata_commands,
+    prepare_content_with_cd
 } from './commands';
