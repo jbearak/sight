@@ -620,7 +620,8 @@ export function create_exit_handler(
  */
 export function create_did_change_watched_files_handler(
     deps: HandlerDependencies,
-    parse_uri: (uri: string) => string
+    parse_uri: (uri: string) => string,
+    on_file_changed?: (uri: string) => void  // New callback for caller revalidation
 ): (params: DidChangeWatchedFilesParams) => void {
     return (params: DidChangeWatchedFilesParams): void => {
         for (const my_event of params.changes) {
@@ -651,6 +652,11 @@ export function create_did_change_watched_files_handler(
                 change_type = 'deleted';
             } else {
                 continue;
+            }
+
+            // Trigger caller revalidation for changed files
+            if (change_type === 'changed' && on_file_changed) {
+                on_file_changed(my_event.uri);
             }
 
             // Use rename handler if available, otherwise fall back to direct indexer calls

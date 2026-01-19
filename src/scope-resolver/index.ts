@@ -2425,6 +2425,14 @@ export class ScopeResolver {
     }
 
     /**
+     * Get the callee-to-callers map for transitive caller discovery.
+     * @returns Map from callee URI to set of caller URIs
+     */
+    get_callee_to_callers_map(): Map<string, Set<string>> {
+        return this.reverse_deps.callee_to_callers;
+    }
+
+    /**
      * Sync backward directive dependencies for a child file using a set of directives.
      * This is a helper for callers (e.g., DocumentStore) that already parsed directives
      * and want to register dependencies without doing a full scope resolve.
