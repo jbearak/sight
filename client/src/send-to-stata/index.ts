@@ -40,3 +40,7 @@ export {
 export {
     send_to_terminal
 } from './terminal';
+
+export {
+    register_send_to_stata_commands
+} from './commands';
