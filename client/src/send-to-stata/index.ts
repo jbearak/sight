@@ -43,7 +43,9 @@ export {
 
 export {
     register_send_to_stata_commands,
-    prepare_content_with_cd
+    prepare_content_with_cd,
+    set_language_client,
+    WorkingDirectoryOption
 } from './commands';
 
 export {

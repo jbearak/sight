@@ -58,6 +58,9 @@ import {
     create_exit_handler,
     create_did_change_watched_files_handler,
     create_execute_command_handler,
+    create_get_working_directory_handler,
+    GetWorkingDirectoryParams,
+    GetWorkingDirectoryResult,
 } from './server-handlers';
 
 import type { TransportType } from './cli';
@@ -811,6 +814,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
     });
 
     connection.onExit(create_exit_handler());
+
+    // Register custom request handler for sight/getWorkingDirectory
+    connection.onRequest('sight/getWorkingDirectory', (params: GetWorkingDirectoryParams) => {
+        const deps = get_handler_dependencies();
+        return create_get_working_directory_handler(deps)(params);
+    });
 
     // Start listening
     documents.listen(connection);

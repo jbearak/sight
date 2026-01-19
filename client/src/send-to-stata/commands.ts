@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { LanguageClient } from 'vscode-languageclient/node';
 import {
     detect_statement,
     get_statement_text,
@@ -12,20 +13,56 @@ import {
     StataCommand
 } from './index';
 
+export type WorkingDirectoryOption = 'none' | 'file' | 'workspace' | 'lsp';
+
+let language_client: LanguageClient | null = null;
+
+/**
+ * Set the language client for LSP requests.
+ */
+export function set_language_client(client: LanguageClient): void {
+    language_client = client;
+}
+
+/**
+ * Get working directory from LSP server.
+ * Returns null if request fails or no working directory is set.
+ */
+async function get_lsp_working_directory(uri: string): Promise<string | null> {
+    if (!language_client) {
+        return null;
+    }
+    try {
+        const result = await language_client.sendRequest<{ workingDirectory: string | null }>(
+            'sight/getWorkingDirectory',
+            { uri }
+        );
+        return result.workingDirectory;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Prepends a cd command to the content based on workingDirectory setting.
  */
-export function prepare_content_with_cd(
+export async function prepare_content_with_cd(
     content: string,
     document: vscode.TextDocument,
-    working_directory: 'none' | 'file' | 'workspace'
-): string {
+    working_directory: WorkingDirectoryOption
+): Promise<string> {
     if (working_directory === 'none') {
         return content;
     }
     
-    let directory: string;
-    if (working_directory === 'file') {
+    let directory: string | null = null;
+    
+    if (working_directory === 'lsp') {
+        directory = await get_lsp_working_directory(document.uri.toString());
+        if (directory === null) {
+            return content;  // Fall back to 'none' behavior
+        }
+    } else if (working_directory === 'file') {
         directory = path.dirname(document.uri.fsPath);
     } else {
         const workspace_folder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -80,9 +117,9 @@ async function handle_send_command(
     }
 
     // Apply working directory prefix if configured
-    const working_dir = my_config.get<'none' | 'file' | 'workspace'>(
-        'workingDirectory', 'none');
-    my_code = prepare_content_with_cd(my_code, my_editor.document, working_dir);
+    const working_dir = my_config.get<WorkingDirectoryOption>(
+        'workingDirectory', 'lsp');
+    my_code = await prepare_content_with_cd(my_code, my_editor.document, working_dir);
 
     try {
         const my_temp_file = await create_temp_file(my_code);

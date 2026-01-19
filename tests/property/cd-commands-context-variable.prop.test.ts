@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { compute_cd_menu_visible } from '../../client/src/send-to-stata/cd-commands';
+import { WorkingDirectoryOption } from '../../client/src/send-to-stata/commands';
 
 /**
  * Property-based tests for CD menu context variable computation.
@@ -15,8 +16,8 @@ describe('Feature: conditional-cd-menu-items', () => {
         test('should return true only when working_directory is "none"', () => {
             fc.assert(
                 fc.property(
-                    fc.constantFrom<'none' | 'file' | 'workspace'>(
-                        'none', 'file', 'workspace'
+                    fc.constantFrom<WorkingDirectoryOption>(
+                        'none', 'file', 'workspace', 'lsp'
                     ),
                     (my_working_directory) => {
                         const my_result = compute_cd_menu_visible(my_working_directory);
@@ -40,6 +41,7 @@ describe('Feature: conditional-cd-menu-items', () => {
             expect(compute_cd_menu_visible('none')).toBe(true);
             expect(compute_cd_menu_visible('file')).toBe(false);
             expect(compute_cd_menu_visible('workspace')).toBe(false);
+            expect(compute_cd_menu_visible('lsp')).toBe(false);
         });
     });
 });

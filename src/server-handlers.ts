@@ -752,3 +752,35 @@ export function create_execute_command_handler(
         return { success: false, error: `Unknown command: ${command}` };
     };
 }
+
+/**
+ * Interface for sight/getWorkingDirectory request parameters.
+ */
+export interface GetWorkingDirectoryParams {
+    uri: string;
+}
+
+/**
+ * Interface for sight/getWorkingDirectory request result.
+ */
+export interface GetWorkingDirectoryResult {
+    workingDirectory: string | null;
+}
+
+/**
+ * Creates the custom request handler for sight/getWorkingDirectory.
+ *
+ * @param deps - Handler dependencies
+ * @returns Handler function for sight/getWorkingDirectory requests
+ */
+export function create_get_working_directory_handler(
+    deps: HandlerDependencies
+): (params: GetWorkingDirectoryParams) => Promise<GetWorkingDirectoryResult> {
+    return async (params: GetWorkingDirectoryParams): Promise<GetWorkingDirectoryResult> => {
+        await deps.document_store.wait_for_update(params.uri);
+        const document_state = deps.document_store.get(params.uri);
+        return {
+            workingDirectory: document_state?.working_directory ?? null
+        };
+    };
+}

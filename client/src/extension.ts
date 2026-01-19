@@ -9,7 +9,7 @@ import {
 import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } from './depth-colors';
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
-import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands } from './send-to-stata';
+import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client } from './send-to-stata';
 
 let client: LanguageClient;
 const outputChannel = window.createOutputChannel('Sight Language Server');
@@ -96,6 +96,8 @@ export function activate(context: ExtensionContext) {
     // Start the client. This will also launch the server
     client.start().then(() => {
         outputChannel.appendLine('Language client started successfully');
+        // Make client available to send-to-stata commands
+        set_language_client(client);
     }).catch((error) => {
         outputChannel.appendLine(`Failed to start language client: ${error}`);
     });

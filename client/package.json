@@ -207,10 +207,11 @@
         },
         "sight.sendToStata.workingDirectory": {
           "type": "string",
-          "enum": ["none", "file", "workspace"],
-          "default": "none",
+          "enum": ["lsp", "none", "file", "workspace"],
+          "default": "lsp",
           "description": "Set working directory before executing code",
           "enumDescriptions": [
+            "Use working directory from LSP (from @lsp-cd, @lsp-working-directory, @lsp-wd directives or inherited from parent files)",
             "Do not change working directory",
             "Change to the directory of the current file",
             "Change to the workspace root directory"

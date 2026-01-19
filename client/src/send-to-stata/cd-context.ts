@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { compute_cd_menu_visible, format_cd_command } from './cd-commands';
+import { WorkingDirectoryOption } from './commands';
 import {
     create_temp_file,
     detect_stata_app,
@@ -16,16 +17,16 @@ const CONTEXT_KEY = 'sight.cdMenuVisible';
  */
 export function initialize_cd_context(context: vscode.ExtensionContext): void {
     const config = vscode.workspace.getConfiguration('sight.sendToStata');
-    const current_value = config.get<'none' | 'file' | 'workspace'>(
-        'workingDirectory', 'none'
+    const current_value = config.get<WorkingDirectoryOption>(
+        'workingDirectory', 'lsp'
     );
     update_cd_context(current_value);
     
     const listener = vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('sight.sendToStata.workingDirectory')) {
             const new_config = vscode.workspace.getConfiguration('sight.sendToStata');
-            const new_value = new_config.get<'none' | 'file' | 'workspace'>(
-                'workingDirectory', 'none'
+            const new_value = new_config.get<WorkingDirectoryOption>(
+                'workingDirectory', 'lsp'
             );
             update_cd_context(new_value);
         }
@@ -38,7 +39,7 @@ export function initialize_cd_context(context: vscode.ExtensionContext): void {
  * Update context variable when configuration changes.
  * @param new_value - The new workingDirectory setting value
  */
-export function update_cd_context(new_value: 'none' | 'file' | 'workspace'): void {
+export function update_cd_context(new_value: WorkingDirectoryOption): void {
     const visible = compute_cd_menu_visible(new_value);
     vscode.commands.executeCommand('setContext', CONTEXT_KEY, visible);
 }

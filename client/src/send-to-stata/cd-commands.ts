@@ -1,3 +1,5 @@
+import { WorkingDirectoryOption } from './commands';
+
 /**
  * Escape a directory path for use in Stata cd command.
  * Handles:
@@ -22,7 +24,7 @@ export function escape_path_for_stata(path: string): { escaped: string; use_comp
  * @returns true if CD menu should be visible (when value is 'none')
  */
 export function compute_cd_menu_visible(
-    working_directory: 'none' | 'file' | 'workspace'
+    working_directory: WorkingDirectoryOption
 ): boolean {
     return working_directory === 'none';
 }
