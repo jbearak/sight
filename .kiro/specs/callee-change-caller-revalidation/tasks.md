@@ -14,23 +14,26 @@ This implementation plan fixes the cache invalidation bug where caller files are
   
   - [ ] 1.2 Implement `register_forward_call_relationships_from_cache` method
     - Add method to register caller→callee relationships from parsed forward calls
+    - Accept symbols parameter to populate interface_hashes (for detecting meaningful changes)
     - Clear existing relationships for the caller before registering new ones
     - Update BOTH callee_to_callers AND forward_caller_to_callees maps
+    - Populate interface_hashes with computed hash from symbols
     - Skip dynamic paths (containing macro references)
     - Use same core logic as update_reverse_dependencies for consistency
-    - _Requirements: 1.1, 1.2, 5.1, 5.4_
+    - _Requirements: 1.1, 1.2, 2.2, 5.1, 5.4_
   
   - [ ] 1.3 Implement `clear_forward_call_relationships` method with O(M) complexity
     - Use forward_caller_to_callees for O(M) lookup instead of scanning callee_to_callers
     - Remove caller from each callee's caller set
     - Clean up empty sets in callee_to_callers
     - Remove the forward_caller_to_callees entry
+    - Clear interface_hashes entry to prevent ghosting on file delete/recreate
     - _Requirements: 1.3, 5.2, 6.1_
   
   - [ ] 1.4 Call registration in `get_parsed_file` after caching
     - After successfully parsing and caching a file, call `register_forward_call_relationships_from_cache`
-    - Pass the actual URI (after .do fallback resolution) and parsed forward calls
-    - _Requirements: 1.1, 1.2, 5.1_
+    - Pass the actual URI (after .do fallback resolution), parsed forward calls, AND symbols
+    - _Requirements: 1.1, 1.2, 2.2, 5.1_
 
 - [ ] 2. Add scope cache secondary index for efficient invalidation
   - [ ] 2.1 Add `uri_to_cache_keys` secondary index to ScopeCache
@@ -66,7 +69,7 @@ This implementation plan fixes the cache invalidation bug where caller files are
 - [ ] 5. Implement transitive caller discovery in server-factory
   - [ ] 5.1 Implement `get_transitive_callers` helper function
     - Use BFS traversal of callee_to_callers map
-    - Respect max_chain_depth configuration
+    - Respect config.cross_file.max_chain_depth as the depth limit
     - Handle cycles via visited set
     - _Requirements: 3.1, 3.2_
   
@@ -75,6 +78,12 @@ This implementation plan fixes the cache invalidation bug where caller files are
     - Prioritize open documents over closed documents
     - Respect max_callee_revalidations limit
     - _Requirements: 3.2, 4.1, 4.3_
+  
+  - [ ] 5.3 Wire up file watcher to trigger revalidation
+    - In onDidChangeWatchedFiles handler, call invalidate_file_cache(uri)
+    - Then call schedule_caller_revalidation(uri) to revalidate transitive callers
+    - This ensures callers see fresh data from disk after external changes
+    - _Requirements: 2.1, 2.2, 3.2_
 
 - [ ] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
@@ -92,6 +101,7 @@ This implementation plan fixes the cache invalidation bug where caller files are
     - Test clearing relationships for a caller with multiple callees
     - Test clearing when caller has no relationships (no-op)
     - Test that other callers' relationships are preserved
+    - Test that interface_hashes entry is cleared (prevents ghosting)
     - Test O(M) complexity (no full map scan)
     - _Requirements: 1.3, 5.2, 6.1_
   
@@ -177,5 +187,8 @@ This implementation plan fixes the cache invalidation bug where caller files are
 1. **O(M) Cleanup**: Use `forward_caller_to_callees` bidirectional map to avoid O(N) scans of `callee_to_callers` during cleanup
 2. **Transitive Invalidation**: Add forward-call callee URIs to `dependent_uris` in ScopeCacheEntry to enable automatic cascade invalidation
 3. **Scope Cache Index**: Maintain `uri_to_cache_keys` secondary index for O(1) scope cache invalidation by URI
-4. **Transitive Revalidation**: Use BFS traversal of `callee_to_callers` in `schedule_caller_revalidation` to find all transitive callers
+4. **Transitive Revalidation**: Use BFS traversal of `callee_to_callers` in `schedule_caller_revalidation` to find all transitive callers (respecting `config.cross_file.max_chain_depth`)
 5. **Unified Tracking**: Use same core logic for open documents and cached files to ensure consistent dependency tracking
+6. **Interface Hash Population**: Pass symbols to `register_forward_call_relationships_from_cache` to populate `interface_hashes` for detecting meaningful changes
+7. **Cleanup Symmetry**: Clear `interface_hashes` entry in `clear_forward_call_relationships` to prevent ghosting on file delete/recreate
+8. **File Watcher Integration**: Wire `onDidChangeWatchedFiles` to call both `invalidate_file_cache` and `schedule_caller_revalidation`

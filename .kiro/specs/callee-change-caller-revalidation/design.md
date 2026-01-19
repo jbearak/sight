@@ -55,12 +55,15 @@ interface ReverseDependencyIndex {
 
 // New method to register relationships from cached files
 // Uses same core logic as update_reverse_dependencies for consistency
+// Takes symbols to populate interface_hashes for detecting meaningful changes
 private register_forward_call_relationships_from_cache(
     caller_uri: string,
-    forward_calls: ForwardCall[]
+    forward_calls: ForwardCall[],
+    symbols: SymbolTable  // Required for interface_hashes population (Req 5.4)
 ): void;
 
 // New method to clear relationships - O(M) using forward_caller_to_callees
+// Also clears interface_hashes entry to prevent ghosting on file delete/recreate
 private clear_forward_call_relationships(caller_uri: string): void;
 ```
 
@@ -96,16 +99,21 @@ interface ScopeCacheExtensions {
 
 ### Forward Call Relationship Registration
 
-When a file is parsed and cached (either from disk or in-memory), its forward calls are extracted and registered. The registration uses the same core logic as `update_reverse_dependencies` to ensure consistency:
+When a file is parsed and cached (either from disk or in-memory), its forward calls are extracted and registered. The registration uses the same core logic as `update_reverse_dependencies` to ensure consistency, including interface hash population:
 
 ```typescript
 // In get_parsed_file(), after caching:
-this.register_forward_call_relationships_from_cache(actual_uri, parse_result.forward_calls);
+this.register_forward_call_relationships_from_cache(
+    actual_uri, 
+    parse_result.forward_calls,
+    parse_result.symbols  // For interface_hashes population
+);
 
 // Registration logic - unified with update_reverse_dependencies:
 private register_forward_call_relationships_from_cache(
     caller_uri: string,
-    forward_calls: ForwardCall[]
+    forward_calls: ForwardCall[],
+    symbols: SymbolTable
 ): void {
     // Clear existing relationships for this caller first (O(M) operation)
     this.clear_forward_call_relationships(caller_uri);
@@ -133,12 +141,16 @@ private register_forward_call_relationships_from_cache(
     if (callee_set.size > 0) {
         this.reverse_deps.forward_caller_to_callees.set(caller_uri, callee_set);
     }
+    
+    // Populate interface_hashes for detecting meaningful changes (Req 2.2, 5.4)
+    const interface_hash = compute_interface_hash(symbols);
+    this.reverse_deps.interface_hashes.set(caller_uri, interface_hash);
 }
 ```
 
 ### Efficient Relationship Cleanup
 
-When clearing relationships, use the `forward_caller_to_callees` map for O(M) lookup:
+When clearing relationships, use the `forward_caller_to_callees` map for O(M) lookup. Also clear `interface_hashes` to prevent ghosting on file delete/recreate:
 
 ```typescript
 // O(M) cleanup where M = number of callees for this caller
@@ -160,6 +172,9 @@ private clear_forward_call_relationships(caller_uri: string): void {
     
     // Remove the caller->callees entry
     this.reverse_deps.forward_caller_to_callees.delete(caller_uri);
+    
+    // Clear interface_hashes to prevent ghosting on delete/recreate
+    this.reverse_deps.interface_hashes.delete(caller_uri);
 }
 ```
 
@@ -276,6 +291,7 @@ invalidate_file_cache(uri: string): void {
     // ... existing file cache deletion ...
     
     // Clear forward call relationships for this file (O(M) operation)
+    // Also clears interface_hashes to prevent ghosting
     this.clear_forward_call_relationships(uri);
     
     // Invalidate scope caches for all callers using O(1) lookup
@@ -288,6 +304,26 @@ invalidate_file_cache(uri: string): void {
     
     // ... existing cascade invalidation (now handles forward calls via dependent_uris) ...
 }
+```
+
+### File Watcher Integration
+
+When `DidChangeWatchedFiles` events occur, the server must trigger both cache invalidation and caller revalidation:
+
+```typescript
+// In server-factory.ts, onDidChangeWatchedFiles handler:
+connection.onDidChangeWatchedFiles((params) => {
+    for (const my_change of params.changes) {
+        const uri = my_change.uri;
+        
+        // Invalidate file cache (clears relationships, scope caches)
+        scope_resolver.invalidate_file_cache(uri);
+        
+        // Schedule revalidation for all transitive callers
+        // This forces them to see fresh data from disk
+        schedule_caller_revalidation(uri);
+    }
+});
 ```
 
 ## Correctness Properties
