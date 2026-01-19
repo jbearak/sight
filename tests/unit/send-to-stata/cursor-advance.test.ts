@@ -1,3 +1,4 @@
+/// <reference types="bun-types" />
 /**
  * Tests for cursor advancement after send-to-stata operations.
  * Feature: send-to-stata-cursor-advance
