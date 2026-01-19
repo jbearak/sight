@@ -2301,6 +2301,9 @@ export class ScopeResolver {
             this.reverse_deps.caller_to_callees.delete(caller_uri);
         }
 
+        // Remove forward_caller_to_callees entry (prevents memory leak)
+        this.reverse_deps.forward_caller_to_callees.delete(caller_uri);
+
         // Remove interface hash
         this.reverse_deps.interface_hashes.delete(caller_uri);
 
@@ -2325,6 +2328,14 @@ export class ScopeResolver {
                     callee_map.delete(uri);
                     if (callee_map.size === 0) {
                         this.reverse_deps.caller_to_callees.delete(my_caller_uri);
+                    }
+                }
+                // Also update forward_caller_to_callees to remove the deleted callee
+                const forward_callees = this.reverse_deps.forward_caller_to_callees.get(my_caller_uri);
+                if (forward_callees) {
+                    forward_callees.delete(uri);
+                    if (forward_callees.size === 0) {
+                        this.reverse_deps.forward_caller_to_callees.delete(my_caller_uri);
                     }
                 }
                 // Also update last_forward_calls to remove calls to the deleted file
