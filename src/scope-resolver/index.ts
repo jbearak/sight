@@ -1992,23 +1992,8 @@ export class ScopeResolver {
         const caller_set = this.reverse_deps.callee_to_callers.get(uri);
         if (caller_set) {
             for (const my_caller_uri of caller_set) {
-                // Invalidate the caller's scope cache
-                // Scope cache keys have format: "uri:content_hash:config_hash"
-                for (const cache_key of this.scope_cache.keys()) {
-                    if (cache_key === my_caller_uri || cache_key.startsWith(my_caller_uri + ':')) {
-                        this.scope_cache.delete(cache_key);
-                        // Update secondary index
-                        const key_uri = this.extract_uri_from_cache_key(cache_key);
-                        const key_set = this.uri_to_cache_keys.get(key_uri);
-                        if (key_set) {
-                            key_set.delete(cache_key);
-                            if (key_set.size === 0) {
-                                this.uri_to_cache_keys.delete(key_uri);
-                            }
-                        }
-                        num_removed++;
-                    }
-                }
+                // Use O(1) lookup via secondary index instead of O(N) scan
+                num_removed += this.invalidate_scope_cache_for_uri(my_caller_uri);
             }
         }
 
@@ -2053,23 +2038,8 @@ export class ScopeResolver {
         this.log(`[invalidate_file_cache] Invalidate callers for ${uri}. Caller set size: ${caller_set ? caller_set.size : 0}`);
         if (caller_set) {
             for (const my_caller_uri of caller_set) {
-                // Invalidate the caller's scope cache
-                // Scope cache keys have format: "uri:content_hash:config_hash"
-                for (const cache_key of this.scope_cache.keys()) {
-                    if (cache_key === my_caller_uri || cache_key.startsWith(my_caller_uri + ':')) {
-                        this.scope_cache.delete(cache_key);
-                        // Update secondary index
-                        const key_uri = this.extract_uri_from_cache_key(cache_key);
-                        const key_set = this.uri_to_cache_keys.get(key_uri);
-                        if (key_set) {
-                            key_set.delete(cache_key);
-                            if (key_set.size === 0) {
-                                this.uri_to_cache_keys.delete(key_uri);
-                            }
-                        }
-                        num_removed++;
-                    }
-                }
+                // Use O(1) lookup via secondary index instead of O(N) scan
+                num_removed += this.invalidate_scope_cache_for_uri(my_caller_uri);
             }
         }
 
