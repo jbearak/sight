@@ -328,6 +328,60 @@ conflicts with other extensions. Features:
 - Skip-over behavior: typing closing characters (`'`, `"`) skips over existing
   auto-inserted closers instead of duplicating them
 
+**Send to Stata Module** (`client/src/send-to-stata/`): Provides commands to execute Stata code from VS Code in either the Stata GUI (macOS) or terminal sessions.
+
+**Core Components:**
+- **commands.ts**: Main command handlers for all send operations. Coordinates statement detection, temp file creation, working directory resolution, cursor advancement, and execution (AppleScript or terminal). Implements the 4 send modes (statement, upward, downward, file) × 2 execution commands (do, include) × 2 targets (app, terminal) = 16 command handlers.
+
+- **statement-detector.ts**: Detects complete Stata statements including multi-line statements with `///` continuation markers. Searches backward/forward from cursor position to find statement boundaries.
+
+- **applescript.ts**: Executes AppleScript commands to communicate with Stata GUI. Properly escapes backslashes and quotes for AppleScript string literals.
+
+- **terminal.ts**: Sends commands to VS Code's active integrated terminal. Reveals terminal pane without stealing focus.
+
+- **stata-detector.ts**: Auto-detects installed Stata variant on macOS by checking `/Applications/Stata/` for StataMP, StataSE, StataIC, or Stata (in priority order). Results are cached.
+
+- **temp-file.ts**: Creates temporary `.do` files in system temp directory with unique names. Required to support `///` continuation markers which Stata only recognizes in do-files.
+
+- **cursor-advance-core.ts**: Implements cursor advancement logic. Only activates for single-line sends (statement mode without selection). Positions cursor at column 0 of next line, clears selection, ensures visibility.
+
+- **cd-commands.ts**: Executes manual CD commands to change Stata's working directory to workspace folder or file folder.
+
+- **cd-context.ts**: Manages VS Code context variable `sight.cdMenuVisible` to control conditional menu item visibility based on `sight.sendToStata.workingDirectory` setting.
+
+- **index.ts**: Module registration. Called from `extension.ts` to register all commands and set up configuration listeners.
+
+**LSP Integration:**
+The send-to-stata module integrates with the LSP server for working directory resolution:
+- Custom LSP request: `sight/getWorkingDirectory` returns the working directory for a document URI
+- Server handler: `server-handlers.ts` implements the custom request handler
+- Working directory sources:
+  - `@lsp-cd`, `@lsp-working-directory`, `@lsp-wd` directives in current file
+  - Inherited from parent files via `@lsp-done-by` or `@lsp-included-by` directives
+  - Returns `null` if no working directory is set
+
+When `sight.sendToStata.workingDirectory` is set to "lsp" (default), commands query the LSP before execution and prepend `cd` commands as needed.
+
+**Configuration Settings:**
+- `sight.sendToStata.stataApp`: Override Stata variant name (macOS only)
+- `sight.sendToStata.saveBeforeSend`: Auto-save before sending (default: true)
+- `sight.sendToStata.advanceCursorOnSend`: Auto-advance cursor after single-line send (default: true)
+- `sight.sendToStata.workingDirectory`: Working directory mode - "lsp" (default), "none", "file", or "workspace"
+
+**Testing:**
+Comprehensive test coverage including:
+- Property tests (`tests/property/send-to-stata-*.prop.test.ts`):
+  - AppleScript escaping (backslashes, quotes, special characters)
+  - Statement detection (multi-line, continuations, edge cases)
+  - Temp file creation
+  - CD command formatting and path escaping
+  - LSP working directory content transformation
+  - LSP server responses
+- Unit tests (`tests/unit/send-to-stata/cursor-advance.test.ts`):
+  - Cursor advancement edge cases (last line, selection mode, file mode)
+- Integration tests (`tests/integration/lsp-working-directory-option.test.ts`):
+  - End-to-end LSP working directory resolution scenarios
+
 ### Utilities and Support
 
 **Utilities** (`src/utils/`): Shared helpers for runtime and performance:
