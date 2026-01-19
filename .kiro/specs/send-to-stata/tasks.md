@@ -119,30 +119,44 @@ This implementation plan breaks down the send-to-Stata feature into discrete cod
   - [ ] 13.1 Add configuration contributions to `client/package.json`
     - Add `sight.sendToStata.stataApp` setting (string)
     - Add `sight.sendToStata.saveBeforeSend` setting (boolean, default: true)
-    - _Requirements: 11.1, 11.2_
+    - Add `sight.sendToStata.workingDirectory` setting (enum: "none", "file", "workspace", default: "none")
+    - _Requirements: 11.1, 11.2, 11.3_
 
-- [ ] 14. Checkpoint - Feature complete
+- [ ] 14. Implement working directory handling
+  - [ ] 14.1 Update temp file creation to support working directory prefix
+    - Implement `prepare_content_with_cd(content, document, config): string`
+    - Prepend `cd` command when workingDirectory is "file" or "workspace"
+    - _Requirements: 11.4, 11.5, 11.6_
+
+- [ ] 15. Checkpoint - Feature complete
   - Ensure all tests pass, ask the user if questions arise
   - Verify keybindings work in Stata files
   - Verify toolbar button appears for Stata files
 
-- [ ] 15. Write unit tests for edge cases
-  - [ ] 15.1 Write unit tests for statement detector
+- [ ] 16. Write unit tests for edge cases
+  - [ ] 16.1 Write unit tests for statement detector
     - Test single-line statements
     - Test multi-line statements with cursor on different lines
     - Test chained continuations
     - Test `///` with trailing whitespace
     - _Requirements: 8.1, 8.4_
   
-  - [ ] 15.2 Write unit tests for AppleScript escaping
+  - [ ] 16.2 Write unit tests for AppleScript escaping
     - Test paths with spaces, backslashes, quotes
     - _Requirements: 1.7_
   
-  - [ ] 15.3 Write unit tests for Stata detection
+  - [ ] 16.3 Write unit tests for Stata detection
     - Test with setting configured
     - Test auto-detection order
     - Test no Stata found
     - _Requirements: 7.1, 7.2, 7.3, 7.4_
+  
+  - [ ] 16.4 Write unit tests for working directory handling
+    - Test with workingDirectory = "none"
+    - Test with workingDirectory = "file"
+    - Test with workingDirectory = "workspace"
+    - Test paths with quotes
+    - _Requirements: 11.4, 11.5, 11.6_
 
 ## Notes
 

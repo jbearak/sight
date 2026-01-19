@@ -436,8 +436,38 @@ type SendTarget = 'app' | 'terminal';
 
 ```typescript
 interface SendToStataConfig {
-    stataApp?: string;      // Override Stata variant (macOS only)
-    saveBeforeSend: boolean; // Auto-save before sending (default: true)
+    stataApp?: string;           // Override Stata variant (macOS only)
+    saveBeforeSend: boolean;     // Auto-save before sending (default: true)
+    workingDirectory: 'none' | 'file' | 'workspace';  // Working directory mode (default: 'none')
+}
+```
+
+### Working Directory Handling
+
+When `workingDirectory` is set to "file" or "workspace", the temp file content is prefixed with a `cd` command:
+
+```typescript
+function prepare_content_with_cd(
+    content: string,
+    document: vscode.TextDocument,
+    config: SendToStataConfig
+): string {
+    if (config.workingDirectory === 'none') {
+        return content;
+    }
+    
+    let directory: string;
+    if (config.workingDirectory === 'file') {
+        directory = path.dirname(document.uri.fsPath);
+    } else {
+        // workspace
+        const workspace_folder = vscode.workspace.getWorkspaceFolder(document.uri);
+        directory = workspace_folder?.uri.fsPath ?? path.dirname(document.uri.fsPath);
+    }
+    
+    // Escape quotes in path for Stata
+    const escaped_dir = directory.replace(/"/g, '\\"');
+    return `cd "${escaped_dir}"\n${content}`;
 }
 ```
 
