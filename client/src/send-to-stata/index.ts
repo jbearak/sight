@@ -13,4 +13,9 @@ export interface StatementBounds {
     end_line: number;    // 0-indexed, inclusive
 }
 
-// Module exports (will be added as modules are implemented)
+// Module exports
+export {
+    ends_with_continuation,
+    detect_statement,
+    get_statement_text
+} from './statement-detector';
