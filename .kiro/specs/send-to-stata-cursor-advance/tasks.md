@@ -33,31 +33,31 @@ This implementation adds automatic cursor advancement after sending a single lin
     - Pass the statement end line from captured bounds
     - _Requirements: 1.1, 1.2, 1.3, 1.4_
 
-- [ ] 3. Checkpoint - Verify basic functionality
+- [x] 3. Checkpoint - Verify basic functionality
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. Write tests for cursor advancement
-  - [ ] 4.1 Write property test for next line calculation
+- [x] 4. Write tests for cursor advancement
+  - [x] 4.1 Write property test for next line calculation
     - **Property 1: Next Line Calculation**
     - Generate random statement bounds, verify next_line = end_line + 1
     - **Validates: Requirements 1.1, 1.2**
   
-  - [ ] 4.2 Write property test for selection mode behavior
+  - [x] 4.2 Write property test for selection mode behavior
     - **Property 2: Selection Mode Prevents Advancement**
     - Generate random editor states with selections, verify should_advance = false
     - **Validates: Requirements 1.3**
   
-  - [ ] 4.3 Write property test for disabled setting behavior
+  - [x] 4.3 Write property test for disabled setting behavior
     - **Property 3: Disabled Setting Prevents Advancement**
     - Generate random send contexts with setting=false, verify no cursor movement
     - **Validates: Requirements 2.3**
   
-  - [ ] 4.4 Write property test for cursor state after advancement
+  - [x] 4.4 Write property test for cursor state after advancement
     - **Property 4: Cursor State After Advancement**
     - Generate random advancement operations, verify cursor at (line, 0) with empty selection
     - **Validates: Requirements 3.1, 3.2**
   
-  - [ ] 4.5 Write unit tests for edge cases
+  - [x] 4.5 Write unit tests for edge cases
     - Test cursor on last line stays in place
     - Test file mode does not advance
     - Test upward/downward modes do not advance

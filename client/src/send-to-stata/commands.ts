@@ -12,6 +12,7 @@ import {
     send_to_terminal,
     StataCommand
 } from './index';
+import { compute_cursor_position } from './cursor-advance-core';
 
 export type WorkingDirectoryOption = 'none' | 'file' | 'workspace' | 'lsp';
 
@@ -53,16 +54,19 @@ function advance_cursor_if_enabled(
     statement_end_line: number
 ): void {
     const my_config = vscode.workspace.getConfiguration('sight.sendToStata');
-    if (!my_config.get<boolean>('advanceCursorOnSend', true)) {
+    const setting_enabled = my_config.get<boolean>('advanceCursorOnSend', true);
+    
+    const result = compute_cursor_position(
+        statement_end_line + 1,
+        editor.document.lineCount,
+        setting_enabled
+    );
+    
+    if (!result) {
         return;
     }
     
-    const next_line = statement_end_line + 1;
-    if (next_line >= editor.document.lineCount) {
-        return;
-    }
-    
-    const new_position = new vscode.Position(next_line, 0);
+    const new_position = new vscode.Position(result.line, result.column);
     editor.selection = new vscode.Selection(new_position, new_position);
     editor.revealRange(new vscode.Range(new_position, new_position));
 }
