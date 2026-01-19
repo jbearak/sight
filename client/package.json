@@ -321,6 +321,11 @@
         "command": "sight.terminal.doLineOrSelection",
         "key": "alt+enter",
         "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.terminal.doFile",
+        "key": "alt+shift+enter",
+        "when": "editorTextFocus && editorLangId == stata"
       }
     ],
     "submenus": [
@@ -338,7 +343,8 @@
         {
           "submenu": "sight.sendToStata",
           "when": "editorLangId == stata",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(play)"
         }
       ],
       "sight.sendToStata": [
