@@ -112,6 +112,7 @@ export class ScopeResolver {
         this.reverse_deps = {
             caller_to_callees: new Map(),
             callee_to_callers: new Map(),
+            forward_caller_to_callees: new Map(),
             interface_hashes: new Map(),
             last_forward_calls: new Map(),
         };
@@ -1628,7 +1629,7 @@ export class ScopeResolver {
             // Register forward call relationships from cached file
             // This ensures callee_to_callers map includes relationships from cached files,
             // not just open documents, enabling proper revalidation when callees change
-            this.register_forward_call_relationships_from_cache(actual_uri, parse_result.forward_calls);
+            this.register_forward_call_relationships_from_cache(actual_uri, parse_result.forward_calls, parse_result.symbols);
 
             return { content, ...parse_result };
         } catch (error) {
@@ -2471,10 +2472,14 @@ export class ScopeResolver {
      */
     private register_forward_call_relationships_from_cache(
         caller_uri: string,
-        forward_calls: ForwardCall[]
+        forward_calls: ForwardCall[],
+        symbols: SymbolTable
     ): void {
         // Clear existing relationships for this caller first
         this.clear_forward_call_relationships(caller_uri);
+
+        // Track callees in a Set for this caller
+        const my_callees = new Set<string>();
 
         // Register each callee relationship
         for (const my_call of forward_calls) {
@@ -2493,8 +2498,20 @@ export class ScopeResolver {
             }
             caller_set.add(caller_uri);
 
+            // Track this callee for bidirectional mapping
+            my_callees.add(callee_uri);
+
             this.log(`[forward-call-cache] Registered: ${caller_uri} calls ${callee_uri}`);
         }
+
+        // Store in forward_caller_to_callees map
+        if (my_callees.size > 0) {
+            this.reverse_deps.forward_caller_to_callees.set(caller_uri, my_callees);
+        }
+
+        // Compute and store interface hash
+        const interface_hash = this.compute_dual_interface_hash(symbols);
+        this.reverse_deps.interface_hashes.set(caller_uri, interface_hash);
     }
 
     /**
@@ -2505,15 +2522,29 @@ export class ScopeResolver {
      * @param caller_uri - The URI of the caller file
      */
     private clear_forward_call_relationships(caller_uri: string): void {
-        // Remove this caller from all callee entries in callee_to_callers
-        for (const [callee_uri, caller_set] of this.reverse_deps.callee_to_callers) {
-            if (caller_set.has(caller_uri)) {
+        // Get the callee set from forward_caller_to_callees for O(M) lookup
+        const my_callees = this.reverse_deps.forward_caller_to_callees.get(caller_uri);
+        if (!my_callees) {
+            // Nothing to clear
+            return;
+        }
+
+        // For each callee in the set, remove caller from callee_to_callers
+        for (const callee_uri of my_callees) {
+            const caller_set = this.reverse_deps.callee_to_callers.get(callee_uri);
+            if (caller_set) {
                 caller_set.delete(caller_uri);
                 if (caller_set.size === 0) {
                     this.reverse_deps.callee_to_callers.delete(callee_uri);
                 }
             }
         }
+
+        // Delete the forward_caller_to_callees entry
+        this.reverse_deps.forward_caller_to_callees.delete(caller_uri);
+
+        // Delete the interface_hashes entry (prevents ghosting on file delete/recreate)
+        this.reverse_deps.interface_hashes.delete(caller_uri);
     }
 
     /**

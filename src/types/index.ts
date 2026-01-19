@@ -690,6 +690,11 @@ export interface ReverseDependencyIndex {
   // Reverse lookup: callee URI → set of caller URIs
   callee_to_callers: Map<string, Set<string>>;
 
+  // Forward call specific bidirectional tracking
+  // Maps caller_uri -> Set<callee_uri> for forward calls specifically
+  // This enables O(M) cleanup where M = number of callees for a file
+  forward_caller_to_callees: Map<string, Set<string>>;
+
   // Cache of the last known interface hashes for each file (dual hashing)
   interface_hashes: Map<string, DualInterfaceHash>;
 
