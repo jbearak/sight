@@ -21,7 +21,10 @@ export function send_to_stata_app(
         const applescript_cmd = `tell application "${stata_app}" to ` +
             `DoCommandAsync "${command} \\"${escaped_path}\\""`;
         
-        exec(`osascript -e "${applescript_cmd}"`, (error) => {
+        // Use single quotes for shell to avoid escaping issues with double quotes
+        // in the AppleScript command. Single quotes in the path are escaped.
+        const shell_safe_cmd = applescript_cmd.replace(/'/g, "'\\''");
+        exec(`osascript -e '${shell_safe_cmd}'`, (error) => {
             if (error) {
                 reject(error);
             } else {
