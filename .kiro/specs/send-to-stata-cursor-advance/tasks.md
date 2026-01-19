@@ -13,8 +13,8 @@ This implementation adds automatic cursor advancement after sending a single lin
     - Place under existing `sight.sendToStata` settings group
     - _Requirements: 2.1, 2.2_
 
-- [ ] 2. Implement cursor advancement logic
-  - [ ] 2.1 Create `advance_cursor_if_enabled` helper function in `commands.ts`
+- [x] 2. Implement cursor advancement logic
+  - [x] 2.1 Create `advance_cursor_if_enabled` helper function in `commands.ts`
     - Accept editor and statement_end_line parameters
     - Read `advanceCursorOnSend` setting
     - Calculate next line position
@@ -23,12 +23,12 @@ This implementation adds automatic cursor advancement after sending a single lin
     - Call `editor.revealRange` to ensure visibility
     - _Requirements: 1.1, 1.2, 1.5, 3.1, 3.2, 3.3_
   
-  - [ ] 2.2 Modify `handle_send_command` to track single-line send context
+  - [x] 2.2 Modify `handle_send_command` to track single-line send context
     - Detect when mode is 'statement' and selection is empty
     - Capture statement bounds before sending
     - _Requirements: 1.1, 1.3_
   
-  - [ ] 2.3 Call `advance_cursor_if_enabled` after successful send
+  - [x] 2.3 Call `advance_cursor_if_enabled` after successful send
     - Only call for single-line sends (statement mode, no selection)
     - Pass the statement end line from captured bounds
     - _Requirements: 1.1, 1.2, 1.3, 1.4_

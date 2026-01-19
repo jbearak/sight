@@ -44,6 +44,30 @@ async function get_lsp_working_directory(uri: string): Promise<string | null> {
 }
 
 /**
+ * Advances the cursor to the next line if conditions are met.
+ * @param editor - The active text editor
+ * @param statement_end_line - The last line of the sent statement (0-indexed)
+ */
+function advance_cursor_if_enabled(
+    editor: vscode.TextEditor,
+    statement_end_line: number
+): void {
+    const my_config = vscode.workspace.getConfiguration('sight.sendToStata');
+    if (!my_config.get<boolean>('advanceCursorOnSend', true)) {
+        return;
+    }
+    
+    const next_line = statement_end_line + 1;
+    if (next_line >= editor.document.lineCount) {
+        return;
+    }
+    
+    const new_position = new vscode.Position(next_line, 0);
+    editor.selection = new vscode.Selection(new_position, new_position);
+    editor.revealRange(new vscode.Range(new_position, new_position));
+}
+
+/**
  * Prepends a cd command to the content based on workingDirectory setting.
  */
 export async function prepare_content_with_cd(
@@ -95,6 +119,7 @@ async function handle_send_command(
     }
 
     let my_code: string;
+    let statement_end_line: number | null = null;
     
     if (mode === 'statement') {
         if (!my_editor.selection.isEmpty) {
@@ -103,6 +128,7 @@ async function handle_send_command(
             const my_statement = detect_statement(my_editor.document, 
                 my_editor.selection.active.line);
             my_code = get_statement_text(my_editor.document, my_statement);
+            statement_end_line = my_statement.end_line;
         }
     } else if (mode === 'upward') {
         const my_bounds = get_upward_bounds(my_editor.document, 
@@ -148,6 +174,11 @@ async function handle_send_command(
             await send_to_stata_app(my_stata_app, command, my_temp_file);
         } else {
             await send_to_terminal(command, my_temp_file);
+        }
+        
+        // Advance cursor for single-line sends (statement mode without selection)
+        if (statement_end_line !== null) {
+            advance_cursor_if_enabled(my_editor, statement_end_line);
         }
     } catch (my_error) {
         vscode.window.showErrorMessage(
