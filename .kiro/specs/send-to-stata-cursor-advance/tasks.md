@@ -63,7 +63,7 @@ This implementation adds automatic cursor advancement after sending a single lin
     - Test upward/downward modes do not advance
     - _Requirements: 1.4, 1.5_
 
-- [ ] 5. Final checkpoint - Ensure all tests pass
+- [x] 5. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
