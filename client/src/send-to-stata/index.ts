@@ -17,7 +17,9 @@ export interface StatementBounds {
 export {
     ends_with_continuation,
     detect_statement,
-    get_statement_text
+    get_statement_text,
+    get_upward_bounds,
+    get_downward_bounds
 } from './statement-detector';
 
 export {

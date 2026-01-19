@@ -33,6 +33,31 @@ export function detect_statement(
     return { start_line, end_line };
 }
 
+export function get_upward_bounds(
+    document: vscode.TextDocument, 
+    line: number
+): StatementBounds {
+    return { start_line: 0, end_line: line };
+}
+
+export function get_downward_bounds(
+    document: vscode.TextDocument, 
+    line: number
+): StatementBounds {
+    let start_line = line;
+    
+    // If cursor is on a continuation line, find statement start
+    while (start_line > 0) {
+        const prev_line = document.lineAt(start_line - 1).text;
+        if (!ends_with_continuation(prev_line)) {
+            break;
+        }
+        start_line--;
+    }
+    
+    return { start_line, end_line: document.lineCount - 1 };
+}
+
 export function get_statement_text(
     document: vscode.TextDocument, 
     bounds: StatementBounds

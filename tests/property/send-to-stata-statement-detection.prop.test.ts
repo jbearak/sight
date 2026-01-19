@@ -3,7 +3,9 @@ import * as fc from 'fast-check';
 import {
     ends_with_continuation,
     detect_statement,
-    get_statement_text
+    get_statement_text,
+    get_upward_bounds,
+    get_downward_bounds
 } from '../../client/src/send-to-stata/statement-detector';
 
 /**
@@ -192,5 +194,133 @@ describe('Feature: send-to-stata - Statement Detection Properties', () => {
             // at the end (after trimming whitespace)
             expect(ends_with_continuation(my_line)).toBe(false);
         }
+    });
+});
+
+/**
+ * Property 5: Upward Line Extraction
+ * Property 6: Downward Line Extraction
+ * Validates: Requirements 4.2, 4.4, 5.2, 5.4
+ */
+describe('Feature: send-to-stata - Upward/Downward Extraction Properties', () => {
+    // Mock vscode.TextDocument for testing
+    interface MockTextDocument {
+        lineCount: number;
+        lineAt(line: number): { text: string };
+    }
+
+    function create_mock_document(content: string): MockTextDocument {
+        const the_lines = content.split('\n');
+        return {
+            lineCount: the_lines.length,
+            lineAt(line: number) {
+                return { text: the_lines[line] ?? '' };
+            }
+        };
+    }
+
+    // Generator for simple Stata statements
+    const simple_statement_gen = fc.oneof(
+        fc.constant('display "hello"'),
+        fc.constant('gen x = 1'),
+        fc.constant('summarize var1')
+    );
+
+    test('Property 5: Upward bounds start at line 0', () => {
+        fc.assert(fc.property(
+            fc.array(simple_statement_gen, { minLength: 1, maxLength: 10 }),
+            fc.integer({ min: 0, max: 9 }),
+            (the_lines, cursor_offset) => {
+                const content = the_lines.join('\n');
+                const document = create_mock_document(content);
+                const cursor = Math.min(cursor_offset, the_lines.length - 1);
+
+                const bounds = get_upward_bounds(document as any, cursor);
+                expect(bounds.start_line).toBe(0);
+            }
+        ), { numRuns: 100 });
+    });
+
+    test('Property 5: Upward bounds end at cursor line', () => {
+        fc.assert(fc.property(
+            fc.array(simple_statement_gen, { minLength: 1, maxLength: 10 }),
+            fc.integer({ min: 0, max: 9 }),
+            (the_lines, cursor_offset) => {
+                const content = the_lines.join('\n');
+                const document = create_mock_document(content);
+                const cursor = Math.min(cursor_offset, the_lines.length - 1);
+
+                const bounds = get_upward_bounds(document as any, cursor);
+                expect(bounds.end_line).toBe(cursor);
+            }
+        ), { numRuns: 100 });
+    });
+
+    test('Property 6: Downward bounds end at last line', () => {
+        fc.assert(fc.property(
+            fc.array(simple_statement_gen, { minLength: 1, maxLength: 10 }),
+            fc.integer({ min: 0, max: 9 }),
+            (the_lines, cursor_offset) => {
+                const content = the_lines.join('\n');
+                const document = create_mock_document(content);
+                const cursor = Math.min(cursor_offset, the_lines.length - 1);
+
+                const bounds = get_downward_bounds(document as any, cursor);
+                expect(bounds.end_line).toBe(the_lines.length - 1);
+            }
+        ), { numRuns: 100 });
+    });
+
+    test('Property 6: Downward includes complete statement from beginning', () => {
+        // Create document with multi-line statement
+        const content = [
+            'display "before"',
+            'gen x = 1 ///',
+            '    + 2 ///',
+            '    + 3',
+            'display "after"'
+        ].join('\n');
+        const document = create_mock_document(content);
+
+        // Cursor on continuation line 2 (0-indexed)
+        const bounds = get_downward_bounds(document as any, 2);
+        
+        // Should start at line 1 (statement start), not line 2
+        expect(bounds.start_line).toBe(1);
+        expect(bounds.end_line).toBe(4);
+    });
+
+    test('Property 6: Downward from non-continuation starts at cursor', () => {
+        const content = [
+            'display "line 0"',
+            'display "line 1"',
+            'display "line 2"'
+        ].join('\n');
+        const document = create_mock_document(content);
+
+        const bounds = get_downward_bounds(document as any, 1);
+        expect(bounds.start_line).toBe(1);
+        expect(bounds.end_line).toBe(2);
+    });
+
+    test('Property 5: Upward at start of file', () => {
+        const content = 'display "only line"';
+        const document = create_mock_document(content);
+
+        const bounds = get_upward_bounds(document as any, 0);
+        expect(bounds.start_line).toBe(0);
+        expect(bounds.end_line).toBe(0);
+    });
+
+    test('Property 6: Downward at end of file', () => {
+        const content = [
+            'display "line 0"',
+            'display "line 1"'
+        ].join('\n');
+        const document = create_mock_document(content);
+
+        const bounds = get_downward_bounds(document as any, 1);
+        expect(bounds.start_line).toBe(1);
+        expect(bounds.end_line).toBe(1);
     });
 });
