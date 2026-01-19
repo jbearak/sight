@@ -44,6 +44,39 @@ export function update_cd_context(new_value: 'none' | 'file' | 'workspace'): voi
 }
 
 /**
+ * Register CD commands with VS Code.
+ * @param context - Extension context for subscriptions
+ */
+export function register_cd_commands(context: vscode.ExtensionContext): void {
+    const commands = [
+        {
+            id: 'sight.cdWorkspace',
+            handler: () => execute_cd_command('workspace', 'app')
+        },
+        {
+            id: 'sight.cdFile',
+            handler: () => execute_cd_command('file', 'app')
+        },
+        {
+            id: 'sight.terminal.cdWorkspace',
+            handler: () => execute_cd_command('workspace', 'terminal')
+        },
+        {
+            id: 'sight.terminal.cdFile',
+            handler: () => execute_cd_command('file', 'terminal')
+        }
+    ];
+    
+    for (const my_command of commands) {
+        const disposable = vscode.commands.registerCommand(
+            my_command.id,
+            my_command.handler
+        );
+        context.subscriptions.push(disposable);
+    }
+}
+
+/**
  * Execute a CD command to change Stata's working directory.
  * @param directory_type - 'workspace' or 'file'
  * @param target - 'app' or 'terminal'

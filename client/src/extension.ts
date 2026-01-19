@@ -9,7 +9,7 @@ import {
 import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } from './depth-colors';
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
-import { register_send_to_stata_commands } from './send-to-stata';
+import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands } from './send-to-stata';
 
 let client: LanguageClient;
 const outputChannel = window.createOutputChannel('Sight Language Server');
@@ -28,6 +28,10 @@ export function activate(context: ExtensionContext) {
     
     // Register send-to-stata commands
     register_send_to_stata_commands(context);
+    
+    // Initialize CD context and register CD commands
+    initialize_cd_context(context);
+    register_cd_commands(context);
     
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {

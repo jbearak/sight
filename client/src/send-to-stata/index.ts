@@ -45,3 +45,8 @@ export {
     register_send_to_stata_commands,
     prepare_content_with_cd
 } from './commands';
+
+export {
+    initialize_cd_context,
+    register_cd_commands
+} from './cd-context';
