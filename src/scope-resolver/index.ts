@@ -91,6 +91,8 @@ export class ScopeResolver {
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
     private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
+    // Secondary index: uri -> Set<cache_keys> for O(1) scope cache invalidation by URI
+    private uri_to_cache_keys: Map<string, Set<string>>;
     private cache_metrics: ScopeCacheMetrics;
     private logger?: ScopeResolverLogger;
     private forward_scope_resolver?: ForwardScopeResolverInterface;
@@ -107,6 +109,7 @@ export class ScopeResolver {
         this.analyzer = new SemanticAnalyzer();
         this.file_cache = new Map();
         this.scope_cache = new Map();
+        this.uri_to_cache_keys = new Map();
         this.cache_metrics = this.create_metrics();
         this.logger = logger;
         this.reverse_deps = {
@@ -199,9 +202,49 @@ export class ScopeResolver {
 
         for (const my_key of keys_to_remove) {
             this.scope_cache.delete(my_key);
+            // Update secondary index
+            const key_uri = this.extract_uri_from_cache_key(my_key);
+            const key_set = this.uri_to_cache_keys.get(key_uri);
+            if (key_set) {
+                key_set.delete(my_key);
+                if (key_set.size === 0) {
+                    this.uri_to_cache_keys.delete(key_uri);
+                }
+            }
         }
 
         return keys_to_remove.length;
+    }
+
+    /**
+     * Extract URI from cache_key (format is "uri:config_hash").
+     */
+    private extract_uri_from_cache_key(cache_key: string): string {
+        const colon_idx = cache_key.indexOf(':');
+        return colon_idx >= 0 ? cache_key.substring(0, colon_idx) : cache_key;
+    }
+
+    /**
+     * Invalidate all scope cache entries for a specific URI using O(1) lookup.
+     * Uses the uri_to_cache_keys secondary index.
+     * @param uri - The URI to invalidate scope caches for
+     * @returns Number of cache entries removed
+     */
+    private invalidate_scope_cache_for_uri(uri: string): number {
+        const key_set = this.uri_to_cache_keys.get(uri);
+        if (!key_set) {
+            return 0;
+        }
+        
+        let count = 0;
+        for (const my_cache_key of key_set) {
+            if (this.scope_cache.delete(my_cache_key)) {
+                count++;
+            }
+        }
+        
+        this.uri_to_cache_keys.delete(uri);
+        return count;
     }
 
     /**
@@ -723,6 +766,14 @@ export class ScopeResolver {
             timestamp: Date.now(),
             dependent_uris: new Set(resolved_scope.chain.map((e) => e.uri)),
         });
+
+        // Update secondary index
+        let key_set = this.uri_to_cache_keys.get(file_uri);
+        if (!key_set) {
+            key_set = new Set();
+            this.uri_to_cache_keys.set(file_uri, key_set);
+        }
+        key_set.add(cache_key);
 
         return resolved_scope;
     }
@@ -1946,6 +1997,15 @@ export class ScopeResolver {
                 for (const cache_key of this.scope_cache.keys()) {
                     if (cache_key === my_caller_uri || cache_key.startsWith(my_caller_uri + ':')) {
                         this.scope_cache.delete(cache_key);
+                        // Update secondary index
+                        const key_uri = this.extract_uri_from_cache_key(cache_key);
+                        const key_set = this.uri_to_cache_keys.get(key_uri);
+                        if (key_set) {
+                            key_set.delete(cache_key);
+                            if (key_set.size === 0) {
+                                this.uri_to_cache_keys.delete(key_uri);
+                            }
+                        }
                         num_removed++;
                     }
                 }
@@ -1998,6 +2058,15 @@ export class ScopeResolver {
                 for (const cache_key of this.scope_cache.keys()) {
                     if (cache_key === my_caller_uri || cache_key.startsWith(my_caller_uri + ':')) {
                         this.scope_cache.delete(cache_key);
+                        // Update secondary index
+                        const key_uri = this.extract_uri_from_cache_key(cache_key);
+                        const key_set = this.uri_to_cache_keys.get(key_uri);
+                        if (key_set) {
+                            key_set.delete(cache_key);
+                            if (key_set.size === 0) {
+                                this.uri_to_cache_keys.delete(key_uri);
+                            }
+                        }
                         num_removed++;
                     }
                 }
@@ -2214,6 +2283,7 @@ export class ScopeResolver {
         const file_cache_size = this.file_cache.size;
 
         this.scope_cache.clear();
+        this.uri_to_cache_keys.clear();
         this.file_cache.clear();
 
         this.cache_metrics.scope.invalidations += scope_cache_size;
@@ -2299,6 +2369,15 @@ export class ScopeResolver {
             }
             for (const my_key of keys_to_remove) {
                 this.scope_cache.delete(my_key);
+                // Update secondary index
+                const key_uri = this.extract_uri_from_cache_key(my_key);
+                const key_set = this.uri_to_cache_keys.get(key_uri);
+                if (key_set) {
+                    key_set.delete(my_key);
+                    if (key_set.size === 0) {
+                        this.uri_to_cache_keys.delete(key_uri);
+                    }
+                }
                 this.cache_metrics.scope.invalidations++;
             }
         }
