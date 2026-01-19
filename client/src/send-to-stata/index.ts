@@ -34,3 +34,7 @@ export {
     escape_for_applescript,
     send_to_stata_app
 } from './applescript';
+
+export {
+    send_to_terminal
+} from './terminal';
