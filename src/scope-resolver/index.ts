@@ -2598,12 +2598,12 @@ export class ScopeResolver {
         }
 
         // For each callee in the set, remove caller from callee_to_callers
-        for (const callee_uri of my_callees) {
-            const caller_set = this.reverse_deps.callee_to_callers.get(callee_uri);
+        for (const my_callee_uri of my_callees) {
+            const caller_set = this.reverse_deps.callee_to_callers.get(my_callee_uri);
             if (caller_set) {
                 caller_set.delete(caller_uri);
                 if (caller_set.size === 0) {
-                    this.reverse_deps.callee_to_callers.delete(callee_uri);
+                    this.reverse_deps.callee_to_callers.delete(my_callee_uri);
                 }
             }
         }
