@@ -50,7 +50,11 @@ async function handle_send_command(
     const my_config = vscode.workspace.getConfiguration('sight.sendToStata');
     
     if (my_config.get<boolean>('saveBeforeSend', true)) {
-        await my_editor.document.save();
+        const saved = await my_editor.document.save();
+        if (!saved) {
+            vscode.window.showErrorMessage('Failed to save file before sending to Stata.');
+            return;
+        }
     }
 
     let my_code: string;
