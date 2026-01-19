@@ -194,6 +194,27 @@
           },
           "default": [],
           "description": "Additional paths to search for ADO files"
+        },
+        "sight.sendToStata.stataApp": {
+          "type": "string",
+          "default": "",
+          "description": "Override Stata application name (macOS only). Leave empty for auto-detection. Options: StataMP, StataSE, StataIC, Stata"
+        },
+        "sight.sendToStata.saveBeforeSend": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically save the file before sending to Stata"
+        },
+        "sight.sendToStata.workingDirectory": {
+          "type": "string",
+          "enum": ["none", "file", "workspace"],
+          "default": "none",
+          "description": "Set working directory before executing code",
+          "enumDescriptions": [
+            "Do not change working directory",
+            "Change to the directory of the current file",
+            "Change to the workspace root directory"
+          ]
         }
       }
     },
