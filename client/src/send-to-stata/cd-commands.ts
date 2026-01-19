@@ -26,3 +26,18 @@ export function compute_cd_menu_visible(
 ): boolean {
     return working_directory === 'none';
 }
+
+/**
+ * Format a CD command for Stata with proper escaping.
+ * @param directory_path - The directory path
+ * @returns The formatted cd command string
+ */
+export function format_cd_command(directory_path: string): string {
+    const { escaped, use_compound } = escape_path_for_stata(directory_path);
+    
+    if (use_compound) {
+        return `cd \`"${escaped}"'`;
+    } else {
+        return `cd "${escaped}"`;
+    }
+}
