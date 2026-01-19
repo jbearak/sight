@@ -205,6 +205,85 @@
       {
         "command": "sight.resetConflictDismissal",
         "title": "Sight: Reset Conflict Dismissal"
+      },
+      {
+        "command": "sight.doLineOrSelection",
+        "title": "Sight: Do Line or Selection"
+      },
+      {
+        "command": "sight.doUpwardLines",
+        "title": "Sight: Do Upward Lines"
+      },
+      {
+        "command": "sight.doDownwardLines",
+        "title": "Sight: Do Downward Lines"
+      },
+      {
+        "command": "sight.doFile",
+        "title": "Sight: Do File"
+      },
+      {
+        "command": "sight.includeLineOrSelection",
+        "title": "Sight: Include Line or Selection"
+      },
+      {
+        "command": "sight.includeFile",
+        "title": "Sight: Include File"
+      },
+      {
+        "command": "sight.terminal.doLineOrSelection",
+        "title": "Sight: Terminal - Do Line or Selection"
+      },
+      {
+        "command": "sight.terminal.doUpwardLines",
+        "title": "Sight: Terminal - Do Upward Lines"
+      },
+      {
+        "command": "sight.terminal.doDownwardLines",
+        "title": "Sight: Terminal - Do Downward Lines"
+      },
+      {
+        "command": "sight.terminal.doFile",
+        "title": "Sight: Terminal - Do File"
+      },
+      {
+        "command": "sight.terminal.includeLineOrSelection",
+        "title": "Sight: Terminal - Include Line or Selection"
+      },
+      {
+        "command": "sight.terminal.includeFile",
+        "title": "Sight: Terminal - Include File"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "sight.doLineOrSelection",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.doFile",
+        "key": "shift+ctrl+enter",
+        "mac": "shift+cmd+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.includeLineOrSelection",
+        "key": "alt+ctrl+enter",
+        "mac": "alt+cmd+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.includeFile",
+        "key": "alt+shift+ctrl+enter",
+        "mac": "alt+shift+cmd+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.terminal.doLineOrSelection",
+        "key": "alt+enter",
+        "when": "editorTextFocus && editorLangId == stata"
       }
     ],
     "configurationDefaults": {
