@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import fc from 'fast-check';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { URI } from 'vscode-uri';
-import type { SymbolTable, ForwardCall, ScopeCacheEntry } from '../../src/types';
+import type { SymbolTable, ForwardCall } from '../../src/types';
 
 // Helper to create empty symbol table
 function create_empty_symbol_table(): SymbolTable {
