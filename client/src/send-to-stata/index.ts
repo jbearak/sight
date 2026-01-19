@@ -19,3 +19,8 @@ export {
     detect_statement,
     get_statement_text
 } from './statement-detector';
+
+export {
+    get_temp_dir,
+    create_temp_file
+} from './temp-file';
