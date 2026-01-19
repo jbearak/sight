@@ -217,11 +217,19 @@ export class ScopeResolver {
     }
 
     /**
-     * Extract URI from cache_key (format is "uri:config_hash").
+     * Extract URI from cache_key (format is "uri:content_hash:config_hash").
+     * URIs like file:///path contain colons, so we find the last two colons.
      */
     private extract_uri_from_cache_key(cache_key: string): string {
-        const colon_idx = cache_key.indexOf(':');
-        return colon_idx >= 0 ? cache_key.substring(0, colon_idx) : cache_key;
+        // Find the last colon (before config_hash)
+        const last_colon = cache_key.lastIndexOf(':');
+        if (last_colon < 0) return cache_key;
+        
+        // Find the second-to-last colon (before content_hash)
+        const second_last_colon = cache_key.lastIndexOf(':', last_colon - 1);
+        if (second_last_colon < 0) return cache_key;
+        
+        return cache_key.substring(0, second_last_colon);
     }
 
     /**
