@@ -331,7 +331,8 @@
     "submenus": [
       {
         "id": "sight.sendToStata",
-        "label": "Send to Stata"
+        "label": "Send to Stata",
+        "icon": "$(play)"
       },
       {
         "id": "sight.sendToStata.terminal",
@@ -343,8 +344,7 @@
         {
           "submenu": "sight.sendToStata",
           "when": "editorLangId == stata",
-          "group": "navigation",
-          "icon": "$(play)"
+          "group": "navigation"
         }
       ],
       "sight.sendToStata": [
