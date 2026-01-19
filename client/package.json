@@ -205,6 +205,11 @@
           "default": true,
           "description": "Automatically save the file before sending to Stata"
         },
+        "sight.sendToStata.advanceCursorOnSend": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically advance cursor to the next line after sending a single line to Stata"
+        },
         "sight.sendToStata.workingDirectory": {
           "type": "string",
           "enum": ["lsp", "none", "file", "workspace"],

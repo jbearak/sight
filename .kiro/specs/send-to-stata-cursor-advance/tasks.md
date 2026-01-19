@@ -6,8 +6,8 @@ This implementation adds automatic cursor advancement after sending a single lin
 
 ## Tasks
 
-- [ ] 1. Add configuration setting for cursor advance
-  - [ ] 1.1 Add `sight.sendToStata.advanceCursorOnSend` setting to `client/package.json`
+- [x] 1. Add configuration setting for cursor advance
+  - [x] 1.1 Add `sight.sendToStata.advanceCursorOnSend` setting to `client/package.json`
     - Type: boolean, default: true
     - Add description explaining the behavior
     - Place under existing `sight.sendToStata` settings group
