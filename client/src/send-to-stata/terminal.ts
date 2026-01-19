@@ -13,5 +13,6 @@ export async function send_to_terminal(
     }
     
     const command_string = `${command} "${temp_file_path}"`;
+    terminal.show(true);  // Reveal terminal without stealing focus
     terminal.sendText(command_string);
 }
