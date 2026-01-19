@@ -759,12 +759,23 @@ export class ScopeResolver {
             forward_call_symbols,
         };
 
-        // Cache the result (store dependency list for invalidation cascading)
+        // Build dependency list for invalidation cascading
+        // Include both backward directive URIs (from chain) and forward-call callee URIs
+        const dependent_uris = new Set(resolved_scope.chain.map((e) => e.uri));
+
+        // Add forward-call callee URIs to dependent_uris for cascade invalidation
+        if (forward_call_symbols) {
+            for (const my_call_site of forward_call_symbols) {
+                dependent_uris.add(my_call_site.callee_uri);
+            }
+        }
+
+        // Cache the result
         this.scope_cache.set(cache_key, {
             resolved_scope,
             content_hash: this.hash_content(file_content),
             timestamp: Date.now(),
-            dependent_uris: new Set(resolved_scope.chain.map((e) => e.uri)),
+            dependent_uris,
         });
 
         // Update secondary index
