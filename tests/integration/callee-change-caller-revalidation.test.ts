@@ -218,11 +218,11 @@ describe('Callee Change Caller Revalidation Integration', () => {
                 const current = queue.shift()!;
                 const callers = callee_to_callers.get(current);
                 if (callers) {
-                    for (const caller of callers) {
-                        if (!visited.has(caller)) {
-                            visited.add(caller);
-                            found_callers.add(caller);
-                            queue.push(caller);
+                    for (const my_caller of callers) {
+                        if (!visited.has(my_caller)) {
+                            visited.add(my_caller);
+                            found_callers.add(my_caller);
+                            queue.push(my_caller);
                         }
                     }
                 }

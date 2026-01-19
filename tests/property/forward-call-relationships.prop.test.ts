@@ -87,9 +87,9 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     const reverse_deps = (resolver as any).reverse_deps;
                     
                     // Check all callees are registered in callee_to_callers
-                    for (const call of forward_calls) {
-                        if (!call.is_static || !call.path) continue;
-                        const callee_uri = URI.file(call.path).toString();
+                    for (const my_call of forward_calls) {
+                        if (!my_call.is_static || !my_call.path) continue;
+                        const callee_uri = URI.file(my_call.path).toString();
                         expect(reverse_deps.callee_to_callers.get(callee_uri)?.has(caller_uri)).toBe(true);
                     }
                     
@@ -104,8 +104,8 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     );
                     expect(caller_callees?.size).toBe(expected_callees.size);
                     
-                    for (const expected_callee of expected_callees) {
-                        expect(caller_callees?.has(expected_callee)).toBe(true);
+                    for (const my_expected_callee of expected_callees) {
+                        expect(caller_callees?.has(my_expected_callee)).toBe(true);
                     }
                 }
             ), { numRuns: 100 });
@@ -129,9 +129,9 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     const reverse_deps = (resolver as any).reverse_deps;
                     
                     // Check all callee_to_callers entries for this caller are removed
-                    for (const call of forward_calls) {
-                        if (!call.is_static || !call.path) continue;
-                        const callee_uri = URI.file(call.path).toString();
+                    for (const my_call of forward_calls) {
+                        if (!my_call.is_static || !my_call.path) continue;
+                        const callee_uri = URI.file(my_call.path).toString();
                         const callers = reverse_deps.callee_to_callers.get(callee_uri);
                         // Either the set doesn't exist or doesn't contain caller
                         expect(callers === undefined || !callers.has(caller_uri)).toBe(true);
@@ -153,7 +153,7 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     const symbols = create_empty_symbol_table();
                     
                     // Set up relationships: each caller calls the callee
-                    for (const caller_uri of caller_uris) {
+                    for (const my_caller_uri of caller_uris) {
                         const forward_calls = [{
                             path: URI.parse(callee_uri).fsPath,
                             is_static: true,
@@ -162,10 +162,10 @@ describe('Feature: callee-change-caller-revalidation', () => {
                             raw_path: 'callee.do',
                         }];
                         
-                        (resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
+                        (resolver as any).register_forward_call_relationships_from_cache(my_caller_uri, forward_calls, symbols);
                         
                         // Add scope cache entries for callers
-                        const cache_key = `${caller_uri}:test-hash`;
+                        const cache_key = `${my_caller_uri}:test-hash`;
                         const cache_entry = {
                             resolved_scope: { chain: [], symbols, out_of_scope_symbols: [], diagnostics: [], has_directives: false },
                             content_hash: 'test-hash',
@@ -175,10 +175,10 @@ describe('Feature: callee-change-caller-revalidation', () => {
                         (resolver as any).scope_cache.set(cache_key, cache_entry);
                         
                         // Update secondary index
-                        let uri_keys = (resolver as any).uri_to_cache_keys.get(caller_uri);
+                        let uri_keys = (resolver as any).uri_to_cache_keys.get(my_caller_uri);
                         if (!uri_keys) {
                             uri_keys = new Set();
-                            (resolver as any).uri_to_cache_keys.set(caller_uri, uri_keys);
+                            (resolver as any).uri_to_cache_keys.set(my_caller_uri, uri_keys);
                         }
                         uri_keys.add(cache_key);
                     }
@@ -187,8 +187,8 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     resolver.invalidate_file_cache(callee_uri);
                     
                     // Check all caller scope cache entries are invalidated
-                    for (const caller_uri of caller_uris) {
-                        const cache_key = `${caller_uri}:test-hash`;
+                    for (const my_caller_uri of caller_uris) {
+                        const cache_key = `${my_caller_uri}:test-hash`;
                         expect((resolver as any).scope_cache.has(cache_key)).toBe(false);
                     }
                 }
@@ -231,8 +231,8 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     const expected_callers = new Set(uris.slice(0, -1));
                     expect(transitive_callers.size).toBe(expected_callers.size);
                     
-                    for (const expected_caller of expected_callers) {
-                        expect(transitive_callers.has(expected_caller)).toBe(true);
+                    for (const my_expected_caller of expected_callers) {
+                        expect(transitive_callers.has(my_expected_caller)).toBe(true);
                     }
                 }
             ), { numRuns: 100 });
@@ -265,8 +265,8 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     );
                     
                     expect(caller_callees?.size).toBe(expected_callees.size);
-                    for (const expected_callee of expected_callees) {
-                        expect(caller_callees?.has(expected_callee)).toBe(true);
+                    for (const my_expected_callee of expected_callees) {
+                        expect(caller_callees?.has(my_expected_callee)).toBe(true);
                     }
                     
                     // Check old callees no longer reference this caller (if not in new_calls)
@@ -275,9 +275,9 @@ describe('Feature: callee-change-caller-revalidation', () => {
                             .filter(call => call.is_static && call.path)
                             .map(call => URI.file(call.path!).toString())
                     );
-                    for (const old_call of old_calls) {
-                        if (!old_call.is_static || !old_call.path) continue;
-                        const old_callee_uri = URI.file(old_call.path).toString();
+                    for (const my_old_call of old_calls) {
+                        if (!my_old_call.is_static || !my_old_call.path) continue;
+                        const old_callee_uri = URI.file(my_old_call.path).toString();
                         if (!new_callee_uris.has(old_callee_uri)) {
                             const callers = reverse_deps.callee_to_callers.get(old_callee_uri);
                             // Either the set doesn't exist or doesn't contain caller
@@ -297,16 +297,16 @@ describe('Feature: callee-change-caller-revalidation', () => {
                 (caller_uri, forward_calls) => {
                     // Create a scope cache entry with forward call symbols
                     const dependent_uris = new Set<string>();
-                    for (const call of forward_calls) {
-                        if (call.is_static && call.path) {
-                            dependent_uris.add(URI.file(call.path).toString());
+                    for (const my_call of forward_calls) {
+                        if (my_call.is_static && my_call.path) {
+                            dependent_uris.add(URI.file(my_call.path).toString());
                         }
                     }
                     
                     // Verify all forward call URIs are in dependent_uris
-                    for (const call of forward_calls) {
-                        if (!call.is_static || !call.path) continue;
-                        const callee_uri = URI.file(call.path).toString();
+                    for (const my_call of forward_calls) {
+                        if (!my_call.is_static || !my_call.path) continue;
+                        const callee_uri = URI.file(my_call.path).toString();
                         expect(dependent_uris.has(callee_uri)).toBe(true);
                     }
                 }
