@@ -6,93 +6,162 @@ This implementation plan fixes the cache invalidation bug where caller files are
 
 ## Tasks
 
-- [ ] 1. Add forward call relationship registration in ScopeResolver
-  - [ ] 1.1 Implement `register_forward_call_relationships_from_cache` method
+- [ ] 1. Add bidirectional forward call relationship tracking in ScopeResolver
+  - [ ] 1.1 Add `forward_caller_to_callees` map to ReverseDependencyIndex
+    - Add new Map<string, Set<string>> to track caller→callees for forward calls
+    - Initialize in constructor alongside existing maps
+    - _Requirements: 5.1, 6.1_
+  
+  - [ ] 1.2 Implement `register_forward_call_relationships_from_cache` method
     - Add method to register caller→callee relationships from parsed forward calls
     - Clear existing relationships for the caller before registering new ones
+    - Update BOTH callee_to_callers AND forward_caller_to_callees maps
     - Skip dynamic paths (containing macro references)
-    - _Requirements: 1.1, 1.2, 5.1_
+    - Use same core logic as update_reverse_dependencies for consistency
+    - _Requirements: 1.1, 1.2, 5.1, 5.4_
   
-  - [ ] 1.2 Implement `clear_forward_call_relationships` method
-    - Add method to remove all callee_to_callers entries where the given URI is a caller
-    - Handle case where caller has no existing relationships
-    - _Requirements: 1.3, 5.2_
+  - [ ] 1.3 Implement `clear_forward_call_relationships` method with O(M) complexity
+    - Use forward_caller_to_callees for O(M) lookup instead of scanning callee_to_callers
+    - Remove caller from each callee's caller set
+    - Clean up empty sets in callee_to_callers
+    - Remove the forward_caller_to_callees entry
+    - _Requirements: 1.3, 5.2, 6.1_
   
-  - [ ] 1.3 Call registration in `get_parsed_file` after caching
+  - [ ] 1.4 Call registration in `get_parsed_file` after caching
     - After successfully parsing and caching a file, call `register_forward_call_relationships_from_cache`
     - Pass the actual URI (after .do fallback resolution) and parsed forward calls
     - _Requirements: 1.1, 1.2, 5.1_
 
-- [ ] 2. Update cache invalidation to cascade to callers
-  - [ ] 2.1 Extend `invalidate_file_cache` to clear forward call relationships
+- [ ] 2. Add scope cache secondary index for efficient invalidation
+  - [ ] 2.1 Add `uri_to_cache_keys` secondary index to ScopeCache
+    - Add Map<string, Set<string>> to track uri→cache_keys
+    - Update when adding entries to scope_cache
+    - Update when removing entries from scope_cache
+    - _Requirements: 6.2_
+  
+  - [ ] 2.2 Implement `invalidate_scope_cache_for_uri` with O(1) lookup
+    - Use uri_to_cache_keys for instant lookup of cache entries
+    - Delete all cache entries for the URI
+    - Clean up the uri_to_cache_keys entry
+    - _Requirements: 6.2_
+
+- [ ] 3. Update cache invalidation to cascade to callers
+  - [ ] 3.1 Extend `invalidate_file_cache` to clear forward call relationships
     - Call `clear_forward_call_relationships` when invalidating file cache
     - Ensure this happens before cascading to scope caches
     - _Requirements: 1.3, 5.2_
   
-  - [ ] 2.2 Extend `invalidate_file_cache` to invalidate caller scope caches
+  - [ ] 3.2 Extend `invalidate_file_cache` to invalidate caller scope caches
     - Look up all callers from `callee_to_callers` for the invalidated URI
-    - Delete scope cache entries for each caller
+    - Use `invalidate_scope_cache_for_uri` for O(1) invalidation
     - Log the number of caller caches invalidated
-    - _Requirements: 2.1, 2.3_
-  
-  - [ ] 2.3 Extend `invalidate_scope_cache` to also invalidate caller scope caches
-    - When a file's scope cache is invalidated, also invalidate callers
-    - This handles in-memory edits (didChange) that don't go through file cache
-    - _Requirements: 2.1_
+    - _Requirements: 2.1, 2.3, 6.2_
 
-- [ ] 3. Checkpoint - Ensure all tests pass
+- [ ] 4. Add forward-call URIs to dependent_uris for cascade invalidation
+  - [ ] 4.1 Update `resolve()` to include forward-call callee URIs in dependent_uris
+    - After processing forward calls, add all source URIs to dependent_uris
+    - This enables cascade_invalidate_scope_cache_for_uri to handle transitive invalidation
+    - _Requirements: 3.4_
+
+- [ ] 5. Implement transitive caller discovery in server-factory
+  - [ ] 5.1 Implement `get_transitive_callers` helper function
+    - Use BFS traversal of callee_to_callers map
+    - Respect max_chain_depth configuration
+    - Handle cycles via visited set
+    - _Requirements: 3.1, 3.2_
+  
+  - [ ] 5.2 Update `schedule_caller_revalidation` to use transitive discovery
+    - Call get_transitive_callers instead of just immediate callers
+    - Prioritize open documents over closed documents
+    - Respect max_callee_revalidations limit
+    - _Requirements: 3.2, 4.1, 4.3_
+
+- [ ] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. Add unit tests for new functionality
-  - [ ] 4.1 Write unit tests for `register_forward_call_relationships_from_cache`
+- [ ] 7. Add unit tests for new functionality
+  - [ ] 7.1 Write unit tests for `register_forward_call_relationships_from_cache`
     - Test registration with single forward call
     - Test registration with multiple forward calls
     - Test that dynamic paths are skipped
     - Test that existing relationships are cleared before registration
+    - Test that both callee_to_callers and forward_caller_to_callees are updated
     - _Requirements: 1.1, 1.2, 5.1, 5.3_
   
-  - [ ] 4.2 Write unit tests for `clear_forward_call_relationships`
+  - [ ] 7.2 Write unit tests for `clear_forward_call_relationships`
     - Test clearing relationships for a caller with multiple callees
     - Test clearing when caller has no relationships (no-op)
     - Test that other callers' relationships are preserved
-    - _Requirements: 1.3, 5.2_
+    - Test O(M) complexity (no full map scan)
+    - _Requirements: 1.3, 5.2, 6.1_
   
-  - [ ] 4.3 Write unit tests for cache invalidation cascade
+  - [ ] 7.3 Write unit tests for scope cache secondary index
+    - Test uri_to_cache_keys is updated on cache add
+    - Test uri_to_cache_keys is updated on cache remove
+    - Test invalidate_scope_cache_for_uri uses O(1) lookup
+    - _Requirements: 6.2_
+  
+  - [ ] 7.4 Write unit tests for cache invalidation cascade
     - Test that invalidating callee file cache invalidates caller scope caches
     - Test with multiple callers of the same callee
     - Test that callers not in callee_to_callers are unaffected
     - _Requirements: 2.1, 2.3_
+  
+  - [ ] 7.5 Write unit tests for transitive caller discovery
+    - Test A→B→C chain: changing C finds both A and B
+    - Test diamond pattern: A→B, A→C, B→D, C→D
+    - Test cycle handling: A→B→A
+    - Test max_chain_depth limiting
+    - _Requirements: 3.1, 3.2, 3.3_
 
-- [ ] 5. Add property tests for correctness properties
-  - [ ] 5.1 Write property test for forward call relationship registration
+- [ ] 8. Add property tests for correctness properties
+  - [ ] 8.1 Write property test for forward call relationship registration
     - **Property 1: Forward Call Relationship Registration**
-    - Generate random forward calls, register them, verify all static calls are in callee_to_callers
+    - Generate random forward calls, register them, verify all static calls are in both maps
     - **Validates: Requirements 1.1, 1.2, 5.1**
   
-  - [ ] 5.2 Write property test for relationship cleanup
+  - [ ] 8.2 Write property test for relationship cleanup
     - **Property 2: Relationship Cleanup on Cache Removal**
     - Generate random relationships, clear them, verify no references remain
-    - **Validates: Requirements 1.3, 5.2**
+    - Verify O(M) complexity by checking forward_caller_to_callees is used
+    - **Validates: Requirements 1.3, 5.2, 6.1**
   
-  - [ ] 5.3 Write property test for caller scope cache invalidation
+  - [ ] 8.3 Write property test for caller scope cache invalidation
     - **Property 3: Caller Scope Cache Invalidation**
     - Generate random call graph, invalidate callee, verify caller scope caches invalidated
-    - **Validates: Requirements 2.1, 2.3**
+    - Verify uri_to_cache_keys is used for O(1) lookup
+    - **Validates: Requirements 2.1, 2.3, 6.2**
   
-  - [ ] 5.4 Write property test for atomic relationship update
+  - [ ] 8.4 Write property test for transitive caller discovery
+    - **Property 4: Transitive Caller Discovery**
+    - Generate random DAG call graphs, verify all transitive callers are found
+    - **Validates: Requirements 3.1, 3.2, 3.3**
+  
+  - [ ] 8.5 Write property test for atomic relationship update
     - **Property 6: Atomic Relationship Update**
     - Generate old and new forward calls, update, verify only new relationships exist
     - **Validates: Requirements 5.3**
+  
+  - [ ] 8.6 Write property test for forward-call URIs in dependent_uris
+    - **Property 7: Forward Call URIs in dependent_uris**
+    - Generate forward calls, resolve scope, verify source URIs in dependent_uris
+    - **Validates: Requirements 3.4**
 
-- [ ] 6. Add integration test for end-to-end behavior
-  - [ ] 6.1 Write integration test for callee change triggering caller revalidation
+- [ ] 9. Add integration test for end-to-end behavior
+  - [ ] 9.1 Write integration test for callee change triggering caller revalidation
     - Create caller.do with `include callee.do` and `display "`fruit'"`
     - Create callee.do with `local fruit apple`
     - Simulate editing callee.do to rename `fruit` to `fruits`
     - Verify caller.do diagnostics are updated to show undefined macro warning
     - _Requirements: 2.2, 3.1_
+  
+  - [ ] 9.2 Write integration test for transitive revalidation
+    - Create A.do that calls B.do, B.do that calls C.do
+    - Edit C.do to change exported symbols
+    - Verify both A.do and B.do are revalidated
+    - _Requirements: 3.1, 3.2, 3.3_
 
-- [ ] 7. Final checkpoint - Ensure all tests pass
+- [ ] 10. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
@@ -102,3 +171,11 @@ This implementation plan fixes the cache invalidation bug where caller files are
 - Checkpoints ensure incremental validation
 - Property tests validate universal correctness properties
 - Unit tests validate specific examples and edge cases
+
+## Key Design Decisions (from feedback)
+
+1. **O(M) Cleanup**: Use `forward_caller_to_callees` bidirectional map to avoid O(N) scans of `callee_to_callers` during cleanup
+2. **Transitive Invalidation**: Add forward-call callee URIs to `dependent_uris` in ScopeCacheEntry to enable automatic cascade invalidation
+3. **Scope Cache Index**: Maintain `uri_to_cache_keys` secondary index for O(1) scope cache invalidation by URI
+4. **Transitive Revalidation**: Use BFS traversal of `callee_to_callers` in `schedule_caller_revalidation` to find all transitive callers
+5. **Unified Tracking**: Use same core logic for open documents and cached files to ensure consistent dependency tracking

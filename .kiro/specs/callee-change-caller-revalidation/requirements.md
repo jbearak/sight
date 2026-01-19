@@ -44,9 +44,10 @@ The backward directive case (`@lsp-done-by`/`@lsp-included-by`) already works co
 
 #### Acceptance Criteria
 
-1. WHEN a callee file changes, THE Scope_Resolver SHALL identify all transitive callers (files that call the callee directly or indirectly)
-2. WHEN scheduling caller revalidation, THE Server SHALL include transitive callers up to the configured max_chain_depth
+1. WHEN a callee file changes, THE Scope_Resolver SHALL identify all transitive callers by recursively walking the callee_to_callers map
+2. WHEN scheduling caller revalidation, THE Server SHALL use BFS/recursive traversal of callee_to_callers to find all transitive callers up to max_chain_depth
 3. WHEN a caller is also a callee of another file, THE Scope_Resolver SHALL propagate invalidation to that file's callers
+4. WHEN resolving forward calls, THE Scope_Resolver SHALL add all forward-call callee URIs to the dependent_uris set in the ScopeCacheEntry, enabling automatic cascade invalidation
 
 ### Requirement 4: Limit Revalidation Scope
 
@@ -64,6 +65,17 @@ The backward directive case (`@lsp-done-by`/`@lsp-included-by`) already works co
 
 #### Acceptance Criteria
 
-1. WHEN a file is added to the file cache, THE Scope_Resolver SHALL register its forward call relationships
-2. WHEN a file is removed from the file cache, THE Scope_Resolver SHALL clear its forward call relationships
+1. WHEN a file is added to the file cache, THE Scope_Resolver SHALL register its forward call relationships by updating BOTH caller_to_callees AND callee_to_callers maps
+2. WHEN a file is removed from the file cache, THE Scope_Resolver SHALL clear its forward call relationships using the caller_to_callees map for O(M) lookup (where M is the number of callees for that file)
 3. WHEN a file's forward calls change, THE Scope_Resolver SHALL update the reverse dependency index atomically (clear old, add new)
+4. WHEN registering forward call relationships from cached files, THE Scope_Resolver SHALL use the same core logic as update_reverse_dependencies to ensure consistent population of caller_to_callees, callee_to_callers, and interface_hashes
+
+### Requirement 6: Efficient Cache Invalidation
+
+**User Story:** As a developer, I want cache invalidation to be fast even in large workspaces, so that editing files doesn't cause UI lag.
+
+#### Acceptance Criteria
+
+1. WHEN clearing forward call relationships, THE Scope_Resolver SHALL use caller_to_callees for O(M) lookup instead of scanning the entire callee_to_callers map
+2. WHEN invalidating scope cache entries for a URI, THE Scope_Resolver SHALL use a secondary index (uri_to_cache_keys) for O(1) lookup instead of scanning all cache keys
+3. WHEN a workspace has many files, THE Scope_Resolver SHALL avoid O(N) operations where N is the total number of files in the workspace
