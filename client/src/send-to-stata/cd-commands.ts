@@ -15,3 +15,14 @@ export function escape_path_for_stata(path: string): { escaped: string; use_comp
         use_compound: has_quotes
     };
 }
+
+/**
+ * Compute whether CD menu should be visible based on working directory setting.
+ * @param working_directory - The workingDirectory setting value
+ * @returns true if CD menu should be visible (when value is 'none')
+ */
+export function compute_cd_menu_visible(
+    working_directory: 'none' | 'file' | 'workspace'
+): boolean {
+    return working_directory === 'none';
+}
