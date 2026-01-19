@@ -24,3 +24,8 @@ export {
     get_temp_dir,
     create_temp_file
 } from './temp-file';
+
+export {
+    detect_stata_app,
+    clear_stata_cache
+} from './stata-detector';
