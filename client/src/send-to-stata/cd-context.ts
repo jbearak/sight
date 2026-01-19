@@ -1,7 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { compute_cd_menu_visible, format_cd_command } from './cd-commands';
-import { create_temp_file, send_to_stata_app, send_to_terminal } from './index';
+import {
+    create_temp_file,
+    detect_stata_app,
+    send_to_stata_app,
+    send_to_terminal
+} from './index';
 
 const CONTEXT_KEY = 'sight.cdMenuVisible';
 
@@ -73,8 +78,25 @@ export async function execute_cd_command(
     const temp_file_path = await create_temp_file(cd_command);
     
     if (target === 'app') {
-        await send_to_stata_app(temp_file_path, 'do');
+        if (process.platform !== 'darwin') {
+            vscode.window.showErrorMessage(
+                'Stata application mode is only available on macOS. ' +
+                'Use terminal mode instead.'
+            );
+            return;
+        }
+        
+        const stata_app = await detect_stata_app();
+        if (!stata_app) {
+            vscode.window.showErrorMessage(
+                'Stata not found. Install Stata in /Applications/Stata/ or ' +
+                'configure sight.sendToStata.stataApp setting.'
+            );
+            return;
+        }
+        
+        await send_to_stata_app(stata_app, 'do', temp_file_path);
     } else {
-        await send_to_terminal(temp_file_path, 'do');
+        await send_to_terminal('do', temp_file_path);
     }
 }
