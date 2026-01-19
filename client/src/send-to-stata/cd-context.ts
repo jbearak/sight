@@ -48,7 +48,7 @@ export function update_cd_context(new_value: 'none' | 'file' | 'workspace'): voi
  * @param context - Extension context for subscriptions
  */
 export function register_cd_commands(context: vscode.ExtensionContext): void {
-    const commands = [
+    const the_commands = [
         {
             id: 'sight.cdWorkspace',
             handler: () => execute_cd_command('workspace', 'app')
@@ -67,7 +67,7 @@ export function register_cd_commands(context: vscode.ExtensionContext): void {
         }
     ];
     
-    for (const my_command of commands) {
+    for (const my_command of the_commands) {
         const disposable = vscode.commands.registerCommand(
             my_command.id,
             my_command.handler
