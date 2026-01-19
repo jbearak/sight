@@ -1,5 +1,5 @@
-import { describe, it } from 'vitest';
-import fc from 'fast-check';
+import { describe, it } from 'bun:test';
+import * as fc from 'fast-check';
 import { escape_path_for_stata } from '../../client/src/send-to-stata/cd-commands';
 
 describe('cd-commands path escaping', () => {

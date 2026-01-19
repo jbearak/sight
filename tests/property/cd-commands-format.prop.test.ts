@@ -1,3 +1,4 @@
+import { describe, test, expect } from 'bun:test';
 import { format_cd_command } from '../../client/src/send-to-stata/cd-commands';
 
 describe('Property Tests: CD Command Format', () => {
