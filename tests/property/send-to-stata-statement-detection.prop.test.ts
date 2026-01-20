@@ -8,6 +8,7 @@ import {
     get_downward_bounds
 } from '../../client/src/send-to-stata/statement-detector';
 import { escape_for_applescript } from '../../client/src/send-to-stata/applescript';
+import { create_mock_document, MockTextDocument } from './helpers';
 
 /**
  * Property-based tests for statement detection in send-to-stata.
@@ -16,22 +17,6 @@ import { escape_for_applescript } from '../../client/src/send-to-stata/applescri
  * Property 1: Statement Detection with Continuations
  * Validates: Requirements 1.2, 1.3, 1.4, 8.1, 8.2, 8.3, 8.4
  */
-
-// Mock vscode.TextDocument for testing
-interface MockTextDocument {
-    lineCount: number;
-    lineAt(line: number): { text: string };
-}
-
-function create_mock_document(content: string): MockTextDocument {
-    const the_lines = content.split('\n');
-    return {
-        lineCount: the_lines.length,
-        lineAt(line: number) {
-            return { text: the_lines[line] ?? '' };
-        }
-    };
-}
 
 describe('Feature: send-to-stata - Statement Detection Properties', () => {
     // Generator for simple Stata statements (without ///)
@@ -204,22 +189,6 @@ describe('Feature: send-to-stata - Statement Detection Properties', () => {
  * Validates: Requirements 4.2, 4.4, 5.2, 5.4
  */
 describe('Feature: send-to-stata - Upward/Downward Extraction Properties', () => {
-    // Mock vscode.TextDocument for testing
-    interface MockTextDocument {
-        lineCount: number;
-        lineAt(line: number): { text: string };
-    }
-
-    function create_mock_document(content: string): MockTextDocument {
-        const the_lines = content.split('\n');
-        return {
-            lineCount: the_lines.length,
-            lineAt(line: number) {
-                return { text: the_lines[line] ?? '' };
-            }
-        };
-    }
-
     // Generator for simple Stata statements
     const simple_statement_gen = fc.oneof(
         fc.constant('display "hello"'),
@@ -351,22 +320,6 @@ describe('Feature: send-to-stata - Upward/Downward Extraction Properties', () =>
  * Stata detection, and working directory handling
  */
 describe('Feature: send-to-stata - Unit Tests for Edge Cases', () => {
-    // Mock vscode.TextDocument for testing
-    interface MockTextDocument {
-        lineCount: number;
-        lineAt(line: number): { text: string };
-    }
-
-    function create_mock_document(content: string): MockTextDocument {
-        const the_lines = content.split('\n');
-        return {
-            lineCount: the_lines.length,
-            lineAt(line: number) {
-                return { text: the_lines[line] ?? '' };
-            }
-        };
-    }
-
     // 16.1: Statement detector edge cases
     describe('Statement Detector Edge Cases', () => {
         test('Empty document', () => {
@@ -415,14 +368,15 @@ describe('Feature: send-to-stata - Unit Tests for Edge Cases', () => {
             expect(bounds.end_line).toBe(0);
         });
 
-        test('/// with comment after (is continuation)', () => {
+        test('/// with comment after is NOT continuation (comment consumes ///)', () => {
             const content = [
                 'gen x = 1 /// this is a comment',
                 '    + 2'
             ].join('\n');
             const document = create_mock_document(content);
             
-            // ends_with_continuation should return true for line with comment
+            // ends_with_continuation should return false because the comment text
+            // after /// means it's a comment line, not a continuation marker
             expect(ends_with_continuation('gen x = 1 /// this is a comment')).toBe(false);
         });
     });

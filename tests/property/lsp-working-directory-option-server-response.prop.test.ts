@@ -11,7 +11,8 @@
 import { describe, test, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { DocumentStore } from '../../src/document-store';
-import { create_get_working_directory_handler, HandlerDependencies, GetWorkingDirectoryParams } from '../../src/server-handlers';
+import { create_get_working_directory_handler, GetWorkingDirectoryParams } from '../../src/server-handlers';
+import { create_mock_handler_deps } from './helpers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -57,25 +58,7 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         document_store.set_workspace_root(workspace_root);
                         
                         // Create mock dependencies
-                        const deps: HandlerDependencies = {
-                            document_store,
-                            diagnostics_provider: null,
-                            completion_provider: null,
-                            hover_provider: null,
-                            definition_provider: null,
-                            references_provider: null,
-                            symbol_provider: null,
-                            formatter_provider: null,
-                            workspace_indexer: null,
-                            scope_resolver: null,
-                            forward_scope_resolver: null,
-                            rename_handler: null,
-                            get_document_settings: async () => ({} as any),
-                            connection: {
-                                sendDiagnostics: () => {},
-                                console: { log: () => {} }
-                            }
-                        };
+                        const deps = create_mock_handler_deps(document_store);
 
                         // Open document with working directory directive using workspace-relative path
                         // (leading '/' marks it as workspace-relative in the directive syntax)
@@ -107,25 +90,7 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         const document_store = new DocumentStore();
                         
                         // Create mock dependencies
-                        const deps: HandlerDependencies = {
-                            document_store,
-                            diagnostics_provider: null,
-                            completion_provider: null,
-                            hover_provider: null,
-                            definition_provider: null,
-                            references_provider: null,
-                            symbol_provider: null,
-                            formatter_provider: null,
-                            workspace_indexer: null,
-                            scope_resolver: null,
-                            forward_scope_resolver: null,
-                            rename_handler: null,
-                            get_document_settings: async () => ({} as any),
-                            connection: {
-                                sendDiagnostics: () => {},
-                                console: { log: () => {} }
-                            }
-                        };
+                        const deps = create_mock_handler_deps(document_store);
 
                         // Open document with working directory directive using non-existent path
                         const content_with_directive = `// @lsp-cd: "${non_existent_path}"\ngen x = 1`;
@@ -154,25 +119,7 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         const document_store = new DocumentStore();
                         
                         // Create mock dependencies
-                        const deps: HandlerDependencies = {
-                            document_store,
-                            diagnostics_provider: null,
-                            completion_provider: null,
-                            hover_provider: null,
-                            definition_provider: null,
-                            references_provider: null,
-                            symbol_provider: null,
-                            formatter_provider: null,
-                            workspace_indexer: null,
-                            scope_resolver: null,
-                            forward_scope_resolver: null,
-                            rename_handler: null,
-                            get_document_settings: async () => ({} as any),
-                            connection: {
-                                sendDiagnostics: () => {},
-                                console: { log: () => {} }
-                            }
-                        };
+                        const deps = create_mock_handler_deps(document_store);
 
                         // Open document without working directory directive
                         await document_store.open(uri, content, 1);
@@ -199,25 +146,7 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         const document_store = new DocumentStore();
                         
                         // Create mock dependencies
-                        const deps: HandlerDependencies = {
-                            document_store,
-                            diagnostics_provider: null,
-                            completion_provider: null,
-                            hover_provider: null,
-                            definition_provider: null,
-                            references_provider: null,
-                            symbol_provider: null,
-                            formatter_provider: null,
-                            workspace_indexer: null,
-                            scope_resolver: null,
-                            forward_scope_resolver: null,
-                            rename_handler: null,
-                            get_document_settings: async () => ({} as any),
-                            connection: {
-                                sendDiagnostics: () => {},
-                                console: { log: () => {} }
-                            }
-                        };
+                        const deps = create_mock_handler_deps(document_store);
 
                         // Create handler and test with non-existent document
                         const handler = create_get_working_directory_handler(deps);
@@ -254,25 +183,7 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         document_store.set_workspace_root(workspace_root);
                         
                         // Create mock dependencies
-                        const deps: HandlerDependencies = {
-                            document_store,
-                            diagnostics_provider: null,
-                            completion_provider: null,
-                            hover_provider: null,
-                            definition_provider: null,
-                            references_provider: null,
-                            symbol_provider: null,
-                            formatter_provider: null,
-                            workspace_indexer: null,
-                            scope_resolver: null,
-                            forward_scope_resolver: null,
-                            rename_handler: null,
-                            get_document_settings: async () => ({} as any),
-                            connection: {
-                                sendDiagnostics: () => {},
-                                console: { log: () => {} }
-                            }
-                        };
+                        const deps = create_mock_handler_deps(document_store);
 
                         // Open document initially without working directory
                         await document_store.open(uri, 'gen x = 1', 1);
