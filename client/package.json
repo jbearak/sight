@@ -367,42 +367,42 @@
         {
           "command": "sight.doLineOrSelection",
           "group": "1_do@1",
-          "when": "isMac"
+          "when": "isMac || isWindows"
         },
         {
           "command": "sight.doUpwardLines",
           "group": "1_do@2",
-          "when": "isMac"
+          "when": "isMac || isWindows"
         },
         {
           "command": "sight.doDownwardLines",
           "group": "1_do@3",
-          "when": "isMac"
+          "when": "isMac || isWindows"
         },
         {
           "command": "sight.doFile",
           "group": "1_do@4",
-          "when": "isMac"
+          "when": "isMac || isWindows"
         },
         {
           "command": "sight.includeLineOrSelection",
           "group": "2_include@1",
-          "when": "isMac"
+          "when": "isMac || isWindows"
         },
         {
           "command": "sight.includeFile",
           "group": "2_include@2",
-          "when": "isMac"
+          "when": "isMac || isWindows"
         },
         {
           "command": "sight.cdWorkspace",
           "group": "3_cd@1",
-          "when": "sight.cdMenuVisible && isMac"
+          "when": "sight.cdMenuVisible && (isMac || isWindows)"
         },
         {
           "command": "sight.cdFile",
           "group": "3_cd@2",
-          "when": "sight.cdMenuVisible && isMac"
+          "when": "sight.cdMenuVisible && (isMac || isWindows)"
         },
         {
           "submenu": "sight.sendToStata.terminal",
