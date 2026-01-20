@@ -24,9 +24,8 @@ This implementation plan breaks down the send-to-Stata feature into discrete cod
 
 - [x] 3. Implement temp file manager
   - [x] 3.1 Create `temp-file.ts` with temp file creation
-    - Implement `get_temp_dir(): string`
-    - Implement `create_temp_file(content: string): Promise<string>`
-    - Use unique filenames with timestamp and random suffix
+    - Implement `get_temp_dir(): string` - returns `os.tmpdir()`
+    - Implement `create_temp_file(content: string): Promise<string>` - creates files named `stata_send_<32-hex-chars>.do` using 16 random bytes from `crypto.randomBytes()`
     - _Requirements: 1.5, 12.1, 12.2, 12.4_
   
   - [x] 3.2 Write property test for temp file creation

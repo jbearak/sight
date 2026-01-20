@@ -159,7 +159,7 @@ register_cd_commands(context);
 The existing `sight.sendToStata.workingDirectory` setting is used:
 
 ```typescript
-type WorkingDirectorySetting = 'none' | 'file' | 'workspace';
+type WorkingDirectorySetting = 'none' | 'file' | 'workspace' | 'lsp';
 ```
 
 ### Context Variable

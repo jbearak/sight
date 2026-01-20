@@ -114,19 +114,19 @@ Already defined in `statement-detector.ts`:
 
 *For any* send operation where the editor has an active selection (non-empty), the `should_advance` flag SHALL be `false`, regardless of the cursor advance setting value.
 
-**Validates: Requirements 1.3**
+Validates: Requirements 1.3
 
 ### Property 3: Disabled Setting Prevents Advancement
 
 *For any* send operation where `advanceCursorOnSend` setting is `false`, the cursor position SHALL remain unchanged after the send operation completes.
 
-**Validates: Requirements 2.3**
+Validates: Requirements 2.3
 
 ### Property 4: Cursor State After Advancement
 
 *For any* cursor advancement operation, the resulting cursor position SHALL have column 0 (beginning of line) AND the selection SHALL be empty (no text selected).
 
-**Validates: Requirements 3.1, 3.2**
+Validates: Requirements 3.1, 3.2
 
 ## Error Handling
 
