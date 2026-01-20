@@ -1103,6 +1103,7 @@ A toolbar button (▶) appears in the editor title bar for Stata files, providin
 | `sight.sendToStata.saveBeforeSend` | boolean | `true` | Automatically save file before sending |
 | `sight.sendToStata.advanceCursorOnSend` | boolean | `true` | Advance cursor to next line after single-line send |
 | `sight.sendToStata.workingDirectory` | enum | `"lsp"` | Working directory mode: "lsp", "none", "file", or "workspace" |
+| `sight.sendToStata.focusStataWindow` | boolean | `false` | Switch focus to Stata after sending code |
 
 ### Platform Support
 
