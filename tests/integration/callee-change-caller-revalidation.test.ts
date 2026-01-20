@@ -12,7 +12,27 @@ import * as os from 'os';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { URI } from 'vscode-uri';
-import type { SymbolTable } from '../../src/types';
+import type { SymbolTable, ForwardCall } from '../../src/types';
+import { Range } from 'vscode-languageserver';
+
+// Helper to create a ForwardCall object with all required properties
+function make_forward_call(
+    path: string,
+    is_static: boolean,
+    type: 'do' | 'run' | 'include',
+    call_site_line: number,
+    raw_path: string
+): ForwardCall {
+    return {
+        path,
+        is_static,
+        type,
+        call_site_line,
+        raw_path,
+        range: Range.create(call_site_line, 0, call_site_line, 0),
+        source: 'command',
+    };
+}
 
 // Helper to create empty symbol table
 function create_empty_symbol_table(): SymbolTable {
@@ -124,13 +144,13 @@ describe('Callee Change Caller Revalidation Integration', () => {
             // when called from the server (not directly from resolve())
             
             // For this test, we manually register the relationship to verify the mechanism works
-            const forward_calls = [{
-                path: callee_path,
-                is_static: true,
-                call_type: 'include' as const,
-                line: 0,
-                raw_path: callee_path,
-            }];
+            const forward_calls = [make_forward_call(
+                callee_path,
+                true,
+                'include',
+                0,
+                callee_path
+            )];
             const symbols = create_empty_symbol_table();
             (scope_resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
 
@@ -185,22 +205,22 @@ describe('Callee Change Caller Revalidation Integration', () => {
             const symbols = create_empty_symbol_table();
 
             // Register B -> C relationship
-            (scope_resolver as any).register_forward_call_relationships_from_cache(b_uri, [{
-                path: '/C.do',
-                is_static: true,
-                call_type: 'include' as const,
-                line: 0,
-                raw_path: 'C.do',
-            }], symbols);
+            (scope_resolver as any).register_forward_call_relationships_from_cache(b_uri, [make_forward_call(
+                '/C.do',
+                true,
+                'include',
+                0,
+                'C.do'
+            )], symbols);
 
             // Register A -> B relationship
-            (scope_resolver as any).register_forward_call_relationships_from_cache(a_uri, [{
-                path: '/B.do',
-                is_static: true,
-                call_type: 'include' as const,
-                line: 0,
-                raw_path: 'B.do',
-            }], symbols);
+            (scope_resolver as any).register_forward_call_relationships_from_cache(a_uri, [make_forward_call(
+                '/B.do',
+                true,
+                'include',
+                0,
+                'B.do'
+            )], symbols);
 
             // Get the callee_to_callers map
             const callee_to_callers = scope_resolver.get_callee_to_callers_map();
@@ -239,16 +259,16 @@ describe('Callee Change Caller Revalidation Integration', () => {
             const symbols = create_empty_symbol_table();
 
             // Register caller -> callee relationship
-            (scope_resolver as any).register_forward_call_relationships_from_cache(caller_uri, [{
-                path: '/callee.do',
-                is_static: true,
-                call_type: 'include' as const,
-                line: 0,
-                raw_path: 'callee.do',
-            }], symbols);
+            (scope_resolver as any).register_forward_call_relationships_from_cache(caller_uri, [make_forward_call(
+                '/callee.do',
+                true,
+                'include',
+                0,
+                'callee.do'
+            )], symbols);
 
             // Add a scope cache entry for the caller
-            const cache_key = `${caller_uri}:test-hash`;
+            const cache_key = `${caller_uri}:test-hash:config-hash`;
             const cache_entry = {
                 resolved_scope: { chain: [], symbols, out_of_scope_symbols: [], diagnostics: [], has_directives: false },
                 content_hash: 'test-hash',

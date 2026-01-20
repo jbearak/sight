@@ -3,6 +3,26 @@ import fc from 'fast-check';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { URI } from 'vscode-uri';
 import type { SymbolTable, ForwardCall } from '../../src/types';
+import { Range } from 'vscode-languageserver';
+
+// Helper to create a ForwardCall object with all required properties
+function make_forward_call(
+    path: string,
+    is_static: boolean,
+    type: 'do' | 'run' | 'include',
+    call_site_line: number,
+    raw_path: string
+): ForwardCall {
+    return {
+        path,
+        is_static,
+        type,
+        call_site_line,
+        raw_path,
+        range: Range.create(call_site_line, 0, call_site_line, 0),
+        source: 'command',
+    };
+}
 
 // Helper to create empty symbol table
 function create_empty_symbol_table(): SymbolTable {
@@ -30,13 +50,13 @@ const arbitrary_uri = () => fc.string({ minLength: 1, maxLength: 20 })
 
 const arbitrary_forward_call = () => fc.string({ minLength: 1, maxLength: 20 })
     .filter(name => /^[a-zA-Z0-9_]+$/.test(name))  // Only alphanumeric and underscore
-    .map(name => ({
-        path: `/${name}.do`,
-        is_static: true,
-        call_type: 'do' as const,
-        line: 0,
-        raw_path: `${name}.do`,
-    })) as fc.Arbitrary<ForwardCall>;
+    .map(name => make_forward_call(
+        `/${name}.do`,
+        true,
+        'do',
+        0,
+        `${name}.do`
+    ));
 
 // BFS helper for transitive caller discovery (same as in server-factory.ts)
 function get_transitive_callers(
@@ -154,18 +174,18 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     
                     // Set up relationships: each caller calls the callee
                     for (const my_caller_uri of caller_uris) {
-                        const forward_calls = [{
-                            path: URI.parse(callee_uri).fsPath,
-                            is_static: true,
-                            call_type: 'do' as const,
-                            line: 0,
-                            raw_path: 'callee.do',
-                        }];
+                        const forward_calls = [make_forward_call(
+                            URI.parse(callee_uri).fsPath,
+                            true,
+                            'do',
+                            0,
+                            'callee.do'
+                        )];
                         
                         (resolver as any).register_forward_call_relationships_from_cache(my_caller_uri, forward_calls, symbols);
                         
                         // Add scope cache entries for callers
-                        const cache_key = `${my_caller_uri}:test-hash`;
+                        const cache_key = `${my_caller_uri}:test-hash:config-hash`;
                         const cache_entry = {
                             resolved_scope: { chain: [], symbols, out_of_scope_symbols: [], diagnostics: [], has_directives: false },
                             content_hash: 'test-hash',
@@ -188,7 +208,7 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     
                     // Check all caller scope cache entries are invalidated
                     for (const my_caller_uri of caller_uris) {
-                        const cache_key = `${my_caller_uri}:test-hash`;
+                        const cache_key = `${my_caller_uri}:test-hash:config-hash`;
                         expect((resolver as any).scope_cache.has(cache_key)).toBe(false);
                     }
                 }
@@ -211,13 +231,13 @@ describe('Feature: callee-change-caller-revalidation', () => {
                         const caller_uri = uris[i];
                         const callee_uri = uris[i + 1];
                         
-                        const forward_calls = [{
-                            path: URI.parse(callee_uri).fsPath,
-                            is_static: true,
-                            call_type: 'do' as const,
-                            line: 0,
-                            raw_path: 'callee.do',
-                        }];
+                        const forward_calls = [make_forward_call(
+                            URI.parse(callee_uri).fsPath,
+                            true,
+                            'do',
+                            0,
+                            'callee.do'
+                        )];
                         
                         (test_resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
                     }

@@ -1,7 +1,27 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { ScopeResolver } from '../../../src/scope-resolver';
 import { URI } from 'vscode-uri';
-import type { SymbolTable } from '../../../src/types';
+import type { SymbolTable, ForwardCall } from '../../../src/types';
+import { Range } from 'vscode-languageserver';
+
+// Helper to create a ForwardCall object with all required properties
+function make_forward_call(
+    path: string,
+    is_static: boolean,
+    type: 'do' | 'run' | 'include',
+    call_site_line: number,
+    raw_path: string
+): ForwardCall {
+    return {
+        path,
+        is_static,
+        type,
+        call_site_line,
+        raw_path,
+        range: Range.create(call_site_line, 0, call_site_line, 0),
+        source: 'command',
+    };
+}
 
 // Helper to create empty symbol table
 function create_empty_symbol_table(): SymbolTable {
@@ -33,13 +53,13 @@ describe('Forward Call Relationship Tracking', () => {
         it('should register single forward call', () => {
             const caller_uri = 'file:///caller.do';
             const callee_uri = 'file:///callee.do';
-            const forward_calls = [{
-                path: URI.parse(callee_uri).fsPath,
-                is_static: true,
-                call_type: 'do' as const,
-                line: 1,
-                match: undefined
-            }];
+            const forward_calls = [make_forward_call(
+                URI.parse(callee_uri).fsPath,
+                true,
+                'do',
+                1,
+                'callee.do'
+            )];
             const symbols = create_empty_symbol_table();
 
             // Access private method via type casting
@@ -55,20 +75,20 @@ describe('Forward Call Relationship Tracking', () => {
             const callee1_uri = 'file:///callee1.do';
             const callee2_uri = 'file:///callee2.do';
             const forward_calls = [
-                {
-                    path: URI.parse(callee1_uri).fsPath,
-                    is_static: true,
-                    call_type: 'do' as const,
-                    line: 1,
-                    match: undefined
-                },
-                {
-                    path: URI.parse(callee2_uri).fsPath,
-                    is_static: true,
-                    call_type: 'run' as const,
-                    line: 2,
-                    match: undefined
-                }
+                make_forward_call(
+                    URI.parse(callee1_uri).fsPath,
+                    true,
+                    'do',
+                    1,
+                    'callee1.do'
+                ),
+                make_forward_call(
+                    URI.parse(callee2_uri).fsPath,
+                    true,
+                    'run',
+                    2,
+                    'callee2.do'
+                )
             ];
             const symbols = create_empty_symbol_table();
 
@@ -82,13 +102,13 @@ describe('Forward Call Relationship Tracking', () => {
 
         it('should skip dynamic paths (is_static=false)', () => {
             const caller_uri = 'file:///caller.do';
-            const forward_calls = [{
-                path: '/some/path.do',
-                is_static: false,
-                call_type: 'do' as const,
-                line: 1,
-                match: undefined
-            }];
+            const forward_calls = [make_forward_call(
+                '/some/path.do',
+                false,
+                'do',
+                1,
+                'path.do'
+            )];
             const symbols = create_empty_symbol_table();
 
             (resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
@@ -104,23 +124,23 @@ describe('Forward Call Relationship Tracking', () => {
             const symbols = create_empty_symbol_table();
 
             // Register initial relationship
-            const old_calls = [{
-                path: URI.parse(old_callee_uri).fsPath,
-                is_static: true,
-                call_type: 'do' as const,
-                line: 1,
-                match: undefined
-            }];
+            const old_calls = [make_forward_call(
+                URI.parse(old_callee_uri).fsPath,
+                true,
+                'do',
+                1,
+                'old_callee.do'
+            )];
             (resolver as any).register_forward_call_relationships_from_cache(caller_uri, old_calls, symbols);
 
             // Register new relationship (should clear old one)
-            const new_calls = [{
-                path: URI.parse(new_callee_uri).fsPath,
-                is_static: true,
-                call_type: 'do' as const,
-                line: 1,
-                match: undefined
-            }];
+            const new_calls = [make_forward_call(
+                URI.parse(new_callee_uri).fsPath,
+                true,
+                'do',
+                1,
+                'new_callee.do'
+            )];
             (resolver as any).register_forward_call_relationships_from_cache(caller_uri, new_calls, symbols);
 
             const reverse_deps = (resolver as any).reverse_deps;
@@ -133,13 +153,13 @@ describe('Forward Call Relationship Tracking', () => {
         it('should update both callee_to_callers and forward_caller_to_callees', () => {
             const caller_uri = 'file:///caller.do';
             const callee_uri = 'file:///callee.do';
-            const forward_calls = [{
-                path: URI.parse(callee_uri).fsPath,
-                is_static: true,
-                call_type: 'do' as const,
-                line: 1,
-                match: undefined
-            }];
+            const forward_calls = [make_forward_call(
+                URI.parse(callee_uri).fsPath,
+                true,
+                'do',
+                1,
+                'callee.do'
+            )];
             const symbols = create_empty_symbol_table();
 
             (resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
@@ -157,20 +177,20 @@ describe('Forward Call Relationship Tracking', () => {
             const callee1_uri = 'file:///callee1.do';
             const callee2_uri = 'file:///callee2.do';
             const forward_calls = [
-                {
-                    path: URI.parse(callee1_uri).fsPath,
-                    is_static: true,
-                    call_type: 'do' as const,
-                    line: 1,
-                    match: undefined
-                },
-                {
-                    path: URI.parse(callee2_uri).fsPath,
-                    is_static: true,
-                    call_type: 'run' as const,
-                    line: 2,
-                    match: undefined
-                }
+                make_forward_call(
+                    URI.parse(callee1_uri).fsPath,
+                    true,
+                    'do',
+                    1,
+                    'callee1.do'
+                ),
+                make_forward_call(
+                    URI.parse(callee2_uri).fsPath,
+                    true,
+                    'run',
+                    2,
+                    'callee2.do'
+                )
             ];
             const symbols = create_empty_symbol_table();
 
@@ -200,13 +220,13 @@ describe('Forward Call Relationship Tracking', () => {
             const caller1_uri = 'file:///caller1.do';
             const caller2_uri = 'file:///caller2.do';
             const callee_uri = 'file:///callee.do';
-            const forward_calls = [{
-                path: URI.parse(callee_uri).fsPath,
-                is_static: true,
-                call_type: 'do' as const,
-                line: 1,
-                match: undefined
-            }];
+            const forward_calls = [make_forward_call(
+                URI.parse(callee_uri).fsPath,
+                true,
+                'do',
+                1,
+                'callee.do'
+            )];
             const symbols = create_empty_symbol_table();
 
             // Register both callers
@@ -224,13 +244,13 @@ describe('Forward Call Relationship Tracking', () => {
         it('should clear interface_hashes entry', () => {
             const caller_uri = 'file:///caller.do';
             const callee_uri = 'file:///callee.do';
-            const forward_calls = [{
-                path: URI.parse(callee_uri).fsPath,
-                is_static: true,
-                call_type: 'do' as const,
-                line: 1,
-                match: undefined
-            }];
+            const forward_calls = [make_forward_call(
+                URI.parse(callee_uri).fsPath,
+                true,
+                'do',
+                1,
+                'callee.do'
+            )];
             const symbols = create_empty_symbol_table();
 
             (resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
@@ -255,8 +275,8 @@ describe('Forward Call Relationship Tracking', () => {
             const uri_to_cache_keys = (resolver as any).uri_to_cache_keys;
             const scope_cache = (resolver as any).scope_cache;
 
-            // Manually add cache entry
-            const cache_key = `${uri}:config_hash`;
+            // Manually add cache entry (format: uri:content_hash:config_hash)
+            const cache_key = `${uri}:content_hash:config_hash`;
             scope_cache.set(cache_key, { dependent_uris: new Set() });
             uri_to_cache_keys.set(uri, new Set([cache_key]));
 
@@ -277,10 +297,10 @@ describe('Forward Call Relationship Tracking', () => {
             const reverse_deps = (resolver as any).reverse_deps;
             reverse_deps.callee_to_callers.set(callee_uri, new Set([caller_uri]));
 
-            // Setup scope cache for caller
+            // Setup scope cache for caller (format: uri:content_hash:config_hash)
             const scope_cache = (resolver as any).scope_cache;
             const uri_to_cache_keys = (resolver as any).uri_to_cache_keys;
-            const cache_key = `${caller_uri}:config_hash`;
+            const cache_key = `${caller_uri}:content_hash:config_hash`;
             scope_cache.set(cache_key, { dependent_uris: new Set([callee_uri]) });
             uri_to_cache_keys.set(caller_uri, new Set([cache_key]));
 
@@ -299,11 +319,11 @@ describe('Forward Call Relationship Tracking', () => {
             const reverse_deps = (resolver as any).reverse_deps;
             reverse_deps.callee_to_callers.set(callee_uri, new Set([caller1_uri, caller2_uri]));
 
-            // Setup scope caches
+            // Setup scope caches (format: uri:content_hash:config_hash)
             const scope_cache = (resolver as any).scope_cache;
             const uri_to_cache_keys = (resolver as any).uri_to_cache_keys;
-            const cache_key1 = `${caller1_uri}:config_hash`;
-            const cache_key2 = `${caller2_uri}:config_hash`;
+            const cache_key1 = `${caller1_uri}:content_hash:config_hash`;
+            const cache_key2 = `${caller2_uri}:content_hash:config_hash`;
             
             scope_cache.set(cache_key1, { dependent_uris: new Set([callee_uri]) });
             scope_cache.set(cache_key2, { dependent_uris: new Set([callee_uri]) });
@@ -326,11 +346,11 @@ describe('Forward Call Relationship Tracking', () => {
             const reverse_deps = (resolver as any).reverse_deps;
             reverse_deps.callee_to_callers.set(callee_uri, new Set([caller_uri]));
 
-            // Setup scope caches for both
+            // Setup scope caches for both (format: uri:content_hash:config_hash)
             const scope_cache = (resolver as any).scope_cache;
             const uri_to_cache_keys = (resolver as any).uri_to_cache_keys;
-            const caller_key = `${caller_uri}:config_hash`;
-            const unrelated_key = `${unrelated_uri}:config_hash`;
+            const caller_key = `${caller_uri}:content_hash:config_hash`;
+            const unrelated_key = `${unrelated_uri}:content_hash:config_hash`;
             
             scope_cache.set(caller_key, { dependent_uris: new Set([callee_uri]) });
             scope_cache.set(unrelated_key, { dependent_uris: new Set() });
