@@ -164,41 +164,81 @@ if (target === 'app') {
 }
 ```
 
-### 2. `client/src/send-to-stata/index.ts`
+### 2. `client/src/send-to-stata/applescript.ts`
 
-Export new Windows-related functions:
+Add StataBE to valid Stata apps:
 
 ```typescript
+// Current:
+const VALID_STATA_APPS: readonly StataVariant[] = [
+    'StataMP', 'StataSE', 'StataIC', 'Stata'
+];
+
+// New:
+const VALID_STATA_APPS: readonly StataVariant[] = [
+    'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'
+];
+```
+
+### 3. `client/src/send-to-stata/index.ts`
+
+Update StataVariant type and exports:
+
+```typescript
+// Update type:
+export type StataVariant = 'StataMP' | 'StataSE' | 'StataBE' | 'StataIC' | 'Stata';
+
+// Add exports:
 export {
     send_to_stata_windows,
     ensure_executable
 } from './windows-sender';
 ```
 
+### 4. `client/package.json`
+
+Update stataApp setting description and add focusStataWindow:
+
+```json
+"sight.sendToStata.stataApp": {
+    "type": "string",
+    "default": "",
+    "description": "Override Stata application name (macOS only). Leave empty for auto-detection. Options: StataMP, StataSE, StataBE, StataIC, Stata"
+},
+"sight.sendToStata.focusStataWindow": {
+    "type": "boolean",
+    "default": false,
+    "description": "Switch focus to Stata after sending code. When false (default), focus stays in VS Code."
+}
+```
+
 ## Download Infrastructure
 
-### GitHub Release URL Structure
+### GitHub Raw URL Structure
 
-The executable will be downloaded from zed-stata GitHub releases:
+The executable is downloaded from the zed-stata GitHub repository at tag v0.1.11:
 
 ```
-https://github.com/jbearak/sight-zed/releases/download/send-to-stata-v{VERSION}/send-to-stata-{ARCH}.exe
+https://raw.githubusercontent.com/jbearak/zed-stata/365ced02951833e43d4d7a5be73e61dbe73ab5f4/send-to-stata-{ARCH}.exe
 
-Examples:
-- https://github.com/jbearak/sight-zed/releases/download/send-to-stata-v1.0.0/send-to-stata-x64.exe
-- https://github.com/jbearak/sight-zed/releases/download/send-to-stata-v1.0.0/send-to-stata-arm64.exe
+URLs:
+- x64:   https://raw.githubusercontent.com/jbearak/zed-stata/365ced02951833e43d4d7a5be73e61dbe73ab5f4/send-to-stata-x64.exe
+- arm64: https://raw.githubusercontent.com/jbearak/zed-stata/365ced02951833e43d4d7a5be73e61dbe73ab5f4/send-to-stata-arm64.exe
 ```
 
 ### Checksum Verification
 
-Each release includes a `checksums.txt` file:
+SHA-256 checksums are hardcoded in the extension (computed from tag v0.1.11):
 
-```
-https://github.com/jbearak/sight-zed/releases/download/send-to-stata-v{VERSION}/checksums.txt
+```typescript
+const CHECKSUMS: Record<string, string> = {
+    'x64':   '2c7becace23c10f4f888f7f61eedfde8108f4e16ce21c1f8a8b625038a22c1d6',
+    'arm64': 'aa1fd6dfd2e14bcc2fdb2d06b4ca950ef5ecd5891bd7de0a833b12dc46feb20a',
+};
 
-Contents:
-sha256:abc123... send-to-stata-x64.exe
-sha256:def456... send-to-stata-arm64.exe
+// File sizes for reference:
+// x64:   1,803,264 bytes (~1.7 MB)
+// arm64: 1,737,216 bytes (~1.7 MB)
 ```
 
 ### Architecture Detection
@@ -228,7 +268,7 @@ const storage_path = context.globalStorageUri.fsPath;
 
 // Version info stored at:
 // {storage_path}/send-to-stata/version.json
-// Contents: { "version": "1.0.0", "architecture": "x64", "downloaded_at": "2024-..." }
+// Contents: { "version": "0.1.11", "architecture": "x64", "downloaded_at": "2024-..." }
 ```
 
 ## User Experience Flow
@@ -285,6 +325,7 @@ The TypeScript layer spawns the executable with arguments matching the zed-stata
 
 ```typescript
 import { spawn } from 'child_process';
+import * as vscode from 'vscode';
 
 async function send_to_stata_windows(
     command: StataCommand,
@@ -296,6 +337,9 @@ async function send_to_stata_windows(
         return; // User declined download
     }
 
+    const config = vscode.workspace.getConfiguration('sight.sendToStata');
+    const focus_stata = config.get<boolean>('focusStataWindow', false);
+
     const args = [
         '-FileMode',
         '-File', temp_file_path,
@@ -303,6 +347,12 @@ async function send_to_stata_windows(
     
     if (command === 'include') {
         args.push('-Include');
+    }
+    
+    // By default, the executable returns focus to the calling app (VS Code).
+    // If focusStataWindow is true, pass -ActivateStata to keep focus on Stata.
+    if (focus_stata) {
+        args.push('-ActivateStata');
     }
 
     return new Promise((resolve, reject) => {
@@ -338,6 +388,58 @@ function map_exit_code_to_message(code: number, stderr: string): string {
 }
 ```
 
+## Configuration
+
+### New Setting: focusStataWindow
+
+Add to `client/package.json` under `contributes.configuration.properties`:
+
+```json
+"sight.sendToStata.focusStataWindow": {
+    "type": "boolean",
+    "default": false,
+    "description": "Switch focus to Stata after sending code. When false (default), focus stays in VS Code."
+}
+```
+
+This setting applies to both Windows and macOS.
+
+### macOS Implementation
+
+On macOS, focus management is handled via AppleScript after the `DoCommandAsync` call:
+
+```typescript
+// In applescript.ts - updated send_to_stata_app function
+export function send_to_stata_app(
+    stata_app: StataVariant,
+    command: StataCommand,
+    temp_file_path: string,
+    focus_stata: boolean
+): Promise<void> {
+    // ... validation ...
+    
+    return new Promise((resolve, reject) => {
+        const escaped_path = escape_for_applescript(temp_file_path);
+        let applescript_cmd = `tell application "${stata_app}" to ` +
+            `DoCommandAsync "${command} \\"${escaped_path}\\""`;
+        
+        // If not focusing Stata, activate VS Code after sending
+        if (!focus_stata) {
+            applescript_cmd += `\ntell application "Visual Studio Code" to activate`;
+        }
+        
+        const shell_safe_cmd = applescript_cmd.replace(/'/g, "'\\''");
+        exec(`osascript -e '${shell_safe_cmd}'`, (error) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve();
+            }
+        });
+    });
+}
+```
+
 ## Version Management
 
 ### Version Compatibility
@@ -346,8 +448,7 @@ The extension stores a minimum required executable version:
 
 ```typescript
 // In exe-downloader.ts
-const MINIMUM_EXE_VERSION = '1.0.0';
-const CURRENT_EXE_VERSION = '1.0.0';
+const CURRENT_EXE_VERSION = '0.1.11';
 
 // Version comparison uses semver
 function is_version_compatible(installed: string, minimum: string): boolean {
@@ -366,10 +467,10 @@ function is_version_compatible(installed: string, minimum: string): boolean {
 
 ```json
 {
-    "version": "1.0.0",
+    "version": "0.1.11",
     "architecture": "x64",
     "downloaded_at": "2024-01-15T10:30:00Z",
-    "checksum": "sha256:abc123..."
+    "checksum": "sha256:2c7becace23c10f4f888f7f61eedfde8108f4e16ce21c1f8a8b625038a22c1d6"
 }
 ```
 
@@ -391,6 +492,52 @@ function is_version_compatible(installed: string, minimum: string): boolean {
 | 4 (STATA_NOT_FOUND) | "No running Stata instance found. Start Stata before sending code." |
 | 5 (SENDKEYS_FAIL) | "Failed to activate Stata window. Ensure Stata is not running as Administrator." |
 
+### Stata Automation Registration
+
+If send-to-stata fails due to missing Automation registration, the extension displays:
+
+```
+Stata's Automation type library may need to be registered.
+
+To register, run this command as Administrator:
+"C:\Program Files\Stata18\StataSE-64.exe" /Register
+
+[Copy Command]  [Dismiss]
+```
+
+The extension detects this by checking stderr for "Automation" or specific error patterns. Since we can't reliably detect Stata's install path, the message provides a template command that users must adjust for their installation.
+
+```typescript
+// In windows-sender.ts
+function handle_execution_error(code: number, stderr: string): void {
+    // Check for Automation registration error
+    if (stderr.toLowerCase().includes('automation') || 
+        stderr.includes('80040154') ||  // CLASS_NOT_REGISTERED
+        stderr.includes('REGDB_E_CLASSNOTREG')) {
+        
+        const register_cmd = '"C:\\Program Files\\Stata18\\StataSE-64.exe" /Register';
+        
+        vscode.window.showErrorMessage(
+            "Stata's Automation type library may need to be registered. " +
+            "Run Stata with /Register as Administrator.",
+            'Copy Command'
+        ).then(selection => {
+            if (selection === 'Copy Command') {
+                vscode.env.clipboard.writeText(register_cmd);
+                vscode.window.showInformationMessage(
+                    'Command copied. Adjust the path for your Stata installation, ' +
+                    'then run in an Administrator command prompt.'
+                );
+            }
+        });
+        return;
+    }
+    
+    // Handle other errors via exit code
+    vscode.window.showErrorMessage(map_exit_code_to_message(code, stderr));
+}
+```
+
 ## Testing Strategy
 
 ### Unit Tests
@@ -399,12 +546,14 @@ function is_version_compatible(installed: string, minimum: string): boolean {
 2. **Version comparison**: Test semver logic
 3. **URL construction**: Verify correct release URLs
 4. **Exit code mapping**: Test all error code translations
+5. **Automation error detection**: Test stderr patterns for registration errors
 
 ### Integration Tests
 
 1. **Download flow**: Mock HTTP responses, verify file written correctly
 2. **Checksum verification**: Test with valid/invalid checksums
 3. **Executable invocation**: Mock spawn, verify correct arguments
+4. **focusStataWindow setting**: Verify `-ActivateStata` flag passed correctly
 
 ### Manual Testing
 
@@ -414,6 +563,10 @@ function is_version_compatible(installed: string, minimum: string): boolean {
 4. Network failure during download
 5. Stata not running
 6. Stata running as Administrator
+7. Stata Automation not registered
+8. focusStataWindow=true on Windows
+9. focusStataWindow=true on macOS
+10. focusStataWindow=false (default) on both platforms
 
 ## Correctness Properties
 

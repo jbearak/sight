@@ -27,7 +27,7 @@ The implementation must integrate with the existing VS Code extension architectu
 
 1. WHEN the extension runs on Windows AND the target is 'app', THE Send_To_Stata_Module SHALL use the Windows-specific implementation instead of showing an error
 2. WHEN the extension runs on Windows AND the target is 'terminal', THE Send_To_Stata_Module SHALL continue using the existing cross-platform terminal implementation
-3. THE Send_To_Stata_Module SHALL maintain the existing macOS AppleScript implementation unchanged
+3. THE Send_To_Stata_Module SHALL maintain the existing macOS AppleScript implementation, with the addition of StataBE support and the focusStataWindow setting
 
 ### Requirement 2: Stata Instance Detection on Windows
 
@@ -35,11 +35,9 @@ The implementation must integrate with the existing VS Code extension architectu
 
 #### Acceptance Criteria
 
-1. WHEN searching for Stata on Windows, THE Send_To_Stata_Module SHALL search for processes named StataMP, StataSE, StataBE, StataIC, Stata (and their -64 variants)
-2. WHEN multiple Stata processes are running, THE Send_To_Stata_Module SHALL select the first one with a valid main window
-3. WHEN no Stata process is found, THE Send_To_Stata_Module SHALL display an error message instructing the user to start Stata
-4. THE Send_To_Stata_Module SHALL validate the Stata window by checking that the window title matches the pattern "Stata/MP", "Stata/SE", "Stata/BE", "Stata/IC", or "StataNow/*"
-5. THE Send_To_Stata_Module SHALL exclude Stata Viewer windows from detection
+1. THE Send_To_Stata_Module SHALL delegate Stata instance detection to the native executable
+2. WHEN the executable reports no Stata process found (exit code 4), THE Send_To_Stata_Module SHALL display "No running Stata instance found. Start Stata before sending code."
+3. WHEN the executable reports focus acquisition failure (exit code 5), THE Send_To_Stata_Module SHALL display an error mentioning focus-stealing prevention and Administrator mode
 
 ### Requirement 3: Send Code to Stata GUI on Windows
 
@@ -73,10 +71,10 @@ The implementation must integrate with the existing VS Code extension architectu
 
 #### Acceptance Criteria
 
-1. THE Send_To_Stata_Module SHALL return focus to VS Code by default after sending code on Windows
-2. WHEN activating the Stata window, THE Send_To_Stata_Module SHALL restore the window if it is minimized
-3. WHEN activating the Stata window, THE Send_To_Stata_Module SHALL use the Alt key trick to bypass Windows focus-stealing prevention
-4. IF focus cannot be acquired after multiple attempts, THEN THE Send_To_Stata_Module SHALL display an error message suggesting the user check if Stata is running as Administrator
+1. THE Send_To_Stata_Module SHALL pass the appropriate flag to the executable based on the `focusStataWindow` setting
+2. WHEN `focusStataWindow` is false (default), THE Send_To_Stata_Module SHALL NOT pass `-ActivateStata`, causing the executable to return focus to VS Code
+3. WHEN `focusStataWindow` is true, THE Send_To_Stata_Module SHALL pass `-ActivateStata`, causing the executable to leave focus on Stata
+4. IF the executable reports focus acquisition failure (exit code 5), THEN THE Send_To_Stata_Module SHALL display an error message suggesting the user check if Stata is running as Administrator
 
 ### Requirement 6: Path Escaping for Windows
 
@@ -144,6 +142,20 @@ The implementation must integrate with the existing VS Code extension architectu
 1. THE Send_To_Stata_Module SHALL respect the `sight.sendToStata.saveBeforeSend` setting on Windows
 2. THE Send_To_Stata_Module SHALL respect the `sight.sendToStata.advanceCursorOnSend` setting on Windows
 3. THE Send_To_Stata_Module SHALL respect the `sight.sendToStata.workingDirectory` setting on Windows
+4. THE Send_To_Stata_Module SHALL respect the `sight.sendToStata.focusStataWindow` setting on Windows and macOS
+
+### Requirement 14: Focus Stata Window Setting
+
+**User Story:** As a user, I want to control whether focus switches to Stata after sending code, so that I can choose my preferred workflow.
+
+#### Acceptance Criteria
+
+1. THE Send_To_Stata_Module SHALL provide a `sight.sendToStata.focusStataWindow` boolean setting
+2. THE `focusStataWindow` setting SHALL default to `false` (keep focus in VS Code)
+3. WHEN `focusStataWindow` is `false`, THE Send_To_Stata_Module SHALL return focus to VS Code after sending code on Windows
+4. WHEN `focusStataWindow` is `true`, THE Send_To_Stata_Module SHALL leave focus on Stata after sending code on Windows
+5. WHEN `focusStataWindow` is `false` on macOS, THE Send_To_Stata_Module SHALL activate VS Code after sending code via AppleScript
+6. WHEN `focusStataWindow` is `true` on macOS, THE Send_To_Stata_Module SHALL leave focus on Stata after sending code
 
 ### Requirement 12: On-Demand Executable Download
 
@@ -154,12 +166,21 @@ The implementation must integrate with the existing VS Code extension architectu
 1. WHEN a Windows user triggers a send-to-stata app command for the first time, THE Send_To_Stata_Module SHALL check if the executable exists in the extension's global storage
 2. IF the executable does not exist, THEN THE Send_To_Stata_Module SHALL prompt the user with a message explaining that Windows support for send-to-stata requires downloading a helper executable
 3. IF the user accepts the download, THEN THE Send_To_Stata_Module SHALL show a progress indicator during download
-4. THE Send_To_Stata_Module SHALL download the architecture-appropriate executable (x64 or arm64) from the zed-stata GitHub releases
+4. THE Send_To_Stata_Module SHALL download the architecture-appropriate executable (x64 or arm64) from the zed-stata GitHub repository at tag v0.1.11
 5. THE Send_To_Stata_Module SHALL store the downloaded executable in VS Code's extension global storage directory
 6. THE Send_To_Stata_Module SHALL verify the downloaded executable's integrity using a checksum
 7. IF the download succeeds, THEN THE Send_To_Stata_Module SHALL show a success notification
 8. IF the download fails, THEN THE Send_To_Stata_Module SHALL show an error message with troubleshooting guidance
 9. IF the user declines the download, THEN THE Send_To_Stata_Module SHALL not execute the command and SHALL inform the user that Windows app mode requires the download
+
+### Requirement 15: macOS StataBE Support
+
+**User Story:** As a macOS user with StataBE, I want the extension to detect my Stata variant, so that send-to-stata works for me.
+
+#### Acceptance Criteria
+
+1. THE Send_To_Stata_Module SHALL include StataBE in the list of valid Stata applications on macOS
+2. THE `sight.sendToStata.stataApp` setting description SHALL include StataBE as a valid option
 
 ### Requirement 13: Executable Updates
 
@@ -171,3 +192,13 @@ The implementation must integrate with the existing VS Code extension architectu
 2. WHEN the extension is updated, THE Send_To_Stata_Module SHALL check if a newer executable version is required
 3. IF a newer version is required, THEN THE Send_To_Stata_Module SHALL prompt the user to download the update
 4. THE Send_To_Stata_Module SHALL allow the user to continue using the existing executable if they decline the update (unless breaking changes require it)
+
+### Requirement 16: Stata Automation Registration on Windows
+
+**User Story:** As a Windows user, I want the extension to help me register Stata's Automation type library if needed, so that send-to-stata works correctly.
+
+#### Acceptance Criteria
+
+1. IF the executable fails with an error indicating Automation registration is required, THEN THE Send_To_Stata_Module SHALL display a message explaining how to register Stata
+2. THE error message SHALL include instructions to run Stata with the `/Register` flag as Administrator
+3. THE Send_To_Stata_Module SHALL provide a command or button to copy the registration command to the clipboard
