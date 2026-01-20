@@ -198,7 +198,12 @@
         "sight.sendToStata.stataApp": {
           "type": "string",
           "default": "",
-          "description": "Override Stata application name (macOS only). Leave empty for auto-detection. Options: StataMP, StataSE, StataIC, Stata"
+          "description": "Override Stata application name (macOS only). Leave empty for auto-detection. Options: StataMP, StataSE, StataBE, StataIC, Stata"
+        },
+        "sight.sendToStata.focusStataWindow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Switch focus to Stata after sending code. When false (default), focus stays in VS Code."
         },
         "sight.sendToStata.saveBeforeSend": {
           "type": "boolean",

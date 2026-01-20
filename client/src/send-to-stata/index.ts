@@ -4,7 +4,7 @@
  */
 
 // Core types
-export type StataVariant = 'StataMP' | 'StataSE' | 'StataIC' | 'Stata';
+export type StataVariant = 'StataMP' | 'StataSE' | 'StataBE' | 'StataIC' | 'Stata';
 export type StataCommand = 'do' | 'include';
 export type SendTarget = 'app' | 'terminal';
 

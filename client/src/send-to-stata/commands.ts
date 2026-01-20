@@ -180,7 +180,8 @@ async function handle_send_command(
                 return;
             }
             
-            await send_to_stata_app(my_stata_app, command, my_temp_file);
+            await send_to_stata_app(my_stata_app, command, my_temp_file, 
+                my_config.get<boolean>('focusStataWindow', false));
         } else {
             await send_to_terminal(command, my_temp_file);
         }

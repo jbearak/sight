@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { StataVariant, StataCommand } from './index';
 
 const VALID_STATA_APPS: readonly StataVariant[] = [
-    'StataMP', 'StataSE', 'StataIC', 'Stata'
+    'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'
 ];
 const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
 
@@ -19,7 +19,8 @@ export function escape_for_applescript(path: string): string {
 export function send_to_stata_app(
     stata_app: StataVariant,
     command: StataCommand,
-    temp_file_path: string
+    temp_file_path: string,
+    focus_stata: boolean
 ): Promise<void> {
     // Validate stata_app against allowed values
     if (!VALID_STATA_APPS.includes(stata_app)) {
@@ -38,8 +39,12 @@ export function send_to_stata_app(
     
     return new Promise((resolve, reject) => {
         const escaped_path = escape_for_applescript(temp_file_path);
-        const applescript_cmd = `tell application "${stata_app}" to ` +
+        let applescript_cmd = `tell application "${stata_app}" to ` +
             `DoCommandAsync "${command} \\"${escaped_path}\\""`;
+        
+        if (!focus_stata) {
+            applescript_cmd += `\ntell application "Visual Studio Code" to activate`;
+        }
         
         // Shell escaping for single quotes using POSIX-standard pattern: '\''
         // This works by: ending the single-quoted string ('), adding an escaped
