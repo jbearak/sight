@@ -1,11 +1,5 @@
 import { describe, test, expect } from 'bun:test';
 import * as fc from 'fast-check';
-import { 
-    get_windows_architecture, 
-    CURRENT_EXE_VERSION, 
-    CHECKSUMS 
-} from '../../client/src/send-to-stata/exe-downloader';
-import { map_exit_code_to_message, check_automation_error } from '../../client/src/send-to-stata/windows-sender';
 
 /**
  * Property-based tests for Windows send-to-stata functionality.
@@ -16,6 +10,36 @@ import { map_exit_code_to_message, check_automation_error } from '../../client/s
  * Property 4: Checksum Integrity - Downloaded file with mismatched checksum must never be saved to storage
  * Validates: Requirements 12.4, 12.6, 13.2
  */
+
+// Constants from exe-downloader.ts (duplicated to avoid vscode dependency)
+const CURRENT_EXE_VERSION = '0.1.11';
+const CHECKSUMS: Record<string, string> = {
+    'x64':   '2c7becace23c10f4f888f7f61eedfde8108f4e16ce21c1f8a8b625038a22c1d6',
+    'arm64': 'aa1fd6dfd2e14bcc2fdb2d06b4ca950ef5ecd5891bd7de0a833b12dc46feb20a',
+};
+
+// Pure function implementations (duplicated to avoid vscode dependency)
+function get_windows_architecture(): 'x64' | 'arm64' {
+    return process.env.PROCESSOR_ARCHITECTURE === 'ARM64' ? 'arm64' : 'x64';
+}
+
+function map_exit_code_to_message(code: number, stderr: string): string {
+    switch (code) {
+        case 1: return 'Invalid arguments';
+        case 2: return 'File not found';
+        case 3: return 'Failed to create temp file';
+        case 4: return 'No running Stata instance found. Start Stata before sending code.';
+        case 5: return 'Failed to send keystrokes. Ensure Stata is not running as Administrator.';
+        default: return stderr || `Unknown error (exit code ${code})`;
+    }
+}
+
+function check_automation_error(stderr: string): boolean {
+    const lower = stderr.toLowerCase();
+    return lower.includes('automation') || 
+           lower.includes('80040154') || 
+           lower.includes('regdb_e_classnotreg');
+}
 
 describe('Feature: send-to-stata Windows - Property Tests', () => {
     

@@ -52,19 +52,19 @@ export function register_cd_commands(context: vscode.ExtensionContext): void {
     const the_commands = [
         {
             id: 'sight.cdWorkspace',
-            handler: () => execute_cd_command('workspace', 'app')
+            handler: () => execute_cd_command('workspace', 'app', context)
         },
         {
             id: 'sight.cdFile',
-            handler: () => execute_cd_command('file', 'app')
+            handler: () => execute_cd_command('file', 'app', context)
         },
         {
             id: 'sight.terminal.cdWorkspace',
-            handler: () => execute_cd_command('workspace', 'terminal')
+            handler: () => execute_cd_command('workspace', 'terminal', context)
         },
         {
             id: 'sight.terminal.cdFile',
-            handler: () => execute_cd_command('file', 'terminal')
+            handler: () => execute_cd_command('file', 'terminal', context)
         }
     ];
     
@@ -81,10 +81,12 @@ export function register_cd_commands(context: vscode.ExtensionContext): void {
  * Execute a CD command to change Stata's working directory.
  * @param directory_type - 'workspace' or 'file'
  * @param target - 'app' or 'terminal'
+ * @param context - Extension context for Windows support
  */
 export async function execute_cd_command(
     directory_type: 'workspace' | 'file',
-    target: 'app' | 'terminal'
+    target: 'app' | 'terminal',
+    context: vscode.ExtensionContext
 ): Promise<void> {
     let directory_path: string;
     
@@ -112,24 +114,29 @@ export async function execute_cd_command(
     const temp_file_path = await create_temp_file(cd_command);
     
     if (target === 'app') {
-        if (process.platform !== 'darwin') {
+        if (process.platform === 'darwin') {
+            const stata_app = await detect_stata_app();
+            if (!stata_app) {
+                vscode.window.showErrorMessage(
+                    'Stata not found. Install Stata in /Applications/Stata/ or ' +
+                    'configure sight.sendToStata.stataApp setting.'
+                );
+                return;
+            }
+            
+            const config = vscode.workspace.getConfiguration('sight.sendToStata');
+            const focus_stata = config.get<boolean>('focusStataWindow', false);
+            await send_to_stata_app(stata_app, 'do', temp_file_path, focus_stata);
+        } else if (process.platform === 'win32') {
+            const { send_to_stata_windows } = await import('./windows-sender');
+            await send_to_stata_windows('do', temp_file_path, context);
+        } else {
             vscode.window.showErrorMessage(
-                'Stata application mode is only available on macOS. ' +
+                'Stata application mode is only available on macOS and Windows. ' +
                 'Use terminal mode instead.'
             );
             return;
         }
-        
-        const stata_app = await detect_stata_app();
-        if (!stata_app) {
-            vscode.window.showErrorMessage(
-                'Stata not found. Install Stata in /Applications/Stata/ or ' +
-                'configure sight.sendToStata.stataApp setting.'
-            );
-            return;
-        }
-        
-        await send_to_stata_app(stata_app, 'do', temp_file_path);
     } else {
         await send_to_terminal('do', temp_file_path);
     }
