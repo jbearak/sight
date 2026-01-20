@@ -9,6 +9,7 @@ import {
 import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } from './depth-colors';
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
+import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client } from './send-to-stata';
 
 let client: LanguageClient;
 const outputChannel = window.createOutputChannel('Sight Language Server');
@@ -24,6 +25,13 @@ export function activate(context: ExtensionContext) {
     // Custom quote auto-close for complex Stata patterns (nested macros, compound strings)
     // VS Code's built-in autoClosingPairs handles basic ` → `' but not nested cases
     context.subscriptions.push(register_quote_auto_close());
+    
+    // Register send-to-stata commands
+    register_send_to_stata_commands(context);
+    
+    // Initialize CD context and register CD commands
+    initialize_cd_context(context);
+    register_cd_commands(context);
     
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {
@@ -88,6 +96,8 @@ export function activate(context: ExtensionContext) {
     // Start the client. This will also launch the server
     client.start().then(() => {
         outputChannel.appendLine('Language client started successfully');
+        // Make client available to send-to-stata commands
+        set_language_client(client);
     }).catch((error) => {
         outputChannel.appendLine(`Failed to start language client: ${error}`);
     });

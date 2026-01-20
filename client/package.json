@@ -194,6 +194,33 @@
           },
           "default": [],
           "description": "Additional paths to search for ADO files"
+        },
+        "sight.sendToStata.stataApp": {
+          "type": "string",
+          "default": "",
+          "description": "Override Stata application name (macOS only). Leave empty for auto-detection. Options: StataMP, StataSE, StataIC, Stata"
+        },
+        "sight.sendToStata.saveBeforeSend": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically save the file before sending to Stata"
+        },
+        "sight.sendToStata.advanceCursorOnSend": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically advance cursor to the next line after sending a single line to Stata"
+        },
+        "sight.sendToStata.workingDirectory": {
+          "type": "string",
+          "enum": ["lsp", "none", "file", "workspace"],
+          "default": "lsp",
+          "description": "Set working directory before executing code",
+          "enumDescriptions": [
+            "Use working directory from LSP (from @lsp-cd, @lsp-working-directory, @lsp-wd directives or inherited from parent files)",
+            "Do not change working directory",
+            "Change to the directory of the current file",
+            "Change to the workspace root directory"
+          ]
         }
       }
     },
@@ -205,8 +232,210 @@
       {
         "command": "sight.resetConflictDismissal",
         "title": "Sight: Reset Conflict Dismissal"
+      },
+      {
+        "command": "sight.doLineOrSelection",
+        "title": "Sight: Do Line or Selection"
+      },
+      {
+        "command": "sight.doUpwardLines",
+        "title": "Sight: Do Upward Lines"
+      },
+      {
+        "command": "sight.doDownwardLines",
+        "title": "Sight: Do Downward Lines"
+      },
+      {
+        "command": "sight.doFile",
+        "title": "Sight: Do File"
+      },
+      {
+        "command": "sight.includeLineOrSelection",
+        "title": "Sight: Include Line or Selection"
+      },
+      {
+        "command": "sight.includeFile",
+        "title": "Sight: Include File"
+      },
+      {
+        "command": "sight.terminal.doLineOrSelection",
+        "title": "Sight: Terminal - Do Line or Selection"
+      },
+      {
+        "command": "sight.terminal.doUpwardLines",
+        "title": "Sight: Terminal - Do Upward Lines"
+      },
+      {
+        "command": "sight.terminal.doDownwardLines",
+        "title": "Sight: Terminal - Do Downward Lines"
+      },
+      {
+        "command": "sight.terminal.doFile",
+        "title": "Sight: Terminal - Do File"
+      },
+      {
+        "command": "sight.terminal.includeLineOrSelection",
+        "title": "Sight: Terminal - Include Line or Selection"
+      },
+      {
+        "command": "sight.terminal.includeFile",
+        "title": "Sight: Terminal - Include File"
+      },
+      {
+        "command": "sight.cdWorkspace",
+        "title": "Sight: CD into Workspace Folder"
+      },
+      {
+        "command": "sight.cdFile",
+        "title": "Sight: CD into File Folder"
+      },
+      {
+        "command": "sight.terminal.cdWorkspace",
+        "title": "Sight: Terminal - CD into Workspace Folder"
+      },
+      {
+        "command": "sight.terminal.cdFile",
+        "title": "Sight: Terminal - CD into File Folder"
       }
     ],
+    "keybindings": [
+      {
+        "command": "sight.doLineOrSelection",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.doFile",
+        "key": "shift+ctrl+enter",
+        "mac": "shift+cmd+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.includeLineOrSelection",
+        "key": "alt+ctrl+enter",
+        "mac": "alt+cmd+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.includeFile",
+        "key": "alt+shift+ctrl+enter",
+        "mac": "alt+shift+cmd+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.terminal.doLineOrSelection",
+        "key": "alt+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.terminal.doFile",
+        "key": "alt+shift+enter",
+        "when": "editorTextFocus && editorLangId == stata"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "sight.sendToStata",
+        "label": "Send to Stata",
+        "icon": "$(play)"
+      },
+      {
+        "id": "sight.sendToStata.terminal",
+        "label": "Terminal"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "submenu": "sight.sendToStata",
+          "when": "editorLangId == stata",
+          "group": "navigation"
+        }
+      ],
+      "sight.sendToStata": [
+        {
+          "command": "sight.doLineOrSelection",
+          "group": "1_do@1",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.doUpwardLines",
+          "group": "1_do@2",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.doDownwardLines",
+          "group": "1_do@3",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.doFile",
+          "group": "1_do@4",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.includeLineOrSelection",
+          "group": "2_include@1",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.includeFile",
+          "group": "2_include@2",
+          "when": "isMac"
+        },
+        {
+          "command": "sight.cdWorkspace",
+          "group": "3_cd@1",
+          "when": "sight.cdMenuVisible && isMac"
+        },
+        {
+          "command": "sight.cdFile",
+          "group": "3_cd@2",
+          "when": "sight.cdMenuVisible && isMac"
+        },
+        {
+          "submenu": "sight.sendToStata.terminal",
+          "group": "4_terminal"
+        }
+      ],
+      "sight.sendToStata.terminal": [
+        {
+          "command": "sight.terminal.doLineOrSelection",
+          "group": "1_do@1"
+        },
+        {
+          "command": "sight.terminal.doUpwardLines",
+          "group": "1_do@2"
+        },
+        {
+          "command": "sight.terminal.doDownwardLines",
+          "group": "1_do@3"
+        },
+        {
+          "command": "sight.terminal.doFile",
+          "group": "1_do@4"
+        },
+        {
+          "command": "sight.terminal.includeLineOrSelection",
+          "group": "2_include@1"
+        },
+        {
+          "command": "sight.terminal.includeFile",
+          "group": "2_include@2"
+        },
+        {
+          "command": "sight.terminal.cdWorkspace",
+          "group": "3_cd@1",
+          "when": "sight.cdMenuVisible"
+        },
+        {
+          "command": "sight.terminal.cdFile",
+          "group": "3_cd@2",
+          "when": "sight.cdMenuVisible"
+        }
+      ]
+    },
     "configurationDefaults": {
       "[stata]": {
         "editor.quickSuggestions": {

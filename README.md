@@ -14,6 +14,7 @@ An open source [Language Server Protocol (LSP)](https://github.com/Microsoft/lan
 - **Diagnostics**: Real-time syntax error detection and undefined macro warnings.
 - **Go-to-Definition**: Jump to definitions of local/global macros and programs across the workspace.
 - **Syntax Highlighting**: Rich syntax highlighting with unique features like macro/string nesting depth coloring.
+- **Send to Stata**: Execute code directly in Stata GUI (macOS) or terminal sessions with intelligent statement detection and working directory management. See [Send to Stata](#send-to-stata) for details.
 - **Workspace Symbols**: Search for symbols across the entire workspace.
 - **Quote Auto-Close**: Intelligently handles Stata's unique conventions for nested macros and compound strings.
 
@@ -1025,7 +1026,89 @@ Standard auto-closing pairs continue to work via VS Code's language configuratio
 - `[` → `[|]`
 - `(` → `(|)`
 
+## Send to Stata
 
+The extension provides commands to send Stata code directly from VS Code to Stata for execution, supporting both the Stata GUI application (macOS) and terminal sessions (all platforms).
+
+### Execution Targets
+
+- **Stata Application (macOS)**: Uses AppleScript to send code to the Stata GUI
+- **Terminal Sessions**: Sends code to VS Code's integrated terminal (works with SSH, multiple sessions, cross-platform)
+
+### Send Modes
+
+| Mode | Description | Keyboard Shortcut |
+|------|-------------|-------------------|
+| **Statement** | Sends current statement or selection | `Cmd+Enter` (macOS) / `Ctrl+Enter` (Win/Linux) |
+| **Upward Lines** | Sends all lines from start of file to current line | - |
+| **Downward Lines** | Sends all lines from current line to end of file | - |
+| **File** | Sends entire file | `Shift+Cmd+Enter` / `Shift+Ctrl+Enter` |
+
+### Execution Commands
+
+- **Do Command**: Executes code with isolated local macro scope (default)
+  - Keyboard: `Cmd+Enter` / `Ctrl+Enter` (statement), `Shift+Cmd+Enter` / `Shift+Ctrl+Enter` (file)
+- **Include Command**: Executes code while preserving local macro scope (useful for debugging)
+  - Keyboard: `Alt+Cmd+Enter` / `Alt+Ctrl+Enter` (statement), `Alt+Shift+Cmd+Enter` / `Alt+Shift+Ctrl+Enter` (file)
+
+### Terminal Mode
+
+Send code to VS Code's integrated terminal instead of Stata GUI:
+- `Alt+Enter` - Send statement to terminal
+- `Alt+Shift+Enter` - Send file to terminal
+- All send modes available via toolbar menu → Terminal submenu
+
+### Cursor Advancement
+
+When sending a single statement (not a selection or entire file), the cursor automatically advances to the next line. This enables efficient line-by-line execution.
+
+**Configuration**: `sight.sendToStata.advanceCursorOnSend` (default: `true`)
+
+### Working Directory Management
+
+Control which directory Stata uses when executing your code:
+
+| Option | Description | When to Use |
+|--------|-------------|-------------|
+| **lsp** (default) | Uses working directory from LSP directives | Recommended - leverages `@lsp-cd` or inherited from parent files |
+| **none** | No directory change | When Stata's current directory is already correct |
+| **file** | Changes to current file's directory | For standalone scripts |
+| **workspace** | Changes to workspace root | For project-relative paths |
+
+**Configuration**: `sight.sendToStata.workingDirectory`
+
+The **lsp** option reads the working directory from:
+- `@lsp-cd`, `@lsp-working-directory`, or `@lsp-wd` directives in your file
+- Parent files via `@lsp-done-by` or `@lsp-included-by` directives (inherits working directory)
+- Falls back to "none" if no LSP working directory is available
+
+When set to "none", manual CD commands appear in the toolbar menu for quick directory changes.
+
+### Statement Detection
+
+The extension intelligently detects complete Stata statements:
+- Handles multi-line statements with `///` continuation markers
+- When cursor is on a continuation line, includes the entire statement from beginning
+- When cursor is on a line with `///`, includes all continuation lines
+
+### Editor Toolbar
+
+A toolbar button (▶) appears in the editor title bar for Stata files, providing quick access to all send commands organized by category (Do, Include, Terminal, CD).
+
+### Configuration Options
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sight.sendToStata.stataApp` | string | `""` | Override Stata variant (macOS only). Auto-detects if empty. |
+| `sight.sendToStata.saveBeforeSend` | boolean | `true` | Automatically save file before sending |
+| `sight.sendToStata.advanceCursorOnSend` | boolean | `true` | Advance cursor to next line after single-line send |
+| `sight.sendToStata.workingDirectory` | enum | `"lsp"` | Working directory mode: "lsp", "none", "file", or "workspace" |
+
+### Platform Support
+
+- **macOS**: Full support (Stata GUI + terminal)
+- **Linux**: Terminal mode only (Stata GUI requires macOS AppleScript)
+- **Windows**: Terminal mode for WSL and SSH sessions (Stata does not provide a native Windows command-line binary; the GUI-only Windows version is not supported)
 
 ## Experimental Features (Not Ready for Use)
 
