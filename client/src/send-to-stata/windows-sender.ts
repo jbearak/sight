@@ -116,13 +116,8 @@ export async function send_to_stata_windows(
                 
                 if (check_automation_error(stderr_data)) {
                     vscode.window.showErrorMessage(
-                        'COM automation registration error. Stata may need to be registered.',
-                        'Copy Command'
-                    ).then(selection => {
-                        if (selection === 'Copy Command') {
-                            vscode.env.clipboard.writeText('"C:\\Program Files\\Stata18\\StataSE-64.exe" /Register');
-                        }
-                    });
+                        'COM automation registration error. Run Stata as Administrator with /Register flag to fix.'
+                    );
                 }
                 
                 reject(new Error(error_message));
