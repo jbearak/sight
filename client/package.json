@@ -2,7 +2,7 @@
   "name": "sight-client",
   "displayName": "Sight - Stata Language Server",
   "description": "Language support for Stata using LSP",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "publisher": "jbearak",
   "repository": {
     "type": "git",
