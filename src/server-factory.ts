@@ -58,6 +58,9 @@ import {
     create_exit_handler,
     create_did_change_watched_files_handler,
     create_execute_command_handler,
+    create_get_working_directory_handler,
+    GetWorkingDirectoryParams,
+    GetWorkingDirectoryResult,
 } from './server-handlers';
 
 import type { TransportType } from './cli';
@@ -268,6 +271,40 @@ export async function create_server(options: ServerOptions): Promise<void> {
     }
 
     /**
+     * Get all transitive callers of a callee URI using BFS traversal.
+     * @param callee_uri - The URI of the callee file
+     * @param callee_to_callers - Map from callee URI to set of caller URIs
+     * @param max_depth - Maximum depth to traverse
+     * @returns Set of all transitive caller URIs
+     */
+    function get_transitive_callers(
+        callee_uri: string,
+        callee_to_callers: Map<string, Set<string>>,
+        max_depth: number
+    ): Set<string> {
+        const all_callers = new Set<string>();
+        const queue: Array<{uri: string, depth: number}> = [{uri: callee_uri, depth: 0}];
+        const visited = new Set<string>([callee_uri]);
+        
+        while (queue.length > 0) {
+            const {uri: current_uri, depth} = queue.shift()!;
+            if (depth >= max_depth) continue;
+            
+            const immediate_callers = callee_to_callers.get(current_uri);
+            if (!immediate_callers) continue;
+            
+            for (const my_caller_uri of immediate_callers) {
+                if (visited.has(my_caller_uri)) continue;
+                visited.add(my_caller_uri);
+                all_callers.add(my_caller_uri);
+                queue.push({uri: my_caller_uri, depth: depth + 1});
+            }
+        }
+        
+        return all_callers;
+    }
+
+    /**
      * Schedule re-validation for caller documents when a callee changes.
      * This ensures that when a file defining symbols changes, all files
      * that call it (via do/run/include) get their diagnostics updated.
@@ -280,11 +317,24 @@ export async function create_server(options: ServerOptions): Promise<void> {
         config: StataLSPConfig
     ): void {
         const max_revalidations = config.cross_file?.max_callee_revalidations ?? 10;
+        const max_depth = config.cross_file?.max_chain_depth ?? 20;
 
-        // Expand caller_uris to include transitive backward directive dependents
-        const all_uris_to_revalidate = new Set<string>(caller_uris);
+        // First expand caller_uris to include transitive forward-call callers
+        const expanded_caller_uris = new Set<string>(caller_uris);
         if (scope_resolver) {
+            const callee_to_callers = scope_resolver.get_callee_to_callers_map();
             for (const my_caller_uri of caller_uris) {
+                const transitive_callers = get_transitive_callers(my_caller_uri, callee_to_callers, max_depth);
+                for (const my_transitive_caller of transitive_callers) {
+                    expanded_caller_uris.add(my_transitive_caller);
+                }
+            }
+        }
+
+        // Then expand to include transitive backward directive dependents
+        const all_uris_to_revalidate = new Set<string>(expanded_caller_uris);
+        if (scope_resolver) {
+            for (const my_caller_uri of expanded_caller_uris) {
                 const backward_dependents = scope_resolver.get_transitive_backward_directive_children(my_caller_uri);
                 for (const my_dependent_uri of backward_dependents) {
                     all_uris_to_revalidate.add(my_dependent_uri);
@@ -427,7 +477,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         // This is necessary because the file cache may have stale data from before
                         // the in-memory edit was saved to disk. The DidChangeWatchedFiles event
                         // that normally invalidates the file cache may arrive after caller revalidation.
-                        scope_resolver.invalidate_file_cache(text_document.uri);
+                        // Pass preserve_forward_call_relationships=true because we just updated them via update_reverse_dependencies.
+                        scope_resolver.invalidate_file_cache(text_document.uri, { preserve_forward_call_relationships: true });
 
                         // Log the reverse deps state for debugging
                         connection.console.log(`[reverse-deps] Reverse deps state:\n${scope_resolver.get_reverse_deps_debug_info()}`);
@@ -754,7 +805,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
     connection.onDidChangeWatchedFiles(
         create_did_change_watched_files_handler(
             get_handler_dependencies(),
-            (uri: string) => URI.parse(uri).fsPath
+            (uri: string) => URI.parse(uri).fsPath,
+            async (uri: string) => {
+                // Trigger caller revalidation when a file changes on disk
+                if (scope_resolver) {
+                    const callers = scope_resolver.get_callers_for_callee(uri);
+                    if (callers.size > 0) {
+                        const settings = await get_document_settings(uri);
+                        schedule_caller_revalidation(callers, uri, settings);
+                    }
+                }
+            }
         )
     );
 
@@ -811,6 +872,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
     });
 
     connection.onExit(create_exit_handler());
+
+    // Register custom request handler for sight/getWorkingDirectory
+    connection.onRequest('sight/getWorkingDirectory', (params: GetWorkingDirectoryParams) => {
+        const deps = get_handler_dependencies();
+        return create_get_working_directory_handler(deps)(params);
+    });
 
     // Start listening
     documents.listen(connection);

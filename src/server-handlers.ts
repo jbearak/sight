@@ -620,7 +620,8 @@ export function create_exit_handler(
  */
 export function create_did_change_watched_files_handler(
     deps: HandlerDependencies,
-    parse_uri: (uri: string) => string
+    parse_uri: (uri: string) => string,
+    on_file_changed?: (uri: string) => void  // New callback for caller revalidation
 ): (params: DidChangeWatchedFilesParams) => void {
     return (params: DidChangeWatchedFilesParams): void => {
         for (const my_event of params.changes) {
@@ -651,6 +652,11 @@ export function create_did_change_watched_files_handler(
                 change_type = 'deleted';
             } else {
                 continue;
+            }
+
+            // Trigger caller revalidation for changed files
+            if (change_type === 'changed' && on_file_changed) {
+                on_file_changed(my_event.uri);
             }
 
             // Use rename handler if available, otherwise fall back to direct indexer calls
@@ -750,5 +756,37 @@ export function create_execute_command_handler(
         
         // Unknown command
         return { success: false, error: `Unknown command: ${command}` };
+    };
+}
+
+/**
+ * Interface for sight/getWorkingDirectory request parameters.
+ */
+export interface GetWorkingDirectoryParams {
+    uri: string;
+}
+
+/**
+ * Interface for sight/getWorkingDirectory request result.
+ */
+export interface GetWorkingDirectoryResult {
+    workingDirectory: string | null;
+}
+
+/**
+ * Creates the custom request handler for sight/getWorkingDirectory.
+ *
+ * @param deps - Handler dependencies
+ * @returns Handler function for sight/getWorkingDirectory requests
+ */
+export function create_get_working_directory_handler(
+    deps: HandlerDependencies
+): (params: GetWorkingDirectoryParams) => Promise<GetWorkingDirectoryResult> {
+    return async (params: GetWorkingDirectoryParams): Promise<GetWorkingDirectoryResult> => {
+        await deps.document_store.wait_for_update(params.uri);
+        const document_state = deps.document_store.get(params.uri);
+        return {
+            workingDirectory: document_state?.working_directory ?? null
+        };
     };
 }

@@ -42,3 +42,10 @@ export {
 
 // Text edit utilities
 export { apply_edits, find_command_nodes } from './text-edit-utils';
+
+// Mock TextDocument utilities
+export type { MockTextDocument } from './mock-text-document';
+export { create_mock_document } from './mock-text-document';
+
+// Mock handler dependencies utilities
+export { create_mock_handler_deps } from './mock-handler-deps';
