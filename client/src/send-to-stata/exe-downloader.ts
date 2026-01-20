@@ -28,19 +28,19 @@ export function get_windows_architecture(): 'x64' | 'arm64' {
 }
 
 export function get_executable_info(context: vscode.ExtensionContext): ExecutableInfo | null {
-    const exePath = path.join(context.globalStorageUri.fsPath, 'send-to-stata', 'send-to-stata.exe');
-    const versionPath = path.join(context.globalStorageUri.fsPath, 'send-to-stata', 'version.json');
+    const exe_path = path.join(context.globalStorageUri.fsPath, 'send-to-stata', 'send-to-stata.exe');
+    const version_path = path.join(context.globalStorageUri.fsPath, 'send-to-stata', 'version.json');
     
-    if (!fs.existsSync(exePath) || !fs.existsSync(versionPath)) {
+    if (!fs.existsSync(exe_path) || !fs.existsSync(version_path)) {
         return null;
     }
     
     try {
-        const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+        const version_data = JSON.parse(fs.readFileSync(version_path, 'utf8'));
         return {
-            path: exePath,
-            version: versionData.version,
-            architecture: versionData.architecture
+            path: exe_path,
+            version: version_data.version,
+            architecture: version_data.architecture
         };
     } catch {
         return null;
@@ -59,9 +59,9 @@ export async function prompt_download(): Promise<boolean> {
 export async function download_executable(context: vscode.ExtensionContext): Promise<DownloadResult> {
     const architecture = get_windows_architecture();
     const url = `${BASE_URL}/send-to-stata-${architecture}.exe`;
-    const storageDir = path.join(context.globalStorageUri.fsPath, 'send-to-stata');
-    const exePath = path.join(storageDir, 'send-to-stata.exe');
-    const versionPath = path.join(storageDir, 'version.json');
+    const storage_dir = path.join(context.globalStorageUri.fsPath, 'send-to-stata');
+    const exe_path = path.join(storage_dir, 'send-to-stata.exe');
+    const version_path = path.join(storage_dir, 'version.json');
     
     return vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
@@ -70,7 +70,7 @@ export async function download_executable(context: vscode.ExtensionContext): Pro
     }, async (progress) => {
         try {
             // Ensure directory exists
-            fs.mkdirSync(storageDir, { recursive: true });
+            fs.mkdirSync(storage_dir, { recursive: true });
             
             // Download file
             const data = await new Promise<Buffer>((resolve, reject) => {
@@ -80,9 +80,9 @@ export async function download_executable(context: vscode.ExtensionContext): Pro
                         return;
                     }
                     
-                    const chunks: Buffer[] = [];
-                    response.on('data', (chunk) => chunks.push(chunk));
-                    response.on('end', () => resolve(Buffer.concat(chunks)));
+                    const the_chunks: Buffer[] = [];
+                    response.on('data', (chunk) => the_chunks.push(chunk));
+                    response.on('end', () => resolve(Buffer.concat(the_chunks)));
                 }).on('error', reject);
             });
             
@@ -93,13 +93,13 @@ export async function download_executable(context: vscode.ExtensionContext): Pro
             }
             
             // Write files
-            fs.writeFileSync(exePath, data);
-            fs.writeFileSync(versionPath, JSON.stringify({
+            fs.writeFileSync(exe_path, data);
+            fs.writeFileSync(version_path, JSON.stringify({
                 version: CURRENT_EXE_VERSION,
                 architecture
             }));
             
-            return { success: true, path: exePath };
+            return { success: true, path: exe_path };
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
         }
