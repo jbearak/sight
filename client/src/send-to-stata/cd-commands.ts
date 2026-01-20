@@ -21,12 +21,12 @@ export function escape_path_for_stata(path: string): { escaped: string; use_comp
 /**
  * Compute whether CD menu should be visible based on working directory setting.
  * @param working_directory - The workingDirectory setting value
- * @returns true if CD menu should be visible (when value is 'none')
+ * @returns true if CD menu should be visible (when value is 'none' or 'lsp')
  */
 export function compute_cd_menu_visible(
     working_directory: WorkingDirectoryOption
 ): boolean {
-    return working_directory === 'none';
+    return working_directory === 'none' || working_directory === 'lsp';
 }
 
 /**

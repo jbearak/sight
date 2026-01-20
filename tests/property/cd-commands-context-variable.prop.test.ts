@@ -13,7 +13,7 @@ import { WorkingDirectoryOption } from '../../client/src/send-to-stata/commands'
 
 describe('Feature: conditional-cd-menu-items', () => {
     describe('Property 1: Context variable correctness', () => {
-        test('should return true only when working_directory is "none"', () => {
+        test('should return true when working_directory is "none" or "lsp"', () => {
             fc.assert(
                 fc.property(
                     fc.constantFrom<WorkingDirectoryOption>(
@@ -25,8 +25,8 @@ describe('Feature: conditional-cd-menu-items', () => {
                         // Result should be boolean
                         expect(typeof my_result).toBe('boolean');
                         
-                        // Result should be true iff value is 'none'
-                        if (my_working_directory === 'none') {
+                        // Result should be true for 'none' or 'lsp'
+                        if (my_working_directory === 'none' || my_working_directory === 'lsp') {
                             expect(my_result).toBe(true);
                         } else {
                             expect(my_result).toBe(false);
@@ -41,7 +41,7 @@ describe('Feature: conditional-cd-menu-items', () => {
             expect(compute_cd_menu_visible('none')).toBe(true);
             expect(compute_cd_menu_visible('file')).toBe(false);
             expect(compute_cd_menu_visible('workspace')).toBe(false);
-            expect(compute_cd_menu_visible('lsp')).toBe(false);
+            expect(compute_cd_menu_visible('lsp')).toBe(true);
         });
     });
 });
