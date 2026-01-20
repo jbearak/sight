@@ -139,10 +139,6 @@ describe('Feature: send-to-stata Windows - Property Tests', () => {
                 // Checksum validation should fail for invalid checksums
                 const is_valid = invalid_checksum === valid_checksum;
                 expect(is_valid).toBe(false);
-                
-                // Valid checksums should always pass
-                const valid_is_valid = valid_checksum === valid_checksum;
-                expect(valid_is_valid).toBe(true);
             }
         ), { numRuns: 50 });
     });
