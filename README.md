@@ -1036,39 +1036,42 @@ Standard auto-closing pairs continue to work via VS Code's language configuratio
 
 ## Send to Stata
 
-The extension provides commands to send Stata code directly from VS Code to Stata for execution, supporting both the Stata GUI application (macOS) and terminal sessions (all platforms).
+The extension provides commands to send Stata code directly from VS Code to Stata for execution, supporting both the Stata application (on Mac and Windows) and terminal sessions.
 
 ### Execution Targets
 
-- **Stata Application (macOS)**: Uses AppleScript to send code to the Stata GUI
-- **Terminal Sessions**: Sends code to VS Code's integrated terminal (works with SSH, multiple sessions, cross-platform)
+- **Stata Application**: Send code to the Stata application
+- **Terminal Sessions**: Sends code to VS Code's integrated terminal (works on Mac, Linux, Windows with WSL, and over SSH)
 
-### Send Modes
+### Keyboard Shortcuts
 
-| Mode | Description | Keyboard Shortcut |
-|------|-------------|-------------------|
-| **Statement** | Sends current statement or selection | `Cmd+Enter` (macOS) / `Ctrl+Enter` (Win/Linux) |
-| **Upward Lines** | Sends all lines from start of file to current line | - |
-| **Downward Lines** | Sends all lines from current line to end of file | - |
-| **File** | Sends entire file | `Shift+Cmd+Enter` / `Shift+Ctrl+Enter` |
+| Mac | Windows | Action |
+|-----|---------|--------|
+| `Cmd+Enter` | `Ctrl+Enter` | Send statement to Stata app |
+| `Shift+Cmd+Enter` | `Shift+Ctrl+Enter` | Send file to Stata app |
+| `Alt+Cmd+Enter` | `Alt+Ctrl+Enter` | Include statement (preserves locals) |
+| `Alt+Shift+Cmd+Enter` | `Alt+Shift+Ctrl+Enter` | Include file (preserves locals) |
+| `Alt+Enter` | `Alt+Enter` | Send statement to terminal |
+| `Alt+Shift+Enter` | `Alt+Shift+Enter` | Send file to terminal |
 
-### Execution Commands
+> [^INFO]
+> You can also access these commands via:
+> - an editor toolbar menu (`▶` button)
+  > - the command palette (`Cmd+Shift+P` on Mac, `Ctrl+Shift+P` on Windows).
 
-- **Do Command**: Executes code with isolated local macro scope (default)
-  - Keyboard: `Cmd+Enter` / `Ctrl+Enter` (statement), `Shift+Cmd+Enter` / `Shift+Ctrl+Enter` (file)
-- **Include Command**: Executes code while preserving local macro scope (useful for debugging)
-  - Keyboard: `Alt+Cmd+Enter` / `Alt+Ctrl+Enter` (statement), `Alt+Shift+Cmd+Enter` / `Alt+Shift+Ctrl+Enter` (file)
+### Additional Commands
 
-### Terminal Mode
+- **Send Upward Lines**: Sends all lines from start of file to current line
+- **Send Downward Lines**: Sends all lines from current line to end of file
+- **CD to File Folder**: Changes Stata's working directory to the current file's folder
+- **CD to Workspace Folder**: Changes Stata's working directory to the workspace root
 
-Send code to VS Code's integrated terminal instead of Stata GUI:
-- `Alt+Enter` - Send statement to terminal
-- `Alt+Shift+Enter` - Send file to terminal
-- All send modes available via toolbar menu → Terminal submenu
+> [^INFO]
+> The toolbar button (`▶`) lists all commands.
 
 ### Cursor Advancement
 
-When sending a single statement (not a selection or entire file), the cursor automatically advances to the next line. This enables efficient line-by-line execution.
+By default, the cursor advances to the next line when it sends a single statement (not a selection or entire file) to Stata.
 
 **Configuration**: `sight.sendToStata.advanceCursorOnSend` (default: `true`)
 
