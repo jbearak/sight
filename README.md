@@ -8,14 +8,22 @@ An open source [Language Server Protocol (LSP)](https://github.com/Microsoft/lan
 
 > **🚀 Quick Start:** Download from the [releases page](https://github.com/jbearak/sight/releases), or clone the repo and run `./setup.sh` to build from source. See [Installation](#installation) for details.
 
+Sight provides Stata language support for VS Code, its forks (Antigravity, Cursor, Kiro, Positron, and Windsurf), and Zed. This repository, [Sight](https://github.com/jbearak/sight) contains the language server, editor extension, and TextMate grammar. The corresponding Zed extension is in [zed-stata](https://github.com/jbearak/zed-stata), and the tree-sitter grammar is in [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata). Like the language server, the grammar can be used in any editor.
+
 ## Features
 
-- **Completions**: Context-aware completions for commands, options, macros, and variables.
+### Language Server:
+- **Code Completion**: Context-aware completions for commands, options, macros, and variables.
 - **Diagnostics**: Real-time syntax error detection and undefined macro warnings.
 - **Go-to-Definition**: Jump to definitions of local/global macros and programs across the workspace.
-- **Syntax Highlighting**: Rich syntax highlighting with unique features like macro/string nesting depth coloring.
-- **Send to Stata**: Execute code directly in Stata GUI (macOS) or terminal sessions with intelligent statement detection and working directory management. See [Send to Stata](#send-to-stata) for details.
 - **Workspace Symbols**: Search for symbols across the entire workspace.
+
+### Editor Extension:
+
+The editor extension enables language server features and further provides:
+
+- **Run Code**: Execute code in the Stata application or terminal with intelligent statement detection and working directory management. See [Send to Stata](#send-to-stata) for details.
+- **Syntax Highlighting**: Rich syntax highlighting with unique features like macro/string nesting depth coloring.
 - **Quote Auto-Close**: Intelligently handles Stata's unique conventions for nested macros and compound strings.
 
 ### Examples
@@ -1105,15 +1113,9 @@ A toolbar button (▶) appears in the editor title bar for Stata files, providin
 | `sight.sendToStata.workingDirectory` | enum | `"lsp"` | Working directory mode: "lsp", "none", "file", or "workspace" |
 | `sight.sendToStata.focusStataWindow` | boolean | `false` | Switch focus to Stata after sending code |
 
-### Platform Support
-
-- **macOS**: Full support (Stata GUI + terminal)
-- **Linux**: Terminal mode only (Stata GUI requires macOS AppleScript)
-- **Windows**: Terminal mode for WSL and SSH sessions (Stata does not provide a native Windows command-line binary; the GUI-only Windows version is not supported)
-
 ## Experimental Features (Not Ready for Use)
 
-**⚠️ Warning:** The following features (Pretty Printer and Comment Formatter) exist in the codebase but are currently **in development and untested**. They are not recommended for production use at this time.
+**⚠️ Warning:** The following features (Pretty Printer and Comment Formatter) exist in the codebase but are not recommended for production use at this time.
 
 ### Formatting
 
