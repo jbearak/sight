@@ -11,9 +11,9 @@ const MAX_RETRY_ATTEMPTS = 5;
 
 export async function create_temp_file(content: string): Promise<string> {
     for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
-        const timestamp = Date.now();
-        const random = crypto.randomInt(0, 1000000);
-        const filename = `stata_send_${timestamp}_${random}.do`;
+        const random_bytes = crypto.randomBytes(16);
+        const random_hex = random_bytes.toString('hex');
+        const filename = `stata_send_${random_hex}.do`;
         const file_path = path.join(get_temp_dir(), filename);
         
         try {

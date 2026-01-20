@@ -96,8 +96,8 @@ describe('Feature: send-to-stata - Temp File Creation Properties', () => {
         created_files.push(file_path);
 
         const filename = path.basename(file_path);
-        // Pattern: stata_send_${timestamp}_${random}.do
-        const pattern = /^stata_send_\d+_\d+\.do$/;
+        // Pattern: stata_send_${random_hex}.do (32 hex chars from 16 random bytes)
+        const pattern = /^stata_send_[0-9a-f]{32}\.do$/;
         expect(pattern.test(filename)).toBe(true);
     });
 
