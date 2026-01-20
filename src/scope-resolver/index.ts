@@ -2029,8 +2029,13 @@ export class ScopeResolver {
      * Use this for on-disk changes (watcher/rename/delete).
      * Removes all cache entries for the URI regardless of working directory.
      * Also invalidates scope caches for all callers (files that call this file via do/run/include).
+     *
+     * @param uri - The URI to invalidate
+     * @param options - Invalidation options
+     * @param options.preserve_forward_call_relationships - If true, do not clear forward call relationships.
+     *   Use this when the file cache is being invalidated during an update where relationships were just refreshed.
      */
-    invalidate_file_cache(uri: string): void {
+    invalidate_file_cache(uri: string, options?: { preserve_forward_call_relationships?: boolean }): void {
         this.log(`[invalidate_file_cache] Invalidating file cache for ${uri}`);
         // Delete all file cache entries that start with this URI
         // (handles composite keys like "uri|working_directory")
@@ -2050,7 +2055,9 @@ export class ScopeResolver {
 
         // Clear forward call relationships for this file
         // This maintains consistency between file cache and callee_to_callers map
-        this.clear_forward_call_relationships(uri);
+        if (!options?.preserve_forward_call_relationships) {
+            this.clear_forward_call_relationships(uri);
+        }
 
         // Fast path: directly invalidate scope cache for the target URI using secondary index (spec 6.2)
         let num_removed = this.invalidate_scope_cache_for_uri(uri);

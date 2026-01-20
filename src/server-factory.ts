@@ -474,7 +474,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         // This is necessary because the file cache may have stale data from before
                         // the in-memory edit was saved to disk. The DidChangeWatchedFiles event
                         // that normally invalidates the file cache may arrive after caller revalidation.
-                        scope_resolver.invalidate_file_cache(text_document.uri);
+                        // Pass preserve_forward_call_relationships=true because we just updated them via update_reverse_dependencies.
+                        scope_resolver.invalidate_file_cache(text_document.uri, { preserve_forward_call_relationships: true });
 
                         // Log the reverse deps state for debugging
                         connection.console.log(`[reverse-deps] Reverse deps state:\n${scope_resolver.get_reverse_deps_debug_info()}`);
