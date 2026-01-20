@@ -31,6 +31,7 @@ export async function ensure_executable(context: vscode.ExtensionContext): Promi
             return null;
         }
         
+        vscode.window.showInformationMessage('Send-to-stata helper downloaded successfully.');
         info = get_executable_info(context);
         if (!info) {
             return null;
@@ -100,14 +101,14 @@ export async function send_to_stata_windows(
     }
     
     return new Promise((resolve, reject) => {
-        const process = child_process.spawn(exe_path, args);
+        const child = child_process.spawn(exe_path, args);
         let stderr_data = '';
         
-        process.stderr.on('data', (data) => {
+        child.stderr.on('data', (data) => {
             stderr_data += data.toString();
         });
         
-        process.on('close', (code) => {
+        child.on('close', (code) => {
             if (code === 0) {
                 resolve();
             } else {
@@ -128,7 +129,7 @@ export async function send_to_stata_windows(
             }
         });
         
-        process.on('error', (error) => {
+        child.on('error', (error) => {
             reject(new Error(`Failed to spawn process: ${error.message}`));
         });
     });
