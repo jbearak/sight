@@ -13,7 +13,7 @@ export interface WindowsSendResult {
     error_message?: string;
 }
 
-async function ensure_executable(context: vscode.ExtensionContext): Promise<string | null> {
+export async function ensure_executable(context: vscode.ExtensionContext): Promise<string | null> {
     let info = get_executable_info(context);
     
     if (!info) {

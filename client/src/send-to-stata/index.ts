@@ -48,3 +48,8 @@ export {
     initialize_cd_context,
     register_cd_commands
 } from './cd-context';
+
+export {
+    send_to_stata_windows,
+    ensure_executable
+} from './windows-sender';

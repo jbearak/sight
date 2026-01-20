@@ -12,6 +12,7 @@ import {
     send_to_terminal,
     StataCommand
 } from './index';
+import { send_to_stata_windows } from './windows-sender';
 import { compute_cursor_position } from './cursor-advance-core';
 import { escape_path_for_stata } from './cd-commands';
 
@@ -110,7 +111,8 @@ export async function prepare_content_with_cd(
 async function handle_send_command(
     mode: 'statement' | 'upward' | 'downward' | 'file',
     command: StataCommand,
-    target: 'app' | 'terminal'
+    target: 'app' | 'terminal',
+    context: vscode.ExtensionContext
 ): Promise<void> {
     const my_editor = vscode.window.activeTextEditor;
     if (!my_editor) {
@@ -161,27 +163,24 @@ async function handle_send_command(
 
         if (target === 'app') {
             if (process.platform === 'win32') {
+                await send_to_stata_windows(command, my_temp_file, context);
+            } else if (process.platform !== 'darwin') {
                 vscode.window.showErrorMessage(
-                    'Windows support coming soon. Use terminal mode for now.');
-                return;
-            }
-            if (process.platform !== 'darwin') {
-                vscode.window.showErrorMessage(
-                    'Stata application mode is only available on macOS. ' +
+                    'Stata application mode is only available on macOS and Windows. ' +
                     'Use terminal mode instead.');
                 return;
+            } else {
+                const my_stata_app = await detect_stata_app();
+                if (!my_stata_app) {
+                    vscode.window.showErrorMessage(
+                        'Stata not found. Install Stata in /Applications/Stata/ or ' +
+                        'configure sight.sendToStata.stataApp setting.');
+                    return;
+                }
+                
+                await send_to_stata_app(my_stata_app, command, my_temp_file, 
+                    my_config.get<boolean>('focusStataWindow', false));
             }
-            
-            const my_stata_app = await detect_stata_app();
-            if (!my_stata_app) {
-                vscode.window.showErrorMessage(
-                    'Stata not found. Install Stata in /Applications/Stata/ or ' +
-                    'configure sight.sendToStata.stataApp setting.');
-                return;
-            }
-            
-            await send_to_stata_app(my_stata_app, command, my_temp_file, 
-                my_config.get<boolean>('focusStataWindow', false));
         } else {
             await send_to_terminal(command, my_temp_file);
         }
@@ -220,7 +219,8 @@ export function register_send_to_stata_commands(
             () => handle_send_command(
                 my_mode,
                 my_command,
-                my_target
+                my_target,
+                context
             )
         );
         context.subscriptions.push(my_disposable);
