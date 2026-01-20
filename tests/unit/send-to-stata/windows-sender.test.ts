@@ -64,7 +64,7 @@ describe('Windows Sender Module - Pure Functions', () => {
                 case 2: return 'File not found';
                 case 3: return 'Failed to create temp file';
                 case 4: return 'No running Stata instance found. Start Stata before sending code.';
-                case 5: return 'Failed to send keystrokes. Ensure Stata is not running as Administrator.';
+                case 5: return 'Failed to activate Stata window. This may be due to focus-stealing prevention. Ensure Stata is not running as Administrator.';
                 default: return stderr || `Unknown error (exit code ${code})`;
             }
         }
@@ -86,7 +86,7 @@ describe('Windows Sender Module - Pure Functions', () => {
         });
 
         it('should map exit code 5 to keystroke failure', () => {
-            expect(map_exit_code_to_message_test(5, '')).toBe('Failed to send keystrokes. Ensure Stata is not running as Administrator.');
+            expect(map_exit_code_to_message_test(5, '')).toBe('Failed to activate Stata window. This may be due to focus-stealing prevention. Ensure Stata is not running as Administrator.');
         });
 
         it('should return stderr for unknown exit codes when stderr is provided', () => {
@@ -209,7 +209,7 @@ describe('Windows Sender Module - Pure Functions', () => {
                 case 2: return 'File not found';
                 case 3: return 'Failed to create temp file';
                 case 4: return 'No running Stata instance found. Start Stata before sending code.';
-                case 5: return 'Failed to send keystrokes. Ensure Stata is not running as Administrator.';
+                case 5: return 'Failed to activate Stata window. This may be due to focus-stealing prevention. Ensure Stata is not running as Administrator.';
                 default: return stderr || `Unknown error (exit code ${code})`;
             }
         }

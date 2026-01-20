@@ -19,6 +19,9 @@ export async function ensure_executable(context: vscode.ExtensionContext): Promi
     if (!info) {
         const should_download = await prompt_download();
         if (!should_download) {
+            vscode.window.showInformationMessage(
+                'Windows app mode requires the helper executable. Use terminal mode instead, or try again to download.'
+            );
             return null;
         }
         
@@ -61,7 +64,7 @@ export function map_exit_code_to_message(code: number, stderr: string): string {
         case 2: return 'File not found';
         case 3: return 'Failed to create temp file';
         case 4: return 'No running Stata instance found. Start Stata before sending code.';
-        case 5: return 'Failed to send keystrokes. Ensure Stata is not running as Administrator.';
+        case 5: return 'Failed to activate Stata window. This may be due to focus-stealing prevention. Ensure Stata is not running as Administrator.';
         default: return stderr || `Unknown error (exit code ${code})`;
     }
 }
