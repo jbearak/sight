@@ -10,6 +10,20 @@ The Windows implementation follows a hybrid architecture:
 - **TypeScript layer**: Handles VS Code integration, user prompts, download management, and command orchestration
 - **Native executable**: Handles Win32 API calls for window management, clipboard, and keystrokes
 
+### Cross-Platform Code Reuse
+
+The following existing code is shared between macOS and Windows (Requirement 10):
+- **Statement detection** (`statement-detector.ts`): Multi-line statement parsing with `///` continuations
+- **Temp file creation** (`temp-file.ts`): Creates temporary `.do` files
+- **Terminal mode** (`terminal.ts`): Sends commands to VS Code integrated terminal
+- **Cursor advancement** (`cursor-advance-core.ts`): Advances cursor after single-line sends
+- **Path escaping** (`commands.ts`): `escape_path_for_stata()` handles Windows backslashes
+- **Working directory resolution**: LSP integration for `@lsp-cd` directives
+
+Only the GUI application interaction differs between platforms:
+- macOS: AppleScript via `applescript.ts`
+- Windows: Native executable via `windows-sender.ts`
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    VS Code Extension (TypeScript)                │
@@ -319,6 +333,19 @@ const storage_path = context.globalStorageUri.fsPath;
 5. If "Update": download new version
 ```
 
+## Send Mode Support
+
+All four send modes are supported on Windows through the shared TypeScript infrastructure (Requirement 4):
+
+| Mode | Description | Implementation |
+|------|-------------|----------------|
+| `statement` | Current statement or selection | `statement-detector.ts` finds boundaries, writes to temp file |
+| `upward` | Line 1 to cursor | Extracts text range, writes to temp file |
+| `downward` | Cursor to end of file | Extracts text range, writes to temp file |
+| `file` | Entire file | Writes full content to temp file |
+
+Both `do` and `include` commands are supported via the `-Include` flag passed to the executable.
+
 ## Executable Invocation
 
 The TypeScript layer spawns the executable with arguments matching the zed-stata CLI:
@@ -596,3 +623,24 @@ A downloaded file with mismatched checksum must never be saved to storage.
 2. **Checksum verification**: SHA-256 checksums prevent tampering
 3. **Trusted source**: Downloads only from official GitHub releases
 4. **No code execution during download**: Executable only runs after user-initiated command
+
+## Requirements Traceability
+
+| Requirement | Design Section |
+|-------------|----------------|
+| 1. Windows Platform Detection | Architecture Overview, Modified Files (commands.ts) |
+| 2. Stata Instance Detection | Executable Invocation, Error Handling |
+| 3. Send Code to Stata GUI | Executable Invocation |
+| 4. Support All Send Modes | Send Mode Support |
+| 5. Focus Management | Configuration, Executable Invocation |
+| 6. Path Escaping | Cross-Platform Code Reuse (existing code) |
+| 7. Working Directory Support | Cross-Platform Code Reuse (existing code) |
+| 8. Error Handling | Error Handling |
+| 9. Implementation Approach | Implementation Approach Decision |
+| 10. Cross-Platform Code Preservation | Cross-Platform Code Reuse |
+| 11. Configuration Compatibility | Configuration |
+| 12. On-Demand Download | Download Infrastructure, User Experience Flow |
+| 13. Executable Updates | Version Management |
+| 14. Focus Stata Window Setting | Configuration |
+| 15. macOS StataBE Support | Modified Files (applescript.ts) |
+| 16. Automation Registration | Error Handling (Stata Automation Registration) |
