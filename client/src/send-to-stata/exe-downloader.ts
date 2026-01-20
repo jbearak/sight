@@ -16,8 +16,8 @@ export interface DownloadResult {
     error?: string;
 }
 
-const CURRENT_EXE_VERSION = '0.1.11';
-const CHECKSUMS: Record<string, string> = {
+export const CURRENT_EXE_VERSION = '0.1.11';
+export const CHECKSUMS: Record<string, string> = {
     'x64':   '2c7becace23c10f4f888f7f61eedfde8108f4e16ce21c1f8a8b625038a22c1d6',
     'arm64': 'aa1fd6dfd2e14bcc2fdb2d06b4ca950ef5ecd5891bd7de0a833b12dc46feb20a',
 };

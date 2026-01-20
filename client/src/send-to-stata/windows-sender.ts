@@ -55,7 +55,7 @@ export async function ensure_executable(context: vscode.ExtensionContext): Promi
     return info.path;
 }
 
-function map_exit_code_to_message(code: number, stderr: string): string {
+export function map_exit_code_to_message(code: number, stderr: string): string {
     switch (code) {
         case 1: return 'Invalid arguments';
         case 2: return 'File not found';
@@ -66,7 +66,7 @@ function map_exit_code_to_message(code: number, stderr: string): string {
     }
 }
 
-function check_automation_error(stderr: string): boolean {
+export function check_automation_error(stderr: string): boolean {
     const lower = stderr.toLowerCase();
     return lower.includes('automation') || 
            lower.includes('80040154') || 
