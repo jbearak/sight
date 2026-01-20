@@ -280,3 +280,4 @@ describe('Feature: send-to-stata Windows - Property Tests', () => {
         ), { numRuns: 30 });
     });
 });
+

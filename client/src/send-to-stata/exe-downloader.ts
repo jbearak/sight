@@ -110,3 +110,4 @@ export function check_for_updates(context: vscode.ExtensionContext): boolean {
     const info = get_executable_info(context);
     return info ? info.version !== CURRENT_EXE_VERSION : true;
 }
+

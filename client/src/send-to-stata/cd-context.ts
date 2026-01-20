@@ -113,31 +113,36 @@ export async function execute_cd_command(
     const cd_command = format_cd_command(directory_path);
     const temp_file_path = await create_temp_file(cd_command);
     
-    if (target === 'app') {
-        if (process.platform === 'darwin') {
-            const stata_app = await detect_stata_app();
-            if (!stata_app) {
+    try {
+        if (target === 'app') {
+            if (process.platform === 'darwin') {
+                const stata_app = await detect_stata_app();
+                if (!stata_app) {
+                    vscode.window.showErrorMessage(
+                        'Stata not found. Install Stata in /Applications/Stata/ or ' +
+                        'configure sight.sendToStata.stataApp setting.'
+                    );
+                    return;
+                }
+                
+                const config = vscode.workspace.getConfiguration('sight.sendToStata');
+                const focus_stata = config.get<boolean>('focusStataWindow', false);
+                await send_to_stata_app(stata_app, 'do', temp_file_path, focus_stata);
+            } else if (process.platform === 'win32') {
+                const { send_to_stata_windows } = await import('./windows-sender');
+                await send_to_stata_windows('do', temp_file_path, context);
+            } else {
                 vscode.window.showErrorMessage(
-                    'Stata not found. Install Stata in /Applications/Stata/ or ' +
-                    'configure sight.sendToStata.stataApp setting.'
+                    'Stata application mode is only available on macOS and Windows. ' +
+                    'Use terminal mode instead.'
                 );
                 return;
             }
-            
-            const config = vscode.workspace.getConfiguration('sight.sendToStata');
-            const focus_stata = config.get<boolean>('focusStataWindow', false);
-            await send_to_stata_app(stata_app, 'do', temp_file_path, focus_stata);
-        } else if (process.platform === 'win32') {
-            const { send_to_stata_windows } = await import('./windows-sender');
-            await send_to_stata_windows('do', temp_file_path, context);
         } else {
-            vscode.window.showErrorMessage(
-                'Stata application mode is only available on macOS and Windows. ' +
-                'Use terminal mode instead.'
-            );
-            return;
+            await send_to_terminal('do', temp_file_path);
         }
-    } else {
-        await send_to_terminal('do', temp_file_path);
+    } catch (my_error) {
+        vscode.window.showErrorMessage(
+            `Error: ${my_error instanceof Error ? my_error.message : my_error}`);
     }
 }
