@@ -158,10 +158,11 @@ This brings the send-to-Stata functionality from the sight-zed extension to VS C
 
 1. THE Extension SHALL provide `sight.sendToStata.stataApp` setting to override Stata variant (string, macOS only)
 2. THE Extension SHALL provide `sight.sendToStata.saveBeforeSend` setting to control auto-save behavior (default: true)
-3. THE Extension SHALL provide `sight.sendToStata.workingDirectory` setting with options: "none" (default), "file", or "workspace"
-4. WHEN `workingDirectory` is "file", THE Extension SHALL prepend `cd "{file_directory}"` to the temp file
-5. WHEN `workingDirectory` is "workspace", THE Extension SHALL prepend `cd "{workspace_root}"` to the temp file
-6. WHEN `workingDirectory` is "none", THE Extension SHALL not modify the working directory
+3. THE Extension SHALL provide `sight.sendToStata.workingDirectory` setting with options: "lsp" (default), "none", "file", or "workspace"
+4. WHEN `workingDirectory` is "lsp", THE Extension SHALL query the LSP server for the working directory from `@lsp-cd`, `@lsp-working-directory`, or `@lsp-wd` directives (or inherited from parent files), and prepend `cd "{directory}"` if a working directory is found
+5. WHEN `workingDirectory` is "file", THE Extension SHALL prepend `cd "{file_directory}"` to the temp file
+6. WHEN `workingDirectory` is "workspace", THE Extension SHALL prepend `cd "{workspace_root}"` to the temp file
+7. WHEN `workingDirectory` is "none", THE Extension SHALL not modify the working directory
 
 ### Requirement 12: Temporary File Management
 

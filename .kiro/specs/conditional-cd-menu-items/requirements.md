@@ -2,11 +2,11 @@
 
 ## Introduction
 
-This feature adds conditional menu items to the Sight VS Code extension's "Send to Stata" toolbar menu. When the `sight.sendToStata.workingDirectory` setting is set to `"none"` (the default), two new menu items will appear allowing users to quickly change Stata's working directory to either the workspace folder or the current file's folder before executing code.
+This feature adds conditional menu items to the Sight VS Code extension's "Send to Stata" toolbar menu. When the `sight.sendToStata.workingDirectory` setting is set to `"none"`, two new menu items will appear allowing users to quickly change Stata's working directory to either the workspace folder or the current file's folder before executing code. The default setting is `"lsp"`, so the CD menu items are hidden by default.
 
 ## Glossary
 
-- **Working_Directory_Setting**: The VS Code configuration setting `sight.sendToStata.workingDirectory` that controls automatic directory changes before sending code to Stata. Valid values are `"none"`, `"file"`, or `"workspace"`.
+- **Working_Directory_Setting**: The VS Code configuration setting `sight.sendToStata.workingDirectory` that controls automatic directory changes before sending code to Stata. Valid values are `"lsp"` (default), `"none"`, `"file"`, or `"workspace"`.
 - **Toolbar_Menu**: The "Send to Stata" submenu that appears in the editor title bar when editing Stata files.
 - **Workspace_Folder**: The root folder of the currently open VS Code workspace.
 - **File_Folder**: The directory containing the currently active Stata file.
@@ -24,8 +24,9 @@ This feature adds conditional menu items to the Sight VS Code extension's "Send 
 2. WHEN the Working_Directory_Setting is `"none"` THEN the Toolbar_Menu SHALL display the "CD into File Folder" menu item
 3. WHEN the Working_Directory_Setting is `"file"` THEN the Toolbar_Menu SHALL NOT display the CD menu items
 4. WHEN the Working_Directory_Setting is `"workspace"` THEN the Toolbar_Menu SHALL NOT display the CD menu items
-5. WHEN the Working_Directory_Setting changes from `"none"` to another value THEN the Toolbar_Menu SHALL immediately hide the CD menu items
-6. WHEN the Working_Directory_Setting changes to `"none"` from another value THEN the Toolbar_Menu SHALL immediately show the CD menu items
+5. WHEN the Working_Directory_Setting is `"lsp"` THEN the Toolbar_Menu SHALL NOT display the CD menu items
+6. WHEN the Working_Directory_Setting changes from `"none"` to another value THEN the Toolbar_Menu SHALL immediately hide the CD menu items
+7. WHEN the Working_Directory_Setting changes to `"none"` from another value THEN the Toolbar_Menu SHALL immediately show the CD menu items
 
 ### Requirement 2: CD into Workspace Folder Command
 

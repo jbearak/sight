@@ -438,7 +438,7 @@ type SendTarget = 'app' | 'terminal';
 interface SendToStataConfig {
     stataApp?: string;           // Override Stata variant (macOS only)
     saveBeforeSend: boolean;     // Auto-save before sending (default: true)
-    workingDirectory: 'none' | 'file' | 'workspace';  // Working directory mode (default: 'none')
+    workingDirectory: 'none' | 'file' | 'workspace' | 'lsp';  // Working directory mode (default: 'lsp')
 }
 ```
 

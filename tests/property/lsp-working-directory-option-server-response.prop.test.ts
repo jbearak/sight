@@ -42,10 +42,12 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                     async (uri) => {
                         // Use a workspace-relative path that exists (tmp directory under workspace root)
                         const workspace_root = os.tmpdir();
-                        const workspace_relative_path = '/tmp'; // This will resolve to workspace_root + 'tmp'
+                        // Workspace-relative path portion (the directive parser uses leading '/' as the
+                        // workspace-relative marker, which gets stripped during parsing)
+                        const workspace_relative_path = 'tmp';
                         
                         // Create the directory to ensure it exists
-                        const target_dir = path.join(workspace_root, 'tmp');
+                        const target_dir = path.join(workspace_root, workspace_relative_path);
                         if (!fs.existsSync(target_dir)) {
                             fs.mkdirSync(target_dir, { recursive: true });
                         }
@@ -76,7 +78,8 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         };
 
                         // Open document with working directory directive using workspace-relative path
-                        const content_with_directive = `// @lsp-cd: "${workspace_relative_path}"\ngen x = 1`;
+                        // (leading '/' marks it as workspace-relative in the directive syntax)
+                        const content_with_directive = `// @lsp-cd: "/${workspace_relative_path}"\ngen x = 1`;
                         await document_store.open(uri, content_with_directive, 1);
 
                         // Create handler and test
@@ -236,10 +239,12 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                     async (uri) => {
                         // Use workspace-relative path that exists
                         const workspace_root = os.tmpdir();
-                        const workspace_relative_path = '/tmp';
+                        // Workspace-relative path portion (the directive parser uses leading '/' as the
+                        // workspace-relative marker, which gets stripped during parsing)
+                        const workspace_relative_path = 'tmp';
                         
                         // Create the directory to ensure it exists
-                        const target_dir = path.join(workspace_root, 'tmp');
+                        const target_dir = path.join(workspace_root, workspace_relative_path);
                         if (!fs.existsSync(target_dir)) {
                             fs.mkdirSync(target_dir, { recursive: true });
                         }
@@ -276,8 +281,9 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         const handler = create_get_working_directory_handler(deps);
                         
                         // Start an update that adds working directory directive
+                        // (leading '/' marks it as workspace-relative in the directive syntax)
                         const update_promise = document_store.update(uri, [{
-                            text: `// @lsp-cd: "${workspace_relative_path}"\ngen x = 1`
+                            text: `// @lsp-cd: "/${workspace_relative_path}"\ngen x = 1`
                         }], 2);
 
                         // Call handler while update is in progress
