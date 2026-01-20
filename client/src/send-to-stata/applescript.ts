@@ -42,8 +42,10 @@ export function send_to_stata_app(
         let applescript_cmd = `tell application "${stata_app}" to ` +
             `DoCommandAsync "${command} \\"${escaped_path}\\""`;
         
-        if (!focus_stata) {
-            applescript_cmd += `\ntell application "Visual Studio Code" to activate`;
+        // Only activate Stata if requested; otherwise focus stays in the calling
+        // app naturally (no need to explicitly activate the editor by name)
+        if (focus_stata) {
+            applescript_cmd += `\ntell application "${stata_app}" to activate`;
         }
         
         // Shell escaping for single quotes using POSIX-standard pattern: '\''

@@ -433,7 +433,7 @@ This setting applies to both Windows and macOS.
 
 ### macOS Implementation
 
-On macOS, focus management is handled via AppleScript after the `DoCommandAsync` call:
+On macOS, focus management is handled via AppleScript after the `DoCommandAsync` call. When `focusStataWindow` is true, we explicitly activate Stata. When false (default), we do nothing—focus naturally stays in the calling app, so there's no need to activate VS Code by name (which would also be fragile since the app may be named differently, e.g., "Code", "Visual Studio Code - Insiders").
 
 ```typescript
 // In applescript.ts - updated send_to_stata_app function
@@ -450,9 +450,10 @@ export function send_to_stata_app(
         let applescript_cmd = `tell application "${stata_app}" to ` +
             `DoCommandAsync "${command} \\"${escaped_path}\\""`;
         
-        // If not focusing Stata, activate VS Code after sending
-        if (!focus_stata) {
-            applescript_cmd += `\ntell application "Visual Studio Code" to activate`;
+        // Only activate Stata if requested; otherwise focus stays in the
+        // calling app naturally (no need to explicitly activate VS Code)
+        if (focus_stata) {
+            applescript_cmd += `\ntell application "${stata_app}" to activate`;
         }
         
         const shell_safe_cmd = applescript_cmd.replace(/'/g, "'\\''");

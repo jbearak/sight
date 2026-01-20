@@ -203,7 +203,7 @@
         "sight.sendToStata.focusStataWindow": {
           "type": "boolean",
           "default": false,
-          "description": "Switch focus to Stata after sending code. When false (default), focus stays in VS Code."
+          "description": "Switch focus to Stata after sending code. When false (default), focus stays in the editor."
         },
         "sight.sendToStata.saveBeforeSend": {
           "type": "boolean",
