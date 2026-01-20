@@ -72,18 +72,35 @@ export async function download_executable(context: vscode.ExtensionContext): Pro
             // Ensure directory exists
             fs.mkdirSync(storage_dir, { recursive: true });
             
-            // Download file
+            // Download file with timeout and size limits
             const data = await new Promise<Buffer>((resolve, reject) => {
-                https.get(url, (response) => {
+                const max_size_bytes = 5 * 1024 * 1024; // 5MB limit
+                let total_size = 0;
+                
+                const request = https.get(url, { timeout: 30000 }, (response) => {
                     if (response.statusCode !== 200) {
                         reject(new Error(`HTTP ${response.statusCode}`));
                         return;
                     }
                     
                     const the_chunks: Buffer[] = [];
-                    response.on('data', (chunk) => the_chunks.push(chunk));
+                    response.on('data', (chunk) => {
+                        total_size += chunk.length;
+                        if (total_size > max_size_bytes) {
+                            request.destroy();
+                            reject(new Error('Download size exceeds 5MB limit'));
+                            return;
+                        }
+                        the_chunks.push(chunk);
+                    });
                     response.on('end', () => resolve(Buffer.concat(the_chunks)));
-                }).on('error', reject);
+                });
+                
+                request.on('timeout', () => {
+                    request.destroy();
+                    reject(new Error('Download timeout'));
+                });
+                request.on('error', reject);
             });
             
             // Verify checksum
