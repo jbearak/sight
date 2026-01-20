@@ -1,6 +1,11 @@
 import { exec } from 'child_process';
 import { StataVariant, StataCommand } from './index';
 
+const VALID_STATA_APPS: readonly StataVariant[] = [
+    'StataMP', 'StataSE', 'StataIC', 'Stata'
+];
+const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
+
 /**
  * Escapes a path for use in AppleScript string.
  */
@@ -16,6 +21,21 @@ export function send_to_stata_app(
     command: StataCommand,
     temp_file_path: string
 ): Promise<void> {
+    // Validate stata_app against allowed values
+    if (!VALID_STATA_APPS.includes(stata_app)) {
+        return Promise.reject(new Error(
+            `Invalid Stata application: "${stata_app}". ` +
+            `Must be one of: ${VALID_STATA_APPS.join(', ')}`
+        ));
+    }
+    
+    // Validate command against allowed values
+    if (!VALID_COMMANDS.includes(command)) {
+        return Promise.reject(new Error(
+            `Invalid command: "${command}". Must be one of: ${VALID_COMMANDS.join(', ')}`
+        ));
+    }
+    
     return new Promise((resolve, reject) => {
         const escaped_path = escape_for_applescript(temp_file_path);
         const applescript_cmd = `tell application "${stata_app}" to ` +

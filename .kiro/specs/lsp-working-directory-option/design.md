@@ -217,7 +217,9 @@ Based on the prework analysis, the following properties can be tested:
 - The inherited working directory if the document has backward directives (`@lsp-done-by`, `@lsp-included-by`) and a parent has a working directory
 - `null` if no working directory is set or inherited
 
-**Validates: Requirements 2.2, 2.3, 2.4, 2.5, 2.6**
+#### Validates
+
+Requirements 2.2, 2.3, 2.4, 2.5, 2.6
 
 ### Property 2: Content Transformation Correctness
 
@@ -225,7 +227,9 @@ Based on the prework analysis, the following properties can be tested:
 - If the response contains a valid working directory path, the transformed content SHALL have a `cd "path"` command prepended
 - If the response is `null`, the content SHALL remain unchanged
 
-**Validates: Requirements 3.2, 3.3**
+#### Validates
+
+Requirements 3.2, 3.3
 
 ### Property 3: Backward Compatibility
 
@@ -234,7 +238,9 @@ Based on the prework analysis, the following properties can be tested:
 - "file": `cd` to document's directory prepended
 - "workspace": `cd` to workspace root prepended
 
-**Validates: Requirements 1.4**
+#### Validates
+
+Requirements 1.4
 
 ## Error Handling
 

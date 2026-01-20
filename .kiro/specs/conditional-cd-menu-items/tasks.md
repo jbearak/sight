@@ -28,8 +28,9 @@ This plan implements conditional "CD into Workspace Folder" and "CD into File Fo
   
   - [x] 2.2 Write property test for context variable correctness
     - **Property 1: Context variable correctness**
-    - For any workingDirectory value, context should be true iff value === 'none'
-    - **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 5.1, 5.3**
+    - For any workingDirectory value ('none', 'file', 'workspace', 'lsp'), context should be true iff value === 'none'
+    - `sight.cdMenuVisible` should be `true` iff `workingDirectory === "none"`
+    - **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 5.1, 5.3**
 
 - [x] 3. Implement CD command handlers
   - [x] 3.1 Create `get_target_directory` function

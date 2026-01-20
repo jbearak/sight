@@ -125,7 +125,7 @@ function get_temp_dir(): string;
 
 **Behavior:**
 - Creates files in `os.tmpdir()` (cross-platform)
-- Uses pattern: `stata_send_${timestamp}_${random}.do`
+- Uses pattern: `stata_send_${random_hex}.do` (32 hex chars from cryptographically secure random bytes)
 - Does NOT delete files (Stata needs time to read them)
 - Files accumulate and require periodic manual cleanup
 
@@ -438,7 +438,7 @@ type SendTarget = 'app' | 'terminal';
 interface SendToStataConfig {
     stataApp?: string;           // Override Stata variant (macOS only)
     saveBeforeSend: boolean;     // Auto-save before sending (default: true)
-    workingDirectory: 'none' | 'file' | 'workspace';  // Working directory mode (default: 'none')
+    workingDirectory: 'none' | 'file' | 'workspace' | 'lsp';  // Working directory mode (default: 'lsp')
 }
 ```
 

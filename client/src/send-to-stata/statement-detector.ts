@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import { StatementBounds } from './index';
+
+export interface StatementBounds {
+    start_line: number;  // 0-indexed, inclusive
+    end_line: number;    // 0-indexed, inclusive
+}
 
 export function ends_with_continuation(line: string): boolean {
     return line.trimEnd().endsWith('///');

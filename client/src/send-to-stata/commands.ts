@@ -13,6 +13,7 @@ import {
     StataCommand
 } from './index';
 import { compute_cursor_position } from './cursor-advance-core';
+import { escape_path_for_stata } from './cd-commands';
 
 export type WorkingDirectoryOption = 'none' | 'file' | 'workspace' | 'lsp';
 
@@ -97,9 +98,13 @@ export async function prepare_content_with_cd(
         directory = workspace_folder?.uri.fsPath ?? path.dirname(document.uri.fsPath);
     }
     
-    // Escape quotes in path for Stata
-    const escaped_dir = directory.replace(/"/g, '\\"');
-    return `cd "${escaped_dir}"\n${content}`;
+    // Escape path for Stata using proper escaping (handles backslashes and quotes)
+    const { escaped, use_compound } = escape_path_for_stata(directory);
+    if (use_compound) {
+        return `cd \`"${escaped}"'\n${content}`;
+    } else {
+        return `cd "${escaped}"\n${content}`;
+    }
 }
 
 async function handle_send_command(

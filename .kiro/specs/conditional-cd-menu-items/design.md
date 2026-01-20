@@ -2,7 +2,7 @@
 
 ## Overview
 
-This design describes the implementation of conditional "CD into Workspace Folder" and "CD into File Folder" menu items in the Sight VS Code extension. These menu items appear in the "Send to Stata" toolbar menu only when the `sight.sendToStata.workingDirectory` setting is set to `"none"`.
+This design describes the implementation of conditional "CD into Workspace Folder" and "CD into File Folder" menu items in the Sight VS Code extension. These menu items appear in the "Send to Stata" toolbar menu only when the `sight.sendToStata.workingDirectory` setting is set to `"none"`. The default setting is `"lsp"`, so the CD menu items are hidden by default.
 
 The implementation leverages VS Code's context variable system (`setContext`) to dynamically control menu visibility through `when` clauses in `package.json`. This approach ensures the menu items respond immediately to configuration changes without requiring extension reload.
 
@@ -55,7 +55,7 @@ interface ContextManager {
      * Update context variable when configuration changes.
      * @param new_value - The new workingDirectory setting value
      */
-    update(new_value: 'none' | 'file' | 'workspace'): void;
+    update(new_value: 'none' | 'file' | 'workspace' | 'lsp'): void;
 }
 ```
 
@@ -63,7 +63,7 @@ interface ContextManager {
 
 The context variable `sight.cdMenuVisible` will be:
 - `true` when `workingDirectory === 'none'`
-- `false` otherwise
+- `false` when `workingDirectory` is `'lsp'`, `'file'`, or `'workspace'`
 
 ### 2. CD Commands Module
 
@@ -185,9 +185,9 @@ interface CDCommandArgs {
 
 ### Property 1: Context Variable Correctness
 
-*For any* value of the `workingDirectory` setting (`'none'`, `'file'`, or `'workspace'`), the context variable `sight.cdMenuVisible` SHALL be `true` if and only if the setting value equals `'none'`.
+*For any* value of the `workingDirectory` setting (`'none'`, `'file'`, `'workspace'`, or `'lsp'`), the context variable `sight.cdMenuVisible` SHALL be `true` if and only if the setting value equals `'none'`.
 
-**Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 5.1, 5.3**
+**Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 5.1, 5.3**
 
 ### Property 2: CD Command Path Correctness
 
