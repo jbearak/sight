@@ -41,8 +41,12 @@ export function send_to_stata_app(
         const applescript_cmd = `tell application "${stata_app}" to ` +
             `DoCommandAsync "${command} \\"${escaped_path}\\""`;
         
-        // Use single quotes for shell to avoid escaping issues with double quotes
-        // in the AppleScript command. Single quotes in the path are escaped.
+        // Shell escaping for single quotes using POSIX-standard pattern: '\''
+        // This works by: ending the single-quoted string ('), adding an escaped
+        // single quote (\\'), then starting a new single-quoted string (').
+        // Example: "user's" becomes 'user'\''s' which the shell interprets as: user's
+        // This is safe because the entire command is wrapped in single quotes,
+        // preventing any shell interpretation of special characters.
         const shell_safe_cmd = applescript_cmd.replace(/'/g, "'\\''");
         exec(`osascript -e '${shell_safe_cmd}'`, (error) => {
             if (error) {

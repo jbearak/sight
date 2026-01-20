@@ -177,4 +177,36 @@ describe('Feature: send-to-stata - AppleScript Properties', () => {
         const escaped = escape_for_applescript(unicode_path);
         expect(escaped).toBe(unicode_path);
     });
+
+    test('Property 4: Shell escaping handles single quotes in AppleScript command', () => {
+        // The shell_safe_cmd escaping uses '\\'' pattern to escape single quotes
+        // This is the standard POSIX way to include a single quote in a single-quoted string:
+        // 1. End current single-quoted string (')
+        // 2. Add escaped single quote (\')
+        // 3. Start new single-quoted string (')
+        
+        // Simulate the shell escaping logic from send_to_stata_app
+        const applescript_with_quote = `tell application "Stata" to DoCommandAsync "do \\"/tmp/user's file.do\\""`;
+        const shell_safe_cmd = applescript_with_quote.replace(/'/g, "'\\''");
+        
+        // The single quote should be escaped as '\'' (4 chars: ' \ ' ')
+        expect(shell_safe_cmd).toContain("'\\''");
+        
+        // Verify the transformation: "user's" becomes "user'\''s"
+        expect(shell_safe_cmd).toContain("user'\\''s");
+        
+        // The original had 1 single quote, now it should have the escape sequence
+        expect(applescript_with_quote).toContain("user's");
+        expect(shell_safe_cmd).not.toContain("user's");
+    });
+
+    test('Property 3: Single quotes in paths are preserved (not AppleScript-escaped)', () => {
+        // Single quotes don't need escaping for AppleScript strings (which use double quotes)
+        // They only need shell escaping, which happens separately
+        const path_with_single_quote = "/tmp/user's file.do";
+        const escaped = escape_for_applescript(path_with_single_quote);
+        
+        // Single quote should be preserved in AppleScript escaping
+        expect(escaped).toBe(path_with_single_quote);
+    });
 });
