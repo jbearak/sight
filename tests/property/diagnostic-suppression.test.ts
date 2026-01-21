@@ -51,7 +51,6 @@ describe('Diagnostic Suppression Property Tests', () => {
                 max_indexed_files: 1000,
                 assume_call_site: 'end',
                 diagnostics: {
-                    undefined_symbol: 'warning',
                     out_of_scope: 'info',
                     missing_file: 'warning',
                 },
@@ -208,25 +207,24 @@ describe('Diagnostic Suppression Property Tests', () => {
     });
 
     /**
-     * Property: crossFile.diagnostics.undefinedSymbol = 'off' suppresses all undefined symbol diagnostics
+     * Property: diagnostics.severity.undefinedMacro = 'off' suppresses undefined macro diagnostics
      */
-    it('should suppress all undefined symbol diagnostics when crossFile.diagnostics.undefinedSymbol is off', async () => {
+    it('should suppress undefined macro diagnostics when diagnostics.severity.undefinedMacro is off', async () => {
         await fc.assert(
             fc.asyncProperty(
                 fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
-                async (macro_name: string, var_name: string) => {
-                    const content = `local result \`${macro_name}'\ngen new_var = ${var_name}`;
+                async (macro_name: string) => {
+                    const content = `local result \`${macro_name}'`;
                     const my_document = create_document_state(content);
                     
-                    // Set crossFile.diagnostics.undefinedSymbol to 'off'
+                    // Set diagnostics.severity.undefinedMacro to 'off'
                     const my_off_config = {
                         ...my_config,
-                        cross_file: {
-                            ...my_config.cross_file,
-                            diagnostics: {
-                                ...my_config.cross_file.diagnostics,
-                                undefined_symbol: 'off' as const,
+                        diagnostics: {
+                            ...my_config.diagnostics,
+                            severity: {
+                                ...my_config.diagnostics.severity,
+                                undefinedMacro: 'off' as const,
                             },
                         },
                     };
@@ -236,13 +234,12 @@ describe('Diagnostic Suppression Property Tests', () => {
                         my_off_config
                     );
                     
-                    // Should not have any undefined symbol diagnostics
-                    const undefined_symbol_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.UNDEFINED_MACRO ||
-                             d.code === StataDiagnosticCode.UNDEFINED_VARIABLE
+                    // Should not have any undefined macro diagnostics
+                    const undefined_macro_diags = the_diagnostics.filter(
+                        d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
                     );
                     
-                    return undefined_symbol_diags.length === 0;
+                    return undefined_macro_diags.length === 0;
                 }
             ),
             { numRuns: 50 }
@@ -250,42 +247,75 @@ describe('Diagnostic Suppression Property Tests', () => {
     });
 
     /**
-     * Property: crossFile.diagnostics.undefinedSymbol overrides individual severity settings
+     * Property: diagnostics.severity.undefinedVariable = 'off' suppresses undefined variable diagnostics
      */
-    it('should override individual severity settings when crossFile.diagnostics.undefinedSymbol is set', async () => {
+    it('should suppress undefined variable diagnostics when diagnostics.severity.undefinedVariable is off', async () => {
         await fc.assert(
             fc.asyncProperty(
                 fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
-                fc.constantFrom('error', 'warning', 'info'),
-                async (macro_name: string, cross_file_severity: 'error' | 'warning' | 'info') => {
-                    const content = `local result \`${macro_name}'`;
+                async (var_name: string) => {
+                    const content = `gen new_var = ${var_name}`;
                     const my_document = create_document_state(content);
                     
-                    // Set individual severity to 'off' but crossFile to a specific severity
-                    const my_override_config = {
+                    // Set diagnostics.severity.undefinedVariable to 'off'
+                    const my_off_config = {
                         ...my_config,
                         diagnostics: {
                             ...my_config.diagnostics,
                             severity: {
                                 ...my_config.diagnostics.severity,
-                                undefinedMacro: 'off' as const,
-                            },
-                        },
-                        cross_file: {
-                            ...my_config.cross_file,
-                            diagnostics: {
-                                ...my_config.cross_file.diagnostics,
-                                undefined_symbol: cross_file_severity,
+                                undefinedVariable: 'off' as const,
                             },
                         },
                     };
                     
                     const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
                         my_document,
-                        my_override_config
+                        my_off_config
                     );
                     
-                    // Should have undefined macro diagnostic with cross-file severity
+                    // Should not have any undefined variable diagnostics
+                    const undefined_var_diags = the_diagnostics.filter(
+                        d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE
+                    );
+                    
+                    return undefined_var_diags.length === 0;
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+
+    /**
+     * Property: Individual severity settings work independently
+     */
+    it('should respect individual severity settings for undefined macros and variables', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                fc.constantFrom('error', 'warning', 'information', 'hint'),
+                async (macro_name: string, severity: 'error' | 'warning' | 'information' | 'hint') => {
+                    const content = `local result \`${macro_name}'`;
+                    const my_document = create_document_state(content);
+                    
+                    // Set individual severity
+                    const my_severity_config = {
+                        ...my_config,
+                        diagnostics: {
+                            ...my_config.diagnostics,
+                            severity: {
+                                ...my_config.diagnostics.severity,
+                                undefinedMacro: severity,
+                            },
+                        },
+                    };
+                    
+                    const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
+                        my_document,
+                        my_severity_config
+                    );
+                    
+                    // Should have undefined macro diagnostic with specified severity
                     const undefined_macro_diags = the_diagnostics.filter(
                         d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
                     );
@@ -294,58 +324,11 @@ describe('Diagnostic Suppression Property Tests', () => {
                         return false;
                     }
                     
-                    const expected_severity = cross_file_severity === 'error' ? 1 :
-                                            cross_file_severity === 'warning' ? 2 : 3;
+                    const expected_severity = severity === 'error' ? 1 :
+                                            severity === 'warning' ? 2 :
+                                            severity === 'information' ? 3 : 4;
                     
                     return undefined_macro_diags[0].severity === expected_severity;
-                }
-            ),
-            { numRuns: 50 }
-        );
-    });
-
-    /**
-     * Property: crossFile.diagnostics.undefinedSymbol = 'off' takes precedence over fallback settings
-     */
-    it('should suppress diagnostics when crossFile.diagnostics.undefinedSymbol is off regardless of fallback settings', async () => {
-        await fc.assert(
-            fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
-                fc.constantFrom('error', 'warning', 'information', 'hint'),
-                async (macro_name: string, fallback_severity: 'error' | 'warning' | 'information' | 'hint') => {
-                    const content = `local result \`${macro_name}'`;
-                    const my_document = create_document_state(content);
-                    
-                    // Set fallback severity to something other than 'off', but crossFile to 'off'
-                    const my_suppress_config = {
-                        ...my_config,
-                        diagnostics: {
-                            ...my_config.diagnostics,
-                            severity: {
-                                ...my_config.diagnostics.severity,
-                                undefinedMacro: fallback_severity,
-                            },
-                        },
-                        cross_file: {
-                            ...my_config.cross_file,
-                            diagnostics: {
-                                ...my_config.cross_file.diagnostics,
-                                undefined_symbol: 'off' as const,
-                            },
-                        },
-                    };
-                    
-                    const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
-                        my_document,
-                        my_suppress_config
-                    );
-                    
-                    // Should not have any undefined macro diagnostics
-                    const undefined_macro_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    );
-                    
-                    return undefined_macro_diags.length === 0;
                 }
             ),
             { numRuns: 50 }
@@ -433,24 +416,22 @@ describe('Diagnostic Suppression Property Tests', () => {
     });
 
     /**
-     * Property: Multiple 'off' settings work together
+     * Property: Multiple 'off' settings work together for cross-file diagnostics
      */
-    it('should suppress all relevant diagnostics when multiple crossFile settings are off', async () => {
+    it('should suppress relevant cross-file diagnostics when multiple crossFile settings are off', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
                 fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z0-9_-]+$/.test(s)),
-                async (macro_name: string, filename: string) => {
-                    const content = `// @lsp-done-by "${filename}.do"\nlocal result \`${macro_name}'`;
+                async (filename: string) => {
+                    const content = `// @lsp-done-by "${filename}.do"`;
                     const my_document = create_document_state(content);
                     
-                    // Set all crossFile diagnostics to 'off'
+                    // Set crossFile diagnostics to 'off'
                     const my_suppress_all_config = {
                         ...my_config,
                         cross_file: {
                             ...my_config.cross_file,
                             diagnostics: {
-                                undefined_symbol: 'off' as const,
                                 out_of_scope: 'off' as const,
                                 missing_file: 'off' as const,
                             },
@@ -462,10 +443,9 @@ describe('Diagnostic Suppression Property Tests', () => {
                         my_suppress_all_config
                     );
                     
-                    // Should not have any cross-file related diagnostics
+                    // Should not have cross-file related diagnostics
                     const cross_file_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.UNDEFINED_MACRO ||
-                             d.code === StataDiagnosticCode.OUT_OF_SCOPE ||
+                        d => d.code === StataDiagnosticCode.OUT_OF_SCOPE ||
                              d.code === StataDiagnosticCode.MISSING_FILE
                     );
                     
@@ -477,25 +457,25 @@ describe('Diagnostic Suppression Property Tests', () => {
     });
 
     /**
-     * Property: 'off' settings are case-insensitive
+     * Property: 'off' settings are case-insensitive for cross-file diagnostics
      */
-    it('should handle case-insensitive off settings', async () => {
+    it('should handle case-insensitive off settings for cross-file diagnostics', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z0-9_-]+$/.test(s)),
                 fc.constantFrom('off', 'OFF', 'Off', 'oFf'),
-                async (macro_name: string, off_variant: string) => {
-                    const content = `local result \`${macro_name}'`;
+                async (filename: string, off_variant: string) => {
+                    const content = `// @lsp-done-by "${filename}.do"`;
                     const my_document = create_document_state(content);
                     
-                    // Set crossFile.diagnostics.undefinedSymbol to various case variants of 'off'
+                    // Set crossFile.diagnostics.missingFile to various case variants of 'off'
                     const my_case_config = {
                         ...my_config,
                         cross_file: {
                             ...my_config.cross_file,
                             diagnostics: {
                                 ...my_config.cross_file.diagnostics,
-                                undefined_symbol: off_variant.toLowerCase() as 'off',
+                                missing_file: off_variant.toLowerCase() as 'off',
                             },
                         },
                     };
@@ -505,12 +485,12 @@ describe('Diagnostic Suppression Property Tests', () => {
                         my_case_config
                     );
                     
-                    // Should not have any undefined macro diagnostics
-                    const undefined_macro_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    // Should not have any missing file diagnostics
+                    const missing_file_diags = the_diagnostics.filter(
+                        d => d.code === StataDiagnosticCode.MISSING_FILE
                     );
                     
-                    return undefined_macro_diags.length === 0;
+                    return missing_file_diags.length === 0;
                 }
             ),
             { numRuns: 50 }
