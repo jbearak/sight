@@ -22,7 +22,6 @@ describe('Continuation Line Detection Properties', () => {
         undefinedVariable: 'information',
         styleWarnings: 'hint'
       },
-      undefinedVariableEnabled: false
     },
     adoPaths: [],
     cross_file: {}

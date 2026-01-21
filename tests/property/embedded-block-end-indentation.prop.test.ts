@@ -28,7 +28,6 @@ describe('Embedded Block End Delimiter Indentation Properties', () => {
                 undefinedVariable: 'information',
                 styleWarnings: 'hint'
             },
-            undefinedVariableEnabled: false
         },
         adoPaths: [],
         cross_file: {},

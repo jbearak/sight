@@ -465,7 +465,6 @@ export interface StataLSPConfig {
       undefinedVariable: 'error' | 'warning' | 'information' | 'hint' | 'off';
       styleWarnings: 'error' | 'warning' | 'information' | 'hint' | 'off';
     };
-    undefinedVariableEnabled: boolean;
     indentation: boolean;
   };
   completion: {

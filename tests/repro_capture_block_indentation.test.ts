@@ -16,7 +16,6 @@ describe('Capture Block Indentation - False Positive', () => {
         undefinedVariable: 'information',
         styleWarnings: 'hint'
       },
-      undefinedVariableEnabled: false
     },
     adoPaths: [],
     cross_file: {}

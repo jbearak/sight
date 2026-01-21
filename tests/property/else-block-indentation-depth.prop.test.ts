@@ -27,7 +27,6 @@ describe('Else Block Indentation Depth Properties', () => {
                 undefinedVariable: 'information',
                 styleWarnings: 'hint'
             },
-            undefinedVariableEnabled: false
         },
         adoPaths: [],
         cross_file: {},

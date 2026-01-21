@@ -43,7 +43,6 @@ describe('Backward directive locals inheritance', () => {
                 undefinedVariable: 'information',
                 styleWarnings: 'hint',
             },
-            undefinedVariableEnabled: true,
         },
         adoPaths: [],
         cross_file: {

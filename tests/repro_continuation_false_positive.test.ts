@@ -42,7 +42,6 @@ describe('Continuation Line False Positive - UNNECESSARY_INDENTATION', () => {
         undefinedVariable: 'information',
         styleWarnings: 'hint'
       },
-      undefinedVariableEnabled: false
     },
     adoPaths: [],
     cross_file: {}

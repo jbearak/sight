@@ -40,7 +40,6 @@ describe('Inline Expression Evaluation Property Tests', () => {
                     undefinedMacro: 'warning',
                     undefinedVariable: 'warning',
                 },
-                undefinedVariableEnabled: true,
             },
             adoPaths: [],
             completion: {

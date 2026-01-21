@@ -42,7 +42,6 @@ describe('Non-Nested Invalid Character Detection Property Tests', () => {
           undefinedMacro: 'warning',
           undefinedVariable: 'warning',
         },
-        undefinedVariableEnabled: true,
       },
       adoPaths: [],
       completion: {

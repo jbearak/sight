@@ -88,10 +88,9 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         enabled: true,
         severity: {
             undefinedMacro: 'warning',
-            undefinedVariable: 'information',
+            undefinedVariable: 'off',
             styleWarnings: 'hint',
         },
-        undefinedVariableEnabled: false,
         indentation: false,
     },
     completion: {

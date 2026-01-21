@@ -31,7 +31,6 @@ const DEFAULT_CONFIG: StataLSPConfig = {
             undefinedVariable: 'information',
             styleWarnings: 'hint',
         },
-        undefinedVariableEnabled: false,
     },
     completion: {},
     formatting: {

@@ -73,10 +73,6 @@ const EXPECTED_CONFIG_FIELDS: ConfigFieldSpec[] = [
         enum_values: ['error', 'warning', 'information', 'hint', 'off'],
     },
     {
-        path: 'sight.diagnostics.undefinedVariableEnabled',
-        type: 'boolean',
-    },
-    {
         path: 'sight.diagnostics.indentation',
         type: 'boolean',
     },

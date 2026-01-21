@@ -74,14 +74,14 @@
             "hint",
             "off"
           ],
-          "default": "information",
-          "description": "Severity level for undefined variable references",
+          "default": "off",
+          "description": "[Experimental] Severity level for undefined variable references. Off by default since the LSP cannot statically determine which variables exist in your dataset. Use @lsp-variables directive to declare variables loaded from data files.",
           "enumDescriptions": [
             "Show as error",
             "Show as warning",
             "Show as information",
             "Show as hint",
-            "Disable this diagnostic"
+            "Disable this diagnostic (default)"
           ]
         },
         "sight.diagnostics.severity.styleWarnings": {
@@ -102,11 +102,6 @@
             "Show as hint",
             "Disable this diagnostic"
           ]
-        },
-        "sight.diagnostics.undefinedVariableEnabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable checking for undefined variables"
         },
         "sight.diagnostics.indentation": {
           "type": "boolean",
