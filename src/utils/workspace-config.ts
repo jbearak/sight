@@ -10,13 +10,14 @@ import * as path from 'path';
 import { StataLSPConfig } from '../types';
 
 /**
- * Normalize severity value, mapping 'info' alias to 'information'.
+ * Normalize severity value, mapping 'info' alias to 'information' and lowercasing.
  */
 function normalize_severity(value: string): 'error' | 'warning' | 'information' | 'off' {
-    if (value === 'info') {
+    const lower = value.toLowerCase();
+    if (lower === 'info') {
         return 'information';
     }
-    return value as 'error' | 'warning' | 'information' | 'off';
+    return lower as 'error' | 'warning' | 'information' | 'off';
 }
 
 /**

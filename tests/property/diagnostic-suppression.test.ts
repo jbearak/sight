@@ -52,7 +52,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                 max_indexed_files: 1000,
                 assume_call_site: 'end',
                 diagnostics: {
-                    out_of_scope: 'info',
+                    out_of_scope: 'information',
                     missing_file: 'warning',
                 },
             },
@@ -459,8 +459,15 @@ describe('Diagnostic Suppression Property Tests', () => {
 
     /**
      * Property: 'off' settings are case-insensitive for cross-file diagnostics
+     * 
+     * Note: Case-insensitivity is handled by the config mapping layer (normalize_severity
+     * in workspace-config.ts), not by the diagnostics provider. This test verifies that
+     * configs created via map_stata_lsp_json_to_partial_config properly normalize case variants.
      */
     it('should handle case-insensitive off settings for cross-file diagnostics', async () => {
+        // Import the config mapping function to test case normalization
+        const { map_stata_lsp_json_to_partial_config } = await import('../../src/utils/workspace-config');
+        
         await fc.assert(
             fc.asyncProperty(
                 fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z0-9_-]+$/.test(s)),
@@ -469,14 +476,24 @@ describe('Diagnostic Suppression Property Tests', () => {
                     const content = `// @lsp-done-by "${filename}.do"`;
                     const my_document = create_document_state(content);
                     
-                    // Set crossFile.diagnostics.missingFile to various case variants of 'off'
+                    // Use the config mapping layer to normalize the case variant
+                    const raw_config = {
+                        crossFile: {
+                            diagnostics: {
+                                missingFile: off_variant,
+                            },
+                        },
+                    };
+                    const mapped = map_stata_lsp_json_to_partial_config(raw_config);
+                    
+                    // Build config with normalized value from mapping layer
                     const my_case_config = {
                         ...my_config,
                         cross_file: {
                             ...my_config.cross_file,
                             diagnostics: {
                                 ...my_config.cross_file.diagnostics,
-                                missing_file: off_variant.toLowerCase() as 'off',
+                                missing_file: mapped.cross_file?.diagnostics?.missing_file ?? 'off',
                             },
                         },
                     };
