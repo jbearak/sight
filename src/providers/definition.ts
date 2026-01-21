@@ -918,7 +918,8 @@ export class DefinitionProvider {
         // Pattern: local/global macname : extended_function ...
         // Supported functions: list, word, piece
         // Note: Stata is case-sensitive, so local/global and function keywords must be lowercase
-        const extended_macro_pattern = /^\s*(local|global)\s+\w+\s*:\s*(list|word|piece)\s+/;
+        // Allow start of line or semicolon delimiter as anchor
+        const extended_macro_pattern = /(?:^|;)\s*(local|global)\s+\w+\s*:\s*(list|word|piece)\s+/;
         return extended_macro_pattern.test(text_before_cursor);
     }
 

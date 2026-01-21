@@ -119,7 +119,7 @@ private is_in_extended_macro_context(
     const text_before_cursor = line_text.substring(0, position.character + 1);
     
     // Pattern: local/global macname : list_function ...
-    const extended_macro_pattern = /^\s*(local|global)\s+\w+\s*:\s*(list)\s+/i;
+    const extended_macro_pattern = /^\s*(local|global)\s+\w+\s*:\s*(list|word|piece)\s+/;
     return extended_macro_pattern.test(text_before_cursor);
 }
 ```
