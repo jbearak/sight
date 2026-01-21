@@ -53,6 +53,7 @@ describe('Severity Settings Property Tests', () => {
                 diagnostics: {
                     out_of_scope: 'info',
                     missing_file: 'warning',
+                    max_depth: 'information',
                 },
                 max_backward_depth: 10,
                 max_forward_depth: 10,
