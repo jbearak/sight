@@ -36,7 +36,7 @@ export function create_document_state(my_source: string): DocumentState {
     my_parse_result.ast,
     'file:///test.do',
     undefined,
-    undefined,
+    { undefined_variable_enabled: true }, // Enable undefined variable detection for tests
     my_lex_result.tokens
   );
 

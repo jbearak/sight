@@ -218,7 +218,11 @@ ${my_after}`;
             fc.property(
                 arbitrary_identifier(),
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 2 }),
+                fc.array(
+                    fc.string({ minLength: 1, maxLength: 20 })
+                        .filter(s => !/\bend\b/i.test(s) && !/\bmata\b/i.test(s) && !/\bpython\b/i.test(s) && !s.includes('/*')),
+                    { minLength: 0, maxLength: 2 }
+                ),
                 (my_program_name, my_embedded_type, my_embedded_content) => {
                     // Build program block containing embedded language block
                     const my_content = my_embedded_content.join('\n');

@@ -308,7 +308,6 @@ describe('Comprehensive Rename Validation Property Tests', () => {
                             assumeCallSite: fc.constantFrom('start', 'end'),
                             maxForwardDepth: fc.integer({ min: 1, max: 50 }),
                             diagnostics: fc.record({
-                                undefinedSymbol: fc.constantFrom('error', 'warning', 'info', 'off'),
                                 outOfScope: fc.constantFrom('error', 'warning', 'info', 'off'),
                                 missingFile: fc.constantFrom('error', 'warning', 'info', 'off')
                             })
@@ -339,11 +338,6 @@ describe('Comprehensive Rename Validation Property Tests', () => {
                             
                             if (sight_config.crossFile.diagnostics) {
                                 expect(mapped.cross_file?.diagnostics).toBeDefined();
-                                
-                                if (sight_config.crossFile.diagnostics.undefinedSymbol) {
-                                    expect(mapped.cross_file?.diagnostics?.undefined_symbol)
-                                        .toBe(normalize_severity(sight_config.crossFile.diagnostics.undefinedSymbol));
-                                }
                                 
                                 if (sight_config.crossFile.diagnostics.outOfScope) {
                                     expect(mapped.cross_file?.diagnostics?.out_of_scope)

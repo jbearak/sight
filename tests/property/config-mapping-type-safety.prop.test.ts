@@ -64,12 +64,6 @@ describe('Config Mapping Type Safety Property Tests', () => {
         fc.assert(
             fc.property(
                 fc.record({
-                    undefinedSymbol: fc.oneof(
-                        fc.constant('error' as const),
-                        fc.constant('warning' as const),
-                        fc.constant('information' as const),
-                        fc.constant('off' as const)
-                    ),
                     outOfScope: fc.oneof(
                         fc.constant('error' as const),
                         fc.constant('warning' as const),
@@ -95,9 +89,6 @@ describe('Config Mapping Type Safety Property Tests', () => {
                     // Verify nested snake_case mapping
                     expect(my_result.cross_file).toBeDefined();
                     expect(my_result.cross_file!.diagnostics).toBeDefined();
-                    expect(my_result.cross_file!.diagnostics!.undefined_symbol).toBe(
-                        my_diagnostics_config.undefinedSymbol
-                    );
                     expect(my_result.cross_file!.diagnostics!.out_of_scope).toBe(
                         my_diagnostics_config.outOfScope
                     );
@@ -122,7 +113,6 @@ describe('Config Mapping Type Safety Property Tests', () => {
         const my_raw = {
             crossFile: {
                 diagnostics: {
-                    undefinedSymbol: 'info',
                     outOfScope: 'info',
                     missingFile: 'info',
                     callSiteIdentification: 'info',
@@ -132,7 +122,6 @@ describe('Config Mapping Type Safety Property Tests', () => {
 
         const my_result = map_stata_lsp_json_to_partial_config(my_raw);
 
-        expect(my_result.cross_file!.diagnostics!.undefined_symbol).toBe('information');
         expect(my_result.cross_file!.diagnostics!.out_of_scope).toBe('information');
         expect(my_result.cross_file!.diagnostics!.missing_file).toBe('information');
         expect(my_result.cross_file!.diagnostics!.call_site_identification).toBe('information');

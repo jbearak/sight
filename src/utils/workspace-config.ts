@@ -10,13 +10,14 @@ import * as path from 'path';
 import { StataLSPConfig } from '../types';
 
 /**
- * Normalize severity value, mapping 'info' alias to 'information'.
+ * Normalize severity value, mapping 'info' alias to 'information' and lowercasing.
  */
 function normalize_severity(value: string): 'error' | 'warning' | 'information' | 'off' {
-    if (value === 'info') {
+    const lower = value.toLowerCase();
+    if (lower === 'info') {
         return 'information';
     }
-    return value as 'error' | 'warning' | 'information' | 'off';
+    return lower as 'error' | 'warning' | 'information' | 'off';
 }
 
 /**
@@ -90,9 +91,7 @@ export function map_stata_lsp_json_to_partial_config(raw: unknown): DeepPartial<
         const diags = cross_file_obj.diagnostics;
         if (diags && typeof diags === 'object') {
             const diags_obj = diags as Record<string, unknown>;
-            if (typeof diags_obj.undefinedSymbol === 'string') {
-                mapped.cross_file!.diagnostics!.undefined_symbol = normalize_severity(diags_obj.undefinedSymbol);
-            }
+
             if (typeof diags_obj.outOfScope === 'string') {
                 mapped.cross_file!.diagnostics!.out_of_scope = normalize_severity(diags_obj.outOfScope);
             }
