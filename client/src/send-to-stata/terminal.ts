@@ -4,12 +4,13 @@ import { StataCommand } from './index';
 const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
 
 /**
- * Escapes a file path for safe use in shell commands.
- * Uses single quotes and escapes embedded single quotes.
+ * Wraps a file path in Stata compound string syntax for terminal commands.
+ * Uses `"..."' which handles all special characters including quotes and spaces.
  */
-export function escape_path_for_shell(path: string): string {
-    // Escape single quotes by ending the string, adding escaped quote, resuming
-    return "'" + path.replace(/'/g, "'\\''") + "'";
+export function wrap_path_for_stata_terminal(path: string): string {
+    // Compound strings `"..."' can contain any characters including quotes
+    // No escaping needed inside compound strings
+    return '`"' + path + `"'`;
 }
 
 export async function send_to_terminal(
@@ -30,7 +31,7 @@ export async function send_to_terminal(
         );
     }
     
-    const escaped_path = escape_path_for_shell(temp_file_path);
+    const escaped_path = wrap_path_for_stata_terminal(temp_file_path);
     const command_string = `${command} ${escaped_path}`;
     terminal.show(true);  // Reveal terminal without stealing focus
     terminal.sendText(command_string);
