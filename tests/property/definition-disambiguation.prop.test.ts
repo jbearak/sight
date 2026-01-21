@@ -12,6 +12,7 @@ import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
 import { Token, SymbolTable } from '../../src/types';
 import { compute_line_offsets } from '../../src/utils/line-utils';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Feature: variable-macro-definition-disambiguation', () => {
     const definition_provider = new DefinitionProvider();
@@ -62,7 +63,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         it('WORD token with both variable and macro should return variable', () => {
             fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                    arbitrary_non_reserved_identifier(),
                     async (symbol_name) => {
                         const word_token: Token = {
                             type: 'WORD',
@@ -104,7 +105,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         it('MACRO_REF_LOCAL should resolve to local macro', () => {
             fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                    arbitrary_non_reserved_identifier(),
                     async (symbol_name) => {
                         const macro_token: Token = {
                             type: 'MACRO_REF_LOCAL',
@@ -143,7 +144,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         it('MACRO_REF_GLOBAL should resolve to global macro', () => {
             fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                    arbitrary_non_reserved_identifier(),
                     async (symbol_name) => {
                         const macro_token: Token = {
                             type: 'MACRO_REF_GLOBAL',
@@ -182,7 +183,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         it('WORD token with only macro (no variable) should return null', () => {
             fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                    arbitrary_non_reserved_identifier(),
                     async (symbol_name) => {
                         const word_token: Token = {
                             type: 'WORD',
@@ -217,7 +218,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         it('WORD token in extended macro context should resolve to local macro', () => {
             fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                    arbitrary_non_reserved_identifier(),
                     async (macro_name) => {
                         // Content: local r : list <macro_name>
                         const prefix = 'local r : list ';
@@ -257,7 +258,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         it('WORD token in extended macro context with missing macro should return null', () => {
             fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                    arbitrary_non_reserved_identifier(),
                     async (macro_name) => {
                         const prefix = 'local r : list ';
                         const content = prefix + macro_name;
@@ -289,7 +290,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         it('MACRO_REF_LOCAL with no definition should return null', () => {
             fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                    arbitrary_non_reserved_identifier(),
                     async (symbol_name) => {
                         const macro_token: Token = {
                             type: 'MACRO_REF_LOCAL',
@@ -314,7 +315,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         it('MACRO_REF_GLOBAL with no definition should return null', () => {
             fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                    arbitrary_non_reserved_identifier(),
                     async (symbol_name) => {
                         const macro_token: Token = {
                             type: 'MACRO_REF_GLOBAL',
