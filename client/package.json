@@ -2,7 +2,7 @@
   "name": "sight",
   "displayName": "Sight - Stata Language Server",
   "description": "Stata language support: language server, syntax highlighting, and code execution",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "publisher": "jbearak",
   "repository": {
     "type": "git",
