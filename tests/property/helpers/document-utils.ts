@@ -16,8 +16,12 @@ import { DiagnosticSeverity } from 'vscode-languageserver';
 let document_counter = 0;
 
 /**
- * Create a DocumentState from a source string.
- * This simulates what the DocumentStore does when opening a file.
+ * Builds a complete DocumentState representing opening a document from the provided source.
+ *
+ * The returned state includes tokens, AST, semantic symbols, aggregated diagnostics (lexer, parser, semantic), context ranges and tracker, line offsets, a unique URI/version, and other metadata used for testing.
+ *
+ * @param my_source - The document content to tokenize, parse, and analyze
+ * @returns A DocumentState containing uri, version, content, tokens, ast, symbols, diagnostics, context_ranges, context_tracker, line_offsets, and forward_calls
  */
 export function create_document_state(my_source: string): DocumentState {
   const my_lexer = new StataLexer();

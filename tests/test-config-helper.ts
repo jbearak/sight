@@ -1,8 +1,13 @@
 import { StataLSPConfig, CrossFileConfig } from '../src/types';
 
 /**
- * Creates a minimal test config with defaults, allowing partial overrides.
- * Avoids type assertion issues in tests.
+ * Create a minimal StataLSPConfig populated with sensible defaults for tests.
+ *
+ * Merges the provided partial `overrides` into the default configuration so tests can
+ * replace only the fields they need without type assertions.
+ *
+ * @param overrides - Partial configuration values to merge over the defaults
+ * @returns A complete `StataLSPConfig` instance with `overrides` applied
  */
 export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): StataLSPConfig {
     const defaultCrossFile: CrossFileConfig = {

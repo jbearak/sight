@@ -9,12 +9,11 @@ import { StataLSPConfig, CrossFileConfig } from '../types';
 import { DEFAULT_SETTINGS } from '../server-handlers';
 
 /**
- * Validates and normalizes comment formatting configuration.
- * Falls back to defaults for invalid values and logs warnings.
+ * Build a complete StataLSPConfig by validating a partial configuration, applying defaults for missing or invalid fields, and normalizing allowed values.
  *
- * @param config - The configuration to validate
- * @param log_warning - Optional callback for logging warnings
- * @returns Validated configuration with fallbacks applied
+ * @param config - Partial configuration to validate and merge into defaults
+ * @param log_warning - Optional callback invoked with a warning message when a provided value is invalid
+ * @returns A fully populated StataLSPConfig with validated values and defaults applied where necessary
  */
 export function validate_comment_formatting_config(
     config: Partial<StataLSPConfig> | undefined,

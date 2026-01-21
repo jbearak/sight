@@ -28,7 +28,14 @@ export type DeepPartial<T> = {
 };
 
 /**
- * Map `.sight.json` (README schema) to a partial internal config.
+ * Convert parsed `.sight.json` (README schema) into a partial internal StataLSPConfig.
+ *
+ * Maps recognized top-level sections and fields from camelCase README names to the internal
+ * snake_case config structure and normalizes diagnostic severity values. Unrecognized or
+ * invalid fields are ignored.
+ *
+ * @param raw - The parsed contents of a `.sight.json` file (typically JSON.parse output)
+ * @returns A DeepPartial<StataLSPConfig> reflecting any mapped fields; returns an empty object if `raw` is not an object or contains no mappable fields
  */
 export function map_stata_lsp_json_to_partial_config(raw: unknown): DeepPartial<StataLSPConfig> {
     if (!raw || typeof raw !== 'object') {
