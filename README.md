@@ -916,7 +916,6 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
     "maxChainDepth": 20,
     "assumeCallSite": "end",
     "diagnostics": {
-      "undefinedSymbol": "warning",
       "outOfScope": "information",
       "missingFile": "warning",
       "callSiteIdentification": "information"
@@ -935,7 +934,6 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 | `crossFile.maxChainDepth`               | number               | `20`            | Maximum combined depth for forward + backward resolution                |
 | `crossFile.maxCalleeRevalidations`      | number               | `10`            | Maximum number of open callee documents to revalidate per caller change |
 | `crossFile.assumeCallSite`              | `"end"` \| `"start"` | `"end"`         | Where to assume call site when not specified and inference fails        |
-| `crossFile.diagnostics.undefinedSymbol` | severity             | `"warning"`     | Severity for undefined symbol diagnostics                               |
 | `crossFile.diagnostics.outOfScope`      | severity             | `"information"` | Severity for out-of-scope symbol diagnostics                            |
 | `crossFile.diagnostics.missingFile`     | severity             | `"warning"`     | Severity for missing directive file diagnostics                         |
 | `crossFile.diagnostics.callSiteIdentification` | severity      | `"information"` | Severity for call site identification diagnostics                       |
