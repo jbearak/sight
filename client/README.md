@@ -42,7 +42,7 @@ Search for "Sight" in the VS Code extension marketplace and click Install.
 
 ## Documentation
 
-For full documentation, configuration options, and LSP directives, see the [GitHub README](https://github.com/jbearak/sight#readme).
+For full documentation, configuration options, and LSP directives, see the [full documentation on GitHub](https://github.com/jbearak/sight#readme).
 
 ## License
 
