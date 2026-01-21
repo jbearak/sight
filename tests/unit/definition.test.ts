@@ -480,7 +480,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
 
     describe('Workspace Symbol Resolution', () => {
         it('should resolve macro from workspace symbols', async () => {
-            const my_content = 'use `x`';
+            const my_content = 'use $x';
             const my_doc = create_test_document(my_content);
             const my_workspace_symbols: SymbolTable = {
                 programs: new Map(),
@@ -509,7 +509,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
 
             const my_definition = await definition_provider.get_definition(
                 my_doc,
-                { line: 0, character: 6 },
+                { line: 0, character: 5 },
                 my_workspace_symbols,
                 context_tracker
             );

@@ -10,6 +10,7 @@ import {
     Definition,
     Location,
     Position,
+    Range,
     CancellationToken,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
@@ -20,7 +21,15 @@ import {
     LanguageContext,
     ResolvedScope,
     MacroSymbol,
+    Token,
+    ProgramSymbol,
+    VariableSymbol,
+    ScalarSymbol,
+    MatrixSymbol,
 } from '../types';
+
+/** Symbol with a location, as returned by WorkspaceIndexer.find_symbol_definitions */
+type LocatableSymbol = ProgramSymbol | MacroSymbol | VariableSymbol | ScalarSymbol | MatrixSymbol;
 
 type MacroDefNodeLike = {
     type: 'macro_def';
@@ -100,10 +109,87 @@ export class DefinitionProvider {
             return file_definition;
         }
 
-        // Try scope resolver first if available
+        // Get token at position for disambiguation
+        const the_token = this.get_token_at_position(document, position);
+        
+        // Token-based disambiguation
+        if (the_token) {
+            if (the_token.type === 'MACRO_REF_LOCAL') {
+                return await this.resolve_local_macro_only(
+                    word,
+                    document,
+                    scope_resolver,
+                    workspace_indexer,
+                    cross_file_config,
+                    cancellation_token
+                );
+            }
+            
+            if (the_token.type === 'MACRO_REF_GLOBAL') {
+                return await this.resolve_global_macro_only(
+                    word,
+                    document,
+                    workspace_symbols,
+                    scope_resolver,
+                    workspace_indexer,
+                    cross_file_config,
+                    cancellation_token
+                );
+            }
+            
+            if (the_token.type === 'WORD') {
+                // Check if in extended macro context
+                if (this.is_in_extended_macro_context(document, position)) {
+                    return await this.resolve_local_macro_only(
+                        word,
+                        document,
+                        scope_resolver,
+                        workspace_indexer,
+                        cross_file_config,
+                        cancellation_token
+                    );
+                }
+                
+                // WORD token: search variables, programs, scalars, matrices (NOT macros)
+                return await this.resolve_non_macro_symbols(
+                    word,
+                    document,
+                    workspace_symbols,
+                    scope_resolver,
+                    workspace_indexer,
+                    cross_file_config,
+                    cancellation_token
+                );
+            }
+        }
+
+        // Fallback to existing heuristics when token lookup fails
+        return await this.resolve_with_heuristics(
+            word,
+            word_info,
+            document,
+            position,
+            workspace_symbols,
+            scope_resolver,
+            workspace_indexer,
+            cross_file_config,
+            cancellation_token
+        );
+    }
+
+    /**
+     * Resolve local macro only (for MACRO_REF_LOCAL tokens and extended macro context).
+     */
+    private async resolve_local_macro_only(
+        word: string,
+        document: DocumentState,
+        scope_resolver?: ScopeResolver,
+        workspace_indexer?: WorkspaceIndexer,
+        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cancellation_token?: CancellationToken
+    ): Promise<Definition | null> {
+        // Try scope resolver first
         if (scope_resolver) {
-            // Only pass config if assume_call_site is explicitly set to avoid
-            // overriding the default with undefined
             const resolve_config = cross_file_config?.assume_call_site
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
@@ -117,7 +203,6 @@ export class DefinitionProvider {
                 cancellation_token
             );
             
-            // Check local macros
             const local_macro = resolved_scope.symbols.localMacros.get(word);
             if (local_macro) {
                 return {
@@ -125,8 +210,55 @@ export class DefinitionProvider {
                     range: local_macro.location.range,
                 };
             }
+        }
 
-            // Check global macros
+        // Check document symbols
+        const local_macro = document.symbols.localMacros.get(word);
+        if (local_macro) {
+            return {
+                uri: local_macro.location.uri,
+                range: local_macro.location.range,
+            };
+        }
+
+        // Check workspace indexer
+        if (workspace_indexer) {
+            const local_defs = workspace_indexer.find_symbol_definitions(word, 'local');
+            if (local_defs.length > 0) {
+                return this.as_locations(local_defs);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve global macro only (for MACRO_REF_GLOBAL tokens).
+     */
+    private async resolve_global_macro_only(
+        word: string,
+        document: DocumentState,
+        workspace_symbols?: SymbolTable,
+        scope_resolver?: ScopeResolver,
+        workspace_indexer?: WorkspaceIndexer,
+        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cancellation_token?: CancellationToken
+    ): Promise<Definition | null> {
+        // Try scope resolver first
+        if (scope_resolver) {
+            const resolve_config = cross_file_config?.assume_call_site
+                ? {
+                    assume_call_site: cross_file_config.assume_call_site,
+                    max_forward_depth: cross_file_config.max_forward_depth,
+                }
+                : { max_forward_depth: cross_file_config?.max_forward_depth };
+            const resolved_scope = await scope_resolver.resolve(
+                document.uri,
+                document.content,
+                resolve_config,
+                cancellation_token
+            );
+            
             const global_macro = resolved_scope.symbols.globalMacros.get(word);
             if (global_macro) {
                 return {
@@ -134,8 +266,78 @@ export class DefinitionProvider {
                     range: global_macro.location.range,
                 };
             }
+        }
 
-            // Check programs (case-sensitive)
+        // Check document symbols
+        const global_macro = document.symbols.globalMacros.get(word);
+        if (global_macro) {
+            return {
+                uri: global_macro.location.uri,
+                range: global_macro.location.range,
+            };
+        }
+
+        // Check workspace indexer
+        if (workspace_indexer) {
+            const global_defs = workspace_indexer.find_symbol_definitions(word, 'global');
+            if (global_defs.length > 0) {
+                return this.as_locations(global_defs);
+            }
+        }
+
+        // Check workspace symbols
+        if (workspace_symbols) {
+            const global_macro_ws = workspace_symbols.globalMacros.get(word);
+            if (global_macro_ws) {
+                return {
+                    uri: global_macro_ws.location.uri,
+                    range: global_macro_ws.location.range,
+                };
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve non-macro symbols (for WORD tokens in regular context).
+     * Searches variables, programs, scalars, matrices - NOT macros.
+     * Priority: variables → programs → scalars → matrices
+     */
+    private async resolve_non_macro_symbols(
+        word: string,
+        document: DocumentState,
+        workspace_symbols?: SymbolTable,
+        scope_resolver?: ScopeResolver,
+        workspace_indexer?: WorkspaceIndexer,
+        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cancellation_token?: CancellationToken
+    ): Promise<Definition | null> {
+        // Try scope resolver first
+        if (scope_resolver) {
+            const resolve_config = cross_file_config?.assume_call_site
+                ? {
+                    assume_call_site: cross_file_config.assume_call_site,
+                    max_forward_depth: cross_file_config.max_forward_depth,
+                }
+                : { max_forward_depth: cross_file_config?.max_forward_depth };
+            const resolved_scope = await scope_resolver.resolve(
+                document.uri,
+                document.content,
+                resolve_config,
+                cancellation_token
+            );
+
+            // Check variables first (highest priority for WORD tokens)
+            const variable = resolved_scope.symbols.variables.get(word);
+            if (variable) {
+                return {
+                    uri: variable.location.uri,
+                    range: variable.location.range,
+                };
+            }
+            
+            // Check programs
             const program = resolved_scope.symbols.programs.get(word);
             if (program) {
                 return {
@@ -163,63 +365,12 @@ export class DefinitionProvider {
             }
         }
 
-        const as_locations = (
-            defs: Array<{ location: { uri: string; range: any } }>
-        ): Definition => {
-            if (defs.length === 1) {
-                return { uri: defs[0].location.uri, range: defs[0].location.range };
-            }
-            return defs.map((def) => ({
-                uri: def.location.uri,
-                range: def.location.range,
-            })) as Location[];
-        };
-
-        // Check document symbols first to ensure they have precedence over workspace symbols
-        const reference_position = position;
-
-        // 1. Check local macros (only when the reference looks like a local macro)
-        const local_macro_def = this.find_nearest_macro_definition(
-            document,
-            word,
-            'local',
-            reference_position
-        );
-        if (local_macro_def) {
+        // Check document symbols
+        const variable = document.symbols.variables.get(word);
+        if (variable) {
             return {
-                uri: local_macro_def.location.uri,
-                range: local_macro_def.location.range,
-            };
-        }
-
-        // 2. Check global macros (only when the reference looks like a global macro)
-        const global_macro_def = this.find_nearest_macro_definition(
-            document,
-            word,
-            'global',
-            reference_position
-        );
-        if (global_macro_def) {
-            return {
-                uri: global_macro_def.location.uri,
-                range: global_macro_def.location.range,
-            };
-        }
-
-        // 3. Check document symbols
-        const local_macro = document.symbols.localMacros.get(word);
-        if (local_macro) {
-            return {
-                uri: local_macro.location.uri,
-                range: local_macro.location.range,
-            };
-        }
-
-        const global_macro = document.symbols.globalMacros.get(word);
-        if (global_macro) {
-            return {
-                uri: global_macro.location.uri,
-                range: global_macro.location.range,
+                uri: variable.location.uri,
+                range: variable.location.range,
             };
         }
 
@@ -231,7 +382,7 @@ export class DefinitionProvider {
             };
         }
 
-        const scalar = (document.symbols as any).scalars?.get?.(word);
+        const scalar = document.symbols.scalars?.get(word);
         if (scalar) {
             return {
                 uri: scalar.location.uri,
@@ -239,7 +390,7 @@ export class DefinitionProvider {
             };
         }
 
-        const matrix = (document.symbols as any).matrices?.get?.(word);
+        const matrix = document.symbols.matrices?.get(word);
         if (matrix) {
             return {
                 uri: matrix.location.uri,
@@ -247,47 +398,36 @@ export class DefinitionProvider {
             };
         }
 
-        // If we have a workspace indexer, prefer returning ALL definitions when multiple exist.
-        // This also avoids losing multiplicity due to merged workspace_symbols maps.
+        // Check workspace indexer
         if (workspace_indexer) {
-            const local_defs = workspace_indexer.find_symbol_definitions(word, 'local');
-            if (local_defs.length > 0) {
-                return as_locations(local_defs as any);
-            }
-
-            const global_defs = workspace_indexer.find_symbol_definitions(word, 'global');
-            if (global_defs.length > 0) {
-                return as_locations(global_defs as any);
+            const variable_defs = workspace_indexer.find_symbol_definitions(word, 'variable');
+            if (variable_defs.length > 0) {
+                return this.as_locations(variable_defs);
             }
 
             const program_defs = workspace_indexer.find_symbol_definitions(word, 'program');
             if (program_defs.length > 0) {
-                return as_locations(program_defs as any);
+                return this.as_locations(program_defs);
             }
 
             const scalar_defs = workspace_indexer.find_symbol_definitions(word, 'scalar');
             if (scalar_defs.length > 0) {
-                return as_locations(scalar_defs as any);
+                return this.as_locations(scalar_defs);
             }
 
             const matrix_defs = workspace_indexer.find_symbol_definitions(word, 'matrix');
             if (matrix_defs.length > 0) {
-                return as_locations(matrix_defs as any);
-            }
-
-            const variable_defs = workspace_indexer.find_symbol_definitions(word, 'variable');
-            if (variable_defs.length > 0) {
-                return as_locations(variable_defs as any);
+                return this.as_locations(matrix_defs);
             }
         }
 
-        // Fallback to workspace symbols if available
+        // Check workspace symbols
         if (workspace_symbols) {
-            const global_macro_ws = workspace_symbols.globalMacros.get(word);
-            if (global_macro_ws) {
+            const variable_ws = workspace_symbols.variables.get(word);
+            if (variable_ws) {
                 return {
-                    uri: global_macro_ws.location.uri,
-                    range: global_macro_ws.location.range,
+                    uri: variable_ws.location.uri,
+                    range: variable_ws.location.range,
                 };
             }
 
@@ -316,6 +456,116 @@ export class DefinitionProvider {
             }
         }
 
+        return null;
+    }
+
+    /**
+     * Fallback to existing heuristics when token lookup fails.
+     */
+    private async resolve_with_heuristics(
+        word: string,
+        word_info: { word: string; range: { start: Position; end: Position } },
+        document: DocumentState,
+        position: Position,
+        workspace_symbols?: SymbolTable,
+        scope_resolver?: ScopeResolver,
+        workspace_indexer?: WorkspaceIndexer,
+        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cancellation_token?: CancellationToken
+    ): Promise<Definition | null> {
+        // Use existing helper to determine if reference looks like a macro
+        const looks_like_local_macro = this.reference_looks_like_macro(
+            document,
+            position,
+            word_info.range.start.character,
+            'local'
+        );
+        const looks_like_global_macro = this.reference_looks_like_macro(
+            document,
+            position,
+            word_info.range.start.character,
+            'global'
+        );
+        
+        // If reference looks like local macro, resolve local macro only
+        if (looks_like_local_macro) {
+            return await this.resolve_local_macro_only(
+                word,
+                document,
+                scope_resolver,
+                workspace_indexer,
+                cross_file_config,
+                cancellation_token
+            );
+        }
+        
+        // If reference looks like global macro, resolve global macro only
+        if (looks_like_global_macro) {
+            return await this.resolve_global_macro_only(
+                word,
+                document,
+                workspace_symbols,
+                scope_resolver,
+                workspace_indexer,
+                cross_file_config,
+                cancellation_token
+            );
+        }
+        
+        // Otherwise, treat as WORD: resolve variables/programs/scalars/matrices (NOT macros)
+        return await this.resolve_non_macro_symbols(
+            word,
+            document,
+            workspace_symbols,
+            scope_resolver,
+            workspace_indexer,
+            cross_file_config,
+            cancellation_token
+        );
+    }
+
+    /**
+     * Convert symbol definitions to LSP Definition format.
+     */
+    private as_locations(defs: LocatableSymbol[]): Definition {
+        if (defs.length === 1) {
+            return { uri: defs[0].location.uri, range: defs[0].location.range };
+        }
+        return defs.map((def) => ({
+            uri: def.location.uri,
+            range: def.location.range,
+        }));
+    }
+    private position_in_range(position: Position, range: Range): boolean {
+        if (position.line < range.start.line || position.line > range.end.line) {
+            return false;
+        }
+        if (position.line === range.start.line && position.character < range.start.character) {
+            return false;
+        }
+        if (position.line === range.end.line && position.character >= range.end.character) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Get the token at the given position from the document's token list.
+     */
+    private get_token_at_position(
+        document: DocumentState,
+        position: Position
+    ): Token | null {
+        if (!document.tokens) {
+            return null;
+        }
+        
+        for (const token of document.tokens) {
+            if (this.position_in_range(position, token.range)) {
+                return token;
+            }
+        }
+        
         return null;
     }
 
@@ -653,6 +903,29 @@ export class DefinitionProvider {
         }
 
         return null;
+    }
+
+    /**
+     * Check if the position is within an extended macro function context
+     * where bare identifiers should be treated as macro references.
+     * 
+     * @param document - The document state
+     * @param position - The cursor position
+     * @returns true if in extended macro function context
+     */
+    private is_in_extended_macro_context(
+        document: DocumentState,
+        position: Position
+    ): boolean {
+        const line_text = get_line_text(document, position.line);
+        const text_before_cursor = line_text.substring(0, position.character + 1);
+        
+        // Pattern: local/global macname : extended_function ...
+        // Supported functions: list, word, piece
+        // Note: Stata is case-sensitive, so local/global and function keywords must be lowercase
+        // Allow start of line or semicolon delimiter as anchor
+        const extended_macro_pattern = /(?:^|;)\s*(local|global)\s+\w+\s*:\s*(list|word|piece)\s+/;
+        return extended_macro_pattern.test(text_before_cursor);
     }
 
     /**
