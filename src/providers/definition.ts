@@ -22,7 +22,14 @@ import {
     ResolvedScope,
     MacroSymbol,
     Token,
+    ProgramSymbol,
+    VariableSymbol,
+    ScalarSymbol,
+    MatrixSymbol,
 } from '../types';
+
+/** Symbol with a location, as returned by WorkspaceIndexer.find_symbol_definitions */
+type LocatableSymbol = ProgramSymbol | MacroSymbol | VariableSymbol | ScalarSymbol | MatrixSymbol;
 
 type MacroDefNodeLike = {
     type: 'macro_def';
@@ -218,7 +225,7 @@ export class DefinitionProvider {
         if (workspace_indexer) {
             const local_defs = workspace_indexer.find_symbol_definitions(word, 'local');
             if (local_defs.length > 0) {
-                return this.as_locations(local_defs as any);
+                return this.as_locations(local_defs);
             }
         }
 
@@ -274,7 +281,7 @@ export class DefinitionProvider {
         if (workspace_indexer) {
             const global_defs = workspace_indexer.find_symbol_definitions(word, 'global');
             if (global_defs.length > 0) {
-                return this.as_locations(global_defs as any);
+                return this.as_locations(global_defs);
             }
         }
 
@@ -395,22 +402,22 @@ export class DefinitionProvider {
         if (workspace_indexer) {
             const variable_defs = workspace_indexer.find_symbol_definitions(word, 'variable');
             if (variable_defs.length > 0) {
-                return this.as_locations(variable_defs as any);
+                return this.as_locations(variable_defs);
             }
 
             const program_defs = workspace_indexer.find_symbol_definitions(word, 'program');
             if (program_defs.length > 0) {
-                return this.as_locations(program_defs as any);
+                return this.as_locations(program_defs);
             }
 
             const scalar_defs = workspace_indexer.find_symbol_definitions(word, 'scalar');
             if (scalar_defs.length > 0) {
-                return this.as_locations(scalar_defs as any);
+                return this.as_locations(scalar_defs);
             }
 
             const matrix_defs = workspace_indexer.find_symbol_definitions(word, 'matrix');
             if (matrix_defs.length > 0) {
-                return this.as_locations(matrix_defs as any);
+                return this.as_locations(matrix_defs);
             }
         }
 
@@ -520,16 +527,14 @@ export class DefinitionProvider {
     /**
      * Convert symbol definitions to LSP Definition format.
      */
-    private as_locations(
-        defs: Array<{ location: { uri: string; range: any } }>
-    ): Definition {
+    private as_locations(defs: LocatableSymbol[]): Definition {
         if (defs.length === 1) {
             return { uri: defs[0].location.uri, range: defs[0].location.range };
         }
         return defs.map((def) => ({
             uri: def.location.uri,
             range: def.location.range,
-        })) as Location[];
+        }));
     }
     private position_in_range(position: Position, range: Range): boolean {
         if (position.line < range.start.line || position.line > range.end.line) {
