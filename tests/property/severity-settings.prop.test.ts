@@ -11,6 +11,7 @@ import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { StataLSPConfig, StataDiagnosticCode } from '../../src/types';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { create_document_state } from './helpers/document-utils';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Severity Settings Property Tests', () => {
     let my_diagnostics_provider: DiagnosticsProvider;
@@ -68,7 +69,7 @@ describe('Severity Settings Property Tests', () => {
     it('should respect undefinedMacro severity setting for all valid values', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 fc.constantFrom('error', 'warning', 'information', 'hint', 'off'),
                 async (macro_name: string, severity_setting: 'error' | 'warning' | 'information' | 'hint' | 'off') => {
                     const content = `local result \`${macro_name}'`;
@@ -119,7 +120,7 @@ describe('Severity Settings Property Tests', () => {
     it('should respect undefinedVariable severity setting for all valid values', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 fc.constantFrom('error', 'warning', 'information', 'hint', 'off'),
                 async (var_name: string, severity_setting: 'error' | 'warning' | 'information' | 'hint' | 'off') => {
                     const content = `summarize ${var_name}`;
@@ -170,8 +171,8 @@ describe('Severity Settings Property Tests', () => {
     it('should use default severity values when no severity settings are configured', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
                 async (macro_name: string, var_name: string) => {
                     const content = `local result \`${macro_name}'\nsummarize ${var_name}`;
                     const my_document = create_document_state(content);
