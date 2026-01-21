@@ -761,9 +761,8 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | ---------------------------------------------- | ------- | --------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `sight.diagnostics.enabled`                    | boolean | `true`          | Enable or disable all diagnostics                                                                                     |
 | `sight.diagnostics.severity.undefinedMacro`    | enum    | `"warning"`     | Severity level for undefined macro references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`    |
-| `sight.diagnostics.severity.undefinedVariable` | enum    | `"information"` | Severity level for undefined variable references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
+| `sight.diagnostics.severity.undefinedVariable` | enum    | `"off"`         | [Experimental] Severity level for undefined variable references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.styleWarnings`     | enum    | `"hint"`        | Severity level for style warnings. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`                |
-| `sight.diagnostics.undefinedVariableEnabled`   | boolean | `false`         | Enable checking for undefined variables                                                                               |
 | `sight.diagnostics.indentation`                | boolean | `false`         | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
 
 <a name="why-indentation-diagnostics-disabled"></a>
@@ -830,7 +829,7 @@ This is useful when the LSP cannot automatically detect that a macro will be def
 You can explicitly declare symbols to the LSP using declaration directives. These directives tell the LSP that a symbol should be considered defined from the point where the directive appears.
 
 *   **Locals and Globals**: The LSP **will** emit warnings (or errors, based on settings) if these macros are used but not defined. Use declaration directives (`@lsp-local`, `@lsp-global`) to suppress these warnings for macros defined dynamically.
-*   **Variables**: By default, the LSP does **not** emit warnings about undefined variables, since it cannot statically check what's in your datasets. However, you can configure `undefinedVariableEnabled: true` (see [Configuration](#configuration)) to enable checking, then use `@lsp-variables` to declare variables loaded from external data files.
+*   **Variables**: By default, the LSP does **not** emit warnings about undefined variables, since it cannot statically check what's in your datasets. This is an experimental feature - you can set `sight.diagnostics.severity.undefinedVariable` to a severity other than `"off"` (see [Configuration](#configuration)) to enable checking, then use `@lsp-variables` to declare variables loaded from external data files.
 *   **Scalars, Matrices, and Programs**: You can declare these to the LSP (`@lsp-scalar`, `@lsp-matrix`, `@lsp-program`), but at present, the LSP does **not** emit warnings if it fails to find them in scope. Support for these directives is implemented to prepare code for future configurable strictness checks.
 
 **Available directives:**

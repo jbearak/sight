@@ -31,7 +31,6 @@ describe('Indentation Diagnostics Integration', () => {
           undefinedVariable: 'information',
           styleWarnings: 'hint'
         },
-        undefinedVariableEnabled: false
       },
       adoPaths: [],
       cross_file: {}
@@ -76,7 +75,6 @@ display "should be indented"
           undefinedVariable: 'information',
           styleWarnings: 'hint'
         },
-        undefinedVariableEnabled: false
       },
       adoPaths: [],
       cross_file: {}
@@ -120,7 +118,6 @@ display "should be indented"
           undefinedVariable: 'information',
           styleWarnings: 'hint'
         },
-        undefinedVariableEnabled: false
       },
       adoPaths: [],
       cross_file: {}
@@ -182,7 +179,6 @@ display "code after block comment"`;
           undefinedVariable: 'information',
           styleWarnings: 'hint'
         },
-        undefinedVariableEnabled: false
       },
       adoPaths: [],
       cross_file: {}
@@ -245,7 +241,6 @@ No indentation line
           undefinedVariable: 'information',
           styleWarnings: 'hint'
         },
-        undefinedVariableEnabled: false
       },
       adoPaths: [],
       cross_file: {}

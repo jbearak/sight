@@ -52,7 +52,6 @@ describe('Current File Forward Call Diagnostics', () => {
                     undefinedVariable: 'information',
                     styleWarnings: 'hint',
                 },
-                undefinedVariableEnabled: true,
             },
             adoPaths: [],
             cross_file: {

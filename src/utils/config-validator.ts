@@ -163,10 +163,6 @@ export function validate_comment_formatting_config(
             }
         }
 
-        if (typeof diagnostics.undefinedVariableEnabled === 'boolean') {
-            validated_config.diagnostics.undefinedVariableEnabled = diagnostics.undefinedVariableEnabled;
-        }
-
         if (typeof diagnostics.indentation === 'boolean') {
             validated_config.diagnostics.indentation = diagnostics.indentation;
         }

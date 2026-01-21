@@ -452,7 +452,6 @@ display \`helper_local'`;
                 ...DEFAULT_SETTINGS,
                 diagnostics: {
                     ...DEFAULT_SETTINGS.diagnostics,
-                    undefinedVariableEnabled: true,
                 },
             };
 
@@ -494,7 +493,6 @@ display $helper_global`;
                 ...DEFAULT_SETTINGS,
                 diagnostics: {
                     ...DEFAULT_SETTINGS.diagnostics,
-                    undefinedVariableEnabled: true,
                 },
             };
 

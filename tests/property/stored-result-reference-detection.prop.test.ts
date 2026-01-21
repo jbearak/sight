@@ -39,7 +39,6 @@ describe('Stored Result Reference Detection Property Tests', () => {
           undefinedMacro: 'warning',
           undefinedVariable: 'warning',
         },
-        undefinedVariableEnabled: true,
       },
       adoPaths: [],
       completion: {

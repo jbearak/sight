@@ -36,7 +36,6 @@ describe('Expression Macro False Positive Property Tests', () => {
           undefinedMacro: 'warning',
           undefinedVariable: 'warning',
         },
-        undefinedVariableEnabled: true,
       },
       adoPaths: [],
       completion: {

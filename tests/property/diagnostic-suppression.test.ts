@@ -33,7 +33,6 @@ describe('Diagnostic Suppression Property Tests', () => {
                     undefinedMacro: 'warning',
                     undefinedVariable: 'warning',
                 },
-                undefinedVariableEnabled: true,
             },
             completion: {},
             formatting: {

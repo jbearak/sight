@@ -44,7 +44,6 @@ describe('Comprehensive Integration Tests', () => {
                     undefinedMacro: 'warning',
                     undefinedVariable: 'warning',
                 },
-                undefinedVariableEnabled: true,
             },
             completion: {},
             formatting: {
