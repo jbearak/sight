@@ -8,7 +8,7 @@ This design document describes the changes needed to fix the bug where `sight.di
 
 The change affects the configuration flow and diagnostics severity determination:
 
-```
+```text
 Before:
 VS Code Settings → DEFAULT_SETTINGS (with undefined_symbol default) → DiagnosticsProvider
                                     ↓

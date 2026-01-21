@@ -10,6 +10,7 @@ import * as fc from 'fast-check';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { StataLSPConfig, StataDiagnosticCode } from '../../src/types';
 import { create_document_state } from './helpers/document-utils';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Diagnostic Suppression Property Tests', () => {
     let my_diagnostics_provider: DiagnosticsProvider;
@@ -64,7 +65,7 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should suppress undefined macro diagnostics with @lsp-ignore on same line', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 async (macro_name: string) => {
                     const content = `local result \`${macro_name}' // @lsp-ignore`;
                     const my_document = create_document_state(content);
@@ -92,7 +93,7 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should suppress undefined macro diagnostics with @lsp-ignore-next on previous line', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 async (macro_name: string) => {
                     const content = `// @lsp-ignore-next\nlocal result \`${macro_name}'`;
                     const my_document = create_document_state(content);
@@ -120,7 +121,7 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should suppress undefined variable diagnostics with suppression comments', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 fc.constantFrom('@lsp-ignore', '@lsp-ignore-next'),
                 async (var_name: string, suppress_type: string) => {
                     const content = suppress_type === '@lsp-ignore'
@@ -152,7 +153,7 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should still report undefined symbols without suppression comments', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 async (macro_name: string) => {
                     const content = `local result \`${macro_name}'`;
                     const my_document = create_document_state(content);
@@ -180,8 +181,8 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should only suppress diagnostics on the specified line', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
                 async (macro1: string, macro2: string) => {
                     fc.pre(macro1 !== macro2); // Ensure different macro names
                     
@@ -212,7 +213,7 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should suppress undefined macro diagnostics when diagnostics.severity.undefinedMacro is off', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 async (macro_name: string) => {
                     const content = `local result \`${macro_name}'`;
                     const my_document = create_document_state(content);
@@ -252,7 +253,7 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should suppress undefined variable diagnostics when diagnostics.severity.undefinedVariable is off', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 async (var_name: string) => {
                     const content = `gen new_var = ${var_name}`;
                     const my_document = create_document_state(content);
@@ -292,7 +293,7 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should respect individual severity settings for undefined macros and variables', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 fc.constantFrom('error', 'warning', 'information', 'hint'),
                 async (macro_name: string, severity: 'error' | 'warning' | 'information' | 'hint') => {
                     const content = `local result \`${macro_name}'`;
@@ -341,7 +342,7 @@ describe('Diagnostic Suppression Property Tests', () => {
     it('should suppress out-of-scope diagnostics when crossFile.diagnostics.outOfScope is off', async () => {
         await fc.assert(
             fc.asyncProperty(
-                fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)),
+                arbitrary_non_reserved_identifier(),
                 async (macro_name: string) => {
                     const content = `// @lsp-done-by "parent.do" line=5\nlocal result \`${macro_name}'`;
                     const my_document = create_document_state(content);
