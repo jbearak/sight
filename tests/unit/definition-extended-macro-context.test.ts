@@ -179,12 +179,12 @@ describe('DefinitionProvider - Extended Macro Context Detection', () => {
             );
         });
 
-        test('case insensitive keywords', () => {
+        test('uppercase keywords should NOT match (Stata is case-sensitive)', () => {
             test_context_detection(
                 'LOCAL x : LIST a',
                 0, 15, // position at 'a'
-                true,
-                'case insensitive keywords'
+                false,
+                'uppercase keywords should not match'
             );
         });
     });

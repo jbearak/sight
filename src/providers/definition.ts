@@ -295,6 +295,7 @@ export class DefinitionProvider {
     /**
      * Resolve non-macro symbols (for WORD tokens in regular context).
      * Searches variables, programs, scalars, matrices - NOT macros.
+     * Priority: variables → programs → scalars → matrices
      */
     private async resolve_non_macro_symbols(
         word: string,
@@ -319,8 +320,17 @@ export class DefinitionProvider {
                 resolve_config,
                 cancellation_token
             );
+
+            // Check variables first (highest priority for WORD tokens)
+            const variable = resolved_scope.symbols.variables.get(word);
+            if (variable) {
+                return {
+                    uri: variable.location.uri,
+                    range: variable.location.range,
+                };
+            }
             
-            // Check programs (case-sensitive)
+            // Check programs
             const program = resolved_scope.symbols.programs.get(word);
             if (program) {
                 return {
@@ -349,6 +359,14 @@ export class DefinitionProvider {
         }
 
         // Check document symbols
+        const variable = document.symbols.variables.get(word);
+        if (variable) {
+            return {
+                uri: variable.location.uri,
+                range: variable.location.range,
+            };
+        }
+
         const program = document.symbols.programs.get(word);
         if (program) {
             return {
@@ -357,7 +375,7 @@ export class DefinitionProvider {
             };
         }
 
-        const scalar = (document.symbols as any).scalars?.get?.(word);
+        const scalar = document.symbols.scalars?.get(word);
         if (scalar) {
             return {
                 uri: scalar.location.uri,
@@ -365,7 +383,7 @@ export class DefinitionProvider {
             };
         }
 
-        const matrix = (document.symbols as any).matrices?.get?.(word);
+        const matrix = document.symbols.matrices?.get(word);
         if (matrix) {
             return {
                 uri: matrix.location.uri,
@@ -375,6 +393,11 @@ export class DefinitionProvider {
 
         // Check workspace indexer
         if (workspace_indexer) {
+            const variable_defs = workspace_indexer.find_symbol_definitions(word, 'variable');
+            if (variable_defs.length > 0) {
+                return this.as_locations(variable_defs as any);
+            }
+
             const program_defs = workspace_indexer.find_symbol_definitions(word, 'program');
             if (program_defs.length > 0) {
                 return this.as_locations(program_defs as any);
@@ -389,15 +412,18 @@ export class DefinitionProvider {
             if (matrix_defs.length > 0) {
                 return this.as_locations(matrix_defs as any);
             }
-
-            const variable_defs = workspace_indexer.find_symbol_definitions(word, 'variable');
-            if (variable_defs.length > 0) {
-                return this.as_locations(variable_defs as any);
-            }
         }
 
         // Check workspace symbols
         if (workspace_symbols) {
+            const variable_ws = workspace_symbols.variables.get(word);
+            if (variable_ws) {
+                return {
+                    uri: variable_ws.location.uri,
+                    range: variable_ws.location.range,
+                };
+            }
+
             const program_ws = workspace_symbols.programs.get(word);
             if (program_ws) {
                 return {
@@ -1044,7 +1070,8 @@ export class DefinitionProvider {
         const text_before_cursor = line_text.substring(0, position.character + 1);
         
         // Pattern: local/global macname : list_function ...
-        const extended_macro_pattern = /^\s*(local|global)\s+\w+\s*:\s*(list)\s+/i;
+        // Note: Stata is case-sensitive, so local/global must be lowercase
+        const extended_macro_pattern = /^\s*(local|global)\s+\w+\s*:\s*(list)\s+/;
         return extended_macro_pattern.test(text_before_cursor);
     }
 
