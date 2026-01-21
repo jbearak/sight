@@ -32,7 +32,6 @@ describe('Severity Settings Property Tests', () => {
                     undefinedMacro: 'warning',
                     undefinedVariable: 'information',
                 },
-                undefinedVariableEnabled: true,
                 indentation: false,
             },
             completion: { cacheSize: 1000, prefixMaxItems: 100 },

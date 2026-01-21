@@ -73,7 +73,6 @@ const config: StataLSPConfig = {
             undefinedVariable: 'information',
             styleWarnings: 'hint'
         },
-        undefinedVariableEnabled: false
     },
     adoPaths: [],
     cross_file: {

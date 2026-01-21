@@ -346,7 +346,6 @@ export class DiagnosticsProvider {
         const config_str = JSON.stringify({
             enabled: config.diagnostics.enabled,
             severity: config.diagnostics.severity,
-            undefinedVariableEnabled: config.diagnostics.undefinedVariableEnabled,
             indentation: config.diagnostics.indentation,
             adoPaths: config.adoPaths,
             cross_file: config.cross_file,

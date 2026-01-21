@@ -38,7 +38,6 @@ describe('Unbalanced Macro No Duplicate Diagnostics Property Tests', () => {
           undefinedMacro: 'warning',
           undefinedVariable: 'warning',
         },
-        undefinedVariableEnabled: true,
       },
       adoPaths: [],
       completion: {

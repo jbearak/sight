@@ -31,10 +31,9 @@ export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): Stata
             enabled: true,
             severity: {
                 undefinedMacro: 'warning',
-                undefinedVariable: 'information',
+                undefinedVariable: 'off',
                 styleWarnings: 'hint'
             },
-            undefinedVariableEnabled: false,
             indentation: true
         },
         completion: { 

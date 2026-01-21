@@ -34,7 +34,6 @@ describe('Invalid Macro Character Detection Unit Tests', () => {
           undefinedMacro: 'warning',
           undefinedVariable: 'warning',
         },
-        undefinedVariableEnabled: true,
       },
       adoPaths: [],
       completion: {

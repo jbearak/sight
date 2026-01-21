@@ -25,7 +25,6 @@ const DEFAULT_CONFIG = {
             undefinedVariable: 'information' as const,
             styleWarnings: 'hint' as const,
         },
-        undefinedVariableEnabled: false,
     },
     completion: {},
     formatting: {

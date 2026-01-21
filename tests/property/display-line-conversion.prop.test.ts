@@ -35,7 +35,6 @@ describe('Display Line Conversion Property Tests', () => {
                     undefinedMacro: 'warning',
                     undefinedVariable: 'warning',
                 },
-                undefinedVariableEnabled: true,
             },
             completion: {},
             formatting: {

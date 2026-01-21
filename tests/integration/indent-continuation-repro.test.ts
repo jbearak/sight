@@ -45,7 +45,6 @@ describe('Indentation Diagnostics - Continuation Line Regression', () => {
         undefinedVariable: 'information',
         styleWarnings: 'hint'
       },
-      undefinedVariableEnabled: false
     },
     adoPaths: [],
     cross_file: {}

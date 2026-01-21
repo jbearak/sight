@@ -20,7 +20,6 @@ const DEFAULT_CONFIG = {
             undefinedVariable: 'information',
             styleWarnings: 'hint',
         },
-        undefinedVariableEnabled: false,
     },
     completion: {},
     formatting: {
