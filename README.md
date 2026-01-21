@@ -1052,7 +1052,7 @@ The extension provides commands to send Stata code directly from VS Code to Stat
 | `Alt+Enter` | `Alt+Enter` | Send statement to terminal |
 | `Alt+Shift+Enter` | `Alt+Shift+Enter` | Send file to terminal |
 
-> [!INFO]
+> [!TIP]
 > You can also access these commands via:
 > - an editor toolbar menu (`▶` button)
   > - the command palette (`Cmd+Shift+P` on Mac, `Ctrl+Shift+P` on Windows).
@@ -1064,7 +1064,7 @@ The extension provides commands to send Stata code directly from VS Code to Stat
 - **CD to File Folder**: Changes Stata's working directory to the current file's folder
 - **CD to Workspace Folder**: Changes Stata's working directory to the workspace root
 
-> [!INFO]
+> [!TIP]
 > The toolbar button (`▶`) lists all commands.
 
 ### Cursor Advancement
