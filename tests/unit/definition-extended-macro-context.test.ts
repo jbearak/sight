@@ -27,8 +27,8 @@ describe('DefinitionProvider - Extended Macro Context Detection', () => {
                 variables: new Map(),
             },
             ast: null,
-            tokens: null,
-            line_offsets: null,
+            tokens: [],
+            line_offsets: [],
         };
     };
 
