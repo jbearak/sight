@@ -694,6 +694,26 @@ export class DefinitionProvider {
     }
 
     /**
+     * Check if the position is within an extended macro function context
+     * where bare identifiers should be treated as macro references.
+     * 
+     * @param document - The document state
+     * @param position - The cursor position
+     * @returns true if in extended macro function context
+     */
+    private is_in_extended_macro_context(
+        document: DocumentState,
+        position: Position
+    ): boolean {
+        const line_text = get_line_text(document, position.line);
+        const text_before_cursor = line_text.substring(0, position.character + 1);
+        
+        // Pattern: local/global macname : list_function ...
+        const extended_macro_pattern = /^\s*(local|global)\s+\w+\s*:\s*(list)\s+/i;
+        return extended_macro_pattern.test(text_before_cursor);
+    }
+
+    /**
      * Resolve file path with .do fallback, relative to current file.
      */
     private resolve_file_path(current_uri: string, file_path: string): string | null {
