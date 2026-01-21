@@ -63,7 +63,6 @@ describe('Comprehensive Integration Tests', () => {
                 max_indexed_files: 1000,
                 assume_call_site: 'end',
                 diagnostics: {
-                    undefined_symbol: 'warning',
                     out_of_scope: 'info',
                     missing_file: 'warning',
                 },
@@ -96,13 +95,20 @@ gen new_var = undefined_var`;
 
             const document = create_document_state(child_content);
             
-            // Set all cross-file diagnostics to 'off'
+            // Set all diagnostics to 'off' using individual severity settings
             const suppress_config = {
                 ...config,
+                diagnostics: {
+                    ...config.diagnostics,
+                    severity: {
+                        ...config.diagnostics.severity,
+                        undefinedMacro: 'off' as const,
+                        undefinedVariable: 'off' as const,
+                    },
+                },
                 cross_file: {
                     ...config.cross_file,
                     diagnostics: {
-                        undefined_symbol: 'off' as const,
                         out_of_scope: 'off' as const,
                         missing_file: 'off' as const,
                     },
@@ -128,13 +134,19 @@ local result \`undefined_macro'`;
 
             const document = create_document_state(child_content);
             
-            // Suppress only missing file diagnostics
+            // Suppress only missing file diagnostics, keep undefined macro warnings
             const selective_config = {
                 ...config,
+                diagnostics: {
+                    ...config.diagnostics,
+                    severity: {
+                        ...config.diagnostics.severity,
+                        undefinedMacro: 'warning' as const,
+                    },
+                },
                 cross_file: {
                     ...config.cross_file,
                     diagnostics: {
-                        undefined_symbol: 'warning' as const,
                         out_of_scope: 'info' as const,
                         missing_file: 'off' as const,
                     },
