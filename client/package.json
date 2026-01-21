@@ -1,7 +1,7 @@
 {
-  "name": "sight-client",
+  "name": "sight",
   "displayName": "Sight - Stata Language Server",
-  "description": "Language support for Stata using LSP",
+  "description": "Stata language support: language server, syntax highlighting, and code execution",
   "version": "0.1.17",
   "publisher": "jbearak",
   "repository": {
