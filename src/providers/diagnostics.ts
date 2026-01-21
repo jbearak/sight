@@ -581,26 +581,14 @@ export class DiagnosticsProvider {
         let severity: DiagnosticSeverity | null;
 
         // Determine severity based on diagnostic code and config
-        // cross_file.diagnostics.undefined_symbol (spec) overrides undefined macro/variable severity.
-        const cross_file_undefined = config.cross_file?.diagnostics?.undefined_symbol;
 
         switch (diagnostic.code) {
             case StataDiagnosticCode.UNDEFINED_MACRO:
             case StataDiagnosticCode.UNDEFINED_VARIABLE:
-                // Check cross-file config first - if 'off', suppress completely
-                if (cross_file_undefined === 'off') {
-                    return null;
-                }
-                // If cross-file config is set and not 'off', use it
-                if (cross_file_undefined) {
-                    severity = this.cross_file_severity_to_lsp(cross_file_undefined);
-                } else {
-                    // Fall back to individual diagnostic severity settings
-                    const fallback_severity = diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
-                        ? config.diagnostics.severity.undefinedMacro
-                        : config.diagnostics.severity.undefinedVariable;
-                    severity = this.get_severity_from_config(fallback_severity);
-                }
+                const severity_setting = diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    ? config.diagnostics.severity.undefinedMacro
+                    : config.diagnostics.severity.undefinedVariable;
+                severity = this.get_severity_from_config(severity_setting);
                 break;
             default:
                 severity = this.semantic_severity_to_lsp(diagnostic.severity);
