@@ -24,10 +24,19 @@ function create_test_document(
     symbols?: Partial<SymbolTable>,
     uri?: string
 ): DocumentState {
+    // Compute line offsets from content
+    const the_line_offsets: number[] = [0];
+    for (let i = 0; i < content.length; i++) {
+        if (content[i] === '\n') {
+            the_line_offsets.push(i + 1);
+        }
+    }
+
     return {
         uri: uri || `file://${process.cwd()}/test.do`,
         version: 1,
         content,
+        tokens: [],
         ast: null,
         symbols: {
             programs: symbols?.programs || new Map(),
@@ -38,6 +47,10 @@ function create_test_document(
             matrices: symbols?.matrices || new Map(),
         },
         diagnostics: [],
+        context_ranges: [],
+        context_tracker: new ContextTracker(),
+        line_offsets: the_line_offsets,
+        forward_calls: [],
     };
 }
 
