@@ -54,12 +54,11 @@ describe('Feature: variable-macro-definition-disambiguation, Property 6: Token P
                     }),
                 }),
                 (token) => {
-                    // Ensure valid range
-                    if (token.range.start.line > token.range.end.line ||
-                        (token.range.start.line === token.range.end.line && 
-                         token.range.start.character >= token.range.end.character)) {
-                        return true; // Skip invalid ranges
-                    }
+                    fc.pre(
+                        token.range.start.line < token.range.end.line ||
+                        (token.range.start.line === token.range.end.line &&
+                         token.range.start.character < token.range.end.character)
+                    );
 
                     const document = create_document_with_tokens([token]);
 
@@ -109,12 +108,11 @@ describe('Feature: variable-macro-definition-disambiguation, Property 6: Token P
                     }),
                 }),
                 (token) => {
-                    // Ensure valid range
-                    if (token.range.start.line > token.range.end.line ||
-                        (token.range.start.line === token.range.end.line && 
-                         token.range.start.character >= token.range.end.character)) {
-                        return true; // Skip invalid ranges
-                    }
+                    fc.pre(
+                        token.range.start.line < token.range.end.line ||
+                        (token.range.start.line === token.range.end.line &&
+                         token.range.start.character < token.range.end.character)
+                    );
 
                     const document = create_document_with_tokens([token]);
 
