@@ -124,8 +124,8 @@ describe('Diagnostic Suppression Property Tests', () => {
                 fc.constantFrom('@lsp-ignore', '@lsp-ignore-next'),
                 async (var_name: string, suppress_type: string) => {
                     const content = suppress_type === '@lsp-ignore'
-                        ? `gen new_var = ${var_name} // @lsp-ignore`
-                        : `// @lsp-ignore-next\ngen new_var = ${var_name}`;
+                        ? `summarize ${var_name} // @lsp-ignore`
+                        : `// @lsp-ignore-next\nsummarize ${var_name}`;
                     
                     const my_document = create_document_state(content);
                     
