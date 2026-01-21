@@ -1,4 +1,4 @@
-# Stata extension for Visual Studio Code
+# Sight - Comprehensive Stata Language Support
 
 Comprehensive language support for Stata: real-time diagnostics, completions, go-to-definition, code formatting, syntax highlighting with nesting depth colors, and integrated code execution.
 
