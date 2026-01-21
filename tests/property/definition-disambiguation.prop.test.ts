@@ -11,6 +11,7 @@ import * as fc from 'fast-check';
 import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
 import { Token, SymbolTable } from '../../src/types';
+import { compute_line_offsets } from '../../src/utils/line-utils';
 
 describe('Feature: variable-macro-definition-disambiguation', () => {
     const definition_provider = new DefinitionProvider();
@@ -38,7 +39,7 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
                 variables: symbols.variables || new Map(),
             },
             ast: null,
-            line_offsets: [0, document_content.length + 1],
+            line_offsets: compute_line_offsets(document_content),
         } as DocumentState;
     }
 
