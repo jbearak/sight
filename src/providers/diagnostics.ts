@@ -584,12 +584,13 @@ export class DiagnosticsProvider {
 
         switch (diagnostic.code) {
             case StataDiagnosticCode.UNDEFINED_MACRO:
-            case StataDiagnosticCode.UNDEFINED_VARIABLE:
+            case StataDiagnosticCode.UNDEFINED_VARIABLE: {
                 const severity_setting = diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
                     ? config.diagnostics.severity.undefinedMacro
                     : config.diagnostics.severity.undefinedVariable;
                 severity = this.get_severity_from_config(severity_setting);
                 break;
+            }
             default:
                 severity = this.semantic_severity_to_lsp(diagnostic.severity);
         }
