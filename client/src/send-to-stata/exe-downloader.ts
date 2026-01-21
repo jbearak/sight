@@ -16,12 +16,12 @@ export interface DownloadResult {
     error?: string;
 }
 
-export const CURRENT_EXE_VERSION = '0.1.11';
+export const CURRENT_EXE_VERSION = '0.1.16';
 export const CHECKSUMS: Record<string, string> = {
-    'x64':   '2c7becace23c10f4f888f7f61eedfde8108f4e16ce21c1f8a8b625038a22c1d6',
-    'arm64': 'aa1fd6dfd2e14bcc2fdb2d06b4ca950ef5ecd5891bd7de0a833b12dc46feb20a',
+    'x64':   '1d73f6a4d1c58e1191d1215c5689a4b03ecf6605341a14aecf01e82dcc426463',
+    'arm64': '51aab45f56c54424efa160e4625dd4d23c65ed9112a9fe6763c24eff60effe74',
 };
-const BASE_URL = 'https://raw.githubusercontent.com/jbearak/zed-stata/365ced02951833e43d4d7a5be73e61dbe73ab5f4';
+const BASE_URL = 'https://raw.githubusercontent.com/jbearak/zed-stata/d8426553242140ae4bc84d9aa05080f76af2e699';
 
 export function get_windows_architecture(): 'x64' | 'arm64' {
     return process.env.PROCESSOR_ARCHITECTURE === 'ARM64' ? 'arm64' : 'x64';
