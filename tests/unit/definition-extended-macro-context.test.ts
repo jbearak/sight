@@ -189,3 +189,4 @@ describe('DefinitionProvider - Extended Macro Context Detection', () => {
         });
     });
 });
+

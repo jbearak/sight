@@ -513,3 +513,4 @@ describe('Definition Provider - Backward Compatibility', () => {
         });
     });
 });
+
