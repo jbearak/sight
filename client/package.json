@@ -1,6 +1,6 @@
 {
   "name": "sight",
-  "displayName": "Sight - Stata Language Server",
+  "displayName": "Sight - Comprehensive Stata Language Support",
   "description": "Stata language support: language server, syntax highlighting, and code execution",
   "version": "0.1.18",
   "publisher": "jbearak",

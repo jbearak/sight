@@ -1,6 +1,6 @@
-# Sight - Stata Language Server
+# Stata extension for Visual Studio Code
 
-Stata language support: language server, syntax highlighting, and code execution.
+Comprehensive language support for Stata: real-time diagnostics, completions, go-to-definition, code formatting, syntax highlighting with nesting depth colors, and integrated code execution.
 
 ## Features
 
