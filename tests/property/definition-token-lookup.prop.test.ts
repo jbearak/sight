@@ -9,7 +9,6 @@
  */
 
 import * as fc from 'fast-check';
-import { Position, Range } from 'vscode-languageserver-textdocument';
 import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
 import { Token, TokenType } from '../../src/types';

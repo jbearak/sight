@@ -8,10 +8,9 @@
  */
 
 import * as fc from 'fast-check';
-import { Position, Range } from 'vscode-languageserver-textdocument';
 import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
-import { Token, TokenType, SymbolTable } from '../../src/types';
+import { Token, SymbolTable } from '../../src/types';
 
 describe('Feature: variable-macro-definition-disambiguation', () => {
     const definition_provider = new DefinitionProvider();

@@ -466,14 +466,19 @@ export class DefinitionProvider {
         cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
-        // Determine if reference looks like a macro based on preceding character
-        const line_text = get_line_text(document, word_info.range.start.line);
-        const start_char = word_info.range.start.character;
-        const char_before = start_char > 0 ? line_text[start_char - 1] : '';
-        
-        const looks_like_local_macro = char_before === '`';
-        const looks_like_global_macro = char_before === '$' || 
-            (char_before === '{' && start_char > 1 && line_text[start_char - 2] === '$');
+        // Use existing helper to determine if reference looks like a macro
+        const looks_like_local_macro = this.reference_looks_like_macro(
+            document,
+            position,
+            word_info.range.start.character,
+            'local'
+        );
+        const looks_like_global_macro = this.reference_looks_like_macro(
+            document,
+            position,
+            word_info.range.start.character,
+            'global'
+        );
         
         // If reference looks like local macro, resolve local macro only
         if (looks_like_local_macro) {
