@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
 /**
- * Bumps version in both package.json files.
- * Usage: bun scripts/bump-version.ts [patch|minor|major|<version>]
+ * Bumps version in both package.json files and optionally commits, tags, and pushes.
+ * Usage: bun scripts/bump-version.ts [patch|minor|major|<version>] [--push]
  */
 
 import { readFileSync, writeFileSync } from "fs";
+import { execSync } from "child_process";
 
 const bump_type = process.argv[2] || "patch";
+const should_push = process.argv.includes("--push");
+const should_skip_git = process.argv.includes("--no-git");
 
 function read_package(path: string): { content: any; raw: string } {
     const raw = readFileSync(path, "utf-8");
@@ -50,3 +53,27 @@ update_package("package.json", new_version);
 update_package("client/package.json", new_version);
 
 console.log("Updated package.json and client/package.json");
+
+if (!should_skip_git) {
+    try {
+        console.log("Committing...");
+        execSync("git add package.json client/package.json", { stdio: "inherit" });
+        execSync(`git commit -m "Bump version to ${new_version}"`, { stdio: "inherit" });
+        
+        console.log("Tagging...");
+        execSync(`git tag v${new_version}`, { stdio: "inherit" });
+        
+        if (should_push) {
+            console.log("Pushing commits...");
+            execSync("git push origin", { stdio: "inherit" });
+            
+            console.log("Pushing tags...");
+            execSync("git push origin --tags", { stdio: "inherit" });
+        }
+        
+        console.log(`✓ Version ${new_version} bumped and tagged`);
+    } catch (error) {
+        console.error("Git operation failed:", error);
+        process.exit(1);
+    }
+}

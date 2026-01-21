@@ -442,6 +442,28 @@ Some tests intentionally trigger error paths (e.g., missing parent files in
 To enable noisy test logs while debugging, set:
 - `SIGHT_TEST_LOG=1`
 
+### Version Bumping
+
+Use the version bump script to update package versions and optionally commit, tag, and push:
+
+```bash
+# Bump version, commit, and tag (default)
+bun scripts/bump-version.ts 0.1.19
+
+# Also push commits and tags to remote
+bun scripts/bump-version.ts 0.1.19 --push
+
+# Only update version files, skip git operations
+bun scripts/bump-version.ts 0.1.19 --no-git
+
+# Use semantic versioning shortcuts
+bun scripts/bump-version.ts patch    # 0.1.18 → 0.1.19
+bun scripts/bump-version.ts minor    # 0.1.18 → 0.2.0
+bun scripts/bump-version.ts major    # 0.1.18 → 1.0.0
+```
+
+The script updates both `package.json` and `client/package.json`, then optionally commits with message "Bump version to X.Y.Z", creates a git tag `vX.Y.Z`, and pushes.
+
 ### Command Cache Management
 
 The LSP uses pre-generated JSON caches for Stata command metadata. Caches are

@@ -113,9 +113,19 @@ Then restart your shell or run `source ~/.bashrc` (or `~/.zshrc`).
 To bump the version in both `package.json` and `client/package.json`:
 
 ```bash
-bun run version:patch   # 0.1.0 → 0.1.1
-bun run version:minor   # 0.1.0 → 0.2.0
-bun run version:major   # 0.1.0 → 1.0.0
+# Bump version, commit, and tag (default)
+bun scripts/bump-version.ts patch   # 0.1.0 → 0.1.1
+bun scripts/bump-version.ts minor   # 0.1.0 → 0.2.0
+bun scripts/bump-version.ts major   # 0.1.0 → 1.0.0
+
+# Or specify an explicit version
+bun scripts/bump-version.ts 0.1.19
+
+# Also push commits and tags to remote
+bun scripts/bump-version.ts 0.1.19 --push
+
+# Only update version files, skip git operations
+bun scripts/bump-version.ts 0.1.19 --no-git
 ```
 
 ## Releasing
