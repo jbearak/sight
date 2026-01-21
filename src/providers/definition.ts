@@ -466,209 +466,50 @@ export class DefinitionProvider {
         cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
-        // Try scope resolver first if available
-        if (scope_resolver) {
-            const resolve_config = cross_file_config?.assume_call_site
-                ? {
-                    assume_call_site: cross_file_config.assume_call_site,
-                    max_forward_depth: cross_file_config.max_forward_depth,
-                }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
-            const resolved_scope = await scope_resolver.resolve(
-                document.uri,
-                document.content,
-                resolve_config,
+        // Determine if reference looks like a macro based on preceding character
+        const line_text = get_line_text(document, word_info.range.start.line);
+        const start_char = word_info.range.start.character;
+        const char_before = start_char > 0 ? line_text[start_char - 1] : '';
+        
+        const looks_like_local_macro = char_before === '`';
+        const looks_like_global_macro = char_before === '$' || 
+            (char_before === '{' && start_char > 1 && line_text[start_char - 2] === '$');
+        
+        // If reference looks like local macro, resolve local macro only
+        if (looks_like_local_macro) {
+            return await this.resolve_local_macro_only(
+                word,
+                document,
+                scope_resolver,
+                workspace_indexer,
+                cross_file_config,
                 cancellation_token
             );
-            
-            // Check local macros
-            const local_macro = resolved_scope.symbols.localMacros.get(word);
-            if (local_macro) {
-                return {
-                    uri: local_macro.location.uri,
-                    range: local_macro.location.range,
-                };
-            }
-
-            // Check global macros
-            const global_macro = resolved_scope.symbols.globalMacros.get(word);
-            if (global_macro) {
-                return {
-                    uri: global_macro.location.uri,
-                    range: global_macro.location.range,
-                };
-            }
-
-            // Check programs (case-sensitive)
-            const program = resolved_scope.symbols.programs.get(word);
-            if (program) {
-                return {
-                    uri: program.location.uri,
-                    range: program.location.range,
-                };
-            }
-
-            // Check scalars
-            const scalar = resolved_scope.symbols.scalars.get(word);
-            if (scalar) {
-                return {
-                    uri: scalar.location.uri,
-                    range: scalar.location.range,
-                };
-            }
-
-            // Check matrices
-            const matrix = resolved_scope.symbols.matrices.get(word);
-            if (matrix) {
-                return {
-                    uri: matrix.location.uri,
-                    range: matrix.location.range,
-                };
-            }
         }
-
-        // Check document symbols first to ensure they have precedence over workspace symbols
-        const reference_position = position;
-
-        // 1. Check local macros (only when the reference looks like a local macro)
-        const local_macro_def = this.find_nearest_macro_definition(
-            document,
+        
+        // If reference looks like global macro, resolve global macro only
+        if (looks_like_global_macro) {
+            return await this.resolve_global_macro_only(
+                word,
+                document,
+                workspace_symbols,
+                scope_resolver,
+                workspace_indexer,
+                cross_file_config,
+                cancellation_token
+            );
+        }
+        
+        // Otherwise, treat as WORD: resolve variables/programs/scalars/matrices (NOT macros)
+        return await this.resolve_non_macro_symbols(
             word,
-            'local',
-            reference_position
-        );
-        if (local_macro_def) {
-            return {
-                uri: local_macro_def.location.uri,
-                range: local_macro_def.location.range,
-            };
-        }
-
-        // 2. Check global macros (only when the reference looks like a global macro)
-        const global_macro_def = this.find_nearest_macro_definition(
             document,
-            word,
-            'global',
-            reference_position
+            workspace_symbols,
+            scope_resolver,
+            workspace_indexer,
+            cross_file_config,
+            cancellation_token
         );
-        if (global_macro_def) {
-            return {
-                uri: global_macro_def.location.uri,
-                range: global_macro_def.location.range,
-            };
-        }
-
-        // 3. Check document symbols
-        const local_macro = document.symbols.localMacros.get(word);
-        if (local_macro) {
-            return {
-                uri: local_macro.location.uri,
-                range: local_macro.location.range,
-            };
-        }
-
-        const global_macro = document.symbols.globalMacros.get(word);
-        if (global_macro) {
-            return {
-                uri: global_macro.location.uri,
-                range: global_macro.location.range,
-            };
-        }
-
-        const program = document.symbols.programs.get(word);
-        if (program) {
-            return {
-                uri: program.location.uri,
-                range: program.location.range,
-            };
-        }
-
-        const scalar = (document.symbols as any).scalars?.get?.(word);
-        if (scalar) {
-            return {
-                uri: scalar.location.uri,
-                range: scalar.location.range,
-            };
-        }
-
-        const matrix = (document.symbols as any).matrices?.get?.(word);
-        if (matrix) {
-            return {
-                uri: matrix.location.uri,
-                range: matrix.location.range,
-            };
-        }
-
-        // If we have a workspace indexer, prefer returning ALL definitions when multiple exist.
-        // This also avoids losing multiplicity due to merged workspace_symbols maps.
-        if (workspace_indexer) {
-            const local_defs = workspace_indexer.find_symbol_definitions(word, 'local');
-            if (local_defs.length > 0) {
-                return this.as_locations(local_defs as any);
-            }
-
-            const global_defs = workspace_indexer.find_symbol_definitions(word, 'global');
-            if (global_defs.length > 0) {
-                return this.as_locations(global_defs as any);
-            }
-
-            const program_defs = workspace_indexer.find_symbol_definitions(word, 'program');
-            if (program_defs.length > 0) {
-                return this.as_locations(program_defs as any);
-            }
-
-            const scalar_defs = workspace_indexer.find_symbol_definitions(word, 'scalar');
-            if (scalar_defs.length > 0) {
-                return this.as_locations(scalar_defs as any);
-            }
-
-            const matrix_defs = workspace_indexer.find_symbol_definitions(word, 'matrix');
-            if (matrix_defs.length > 0) {
-                return this.as_locations(matrix_defs as any);
-            }
-
-            const variable_defs = workspace_indexer.find_symbol_definitions(word, 'variable');
-            if (variable_defs.length > 0) {
-                return this.as_locations(variable_defs as any);
-            }
-        }
-
-        // Fallback to workspace symbols if available
-        if (workspace_symbols) {
-            const global_macro_ws = workspace_symbols.globalMacros.get(word);
-            if (global_macro_ws) {
-                return {
-                    uri: global_macro_ws.location.uri,
-                    range: global_macro_ws.location.range,
-                };
-            }
-
-            const program_ws = workspace_symbols.programs.get(word);
-            if (program_ws) {
-                return {
-                    uri: program_ws.location.uri,
-                    range: program_ws.location.range,
-                };
-            }
-
-            const scalar_ws = workspace_symbols.scalars?.get(word);
-            if (scalar_ws) {
-                return {
-                    uri: scalar_ws.location.uri,
-                    range: scalar_ws.location.range,
-                };
-            }
-
-            const matrix_ws = workspace_symbols.matrices?.get(word);
-            if (matrix_ws) {
-                return {
-                    uri: matrix_ws.location.uri,
-                    range: matrix_ws.location.range,
-                };
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -1069,9 +910,10 @@ export class DefinitionProvider {
         const line_text = get_line_text(document, position.line);
         const text_before_cursor = line_text.substring(0, position.character + 1);
         
-        // Pattern: local/global macname : list_function ...
-        // Note: Stata is case-sensitive, so local/global must be lowercase
-        const extended_macro_pattern = /^\s*(local|global)\s+\w+\s*:\s*(list)\s+/;
+        // Pattern: local/global macname : extended_function ...
+        // Supported functions: list, word, piece
+        // Note: Stata is case-sensitive, so local/global and function keywords must be lowercase
+        const extended_macro_pattern = /^\s*(local|global)\s+\w+\s*:\s*(list|word|piece)\s+/;
         return extended_macro_pattern.test(text_before_cursor);
     }
 

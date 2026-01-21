@@ -76,6 +76,42 @@ describe('DefinitionProvider - Extended Macro Context Detection', () => {
             );
         });
 
+        test('local macro with word function', () => {
+            test_context_detection(
+                'local x : word 1 of a',
+                0, 20, // position at 'a'
+                true,
+                'local x : word 1 of a'
+            );
+        });
+
+        test('global macro with word function', () => {
+            test_context_detection(
+                'global y : word 2 of b',
+                0, 21, // position at 'b'
+                true,
+                'global y : word 2 of b'
+            );
+        });
+
+        test('local macro with piece function', () => {
+            test_context_detection(
+                'local x : piece 1 3 of a',
+                0, 23, // position at 'a'
+                true,
+                'local x : piece 1 3 of a'
+            );
+        });
+
+        test('global macro with piece function', () => {
+            test_context_detection(
+                'global y : piece 2 4 of b',
+                0, 24, // position at 'b'
+                true,
+                'global y : piece 2 4 of b'
+            );
+        });
+
         test('with leading whitespace', () => {
             test_context_detection(
                 '    local x : list a',
