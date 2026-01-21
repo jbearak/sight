@@ -12,6 +12,7 @@ import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
 import { Token, SymbolTable } from '../../src/types';
 import { compute_line_offsets } from '../../src/utils/line-utils';
+import { ContextTracker } from '../../src/context-tracker';
 import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Feature: variable-macro-definition-disambiguation', () => {
@@ -41,7 +42,11 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
             },
             ast: null,
             line_offsets: compute_line_offsets(document_content),
-        } as DocumentState;
+            diagnostics: [],
+            context_ranges: [],
+            context_tracker: new ContextTracker(),
+            forward_calls: [],
+        };
     }
 
     // Helper to create a symbol with location

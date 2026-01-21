@@ -12,15 +12,21 @@ import * as fc from 'fast-check';
 import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
 import { Token, TokenType } from '../../src/types';
+import { ContextTracker } from '../../src/context-tracker';
+import { compute_line_offsets } from '../../src/utils/line-utils';
 
 describe('Feature: variable-macro-definition-disambiguation, Property 6: Token Position Lookup Accuracy', () => {
     const definition_provider = new DefinitionProvider();
 
     // Helper to create a mock DocumentState with tokens
     function create_document_with_tokens(tokens: Token[]): DocumentState {
+        const content = tokens.map(t => t.value).join(' ') || 'test content';
+        const context_tracker = new ContextTracker();
+        context_tracker.initialize_from_tokens(tokens, content);
+
         return {
             uri: 'file:///test.do',
-            content: 'test content',
+            content: content,
             version: 1,
             tokens: tokens,
             symbols: {
@@ -32,8 +38,12 @@ describe('Feature: variable-macro-definition-disambiguation, Property 6: Token P
                 variables: new Map(),
             },
             ast: null,
-            line_offsets: [0, 5, 10],
-        } as DocumentState;
+            diagnostics: [],
+            context_ranges: context_tracker.get_all_context_ranges(),
+            context_tracker: context_tracker,
+            line_offsets: compute_line_offsets(content),
+            forward_calls: [],
+        };
     }
 
     it('should return token when position falls within token range', () => {

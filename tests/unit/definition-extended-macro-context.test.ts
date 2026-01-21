@@ -5,6 +5,8 @@
 import { Position } from 'vscode-languageserver';
 import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
+import { ContextTracker } from '../../src/context-tracker';
+import { compute_line_offsets } from '../../src/utils/line-utils';
 
 describe('DefinitionProvider - Extended Macro Context Detection', () => {
     let provider: DefinitionProvider;
@@ -14,6 +16,8 @@ describe('DefinitionProvider - Extended Macro Context Detection', () => {
     });
 
     const create_test_document = (content: string): DocumentState => {
+        const my_context_tracker = new ContextTracker();
+        my_context_tracker.initialize_from_tokens([], content);
         return {
             uri: 'file:///test.do',
             content,
@@ -28,7 +32,11 @@ describe('DefinitionProvider - Extended Macro Context Detection', () => {
             },
             ast: null,
             tokens: [],
-            line_offsets: [],
+            diagnostics: [],
+            context_ranges: my_context_tracker.get_all_context_ranges(),
+            context_tracker: my_context_tracker,
+            line_offsets: compute_line_offsets(content),
+            forward_calls: [],
         };
     };
 
