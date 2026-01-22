@@ -398,31 +398,117 @@ local function send_raw_command(stata_app, stata_command)
   })
 end
 
+-- Check if a line ends with /// continuation
+local function ends_with_continuation(line)
+  return line:match("%s*///%s*$") ~= nil
+end
+
+-- Detect the full statement bounds around a line (handles /// continuations)
+-- Returns start_line, end_line (1-indexed, inclusive)
+local function detect_statement(line)
+  local start_line = line
+  local end_line = line
+  local line_count = vim.api.nvim_buf_line_count(0)
+
+  -- Search backwards for statement start
+  while start_line > 1 do
+    local prev_line = vim.api.nvim_buf_get_lines(0, start_line - 2, start_line - 1, false)[1]
+    if not ends_with_continuation(prev_line) then
+      break
+    end
+    start_line = start_line - 1
+  end
+
+  -- Search forwards for statement end
+  while end_line < line_count do
+    local current_line = vim.api.nvim_buf_get_lines(0, end_line - 1, end_line, false)[1]
+    if not ends_with_continuation(current_line) then
+      break
+    end
+    end_line = end_line + 1
+  end
+
+  return start_line, end_line
+end
+
+-- Get upward bounds (from start of file to current statement end)
+local function get_upward_bounds(line)
+  local line_count = vim.api.nvim_buf_line_count(0)
+  local end_line = line
+
+  -- If cursor line has continuation, extend to include complete statement
+  while end_line < line_count do
+    local current_line = vim.api.nvim_buf_get_lines(0, end_line - 1, end_line, false)[1]
+    if not ends_with_continuation(current_line) then
+      break
+    end
+    end_line = end_line + 1
+  end
+
+  return 1, end_line
+end
+
+-- Get downward bounds (from current statement start to end of file)
+local function get_downward_bounds(line)
+  local line_count = vim.api.nvim_buf_line_count(0)
+  local start_line = line
+
+  -- If cursor is on a continuation line, find statement start
+  while start_line > 1 do
+    local prev_line = vim.api.nvim_buf_get_lines(0, start_line - 2, start_line - 1, false)[1]
+    if not ends_with_continuation(prev_line) then
+      break
+    end
+    start_line = start_line - 1
+  end
+
+  return start_line, line_count
+end
+
 -- Get the current line or visual selection
 local function get_text()
   local mode = vim.fn.mode()
   if mode == "v" or mode == "V" or mode == "\22" then
     -- Visual mode: get selection
-    vim.cmd('normal! "vy')
-    return vim.fn.getreg("v")
+    local start_pos = vim.fn.getpos("v")
+    local end_pos = vim.fn.getpos(".")
+    local start_line = start_pos[2]
+    local end_line = end_pos[2]
+    if start_line > end_line then
+      start_line, end_line = end_line, start_line
+    end
+    local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+    -- Exit visual mode
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+    return table.concat(lines, "\n")
   else
-    -- Normal mode: get current line
-    return vim.api.nvim_get_current_line()
+    -- Normal mode: detect full statement around current line
+    local current_line = vim.fn.line(".")
+    local start_line, end_line = detect_statement(current_line)
+    local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+    return table.concat(lines, "\n")
   end
 end
 
--- Get lines from start of file to current line
-local function get_upward_lines()
-  local current_line = vim.fn.line(".")
-  local lines = vim.api.nvim_buf_get_lines(0, 0, current_line, false)
+-- Get lines from a range (for command with range support)
+local function get_range_text(line1, line2)
+  local lines = vim.api.nvim_buf_get_lines(0, line1 - 1, line2, false)
   return table.concat(lines, "\n")
 end
 
--- Get lines from current line to end of file
+-- Get lines from start of file to current statement
+local function get_upward_lines()
+  local current_line = vim.fn.line(".")
+  local start_line, end_line = get_upward_bounds(current_line)
+  local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+  return table.concat(lines, "\n")
+end
+
+-- Get lines from current statement to end of file
 local function get_downward_lines()
-  local current_line = vim.fn.line(".") - 1  -- 0-indexed
-  local last_line = vim.fn.line("$")
-  local lines = vim.api.nvim_buf_get_lines(0, current_line, last_line, false)
+  local current_line = vim.fn.line(".")
+  local start_line, end_line = get_downward_bounds(current_line)
+  local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
   return table.concat(lines, "\n")
 end
 
@@ -438,7 +524,7 @@ local function create_temp_file(content)
   return nil
 end
 
--- Send line or selection to Stata
+-- Send line or selection to Stata (for keybindings)
 function M.send(command)
   command = command or "do"
   local stata_app = find_stata_app()
@@ -448,6 +534,29 @@ function M.send(command)
   end
 
   local text = get_text()
+  if not text or text == "" then
+    vim.notify("No text to send", vim.log.levels.WARN)
+    return
+  end
+
+  local tmpfile = create_temp_file(text)
+  if tmpfile then
+    send_to_stata(stata_app, command, tmpfile)
+  else
+    vim.notify("Failed to create temporary file", vim.log.levels.ERROR)
+  end
+end
+
+-- Send range to Stata (for commands with range support)
+function M.send_range(command, line1, line2)
+  command = command or "do"
+  local stata_app = find_stata_app()
+  if not stata_app then
+    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    return
+  end
+
+  local text = get_range_text(line1, line2)
   if not text or text == "" then
     vim.notify("No text to send", vim.log.levels.WARN)
     return
@@ -549,9 +658,9 @@ end
 
 -- Register user commands
 function M.setup()
-  vim.api.nvim_create_user_command("SightDo", function()
-    M.send("do")
-  end, { desc = "Sight: Do line or selection" })
+  vim.api.nvim_create_user_command("SightDo", function(opts)
+    M.send_range("do", opts.line1, opts.line2)
+  end, { desc = "Sight: Do line or selection", range = true })
 
   vim.api.nvim_create_user_command("SightDoUpwardLines", function()
     M.send_upward("do")
@@ -565,9 +674,9 @@ function M.setup()
     M.send_file("do")
   end, { desc = "Sight: Do file" })
 
-  vim.api.nvim_create_user_command("SightInclude", function()
-    M.send("include")
-  end, { desc = "Sight: Include line or selection" })
+  vim.api.nvim_create_user_command("SightInclude", function(opts)
+    M.send_range("include", opts.line1, opts.line2)
+  end, { desc = "Sight: Include line or selection", range = true })
 
   vim.api.nvim_create_user_command("SightIncludeFile", function()
     M.send_file("include")
@@ -584,6 +693,16 @@ end
 
 return M
 ```
+
+Multi-line statements using `///` continuation are automatically detected. For example, if you have:
+
+```stata
+regress y x1 x2 ///
+    x3 x4 ///
+    x5
+```
+
+Pressing Ctrl+Enter on any of these three lines will send all three lines together.
 
 ### Standard Neovim Configuration (without lazy.nvim)
 
