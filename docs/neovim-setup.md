@@ -44,7 +44,6 @@ sight-language-server --help
 
 1. Copy [`neovim/sight-lsp-lazyvim.lua`](neovim/sight-lsp-lazyvim.lua) to `~/.config/nvim/lua/plugins/stata.lua`
 2. Add the contents of [`neovim/sight-lazyvim-autocmds.lua`](neovim/sight-lazyvim-autocmds.lua) to `~/.config/nvim/lua/config/autocmds.lua`
-3. Restart Neovim and run `:TSInstall stata`
 
 ### Standard Neovim Configuration (without lazy.nvim)
 
@@ -52,7 +51,7 @@ Copy [`neovim/sight-lsp.lua`](neovim/sight-lsp.lua) to `~/.config/nvim/lua/` or 
 
 ## Tree-sitter Configuration
 
-For syntax highlighting, install and configure tree-sitter-stata:
+For syntax highlighting, install and configure [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata):
 
 ### 1. Add the parser to nvim-treesitter
 
