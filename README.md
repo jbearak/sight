@@ -34,10 +34,10 @@ The editor extension enables language server features and further provides:
 >    - Extensions → `...` menu → "Install from VSIX..."
 >    - Or via CLI: `code --install-extension sight-<version>.vsix`
 
-> [!TIP]
+> [!NOTE]
 > For the Zed extension, see [jbearak/zed-stata](https://github.com/jbearak/zed-stata).
 
-> [!TIP]
+> [!NOTE]
 > **Neovim**: See the [Neovim setup guide](docs/neovim-setup.md) for instructions on configuring the language server for diagnostics, the [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata) for syntax highlighting, and the send-to-stata module.
 
 
