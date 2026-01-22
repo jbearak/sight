@@ -1041,6 +1041,8 @@ Standard auto-closing pairs continue to work via VS Code's language configuratio
 
 The extension provides commands to send Stata code directly from VS Code to Stata for execution, supporting both the Stata application (on Mac and Windows) and terminal sessions.
 
+> **Implementation Note:** On macOS, the extension uses AppleScript to communicate with the Stata application. On Windows, it uses the [send-to-stata](https://github.com/jbearak/send-to-stata) utility, which is not bundled with the extension. On first use, you'll be prompted to download it.
+
 ### Execution Targets
 
 - **Stata Application**: Send code to the Stata application
