@@ -110,13 +110,17 @@ return {
     ft = "stata",
     config = function()
       require("stata-send").setup()
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = "stata",
+        callback = function()
+          local opts = { buffer = true, silent = true }
+          vim.keymap.set({ "n", "v" }, "<leader>ss", function() require("stata-send").send("do") end, vim.tbl_extend("force", opts, { desc = "Stata: Do line/selection" }))
+          vim.keymap.set({ "n", "v" }, "<leader>sf", function() require("stata-send").send_file("do") end, vim.tbl_extend("force", opts, { desc = "Stata: Do file" }))
+          vim.keymap.set({ "n", "v" }, "<leader>si", function() require("stata-send").send("include") end, vim.tbl_extend("force", opts, { desc = "Stata: Include line/selection" }))
+          vim.keymap.set({ "n", "v" }, "<leader>sF", function() require("stata-send").send_file("include") end, vim.tbl_extend("force", opts, { desc = "Stata: Include file" }))
+        end,
+      })
     end,
-    keys = {
-      { "<C-CR>", function() require("stata-send").send("do") end, mode = { "n", "v", "i" }, ft = "stata", desc = "Stata: Do line or selection" },
-      { "<S-C-CR>", function() require("stata-send").send_file("do") end, mode = { "n", "v", "i" }, ft = "stata", desc = "Stata: Do file" },
-      { "<M-C-CR>", function() require("stata-send").send("include") end, mode = { "n", "v", "i" }, ft = "stata", desc = "Stata: Include line or selection" },
-      { "<M-S-C-CR>", function() require("stata-send").send_file("include") end, mode = { "n", "v", "i" }, ft = "stata", desc = "Stata: Include file" },
-    },
   },
 }
 ```
@@ -129,11 +133,11 @@ require("stata-send").setup()
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "stata",
   callback = function()
-    local send = require("stata-send")
-    vim.keymap.set({ "n", "v", "i" }, "<C-CR>", function() send.send("do") end, { buffer = true, desc = "Stata: Do line or selection" })
-    vim.keymap.set({ "n", "v", "i" }, "<S-C-CR>", function() send.send_file("do") end, { buffer = true, desc = "Stata: Do file" })
-    vim.keymap.set({ "n", "v", "i" }, "<M-C-CR>", function() send.send("include") end, { buffer = true, desc = "Stata: Include line or selection" })
-    vim.keymap.set({ "n", "v", "i" }, "<M-S-C-CR>", function() send.send_file("include") end, { buffer = true, desc = "Stata: Include file" })
+    local opts = { buffer = true, silent = true }
+    vim.keymap.set({ "n", "v" }, "<leader>ss", function() require("stata-send").send("do") end, vim.tbl_extend("force", opts, { desc = "Stata: Do line/selection" }))
+    vim.keymap.set({ "n", "v" }, "<leader>sf", function() require("stata-send").send_file("do") end, vim.tbl_extend("force", opts, { desc = "Stata: Do file" }))
+    vim.keymap.set({ "n", "v" }, "<leader>si", function() require("stata-send").send("include") end, vim.tbl_extend("force", opts, { desc = "Stata: Include line/selection" }))
+    vim.keymap.set({ "n", "v" }, "<leader>sF", function() require("stata-send").send_file("include") end, vim.tbl_extend("force", opts, { desc = "Stata: Include file" }))
   end,
 })
 ```
@@ -142,10 +146,12 @@ vim.api.nvim_create_autocmd("FileType", {
 
 | Action | Shortcut |
 |--------|----------|
-| Do line or selection | Ctrl+Enter |
-| Do file | Shift+Ctrl+Enter |
-| Include line or selection | Alt+Ctrl+Enter |
-| Include file | Alt+Shift+Ctrl+Enter |
+| Do line or selection | `<leader>ss` |
+| Do file | `<leader>sf` |
+| Include line or selection | `<leader>si` |
+| Include file | `<leader>sF` |
+
+(Default `<leader>` is typically space)
 
 ### User Commands
 
