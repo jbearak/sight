@@ -38,7 +38,7 @@ Execute code in Stata directly from the editor.
 
 ## Installation
 
-Search for "Sight" in the VS Code extension marketplace and click Install.
+Search for "Sight" in the extension marketplace and click Install, or download the extension from [Releases](https://github.com/jbearak/sight/releases).
 
 ## Documentation
 
