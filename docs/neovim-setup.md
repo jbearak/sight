@@ -107,7 +107,7 @@ Multi-line statements using `///` continuation are automatically detected.
 return {
   {
     "neovim/nvim-lspconfig",
-    ft = { "stata" },
+    ft = "stata",
     config = function()
       require("stata-send").setup()
     end,
