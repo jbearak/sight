@@ -32,7 +32,7 @@ The editor extension enables language server features and further provides:
 > 1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
 > 2. In your editor:
 >    - Extensions → `...` menu → "Install from VSIX..."
->    - Or via CLI: `code --install-extension sight-client-<version>.vsix`
+>    - Or via CLI: `code --install-extension sight-<version>.vsix`
 
 
 ### Examples
