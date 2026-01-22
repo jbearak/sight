@@ -400,6 +400,9 @@ end
 
 -- Check if a line ends with /// continuation
 local function ends_with_continuation(line)
+  if type(line) ~= "string" then
+    return false
+  end
   return line:match("%s*///%s*$") ~= nil
 end
 
@@ -412,7 +415,8 @@ local function detect_statement(line)
 
   -- Search backwards for statement start
   while start_line > 1 do
-    local prev_line = vim.api.nvim_buf_get_lines(0, start_line - 2, start_line - 1, false)[1]
+    local prev_line_result = vim.api.nvim_buf_get_lines(0, start_line - 2, start_line - 1, false)
+    local prev_line = prev_line_result[1] or ""
     if not ends_with_continuation(prev_line) then
       break
     end
@@ -421,7 +425,8 @@ local function detect_statement(line)
 
   -- Search forwards for statement end
   while end_line < line_count do
-    local current_line = vim.api.nvim_buf_get_lines(0, end_line - 1, end_line, false)[1]
+    local current_line_result = vim.api.nvim_buf_get_lines(0, end_line - 1, end_line, false)
+    local current_line = current_line_result[1] or ""
     if not ends_with_continuation(current_line) then
       break
     end
@@ -438,7 +443,8 @@ local function get_upward_bounds(line)
 
   -- If cursor line has continuation, extend to include complete statement
   while end_line < line_count do
-    local current_line = vim.api.nvim_buf_get_lines(0, end_line - 1, end_line, false)[1]
+    local current_line_result = vim.api.nvim_buf_get_lines(0, end_line - 1, end_line, false)
+    local current_line = current_line_result[1] or ""
     if not ends_with_continuation(current_line) then
       break
     end
@@ -455,7 +461,8 @@ local function get_downward_bounds(line)
 
   -- If cursor is on a continuation line, find statement start
   while start_line > 1 do
-    local prev_line = vim.api.nvim_buf_get_lines(0, start_line - 2, start_line - 1, false)[1]
+    local prev_line_result = vim.api.nvim_buf_get_lines(0, start_line - 2, start_line - 1, false)
+    local prev_line = prev_line_result[1] or ""
     if not ends_with_continuation(prev_line) then
       break
     end
@@ -515,13 +522,31 @@ end
 -- Create a temporary .do file with the given content
 local function create_temp_file(content)
   local tmpfile = vim.fn.tempname() .. ".do"
-  local file = io.open(tmpfile, "w")
-  if file then
-    file:write(content)
-    file:close()
-    return tmpfile
+
+  local file, err = io.open(tmpfile, "w")
+  if not file then
+    vim.notify(
+      "Failed to create temporary file: " .. (err or "unknown error"),
+      vim.log.levels.ERROR
+    )
+    return nil
   end
-  return nil
+
+  local success, write_err = pcall(function()
+    file:write(content)
+  end)
+  file:close()
+
+  if not success then
+    vim.fn.delete(tmpfile)
+    vim.notify(
+      "Failed to write to temporary file: " .. (write_err or "unknown error"),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+
+  return tmpfile
 end
 
 -- Send line or selection to Stata (for keybindings)
