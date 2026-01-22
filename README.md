@@ -26,6 +26,15 @@ The editor extension enables language server features and further provides:
 - **Syntax Highlighting**: Rich syntax highlighting with unique features like macro/string nesting depth coloring.
 - **Quote Auto-Close**: Intelligently handles Stata's unique conventions for nested macros and compound strings.
 
+> [!TIP]
+> To install the editor extension in VS Code or any of its forks, like Antigravity, Cursor, Kiro, Positron, and Windsurf:
+>
+> 1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
+> 2. In your editor:
+>    - Extensions → `...` menu → "Install from VSIX..."
+>    - Or via CLI: `code --install-extension sight-client-<version>.vsix`
+
+
 ### Examples
 
 #### Syntax error: else on same line as closing brace
