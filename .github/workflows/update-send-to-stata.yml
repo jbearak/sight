@@ -88,8 +88,8 @@ jobs:
             --title "Update send-to-stata to $LATEST" \
             --body "Updates send-to-stata executable version from $CURRENT to ${LATEST#v}.
 
-### Changes
-- Updated \`CURRENT_EXE_VERSION\`
-- Updated \`BASE_URL\` to point to GitHub Release
+          ### Changes
+          - Updated \`CURRENT_EXE_VERSION\`
+          - Updated \`BASE_URL\` to point to GitHub Release
 
-Release: https://github.com/jbearak/send-to-stata/releases/tag/$LATEST"
+          Release: https://github.com/jbearak/send-to-stata/releases/tag/$LATEST"
