@@ -42,8 +42,7 @@ sight-language-server --help
 
 ### LazyVim / lazy.nvim Configuration
 
-1. Copy [`neovim/sight-lsp-lazyvim.lua`](neovim/sight-lsp-lazyvim.lua) to `~/.config/nvim/lua/plugins/stata.lua`
-2. Add the contents of [`neovim/sight-lazyvim-autocmds.lua`](neovim/sight-lazyvim-autocmds.lua) to `~/.config/nvim/lua/config/autocmds.lua`
+Copy [`neovim/sight-lsp-lazyvim.lua`](neovim/sight-lsp-lazyvim.lua) to `~/.config/nvim/lua/plugins/stata.lua`.
 
 ### Standard Neovim Configuration (without lazy.nvim)
 

@@ -1,4 +1,4 @@
--- Sight LSP and tree-sitter configuration for LazyVim / lazy.nvim
+-- Sight LSP configuration for LazyVim / lazy.nvim
 -- Copy to: ~/.config/nvim/lua/plugins/stata.lua
 
 return {
@@ -6,6 +6,15 @@ return {
     "neovim/nvim-lspconfig",
     event = "BufReadPre *.do,*.ado,*.mata,*.doh",
     config = function()
+      -- Register Stata filetype
+      vim.filetype.add({
+        extension = {
+          ["do"] = "stata",
+          ado = "stata",
+          mata = "stata",
+          doh = "stata",
+        },
+      })
       local lspconfig = require("lspconfig")
       local configs = require("lspconfig.configs")
 
