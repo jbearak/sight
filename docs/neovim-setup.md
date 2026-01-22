@@ -4,13 +4,13 @@ This guide explains how to configure Neovim to use the Sight language server and
 
 ## Contents
 
-- [Language Server](#installing-the-language-server)
+- [Prerequisites](#prerequisites)
+- [Language Server](#language-server)
+  - [Installing the Language Server](#installing-the-language-server)
   - [LazyVim / lazy.nvim](#lazyvim--lazynvim-configuration)
   - [Standard Neovim](#standard-neovim-configuration-without-lazynvim)
 - [Tree-sitter](#tree-sitter-configuration)
 - [Send to Stata](#send-to-stata-macos)
-  - [LazyVim / lazy.nvim](#lazyvim--lazynvim-configuration-1)
-  - [Standard Neovim](#standard-neovim-configuration-without-lazynvim-1)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -20,7 +20,9 @@ This guide explains how to configure Neovim to use the Sight language server and
 - [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) plugin
 - Sight language server installed (see [Installation](#installing-the-language-server))
 
-## Installing the Language Server
+
+## Language Server
+### Installing the Language Server
 
 Install the Sight language server globally:
 
@@ -37,7 +39,7 @@ Verify the installation:
 ```bash
 sight-language-server --help
 ```
-## Language Server
+
 ### LazyVim / lazy.nvim Configuration
 
 If you use [LazyVim](https://www.lazyvim.org/) or [lazy.nvim](https://github.com/folke/lazy.nvim), create a plugin file at `~/.config/nvim/lua/plugins/stata.lua`:
@@ -219,124 +221,13 @@ require('nvim-treesitter.configs').setup({
 })
 ```
 
-## Complete Example Configuration (Standard Neovim)
-
-Here's a complete example combining both LSP and tree-sitter setup for standard Neovim (without lazy.nvim):
-
-```lua
--- Stata filetype detection
-vim.filetype.add({
-  extension = {
-    ["do"] = 'stata',
-    ado = 'stata',
-    mata = 'stata',
-    doh = 'stata',
-  },
-})
-
--- Tree-sitter parser configuration
-local parser_config = require('nvim-treesitter.parsers').get_parser_configs()
-parser_config.stata = {
-  install_info = {
-    url = 'https://github.com/jbearak/tree-sitter-stata',
-    files = { 'src/parser.c', 'src/scanner.c' },
-    branch = 'main',
-  },
-  filetype = 'stata',
-}
-
--- Tree-sitter setup
-require('nvim-treesitter.configs').setup({
-  highlight = {
-    enable = true,
-  },
-})
-
--- LSP configuration
-local lspconfig = require('lspconfig')
-local configs = require('lspconfig.configs')
-
-if not configs.sight then
-  configs.sight = {
-    default_config = {
-      cmd = { 'sight-language-server', '--stdio' },
-      filetypes = { 'stata' },
-      root_dir = function(fname)
-        return lspconfig.util.root_pattern('.sight.json', '.git')(fname)
-          or lspconfig.util.path.dirname(fname)
-      end,
-      settings = {},
-    },
-  }
-end
-
-lspconfig.sight.setup({})
-```
-
-## Verifying the Setup
-
-1. Open a `.do` file in Neovim
-2. Check LSP status with `:LspInfo` - you should see `sight` attached
-3. Verify syntax highlighting is working (keywords should be colored)
-4. Test features like go-to-definition (`gd`), hover (`K`), and completions
-
 ## Send to Stata (macOS)
 
-Neovim can send code to the Stata GUI application using AppleScript. Add the following to your configuration to enable this functionality.
+Neovim can send code to the Stata GUI application using AppleScript.
 
-### LazyVim / lazy.nvim Configuration
-
-Add this to your `~/.config/nvim/lua/plugins/stata.lua` file (or create a separate file like `~/.config/nvim/lua/plugins/stata-send.lua`):
-
-```lua
--- Send to Stata configuration for macOS
--- Provides Ctrl+Enter to send current line/selection to Stata
-
-return {
-  {
-    "neovim/nvim-lspconfig",
-    ft = { "stata" },
-    config = function()
-      -- Register :Sight* user commands
-      require("stata-send").setup()
-    end,
-    keys = {
-      -- Ctrl+Enter: Do line or selection
-      {
-        "<C-CR>",
-        function() require("stata-send").send("do") end,
-        mode = { "n", "v", "i" },
-        ft = "stata",
-        desc = "Stata: Do line or selection",
-      },
-      -- Shift+Ctrl+Enter: Do entire file
-      {
-        "<S-C-CR>",
-        function() require("stata-send").send_file("do") end,
-        mode = { "n", "v", "i" },
-        ft = "stata",
-        desc = "Stata: Do file",
-      },
-      -- Alt+Ctrl+Enter: Include line or selection
-      {
-        "<M-C-CR>",
-        function() require("stata-send").send("include") end,
-        mode = { "n", "v", "i" },
-        ft = "stata",
-        desc = "Stata: Include line or selection",
-      },
-      -- Alt+Shift+Ctrl+Enter: Include entire file
-      {
-        "<M-S-C-CR>",
-        function() require("stata-send").send_file("include") end,
-        mode = { "n", "v", "i" },
-        ft = "stata",
-        desc = "Stata: Include file",
-      },
-    },
-  },
-}
-```
+**Setup requires two steps:**
+1. Create the `stata-send` module (the core logic)
+2. Configure keybindings (LazyVim or standard Neovim)
 
 ### The stata-send Module
 
@@ -746,38 +637,53 @@ regress y x1 x2 ///
 
 Pressing Ctrl+Enter on any of these three lines will send all three lines together.
 
-### Standard Neovim Configuration (without lazy.nvim)
+### Keybinding Configuration
 
-Add the following to your Neovim configuration after setting up the LSP:
+**LazyVim / lazy.nvim:** Add to `~/.config/nvim/lua/plugins/stata-send.lua`:
 
 ```lua
--- Send to Stata setup (macOS)
--- Register user commands and keybindings
+return {
+  {
+    "neovim/nvim-lspconfig",
+    ft = { "stata" },
+    config = function()
+      require("stata-send").setup()
+    end,
+    keys = {
+      { "<C-CR>", function() require("stata-send").send("do") end, mode = { "n", "v", "i" }, ft = "stata", desc = "Stata: Do line or selection" },
+      { "<S-C-CR>", function() require("stata-send").send_file("do") end, mode = { "n", "v", "i" }, ft = "stata", desc = "Stata: Do file" },
+      { "<M-C-CR>", function() require("stata-send").send("include") end, mode = { "n", "v", "i" }, ft = "stata", desc = "Stata: Include line or selection" },
+      { "<M-S-C-CR>", function() require("stata-send").send_file("include") end, mode = { "n", "v", "i" }, ft = "stata", desc = "Stata: Include file" },
+    },
+  },
+}
+```
+
+**Standard Neovim:** Add to your init.lua:
+
+```lua
 require("stata-send").setup()
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "stata",
   callback = function()
     local send = require("stata-send")
-
-    -- Ctrl+Enter: Do line or selection
-    vim.keymap.set({ "n", "v", "i" }, "<C-CR>", function() send.send("do") end,
-      { buffer = true, desc = "Stata: Do line or selection" })
-
-    -- Shift+Ctrl+Enter: Do entire file
-    vim.keymap.set({ "n", "v", "i" }, "<S-C-CR>", function() send.send_file("do") end,
-      { buffer = true, desc = "Stata: Do file" })
-
-    -- Alt+Ctrl+Enter: Include line or selection
-    vim.keymap.set({ "n", "v", "i" }, "<M-C-CR>", function() send.send("include") end,
-      { buffer = true, desc = "Stata: Include line or selection" })
-
-    -- Alt+Shift+Ctrl+Enter: Include entire file
-    vim.keymap.set({ "n", "v", "i" }, "<M-S-C-CR>", function() send.send_file("include") end,
-      { buffer = true, desc = "Stata: Include file" })
+    vim.keymap.set({ "n", "v", "i" }, "<C-CR>", function() send.send("do") end, { buffer = true, desc = "Stata: Do line or selection" })
+    vim.keymap.set({ "n", "v", "i" }, "<S-C-CR>", function() send.send_file("do") end, { buffer = true, desc = "Stata: Do file" })
+    vim.keymap.set({ "n", "v", "i" }, "<M-C-CR>", function() send.send("include") end, { buffer = true, desc = "Stata: Include line or selection" })
+    vim.keymap.set({ "n", "v", "i" }, "<M-S-C-CR>", function() send.send_file("include") end, { buffer = true, desc = "Stata: Include file" })
   end,
 })
 ```
+
+### Keyboard Shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Do line or selection | Ctrl+Enter |
+| Do file | Shift+Ctrl+Enter |
+| Include line or selection | Alt+Ctrl+Enter |
+| Include file | Alt+Shift+Ctrl+Enter |
 
 ### User Commands
 
@@ -793,15 +699,6 @@ All commands are available via `:Sight<Tab>`:
 | `:SightIncludeFile` | Include entire file |
 | `:SightCdFile` | Change Stata's working directory to file's directory |
 | `:SightCdWorkspace` | Change Stata's working directory to workspace root |
-
-### Keyboard Shortcuts
-
-| Action | Shortcut | Neovim Key |
-|--------|----------|------------|
-| Do line or selection | Ctrl+Enter | `<C-CR>` |
-| Do file | Shift+Ctrl+Enter | `<S-C-CR>` |
-| Include line or selection | Alt+Ctrl+Enter | `<M-C-CR>` |
-| Include file | Alt+Shift+Ctrl+Enter | `<M-S-C-CR>` |
 
 ## Troubleshooting
 
