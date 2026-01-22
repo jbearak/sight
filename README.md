@@ -27,18 +27,18 @@ The editor extension enables language server features and further provides:
 - **Quote Auto-Close**: Intelligently handles Stata's unique conventions for nested macros and compound strings.
 
 > [!TIP]
-> To install the editor extension in VS Code or any of its forks, like Antigravity, Cursor, Kiro, Positron, and Windsurf:
+> **VS Code:** To install the editor extension in VS Code or any of its forks, like Antigravity, Cursor, Kiro, Positron, and Windsurf:
 >
 > 1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
 > 2. In your editor:
 >    - Extensions → `...` menu → "Install from VSIX..."
 >    - Or via CLI: `code --install-extension sight-<version>.vsix`
 
-> [!TIP]
-> For the Zed extension, see [jbearak/zed-stata](https://github.com/jbearak/zed-stata).
+> [!NOTE]
+> **Zed:** For the Zed extension, see [jbearak/zed-stata](https://github.com/jbearak/zed-stata).
 
-> [!TIP]
-> **Neovim**: See the [Neovim setup guide](docs/neovim-setup.md) for instructions on configuring the language server and [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata) for syntax highlighting.
+> [!NOTE]
+> **Neovim**: See the [Neovim setup guide](docs/neovim-setup.md) for instructions on configuring the language server for diagnostics, the [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata) for syntax highlighting, and the send-to-stata module.
 
 
 ### Examples
