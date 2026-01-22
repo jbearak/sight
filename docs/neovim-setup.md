@@ -105,6 +105,17 @@ vim.api.nvim_create_autocmd("User", {
     end
   end,
 })
+
+-- Stata-specific auto-pairs for macros and compound quotes
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "stata",
+  callback = function()
+    -- ` produces `' (local macro delimiters)
+    vim.keymap.set("i", "`", "`'<Left>", { buffer = true })
+    -- `" produces `""' (compound string quotes)
+    vim.keymap.set("i", '`"', '`""\'<Left><Left>', { buffer = true })
+  end,
+})
 ```
 
 After adding this configuration, restart Neovim and run `:TSInstall stata` to install the tree-sitter parser.
