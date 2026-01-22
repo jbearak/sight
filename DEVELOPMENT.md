@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) (tested with v1.1.35) - strictly required for dependencies, testing, and packaging.
+- [Bun](https://bun.sh) (tested with v1.3.6) - strictly required for dependencies, testing, and packaging.
 
 ## Setup
 

@@ -694,7 +694,7 @@ Any LSP client that supports stdio transport can use the Sight server:
 sight-language-server --stdio
 ```
 
-Configure your editor's LSP client to run this command for `.do` and `.ado`, `.doh`, and `.mata` files.
+Configure your editor's LSP client to run this command for `.do`, `.ado`, and `.mata` files.
 
 ### Agent Integration
 
