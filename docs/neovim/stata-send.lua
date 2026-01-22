@@ -70,7 +70,7 @@ local function ends_with_continuation(line)
   if type(line) ~= "string" then
     return false
   end
-  return line:match("%s*///%s*$") ~= nil
+  return line:match("///") ~= nil
 end
 
 -- Detect the full statement bounds around a line (handles /// continuations)
