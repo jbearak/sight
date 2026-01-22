@@ -625,7 +625,10 @@ Notes:
 
 
 ## Installation
-### From VSIX (VS Code, Kiro, Antigravity, Cursor, etc.)
+### From VSIX
+
+> [!TIP]
+> This installation method will work with VS Code and any of its forks (e.g., Antigravity, Cursor, Kiro, Positron, and Windsurf).
 
 1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
 2. In VS Code:
