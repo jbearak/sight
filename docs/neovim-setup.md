@@ -641,7 +641,11 @@ function M.send_file(command)
   end
 
   -- Save the file first
-  vim.cmd("silent! write")
+  local ok, err = pcall(vim.cmd, "write")
+  if not ok then
+    vim.notify("Failed to save file: " .. tostring(err), vim.log.levels.ERROR)
+    return
+  end
 
   local filepath = vim.fn.expand("%:p")
   if filepath == "" then
@@ -666,7 +670,8 @@ function M.cd_file()
     return
   end
 
-  send_raw_command(stata_app, 'cd `"' .. dir .. "\"'")
+  local escaped_dir = escape_applescript(dir)
+  send_raw_command(stata_app, 'cd `"' .. escaped_dir .. "\"'")
 end
 
 -- Change Stata's working directory to the workspace root
@@ -678,7 +683,8 @@ function M.cd_workspace()
   end
 
   local dir = vim.fn.getcwd()
-  send_raw_command(stata_app, 'cd `"' .. dir .. "\"'")
+  local escaped_dir = escape_applescript(dir)
+  send_raw_command(stata_app, 'cd `"' .. escaped_dir .. "\"'")
 end
 
 -- Register user commands
