@@ -2,6 +2,17 @@
 
 This guide explains how to configure Neovim to use the Sight language server and tree-sitter grammar for Stata syntax highlighting.
 
+## Contents
+
+- [Language Server](#installing-the-language-server)
+  - [LazyVim / lazy.nvim](#lazyvim--lazynvim-configuration)
+  - [Standard Neovim](#standard-neovim-configuration-without-lazynvim)
+- [Tree-sitter](#tree-sitter-configuration)
+- [Send to Stata](#send-to-stata-macos)
+  - [LazyVim / lazy.nvim](#lazyvim--lazynvim-configuration-1)
+  - [Standard Neovim](#standard-neovim-configuration-without-lazynvim-1)
+- [Troubleshooting](#troubleshooting)
+
 ## Prerequisites
 
 - Neovim 0.8+ (for native LSP support)
@@ -26,8 +37,8 @@ Verify the installation:
 ```bash
 sight-language-server --help
 ```
-
-## LazyVim / lazy.nvim Configuration
+## Language Server
+### LazyVim / lazy.nvim Configuration
 
 If you use [LazyVim](https://www.lazyvim.org/) or [lazy.nvim](https://github.com/folke/lazy.nvim), create a plugin file at `~/.config/nvim/lua/plugins/stata.lua`:
 
@@ -120,7 +131,7 @@ vim.api.nvim_create_autocmd("FileType", {
 
 After adding this configuration, restart Neovim and run `:TSInstall stata` to install the tree-sitter parser.
 
-## Standard Neovim Configuration (without lazy.nvim)
+### Standard Neovim Configuration (without lazy.nvim)
 
 Add the following to your Neovim configuration (e.g., `~/.config/nvim/init.lua` or a separate file in `~/.config/nvim/lua/`):
 
