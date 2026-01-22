@@ -27,7 +27,7 @@ The editor extension enables language server features and further provides:
 - **Quote Auto-Close**: Intelligently handles Stata's unique conventions for nested macros and compound strings.
 
 > [!TIP]
-> **VS Code:**To install the editor extension in VS Code or any of its forks, like Antigravity, Cursor, Kiro, Positron, and Windsurf:
+> **VS Code:** To install the editor extension in VS Code or any of its forks, like Antigravity, Cursor, Kiro, Positron, and Windsurf:
 >
 > 1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
 > 2. In your editor:
