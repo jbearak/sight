@@ -16,12 +16,8 @@ export interface DownloadResult {
     error?: string;
 }
 
-export const CURRENT_EXE_VERSION = '0.1.16';
-export const CHECKSUMS: Record<string, string> = {
-    'x64':   '1d73f6a4d1c58e1191d1215c5689a4b03ecf6605341a14aecf01e82dcc426463',
-    'arm64': '51aab45f56c54424efa160e4625dd4d23c65ed9112a9fe6763c24eff60effe74',
-};
-const BASE_URL = 'https://raw.githubusercontent.com/jbearak/zed-stata/d8426553242140ae4bc84d9aa05080f76af2e699';
+export const CURRENT_EXE_VERSION = '0.1.0';
+const BASE_URL = 'https://github.com/jbearak/send-to-stata/releases/download/v0.1.0';
 
 export function get_windows_architecture(): 'x64' | 'arm64' {
     return process.env.PROCESSOR_ARCHITECTURE === 'ARM64' ? 'arm64' : 'x64';
@@ -56,9 +52,34 @@ export async function prompt_download(): Promise<boolean> {
     return result === 'Download';
 }
 
+async function fetch_url(url: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const request = https.get(url, { timeout: 30000 }, (response) => {
+            // Handle redirects (GitHub releases use them)
+            if (response.statusCode === 302 || response.statusCode === 301) {
+                const redirect_url = response.headers.location;
+                if (redirect_url) {
+                    fetch_url(redirect_url).then(resolve).catch(reject);
+                    return;
+                }
+            }
+            if (response.statusCode !== 200) {
+                reject(new Error(`HTTP ${response.statusCode}`));
+                return;
+            }
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => resolve(Buffer.concat(chunks)));
+        });
+        request.on('timeout', () => { request.destroy(); reject(new Error('Download timeout')); });
+        request.on('error', reject);
+    });
+}
+
 export async function download_executable(context: vscode.ExtensionContext): Promise<DownloadResult> {
     const architecture = get_windows_architecture();
-    const url = `${BASE_URL}/send-to-stata-${architecture}.exe`;
+    const exe_url = `${BASE_URL}/send-to-stata-${architecture}.exe`;
+    const checksum_url = `${BASE_URL}/send-to-stata-${architecture}.exe.sha256`;
     const storage_dir = path.join(context.globalStorageUri.fsPath, 'send-to-stata');
     const exe_path = path.join(storage_dir, 'send-to-stata.exe');
     const version_path = path.join(storage_dir, 'version.json');
@@ -67,45 +88,23 @@ export async function download_executable(context: vscode.ExtensionContext): Pro
         location: vscode.ProgressLocation.Notification,
         title: 'Downloading send-to-stata executable...',
         cancellable: false
-    }, async (progress) => {
+    }, async () => {
         try {
-            // Ensure directory exists
             fs.mkdirSync(storage_dir, { recursive: true });
             
-            // Download file with timeout and size limits
-            const data = await new Promise<Buffer>((resolve, reject) => {
-                const max_size_bytes = 5 * 1024 * 1024; // 5MB limit
-                let total_size = 0;
-                
-                const request = https.get(url, { timeout: 30000 }, (response) => {
-                    if (response.statusCode !== 200) {
-                        reject(new Error(`HTTP ${response.statusCode}`));
-                        return;
-                    }
-                    
-                    const the_chunks: Buffer[] = [];
-                    response.on('data', (chunk) => {
-                        total_size += chunk.length;
-                        if (total_size > max_size_bytes) {
-                            request.destroy();
-                            reject(new Error('Download size exceeds 5MB limit'));
-                            return;
-                        }
-                        the_chunks.push(chunk);
-                    });
-                    response.on('end', () => resolve(Buffer.concat(the_chunks)));
-                });
-                
-                request.on('timeout', () => {
-                    request.destroy();
-                    reject(new Error('Download timeout'));
-                });
-                request.on('error', reject);
-            });
+            // Fetch expected checksum
+            const checksum_data = await fetch_url(checksum_url);
+            const expected_hash = checksum_data.toString('utf8').trim().toLowerCase();
+            
+            // Download executable
+            const data = await fetch_url(exe_url);
+            if (data.length > 5 * 1024 * 1024) {
+                return { success: false, error: 'Download size exceeds 5MB limit' };
+            }
             
             // Verify checksum
-            const hash = crypto.createHash('sha256').update(data).digest('hex');
-            if (hash !== CHECKSUMS[architecture]) {
+            const actual_hash = crypto.createHash('sha256').update(data).digest('hex');
+            if (actual_hash !== expected_hash) {
                 return { success: false, error: 'Checksum verification failed' };
             }
             
@@ -127,4 +126,3 @@ export function check_for_updates(context: vscode.ExtensionContext): boolean {
     const info = get_executable_info(context);
     return info ? info.version !== CURRENT_EXE_VERSION : true;
 }
-

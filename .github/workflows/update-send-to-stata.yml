@@ -1,0 +1,95 @@
+name: Update send-to-stata
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # Monthly on the 1st
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for updates
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FILE="client/src/send-to-stata/exe-downloader.ts"
+          
+          # Get current version from exe-downloader.ts
+          CURRENT=$(grep -oP "CURRENT_EXE_VERSION = '\K[^']+" "$FILE" || echo "")
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          
+          # Get latest release from send-to-stata repo
+          LATEST=$(gh api repos/jbearak/send-to-stata/releases/latest --jq '.tag_name' 2>/dev/null || echo "")
+          if [ -z "$LATEST" ]; then
+            echo "No releases found"
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          # Strip 'v' prefix for version comparison
+          LATEST_VER="${LATEST#v}"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "latest_ver=$LATEST_VER" >> "$GITHUB_OUTPUT"
+          
+          if [ "$CURRENT" = "$LATEST_VER" ]; then
+            echo "Already up to date"
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          # Check if PR already exists
+          EXISTING=$(gh pr list --search "Update send-to-stata to $LATEST" --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already exists"
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          echo "needs_update=true" >> "$GITHUB_OUTPUT"
+
+      - name: Update exe-downloader.ts
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          LATEST="${{ steps.check.outputs.latest }}"
+          LATEST_VER="${{ steps.check.outputs.latest_ver }}"
+          FILE="client/src/send-to-stata/exe-downloader.ts"
+          RELEASE_URL="https://github.com/jbearak/send-to-stata/releases/download/$LATEST"
+          
+          # Update version and BASE_URL (checksums fetched dynamically at runtime)
+          sed -i "s/CURRENT_EXE_VERSION = '[^']*'/CURRENT_EXE_VERSION = '$LATEST_VER'/" "$FILE"
+          sed -i "s|const BASE_URL = '[^']*'|const BASE_URL = '$RELEASE_URL'|" "$FILE"
+
+      - name: Create PR
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST="${{ steps.check.outputs.latest }}"
+          CURRENT="${{ steps.check.outputs.current }}"
+          BRANCH="update-send-to-stata-$LATEST"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git checkout -b "$BRANCH"
+          git add client/src/send-to-stata/exe-downloader.ts
+          git commit -m "Update send-to-stata to $LATEST"
+          git push origin "$BRANCH"
+          
+          gh pr create \
+            --title "Update send-to-stata to $LATEST" \
+            --body "Updates send-to-stata executable version from $CURRENT to ${LATEST#v}.
+
+### Changes
+- Updated \`CURRENT_EXE_VERSION\`
+- Updated \`BASE_URL\` to point to GitHub Release
+
+Release: https://github.com/jbearak/send-to-stata/releases/tag/$LATEST"
