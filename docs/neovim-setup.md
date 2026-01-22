@@ -269,6 +269,379 @@ lspconfig.sight.setup({})
 3. Verify syntax highlighting is working (keywords should be colored)
 4. Test features like go-to-definition (`gd`), hover (`K`), and completions
 
+## Send to Stata (macOS)
+
+Neovim can send code to the Stata GUI application using AppleScript. Add the following to your configuration to enable this functionality.
+
+### LazyVim / lazy.nvim Configuration
+
+Add this to your `~/.config/nvim/lua/plugins/stata.lua` file (or create a separate file like `~/.config/nvim/lua/plugins/stata-send.lua`):
+
+```lua
+-- Send to Stata configuration for macOS
+-- Provides Ctrl+Enter to send current line/selection to Stata
+
+return {
+  {
+    "neovim/nvim-lspconfig",
+    ft = { "stata" },
+    config = function()
+      -- Register :Sight* user commands
+      require("stata-send").setup()
+    end,
+    keys = {
+      -- Ctrl+Enter: Do line or selection
+      {
+        "<C-CR>",
+        function() require("stata-send").send("do") end,
+        mode = { "n", "v", "i" },
+        ft = "stata",
+        desc = "Stata: Do line or selection",
+      },
+      -- Shift+Ctrl+Enter: Do entire file
+      {
+        "<S-C-CR>",
+        function() require("stata-send").send_file("do") end,
+        mode = { "n", "v", "i" },
+        ft = "stata",
+        desc = "Stata: Do file",
+      },
+      -- Alt+Ctrl+Enter: Include line or selection
+      {
+        "<M-C-CR>",
+        function() require("stata-send").send("include") end,
+        mode = { "n", "v", "i" },
+        ft = "stata",
+        desc = "Stata: Include line or selection",
+      },
+      -- Alt+Shift+Ctrl+Enter: Include entire file
+      {
+        "<M-S-C-CR>",
+        function() require("stata-send").send_file("include") end,
+        mode = { "n", "v", "i" },
+        ft = "stata",
+        desc = "Stata: Include file",
+      },
+    },
+  },
+}
+```
+
+### The stata-send Module
+
+Create the file `~/.config/nvim/lua/stata-send.lua`:
+
+```lua
+-- stata-send.lua
+-- Send code to Stata on macOS via AppleScript
+
+local M = {}
+
+-- Stata application variants in order of preference
+local stata_apps = { "StataMP", "StataSE", "StataBE", "Stata" }
+
+-- Find the first available Stata application
+local function find_stata_app()
+  for _, app in ipairs(stata_apps) do
+    local path = "/Applications/Stata/" .. app .. ".app"
+    if vim.fn.isdirectory(path) == 1 then
+      return app
+    end
+  end
+  return nil
+end
+
+-- Escape a string for use in AppleScript
+local function escape_applescript(str)
+  return str:gsub("\\", "\\\\"):gsub('"', '\\"')
+end
+
+-- Send a command to Stata via AppleScript
+local function send_to_stata(stata_app, command, filepath)
+  local escaped_path = escape_applescript(filepath)
+  local applescript = string.format(
+    'tell application "%s" to DoCommandAsync "%s \\"%s\\""',
+    stata_app,
+    command,
+    escaped_path
+  )
+  -- Escape single quotes for shell
+  local shell_safe = applescript:gsub("'", "'\\''")
+  local cmd = string.format("osascript -e '%s'", shell_safe)
+
+  vim.fn.jobstart(cmd, {
+    on_stderr = function(_, data)
+      if data and data[1] ~= "" then
+        vim.notify("Stata error: " .. table.concat(data, "\n"), vim.log.levels.ERROR)
+      end
+    end,
+  })
+end
+
+-- Send a raw Stata command (for cd)
+local function send_raw_command(stata_app, stata_command)
+  local escaped_cmd = escape_applescript(stata_command)
+  local applescript = string.format(
+    'tell application "%s" to DoCommandAsync "%s"',
+    stata_app,
+    escaped_cmd
+  )
+  local shell_safe = applescript:gsub("'", "'\\''")
+  local cmd = string.format("osascript -e '%s'", shell_safe)
+
+  vim.fn.jobstart(cmd, {
+    on_stderr = function(_, data)
+      if data and data[1] ~= "" then
+        vim.notify("Stata error: " .. table.concat(data, "\n"), vim.log.levels.ERROR)
+      end
+    end,
+  })
+end
+
+-- Get the current line or visual selection
+local function get_text()
+  local mode = vim.fn.mode()
+  if mode == "v" or mode == "V" or mode == "\22" then
+    -- Visual mode: get selection
+    vim.cmd('normal! "vy')
+    return vim.fn.getreg("v")
+  else
+    -- Normal mode: get current line
+    return vim.api.nvim_get_current_line()
+  end
+end
+
+-- Get lines from start of file to current line
+local function get_upward_lines()
+  local current_line = vim.fn.line(".")
+  local lines = vim.api.nvim_buf_get_lines(0, 0, current_line, false)
+  return table.concat(lines, "\n")
+end
+
+-- Get lines from current line to end of file
+local function get_downward_lines()
+  local current_line = vim.fn.line(".") - 1  -- 0-indexed
+  local last_line = vim.fn.line("$")
+  local lines = vim.api.nvim_buf_get_lines(0, current_line, last_line, false)
+  return table.concat(lines, "\n")
+end
+
+-- Create a temporary .do file with the given content
+local function create_temp_file(content)
+  local tmpfile = vim.fn.tempname() .. ".do"
+  local file = io.open(tmpfile, "w")
+  if file then
+    file:write(content)
+    file:close()
+    return tmpfile
+  end
+  return nil
+end
+
+-- Send line or selection to Stata
+function M.send(command)
+  command = command or "do"
+  local stata_app = find_stata_app()
+  if not stata_app then
+    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    return
+  end
+
+  local text = get_text()
+  if not text or text == "" then
+    vim.notify("No text to send", vim.log.levels.WARN)
+    return
+  end
+
+  local tmpfile = create_temp_file(text)
+  if tmpfile then
+    send_to_stata(stata_app, command, tmpfile)
+  else
+    vim.notify("Failed to create temporary file", vim.log.levels.ERROR)
+  end
+end
+
+-- Send from start of file to current line
+function M.send_upward(command)
+  command = command or "do"
+  local stata_app = find_stata_app()
+  if not stata_app then
+    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    return
+  end
+
+  local text = get_upward_lines()
+  local tmpfile = create_temp_file(text)
+  if tmpfile then
+    send_to_stata(stata_app, command, tmpfile)
+  else
+    vim.notify("Failed to create temporary file", vim.log.levels.ERROR)
+  end
+end
+
+-- Send from current line to end of file
+function M.send_downward(command)
+  command = command or "do"
+  local stata_app = find_stata_app()
+  if not stata_app then
+    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    return
+  end
+
+  local text = get_downward_lines()
+  local tmpfile = create_temp_file(text)
+  if tmpfile then
+    send_to_stata(stata_app, command, tmpfile)
+  else
+    vim.notify("Failed to create temporary file", vim.log.levels.ERROR)
+  end
+end
+
+-- Send entire file to Stata
+function M.send_file(command)
+  command = command or "do"
+  local stata_app = find_stata_app()
+  if not stata_app then
+    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    return
+  end
+
+  -- Save the file first
+  vim.cmd("silent! write")
+
+  local filepath = vim.fn.expand("%:p")
+  if filepath == "" then
+    vim.notify("No file to send", vim.log.levels.WARN)
+    return
+  end
+
+  send_to_stata(stata_app, command, filepath)
+end
+
+-- Change Stata's working directory to the file's directory
+function M.cd_file()
+  local stata_app = find_stata_app()
+  if not stata_app then
+    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    return
+  end
+
+  local dir = vim.fn.expand("%:p:h")
+  if dir == "" then
+    vim.notify("No file directory available", vim.log.levels.WARN)
+    return
+  end
+
+  send_raw_command(stata_app, 'cd `"' .. dir .. "\"'")
+end
+
+-- Change Stata's working directory to the workspace root
+function M.cd_workspace()
+  local stata_app = find_stata_app()
+  if not stata_app then
+    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    return
+  end
+
+  local dir = vim.fn.getcwd()
+  send_raw_command(stata_app, 'cd `"' .. dir .. "\"'")
+end
+
+-- Register user commands
+function M.setup()
+  vim.api.nvim_create_user_command("SightDo", function()
+    M.send("do")
+  end, { desc = "Sight: Do line or selection" })
+
+  vim.api.nvim_create_user_command("SightDoUpwardLines", function()
+    M.send_upward("do")
+  end, { desc = "Sight: Do upward lines" })
+
+  vim.api.nvim_create_user_command("SightDoDownwardLines", function()
+    M.send_downward("do")
+  end, { desc = "Sight: Do downward lines" })
+
+  vim.api.nvim_create_user_command("SightDoFile", function()
+    M.send_file("do")
+  end, { desc = "Sight: Do file" })
+
+  vim.api.nvim_create_user_command("SightInclude", function()
+    M.send("include")
+  end, { desc = "Sight: Include line or selection" })
+
+  vim.api.nvim_create_user_command("SightIncludeFile", function()
+    M.send_file("include")
+  end, { desc = "Sight: Include file" })
+
+  vim.api.nvim_create_user_command("SightCdFile", function()
+    M.cd_file()
+  end, { desc = "Sight: CD to file directory" })
+
+  vim.api.nvim_create_user_command("SightCdWorkspace", function()
+    M.cd_workspace()
+  end, { desc = "Sight: CD to workspace directory" })
+end
+
+return M
+```
+
+### Standard Neovim Configuration (without lazy.nvim)
+
+Add the following to your Neovim configuration after setting up the LSP:
+
+```lua
+-- Send to Stata setup (macOS)
+-- Register user commands and keybindings
+require("stata-send").setup()
+
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "stata",
+  callback = function()
+    local send = require("stata-send")
+
+    -- Ctrl+Enter: Do line or selection
+    vim.keymap.set({ "n", "v", "i" }, "<C-CR>", function() send.send("do") end,
+      { buffer = true, desc = "Stata: Do line or selection" })
+
+    -- Shift+Ctrl+Enter: Do entire file
+    vim.keymap.set({ "n", "v", "i" }, "<S-C-CR>", function() send.send_file("do") end,
+      { buffer = true, desc = "Stata: Do file" })
+
+    -- Alt+Ctrl+Enter: Include line or selection
+    vim.keymap.set({ "n", "v", "i" }, "<M-C-CR>", function() send.send("include") end,
+      { buffer = true, desc = "Stata: Include line or selection" })
+
+    -- Alt+Shift+Ctrl+Enter: Include entire file
+    vim.keymap.set({ "n", "v", "i" }, "<M-S-C-CR>", function() send.send_file("include") end,
+      { buffer = true, desc = "Stata: Include file" })
+  end,
+})
+```
+
+### User Commands
+
+All commands are available via `:Sight<Tab>`:
+
+| Command | Description |
+|---------|-------------|
+| `:SightDo` | Execute current line or visual selection |
+| `:SightDoUpwardLines` | Execute from start of file to current line |
+| `:SightDoDownwardLines` | Execute from current line to end of file |
+| `:SightDoFile` | Execute entire file |
+| `:SightInclude` | Include current line or visual selection |
+| `:SightIncludeFile` | Include entire file |
+| `:SightCdFile` | Change Stata's working directory to file's directory |
+| `:SightCdWorkspace` | Change Stata's working directory to workspace root |
+
+### Keyboard Shortcuts
+
+| Action | Shortcut | Neovim Key |
+|--------|----------|------------|
+| Do line or selection | Ctrl+Enter | `<C-CR>` |
+| Do file | Shift+Ctrl+Enter | `<S-C-CR>` |
+| Include line or selection | Alt+Ctrl+Enter | `<M-C-CR>` |
+| Include file | Alt+Shift+Ctrl+Enter | `<M-S-C-CR>` |
+
 ## Troubleshooting
 
 ### LSP not starting

@@ -38,7 +38,7 @@ The editor extension enables language server features and further provides:
 > For the Zed extension, see [jbearak/zed-stata](https://github.com/jbearak/zed-stata).
 
 > [!TIP]
-> **Neovim**: See the [Neovim setup guide](docs/neovim-setup.md) for instructions on configuring the language server and [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata) for syntax highlighting.
+> **Neovim**: See the [Neovim setup guide](docs/neovim-setup.md) for instructions on configuring the language server for diagnostics, the [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata) for syntax highlighting, and the send-to-stata module.
 
 
 ### Examples
