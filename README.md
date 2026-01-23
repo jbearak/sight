@@ -77,7 +77,7 @@ Sight colorizes nesting depth of compound strings and local macros.
 Command+click (Mac) or Control+click (Windows) to see symbol definitions across files.
 <img width="671" height="386" src="examples/command_click.png"/>
 
-#### Send to Stata
+#### Execute Code in Stata
 Execute code in Stata directly from the editor.
 <img width="641" height="565" src="examples/send_to_stata_menu.png"/>
 
