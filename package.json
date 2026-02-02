@@ -49,7 +49,7 @@
     "diagnostics",
     "typescript"
   ],
-  "author": "AWS Kiro",
+  "author": "Jonathan Marc Bearak",
   "license": "GPL-3.0",
   "dependencies": {
     "vscode-languageserver": "^9.0.1",
