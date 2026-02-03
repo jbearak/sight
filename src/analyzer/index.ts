@@ -67,7 +67,11 @@ export interface AnalyzerConfig {
     workspace_root?: string;
 }
 
-// Default configuration factory - creates fresh instances to avoid shared state
+/**
+ * Create a fresh AnalyzerConfig initialized with the analyzer's default settings.
+ *
+ * @returns An AnalyzerConfig with undefined-macro checking enabled, undefined-variable checking disabled, and all declaration/ignore collections initialized empty (new Set/Map instances).
+ */
 function create_default_config(): AnalyzerConfig {
     return {
         undefined_macro_enabled: true,
