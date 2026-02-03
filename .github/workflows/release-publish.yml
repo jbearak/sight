@@ -87,17 +87,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          
-          # Find the successful build run for this tag
-          BUILD_RUN_ID=$(gh run list --workflow=release-build.yml --status=success --limit=10 --json databaseId,headBranch | jq -r ".[] | select(.headBranch == \"${{ inputs.tag }}\") | .databaseId" | head -1)
-          
-          if [ -z "$BUILD_RUN_ID" ]; then
-            echo "ERROR: No successful build run found for tag ${{ inputs.tag }}"
+
+          ARTIFACT_NAME="release-${{ inputs.tag }}"
+
+          # Find artifact by name (works for both tag-push and manual triggers)
+          ARTIFACT_INFO=$(gh api "repos/${{ github.repository }}/actions/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" and .expired == false) | {id: .id, run_id: .workflow_run.id}" \
+            | head -1)
+
+          if [ -z "$ARTIFACT_INFO" ]; then
+            echo "ERROR: No artifact found named '$ARTIFACT_NAME'"
+            echo "Make sure release-build.yml completed successfully for ${{ inputs.tag }}"
             exit 1
           fi
-          
-          echo "Downloading artifacts from build run: $BUILD_RUN_ID"
-          gh run download "$BUILD_RUN_ID" --name "release-${{ inputs.tag }}"
+
+          BUILD_RUN_ID=$(echo "$ARTIFACT_INFO" | jq -r '.run_id')
+          echo "Found artifact in build run: $BUILD_RUN_ID"
+          gh run download "$BUILD_RUN_ID" --name "$ARTIFACT_NAME"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
