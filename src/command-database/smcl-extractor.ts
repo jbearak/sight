@@ -603,7 +603,42 @@ export function parse_option_pattern(
         }
     }
 
-    // Try {opt abbrev:rest(argtype)} or {opth abbrev:rest(argtype)} first (most specific)
+    // Try {opt abbrev:rest:(topic:display)} or {opth abbrev:rest:(topic:display)} first
+    // This is the hyperlinked argument format with abbreviation (most specific)
+    const abbrev_hyperlink_arg_match = pattern.match(
+        /\{opt[h]?\s+([a-z][a-z0-9_]*):([a-z0-9_]+):\(([^)]+)\)\}/i
+    );
+    if (abbrev_hyperlink_arg_match) {
+        const abbrev = abbrev_hyperlink_arg_match[1];
+        const rest = abbrev_hyperlink_arg_match[2];
+        const arg_content = abbrev_hyperlink_arg_match[3];
+        return {
+            name: (abbrev + rest).toLowerCase(),
+            min_abbreviation: abbrev.length,
+            description: cleaned_description,
+            has_argument: true,
+            argument_type: arg_content
+        };
+    }
+
+    // Try {opt name:(topic:display)} or {opth name:(topic:display)}
+    // This is the hyperlinked argument format without abbreviation
+    const hyperlink_arg_match = pattern.match(
+        /\{opt[h]?\s+([a-z][a-z0-9_]*):\(([^)]+)\)\}/i
+    );
+    if (hyperlink_arg_match) {
+        const name = hyperlink_arg_match[1];
+        const arg_content = hyperlink_arg_match[2];
+        return {
+            name: name.toLowerCase(),
+            min_abbreviation: name.length,
+            description: cleaned_description,
+            has_argument: true,
+            argument_type: arg_content
+        };
+    }
+
+    // Try {opt abbrev:rest(argtype)} or {opth abbrev:rest(argtype)} (abbreviation with simple argument)
     const abbrev_arg_match = pattern.match(
         /\{opt[h]?\s+([a-z][a-z0-9_]*):([a-z0-9_]+)\(([^)]+)\)\}/i
     );

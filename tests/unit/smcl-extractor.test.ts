@@ -5,7 +5,8 @@ import {
     extract_cmdab_patterns,
     extract_syntax_section,
     extract_primary_command,
-    extract_cmd_patterns
+    extract_cmd_patterns,
+    parse_option_pattern
 } from '../../src/command-database/smcl-extractor.js';
 
 // ============================================================================
@@ -753,5 +754,211 @@ describe('SMCL Command Extractor - Source File Tracking', () => {
         for (const my_command of result.commands) {
             expect(my_command.source_file).toBe('generate.sthlp');
         }
+    });
+});
+
+
+// ============================================================================
+// Mock SMCL Content for Integration Tests
+// ============================================================================
+
+/**
+ * Mock content simulating regress.sthlp which documents the regress command
+ * with the vce option using hyperlinked argument syntax.
+ * This tests the integration of hyperlinked option extraction in a realistic
+ * help file structure.
+ */
+const REGRESS_STHLP_MOCK = [
+    '{smcl}',
+    '{* *! version 1.0.0  01jan2024}{...}',
+    '{viewerdialog "regress" "dialog regress"}',
+    '{vieweralsosee "[R] regress" "mansection R regress"}{...}',
+    '{p2col:{bf:[R] regress} {hline 2}}Linear regression{p_end}',
+    '',
+    '{marker syntax}{...}',
+    '{title:Syntax}',
+    '',
+    '{p 8 14 2}',
+    '{cmd:regress} {depvar} [{indepvars}] {ifin} {weight} [{cmd:,} {it:options}]',
+    '',
+    '{synoptset 20 tabbed}{...}',
+    '{synopthdr}',
+    '{synoptline}',
+    '{syntab:Model}',
+    '{synopt:{opt nocons:tant}}suppress constant term{p_end}',
+    '{synopt:{opt h:ascons}}has user-supplied constant{p_end}',
+    '',
+    '{syntab:SE/Robust}',
+    '{synopt:{opth vce:(regress##vcetype:vcetype)}}variance-covariance estimator{p_end}',
+    '',
+    '{syntab:Reporting}',
+    '{synopt:{opt l:evel(#)}}set confidence level; default is level(95){p_end}',
+    '{synopt:{opt b:eta}}report standardized beta coefficients{p_end}',
+    '{synoptline}',
+    '',
+    '{marker options}{...}',
+    '{title:Options}',
+    '',
+    '{dlgtab:Model}',
+    '',
+    '{phang}',
+    '{opt noconstant} suppresses the constant term (intercept) in the model.',
+    '',
+    '{phang}',
+    '{opt hascons} indicates that a user-defined constant or its equivalent',
+    'is specified among the independent variables.',
+    '',
+    '{dlgtab:SE/Robust}',
+    '',
+    '{phang}',
+    '{opt vce(vcetype)} specifies the type of standard error reported.',
+    '',
+    '{dlgtab:Reporting}',
+    '',
+    '{phang}',
+    '{opt level(#)} specifies the confidence level, as a percentage.',
+    '',
+    '{phang}',
+    '{opt beta} requests that standardized beta coefficients be reported.'
+].join('\n');
+
+// ============================================================================
+// Tests for Hyperlinked Option Integration (regress.sthlp)
+// ============================================================================
+
+describe('SMCL Command Extractor - Hyperlinked Option Integration', () => {
+    test('regress.sthlp extracts vce option with has_argument=true', () => {
+        const result = extract_commands_from_content(
+            REGRESS_STHLP_MOCK,
+            'regress.sthlp'
+        );
+
+        // Verify regress command is extracted
+        const my_regress = result.commands.find(c => c.name === 'regress');
+        expect(my_regress).toBeDefined();
+        expect(my_regress?.is_primary).toBe(true);
+
+        // Verify vce option is present with has_argument=true
+        const my_vce_option = my_regress?.options?.find(o => o.name === 'vce');
+        expect(my_vce_option).toBeDefined();
+        expect(my_vce_option?.has_argument).toBe(true);
+    });
+
+    test('regress.sthlp extracts other options alongside vce', () => {
+        const result = extract_commands_from_content(
+            REGRESS_STHLP_MOCK,
+            'regress.sthlp'
+        );
+
+        const my_regress = result.commands.find(c => c.name === 'regress');
+        expect(my_regress).toBeDefined();
+
+        // Verify other options are also extracted
+        const the_option_names = my_regress?.options?.map(o => o.name) ?? [];
+        expect(the_option_names).toContain('noconstant');
+        expect(the_option_names).toContain('hascons');
+        expect(the_option_names).toContain('level');
+        expect(the_option_names).toContain('beta');
+    });
+
+    test('regress.sthlp extracts option abbreviations correctly', () => {
+        const result = extract_commands_from_content(
+            REGRESS_STHLP_MOCK,
+            'regress.sthlp'
+        );
+
+        const my_regress = result.commands.find(c => c.name === 'regress');
+        expect(my_regress).toBeDefined();
+
+        // Verify abbreviations are extracted correctly
+        const my_noconstant = my_regress?.options?.find(o => o.name === 'noconstant');
+        expect(my_noconstant?.min_abbreviation).toBe(6); // nocons:tant
+
+        const my_hascons = my_regress?.options?.find(o => o.name === 'hascons');
+        expect(my_hascons?.min_abbreviation).toBe(1); // h:ascons
+
+        const my_level = my_regress?.options?.find(o => o.name === 'level');
+        expect(my_level?.min_abbreviation).toBe(1); // l:evel
+        expect(my_level?.has_argument).toBe(true);
+
+        const my_beta = my_regress?.options?.find(o => o.name === 'beta');
+        expect(my_beta?.min_abbreviation).toBe(1); // b:eta
+    });
+});
+
+// ============================================================================
+// Tests for Hyperlinked Option Pattern Extraction
+// ============================================================================
+
+describe('SMCL Command Extractor - Hyperlinked Option Patterns', () => {
+    test('{opth vce:(regress##vcetype:vcetype)} extracts vce with has_argument=true', () => {
+        const result = parse_option_pattern('{opth vce:(regress##vcetype:vcetype)}');
+
+        expect(result).not.toBeNull();
+        expect(result?.name).toBe('vce');
+        expect(result?.has_argument).toBe(true);
+        expect(result?.min_abbreviation).toBe(3);
+        expect(result?.argument_type).toBe('regress##vcetype:vcetype');
+    });
+
+    test('{opth by:(varlist:groupvar)} extracts by with has_argument=true', () => {
+        const result = parse_option_pattern('{opth by:(varlist:groupvar)}');
+
+        expect(result).not.toBeNull();
+        expect(result?.name).toBe('by');
+        expect(result?.has_argument).toBe(true);
+        expect(result?.min_abbreviation).toBe(2);
+        expect(result?.argument_type).toBe('varlist:groupvar');
+    });
+
+    test('{opt ef:orm:(strings:string)} extracts eform with min_abbreviation=2', () => {
+        const result = parse_option_pattern('{opt ef:orm:(strings:string)}');
+
+        expect(result).not.toBeNull();
+        expect(result?.name).toBe('eform');
+        expect(result?.has_argument).toBe(true);
+        expect(result?.min_abbreviation).toBe(2);
+        expect(result?.argument_type).toBe('strings:string');
+    });
+
+    test('{opt name:(topic:display)} extracts name with has_argument=true', () => {
+        const result = parse_option_pattern('{opt name:(topic:display)}');
+
+        expect(result).not.toBeNull();
+        expect(result?.name).toBe('name');
+        expect(result?.has_argument).toBe(true);
+        expect(result?.min_abbreviation).toBe(4);
+        expect(result?.argument_type).toBe('topic:display');
+    });
+
+    test('{opth name:(exp_list:exp)} handles nested colons in topic', () => {
+        // Validates Requirement 4.3: nested colons in the topic
+        const result = parse_option_pattern('{opth name:(exp_list:exp)}');
+
+        expect(result).not.toBeNull();
+        expect(result?.name).toBe('name');
+        expect(result?.has_argument).toBe(true);
+        expect(result?.argument_type).toBe('exp_list:exp');
+    });
+
+    test('{opth generate:(newvar)} handles simple topic reference', () => {
+        // Validates Requirement 4.1: simple topic reference
+        const result = parse_option_pattern('{opth generate:(newvar)}');
+
+        expect(result).not.toBeNull();
+        expect(result?.name).toBe('generate');
+        expect(result?.has_argument).toBe(true);
+        expect(result?.argument_type).toBe('newvar');
+    });
+
+    test('{opt l:evel:(level##clevel:level)} handles section reference with abbreviation', () => {
+        // Validates Requirement 4.2: section reference like (regress##vcetype:vcetype)
+        const result = parse_option_pattern('{opt l:evel:(level##clevel:level)}');
+
+        expect(result).not.toBeNull();
+        expect(result?.name).toBe('level');
+        expect(result?.has_argument).toBe(true);
+        expect(result?.min_abbreviation).toBe(1);
+        expect(result?.argument_type).toBe('level##clevel:level');
     });
 });

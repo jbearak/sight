@@ -179,6 +179,11 @@
           "has_argument": true
         },
         {
+          "name": "arimaopts",
+          "min_abbreviation": 9,
+          "has_argument": true
+        },
+        {
           "name": "tsset",
           "min_abbreviation": 5,
           "has_argument": false
@@ -408,6 +413,11 @@
       "min_abbreviation": 4,
       "options": [
         {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
           "name": "level",
           "min_abbreviation": 1,
           "has_argument": true
@@ -464,6 +474,11 @@
       "name": "bootstrap",
       "min_abbreviation": 9,
       "options": [
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
         {
           "name": "level",
           "min_abbreviation": 1,
@@ -522,6 +537,11 @@
       "min_abbreviation": 7,
       "options": [
         {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
           "name": "level",
           "min_abbreviation": 1,
           "has_argument": true
@@ -578,6 +598,11 @@
       "name": "aweight",
       "min_abbreviation": 7,
       "options": [
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
         {
           "name": "level",
           "min_abbreviation": 1,
@@ -2110,6 +2135,11 @@
           "name": "atbase",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "at",
+          "min_abbreviation": 2,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -2137,6 +2167,11 @@
           "name": "atbase",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "at",
+          "min_abbreviation": 2,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -2164,6 +2199,11 @@
           "name": "atbase",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "at",
+          "min_abbreviation": 2,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -2191,6 +2231,11 @@
           "name": "atbase",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "at",
+          "min_abbreviation": 2,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -2218,6 +2263,11 @@
           "name": "atbase",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "at",
+          "min_abbreviation": 2,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -3456,6 +3506,11 @@
           "has_argument": true
         },
         {
+          "name": "arfimaopts",
+          "min_abbreviation": 10,
+          "has_argument": true
+        },
+        {
           "name": "tsset",
           "min_abbreviation": 5,
           "has_argument": false
@@ -4210,14 +4265,19 @@
           "has_argument": true
         },
         {
-          "name": "all",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
           "name": "anlineopts",
           "min_abbreviation": 10,
           "has_argument": true
+        },
+        {
+          "name": "freqlineopts",
+          "min_abbreviation": 12,
+          "has_argument": true
+        },
+        {
+          "name": "all",
+          "min_abbreviation": 3,
+          "has_argument": false
         },
         {
           "name": "freqline",
@@ -4228,11 +4288,6 @@
           "name": "nofreqline",
           "min_abbreviation": 10,
           "has_argument": false
-        },
-        {
-          "name": "freqlineopts",
-          "min_abbreviation": 12,
-          "has_argument": true
         }
       ],
       "priority": 3
@@ -5522,6 +5577,11 @@
           "name": "nocolumn",
           "min_abbreviation": 5,
           "has_argument": false
+        },
+        {
+          "name": "opts",
+          "min_abbreviation": 4,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -6623,12 +6683,6 @@
         }
       ],
       "priority": 1
-    },
-    "levelsof": {
-      "name": "levelsof",
-      "min_abbreviation": 6,
-      "options": [],
-      "priority": 2
     },
     "cls": {
       "name": "cls",
@@ -10426,6 +10480,11 @@
           "has_argument": false
         },
         {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
           "name": "statsby",
           "min_abbreviation": 7,
           "has_argument": false
@@ -11480,6 +11539,11 @@
       "min_abbreviation": 2,
       "options": [
         {
+          "name": "message",
+          "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
           "name": "debug",
           "min_abbreviation": 5,
           "has_argument": false
@@ -11501,6 +11565,16 @@
       "name": "didregress",
       "min_abbreviation": 10,
       "options": [
+        {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "time",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
         {
           "name": "nogteffects",
           "min_abbreviation": 11,
@@ -11533,6 +11607,16 @@
       "name": "xtdidregress",
       "min_abbreviation": 12,
       "options": [
+        {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "time",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
         {
           "name": "nogteffects",
           "min_abbreviation": 11,
@@ -11604,51 +11688,6 @@
       "min_abbreviation": 4,
       "options": [],
       "priority": 3
-    },
-    "classtable": {
-      "name": "classtable",
-      "min_abbreviation": 5,
-      "options": [],
-      "priority": 3
-    },
-    "errorrate": {
-      "name": "errorrate",
-      "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
-    "grsummarize": {
-      "name": "grsummarize",
-      "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
-    "summarize": {
-      "name": "summarize",
-      "min_abbreviation": 2,
-      "options": [
-        {
-          "name": "detail",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "meanonly",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "format",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "separator",
-          "min_abbreviation": 3,
-          "has_argument": true
-        }
-      ],
-      "priority": 1
     },
     "labels": {
       "name": "labels",
@@ -11758,6 +11797,11 @@
           "has_argument": false
         },
         {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
           "name": "statsby",
           "min_abbreviation": 7,
           "has_argument": false
@@ -11783,6 +11827,11 @@
           "name": "notable",
           "min_abbreviation": 3,
           "has_argument": false
+        },
+        {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
         },
         {
           "name": "statsby",
@@ -12138,6 +12187,11 @@
           "has_argument": true
         },
         {
+          "name": "items",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
           "name": "nolistwise",
           "min_abbreviation": 10,
           "has_argument": false
@@ -12189,7 +12243,13 @@
     "dyndoc": {
       "name": "dyndoc",
       "min_abbreviation": 6,
-      "options": [],
+      "options": [
+        {
+          "name": "saving",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "dtaversion": {
@@ -12557,6 +12617,11 @@
           "has_argument": true
         },
         {
+          "name": "items",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
           "name": "nolistwise",
           "min_abbreviation": 10,
           "has_argument": false
@@ -12798,6 +12863,11 @@
           "has_argument": false
         },
         {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
           "name": "level",
           "min_abbreviation": 1,
           "has_argument": true
@@ -12838,7 +12908,13 @@
     "docx2pdf": {
       "name": "docx2pdf",
       "min_abbreviation": 8,
-      "options": [],
+      "options": [
+        {
+          "name": "saving",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "q": {
@@ -13049,6 +13125,11 @@
       "name": "dyntext",
       "min_abbreviation": 7,
       "options": [
+        {
+          "name": "saving",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
         {
           "name": "replace",
           "min_abbreviation": 7,
@@ -13268,98 +13349,6 @@
       ],
       "priority": 3
     },
-    "greport": {
-      "name": "greport",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "byparm",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "alabel",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "blabel",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "clabel",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "seqlabel",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "post",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "parmwidth",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "grwidth",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "grlabel",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "title",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "descending",
-          "min_abbreviation": 10,
-          "has_argument": false
-        },
-        {
-          "name": "test",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "lincom",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "se",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "t",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "p",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "style",
-          "min_abbreviation": 5,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "estimates": {
       "name": "estimates",
       "min_abbreviation": 3,
@@ -13413,12 +13402,6 @@
       "options": [],
       "priority": 3
     },
-    "heterogeneity": {
-      "name": "heterogeneity",
-      "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
     "expoisson": {
       "name": "expoisson",
       "min_abbreviation": 9,
@@ -13461,6 +13444,11 @@
         {
           "name": "test",
           "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "mue",
+          "min_abbreviation": 3,
           "has_argument": true
         },
         {
@@ -13548,53 +13536,6 @@
       ],
       "priority": 3
     },
-    "bubbleplot": {
-      "name": "bubbleplot",
-      "min_abbreviation": 6,
-      "options": [
-        {
-          "name": "reweighted",
-          "min_abbreviation": 10,
-          "has_argument": false
-        },
-        {
-          "name": "regline",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "noregline",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "ci",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "noci",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "n",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "lineopts",
-          "min_abbreviation": 8,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "predict": {
       "name": "predict",
       "min_abbreviation": 7,
@@ -13636,7 +13577,18 @@
     "method": {
       "name": "method",
       "min_abbreviation": 4,
-      "options": [],
+      "options": [
+        {
+          "name": "method",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "post",
+          "min_abbreviation": 4,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "exit": {
@@ -14182,6 +14134,11 @@
       "min_abbreviation": 5,
       "options": [
         {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
           "name": "esize",
           "min_abbreviation": 5,
           "has_argument": false
@@ -14233,6 +14190,11 @@
       "name": "esizei",
       "min_abbreviation": 6,
       "options": [
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
         {
           "name": "esize",
           "min_abbreviation": 5,
@@ -14286,6 +14248,11 @@
       "min_abbreviation": 3,
       "options": [
         {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
           "name": "esize",
           "min_abbreviation": 5,
           "has_argument": false
@@ -14337,6 +14304,11 @@
       "name": "unpaired",
       "min_abbreviation": 3,
       "options": [
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
         {
           "name": "esize",
           "min_abbreviation": 5,
@@ -14444,6 +14416,11 @@
         {
           "name": "test",
           "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "mue",
+          "min_abbreviation": 3,
           "has_argument": true
         },
         {
@@ -14763,33 +14740,6 @@
       "name": "eps",
       "min_abbreviation": 3,
       "options": [],
-      "priority": 3
-    },
-    "classification": {
-      "name": "classification",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "all",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "cutoff",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "if",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "in",
-          "min_abbreviation": 2,
-          "has_argument": false
-        }
-      ],
       "priority": 3
     },
     "eintreg": {
@@ -15226,8 +15176,23 @@
       "min_abbreviation": 7,
       "options": [
         {
+          "name": "from",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
           "name": "prefix",
           "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "suffix",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "exclude",
+          "min_abbreviation": 7,
           "has_argument": true
         }
       ],
@@ -16634,7 +16599,13 @@
     "half": {
       "name": "half",
       "min_abbreviation": 4,
-      "options": [],
+      "options": [
+        {
+          "name": "diagopts",
+          "min_abbreviation": 8,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "fvstandard": {
@@ -17503,6 +17474,16 @@
       "min_abbreviation": 11,
       "options": [
         {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "time",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
           "name": "controlgroup",
           "min_abbreviation": 12,
           "has_argument": true
@@ -17602,7 +17583,18 @@
     "html2docx": {
       "name": "html2docx",
       "min_abbreviation": 9,
-      "options": [],
+      "options": [
+        {
+          "name": "saving",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "base",
+          "min_abbreviation": 4,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "hetregress": {
@@ -17679,6 +17671,11 @@
           "name": "notest",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "label",
+          "min_abbreviation": 5,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -18534,13 +18531,13 @@
           "has_argument": true
         },
         {
-          "name": "n",
-          "min_abbreviation": 1,
+          "name": "addplot",
+          "min_abbreviation": 7,
           "has_argument": true
         },
         {
-          "name": "addplot",
-          "min_abbreviation": 7,
+          "name": "n",
+          "min_abbreviation": 1,
           "has_argument": true
         }
       ],
@@ -18566,13 +18563,13 @@
           "has_argument": true
         },
         {
-          "name": "n",
-          "min_abbreviation": 1,
+          "name": "addplot",
+          "min_abbreviation": 7,
           "has_argument": true
         },
         {
-          "name": "addplot",
-          "min_abbreviation": 7,
+          "name": "n",
+          "min_abbreviation": 1,
           "has_argument": true
         }
       ],
@@ -18732,6 +18729,11 @@
         {
           "name": "constraints",
           "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
           "has_argument": true
         },
         {
@@ -19024,6 +19026,11 @@
           "has_argument": false
         },
         {
+          "name": "lags",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
           "name": "step",
           "min_abbreviation": 4,
           "has_argument": true
@@ -19054,6 +19061,11 @@
           "name": "endogenous",
           "min_abbreviation": 10,
           "has_argument": false
+        },
+        {
+          "name": "lags",
+          "min_abbreviation": 4,
+          "has_argument": true
         },
         {
           "name": "step",
@@ -19146,6 +19158,11 @@
           "name": "igmm",
           "min_abbreviation": 1,
           "has_argument": false
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
         },
         {
           "name": "level",
@@ -20347,6 +20364,11 @@
           "has_argument": true
         },
         {
+          "name": "sepby",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
           "name": "ds",
           "min_abbreviation": 2,
           "has_argument": false
@@ -20394,11 +20416,6 @@
         {
           "name": "sepbyexp",
           "min_abbreviation": 8,
-          "has_argument": true
-        },
-        {
-          "name": "sepby",
-          "min_abbreviation": 5,
           "has_argument": true
         },
         {
@@ -20505,6 +20522,11 @@
           "name": "small",
           "min_abbreviation": 5,
           "has_argument": false
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
         },
         {
           "name": "level",
@@ -20812,6 +20834,53 @@
       ],
       "priority": 3
     },
+    "levelsof": {
+      "name": "levelsof",
+      "min_abbreviation": 8,
+      "options": [
+        {
+          "name": "clean",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "local",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "missing",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "separate",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "matcell",
+          "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
+          "name": "matrow",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "hexadecimal",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "levelsof",
+          "min_abbreviation": 8,
+          "has_argument": false
+        }
+      ],
+      "priority": 2
+    },
     "log": {
       "name": "log",
       "min_abbreviation": 3,
@@ -21049,6 +21118,11 @@
           "name": "hazard",
           "min_abbreviation": 3,
           "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
         },
         {
           "name": "test",
@@ -21461,6 +21535,11 @@
           "has_argument": true
         },
         {
+          "name": "loss",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
           "name": "transform",
           "min_abbreviation": 5,
           "has_argument": true
@@ -21563,6 +21642,11 @@
           "has_argument": true
         },
         {
+          "name": "loss",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
           "name": "transform",
           "min_abbreviation": 5,
           "has_argument": true
@@ -21662,6 +21746,11 @@
         {
           "name": "method",
           "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "loss",
+          "min_abbreviation": 4,
           "has_argument": true
         },
         {
@@ -21893,31 +21982,61 @@
     "accum": {
       "name": "accum",
       "min_abbreviation": 2,
-      "options": [],
+      "options": [
+        {
+          "name": "absorb",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "deviations": {
       "name": "deviations",
       "min_abbreviation": 1,
-      "options": [],
+      "options": [
+        {
+          "name": "absorb",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "glsaccum": {
       "name": "glsaccum",
       "min_abbreviation": 4,
-      "options": [],
+      "options": [
+        {
+          "name": "absorb",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "vecaccum": {
       "name": "vecaccum",
       "min_abbreviation": 4,
-      "options": [],
+      "options": [
+        {
+          "name": "absorb",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "opaccum": {
       "name": "opaccum",
       "min_abbreviation": 7,
-      "options": [],
+      "options": [
+        {
+          "name": "absorb",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "noupdate": {
@@ -22926,6 +23045,16 @@
           "has_argument": false
         },
         {
+          "name": "exposure",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
+        {
+          "name": "offset",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "constraints",
           "min_abbreviation": 11,
           "has_argument": true
@@ -23229,6 +23358,11 @@
           "has_argument": true
         },
         {
+          "name": "loss",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
           "name": "transform",
           "min_abbreviation": 5,
           "has_argument": true
@@ -23363,6 +23497,11 @@
         {
           "name": "method",
           "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "loss",
+          "min_abbreviation": 4,
           "has_argument": true
         },
         {
@@ -23503,6 +23642,11 @@
           "has_argument": true
         },
         {
+          "name": "loss",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
           "name": "transform",
           "min_abbreviation": 5,
           "has_argument": true
@@ -23637,6 +23781,11 @@
         {
           "name": "method",
           "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "loss",
+          "min_abbreviation": 4,
           "has_argument": true
         },
         {
@@ -23777,6 +23926,11 @@
           "has_argument": true
         },
         {
+          "name": "loss",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
           "name": "transform",
           "min_abbreviation": 5,
           "has_argument": true
@@ -23911,6 +24065,11 @@
         {
           "name": "method",
           "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "loss",
+          "min_abbreviation": 4,
           "has_argument": true
         },
         {
@@ -24473,9 +24632,24 @@
           "has_argument": false
         },
         {
+          "name": "exposure",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
+        {
+          "name": "offset",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "asis",
           "min_abbreviation": 4,
           "has_argument": false
+        },
+        {
+          "name": "link",
+          "min_abbreviation": 4,
+          "has_argument": true
         },
         {
           "name": "constraints",
@@ -24546,6 +24720,11 @@
           "has_argument": true
         },
         {
+          "name": "rowprefix",
+          "min_abbreviation": 9,
+          "has_argument": true
+        },
+        {
           "name": "obs",
           "min_abbreviation": 3,
           "has_argument": false
@@ -24570,6 +24749,11 @@
         {
           "name": "roweq",
           "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "rowprefix",
+          "min_abbreviation": 9,
           "has_argument": true
         },
         {
@@ -24600,6 +24784,11 @@
           "has_argument": true
         },
         {
+          "name": "rowprefix",
+          "min_abbreviation": 9,
+          "has_argument": true
+        },
+        {
           "name": "obs",
           "min_abbreviation": 3,
           "has_argument": false
@@ -24624,6 +24813,11 @@
         {
           "name": "roweq",
           "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "rowprefix",
+          "min_abbreviation": 9,
           "has_argument": true
         },
         {
@@ -24718,12 +24912,6 @@
       "options": [],
       "priority": 3
     },
-    "register": {
-      "name": "register",
-      "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
     "imputed": {
       "name": "imputed",
       "min_abbreviation": 3,
@@ -24739,12 +24927,6 @@
     "regular": {
       "name": "regular",
       "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
-    "unregister": {
-      "name": "unregister",
-      "min_abbreviation": 5,
       "options": [],
       "priority": 3
     },
@@ -24832,25 +25014,49 @@
     "noblank": {
       "name": "noblank",
       "min_abbreviation": 3,
-      "options": [],
+      "options": [
+        {
+          "name": "format",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "nohalf": {
       "name": "nohalf",
       "min_abbreviation": 4,
-      "options": [],
+      "options": [
+        {
+          "name": "format",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "nonames": {
       "name": "nonames",
       "min_abbreviation": 3,
-      "options": [],
+      "options": [
+        {
+          "name": "format",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "nodotz": {
       "name": "nodotz",
       "min_abbreviation": 6,
-      "options": [],
+      "options": [
+        {
+          "name": "format",
+          "min_abbreviation": 6,
+          "has_argument": true
+        }
+      ],
       "priority": 3
     },
     "mvregress": {
@@ -25130,6 +25336,11 @@
           "has_argument": true
         },
         {
+          "name": "cumulative",
+          "min_abbreviation": 10,
+          "has_argument": true
+        },
+        {
           "name": "leaveoneout",
           "min_abbreviation": 11,
           "has_argument": false
@@ -25148,6 +25359,11 @@
           "name": "predinterval",
           "min_abbreviation": 12,
           "has_argument": false
+        },
+        {
+          "name": "se",
+          "min_abbreviation": 2,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -25287,6 +25503,16 @@
           "has_argument": false
         },
         {
+          "name": "exposure",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
+        {
+          "name": "offset",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "constraints",
           "min_abbreviation": 11,
           "has_argument": true
@@ -25330,6 +25556,33 @@
       "options": [],
       "priority": 3
     },
+    "summarize": {
+      "name": "summarize",
+      "min_abbreviation": 3,
+      "options": [
+        {
+          "name": "detail",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "meanonly",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "format",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "separator",
+          "min_abbreviation": 3,
+          "has_argument": true
+        }
+      ],
+      "priority": 1
+    },
     "patterns": {
       "name": "patterns",
       "min_abbreviation": 3,
@@ -25350,23 +25603,6 @@
           "name": "noconstant",
           "min_abbreviation": 10,
           "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "estimate": {
-      "name": "estimate",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "nimputations",
-          "min_abbreviation": 12,
-          "has_argument": true
-        },
-        {
-          "name": "imputations",
-          "min_abbreviation": 11,
-          "has_argument": true
         }
       ],
       "priority": 3
@@ -25754,18 +25990,6 @@
       "options": [],
       "priority": 3
     },
-    "recovariance": {
-      "name": "recovariance",
-      "min_abbreviation": 5,
-      "options": [
-        {
-          "name": "relevel",
-          "min_abbreviation": 7,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "correlation": {
       "name": "correlation",
       "min_abbreviation": 4,
@@ -26026,12 +26250,6 @@
       "options": [],
       "priority": 3
     },
-    "wcorrelation": {
-      "name": "wcorrelation",
-      "min_abbreviation": 4,
-      "options": [],
-      "priority": 3
-    },
     "mark": {
       "name": "mark",
       "min_abbreviation": 4,
@@ -26110,12 +26328,6 @@
     },
     "errors": {
       "name": "errors",
-      "min_abbreviation": 6,
-      "options": [],
-      "priority": 3
-    },
-    "testtransform": {
-      "name": "testtransform",
       "min_abbreviation": 6,
       "options": [],
       "priority": 3
@@ -26278,6 +26490,11 @@
         {
           "name": "method",
           "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "loss",
+          "min_abbreviation": 4,
           "has_argument": true
         },
         {
@@ -26449,12 +26666,6 @@
       "options": [],
       "priority": 3
     },
-    "varying": {
-      "name": "varying",
-      "min_abbreviation": 4,
-      "options": [],
-      "priority": 3
-    },
     "unregistered": {
       "name": "unregistered",
       "min_abbreviation": 5,
@@ -26524,6 +26735,11 @@
           "name": "nonrtolerance",
           "min_abbreviation": 7,
           "has_argument": false
+        },
+        {
+          "name": "from",
+          "min_abbreviation": 4,
+          "has_argument": true
         },
         {
           "name": "log",
@@ -26596,6 +26812,11 @@
           "name": "nonrtolerance",
           "min_abbreviation": 7,
           "has_argument": false
+        },
+        {
+          "name": "from",
+          "min_abbreviation": 4,
+          "has_argument": true
         },
         {
           "name": "log",
@@ -26787,6 +27008,11 @@
           "has_argument": false
         },
         {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
           "name": "carmitage",
           "min_abbreviation": 9,
           "has_argument": false
@@ -26974,6 +27200,11 @@
           "has_argument": true
         },
         {
+          "name": "predict",
+          "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
           "name": "noderivatives",
           "min_abbreviation": 7,
           "has_argument": false
@@ -27021,6 +27252,11 @@
         {
           "name": "level",
           "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "citype",
+          "min_abbreviation": 6,
           "has_argument": true
         },
         {
@@ -27056,6 +27292,11 @@
           "has_argument": true
         },
         {
+          "name": "predict",
+          "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
           "name": "noderivatives",
           "min_abbreviation": 7,
           "has_argument": false
@@ -27103,6 +27344,11 @@
         {
           "name": "level",
           "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "citype",
+          "min_abbreviation": 6,
           "has_argument": true
         },
         {
@@ -27167,6 +27413,11 @@
         {
           "name": "nointeract",
           "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
+          "name": "criterion",
+          "min_abbreviation": 9,
           "has_argument": true
         },
         {
@@ -28600,6 +28851,11 @@
           "has_argument": true
         },
         {
+          "name": "ci",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
           "name": "level",
           "min_abbreviation": 1,
           "has_argument": true
@@ -28863,6 +29119,11 @@
           "name": "savespace",
           "min_abbreviation": 4,
           "has_argument": false
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
         },
         {
           "name": "level",
@@ -29297,6 +29558,11 @@
           "has_argument": false
         },
         {
+          "name": "offset",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "exposure",
           "min_abbreviation": 8,
           "has_argument": true
@@ -29725,6 +29991,11 @@
           "has_argument": true
         },
         {
+          "name": "citype",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "percent",
           "min_abbreviation": 7,
           "has_argument": false
@@ -29789,6 +30060,11 @@
         {
           "name": "id",
           "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "stat",
+          "min_abbreviation": 4,
           "has_argument": true
         }
       ],
@@ -31126,6 +31402,11 @@
           "name": "esample",
           "min_abbreviation": 7,
           "has_argument": true
+        },
+        {
+          "name": "properties",
+          "min_abbreviation": 10,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -31137,6 +31418,11 @@
         {
           "name": "esample",
           "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
+          "name": "properties",
+          "min_abbreviation": 10,
           "has_argument": true
         }
       ],
@@ -31720,6 +32006,11 @@
       "min_abbreviation": 4,
       "options": [
         {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
           "name": "compare",
           "min_abbreviation": 7,
           "has_argument": true
@@ -31771,12 +32062,6 @@
       ],
       "priority": 3
     },
-    "stable": {
-      "name": "stable",
-      "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
     "printcolor": {
       "name": "printcolor",
       "min_abbreviation": 10,
@@ -31820,6 +32105,16 @@
         {
           "name": "per",
           "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "smr",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 7,
           "has_argument": true
         },
         {
@@ -32096,6 +32391,11 @@
           "has_argument": true
         },
         {
+          "name": "strata",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "separate",
           "min_abbreviation": 3,
           "has_argument": false
@@ -32193,11 +32493,6 @@
         {
           "name": "byopts",
           "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "strata",
-          "min_abbreviation": 6,
           "has_argument": true
         }
       ],
@@ -32233,6 +32528,11 @@
           "has_argument": true
         },
         {
+          "name": "strata",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "separate",
           "min_abbreviation": 3,
           "has_argument": false
@@ -32330,11 +32630,6 @@
         {
           "name": "byopts",
           "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "strata",
-          "min_abbreviation": 6,
           "has_argument": true
         }
       ],
@@ -32580,6 +32875,11 @@
           "name": "estimate",
           "min_abbreviation": 4,
           "has_argument": false
+        },
+        {
+          "name": "strata",
+          "min_abbreviation": 6,
+          "has_argument": true
         },
         {
           "name": "shared",
@@ -32960,12 +33260,6 @@
       ],
       "priority": 3
     },
-    "eqgof": {
-      "name": "eqgof",
-      "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
     "svar": {
       "name": "svar",
       "min_abbreviation": 4,
@@ -33277,6 +33571,11 @@
           "has_argument": true
         },
         {
+          "name": "strata",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "level",
           "min_abbreviation": 1,
           "has_argument": true
@@ -33315,11 +33614,6 @@
           "name": "atrisk0",
           "min_abbreviation": 7,
           "has_argument": false
-        },
-        {
-          "name": "strata",
-          "min_abbreviation": 6,
-          "has_argument": true
         },
         {
           "name": "replace",
@@ -33361,23 +33655,6 @@
       ],
       "priority": 3
     },
-    "mindices": {
-      "name": "mindices",
-      "min_abbreviation": 2,
-      "options": [
-        {
-          "name": "showpclass",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "minchi2",
-          "min_abbreviation": 3,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "sdtest": {
       "name": "sdtest",
       "min_abbreviation": 6,
@@ -33388,6 +33665,11 @@
           "has_argument": true
         },
         {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
           "name": "sdtest",
           "min_abbreviation": 6,
           "has_argument": false
@@ -33395,11 +33677,6 @@
         {
           "name": "robvar",
           "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "by",
-          "min_abbreviation": 2,
           "has_argument": false
         }
       ],
@@ -33415,6 +33692,11 @@
           "has_argument": true
         },
         {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
           "name": "sdtest",
           "min_abbreviation": 6,
           "has_argument": false
@@ -33422,11 +33704,6 @@
         {
           "name": "robvar",
           "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "by",
-          "min_abbreviation": 2,
           "has_argument": false
         }
       ],
@@ -33442,6 +33719,11 @@
           "has_argument": true
         },
         {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
           "name": "sdtest",
           "min_abbreviation": 6,
           "has_argument": false
@@ -33449,11 +33731,6 @@
         {
           "name": "robvar",
           "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "by",
-          "min_abbreviation": 2,
           "has_argument": false
         }
       ],
@@ -33926,43 +34203,6 @@
       ],
       "priority": 3
     },
-    "teffects": {
-      "name": "teffects",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "compact",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "standardized",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "nolabel",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "nodirect",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "noindirect",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "nototal",
-          "min_abbreviation": 5,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
     "fvbase": {
       "name": "fvbase",
       "min_abbreviation": 6,
@@ -34356,28 +34596,6 @@
       "options": [],
       "priority": 3
     },
-    "eqtest": {
-      "name": "eqtest",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "total",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "nosvyadjust",
-          "min_abbreviation": 11,
-          "has_argument": false
-        },
-        {
-          "name": "svy",
-          "min_abbreviation": 3,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
     "total": {
       "name": "total",
       "min_abbreviation": 3,
@@ -34714,6 +34932,11 @@
           "has_argument": false
         },
         {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
           "name": "dfk",
           "min_abbreviation": 3,
           "has_argument": false
@@ -34805,6 +35028,11 @@
       "name": "stmc",
       "min_abbreviation": 4,
       "options": [
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
         {
           "name": "compare",
           "min_abbreviation": 7,
@@ -34947,12 +35175,6 @@
       "options": [],
       "priority": 3
     },
-    "stdize": {
-      "name": "stdize",
-      "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
     "economist": {
       "name": "economist",
       "min_abbreviation": 9,
@@ -34962,18 +35184,6 @@
     "locale_functions": {
       "name": "locale_functions",
       "min_abbreviation": 16,
-      "options": [],
-      "priority": 3
-    },
-    "effects": {
-      "name": "effects",
-      "min_abbreviation": 3,
-      "options": [],
-      "priority": 3
-    },
-    "lceffects": {
-      "name": "lceffects",
-      "min_abbreviation": 5,
       "options": [],
       "priority": 3
     },
@@ -34993,6 +35203,11 @@
       "name": "stintcoxnp",
       "min_abbreviation": 10,
       "options": [
+        {
+          "name": "interval",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
         {
           "name": "by",
           "min_abbreviation": 2,
@@ -35392,6 +35607,11 @@
           "name": "replace",
           "min_abbreviation": 7,
           "has_argument": false
+        },
+        {
+          "name": "byopts",
+          "min_abbreviation": 6,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -35514,6 +35734,11 @@
           "name": "replace",
           "min_abbreviation": 7,
           "has_argument": false
+        },
+        {
+          "name": "byopts",
+          "min_abbreviation": 6,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -35914,28 +36139,6 @@
       "options": [],
       "priority": 3
     },
-    "ginvariant": {
-      "name": "ginvariant",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "showpclass",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "class",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "legend",
-          "min_abbreviation": 3,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
     "contiguity": {
       "name": "contiguity",
       "min_abbreviation": 4,
@@ -36109,17 +36312,15 @@
           "name": "sample",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
         }
       ],
       "priority": 3
     },
-    "scoretests": {
-      "name": "scoretests",
-      "min_abbreviation": 5,
-      "options": [],
-      "priority": 3
-    },
-
     "sysdescribe": {
       "name": "sysdescribe",
       "min_abbreviation": 11,
@@ -36148,43 +36349,6 @@
       "name": "stvary",
       "min_abbreviation": 6,
       "options": [],
-      "priority": 3
-    },
-    "residuals": {
-      "name": "residuals",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "normalized",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "standardized",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "sample",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "nm1",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "zerotolerance",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "format",
-          "min_abbreviation": 3,
-          "has_argument": true
-        }
-      ],
       "priority": 3
     },
     "sysuse": {
@@ -36434,6 +36598,16 @@
       "min_abbreviation": 10,
       "options": [
         {
+          "name": "id",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "event",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
           "name": "interval",
           "min_abbreviation": 8,
           "has_argument": true
@@ -36506,6 +36680,23 @@
         {
           "name": "addplot",
           "min_abbreviation": 7,
+          "has_argument": true
+        }
+      ],
+      "priority": 3
+    },
+    "teffects": {
+      "name": "teffects",
+      "min_abbreviation": 8,
+      "options": [
+        {
+          "name": "noconstant",
+          "min_abbreviation": 10,
+          "has_argument": false
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 5,
           "has_argument": true
         }
       ],
@@ -36683,6 +36874,11 @@
           "name": "minmax",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "crule",
+          "min_abbreviation": 5,
+          "has_argument": true
         },
         {
           "name": "scolor",
@@ -37509,14 +37705,14 @@
       "min_abbreviation": 5,
       "options": [
         {
-          "name": "ttest",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
           "name": "by",
           "min_abbreviation": 2,
           "has_argument": true
+        },
+        {
+          "name": "ttest",
+          "min_abbreviation": 5,
+          "has_argument": false
         },
         {
           "name": "reverse",
@@ -37551,14 +37747,14 @@
       "min_abbreviation": 6,
       "options": [
         {
-          "name": "ttest",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
           "name": "by",
           "min_abbreviation": 2,
           "has_argument": true
+        },
+        {
+          "name": "ttest",
+          "min_abbreviation": 5,
+          "has_argument": false
         },
         {
           "name": "reverse",
@@ -37593,14 +37789,14 @@
       "min_abbreviation": 3,
       "options": [
         {
-          "name": "ttest",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
           "name": "by",
           "min_abbreviation": 2,
           "has_argument": true
+        },
+        {
+          "name": "ttest",
+          "min_abbreviation": 5,
+          "has_argument": false
         },
         {
           "name": "reverse",
@@ -37635,14 +37831,14 @@
       "min_abbreviation": 1,
       "options": [
         {
-          "name": "ttest",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
           "name": "by",
           "min_abbreviation": 2,
           "has_argument": true
+        },
+        {
+          "name": "ttest",
+          "min_abbreviation": 5,
+          "has_argument": false
         },
         {
           "name": "reverse",
@@ -38488,6 +38684,11 @@
           "name": "colorlines",
           "min_abbreviation": 6,
           "has_argument": false
+        },
+        {
+          "name": "crule",
+          "min_abbreviation": 5,
+          "has_argument": true
         },
         {
           "name": "scolor",
@@ -39668,6 +39869,11 @@
       "min_abbreviation": 8,
       "options": [
         {
+          "name": "absorb",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
           "name": "coefficients",
           "min_abbreviation": 12,
           "has_argument": true
@@ -39842,6 +40048,16 @@
       "name": "xthdidregress",
       "min_abbreviation": 13,
       "options": [
+        {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "controlgroup",
+          "min_abbreviation": 12,
+          "has_argument": true
+        },
         {
           "name": "hettype",
           "min_abbreviation": 7,
@@ -42218,14 +42434,14 @@
       "min_abbreviation": 5,
       "options": [
         {
-          "name": "ztest",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
           "name": "by",
           "min_abbreviation": 2,
           "has_argument": true
+        },
+        {
+          "name": "ztest",
+          "min_abbreviation": 5,
+          "has_argument": false
         },
         {
           "name": "unpaired",
@@ -42290,14 +42506,14 @@
       "min_abbreviation": 6,
       "options": [
         {
-          "name": "ztest",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
           "name": "by",
           "min_abbreviation": 2,
           "has_argument": true
+        },
+        {
+          "name": "ztest",
+          "min_abbreviation": 5,
+          "has_argument": false
         },
         {
           "name": "unpaired",
@@ -42608,6 +42824,11 @@
           "has_argument": false
         },
         {
+          "name": "exposure",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
+        {
           "name": "offset",
           "min_abbreviation": 6,
           "has_argument": true
@@ -42704,6 +42925,28 @@
     "cooksd": {
       "name": "cooksd",
       "min_abbreviation": 1,
+      "options": [
+        {
+          "name": "offset",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "exposure",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
+        {
+          "name": "nooffset",
+          "min_abbreviation": 8,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
+    "residuals": {
+      "name": "residuals",
+      "min_abbreviation": 2,
       "options": [
         {
           "name": "offset",
@@ -44067,8 +44310,6 @@
     "cretu": "creturn",
     "cretur": "creturn",
     "lis": "list",
-    "levels": "levelsof",
-    "levelso": "levelsof",
     "cli": "clist",
     "clis": "clist",
     "mean": "means",
@@ -44258,30 +44499,6 @@
     "wid": "wide",
     "doed": "doedit",
     "doedi": "doedit",
-    "class": "classtable",
-    "classt": "classtable",
-    "classta": "classtable",
-    "classtab": "classtable",
-    "classtabl": "classtable",
-    "error": "errorrate",
-    "errorr": "errorrate",
-    "errorra": "errorrate",
-    "errorrat": "errorrate",
-    "grs": "grsummarize",
-    "grsu": "grsummarize",
-    "grsum": "grsummarize",
-    "grsumm": "grsummarize",
-    "grsumma": "grsummarize",
-    "grsummar": "grsummarize",
-    "grsummari": "grsummarize",
-    "grsummariz": "grsummarize",
-    "su": "summarize",
-    "sum": "summarize",
-    "summ": "summarize",
-    "summa": "summarize",
-    "summar": "summarize",
-    "summari": "summarize",
-    "summariz": "summarize",
     "lab": "labels",
     "labe": "labels",
     "label": "labels",
@@ -44322,9 +44539,6 @@
     "datasignat": "datasignature",
     "datasignatu": "datasignature",
     "datasignatur": "datasignature",
-    "grep": "greport",
-    "grepo": "greport",
-    "grepor": "greport",
     "est": "estimates",
     "esti": "estimates",
     "estim": "estimates",
@@ -44346,16 +44560,6 @@
     "repla": "replay",
     "select": "selected",
     "selecte": "selected",
-    "het": "heterogeneity",
-    "hete": "heterogeneity",
-    "heter": "heterogeneity",
-    "hetero": "heterogeneity",
-    "heterog": "heterogeneity",
-    "heteroge": "heterogeneity",
-    "heterogen": "heterogeneity",
-    "heterogene": "heterogeneity",
-    "heterogenei": "heterogeneity",
-    "heterogeneit": "heterogeneity",
     "two": "twostep",
     "twos": "twostep",
     "twost": "twostep",
@@ -44365,10 +44569,6 @@
     "cfuncti": "cfunction",
     "cfunctio": "cfunction",
     "note": "notes",
-    "bubble": "bubbleplot",
-    "bubblep": "bubbleplot",
-    "bubblepl": "bubbleplot",
-    "bubbleplo": "bubbleplot",
     "meth": "method",
     "metho": "method",
     "tr": "treat",
@@ -44449,15 +44649,6 @@
     "zerowei": "zeroweight",
     "zeroweig": "zeroweight",
     "zeroweigh": "zeroweight",
-    "clas": "classification",
-    "classi": "classification",
-    "classif": "classification",
-    "classifi": "classification",
-    "classific": "classification",
-    "classifica": "classification",
-    "classificat": "classification",
-    "classificati": "classification",
-    "classificatio": "classification",
     "forv": "forvalues",
     "forva": "forvalues",
     "forval": "forvalues",
@@ -44965,10 +45156,6 @@
     "explici": "explicit",
     "mer": "merge",
     "merg": "merge",
-    "regi": "register",
-    "regis": "register",
-    "regist": "register",
-    "registe": "register",
     "imp": "imputed",
     "impu": "imputed",
     "imput": "imputed",
@@ -44980,11 +45167,6 @@
     "regu": "regular",
     "regul": "regular",
     "regula": "regular",
-    "unreg": "unregister",
-    "unregi": "unregister",
-    "unregis": "unregister",
-    "unregist": "unregister",
-    "unregiste": "unregister",
     "normal": "normality",
     "normali": "normality",
     "normalit": "normality",
@@ -45022,6 +45204,12 @@
     "traditio": "traditional",
     "tradition": "traditional",
     "traditiona": "traditional",
+    "sum": "summarize",
+    "summ": "summarize",
+    "summa": "summarize",
+    "summar": "summarize",
+    "summari": "summarize",
+    "summariz": "summarize",
     "pat": "patterns",
     "patt": "patterns",
     "patte": "patterns",
@@ -45055,13 +45243,6 @@
     "maxbezierp": "maxbezierpath",
     "maxbezierpa": "maxbezierpath",
     "maxbezierpat": "maxbezierpath",
-    "recov": "recovariance",
-    "recova": "recovariance",
-    "recovar": "recovariance",
-    "recovari": "recovariance",
-    "recovaria": "recovariance",
-    "recovarian": "recovariance",
-    "recovarianc": "recovariance",
     "tra": "trace",
     "trac": "trace",
     "retok": "retokenize",
@@ -45069,14 +45250,6 @@
     "retoken": "retokenize",
     "retokeni": "retokenize",
     "retokeniz": "retokenize",
-    "wcor": "wcorrelation",
-    "wcorr": "wcorrelation",
-    "wcorre": "wcorrelation",
-    "wcorrel": "wcorrelation",
-    "wcorrela": "wcorrelation",
-    "wcorrelat": "wcorrelation",
-    "wcorrelati": "wcorrelation",
-    "wcorrelatio": "wcorrelation",
     "nov": "novarlist",
     "nova": "novarlist",
     "novar": "novarlist",
@@ -45088,13 +45261,6 @@
     "sysmis": "sysmissok",
     "sysmiss": "sysmissok",
     "sysmisso": "sysmissok",
-    "testtr": "testtransform",
-    "testtra": "testtransform",
-    "testtran": "testtransform",
-    "testtrans": "testtransform",
-    "testtransf": "testtransform",
-    "testtransfo": "testtransform",
-    "testtransfor": "testtransform",
     "rown": "rownames",
     "rowna": "rownames",
     "rownam": "rownames",
@@ -45120,9 +45286,11 @@
     "pages": "pagesize",
     "pagesi": "pagesize",
     "pagesiz": "pagesize",
-    "vary": "varying",
-    "varyi": "varying",
-    "varyin": "varying",
+    "unreg": "unregistered",
+    "unregi": "unregistered",
+    "unregis": "unregistered",
+    "unregist": "unregistered",
+    "unregiste": "unregistered",
     "unregister": "unregistered",
     "unregistere": "unregistered",
     "showtol": "showtolerance",
@@ -45350,8 +45518,6 @@
     "omitnoth": "omitnothing",
     "omitnothi": "omitnothing",
     "omitnothin": "omitnothing",
-    "stab": "stable",
-    "stabl": "stable",
     "she": "shell",
     "shel": "shell",
     "xsh": "xshell",
@@ -45367,13 +45533,6 @@
     "risktabl": "risktable",
     "stpow": "stpower",
     "stpowe": "stpower",
-    "eqg": "eqgof",
-    "eqgo": "eqgof",
-    "min": "mindices",
-    "mind": "mindices",
-    "mindi": "mindices",
-    "mindic": "mindices",
-    "mindice": "mindices",
     "postst": "poststratify",
     "poststr": "poststratify",
     "poststra": "poststratify",
@@ -45382,11 +45541,6 @@
     "poststratif": "poststratify",
     "noerr": "noerror",
     "noerro": "noerror",
-    "tef": "teffects",
-    "teff": "teffects",
-    "teffe": "teffects",
-    "teffec": "teffects",
-    "teffect": "teffects",
     "stcrr": "stcrreg",
     "stcrre": "stcrreg",
     "col": "collinear",
@@ -45400,9 +45554,6 @@
     "fut": "future",
     "futu": "future",
     "futur": "future",
-    "eqt": "eqtest",
-    "eqte": "eqtest",
-    "eqtes": "eqtest",
     "tot": "total",
     "tota": "total",
     "nosvy": "nosvyadjust",
@@ -45427,17 +45578,6 @@
     "perso": "personal",
     "person": "personal",
     "persona": "personal",
-    "std": "stdize",
-    "stdi": "stdize",
-    "stdiz": "stdize",
-    "eff": "effects",
-    "effe": "effects",
-    "effec": "effects",
-    "effect": "effects",
-    "lceff": "lceffects",
-    "lceffe": "lceffects",
-    "lceffec": "lceffects",
-    "lceffect": "lceffects",
     "we": "weight",
     "wei": "weight",
     "weig": "weight",
@@ -45449,13 +45589,6 @@
     "nodescr": "nodescribe",
     "nodescri": "nodescribe",
     "nodescrib": "nodescribe",
-    "gin": "ginvariant",
-    "ginv": "ginvariant",
-    "ginva": "ginvariant",
-    "ginvar": "ginvariant",
-    "ginvari": "ginvariant",
-    "ginvaria": "ginvariant",
-    "ginvarian": "ginvariant",
     "cont": "contiguity",
     "conti": "contiguity",
     "contig": "contiguity",
@@ -45468,16 +45601,6 @@
     "idistanc": "idistance",
     "twi": "twice",
     "twic": "twice",
-    "scoret": "scoretests",
-    "scorete": "scoretests",
-    "scoretes": "scoretests",
-    "scoretest": "scoretests",
-
-    "resi": "residuals",
-    "resid": "residuals",
-    "residu": "residuals",
-    "residua": "residuals",
-    "residual": "residuals",
     "ados": "adosize",
     "adosi": "adosize",
     "adosiz": "adosize",
@@ -45697,6 +45820,11 @@
     "coo": "cooksd",
     "cook": "cooksd",
     "cooks": "cooksd",
+    "resi": "residuals",
+    "resid": "residuals",
+    "residu": "residuals",
+    "residua": "residuals",
+    "residual": "residuals",
     "rsta": "rstandard",
     "rstan": "rstandard",
     "rstand": "rstandard",
