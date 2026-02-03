@@ -83,6 +83,42 @@ function create_default_config(): AnalyzerConfig {
 }
 
 /**
+ * Stata system-defined global macros.
+ * These are automatically set by Stata at runtime and should never
+ * be flagged as undefined. Case-sensitive (Stata is case-sensitive).
+ * 
+ * Reference: Stata documentation on system macros
+ * Note: These are legacy macros replaced by c() class results but
+ * still widely used for backward compatibility.
+ */
+export const STATA_SYSTEM_GLOBALS = new Set<string>([
+    // Date and time
+    'S_DATE',      // Current date (format: "dd Mon yyyy")
+    'S_TIME',      // Current time (format: "hh:mm:ss")
+    
+    // File information
+    'S_FN',        // Current filename (name of file in memory)
+    'S_FNDATE',    // Date/time when current file was last saved
+    
+    // System information
+    'S_ADO',       // ado-path
+    'S_FLAVOR',    // Stata flavor (Small, IC, SE, MP)
+    'S_OS',        // Operating system
+    'S_MACH',      // Machine type
+    'S_OSDTL',     // OS details
+    'S_LEVEL',     // Confidence level (default 95)
+    
+    // Edition indicators
+    'S_StataSE',   // Stata SE edition indicator
+    'S_StataMP',   // Stata MP edition indicator
+    'S_StataIC',   // Stata IC edition indicator
+    
+    // Mode indicators
+    'S_CONSOLE',   // Console mode indicator
+    'S_MODE',      // Stata mode
+]);
+
+/**
  * Semantic Analyzer for Stata code.
  * 
  * Builds symbol tables and detects semantic issues like undefined macro references.
@@ -2124,6 +2160,17 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * Check if a macro name is a Stata system-defined global macro.
+     * System globals are automatically set by Stata at runtime.
+     * 
+     * @param name - The macro name to check (without $ prefix)
+     * @returns true if the name is a known system global
+     */
+    private is_system_global(name: string): boolean {
+        return STATA_SYSTEM_GLOBALS.has(name);
+    }
+
+    /**
      * Check if a macro is defined.
      * Macros are case-sensitive.
      * Also checks declaration directives (@lsp-local, @lsp-global) with forward-only effect.
@@ -2231,6 +2278,12 @@ export class SemanticAnalyzer {
 
             // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
             // Only cross-file directives provide scope resolution.
+
+            // NEW: Check for system-defined global macros as FALLBACK
+            // Only reached if not found in symbol table or directives
+            if (this.is_system_global(name)) {
+                return true;
+            }
         }
 
         return false;
