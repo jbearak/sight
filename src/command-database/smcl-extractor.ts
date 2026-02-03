@@ -121,6 +121,9 @@ export const PREFIX_COMMANDS = new Set<string>([
     'fmm',
 ]);
 
+// Module-level regex for prefix command detection (hoisted for performance)
+const PREFIX_CMD_PATTERN = /\{cmd:([a-z_][a-z0-9_]*)\}/g;
+
 /**
  * Check if a match position is preceded by a prefix command on the same line.
  * 
@@ -147,10 +150,12 @@ export function is_preceded_by_prefix_command(
     const line_before_match = content.substring(line_start, match_index);
 
     // Look for any {cmd:PREFIX} pattern on this line where PREFIX is a known prefix command
-    const prefix_pattern = /\{cmd:([a-z_][a-z0-9_]*)\}/gi;
+    // Reset lastIndex since we're reusing a module-level regex
+    PREFIX_CMD_PATTERN.lastIndex = 0;
     let my_match: RegExpExecArray | null;
-    while ((my_match = prefix_pattern.exec(line_before_match)) !== null) {
-        const prefix_name = my_match[1].toLowerCase();
+    while ((my_match = PREFIX_CMD_PATTERN.exec(line_before_match)) !== null) {
+        // The regex only captures lowercase chars, so no need for toLowerCase()
+        const prefix_name = my_match[1];
         if (PREFIX_COMMANDS.has(prefix_name)) {
             return true;
         }
@@ -825,18 +830,24 @@ export function extract_cmd_patterns(syntax_section: string): string[] {
         const my_line = get_line_text(my_doc, i);
 
         // Check if this line resets the prefix context
-        // - Empty or whitespace-only lines
-        // - Lines starting with {p_end}
-        // - Lines starting with {synopt (option table rows)
-        // - Lines starting with {p ...} that begin a new paragraph (but not {p_end})
-        const is_context_reset = /^\s*$/.test(my_line) ||
+        // - Empty or whitespace-only lines reset and skip
+        // - Lines starting with {p_end} reset and skip
+        // - Lines starting with {synopt (option table rows) reset and skip
+        const is_hard_reset = /^\s*$/.test(my_line) ||
             /^\s*\{p_end\}/.test(my_line) ||
-            /^\s*\{synopt/.test(my_line) ||
-            /^\s*\{p(?!_end)\b/.test(my_line);
+            /^\s*\{synopt/.test(my_line);
 
-        if (is_context_reset) {
+        if (is_hard_reset) {
             in_prefix_context = false;
             continue;
+        }
+
+        // Lines starting with {p ...} (new paragraph, but not {p_end}) reset context
+        // but should still be processed since they may contain valid syntax
+        const is_paragraph_start = /^\s*\{p(?!_end)\b/.test(my_line);
+        if (is_paragraph_start) {
+            in_prefix_context = false;
+            // Don't continue - process the line for commands
         }
 
         // Check if this line contains a prefix command
@@ -882,6 +893,10 @@ export function extract_cmd_patterns(syntax_section: string): string[] {
     return the_commands;
 }
 
+// Module-level regexes for check_line_has_prefix_command (hoisted for performance)
+const LINE_CMD_PATTERN = /\{cmd:([a-z_][a-z0-9_]*)\}/g;
+const LINE_CMDAB_PATTERN = /\{cmdab:([a-z]+):([a-z]+)\}/g;
+
 /**
  * Check if a line contains a prefix command ({cmd:PREFIX} or {cmdab:...} for PREFIX).
  * 
@@ -890,18 +905,21 @@ export function extract_cmd_patterns(syntax_section: string): string[] {
  */
 function check_line_has_prefix_command(line: string): boolean {
     // Check for {cmd:PREFIX} patterns
-    const cmd_pattern = /\{cmd:([a-z_][a-z0-9_]*)\}/gi;
+    // Reset lastIndex since we're reusing module-level regexes
+    LINE_CMD_PATTERN.lastIndex = 0;
     let my_match: RegExpExecArray | null;
-    while ((my_match = cmd_pattern.exec(line)) !== null) {
-        if (PREFIX_COMMANDS.has(my_match[1].toLowerCase())) {
+    while ((my_match = LINE_CMD_PATTERN.exec(line)) !== null) {
+        // The regex only captures lowercase chars, so no need for toLowerCase()
+        if (PREFIX_COMMANDS.has(my_match[1])) {
             return true;
         }
     }
 
     // Check for {cmdab:PREFIX:...} patterns
-    const cmdab_pattern = /\{cmdab:([a-z]+):([a-z]+)\}/gi;
-    while ((my_match = cmdab_pattern.exec(line)) !== null) {
-        const full_name = (my_match[1] + my_match[2]).toLowerCase();
+    LINE_CMDAB_PATTERN.lastIndex = 0;
+    while ((my_match = LINE_CMDAB_PATTERN.exec(line)) !== null) {
+        // The regex only captures lowercase chars, so no need for toLowerCase()
+        const full_name = my_match[1] + my_match[2];
         if (PREFIX_COMMANDS.has(full_name)) {
             return true;
         }

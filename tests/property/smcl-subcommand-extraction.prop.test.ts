@@ -34,8 +34,8 @@ describe('SMCL Subcommand Extraction Property Tests', () => {
     /**
      * Generator for whitespace between prefix command and subcommand.
      * Only includes same-line whitespace (spaces and tabs).
-     * Note: Multi-line prefix contexts are handled by extract_cmd_patterns
-     * for {cmd:} patterns. For {cmdab:} patterns, the prefix is typically
+     * Note: Multi-line prefix contexts are handled by extract_cmdab_patterns
+     * for {cmdab:} patterns. For {cmd:} patterns, the prefix is typically
      * on the same line in real Stata help files.
      */
     function arbitrary_same_line_whitespace(): fc.Arbitrary<string> {
