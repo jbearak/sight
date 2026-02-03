@@ -45,6 +45,38 @@ describe('Option Extraction Property Tests', () => {
     }
 
     /**
+     * Generator for valid hyperlinked argument content (topic:display format).
+     * Examples: "varlist:groupvar", "regress##vcetype:vcetype", "exp_list:exp"
+     */
+    function arbitrary_hyperlink_content(): fc.Arbitrary<string> {
+        // Generate topic part (can contain letters, numbers, underscores, ##)
+        const topic_part = fc.oneof(
+            // Simple topic: varlist, varname, etc.
+            arbitrary_lowercase_alpha(2, 15),
+            // Topic with section reference: regress##vcetype
+            fc.tuple(
+                arbitrary_lowercase_alpha(2, 10),
+                fc.constant('##'),
+                arbitrary_lowercase_alpha(2, 10)
+            ).map(([prefix, sep, suffix]) => prefix + sep + suffix),
+            // Topic with underscore: exp_list
+            fc.tuple(
+                arbitrary_lowercase_alpha(2, 8),
+                fc.constant('_'),
+                arbitrary_lowercase_alpha(2, 8)
+            ).map(([prefix, sep, suffix]) => prefix + sep + suffix)
+        );
+
+        // Generate display part (simple identifier)
+        const display_part = arbitrary_lowercase_alpha(2, 12);
+
+        // Combine as topic:display
+        return fc.tuple(topic_part, display_part).map(
+            ([topic, display]) => `${topic}:${display}`
+        );
+    }
+
+    /**
      * Property 1: Name and Abbreviation Extraction
      * For any valid option pattern ({opt abbrev:rest} or {opt name}), the
      * extracted option name SHALL equal the full name (abbrev+rest or name),
@@ -1327,38 +1359,6 @@ describe('Option Extraction Property Tests', () => {
      * Validates: Requirements 1.1, 1.3, 4.1, 4.3
      */
     describe('Property 11: Hyperlinked Argument Extraction (Simple Name)', () => {
-        /**
-         * Generator for valid hyperlinked argument content (topic:display format).
-         * Examples: "varlist:groupvar", "regress##vcetype:vcetype", "exp_list:exp"
-         */
-        function arbitrary_hyperlink_content(): fc.Arbitrary<string> {
-            // Generate topic part (can contain letters, numbers, underscores, ##)
-            const topic_part = fc.oneof(
-                // Simple topic: varlist, varname, etc.
-                arbitrary_lowercase_alpha(2, 15),
-                // Topic with section reference: regress##vcetype
-                fc.tuple(
-                    arbitrary_lowercase_alpha(2, 10),
-                    fc.constant('##'),
-                    arbitrary_lowercase_alpha(2, 10)
-                ).map(([prefix, sep, suffix]) => prefix + sep + suffix),
-                // Topic with underscore: exp_list
-                fc.tuple(
-                    arbitrary_lowercase_alpha(2, 8),
-                    fc.constant('_'),
-                    arbitrary_lowercase_alpha(2, 8)
-                ).map(([prefix, sep, suffix]) => prefix + sep + suffix)
-            );
-
-            // Generate display part (simple identifier)
-            const display_part = arbitrary_lowercase_alpha(2, 12);
-
-            // Combine as topic:display
-            return fc.tuple(topic_part, display_part).map(
-                ([topic, display]) => `${topic}:${display}`
-            );
-        }
-
         it('should extract correct name and has_argument from {opt name:(content)} patterns', () => {
             fc.assert(
                 fc.property(
@@ -1514,38 +1514,6 @@ describe('Option Extraction Property Tests', () => {
      * Validates: Requirements 1.2, 1.4
      */
     describe('Property 12: Hyperlinked Argument Extraction (With Abbreviation)', () => {
-        /**
-         * Generator for valid hyperlinked argument content (topic:display format).
-         * Examples: "varlist:groupvar", "regress##vcetype:vcetype", "exp_list:exp"
-         */
-        function arbitrary_hyperlink_content(): fc.Arbitrary<string> {
-            // Generate topic part (can contain letters, numbers, underscores, ##)
-            const topic_part = fc.oneof(
-                // Simple topic: varlist, varname, etc.
-                arbitrary_lowercase_alpha(2, 15),
-                // Topic with section reference: regress##vcetype
-                fc.tuple(
-                    arbitrary_lowercase_alpha(2, 10),
-                    fc.constant('##'),
-                    arbitrary_lowercase_alpha(2, 10)
-                ).map(([prefix, sep, suffix]) => prefix + sep + suffix),
-                // Topic with underscore: exp_list
-                fc.tuple(
-                    arbitrary_lowercase_alpha(2, 8),
-                    fc.constant('_'),
-                    arbitrary_lowercase_alpha(2, 8)
-                ).map(([prefix, sep, suffix]) => prefix + sep + suffix)
-            );
-
-            // Generate display part (simple identifier)
-            const display_part = arbitrary_lowercase_alpha(2, 12);
-
-            // Combine as topic:display
-            return fc.tuple(topic_part, display_part).map(
-                ([topic, display]) => `${topic}:${display}`
-            );
-        }
-
         it('should extract correct name, min_abbreviation, and has_argument from {opt abbrev:rest:(content)} patterns', () => {
             fc.assert(
                 fc.property(

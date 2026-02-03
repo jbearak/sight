@@ -15,7 +15,7 @@ The current regex patterns expect the argument to immediately follow the option 
 
 The fix is localized to the `parse_option_pattern()` function in `src/command-database/smcl-extractor.ts`. No architectural changes are required.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    parse_option_pattern()                        │
 ├─────────────────────────────────────────────────────────────────┤

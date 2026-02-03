@@ -1,6 +1,7 @@
 import { extract_commands_from_file } from '../src/command-database/smcl-extractor.js';
 
-const result = extract_commands_from_file('/Applications/Stata/ado/base/r/regress.sthlp');
+const file_path = process.argv[2] ?? '/Applications/Stata/ado/base/r/regress.sthlp';
+const result = extract_commands_from_file(file_path);
 
 const regress = result.commands.find(c => c.name === 'regress');
 if (regress) {

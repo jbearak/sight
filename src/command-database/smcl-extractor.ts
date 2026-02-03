@@ -304,6 +304,28 @@ export const OPTH_ARG_PATTERN = /\{opth\s+([a-z][a-z0-9_]*)\(([^)]+)\)\}/gi;
 export const SYNOPT_WRAPPER_PATTERN =
     /\{synopt\s*:\s*((?:\{opt[h]?\s+[^}]+\}|\{cmd:[^}]+\})(?:\{[^}]+\})*)\s*\}([^{]*(?:\{(?!p_end)[^}]*\}[^{]*)*)/gi;
 
+/**
+ * Pattern for {opt[h] abbrev:rest:(topic:display)} - hyperlinked argument with abbreviation
+ * Example: {opth ef:orm:(strings:string)} -> name="eform", min_abbrev=2, has_argument=true
+ * Groups: 1=abbreviation, 2=rest, 3=hyperlinked argument content
+ *
+ * Note: Uses [^)]+ which works for all real Stata help files. Nested parentheses in
+ * topic references are not used in practice.
+ */
+export const OPT_ABBREV_HYPERLINK_ARG_PATTERN =
+    /\{opt[h]?\s+([a-z][a-z0-9_]*):([a-z0-9_]+):\(([^)]+)\)\}/i;
+
+/**
+ * Pattern for {opt[h] name:(topic:display)} - hyperlinked argument without abbreviation
+ * Example: {opth vce:(regress##vcetype:vcetype)} -> name="vce", has_argument=true
+ * Groups: 1=name, 2=hyperlinked argument content
+ *
+ * Note: Uses [^)]+ which works for all real Stata help files. Nested parentheses in
+ * topic references are not used in practice.
+ */
+export const OPT_HYPERLINK_ARG_PATTERN =
+    /\{opt[h]?\s+([a-z][a-z0-9_]*):\(([^)]+)\)\}/i;
+
 // ============================================================================
 // Compiled RegExp Constants
 // ============================================================================
@@ -599,9 +621,7 @@ export function parse_option_pattern(
 
     // Try {opt abbrev:rest:(topic:display)} or {opth abbrev:rest:(topic:display)} first
     // This is the hyperlinked argument format with abbreviation (most specific)
-    const abbrev_hyperlink_arg_match = pattern.match(
-        /\{opt[h]?\s+([a-z][a-z0-9_]*):([a-z0-9_]+):\(([^)]+)\)\}/i
-    );
+    const abbrev_hyperlink_arg_match = pattern.match(OPT_ABBREV_HYPERLINK_ARG_PATTERN);
     if (abbrev_hyperlink_arg_match) {
         const abbrev = abbrev_hyperlink_arg_match[1];
         const rest = abbrev_hyperlink_arg_match[2];
@@ -617,9 +637,7 @@ export function parse_option_pattern(
 
     // Try {opt name:(topic:display)} or {opth name:(topic:display)}
     // This is the hyperlinked argument format without abbreviation
-    const hyperlink_arg_match = pattern.match(
-        /\{opt[h]?\s+([a-z][a-z0-9_]*):\(([^)]+)\)\}/i
-    );
+    const hyperlink_arg_match = pattern.match(OPT_HYPERLINK_ARG_PATTERN);
     if (hyperlink_arg_match) {
         const name = hyperlink_arg_match[1];
         const arg_content = hyperlink_arg_match[2];
@@ -810,10 +828,11 @@ export function extract_cmd_patterns(syntax_section: string): string[] {
         // - Empty or whitespace-only lines
         // - Lines starting with {p_end}
         // - Lines starting with {synopt (option table rows)
-        // - Lines starting with {p ...} that don't continue from previous
+        // - Lines starting with {p ...} that begin a new paragraph (but not {p_end})
         const is_context_reset = /^\s*$/.test(my_line) ||
             /^\s*\{p_end\}/.test(my_line) ||
-            /^\s*\{synopt/.test(my_line);
+            /^\s*\{synopt/.test(my_line) ||
+            /^\s*\{p(?!_end)\b/.test(my_line);
 
         if (is_context_reset) {
             in_prefix_context = false;
