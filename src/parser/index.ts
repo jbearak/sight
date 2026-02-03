@@ -2737,7 +2737,6 @@ export class StataParser {
   ): string {
     let expression = '';
     let paren_depth = 0;
-    let bracket_depth = 0;  // Track subscript bracket depth
     const start_token = this.peek();
 
     // State machine for stray token detection at each paren level
@@ -2784,25 +2783,13 @@ export class StataParser {
         }
       }
 
-      // Track bracket depth for subscript expressions like var[_n-1]
-      // Brackets don't create new expression contexts like parentheses do,
-      // they just modify the preceding operand
-      if (token.type === 'LBRACKET') {
-        bracket_depth++;
-      } else if (token.type === 'RBRACKET') {
-        bracket_depth--;
-        if (bracket_depth < 0) {
-          bracket_depth = 0;
-        }
-      }
-
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
         continue;
       }
 
-      // Stop at top-level terminators (only when not inside brackets)
-      if (paren_depth === 0 && bracket_depth === 0) {
+      // Stop at top-level terminators
+      if (paren_depth === 0) {
         if (token.type === 'STATEMENT_TERMINATOR' || token.type === 'COMMA') {
           break;
         }
@@ -2832,10 +2819,9 @@ export class StataParser {
       // Get current state for this paren level
       const current_state = state_stack[state_stack.length - 1];
 
-      // Stray token and split literal detection - skip if in string context, inside brackets, or if this is a delimiter-only STRING
+      // Stray token and split literal detection - skip if in string context or if this is a delimiter-only STRING
       // We also skip delimiter-only STRING tokens because they are part of the string literal structure
-      // Skip when inside brackets (bracket_depth > 0) because subscript expressions like var[_n-1] are valid
-      if (current_state === 'AFTER_RHS' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && token.type !== 'LBRACKET' && token.type !== 'RBRACKET' && bracket_depth === 0 && !in_string_context && !is_delimiter_only) {
+      if (current_state === 'AFTER_RHS' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && !in_string_context && !is_delimiter_only) {
         // Check for split literal patterns first
         if (prev_token && this.detectSplitLiteral(prev_token, token)) {
           // Split literal diagnostic already emitted by detectSplitLiteral
@@ -2850,9 +2836,7 @@ export class StataParser {
       }
 
       // State transitions based on token type (skip whitespace)
-      // Also skip state transitions when inside brackets - bracket content is a subscript
-      // expression that doesn't affect the outer expression state
-      if (token.type !== 'WHITESPACE' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && bracket_depth === 0) {
+      if (token.type !== 'WHITESPACE' && token.type !== 'LPAREN' && token.type !== 'RPAREN') {
         const current_state_for_transition = state_stack[state_stack.length - 1];
         
         if (token.type === 'OPERATOR') {
