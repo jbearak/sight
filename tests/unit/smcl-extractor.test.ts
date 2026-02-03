@@ -961,4 +961,19 @@ describe('SMCL Command Extractor - Hyperlinked Option Patterns', () => {
         expect(result?.min_abbreviation).toBe(1);
         expect(result?.argument_type).toBe('level##clevel:level');
     });
+
+    test('nested parentheses in hyperlinked arguments are not used in Stata help files', () => {
+        // Note: CodeRabbit suggested handling nested parentheses like (topic(with)parens:display).
+        // However, after scanning all Stata 18 help files, no such patterns exist.
+        // The [^)]+ pattern in OPT_HYPERLINK_ARG_PATTERN is sufficient for real-world usage.
+        // This test documents the expected behavior for theoretical nested parentheses.
+        
+        // Pattern with nested parentheses - the regex doesn't match because [^)]+ stops at first )
+        const result = parse_option_pattern('{opth option:(topic(nested)parens:display)}');
+        
+        // The current implementation returns null for patterns with nested parentheses
+        // This is acceptable because Stata help files don't use nested parentheses in practice
+        // (verified by scanning /Applications/Stata/ado/base with grep)
+        expect(result).toBeNull();
+    });
 });
