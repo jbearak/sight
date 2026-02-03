@@ -4,10 +4,16 @@ name: Release Build
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g., v1.2.3)'
+        required: true
+        type: string
 
 # Releases should be strictly serialized per tag.
 concurrency:
-  group: release-build-${{ github.ref }}
+  group: release-build-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 # Default token permissions: read-only. We do not publish and do not create
@@ -34,6 +40,8 @@ jobs:
       #       gh api repos/actions/checkout/git/tags/<SHA_FROM_REF>
       #  3) Replace the SHA below; keep the trailing comment with the major tag (e.g. "# v4").
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Setup
         uses: ./.github/actions/setup
@@ -68,7 +76,7 @@ jobs:
         # Pinned action SHA for supply-chain safety (see note above).
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-${{ github.ref_name }}
+          name: release-${{ inputs.tag || github.ref_name }}
           if-no-files-found: error
           retention-days: 30
           path: |
