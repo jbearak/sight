@@ -117,52 +117,46 @@ export const PREFIX_COMMANDS = new Set<string>([
     'dtable',
     'etable',
     'table',
+    'meta',
+    'fmm',
 ]);
 
 /**
- * Check if a match position is immediately preceded by a prefix command.
+ * Check if a match position is preceded by a prefix command on the same line.
  * 
  * Looks backwards from the match index to find a {cmd:PREFIX} pattern
- * where PREFIX is a known prefix command. Only whitespace is allowed
- * between the {cmd:...} closing brace and the match position.
+ * where PREFIX is a known prefix command. This handles both direct prefix
+ * patterns like `{cmd:estat} {cmdab:...}` and colon-separated patterns like
+ * `{cmd:bayes} [...] {cmd::} {opt reg:ress}`.
  * 
  * @param content - The full SMCL content
- * @param match_index - The starting index of the {cmdab:...} match
+ * @param match_index - The starting index of the {cmdab:...} or {opt:...} match
  * @returns true if preceded by {cmd:PREFIX} where PREFIX is a known prefix command
  */
 export function is_preceded_by_prefix_command(
     content: string,
     match_index: number
 ): boolean {
-    // Look backwards from match_index to find the nearest non-whitespace
-    // We need to find a pattern like {cmd:estat} immediately before
-
-    // First, skip any whitespace backwards
-    let search_end = match_index;
-    while (search_end > 0 && /\s/.test(content[search_end - 1])) {
-        search_end--;
+    // Find the start of the current line
+    let line_start = match_index;
+    while (line_start > 0 && content[line_start - 1] !== '\n') {
+        line_start--;
     }
 
-    // Now check if we have a closing brace
-    if (search_end === 0 || content[search_end - 1] !== '}') {
-        return false;
+    // Get the text from line start to match position
+    const line_before_match = content.substring(line_start, match_index);
+
+    // Look for any {cmd:PREFIX} pattern on this line where PREFIX is a known prefix command
+    const prefix_pattern = /\{cmd:([a-z_][a-z0-9_]*)\}/gi;
+    let my_match: RegExpExecArray | null;
+    while ((my_match = prefix_pattern.exec(line_before_match)) !== null) {
+        const prefix_name = my_match[1].toLowerCase();
+        if (PREFIX_COMMANDS.has(prefix_name)) {
+            return true;
+        }
     }
 
-    // Look for {cmd:NAME} pattern ending at search_end
-    // We need to find the opening brace and extract the command name
-    const search_start = Math.max(0, search_end - 50); // Reasonable lookback limit
-    const preceding_text = content.substring(search_start, search_end);
-
-    // Match {cmd:NAME} at the end of the preceding text
-    const cmd_pattern = /\{cmd:([a-z_][a-z0-9_]*)\}$/i;
-    const my_match = preceding_text.match(cmd_pattern);
-
-    if (!my_match) {
-        return false;
-    }
-
-    const prefix_name = my_match[1].toLowerCase();
-    return PREFIX_COMMANDS.has(prefix_name);
+    return false;
 }
 
 /**
@@ -802,8 +796,36 @@ export function extract_cmd_patterns(syntax_section: string): string[] {
     const my_doc = { content: syntax_section, line_offsets: compute_line_offsets(syntax_section) };
     const my_line_count = get_line_count(my_doc);
 
+    // Track prefix command context across lines.
+    // When we see a prefix command (like {cmd:mi}), subsequent lines that
+    // start with {cmd:NAME} may be continuations (subcommands) rather than
+    // standalone commands. We reset the context when we see a clear statement
+    // boundary (like {p_end}, empty line, or a new {p ...} paragraph start).
+    let in_prefix_context = false;
+
     for (let i = 0; i < my_line_count; i++) {
         const my_line = get_line_text(my_doc, i);
+
+        // Check if this line resets the prefix context
+        // - Empty or whitespace-only lines
+        // - Lines starting with {p_end}
+        // - Lines starting with {synopt (option table rows)
+        // - Lines starting with {p ...} that don't continue from previous
+        const is_context_reset = /^\s*$/.test(my_line) ||
+            /^\s*\{p_end\}/.test(my_line) ||
+            /^\s*\{synopt/.test(my_line);
+
+        if (is_context_reset) {
+            in_prefix_context = false;
+            continue;
+        }
+
+        // Check if this line contains a prefix command
+        const prefix_on_line = check_line_has_prefix_command(my_line);
+        if (prefix_on_line) {
+            in_prefix_context = true;
+        }
+
         const my_match = my_line.match(line_start_cmd_pattern);
         if (!my_match) {
             continue;
@@ -814,12 +836,59 @@ export function extract_cmd_patterns(syntax_section: string): string[] {
             continue;
         }
 
+        // Skip if this command is itself a prefix command (we'll add it)
+        // but also check if we're in a prefix context from a previous line
+        if (in_prefix_context && !PREFIX_COMMANDS.has(my_command_name)) {
+            // This is likely a subcommand of a prefix command from a previous line
+            // Check if the line also has a prefix command before this {cmd:}
+            if (!prefix_on_line) {
+                // The prefix was on a previous line, skip this as a subcommand
+                continue;
+            }
+            // If prefix is on this line, is_preceded_by_prefix_command will handle it
+            // via the existing check in the pattern match
+        }
+
+        // Also check if preceded by prefix command on the same line
+        const cmd_index = my_line.indexOf(`{cmd:${my_match[1]}`);
+        if (cmd_index > 0 && is_preceded_by_prefix_command(my_line, cmd_index)) {
+            continue;
+        }
+
         if (!the_commands.includes(my_command_name)) {
             the_commands.push(my_command_name);
         }
     }
 
     return the_commands;
+}
+
+/**
+ * Check if a line contains a prefix command ({cmd:PREFIX} or {cmdab:...} for PREFIX).
+ * 
+ * @param line - A single line of SMCL content
+ * @returns true if the line contains a prefix command
+ */
+function check_line_has_prefix_command(line: string): boolean {
+    // Check for {cmd:PREFIX} patterns
+    const cmd_pattern = /\{cmd:([a-z_][a-z0-9_]*)\}/gi;
+    let my_match: RegExpExecArray | null;
+    while ((my_match = cmd_pattern.exec(line)) !== null) {
+        if (PREFIX_COMMANDS.has(my_match[1].toLowerCase())) {
+            return true;
+        }
+    }
+
+    // Check for {cmdab:PREFIX:...} patterns
+    const cmdab_pattern = /\{cmdab:([a-z]+):([a-z]+)\}/gi;
+    while ((my_match = cmdab_pattern.exec(line)) !== null) {
+        const full_name = (my_match[1] + my_match[2]).toLowerCase();
+        if (PREFIX_COMMANDS.has(full_name)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**

@@ -532,130 +532,6 @@
       ],
       "priority": 3
     },
-    "rolling": {
-      "name": "rolling",
-      "min_abbreviation": 7,
-      "options": [
-        {
-          "name": "vce",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "clustertable",
-          "min_abbreviation": 8,
-          "has_argument": false
-        },
-        {
-          "name": "absorb",
-          "min_abbreviation": 6,
-          "has_argument": true
-        },
-        {
-          "name": "ols",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "robust",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "cluster",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "jackknife",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "tolerance",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "iterate",
-          "min_abbreviation": 4,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
-    "aweight": {
-      "name": "aweight",
-      "min_abbreviation": 7,
-      "options": [
-        {
-          "name": "vce",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "clustertable",
-          "min_abbreviation": 8,
-          "has_argument": false
-        },
-        {
-          "name": "absorb",
-          "min_abbreviation": 6,
-          "has_argument": true
-        },
-        {
-          "name": "ols",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "robust",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "cluster",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "jackknife",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "tolerance",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "iterate",
-          "min_abbreviation": 4,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "pr": {
       "name": "pr",
       "min_abbreviation": 1,
@@ -2112,38 +1988,6 @@
       ],
       "priority": 3
     },
-    "stintphplot": {
-      "name": "stintphplot",
-      "min_abbreviation": 11,
-      "options": [
-        {
-          "name": "atmeans",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "atomeans",
-          "min_abbreviation": 8,
-          "has_argument": false
-        },
-        {
-          "name": "atzeros",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "atbase",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "at",
-          "min_abbreviation": 2,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "stcurve": {
       "name": "stcurve",
       "min_abbreviation": 7,
@@ -2652,6 +2496,88 @@
         {
           "name": "space",
           "min_abbreviation": 3,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
+    "aweight": {
+      "name": "aweight",
+      "min_abbreviation": 7,
+      "options": [
+        {
+          "name": "repeated",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "partial",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "sequential",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "noconstant",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "dropemptycells",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "bse",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "bseunit",
+          "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
+          "name": "grouping",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "anova",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 9,
+          "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "collect",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 9,
+          "has_argument": false
+        },
+        {
+          "name": "statsby",
+          "min_abbreviation": 7,
           "has_argument": false
         }
       ],
@@ -3730,38 +3656,6 @@
       ],
       "priority": 3
     },
-    "tobit": {
-      "name": "tobit",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "ll",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "ul",
-          "min_abbreviation": 2,
-          "has_argument": false
-        }
-      ],
-      "priority": 2
-    },
     "generate": {
       "name": "generate",
       "min_abbreviation": 3,
@@ -3790,33 +3684,6 @@
       "min_abbreviation": 8,
       "options": [],
       "priority": 3
-    },
-    "mlogit": {
-      "name": "mlogit",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "baseoutcome",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "rrr",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        }
-      ],
-      "priority": 2
     },
     "graph": {
       "name": "graph",
@@ -4356,33 +4223,6 @@
       ],
       "priority": 3
     },
-    "probit": {
-      "name": "probit",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "asis",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        }
-      ],
-      "priority": 2
-    },
     "jointness": {
       "name": "jointness",
       "min_abbreviation": 5,
@@ -4452,28 +4292,6 @@
       "min_abbreviation": 12,
       "options": [],
       "priority": 3
-    },
-    "regress": {
-      "name": "regress",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "eform",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        }
-      ],
-      "priority": 2
     },
     "nodrop": {
       "name": "nodrop",
@@ -4748,55 +4566,6 @@
       ],
       "priority": 3
     },
-    "ologit": {
-      "name": "ologit",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "or",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        }
-      ],
-      "priority": 2
-    },
-    "logit": {
-      "name": "logit",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "or",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        }
-      ],
-      "priority": 2
-    },
     "bysort": {
       "name": "bysort",
       "min_abbreviation": 3,
@@ -4888,83 +4657,9 @@
       ],
       "priority": 3
     },
-    "oprobit": {
-      "name": "oprobit",
-      "min_abbreviation": 5,
-      "options": [
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        }
-      ],
-      "priority": 2
-    },
     "boxcox": {
       "name": "boxcox",
       "min_abbreviation": 6,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "lhsonly",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "rhsonly",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "lambda",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "model",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "notrans",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "lrtest",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "nologlr",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "theta",
-          "min_abbreviation": 5,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "statsby": {
-      "name": "statsby",
-      "min_abbreviation": 7,
       "options": [
         {
           "name": "noconstant",
@@ -5757,33 +5452,6 @@
       "options": [],
       "priority": 3
     },
-    "clogit": {
-      "name": "clogit",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "or",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "group",
-          "min_abbreviation": 5,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "brrstat": {
       "name": "brrstat",
       "min_abbreviation": 7,
@@ -6510,70 +6178,6 @@
     "nocnsreport": {
       "name": "nocnsreport",
       "min_abbreviation": 6,
-      "options": [
-        {
-          "name": "het",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "vce",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "constraints",
-          "min_abbreviation": 11,
-          "has_argument": true
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 4,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "fp": {
-      "name": "fp",
-      "min_abbreviation": 2,
-      "options": [
-        {
-          "name": "het",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "vce",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "constraints",
-          "min_abbreviation": 11,
-          "has_argument": true
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 4,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "svy": {
-      "name": "svy",
-      "min_abbreviation": 3,
       "options": [
         {
           "name": "het",
@@ -10960,6 +10564,143 @@
           "name": "monoopts",
           "min_abbreviation": 8,
           "has_argument": true
+        }
+      ],
+      "priority": 3
+    },
+    "clogit": {
+      "name": "clogit",
+      "min_abbreviation": 6,
+      "options": [
+        {
+          "name": "offset",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "nonest",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "or",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "nocnsreport",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "collinear",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "group",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "strata",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "oim",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "opg",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "bayes",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "collect",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "mfp",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "nestreg",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "rolling",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "statsby",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "stepwise",
+          "min_abbreviation": 8,
+          "has_argument": false
+        },
+        {
+          "name": "svy",
+          "min_abbreviation": 3,
+          "has_argument": false
         }
       ],
       "priority": 3
@@ -15607,18 +15348,6 @@
       ],
       "priority": 3
     },
-    "ivregress": {
-      "name": "ivregress",
-      "min_abbreviation": 9,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        }
-      ],
-      "priority": 2
-    },
     "mkf": {
       "name": "mkf",
       "min_abbreviation": 3,
@@ -15634,6 +15363,12 @@
     "period": {
       "name": "period",
       "min_abbreviation": 3,
+      "options": [],
+      "priority": 3
+    },
+    "fp": {
+      "name": "fp",
+      "min_abbreviation": 2,
       "options": [],
       "priority": 3
     },
@@ -15670,6 +15405,50 @@
         }
       ],
       "priority": 3
+    },
+    "probit": {
+      "name": "probit",
+      "min_abbreviation": 2,
+      "options": [
+        {
+          "name": "offset",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 5,
+          "has_argument": true
+        }
+      ],
+      "priority": 2
+    },
+    "logit": {
+      "name": "logit",
+      "min_abbreviation": 3,
+      "options": [
+        {
+          "name": "offset",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 5,
+          "has_argument": true
+        }
+      ],
+      "priority": 2
     },
     "fvset": {
       "name": "fvset",
@@ -15904,18 +15683,6 @@
     "commonscheme": {
       "name": "commonscheme",
       "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "scheme",
-          "min_abbreviation": 6,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
-    "combine": {
-      "name": "combine",
-      "min_abbreviation": 7,
       "options": [
         {
           "name": "scheme",
@@ -16270,12 +16037,6 @@
       "options": [],
       "priority": 3
     },
-    "print": {
-      "name": "print",
-      "min_abbreviation": 5,
-      "options": [],
-      "priority": 3
-    },
     "nopromote": {
       "name": "nopromote",
       "min_abbreviation": 3,
@@ -16472,44 +16233,6 @@
       ],
       "priority": 3
     },
-    "save": {
-      "name": "save",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "replace",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "nolabel",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "orphans",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "all",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "emptyok",
-          "min_abbreviation": 7,
-          "has_argument": false
-        }
-      ],
-      "priority": 1
-    },
-    "asis": {
-      "name": "asis",
-      "min_abbreviation": 4,
-      "options": [],
-      "priority": 3
-    },
     "gs_graphinfo": {
       "name": "gs_graphinfo",
       "min_abbreviation": 12,
@@ -16594,24 +16317,6 @@
           "has_argument": true
         }
       ],
-      "priority": 3
-    },
-    "half": {
-      "name": "half",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "diagopts",
-          "min_abbreviation": 8,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
-    "fvstandard": {
-      "name": "fvstandard",
-      "min_abbreviation": 7,
-      "options": [],
       "priority": 3
     },
     "blogit": {
@@ -16963,24 +16668,6 @@
       "options": [],
       "priority": 3
     },
-    "close": {
-      "name": "close",
-      "min_abbreviation": 5,
-      "options": [],
-      "priority": 3
-    },
-    "use": {
-      "name": "use",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "nodraw",
-          "min_abbreviation": 6,
-          "has_argument": false
-        }
-      ],
-      "priority": 1
-    },
     "twoway": {
       "name": "twoway",
       "min_abbreviation": 2,
@@ -17155,12 +16842,6 @@
       ],
       "priority": 3
     },
-    "play": {
-      "name": "play",
-      "min_abbreviation": 4,
-      "options": [],
-      "priority": 3
-    },
     "hsearch": {
       "name": "hsearch",
       "min_abbreviation": 7,
@@ -17178,6 +16859,51 @@
       "min_abbreviation": 5,
       "options": [
         {
+          "name": "top",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "samples",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "rseed",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "savedata",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
+        {
+          "name": "norefline",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "rlopts",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "startcolor",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
+        {
+          "name": "endcolor",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "jitter",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
           "name": "train",
           "min_abbreviation": 5,
           "has_argument": false
@@ -17185,11 +16911,6 @@
         {
           "name": "valid",
           "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "cv",
-          "min_abbreviation": 2,
           "has_argument": false
         },
         {
@@ -19120,6 +18841,128 @@
       "options": [],
       "priority": 3
     },
+    "ivregress": {
+      "name": "ivregress",
+      "min_abbreviation": 9,
+      "options": [
+        {
+          "name": "liml",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "gmm",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "noconstant",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "hascons",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "wmatrix",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "center",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "igmm",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "first",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "small",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "noheader",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "depname",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "eform",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "perfect",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "hac",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "unadjusted",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "eps",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "weps",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        }
+      ],
+      "priority": 2
+    },
     "hascons": {
       "name": "hascons",
       "min_abbreviation": 7,
@@ -20562,170 +20405,6 @@
       "options": [],
       "priority": 3
     },
-    "mfp": {
-      "name": "mfp",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "asis",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "vce",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "coef",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "nocnsreport",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "collinear",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "constraints",
-          "min_abbreviation": 11,
-          "has_argument": true
-        },
-        {
-          "name": "oim",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "opg",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "robust",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "cluster",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "jackknife",
-          "min_abbreviation": 4,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "stepwise": {
-      "name": "stepwise",
-      "min_abbreviation": 8,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "asis",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "vce",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "coef",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "nocnsreport",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "collinear",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "constraints",
-          "min_abbreviation": 11,
-          "has_argument": true
-        },
-        {
-          "name": "oim",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "opg",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "robust",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "cluster",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "jackknife",
-          "min_abbreviation": 4,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
     "lassogof": {
       "name": "lassogof",
       "min_abbreviation": 8,
@@ -20912,6 +20591,12 @@
         }
       ],
       "priority": 2
+    },
+    "close": {
+      "name": "close",
+      "min_abbreviation": 1,
+      "options": [],
+      "priority": 3
     },
     "off": {
       "name": "off",
@@ -21858,6 +21543,128 @@
       "options": [],
       "priority": 3
     },
+    "mlogit": {
+      "name": "mlogit",
+      "min_abbreviation": 6,
+      "options": [
+        {
+          "name": "noconstant",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "baseoutcome",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "rrr",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "nocnsreport",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "collinear",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "oim",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "opg",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "bayes",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "collect",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "fmm",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "mfp",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "rolling",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "statsby",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "svy",
+          "min_abbreviation": 3,
+          "has_argument": false
+        }
+      ],
+      "priority": 2
+    },
     "rowjoinbyname": {
       "name": "rowjoinbyname",
       "min_abbreviation": 7,
@@ -22488,18 +22295,6 @@
       ],
       "priority": 3
     },
-    "labbeplot": {
-      "name": "labbeplot",
-      "min_abbreviation": 5,
-      "options": [
-        {
-          "name": "random",
-          "min_abbreviation": 6,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "noreport": {
       "name": "noreport",
       "min_abbreviation": 5,
@@ -22623,28 +22418,6 @@
         {
           "name": "once",
           "min_abbreviation": 4,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "meregress": {
-      "name": "meregress",
-      "min_abbreviation": 5,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "covariance",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "collinear",
-          "min_abbreviation": 3,
           "has_argument": false
         }
       ],
@@ -22944,12 +22717,6 @@
           "has_argument": false
         }
       ],
-      "priority": 3
-    },
-    "chained": {
-      "name": "chained",
-      "min_abbreviation": 5,
-      "options": [],
       "priority": 3
     },
     "op_conditional": {
@@ -23334,18 +23101,6 @@
       "name": "how",
       "min_abbreviation": 3,
       "options": [],
-      "priority": 3
-    },
-    "trimfill": {
-      "name": "trimfill",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "estimator",
-          "min_abbreviation": 9,
-          "has_argument": true
-        }
-      ],
       "priority": 3
     },
     "mdsmat": {
@@ -24930,38 +24685,6 @@
       "options": [],
       "priority": 3
     },
-    "truncreg": {
-      "name": "truncreg",
-      "min_abbreviation": 8,
-      "options": [
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "conditional",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "ul",
-          "min_abbreviation": 2,
-          "has_argument": true
-        }
-      ],
-      "priority": 3
-    },
     "op_logical": {
       "name": "op_logical",
       "min_abbreviation": 10,
@@ -25059,250 +24782,6 @@
       ],
       "priority": 3
     },
-    "mvregress": {
-      "name": "mvregress",
-      "min_abbreviation": 5,
-      "options": [
-        {
-          "name": "wcovvariables",
-          "min_abbreviation": 13,
-          "has_argument": true
-        },
-        {
-          "name": "wsevariables",
-          "min_abbreviation": 12,
-          "has_argument": true
-        },
-        {
-          "name": "wcorrelations",
-          "min_abbreviation": 13,
-          "has_argument": false
-        },
-        {
-          "name": "random",
-          "min_abbreviation": 6,
-          "has_argument": true
-        },
-        {
-          "name": "covariance",
-          "min_abbreviation": 10,
-          "has_argument": true
-        },
-        {
-          "name": "se",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "fixed",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "unstructured",
-          "min_abbreviation": 12,
-          "has_argument": false
-        },
-        {
-          "name": "independent",
-          "min_abbreviation": 11,
-          "has_argument": false
-        },
-        {
-          "name": "exchangeable",
-          "min_abbreviation": 12,
-          "has_argument": false
-        },
-        {
-          "name": "identity",
-          "min_abbreviation": 8,
-          "has_argument": false
-        },
-        {
-          "name": "jriley",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "truncjriley",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "noconstant",
-          "min_abbreviation": 10,
-          "has_argument": false
-        },
-        {
-          "name": "tdistribution",
-          "min_abbreviation": 13,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "stddeviations",
-          "min_abbreviation": 13,
-          "has_argument": false
-        },
-        {
-          "name": "variance",
-          "min_abbreviation": 8,
-          "has_argument": false
-        },
-        {
-          "name": "nohomtest",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "noretable",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "nofetable",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "estmetric",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "noheader",
-          "min_abbreviation": 8,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "fixed": {
-      "name": "fixed",
-      "min_abbreviation": 5,
-      "options": [
-        {
-          "name": "wcovvariables",
-          "min_abbreviation": 13,
-          "has_argument": true
-        },
-        {
-          "name": "wsevariables",
-          "min_abbreviation": 12,
-          "has_argument": true
-        },
-        {
-          "name": "wcorrelations",
-          "min_abbreviation": 13,
-          "has_argument": false
-        },
-        {
-          "name": "random",
-          "min_abbreviation": 6,
-          "has_argument": true
-        },
-        {
-          "name": "covariance",
-          "min_abbreviation": 10,
-          "has_argument": true
-        },
-        {
-          "name": "se",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "fixed",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "unstructured",
-          "min_abbreviation": 12,
-          "has_argument": false
-        },
-        {
-          "name": "independent",
-          "min_abbreviation": 11,
-          "has_argument": false
-        },
-        {
-          "name": "exchangeable",
-          "min_abbreviation": 12,
-          "has_argument": false
-        },
-        {
-          "name": "identity",
-          "min_abbreviation": 8,
-          "has_argument": false
-        },
-        {
-          "name": "jriley",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "truncjriley",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "noconstant",
-          "min_abbreviation": 10,
-          "has_argument": false
-        },
-        {
-          "name": "tdistribution",
-          "min_abbreviation": 13,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "stddeviations",
-          "min_abbreviation": 13,
-          "has_argument": false
-        },
-        {
-          "name": "variance",
-          "min_abbreviation": 8,
-          "has_argument": false
-        },
-        {
-          "name": "nohomtest",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "noretable",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "nofetable",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "estmetric",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "noheader",
-          "min_abbreviation": 8,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
     "menl": {
       "name": "menl",
       "min_abbreviation": 4,
@@ -25324,48 +24803,6 @@
       "name": "reswords",
       "min_abbreviation": 8,
       "options": [],
-      "priority": 3
-    },
-    "forestplot": {
-      "name": "forestplot",
-      "min_abbreviation": 6,
-      "options": [
-        {
-          "name": "subgroup",
-          "min_abbreviation": 8,
-          "has_argument": true
-        },
-        {
-          "name": "cumulative",
-          "min_abbreviation": 10,
-          "has_argument": true
-        },
-        {
-          "name": "leaveoneout",
-          "min_abbreviation": 11,
-          "has_argument": false
-        },
-        {
-          "name": "tau2",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "i2",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "predinterval",
-          "min_abbreviation": 12,
-          "has_argument": false
-        },
-        {
-          "name": "se",
-          "min_abbreviation": 2,
-          "has_argument": true
-        }
-      ],
       "priority": 3
     },
     "io": {
@@ -25425,6 +24862,18 @@
     "common": {
       "name": "common",
       "min_abbreviation": 6,
+      "options": [
+        {
+          "name": "random",
+          "min_abbreviation": 6,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
+    "fixed": {
+      "name": "fixed",
+      "min_abbreviation": 5,
       "options": [
         {
           "name": "random",
@@ -25728,23 +25177,6 @@
       "name": "tolerance",
       "min_abbreviation": 9,
       "options": [],
-      "priority": 3
-    },
-    "monotone": {
-      "name": "monotone",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "ascontinuous",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "noisily",
-          "min_abbreviation": 3,
-          "has_argument": false
-        }
-      ],
       "priority": 3
     },
     "custom": {
@@ -26167,6 +25599,58 @@
       "options": [],
       "priority": 3
     },
+    "mfp": {
+      "name": "mfp",
+      "min_abbreviation": 3,
+      "options": [
+        {
+          "name": "sequential",
+          "min_abbreviation": 10,
+          "has_argument": false
+        },
+        {
+          "name": "cycles",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "dfdefault",
+          "min_abbreviation": 9,
+          "has_argument": true
+        },
+        {
+          "name": "center",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "mean",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "no",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "age",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "alpha",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "weight",
+          "min_abbreviation": 6,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
     "moveup": {
       "name": "moveup",
       "min_abbreviation": 6,
@@ -26302,28 +25786,6 @@
       "name": "svymarkout",
       "min_abbreviation": 10,
       "options": [],
-      "priority": 3
-    },
-    "tree": {
-      "name": "tree",
-      "min_abbreviation": 4,
-      "options": [
-        {
-          "name": "exmiss",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "m",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "nopreserve",
-          "min_abbreviation": 10,
-          "has_argument": false
-        }
-      ],
       "priority": 3
     },
     "errors": {
@@ -26473,12 +25935,6 @@
     },
     "mgarch": {
       "name": "mgarch",
-      "min_abbreviation": 6,
-      "options": [],
-      "priority": 3
-    },
-    "funnelplot": {
-      "name": "funnelplot",
       "min_abbreviation": 6,
       "options": [],
       "priority": 3
@@ -27535,6 +26991,128 @@
       "options": [],
       "priority": 3
     },
+    "ologit": {
+      "name": "ologit",
+      "min_abbreviation": 6,
+      "options": [
+        {
+          "name": "offset",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "or",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "nocnsreport",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "collinear",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "oim",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "opg",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "bayes",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "fmm",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "mfp",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "nestreg",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "rolling",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "statsby",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "stepwise",
+          "min_abbreviation": 8,
+          "has_argument": false
+        },
+        {
+          "name": "svy",
+          "min_abbreviation": 3,
+          "has_argument": false
+        }
+      ],
+      "priority": 2
+    },
     "odbc": {
       "name": "odbc",
       "min_abbreviation": 4,
@@ -28324,6 +27902,128 @@
         {
           "name": "outfile",
           "min_abbreviation": 7,
+          "has_argument": false
+        }
+      ],
+      "priority": 2
+    },
+    "oprobit": {
+      "name": "oprobit",
+      "min_abbreviation": 7,
+      "options": [
+        {
+          "name": "offset",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "nocnsreport",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "collinear",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "oim",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "opg",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "bayes",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "collect",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "fmm",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "mfp",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "nestreg",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "rolling",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "statsby",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "stepwise",
+          "min_abbreviation": 8,
+          "has_argument": false
+        },
+        {
+          "name": "svy",
+          "min_abbreviation": 3,
           "has_argument": false
         }
       ],
@@ -29826,6 +29526,12 @@
       ],
       "priority": 3
     },
+    "print": {
+      "name": "print",
+      "min_abbreviation": 5,
+      "options": [],
+      "priority": 3
+    },
     "pk": {
       "name": "pk",
       "min_abbreviation": 2,
@@ -30961,6 +30667,103 @@
       ],
       "priority": 3
     },
+    "rolling": {
+      "name": "rolling",
+      "min_abbreviation": 7,
+      "options": [
+        {
+          "name": "recursive",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "rrecursive",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "clear",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "stepsize",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "start",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "end",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "nodots",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "dots",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "noisily",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "trace",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "reject",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "window",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "double",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "float",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "every",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "rolling",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "keep",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "aweight",
+          "min_abbreviation": 7,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
     "rologit": {
       "name": "rologit",
       "min_abbreviation": 7,
@@ -31720,6 +31523,128 @@
       "options": [],
       "priority": 3
     },
+    "regress": {
+      "name": "regress",
+      "min_abbreviation": 7,
+      "options": [
+        {
+          "name": "noconstant",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "hascons",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "tsscons",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "beta",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "eform",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "depname",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "clustertable",
+          "min_abbreviation": 8,
+          "has_argument": false
+        },
+        {
+          "name": "noheader",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "notable",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "plus",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "mse1",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "ols",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "hc2",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "hc3",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "fmm",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "mfp",
+          "min_abbreviation": 3,
+          "has_argument": false
+        }
+      ],
+      "priority": 2
+    },
     "roc": {
       "name": "roc",
       "min_abbreviation": 3,
@@ -31743,6 +31668,38 @@
         }
       ],
       "priority": 3
+    },
+    "save": {
+      "name": "save",
+      "min_abbreviation": 2,
+      "options": [
+        {
+          "name": "replace",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "nolabel",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "orphans",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "all",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "emptyok",
+          "min_abbreviation": 7,
+          "has_argument": false
+        }
+      ],
+      "priority": 1
     },
     "saveold": {
       "name": "saveold",
@@ -31804,6 +31761,23 @@
       "options": [],
       "priority": 3
     },
+    "use": {
+      "name": "use",
+      "min_abbreviation": 3,
+      "options": [
+        {
+          "name": "clear",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "nolabel",
+          "min_abbreviation": 7,
+          "has_argument": false
+        }
+      ],
+      "priority": 1
+    },
     "reset_id": {
       "name": "reset_id",
       "min_abbreviation": 8,
@@ -31820,6 +31794,78 @@
       "name": "sersetread",
       "min_abbreviation": 10,
       "options": [],
+      "priority": 3
+    },
+    "statsby": {
+      "name": "statsby",
+      "min_abbreviation": 7,
+      "options": [
+        {
+          "name": "clear",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "total",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "subsets",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "nodots",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "dots",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "noisily",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "trace",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "nolegend",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "verbose",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "basepop",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "force",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "forcedrop",
+          "min_abbreviation": 9,
+          "has_argument": false
+        },
+        {
+          "name": "missing",
+          "min_abbreviation": 7,
+          "has_argument": false
+        }
+      ],
       "priority": 3
     },
     "svyopts": {
@@ -32045,26 +32091,15 @@
       ],
       "priority": 3
     },
-    "stset": {
-      "name": "stset",
-      "min_abbreviation": 5,
-      "options": [
-        {
-          "name": "by",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "noshow",
-          "min_abbreviation": 6,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
     "printcolor": {
       "name": "printcolor",
       "min_abbreviation": 10,
+      "options": [],
+      "priority": 3
+    },
+    "asis": {
+      "name": "asis",
+      "min_abbreviation": 4,
       "options": [],
       "priority": 3
     },
@@ -32186,6 +32221,48 @@
       "options": [],
       "priority": 3
     },
+    "stepwise": {
+      "name": "stepwise",
+      "min_abbreviation": 8,
+      "options": [
+        {
+          "name": "forward",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "hierarchical",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "lockterm1",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "lr",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "pr",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "pe",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "stepwise",
+          "min_abbreviation": 8,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
     "prefix": {
       "name": "prefix",
       "min_abbreviation": 6,
@@ -32240,6 +32317,63 @@
           "name": "cluster",
           "min_abbreviation": 2,
           "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
+    "svy": {
+      "name": "svy",
+      "min_abbreviation": 3,
+      "options": [
+        {
+          "name": "bsn",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "mse",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "verbose",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "noisily",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "nodots",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "trace",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "title",
+          "min_abbreviation": 5,
+          "has_argument": true
+        },
+        {
+          "name": "nodrop",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "reject",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "dof",
+          "min_abbreviation": 3,
+          "has_argument": true
         }
       ],
       "priority": 3
@@ -32989,6 +33123,128 @@
       ],
       "priority": 3
     },
+    "stset": {
+      "name": "stset",
+      "min_abbreviation": 5,
+      "options": [
+        {
+          "name": "estimate",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "strata",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "shared",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "offset",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "breslow",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "efron",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "exactm",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "exactp",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "tvc",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "texp",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "noadjust",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "nohr",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "noshow",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "oim",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "mfp",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "coeflegend",
+          "min_abbreviation": 10,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
     "stintcox": {
       "name": "stintcox",
       "min_abbreviation": 8,
@@ -33544,98 +33800,6 @@
       "name": "ctrlh",
       "min_abbreviation": 5,
       "options": [],
-      "priority": 3
-    },
-    "atrisk0": {
-      "name": "atrisk0",
-      "min_abbreviation": 7,
-      "options": [
-        {
-          "name": "survival",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "failure",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "cumhaz",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "by",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "strata",
-          "min_abbreviation": 6,
-          "has_argument": true
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "risktable",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "tmax",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "tmin",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "enter",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "noshow",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "compare",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "atrisk0",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "replace",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "fweight",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "iweight",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "pweight",
-          "min_abbreviation": 7,
-          "has_argument": false
-        }
-      ],
       "priority": 3
     },
     "testnl": {
@@ -34423,113 +34587,6 @@
       ],
       "priority": 3
     },
-    "iweight": {
-      "name": "iweight",
-      "min_abbreviation": 7,
-      "options": [
-        {
-          "name": "offset",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "texp",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "vce",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "noadjust",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "noshr",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "noshow",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "noheader",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "notable",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "nodisplay",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "nocnsreport",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "compete",
-          "min_abbreviation": 7,
-          "has_argument": true
-        },
-        {
-          "name": "constraints",
-          "min_abbreviation": 11,
-          "has_argument": true
-        },
-        {
-          "name": "tvc",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "robust",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "cluster",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "jackknife",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "collinear",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "coeflegend",
-          "min_abbreviation": 10,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
     "nocmd": {
       "name": "nocmd",
       "min_abbreviation": 3,
@@ -34594,50 +34651,6 @@
       "name": "s2gmanual",
       "min_abbreviation": 9,
       "options": [],
-      "priority": 3
-    },
-    "total": {
-      "name": "total",
-      "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "total",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "nosvyadjust",
-          "min_abbreviation": 11,
-          "has_argument": false
-        },
-        {
-          "name": "svy",
-          "min_abbreviation": 3,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "nosvyadjust": {
-      "name": "nosvyadjust",
-      "min_abbreviation": 5,
-      "options": [
-        {
-          "name": "total",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "nosvyadjust",
-          "min_abbreviation": 11,
-          "has_argument": false
-        },
-        {
-          "name": "svy",
-          "min_abbreviation": 3,
-          "has_argument": false
-        }
-      ],
       "priority": 3
     },
     "sttocc": {
@@ -35199,6 +35212,53 @@
       "options": [],
       "priority": 3
     },
+    "stintphplot": {
+      "name": "stintphplot",
+      "min_abbreviation": 11,
+      "options": [
+        {
+          "name": "interval",
+          "min_abbreviation": 8,
+          "has_argument": true
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "strata",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "addplot",
+          "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
+          "name": "npopts",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "coxopts",
+          "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
+          "name": "byopts",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "separate",
+          "min_abbreviation": 8,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
     "stintcoxnp": {
       "name": "stintcoxnp",
       "min_abbreviation": 10,
@@ -35746,12 +35806,6 @@
     "fvtrack": {
       "name": "fvtrack",
       "min_abbreviation": 7,
-      "options": [],
-      "priority": 3
-    },
-    "nodescribe": {
-      "name": "nodescribe",
-      "min_abbreviation": 5,
       "options": [],
       "priority": 3
     },
@@ -36861,6 +36915,128 @@
       "options": [],
       "priority": 3
     },
+    "truncreg": {
+      "name": "truncreg",
+      "min_abbreviation": 8,
+      "options": [
+        {
+          "name": "noconstant",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "offset",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "lrmodel",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "nocnsreport",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "collinear",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "ul",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "oim",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "opg",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "bayes",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "collect",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "fmm",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "rolling",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "statsby",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "svy",
+          "min_abbreviation": 3,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
     "contour": {
       "name": "contour",
       "min_abbreviation": 7,
@@ -37355,6 +37531,138 @@
       "options": [],
       "priority": 3
     },
+    "tobit": {
+      "name": "tobit",
+      "min_abbreviation": 5,
+      "options": [
+        {
+          "name": "noconstant",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "offset",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "nocnsreport",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "collinear",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "ll",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "ul",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "oim",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "opg",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "bayes",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "collect",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "fmm",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "fp",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "nestreg",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "rolling",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "statsby",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "stepwise",
+          "min_abbreviation": 8,
+          "has_argument": false
+        },
+        {
+          "name": "svy",
+          "min_abbreviation": 3,
+          "has_argument": false
+        }
+      ],
+      "priority": 2
+    },
     "scatteri": {
       "name": "scatteri",
       "min_abbreviation": 8,
@@ -37383,6 +37691,53 @@
       "name": "stdp",
       "min_abbreviation": 4,
       "options": [],
+      "priority": 3
+    },
+    "total": {
+      "name": "total",
+      "min_abbreviation": 5,
+      "options": [
+        {
+          "name": "over",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "noheader",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "analytic",
+          "min_abbreviation": 8,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        }
+      ],
       "priority": 3
     },
     "fpfitci": {
@@ -39226,128 +39581,6 @@
     "vec": {
       "name": "vec",
       "min_abbreviation": 3,
-      "options": [
-        {
-          "name": "rank",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "lags",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "trend",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "bconstraints",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "aconstraints",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "sindicators",
-          "min_abbreviation": 2,
-          "has_argument": true
-        },
-        {
-          "name": "noreduce",
-          "min_abbreviation": 8,
-          "has_argument": false
-        },
-        {
-          "name": "level",
-          "min_abbreviation": 1,
-          "has_argument": true
-        },
-        {
-          "name": "nobtable",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "noidtest",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "alpha",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "pi",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "noptable",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "mai",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "noetable",
-          "min_abbreviation": 4,
-          "has_argument": false
-        },
-        {
-          "name": "dforce",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "nocnsreport",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "vec",
-          "min_abbreviation": 3,
-          "has_argument": false
-        },
-        {
-          "name": "constant",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "rconstant",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "rtrend",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "none",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "coeflegend",
-          "min_abbreviation": 10,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "xi": {
-      "name": "xi",
-      "min_abbreviation": 2,
       "options": [
         {
           "name": "rank",
@@ -41871,6 +42104,28 @@
       ],
       "priority": 3
     },
+    "xi": {
+      "name": "xi",
+      "min_abbreviation": 2,
+      "options": [
+        {
+          "name": "prefix",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "noomit",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "noconstant",
+          "min_abbreviation": 10,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
     "xtpoisson": {
       "name": "xtpoisson",
       "min_abbreviation": 9,
@@ -43331,6 +43586,12 @@
       "options": [],
       "priority": 3
     },
+    "combine": {
+      "name": "combine",
+      "min_abbreviation": 7,
+      "options": [],
+      "priority": 3
+    },
     "combop": {
       "name": "combop",
       "min_abbreviation": 6,
@@ -44105,15 +44366,11 @@
     "det": "detail",
     "deta": "detail",
     "detai": "detail",
-    "tob": "tobit",
-    "tobi": "tobit",
     "gen": "generate",
     "gene": "generate",
     "gener": "generate",
     "genera": "generate",
     "generat": "generate",
-    "mlog": "mlogit",
-    "mlogi": "mlogit",
     "g": "graph",
     "gr": "graph",
     "gra": "graph",
@@ -44128,8 +44385,6 @@
     "comp": "compute",
     "compu": "compute",
     "comput": "compute",
-    "prob": "probit",
-    "probi": "probit",
     "joint": "jointness",
     "jointn": "jointness",
     "jointne": "jointness",
@@ -44139,18 +44394,10 @@
     "freque": "frequency",
     "frequen": "frequency",
     "frequenc": "frequency",
-    "reg": "regress",
-    "regr": "regress",
-    "regre": "regress",
-    "regres": "regress",
     "inf": "inflate",
     "infl": "inflate",
     "infla": "inflate",
     "inflat": "inflate",
-    "olog": "ologit",
-    "ologi": "ologit",
-    "log": "logit",
-    "logi": "logit",
     "bys": "bysort",
     "byso": "bysort",
     "bysor": "bysort",
@@ -44165,8 +44412,6 @@
     "coefficie": "coefficients",
     "coefficien": "coefficients",
     "coefficient": "coefficients",
-    "oprob": "oprobit",
-    "oprobi": "oprobit",
     "og": "ograph",
     "ogr": "ograph",
     "ogra": "ograph",
@@ -44230,8 +44475,6 @@
     "cgr": "cgraph",
     "cgra": "cgraph",
     "cgrap": "cgraph",
-    "clog": "clogit",
-    "clogi": "clogit",
     "t": "table",
     "ta": "table",
     "tab": "table",
@@ -44510,6 +44753,7 @@
     "disp": "display",
     "displ": "display",
     "displa": "display",
+    "logi": "logistic",
     "logis": "logistic",
     "logist": "logistic",
     "logisti": "logistic",
@@ -44718,6 +44962,9 @@
     "per": "period",
     "peri": "period",
     "perio": "period",
+    "prob": "probit",
+    "probi": "probit",
+    "log": "logit",
     "ba": "base",
     "bas": "base",
     "desi": "design",
@@ -44765,9 +45012,6 @@
     "logr": "logrank",
     "logra": "logrank",
     "logran": "logrank",
-    "fvstand": "fvstandard",
-    "fvstanda": "fvstandard",
-    "fvstandar": "fvstandard",
     "bind": "binding",
     "bindi": "binding",
     "bindin": "binding",
@@ -44803,6 +45047,10 @@
     "frommem": "frommemory",
     "frommemo": "frommemory",
     "frommemor": "frommemory",
+    "reg": "regression",
+    "regr": "regression",
+    "regre": "regression",
+    "regres": "regression",
     "regress": "regression",
     "regressi": "regression",
     "regressio": "regression",
@@ -44927,6 +45175,8 @@
     "postselect": "postselection",
     "postselecti": "postselection",
     "postselectio": "postselection",
+    "clo": "close",
+    "clos": "close",
     "of": "off",
     "lines": "linesize",
     "linesi": "linesize",
@@ -45056,17 +45306,9 @@
     "footn": "footnote",
     "footno": "footnote",
     "footnot": "footnote",
-    "labbe": "labbeplot",
-    "labbep": "labbeplot",
-    "labbepl": "labbeplot",
-    "labbeplo": "labbeplot",
     "norep": "noreport",
     "norepo": "noreport",
     "norepor": "noreport",
-    "mereg": "meregress",
-    "meregr": "meregress",
-    "meregre": "meregress",
-    "meregres": "meregress",
     "mac": "macro",
     "macr": "macro",
     "shi": "shift",
@@ -45100,8 +45342,6 @@
     "pub": "public",
     "publ": "public",
     "publi": "public",
-    "chain": "chained",
-    "chaine": "chained",
     "ml": "mlong",
     "mlo": "mlong",
     "mlon": "mlong",
@@ -45109,10 +45349,6 @@
     "flon": "flong",
     "flongs": "flongsep",
     "flongse": "flongsep",
-    "trim": "trimfill",
-    "trimf": "trimfill",
-    "trimfi": "trimfill",
-    "trimfil": "trimfill",
     "sha": "shape",
     "shap": "shape",
     "fu": "full",
@@ -45179,14 +45415,6 @@
     "nona": "nonames",
     "nonam": "nonames",
     "noname": "nonames",
-    "mvreg": "mvregress",
-    "mvregr": "mvregress",
-    "mvregre": "mvregress",
-    "mvregres": "mvregress",
-    "forest": "forestplot",
-    "forestp": "forestplot",
-    "forestpl": "forestplot",
-    "forestplo": "forestplot",
     "mult": "multiplicative",
     "multi": "multiplicative",
     "multip": "multiplicative",
@@ -45223,11 +45451,6 @@
     "multileve": "multilevel",
     "sco": "score",
     "scor": "score",
-    "mon": "monotone",
-    "mono": "monotone",
-    "monot": "monotone",
-    "monoto": "monotone",
-    "monoton": "monotone",
     "cu": "custom",
     "cus": "custom",
     "cust": "custom",
@@ -45273,10 +45496,6 @@
     "cole": "coleq",
     "dups": "dupsok",
     "dupso": "dupsok",
-    "funnel": "funnelplot",
-    "funnelp": "funnelplot",
-    "funnelpl": "funnelplot",
-    "funnelplo": "funnelplot",
     "mats": "matsize",
     "matsi": "matsize",
     "matsiz": "matsize",
@@ -45503,6 +45722,8 @@
     "sret": "sreturn",
     "sretu": "sreturn",
     "sretur": "sreturn",
+    "sa": "save",
+    "sav": "save",
     "omitanym": "omitanymiss",
     "omitanymi": "omitanymiss",
     "omitanymis": "omitanymiss",
@@ -45554,14 +45775,6 @@
     "fut": "future",
     "futu": "future",
     "futur": "future",
-    "tot": "total",
-    "tota": "total",
-    "nosvy": "nosvyadjust",
-    "nosvya": "nosvyadjust",
-    "nosvyad": "nosvyadjust",
-    "nosvyadj": "nosvyadjust",
-    "nosvyadju": "nosvyadjust",
-    "nosvyadjus": "nosvyadjust",
     "base": "baseline",
     "basel": "baseline",
     "baseli": "baseline",
@@ -45571,7 +45784,6 @@
     "forwar": "forward",
     "auth": "author",
     "autho": "author",
-    "sav": "saving",
     "savi": "saving",
     "savin": "saving",
     "pers": "personal",
@@ -45586,9 +45798,6 @@
     "smoothfo": "smoothfonts",
     "smoothfon": "smoothfonts",
     "smoothfont": "smoothfonts",
-    "nodescr": "nodescribe",
-    "nodescri": "nodescribe",
-    "nodescrib": "nodescribe",
     "cont": "contiguity",
     "conti": "contiguity",
     "contig": "contiguity",
@@ -45728,6 +45937,8 @@
     "conc": "concise",
     "conci": "concise",
     "concis": "concise",
+    "tot": "totals",
+    "tota": "totals",
     "total": "totals",
     "bco": "bconly",
     "bcon": "bconly",
@@ -46008,6 +46219,7 @@
     "week": "weekly",
     "weekl": "weekly",
     "mo": "monthly",
+    "mon": "monthly",
     "mont": "monthly",
     "month": "monthly",
     "monthl": "monthly",
