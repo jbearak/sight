@@ -532,6 +532,68 @@
       ],
       "priority": 3
     },
+    "aweight": {
+      "name": "aweight",
+      "min_abbreviation": 7,
+      "options": [
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "clustertable",
+          "min_abbreviation": 8,
+          "has_argument": false
+        },
+        {
+          "name": "absorb",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "ols",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "tolerance",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "iterate",
+          "min_abbreviation": 4,
+          "has_argument": true
+        }
+      ],
+      "priority": 3
+    },
     "pr": {
       "name": "pr",
       "min_abbreviation": 1,
@@ -2496,88 +2558,6 @@
         {
           "name": "space",
           "min_abbreviation": 3,
-          "has_argument": false
-        }
-      ],
-      "priority": 3
-    },
-    "aweight": {
-      "name": "aweight",
-      "min_abbreviation": 7,
-      "options": [
-        {
-          "name": "repeated",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "partial",
-          "min_abbreviation": 1,
-          "has_argument": false
-        },
-        {
-          "name": "sequential",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "noconstant",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "dropemptycells",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "bse",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "bseunit",
-          "min_abbreviation": 7,
-          "has_argument": true
-        },
-        {
-          "name": "grouping",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "anova",
-          "min_abbreviation": 5,
-          "has_argument": false
-        },
-        {
-          "name": "bootstrap",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "by",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "collect",
-          "min_abbreviation": 7,
-          "has_argument": false
-        },
-        {
-          "name": "fp",
-          "min_abbreviation": 2,
-          "has_argument": false
-        },
-        {
-          "name": "jackknife",
-          "min_abbreviation": 9,
-          "has_argument": false
-        },
-        {
-          "name": "statsby",
-          "min_abbreviation": 7,
           "has_argument": false
         }
       ],
@@ -16859,51 +16839,6 @@
       "min_abbreviation": 5,
       "options": [
         {
-          "name": "top",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
-          "name": "samples",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "rseed",
-          "min_abbreviation": 5,
-          "has_argument": true
-        },
-        {
-          "name": "savedata",
-          "min_abbreviation": 8,
-          "has_argument": true
-        },
-        {
-          "name": "norefline",
-          "min_abbreviation": 6,
-          "has_argument": false
-        },
-        {
-          "name": "rlopts",
-          "min_abbreviation": 4,
-          "has_argument": true
-        },
-        {
-          "name": "startcolor",
-          "min_abbreviation": 8,
-          "has_argument": true
-        },
-        {
-          "name": "endcolor",
-          "min_abbreviation": 6,
-          "has_argument": true
-        },
-        {
-          "name": "jitter",
-          "min_abbreviation": 3,
-          "has_argument": true
-        },
-        {
           "name": "train",
           "min_abbreviation": 5,
           "has_argument": false
@@ -16911,6 +16846,11 @@
         {
           "name": "valid",
           "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "cv",
+          "min_abbreviation": 2,
           "has_argument": false
         },
         {
@@ -33802,6 +33742,98 @@
       "options": [],
       "priority": 3
     },
+    "atrisk0": {
+      "name": "atrisk0",
+      "min_abbreviation": 7,
+      "options": [
+        {
+          "name": "survival",
+          "min_abbreviation": 3,
+          "has_argument": false
+        },
+        {
+          "name": "failure",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cumhaz",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "by",
+          "min_abbreviation": 2,
+          "has_argument": true
+        },
+        {
+          "name": "strata",
+          "min_abbreviation": 6,
+          "has_argument": true
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "risktable",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "tmax",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "tmin",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "enter",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "noshow",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "compare",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "atrisk0",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "replace",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "fweight",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "iweight",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "pweight",
+          "min_abbreviation": 7,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
     "testnl": {
       "name": "testnl",
       "min_abbreviation": 6,
@@ -34483,6 +34515,113 @@
     "collinear": {
       "name": "collinear",
       "min_abbreviation": 3,
+      "options": [
+        {
+          "name": "offset",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "texp",
+          "min_abbreviation": 4,
+          "has_argument": true
+        },
+        {
+          "name": "vce",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "noadjust",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "level",
+          "min_abbreviation": 1,
+          "has_argument": true
+        },
+        {
+          "name": "noshr",
+          "min_abbreviation": 5,
+          "has_argument": false
+        },
+        {
+          "name": "noshow",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "noheader",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "notable",
+          "min_abbreviation": 7,
+          "has_argument": false
+        },
+        {
+          "name": "nodisplay",
+          "min_abbreviation": 9,
+          "has_argument": false
+        },
+        {
+          "name": "nocnsreport",
+          "min_abbreviation": 6,
+          "has_argument": false
+        },
+        {
+          "name": "compete",
+          "min_abbreviation": 7,
+          "has_argument": true
+        },
+        {
+          "name": "constraints",
+          "min_abbreviation": 11,
+          "has_argument": true
+        },
+        {
+          "name": "tvc",
+          "min_abbreviation": 3,
+          "has_argument": true
+        },
+        {
+          "name": "robust",
+          "min_abbreviation": 1,
+          "has_argument": false
+        },
+        {
+          "name": "cluster",
+          "min_abbreviation": 2,
+          "has_argument": false
+        },
+        {
+          "name": "bootstrap",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "jackknife",
+          "min_abbreviation": 4,
+          "has_argument": false
+        },
+        {
+          "name": "collinear",
+          "min_abbreviation": 9,
+          "has_argument": false
+        },
+        {
+          "name": "coeflegend",
+          "min_abbreviation": 10,
+          "has_argument": false
+        }
+      ],
+      "priority": 3
+    },
+    "iweight": {
+      "name": "iweight",
+      "min_abbreviation": 7,
       "options": [
         {
           "name": "offset",
