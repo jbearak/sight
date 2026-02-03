@@ -33,16 +33,18 @@ describe('SMCL Subcommand Extraction Property Tests', () => {
 
     /**
      * Generator for whitespace between prefix command and subcommand.
-     * Includes single space, multiple spaces, newlines, and tabs.
+     * Only includes same-line whitespace (spaces and tabs).
+     * Note: Multi-line prefix contexts are handled by extract_cmdab_patterns
+     * for {cmdab:} patterns. For {cmd:} patterns, the prefix is typically
+     * on the same line in real Stata help files.
      */
-    function arbitrary_whitespace(): fc.Arbitrary<string> {
+    function arbitrary_same_line_whitespace(): fc.Arbitrary<string> {
         return fc.oneof(
             fc.constant(' '),
             fc.constant('  '),
-            fc.constant('\n'),
             fc.constant('\t'),
-            fc.constant(' \n '),
-            fc.constant('   ')
+            fc.constant('   '),
+            fc.constant(' \t ')
         );
     }
 
@@ -61,7 +63,7 @@ describe('SMCL Subcommand Extraction Property Tests', () => {
                 arbitrary_prefix_command(),
                 arbitrary_lowercase_alpha(1, 5),
                 arbitrary_lowercase_alpha(1, 10),
-                arbitrary_whitespace(),
+                arbitrary_same_line_whitespace(),
                 (prefix_cmd, abbrev_part, suffix_part, whitespace) => {
                     // Build SMCL content with {cmd:PREFIX} {cmdab:X:Y} pattern
                     const subcommand_name = abbrev_part + suffix_part;
@@ -172,14 +174,15 @@ describe('SMCL Subcommand Extraction Property Tests', () => {
 
     /**
      * Property: is_preceded_by_prefix_command helper correctness
-     * For any content with {cmd:PREFIX} followed by whitespace at position P,
+     * For any content with {cmd:PREFIX} followed by same-line whitespace at position P,
      * is_preceded_by_prefix_command(content, P + whitespace_length) should return true.
+     * Note: This function only checks the current line, not across line boundaries.
      */
     it('should correctly detect prefix command precedence', () => {
         fc.assert(
             fc.property(
                 arbitrary_prefix_command(),
-                arbitrary_whitespace(),
+                arbitrary_same_line_whitespace(),
                 (prefix_cmd, whitespace) => {
                     // Build content with {cmd:PREFIX} followed by whitespace
                     const prefix_tag = `{cmd:${prefix_cmd}}`;

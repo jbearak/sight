@@ -45,6 +45,38 @@ describe('Option Extraction Property Tests', () => {
     }
 
     /**
+     * Generator for valid hyperlinked argument content (topic:display format).
+     * Examples: "varlist:groupvar", "regress##vcetype:vcetype", "exp_list:exp"
+     */
+    function arbitrary_hyperlink_content(): fc.Arbitrary<string> {
+        // Generate topic part (can contain letters, numbers, underscores, ##)
+        const topic_part = fc.oneof(
+            // Simple topic: varlist, varname, etc.
+            arbitrary_lowercase_alpha(2, 15),
+            // Topic with section reference: regress##vcetype
+            fc.tuple(
+                arbitrary_lowercase_alpha(2, 10),
+                fc.constant('##'),
+                arbitrary_lowercase_alpha(2, 10)
+            ).map(([prefix, sep, suffix]) => prefix + sep + suffix),
+            // Topic with underscore: exp_list
+            fc.tuple(
+                arbitrary_lowercase_alpha(2, 8),
+                fc.constant('_'),
+                arbitrary_lowercase_alpha(2, 8)
+            ).map(([prefix, sep, suffix]) => prefix + sep + suffix)
+        );
+
+        // Generate display part (simple identifier)
+        const display_part = arbitrary_lowercase_alpha(2, 12);
+
+        // Combine as topic:display
+        return fc.tuple(topic_part, display_part).map(
+            ([topic, display]) => `${topic}:${display}`
+        );
+    }
+
+    /**
      * Property 1: Name and Abbreviation Extraction
      * For any valid option pattern ({opt abbrev:rest} or {opt name}), the
      * extracted option name SHALL equal the full name (abbrev+rest or name),
@@ -1308,6 +1340,325 @@ describe('Option Extraction Property Tests', () => {
                             }
                         }
                         
+                        return true;
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+    });
+
+    /**
+     * Property 11: Hyperlinked Argument Extraction (Simple Name)
+     * For any valid option name and for any valid hyperlinked argument content
+     * (topic:display format), when parsing a pattern {opt name:(content)} or
+     * {opth name:(content)}, the Option_Parser SHALL produce an ExtractedOption
+     * with name equal to the option name (lowercase), has_argument set to true,
+     * and argument_type containing the hyperlinked argument content.
+     * Feature: smcl-hyperlinked-option-extraction, Property 1: Hyperlinked Argument Extraction (Simple Name)
+     * Validates: Requirements 1.1, 1.3, 4.1, 4.3
+     */
+    describe('Property 11: Hyperlinked Argument Extraction (Simple Name)', () => {
+        it('should extract correct name and has_argument from {opt name:(content)} patterns', () => {
+            fc.assert(
+                fc.property(
+                    arbitrary_alphanumeric(2, 12),
+                    arbitrary_hyperlink_content(),
+                    (name, hyperlink_content) => {
+                        // Build a {opt name:(content)} pattern
+                        const pattern = `{opt ${name}:(${hyperlink_content})}`;
+                        const expected_name = name.toLowerCase();
+
+                        // Parse the pattern
+                        const my_result = parse_option_pattern(pattern);
+
+                        // Should successfully parse
+                        if (my_result === null) {
+                            return false;
+                        }
+
+                        // Name should match (lowercase)
+                        if (my_result.name !== expected_name) {
+                            return false;
+                        }
+
+                        // Should have argument
+                        if (my_result.has_argument !== true) {
+                            return false;
+                        }
+
+                        // Argument type should contain the hyperlink content
+                        if (my_result.argument_type !== hyperlink_content) {
+                            return false;
+                        }
+
+                        // Min abbreviation should equal full name length
+                        if (my_result.min_abbreviation !== expected_name.length) {
+                            return false;
+                        }
+
+                        return true;
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should extract correct name and has_argument from {opth name:(content)} patterns', () => {
+            fc.assert(
+                fc.property(
+                    arbitrary_alphanumeric(2, 12),
+                    arbitrary_hyperlink_content(),
+                    (name, hyperlink_content) => {
+                        // Build a {opth name:(content)} pattern
+                        const pattern = `{opth ${name}:(${hyperlink_content})}`;
+                        const expected_name = name.toLowerCase();
+
+                        // Parse the pattern
+                        const my_result = parse_option_pattern(pattern);
+
+                        // Should successfully parse
+                        if (my_result === null) {
+                            return false;
+                        }
+
+                        // Name should match (lowercase)
+                        if (my_result.name !== expected_name) {
+                            return false;
+                        }
+
+                        // Should have argument
+                        if (my_result.has_argument !== true) {
+                            return false;
+                        }
+
+                        // Argument type should contain the hyperlink content
+                        if (my_result.argument_type !== hyperlink_content) {
+                            return false;
+                        }
+
+                        // Min abbreviation should equal full name length
+                        if (my_result.min_abbreviation !== expected_name.length) {
+                            return false;
+                        }
+
+                        return true;
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should handle various hyperlinked argument formats correctly', () => {
+            fc.assert(
+                fc.property(
+                    arbitrary_alphanumeric(2, 10),
+                    fc.constantFrom(
+                        // Simple topic reference (Requirement 4.1)
+                        'varlist:groupvar',
+                        'varname:myvar',
+                        // Section reference (Requirement 4.2)
+                        'regress##vcetype:vcetype',
+                        'logit##options:opts',
+                        // Nested colons in topic (Requirement 4.3)
+                        'exp_list:exp',
+                        'numlist:nums'
+                    ),
+                    fc.constantFrom('opt', 'opth'),
+                    (name, hyperlink_content, tag_type) => {
+                        // Build the pattern
+                        const pattern = `{${tag_type} ${name}:(${hyperlink_content})}`;
+                        const expected_name = name.toLowerCase();
+
+                        // Parse the pattern
+                        const my_result = parse_option_pattern(pattern);
+
+                        // Should successfully parse
+                        if (my_result === null) {
+                            return false;
+                        }
+
+                        // Name should match (lowercase)
+                        if (my_result.name !== expected_name) {
+                            return false;
+                        }
+
+                        // Should have argument
+                        if (my_result.has_argument !== true) {
+                            return false;
+                        }
+
+                        // Argument type should contain the hyperlink content
+                        if (my_result.argument_type !== hyperlink_content) {
+                            return false;
+                        }
+
+                        return true;
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+    });
+
+    /**
+     * Property 12: Hyperlinked Argument Extraction (With Abbreviation)
+     * For any valid abbreviation part, for any valid rest part, and for any
+     * valid hyperlinked argument content, when parsing a pattern
+     * {opt abbrev:rest:(content)} or {opth abbrev:rest:(content)}, the
+     * Option_Parser SHALL produce an ExtractedOption with name equal to
+     * abbrev + rest (lowercase), min_abbreviation equal to the length of
+     * abbrev, has_argument set to true, and argument_type containing the
+     * hyperlinked argument content.
+     * Feature: smcl-hyperlinked-option-extraction, Property 2: Hyperlinked Argument Extraction (With Abbreviation)
+     * Validates: Requirements 1.2, 1.4
+     */
+    describe('Property 12: Hyperlinked Argument Extraction (With Abbreviation)', () => {
+        it('should extract correct name, min_abbreviation, and has_argument from {opt abbrev:rest:(content)} patterns', () => {
+            fc.assert(
+                fc.property(
+                    arbitrary_lowercase_alpha(1, 5),
+                    arbitrary_alphanumeric(1, 10),
+                    arbitrary_hyperlink_content(),
+                    (abbrev_part, rest_part, hyperlink_content) => {
+                        // Build a {opt abbrev:rest:(content)} pattern
+                        const pattern = `{opt ${abbrev_part}:${rest_part}:(${hyperlink_content})}`;
+                        const expected_full_name = (abbrev_part + rest_part).toLowerCase();
+                        const expected_min_abbrev = abbrev_part.length;
+
+                        // Parse the pattern
+                        const my_result = parse_option_pattern(pattern);
+
+                        // Should successfully parse
+                        if (my_result === null) {
+                            return false;
+                        }
+
+                        // Full name should be abbrev + rest (lowercase)
+                        if (my_result.name !== expected_full_name) {
+                            return false;
+                        }
+
+                        // Min abbreviation should equal length of abbrev part
+                        if (my_result.min_abbreviation !== expected_min_abbrev) {
+                            return false;
+                        }
+
+                        // Should have argument
+                        if (my_result.has_argument !== true) {
+                            return false;
+                        }
+
+                        // Argument type should contain the hyperlink content
+                        if (my_result.argument_type !== hyperlink_content) {
+                            return false;
+                        }
+
+                        return true;
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should extract correct name, min_abbreviation, and has_argument from {opth abbrev:rest:(content)} patterns', () => {
+            fc.assert(
+                fc.property(
+                    arbitrary_lowercase_alpha(1, 5),
+                    arbitrary_alphanumeric(1, 10),
+                    arbitrary_hyperlink_content(),
+                    (abbrev_part, rest_part, hyperlink_content) => {
+                        // Build a {opth abbrev:rest:(content)} pattern
+                        const pattern = `{opth ${abbrev_part}:${rest_part}:(${hyperlink_content})}`;
+                        const expected_full_name = (abbrev_part + rest_part).toLowerCase();
+                        const expected_min_abbrev = abbrev_part.length;
+
+                        // Parse the pattern
+                        const my_result = parse_option_pattern(pattern);
+
+                        // Should successfully parse
+                        if (my_result === null) {
+                            return false;
+                        }
+
+                        // Full name should be abbrev + rest (lowercase)
+                        if (my_result.name !== expected_full_name) {
+                            return false;
+                        }
+
+                        // Min abbreviation should equal length of abbrev part
+                        if (my_result.min_abbreviation !== expected_min_abbrev) {
+                            return false;
+                        }
+
+                        // Should have argument
+                        if (my_result.has_argument !== true) {
+                            return false;
+                        }
+
+                        // Argument type should contain the hyperlink content
+                        if (my_result.argument_type !== hyperlink_content) {
+                            return false;
+                        }
+
+                        return true;
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should handle various hyperlinked argument formats with abbreviation correctly', () => {
+            fc.assert(
+                fc.property(
+                    arbitrary_lowercase_alpha(1, 4),
+                    arbitrary_alphanumeric(1, 8),
+                    fc.constantFrom(
+                        // Simple topic reference (Requirement 4.1)
+                        'varlist:groupvar',
+                        'varname:myvar',
+                        // Section reference (Requirement 4.2)
+                        'regress##vcetype:vcetype',
+                        'logit##options:opts',
+                        // Nested colons in topic (Requirement 4.3)
+                        'exp_list:exp',
+                        'numlist:nums'
+                    ),
+                    fc.constantFrom('opt', 'opth'),
+                    (abbrev_part, rest_part, hyperlink_content, tag_type) => {
+                        // Build the pattern
+                        const pattern = `{${tag_type} ${abbrev_part}:${rest_part}:(${hyperlink_content})}`;
+                        const expected_full_name = (abbrev_part + rest_part).toLowerCase();
+                        const expected_min_abbrev = abbrev_part.length;
+
+                        // Parse the pattern
+                        const my_result = parse_option_pattern(pattern);
+
+                        // Should successfully parse
+                        if (my_result === null) {
+                            return false;
+                        }
+
+                        // Full name should be abbrev + rest (lowercase)
+                        if (my_result.name !== expected_full_name) {
+                            return false;
+                        }
+
+                        // Min abbreviation should equal length of abbrev part
+                        if (my_result.min_abbreviation !== expected_min_abbrev) {
+                            return false;
+                        }
+
+                        // Should have argument
+                        if (my_result.has_argument !== true) {
+                            return false;
+                        }
+
+                        // Argument type should contain the hyperlink content
+                        if (my_result.argument_type !== hyperlink_content) {
+                            return false;
+                        }
+
                         return true;
                     }
                 ),
