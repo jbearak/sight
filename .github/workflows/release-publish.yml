@@ -147,7 +147,7 @@ jobs:
           tag_name: ${{ inputs.tag }}
           name: Release ${{ inputs.tag }}
           draft: false
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
           files: |
             bin/sight-*
