@@ -126,7 +126,7 @@ Add Stata code section detection to Sight's document symbol provider, enabling V
 
 ### Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────┐
 │                    Document Symbol Flow                        │
 ├──────────────────────────────────────────────────────────────┤

@@ -8,7 +8,7 @@ The design is adapted from Raven's R section detection (Rust LSP for R), transla
 
 ## Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────┐
 │                    Document Symbol Flow                        │
 ├──────────────────────────────────────────────────────────────┤
@@ -91,7 +91,7 @@ export function nest_in_sections(
 
 Two regex patterns cover both Stata comment styles:
 
-```
+```text
 Slash-style: ^\s*//\s+(\S.+?)\s+(-{4,}|={4,}|\*{4,}|\+{4,})\s*$
 Star-style:  ^\s*\*\s+(\S.+?)\s+(-{4,}|={4,}|\+{4,})\s*$
 ```
@@ -115,7 +115,7 @@ Delimiter line forms:
 
 ### Starred Inline Pattern
 
-```
+```text
 ^\s*(\*{2,})\s+(\S.+?)\s+(\*{2,})\s*$
 ```
 
@@ -125,7 +125,7 @@ Examples:
 
 ### Numbered Section Pattern
 
-```
+```text
 ^\s*(?:\*|//)\s+(\d+(?:\.\d+)*\.?)\s+(\S.+)$
 ```
 
