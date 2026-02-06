@@ -60,3 +60,16 @@ export {
   arbitrary_non_hoverable_position,
   arbitrary_document_with_mixed_symbols,
 } from './documents';
+
+// Section generators
+export {
+  arbitrary_section_name,
+  arbitrary_delimiter_char,
+  arbitrary_delimiter_only_string,
+  arbitrary_single_line_section,
+  arbitrary_banner_section,
+  arbitrary_starred_inline_section,
+  arbitrary_numbered_section,
+  arbitrary_document_with_sections,
+  arbitrary_section_list,
+} from './sections';
