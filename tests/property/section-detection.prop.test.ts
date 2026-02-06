@@ -15,6 +15,7 @@ import {
   is_delimiter_only,
   extract_sections,
   derive_numbered_level,
+  RawSection,
 } from '../../src/providers/section-detector';
 import { compute_line_offsets } from '../../src/utils/line-utils';
 import {
@@ -25,7 +26,26 @@ import {
   arbitrary_starred_inline_section,
   arbitrary_numbered_section,
   arbitrary_document_with_sections,
+  arbitrary_section_list,
 } from './generators/sections';
+
+/**
+ * Check that a section's selection_range is contained
+ * within its range.
+ */
+function is_selection_contained(section: RawSection): boolean {
+    const my_range = section.range;
+    const my_sel = section.selection_range;
+    if (my_sel.start.line < my_range.start.line) return false;
+    if (my_sel.start.line === my_range.start.line &&
+        my_sel.start.character < my_range.start.character)
+        return false;
+    if (my_sel.end.line > my_range.end.line) return false;
+    if (my_sel.end.line === my_range.end.line &&
+        my_sel.end.character > my_range.end.character)
+        return false;
+    return true;
+}
 
 describe('Section Detection Property Tests', () => {
   /**
@@ -190,22 +210,7 @@ describe('Section Detection Property Tests', () => {
           const my_line_offsets = compute_line_offsets(my_content);
           const my_sections = extract_sections(my_content, my_line_offsets);
 
-          for (const my_section of my_sections) {
-            const my_range = my_section.range;
-            const my_sel = my_section.selection_range;
-
-            // selectionRange.start >= range.start
-            if (my_sel.start.line < my_range.start.line) return false;
-            if (my_sel.start.line === my_range.start.line &&
-                my_sel.start.character < my_range.start.character) return false;
-
-            // selectionRange.end <= range.end
-            if (my_sel.end.line > my_range.end.line) return false;
-            if (my_sel.end.line === my_range.end.line &&
-                my_sel.end.character > my_range.end.character) return false;
-          }
-
-          return true;
+          return my_sections.every(is_selection_contained);
         }
       ),
       { numRuns: 100 }
@@ -219,22 +224,7 @@ describe('Section Detection Property Tests', () => {
           const my_line_offsets = compute_line_offsets(lines);
           const my_sections = extract_sections(lines, my_line_offsets);
 
-          for (const my_section of my_sections) {
-            const my_range = my_section.range;
-            const my_sel = my_section.selection_range;
-
-            // selectionRange.start >= range.start
-            if (my_sel.start.line < my_range.start.line) return false;
-            if (my_sel.start.line === my_range.start.line &&
-                my_sel.start.character < my_range.start.character) return false;
-
-            // selectionRange.end <= range.end
-            if (my_sel.end.line > my_range.end.line) return false;
-            if (my_sel.end.line === my_range.end.line &&
-                my_sel.end.character > my_range.end.character) return false;
-          }
-
-          return true;
+          return my_sections.every(is_selection_contained);
         }
       ),
       { numRuns: 100 }
@@ -248,22 +238,7 @@ describe('Section Detection Property Tests', () => {
           const my_line_offsets = compute_line_offsets(document);
           const my_sections = extract_sections(document, my_line_offsets);
 
-          for (const my_section of my_sections) {
-            const my_range = my_section.range;
-            const my_sel = my_section.selection_range;
-
-            // selectionRange.start >= range.start
-            if (my_sel.start.line < my_range.start.line) return false;
-            if (my_sel.start.line === my_range.start.line &&
-                my_sel.start.character < my_range.start.character) return false;
-
-            // selectionRange.end <= range.end
-            if (my_sel.end.line > my_range.end.line) return false;
-            if (my_sel.end.line === my_range.end.line &&
-                my_sel.end.character > my_range.end.character) return false;
-          }
-
-          return true;
+          return my_sections.every(is_selection_contained);
         }
       ),
       { numRuns: 100 }
@@ -340,6 +315,96 @@ describe('Section Detection Property Tests', () => {
           if (my_sections.length !== 1) return false;
 
           return my_sections[0].level === expected_level;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * Property 1: Generator determinism
+   *
+   * For any random seed, running arbitrary_section_list() twice
+   * with the same seed SHALL produce identical section lists
+   * (same names, levels, start lines, and detection types).
+   *
+   * Validates: Requirements 1.1, 1.2
+   *
+   * Feature: code-review-fixes-outline-sections,
+   * Property 1: Generator determinism
+   */
+  it('should produce identical output for the same seed', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 2 ** 31 - 1 }),
+        (my_seed) => {
+          const my_run_a = fc.sample(
+            arbitrary_section_list(),
+            { seed: my_seed, numRuns: 1 }
+          );
+          const my_run_b = fc.sample(
+            arbitrary_section_list(),
+            { seed: my_seed, numRuns: 1 }
+          );
+
+          if (my_run_a.length !== my_run_b.length) return false;
+
+          for (let my_i = 0; my_i < my_run_a.length; my_i++) {
+            const my_list_a = my_run_a[my_i];
+            const my_list_b = my_run_b[my_i];
+
+            if (my_list_a.length !== my_list_b.length) {
+              return false;
+            }
+
+            for (
+              let my_j = 0;
+              my_j < my_list_a.length;
+              my_j++
+            ) {
+              const my_sec_a = my_list_a[my_j];
+              const my_sec_b = my_list_b[my_j];
+
+              if (my_sec_a.name !== my_sec_b.name) {
+                return false;
+              }
+              if (my_sec_a.level !== my_sec_b.level) {
+                return false;
+              }
+              if (
+                my_sec_a.detection_type !==
+                my_sec_b.detection_type
+              ) {
+                return false;
+              }
+              if (
+                my_sec_a.range.start.line !==
+                my_sec_b.range.start.line
+              ) {
+                return false;
+              }
+              if (
+                my_sec_a.range.start.character !==
+                my_sec_b.range.start.character
+              ) {
+                return false;
+              }
+              if (
+                my_sec_a.range.end.line !==
+                my_sec_b.range.end.line
+              ) {
+                return false;
+              }
+              if (
+                my_sec_a.range.end.character !==
+                my_sec_b.range.end.character
+              ) {
+                return false;
+              }
+            }
+          }
+
+          return true;
         }
       ),
       { numRuns: 100 }
