@@ -295,11 +295,19 @@ export function arbitrary_section_list(): fc.Arbitrary<RawSection[]> {
       );
     }
 
-    return fc.tuple(...my_section_gens).map((my_entries) => {
+    const my_gap_gen = fc.array(
+      fc.integer({ min: 3, max: 10 }),
+      { minLength: my_count, maxLength: my_count }
+    );
+
+    return fc.tuple(
+      fc.tuple(...my_section_gens), my_gap_gen
+    ).map(([my_entries, my_gaps]) => {
       const my_sections: RawSection[] = [];
       let my_current_line = 0;
 
-      for (const my_entry of my_entries) {
+      for (let my_i = 0; my_i < my_entries.length; my_i++) {
+        const my_entry = my_entries[my_i];
         const my_line_length = 40 + my_entry.name.length;
         my_sections.push({
           name: my_entry.name,
@@ -315,10 +323,11 @@ export function arbitrary_section_list(): fc.Arbitrary<RawSection[]> {
           detection_type: my_entry.detection_type,
         });
         // Leave some lines between sections for code
-        my_current_line += fc.sample(fc.integer({ min: 3, max: 10 }), 1)[0];
+        my_current_line += my_gaps[my_i];
       }
 
       return my_sections;
     });
   });
 }
+
