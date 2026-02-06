@@ -51,6 +51,12 @@ const STARRED_INLINE_PATTERN = /^\s*(\*{2,})\s+(\S.*?)\s+(\*{2,})\s*$/;
 // Numbered section: * 1. Name, // 1.1 Name, * 1.1.1 Name
 const NUMBERED_SECTION_PATTERN = /^\s*(?:\*|\/\/)\s+(\d+(?:\.\d+)*\.?)\s+(\S.*)$/;
 
+// Delimiter-line patterns for banner detection
+const ALL_ASTERISK_PATTERN = /^\*{4,}$/;
+const ALL_SLASH_PATTERN = /^\/{4,}$/;
+const SLASH_DELIM_PATTERN = /^\/\/\s*([-=*+])\1{3,}\s*$/;
+const STAR_DELIM_PATTERN = /^\*\s+([-=+])\1{3,}\s*$/;
+
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
@@ -85,19 +91,19 @@ export function classify_delimiter_line(line: string): DelimiterKind | null {
     if (my_trimmed.length < 4) return null;
 
     // Check all-asterisk line: ****...
-    if (/^\*{4,}$/.test(my_trimmed)) return 'asterisk';
+    if (ALL_ASTERISK_PATTERN.test(my_trimmed)) return 'asterisk';
 
     // Check all-slash line: ////...
-    if (/^\/{4,}$/.test(my_trimmed)) return 'slash';
+    if (ALL_SLASH_PATTERN.test(my_trimmed)) return 'slash';
 
     // Check slash-comment + single delimiter type: // ====...
-    const my_slash_delim_match = my_trimmed.match(/^\/\/\s*([-=*+])\1{3,}\s*$/);
+    const my_slash_delim_match = my_trimmed.match(SLASH_DELIM_PATTERN);
     if (my_slash_delim_match) {
         return char_to_delimiter_kind(my_slash_delim_match[1]);
     }
 
     // Check star-comment + single delimiter type: * ----...
-    const my_star_delim_match = my_trimmed.match(/^\*\s+([-=+])\1{3,}\s*$/);
+    const my_star_delim_match = my_trimmed.match(STAR_DELIM_PATTERN);
     if (my_star_delim_match) {
         return char_to_delimiter_kind(my_star_delim_match[1]);
     }
@@ -381,7 +387,7 @@ function detect_numbered_sections(
  * earlier phases to prevent overlapping detections.
  *
  * @param content - Raw document content string
- * @param line_offsets - Array where line_offsets[i] is the byte offset of line i
+ * @param line_offsets - Array where line_offsets[i] is the character offset of line i
  * @returns Array of RawSection entries sorted by start line
  */
 export function extract_sections(
