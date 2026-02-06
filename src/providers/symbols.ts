@@ -16,6 +16,9 @@ import { get_line_text, get_line_count } from '../utils/line-utils';
 import { extract_sections, RawSection } from './section-detector';
 import * as path from 'path';
 
+/** LSP end-of-line sentinel (max 32-bit signed int) */
+const LSP_EOL_CHARACTER = 2147483647;
+
 /**
  * Check if a position falls within a range (inclusive on both ends).
  * A position on the last line of a range is considered inside the range.
@@ -134,7 +137,7 @@ export function compute_section_ranges(sections: RawSection[], line_count: numbe
                 const my_end_line = my_current_start > 0 ? my_current_start - 1 : 0;
                 sections[my_top_idx].range.end = {
                     line: my_end_line,
-                    character: 2147483647, // LSP end-of-line sentinel
+                    character: LSP_EOL_CHARACTER,
                 };
                 my_stack.pop();
             } else {
@@ -151,7 +154,7 @@ export function compute_section_ranges(sections: RawSection[], line_count: numbe
         const my_top_idx = my_stack.pop()!;
         sections[my_top_idx].range.end = {
             line: my_last_line,
-            character: 2147483647,
+            character: LSP_EOL_CHARACTER,
         };
     }
 }
@@ -173,7 +176,7 @@ export function nest_in_sections(
     existing_symbols: DocumentSymbol[]
 ): DocumentSymbol[] {
     // Convert sections to DocumentSymbol
-    const my_section_symbols: Array<DocumentSymbol & { _level: number; _range: Range }> = sections.map(s => ({
+    const my_section_symbols: Array<DocumentSymbol & { _level: number }> = sections.map(s => ({
         name: s.name,
         kind: SymbolKind.Module,
         range: s.range,
@@ -181,12 +184,11 @@ export function nest_in_sections(
         detail: `Section`,
         children: [],
         _level: s.level,
-        _range: s.range,
     }));
 
     // Build section hierarchy using a stack approach
-    const my_root_sections: Array<DocumentSymbol & { _level: number; _range: Range }> = [];
-    const my_parent_stack: Array<DocumentSymbol & { _level: number; _range: Range }> = [];
+    const my_root_sections: Array<DocumentSymbol & { _level: number }> = [];
+    const my_parent_stack: Array<DocumentSymbol & { _level: number }> = [];
 
     for (const my_section of my_section_symbols) {
         // Pop stack until we find a parent with level < current
@@ -211,18 +213,49 @@ export function nest_in_sections(
         my_parent_stack.push(my_section);
     }
 
-    // Insert existing symbols into their deepest containing section
+    // Single-pass symbol assignment using section stack
     const my_root_orphans: DocumentSymbol[] = [];
+    const my_section_idx_stack: number[] = [];
+    let my_next_section = 0;
 
     for (const my_symbol of existing_symbols) {
-        const my_containing_section = find_deepest_containing_section(
-            my_symbol.range.start,
-            my_section_symbols
-        );
+        const my_sym_line = my_symbol.range.start.line;
 
-        if (my_containing_section) {
-            if (!my_containing_section.children) my_containing_section.children = [];
-            my_containing_section.children.push(my_symbol);
+        // Push sections that start at or before this symbol
+        while (
+            my_next_section < my_section_symbols.length &&
+            my_section_symbols[my_next_section].range.start.line
+                <= my_sym_line
+        ) {
+            my_section_idx_stack.push(my_next_section);
+            my_next_section++;
+        }
+
+        // Pop sections whose range has ended
+        while (my_section_idx_stack.length > 0) {
+            const my_top =
+                my_section_idx_stack[
+                    my_section_idx_stack.length - 1
+                ];
+            if (
+                my_section_symbols[my_top].range.end.line
+                    < my_sym_line
+            ) {
+                my_section_idx_stack.pop();
+            } else {
+                break;
+            }
+        }
+
+        // Assign to deepest active section (top of stack)
+        if (my_section_idx_stack.length > 0) {
+            const my_deepest =
+                my_section_idx_stack[
+                    my_section_idx_stack.length - 1
+                ];
+            my_section_symbols[my_deepest].children!.push(
+                my_symbol
+            );
         } else {
             my_root_orphans.push(my_symbol);
         }
@@ -256,40 +289,17 @@ export function nest_in_sections(
     return my_result;
 }
 
-/**
- * Find the deepest section that contains a given position.
- * Searches through all sections (flat list), returning the smallest containing one.
- */
-function find_deepest_containing_section(
-    position: Position,
-    sections: Array<DocumentSymbol & { _level: number; _range: Range }>
-): (DocumentSymbol & { _level: number; _range: Range }) | null {
-    let my_best: (DocumentSymbol & { _level: number; _range: Range }) | null = null;
-    let my_best_size = Infinity;
-
-    for (const my_section of sections) {
-        if (is_position_in_range(position, my_section._range)) {
-            const my_size = calculate_range_size(my_section._range);
-            if (my_size < my_best_size) {
-                my_best_size = my_size;
-                my_best = my_section;
-            }
-        }
-    }
-
-    return my_best;
-}
 
 /**
  * Strip internal tracking fields from a section DocumentSymbol.
  */
-function strip_internal_fields(section: DocumentSymbol & { _level: number; _range: Range }): DocumentSymbol {
-    const { _level, _range, ...my_clean } = section;
+function strip_internal_fields(section: DocumentSymbol & { _level: number }): DocumentSymbol {
+    const { _level, ...my_clean } = section;
     // Recursively strip children
     if (my_clean.children) {
         my_clean.children = my_clean.children.map(child => {
             if ('_level' in child) {
-                return strip_internal_fields(child as DocumentSymbol & { _level: number; _range: Range });
+                return strip_internal_fields(child as DocumentSymbol & { _level: number });
             }
             return child;
         });
