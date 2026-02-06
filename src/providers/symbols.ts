@@ -12,8 +12,12 @@ import {
 import { Position, Range } from 'vscode-languageserver-textdocument';
 import { DocumentState } from '../document-store';
 import { SymbolTable, StataNode, EmbeddedLanguageBlockNode } from '../types';
-import { get_line_text } from '../utils/line-utils';
+import { get_line_text, get_line_count } from '../utils/line-utils';
+import { extract_sections, RawSection } from './section-detector';
 import * as path from 'path';
+
+/** LSP end-of-line sentinel (max 32-bit signed int) */
+const LSP_EOL_CHARACTER = 2147483647;
 
 /**
  * Check if a position falls within a range (inclusive on both ends).
@@ -95,6 +99,212 @@ export function find_containing_program(
     }
 
     return smallest_program;
+}
+
+/**
+ * Compute level-aware section ranges using a stack-based O(n) algorithm.
+ * Backported from Raven's HierarchyBuilder::compute_section_ranges().
+ *
+ * For each section at level N, the range ends at the line before the next
+ * section at level <= N. Sections with no subsequent sibling/ancestor extend
+ * to the last line of the document.
+ *
+ * Mutates the sections array in place (updates range.end).
+ * Preserves selection_range unchanged.
+ *
+ * @param sections - Array of RawSection entries (must be sorted by start line)
+ * @param line_count - Total number of lines in the document
+ */
+export function compute_section_ranges(sections: RawSection[], line_count: number): void {
+    if (sections.length === 0 || line_count === 0) return;
+
+    // Ensure sorted by start line
+    sections.sort((a, b) => a.range.start.line - b.range.start.line);
+
+    // Stack of indices into sections array
+    const my_stack: number[] = [];
+
+    for (let my_i = 0; my_i < sections.length; my_i++) {
+        const my_current_level = sections[my_i].level;
+        const my_current_start = sections[my_i].range.start.line;
+
+        // Pop stack entries with level >= current_level
+        while (my_stack.length > 0) {
+            const my_top_idx = my_stack[my_stack.length - 1];
+            const my_top_level = sections[my_top_idx].level;
+            if (my_top_level >= my_current_level) {
+                // End this section at the line before current section starts
+                const my_end_line = my_current_start > 0 ? my_current_start - 1 : 0;
+                sections[my_top_idx].range.end = {
+                    line: my_end_line,
+                    character: LSP_EOL_CHARACTER,
+                };
+                my_stack.pop();
+            } else {
+                break;
+            }
+        }
+
+        my_stack.push(my_i);
+    }
+
+    // Remaining stack entries extend to EOF
+    const my_last_line = line_count - 1;
+    while (my_stack.length > 0) {
+        const my_top_idx = my_stack.pop()!;
+        sections[my_top_idx].range.end = {
+            line: my_last_line,
+            character: LSP_EOL_CHARACTER,
+        };
+    }
+}
+
+/**
+ * Nest sections hierarchically and insert existing symbols into sections.
+ *
+ * 1. Converts RawSection entries to DocumentSymbol with kind Module
+ * 2. Builds section hierarchy by level (deeper sections nest under shallower)
+ * 3. Inserts existing symbols into their deepest containing section
+ * 4. Symbols not inside any section remain at root level
+ *
+ * @param sections - Array of RawSection entries with computed ranges
+ * @param existing_symbols - Existing DocumentSymbol entries (programs, macros, etc.)
+ * @returns Merged array of DocumentSymbol with section hierarchy
+ */
+export function nest_in_sections(
+    sections: RawSection[],
+    existing_symbols: DocumentSymbol[]
+): DocumentSymbol[] {
+    // Convert sections to DocumentSymbol
+    const my_section_symbols: Array<DocumentSymbol & { _level: number }> = sections.map(s => ({
+        name: s.name,
+        kind: SymbolKind.Module,
+        range: s.range,
+        selectionRange: s.selection_range,
+        detail: `Section`,
+        children: [],
+        _level: s.level,
+    }));
+
+    // Build section hierarchy using a stack approach
+    const my_root_sections: Array<DocumentSymbol & { _level: number }> = [];
+    const my_parent_stack: Array<DocumentSymbol & { _level: number }> = [];
+
+    for (const my_section of my_section_symbols) {
+        // Pop stack until we find a parent with level < current
+        while (my_parent_stack.length > 0) {
+            const my_top = my_parent_stack[my_parent_stack.length - 1];
+            if (my_top._level >= my_section._level) {
+                my_parent_stack.pop();
+            } else {
+                break;
+            }
+        }
+
+        if (my_parent_stack.length > 0) {
+            // Nest under parent
+            const my_parent = my_parent_stack[my_parent_stack.length - 1];
+            if (!my_parent.children) my_parent.children = [];
+            my_parent.children.push(my_section);
+        } else {
+            my_root_sections.push(my_section);
+        }
+
+        my_parent_stack.push(my_section);
+    }
+
+    // Single-pass symbol assignment using section stack
+    const my_root_orphans: DocumentSymbol[] = [];
+    const my_section_idx_stack: number[] = [];
+    let my_next_section = 0;
+
+    for (const my_symbol of existing_symbols) {
+        const my_sym_line = my_symbol.range.start.line;
+
+        // Push sections that start at or before this symbol
+        while (
+            my_next_section < my_section_symbols.length &&
+            my_section_symbols[my_next_section].range.start.line
+                <= my_sym_line
+        ) {
+            my_section_idx_stack.push(my_next_section);
+            my_next_section++;
+        }
+
+        // Pop sections whose range has ended
+        while (my_section_idx_stack.length > 0) {
+            const my_top =
+                my_section_idx_stack[
+                    my_section_idx_stack.length - 1
+                ];
+            if (
+                my_section_symbols[my_top].range.end.line
+                    < my_sym_line
+            ) {
+                my_section_idx_stack.pop();
+            } else {
+                break;
+            }
+        }
+
+        // Assign to deepest active section (top of stack)
+        if (my_section_idx_stack.length > 0) {
+            const my_deepest =
+                my_section_idx_stack[
+                    my_section_idx_stack.length - 1
+                ];
+            my_section_symbols[my_deepest].children!.push(
+                my_symbol
+            );
+        } else {
+            my_root_orphans.push(my_symbol);
+        }
+    }
+
+    // Sort children of each section by position
+    for (const my_section of my_section_symbols) {
+        if (my_section.children && my_section.children.length > 1) {
+            my_section.children.sort((a, b) => {
+                if (a.range.start.line !== b.range.start.line) {
+                    return a.range.start.line - b.range.start.line;
+                }
+                return a.range.start.character - b.range.start.character;
+            });
+        }
+    }
+
+    // Merge root sections and orphaned symbols, sort by position
+    const my_result: DocumentSymbol[] = [
+        ...my_root_sections.map(strip_internal_fields),
+        ...my_root_orphans,
+    ];
+
+    my_result.sort((a, b) => {
+        if (a.range.start.line !== b.range.start.line) {
+            return a.range.start.line - b.range.start.line;
+        }
+        return a.range.start.character - b.range.start.character;
+    });
+
+    return my_result;
+}
+
+
+/**
+ * Strip internal tracking fields from a section DocumentSymbol.
+ */
+function strip_internal_fields(section: DocumentSymbol & { _level: number }): DocumentSymbol {
+    const { _level, ...my_clean } = section;
+    // Recursively strip children
+    if (my_clean.children) {
+        my_clean.children = my_clean.children.map(child => {
+            if ('_level' in child) {
+                return strip_internal_fields(child as DocumentSymbol & { _level: number });
+            }
+            return child;
+        });
+    }
+    return my_clean;
 }
 
 /**
@@ -263,6 +473,14 @@ export class SymbolProvider {
             }
             return a.name.localeCompare(b.name);
         });
+
+        // 7. Extract sections from document content and integrate
+        const my_sections = extract_sections(document.content, document.line_offsets);
+        if (my_sections.length > 0) {
+            const my_line_count = get_line_count(document);
+            compute_section_ranges(my_sections, my_line_count);
+            return nest_in_sections(my_sections, symbols);
+        }
 
         return symbols;
     }
