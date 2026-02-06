@@ -11,7 +11,11 @@
 
 import { describe, it } from 'bun:test';
 import * as fc from 'fast-check';
-import { compute_section_ranges, nest_in_sections } from '../../src/providers/symbols';
+import {
+  compute_section_ranges,
+  nest_in_sections,
+  is_position_in_range,
+} from '../../src/providers/symbols';
 import { RawSection, SectionDetectionType } from '../../src/providers/section-detector';
 import { DocumentSymbol, SymbolKind } from 'vscode-languageserver';
 import { Range } from 'vscode-languageserver-textdocument';
@@ -85,6 +89,102 @@ function make_symbol(name: string, line: number): DocumentSymbol {
     detail: 'Program',
     children: [],
   };
+}
+
+/**
+ * Calculate the "size" of a range for comparison purposes.
+ * Smaller ranges are preferred when multiple sections contain
+ * a position. Mirrors the production calculate_range_size().
+ */
+function reference_range_size(range: Range): number {
+  const my_line_span = Math.max(
+    0,
+    range.end.line - range.start.line
+  );
+  if (my_line_span > 0) {
+    return my_line_span * 1000000
+      + Math.max(0, range.end.character);
+  }
+  return Math.max(
+    0,
+    range.end.character - range.start.character
+  );
+}
+
+/**
+ * Reference flat-scan implementation of symbol-to-section
+ * assignment. For each symbol, scans ALL sections and picks
+ * the deepest (smallest range) containing section.
+ *
+ * Returns a Map from symbol name to the name of the section
+ * it was assigned to, or null if the symbol is at root level.
+ */
+function flat_scan_assign(
+  sections: Array<{
+    name: string;
+    range: Range;
+    children: DocumentSymbol[];
+  }>,
+  symbols: DocumentSymbol[]
+): Map<string, string | null> {
+  const my_assignments = new Map<string, string | null>();
+
+  for (const my_symbol of symbols) {
+    const my_pos = my_symbol.range.start;
+    let my_best_section: string | null = null;
+    let my_best_size = Infinity;
+
+    for (const my_section of sections) {
+      if (is_position_in_range(my_pos, my_section.range)) {
+        const my_size = reference_range_size(
+          my_section.range
+        );
+        if (my_size < my_best_size) {
+          my_best_size = my_size;
+          my_best_section = my_section.name;
+        }
+      }
+    }
+
+    my_assignments.set(my_symbol.name, my_best_section);
+  }
+
+  return my_assignments;
+}
+
+/**
+ * Extract symbol-to-section assignments from the nested
+ * DocumentSymbol tree produced by nest_in_sections().
+ *
+ * Walks the tree and records, for each non-Module symbol,
+ * the name of its immediate Module parent (or null if at
+ * root level).
+ */
+function extract_assignments(
+  symbols: DocumentSymbol[],
+  parent_section: string | null
+): Map<string, string | null> {
+  const my_result = new Map<string, string | null>();
+
+  for (const my_sym of symbols) {
+    if (my_sym.kind === SymbolKind.Module) {
+      // This is a section — recurse into its children
+      if (my_sym.children) {
+        const my_child_map = extract_assignments(
+          my_sym.children,
+          my_sym.name
+        );
+        for (const [my_k, my_v] of my_child_map) {
+          my_result.set(my_k, my_v);
+        }
+      }
+    } else {
+      // Non-section symbol: record its parent
+      my_result.set(my_sym.name, parent_section);
+    }
+  }
+
+  return my_result;
 }
 
 describe('Section Hierarchy Property Tests', () => {
@@ -233,21 +333,32 @@ describe('Section Hierarchy Property Tests', () => {
           );
           const my_adjusted_line_count = Math.max(my_line_count, my_max_start + 10);
 
-          // Save original selection ranges
-          const my_original_selection_ranges = my_sections.map((my_s) => ({
-            start: { line: my_s.selection_range.start.line, character: my_s.selection_range.start.character },
-            end: { line: my_s.selection_range.end.line, character: my_s.selection_range.end.character },
-          }));
+          // Build a Map of original selection ranges keyed
+          // by start line for O(1) lookup after sorting
+          const my_original_sel_by_line = new Map(
+            my_sections.map((my_s) => [
+              my_s.range.start.line,
+              {
+                start: {
+                  line: my_s.selection_range.start.line,
+                  character: my_s.selection_range.start.character,
+                },
+                end: {
+                  line: my_s.selection_range.end.line,
+                  character: my_s.selection_range.end.character,
+                },
+              },
+            ])
+          );
 
           const my_cloned = clone_sections(my_sections);
           compute_section_ranges(my_cloned, my_adjusted_line_count);
 
-          // After sorting, sections are in start-line order. We need to match
-          // by start line to compare selection_ranges correctly.
+          // After sorting, sections are in start-line order.
+          // Match by start line via the Map.
           for (let my_i = 0; my_i < my_cloned.length; my_i++) {
-            // Find the original entry by matching start line
-            const my_original = my_original_selection_ranges.find((my_o, my_j) =>
-              my_sections[my_j].range.start.line === my_cloned[my_i].range.start.line
+            const my_original = my_original_sel_by_line.get(
+              my_cloned[my_i].range.start.line
             );
 
             if (!my_original) return false;
@@ -360,6 +471,113 @@ describe('Section Hierarchy Property Tests', () => {
           const my_actual_total = count_symbols_recursive(my_result);
 
           return my_actual_total === my_expected_total;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  /**
+   * Property 2: Single-pass equivalence to flat-scan
+   *
+   * For any list of sections with computed ranges and any
+   * list of symbols sorted by position, the single-pass
+   * stack-based symbol assignment SHALL produce identical
+   * nesting results to the original flat-scan
+   * find_deepest_containing_section() approach.
+   *
+   * Feature: code-review-fixes-outline-sections,
+   * Property 2: Single-pass equivalence to flat-scan
+   *
+   * **Validates: Requirements 6.1, 6.2, 6.3, 6.4**
+   */
+  it('should produce identical nesting to flat-scan reference', () => {
+    fc.assert(
+      fc.property(
+        arbitrary_section_list(),
+        fc.integer({ min: 50, max: 200 }),
+        fc.array(
+          fc.integer({ min: 0, max: 150 }),
+          { minLength: 1, maxLength: 10 }
+        ),
+        (my_sections, my_line_count, my_symbol_lines) => {
+          // Ensure line_count covers all sections
+          const my_max_start = my_sections.reduce(
+            (my_max, my_s) =>
+              Math.max(my_max, my_s.range.start.line),
+            0
+          );
+          const my_adjusted_line_count = Math.max(
+            my_line_count,
+            my_max_start + 10
+          );
+
+          // Compute section ranges
+          const my_cloned = clone_sections(my_sections);
+          compute_section_ranges(
+            my_cloned,
+            my_adjusted_line_count
+          );
+
+          // Build unique symbols at the generated lines,
+          // sorted by position (as nest_in_sections expects)
+          const my_sorted_lines = [...my_symbol_lines].sort(
+            (a, b) => a - b
+          );
+          const my_existing_symbols: DocumentSymbol[] = [];
+          for (let my_i = 0; my_i < my_sorted_lines.length; my_i++) {
+            my_existing_symbols.push(
+              make_symbol(
+                `sym_${my_i}`,
+                my_sorted_lines[my_i]
+              )
+            );
+          }
+
+          // --- Reference: flat-scan assignment ---
+          // Build a flat list of section info for the
+          // reference implementation
+          const my_flat_sections = my_cloned.map((my_s) => ({
+            name: my_s.name,
+            range: {
+              start: {
+                line: my_s.range.start.line,
+                character: my_s.range.start.character,
+              },
+              end: {
+                line: my_s.range.end.line,
+                character: my_s.range.end.character,
+              },
+            },
+            children: [] as DocumentSymbol[],
+          }));
+
+          const my_expected = flat_scan_assign(
+            my_flat_sections,
+            my_existing_symbols
+          );
+
+          // --- Actual: single-pass via nest_in_sections ---
+          const my_result = nest_in_sections(
+            my_cloned,
+            my_existing_symbols
+          );
+          const my_actual = extract_assignments(
+            my_result,
+            null
+          );
+
+          // Compare: every symbol must be assigned to the
+          // same section (or root) in both approaches
+          for (const my_sym of my_existing_symbols) {
+            const my_exp = my_expected.get(my_sym.name);
+            const my_act = my_actual.get(my_sym.name);
+            if (my_exp !== my_act) {
+              return false;
+            }
+          }
+
+          return true;
         }
       ),
       { numRuns: 100 }
