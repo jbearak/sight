@@ -76,6 +76,11 @@ export class DefinitionProvider {
         cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
+        // Check cancellation before starting (Req 5.2)
+        if (cancellation_token?.isCancellationRequested) {
+            return null;
+        }
+
         // Check if we're in an embedded language context
         if (context_tracker) {
             const my_context = context_tracker.get_context_at_position(position);
@@ -110,7 +115,7 @@ export class DefinitionProvider {
         }
 
         // Get token at position for disambiguation
-        const the_token = this.get_token_at_position(document, position);
+        const the_token = this.get_token_at_position(document, position, cancellation_token);
         
         // Token-based disambiguation
         if (the_token) {
@@ -554,18 +559,36 @@ export class DefinitionProvider {
      */
     private get_token_at_position(
         document: DocumentState,
-        position: Position
+        position: Position,
+        cancellation_token?: CancellationToken
     ): Token | null {
-        if (!document.tokens) {
+        if (cancellation_token?.isCancellationRequested) {
             return null;
         }
-        
-        for (const token of document.tokens) {
-            if (this.position_in_range(position, token.range)) {
-                return token;
+        // Use line-bucketed index for O(1) line lookup when
+        // available; fall back to linear scan otherwise
+        if (document.token_line_index?.size > 0) {
+            const bucket = document.token_line_index.get(
+                position.line
+            );
+            if (!bucket) return null;
+            for (const my_token of bucket) {
+                if (this.position_in_range(
+                    position, my_token.range
+                )) {
+                    return my_token;
+                }
+            }
+            return null;
+        }
+        if (!document.tokens) return null;
+        for (const my_token of document.tokens) {
+            if (this.position_in_range(
+                position, my_token.range
+            )) {
+                return my_token;
             }
         }
-        
         return null;
     }
 
@@ -723,7 +746,8 @@ export class DefinitionProvider {
         document: DocumentState,
         name: string,
         scope: 'local' | 'global',
-        reference_position: Position
+        reference_position: Position,
+        cancellation_token?: CancellationToken
     ): MacroSymbol | null {
         if (!document.ast) {
             return null;
@@ -755,10 +779,16 @@ export class DefinitionProvider {
         // NOTE: Do this iteratively (not via a nested function) so TypeScript control-flow
         // analysis can see that best_node may be assigned.
         const the_stack: any[] = [...document.ast.nodes];
+        let iteration_count = 0;
         while (the_stack.length > 0) {
             const node = the_stack.pop();
             if (!node || typeof node !== 'object') {
                 continue;
+            }
+
+            // Periodic cancellation check (Req 5.2, 5.4)
+            if (++iteration_count % 500 === 0 && cancellation_token?.isCancellationRequested) {
+                return null;
             }
 
             if (node.type === 'macro_def') {

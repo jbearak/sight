@@ -488,6 +488,7 @@ export interface StataLSPConfig {
   adoPaths: string[];
   indexWorkspace: boolean;
   cross_file: CrossFileConfig;
+  debug?: boolean;
 }
 
 // Command Metadata System Types

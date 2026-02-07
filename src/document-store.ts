@@ -36,16 +36,25 @@ export interface DocumentState {
 
   // Resolved working directory from @lsp-cd directive (for forward scope resolution)
   working_directory?: string;
+
+  // Line-bucketed token index for O(1) line lookup (Req 6.1, 12.1)
+  token_line_index: Map<number, Token[]>;
 }
 
 export class DocumentStore {
   private documents: Map<string, DocumentState> = new Map();
   private access_order: Set<string> = new Set(); // LRU tracking via insertion order
   private active_updates: Map<string, Promise<void>> = new Map();
+  private in_flight_counts: Map<string, number> = new Map();
   private readonly MAX_DOCUMENTS = 50;
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
   private workspace_root: string | undefined;
   private scope_resolver: ScopeResolver | undefined;
+  private disposed: boolean = false;
+
+  // Generation counters for close-vs-update safety (Req 16.1, 16.2)
+  private generations: Map<string, number> = new Map();
+  private closed_generations: Map<string, number> = new Map();
 
   private metrics: DocumentStoreMetrics = {
     parse_count: 0,
@@ -101,15 +110,47 @@ export class DocumentStore {
     return this.scope_resolver;
   }
   /**
+   * Dispose the document store by awaiting all active update
+   * promises and clearing the map. (Req 1.3)
+   *
+   * Only clears active_updates; other maps (documents,
+   * generations, etc.) are left for GC since the store
+   * instance is discarded after dispose.
+   *
+   * Sets disposed flag to prevent further use.
+   */
+  async dispose(): Promise<void> {
+    this.disposed = true;
+    const the_promises = Array.from(this.active_updates.values());
+    await Promise.allSettled(the_promises);
+    this.active_updates.clear();
+  }
+
+  /**
+   * Check if the store has been disposed.
+   * Throws an error if called after disposal.
+   */
+  private check_disposed(): void {
+    if (this.disposed) {
+      throw new Error('DocumentStore has been disposed');
+    }
+  }
+
+  /**
    * Open a document and parse it.
    * Async to support parse timeout wrapper.
    */
   async open(uri: string, content: string, version: number, workspace_symbols?: SymbolTable): Promise<void> {
+    this.check_disposed();
+    // Capture generation at start of operation (Req 16.2)
+    const generation = (this.generations.get(uri) ?? 0) + 1;
+    this.generations.set(uri, generation);
+    this.increment_in_flight(uri);
+
     const operation = async () => {
       this.evict_if_needed(content.length);
       const state = await this.create_document_state(uri, content, version, workspace_symbols);
-      this.documents.set(uri, state);
-      this.touch_access(uri);
+      this.commit_state(uri, state, generation);
     };
 
     const promise = operation();
@@ -120,6 +161,7 @@ export class DocumentStore {
       if (this.active_updates.get(uri) === promise) {
         this.active_updates.delete(uri);
       }
+      this.decrement_in_flight(uri);
     }
   }
 
@@ -134,6 +176,12 @@ export class DocumentStore {
     version: number,
     workspace_symbols?: SymbolTable
   ): Promise<void> {
+    this.check_disposed();
+    // Capture generation at start of operation (Req 16.2)
+    const generation = (this.generations.get(uri) ?? 0) + 1;
+    this.generations.set(uri, generation);
+    this.increment_in_flight(uri);
+
     const operation = async () => {
       const state = this.documents.get(uri);
       if (!state) {
@@ -151,9 +199,11 @@ export class DocumentStore {
       // Apply text changes
       const new_content = this.apply_changes(state.content, changes, state.line_offsets);
 
-      // Fast path: skip if content unchanged (e.g., didSave with no edits)
+      // Fast path: skip if content unchanged (e.g., didSave with no edits).
+      // Safe to mutate in place: this path is synchronous (no await
+      // between the .get() above and this mutation), so close()
+      // cannot interleave.
       if (new_content === state.content) {
-        // Just update version, reuse everything else
         state.version = version;
         this.metrics.cache_hits++;
         return;
@@ -166,8 +216,7 @@ export class DocumentStore {
         version,
         workspace_symbols
       );
-      this.documents.set(uri, new_state);
-      this.touch_access(uri);
+      this.commit_state(uri, new_state, generation);
     };
 
     const promise = operation();
@@ -178,6 +227,7 @@ export class DocumentStore {
       if (this.active_updates.get(uri) === promise) {
         this.active_updates.delete(uri);
       }
+      this.decrement_in_flight(uri);
     }
   }
 
@@ -192,11 +242,17 @@ export class DocumentStore {
   }
 
   close(uri: string): void {
+    this.check_disposed();
+    // Increment generation and record as closed (Req 16.1)
+    const current = (this.generations.get(uri) ?? 0) + 1;
+    this.generations.set(uri, current);
+    this.closed_generations.set(uri, current);
     this.documents.delete(uri);
     this.access_order.delete(uri);
   }
 
   get(uri: string): DocumentState | undefined {
+    this.check_disposed();
     const state = this.documents.get(uri);
     if (state) {
       this.touch_access(uri);
@@ -205,6 +261,7 @@ export class DocumentStore {
   }
 
   getAll(): DocumentState[] {
+    this.check_disposed();
     return Array.from(this.documents.values());
   }
 
@@ -213,6 +270,74 @@ export class DocumentStore {
    */
   get_metrics(): DocumentStoreMetrics {
     return { ...this.metrics };
+  }
+
+  /**
+   * Commit a document state, guarded by generation counter.
+   * Discards stale updates if the document was closed after
+   * this update started, or if a newer update has already
+   * committed. (Req 16.2)
+   */
+  private commit_state(
+    uri: string,
+    state: DocumentState,
+    generation: number
+  ): void {
+    const closed_gen = this.closed_generations.get(uri);
+    if (closed_gen !== undefined && generation <= closed_gen) {
+      return; // Discard stale update (document closed)
+    }
+    // Discard if a newer update has already committed (Req 16.2)
+    const current_gen = this.generations.get(uri) ?? 0;
+    if (generation < current_gen) {
+      return; // A newer update has already committed
+    }
+    this.documents.set(uri, state);
+    this.touch_access(uri);
+  }
+
+  /**
+   * Increment in-flight operation count for a URI.
+   */
+  private increment_in_flight(uri: string): void {
+    this.in_flight_counts.set(
+      uri,
+      (this.in_flight_counts.get(uri) ?? 0) + 1
+    );
+  }
+
+  /**
+   * Decrement in-flight operation count for a URI.
+   * When the count reaches zero and the document is no longer open,
+   * cleans up closed_generations and generations to prevent
+   * unbounded growth.
+   */
+  private decrement_in_flight(uri: string): void {
+    const count = (this.in_flight_counts.get(uri) ?? 0) - 1;
+    if (count < 0) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(
+          `decrement_in_flight: negative count for ${uri} ` +
+          `(no matching increment)`
+        );
+      }
+      // Treat negative as zero to prevent invalid state
+      this.in_flight_counts.delete(uri);
+      if (!this.documents.has(uri)) {
+        this.closed_generations.delete(uri);
+        this.generations.delete(uri);
+      }
+      return;
+    }
+    if (count === 0) {
+      this.in_flight_counts.delete(uri);
+      if (!this.documents.has(uri)) {
+        this.closed_generations.delete(uri);
+        this.generations.delete(uri);
+      }
+    } else {
+      this.in_flight_counts.set(uri, count);
+    }
   }
 
   /**
@@ -478,6 +603,9 @@ export class DocumentStore {
         context_tracker: my_context_tracker,
         line_offsets: lex_result.result!.line_offsets,
         forward_calls: [],
+        token_line_index: this.build_token_line_index(
+          lex_result.result!.tokens
+        ),
       };
     }
 
@@ -523,6 +651,9 @@ export class DocumentStore {
       line_offsets: lex_result.result!.line_offsets,
       forward_calls: all_forward_calls,
       working_directory: resolved_working_directory,
+      token_line_index: this.build_token_line_index(
+        lex_result.result!.tokens
+      ),
     };
   }
 
@@ -595,6 +726,7 @@ export class DocumentStore {
       context_tracker: new ContextTracker(),
       line_offsets: offsets,
       forward_calls: [],
+      token_line_index: new Map(),
     };
   }
 
@@ -614,6 +746,65 @@ export class DocumentStore {
 
     return line_offsets;
   }
+
+  /**
+   * Build a line-bucketed token index for O(1) line lookup.
+   * Registers every line a token spans (Req 12.1).
+   */
+  private build_token_line_index(
+    tokens: Token[]
+  ): Map<number, Token[]> {
+    const index = new Map<number, Token[]>();
+    for (const my_token of tokens) {
+      const start_line = my_token.range.start.line;
+      const end_line = my_token.range.end.line;
+      for (let my_line = start_line; my_line <= end_line; my_line++) {
+        let bucket = index.get(my_line);
+        if (!bucket) {
+          bucket = [];
+          index.set(my_line, bucket);
+        }
+        bucket.push(my_token);
+      }
+    }
+    return index;
+  }
+
+  /**
+   * Look up the token at a given (line, character) position using
+   * the precomputed line-bucketed index.  Returns `undefined` when
+   * no token covers the position.
+   *
+   * Boundary semantics match the LSP convention: start is inclusive,
+   * end is exclusive (start <= pos < end).
+   *
+   * Complexity: O(B) where B is the number of tokens that span the
+   * queried line — typically a small constant.
+   *
+   * (Req 6.1, 6.2, 12.2)
+   */
+  get_token_at_position(
+    state: DocumentState,
+    line: number,
+    character: number
+  ): Token | undefined {
+    const bucket = state.token_line_index.get(line);
+    if (!bucket) return undefined;
+    for (const my_token of bucket) {
+      const start = my_token.range.start;
+      const end = my_token.range.end;
+      // Check if (line, character) falls within [start, end)
+      const after_start = line > start.line
+        || (line === start.line && character >= start.character);
+      const before_end = line < end.line
+        || (line === end.line && character < end.character);
+      if (after_start && before_end) {
+        return my_token;
+      }
+    }
+    return undefined;
+  }
+
 
   /**
    * Build diagnostics from lexer, parser, and analyzer errors.

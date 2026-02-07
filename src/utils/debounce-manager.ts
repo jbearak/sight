@@ -50,6 +50,18 @@ export interface DebounceManager {
      * Get current metrics.
      */
     get_metrics(): DebounceMetrics;
+
+    /**
+     * Wait for any pending debounce callback for the URI to complete.
+     * Resolves immediately if no debounce is pending.
+     */
+    wait_for_debounce(uri: string): Promise<void>;
+
+    /**
+     * Dispose the debounce manager: cancel all pending timers,
+     * clear the parse queue, and reject further schedule_validation calls.
+     */
+    dispose(): void;
 }
 
 /**
@@ -89,6 +101,13 @@ export class DocumentDebounceManager implements DebounceManager {
     private readonly MAX_QUEUE_LENGTH = 20;
     private parse_queue: ParseQueueItem[] = [];
     private current_versions: Map<string, number> = new Map();
+
+    // Dispose flag — when true, schedule_validation is a no-op
+    private disposed: boolean = false;
+
+    // Pending debounce promise tracking for wait_for_debounce
+    private pending_promises: Map<string, Promise<void>> = new Map();
+    private pending_resolvers: Map<string, () => void> = new Map();
 
     // Metrics
     private metrics: DebounceMetrics = {
@@ -131,6 +150,8 @@ export class DocumentDebounceManager implements DebounceManager {
         version: number,
         callback: () => Promise<void>
     ): void {
+        if (this.disposed) return;
+
         // Track current version for staleness check
         const prev_version = this.current_versions.get(uri);
         this.current_versions.set(uri, version);
@@ -143,10 +164,41 @@ export class DocumentDebounceManager implements DebounceManager {
         // Cancel existing timer for this URI
         this.cancel(uri);
 
+        // Set up debounce promise tracking for wait_for_debounce
+        // Resolve any previous pending promise before creating a new one
+        const prev_resolver = this.pending_resolvers.get(uri);
+        if (prev_resolver) {
+            prev_resolver();
+        }
+        const promise = new Promise<void>((resolve) => {
+            this.pending_resolvers.set(uri, resolve);
+        });
+        this.pending_promises.set(uri, promise);
+
         // Schedule new timer
         const timer = setTimeout(() => {
             this.pending_timers.delete(uri);
-            this.enqueue_parse(uri, version, callback);
+            // Capture the current resolver at timer-fire time so
+            // a concurrent schedule_validation can't steal it
+            const my_resolver = this.pending_resolvers.get(uri);
+            this.enqueue_parse(uri, version, async () => {
+                try {
+                    await callback();
+                } finally {
+                    if (my_resolver) {
+                        my_resolver();
+                        // Only clean up if we're still the
+                        // current resolver
+                        if (
+                            this.pending_resolvers.get(uri)
+                            === my_resolver
+                        ) {
+                            this.pending_resolvers.delete(uri);
+                            this.pending_promises.delete(uri);
+                        }
+                    }
+                }
+            });
         }, this.debounce_ms);
 
         this.pending_timers.set(uri, timer);
@@ -167,6 +219,14 @@ export class DocumentDebounceManager implements DebounceManager {
                 `Parse queue full, dropping ${uri} v${version}`
             );
             this.metrics.dropped_parses++;
+            // Resolve the pending debounce promise so waiters
+            // are not left hanging
+            const resolve = this.pending_resolvers.get(uri);
+            if (resolve) {
+                resolve();
+                this.pending_resolvers.delete(uri);
+                this.pending_promises.delete(uri);
+            }
             return;
         }
 
@@ -257,12 +317,21 @@ export class DocumentDebounceManager implements DebounceManager {
 
     /**
      * Cancel pending validation for a document.
+     * Resolves any pending wait_for_debounce promises so
+     * waiters are not left hanging.
      */
     cancel(uri: string): void {
         const existing = this.pending_timers.get(uri);
         if (existing) {
             clearTimeout(existing);
             this.pending_timers.delete(uri);
+        }
+        // Resolve any pending debounce promise
+        const resolve = this.pending_resolvers.get(uri);
+        if (resolve) {
+            resolve();
+            this.pending_resolvers.delete(uri);
+            this.pending_promises.delete(uri);
         }
         // Also remove from queue if pending
         this.parse_queue = this.parse_queue.filter(
@@ -297,5 +366,44 @@ export class DocumentDebounceManager implements DebounceManager {
      */
     get_metrics(): DebounceMetrics {
         return { ...this.metrics };
+    }
+
+    /**
+     * Wait for any pending debounce callback for the URI to complete.
+     * Resolves immediately if no debounce is pending (Req 10.3).
+     */
+    wait_for_debounce(uri: string): Promise<void> {
+        return this.pending_promises.get(uri) ?? Promise.resolve();
+    }
+
+    /**
+     * Dispose the debounce manager: set disposed flag, cancel all
+     * pending timers, empty the parse queue, clear version tracking,
+     * and resolve any pending debounce promises (Req 1.2, 1.5).
+     * Idempotent — second call is a no-op.
+     */
+    dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+
+        // Clear all pending timers
+        for (const my_timer of this.pending_timers.values()) {
+            clearTimeout(my_timer);
+        }
+        this.pending_timers.clear();
+
+        // Clear parse queue
+        this.parse_queue = [];
+
+        // Clear version tracking
+        this.current_versions.clear();
+
+        // Resolve any pending debounce promises so waiters
+        // are not left hanging
+        for (const my_resolver of this.pending_resolvers.values()) {
+            my_resolver();
+        }
+        this.pending_resolvers.clear();
+        this.pending_promises.clear();
     }
 }

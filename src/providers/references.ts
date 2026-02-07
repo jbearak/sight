@@ -10,6 +10,7 @@ import {
     Position,
     Range,
     ReferenceContext,
+    CancellationToken,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
 import { LanguageContext, Token, ContextRange } from '../types';
@@ -91,7 +92,8 @@ export class ReferencesProvider {
         tokens: Token[],
         uri: string,
         search_context: ReferenceSearchContext,
-        context_ranges?: ContextRange[]
+        context_ranges?: ContextRange[],
+        cancellation_token?: CancellationToken
     ): TokenMatch[] {
         const matches: TokenMatch[] = [];
         const is_macro = search_context.symbol_type === 'local_macro' || 
@@ -100,7 +102,13 @@ export class ReferencesProvider {
         // Pre-build embedded context lookup for O(1) checks - avoids O(n*m)
         const embedded_lines = is_macro ? null : this.build_embedded_context_lines(context_ranges);
 
-        for (const token of tokens) {
+        for (let i = 0; i < tokens.length; i++) {
+            // Periodic cancellation check (Req 5.3, 5.4)
+            if (i % 500 === 0 && cancellation_token?.isCancellationRequested) {
+                return matches;
+            }
+
+            const token = tokens[i];
             let token_name: string | null = null;
 
             // Extract name based on token type and search context
@@ -197,8 +205,14 @@ export class ReferencesProvider {
         position: Position,
         context: ReferenceContext,
         workspace_indexer?: WorkspaceIndexer,
-        context_tracker?: IContextTracker
+        context_tracker?: IContextTracker,
+        cancellation_token?: CancellationToken
     ): Promise<Location[]> {
+        // Check cancellation before starting (Req 5.3)
+        if (cancellation_token?.isCancellationRequested) {
+            return [];
+        }
+
         // Check if we're in an embedded language context
         if (context_tracker) {
             const my_context = context_tracker.get_context_at_position(position);
@@ -209,13 +223,18 @@ export class ReferencesProvider {
                     document,
                     position,
                     context,
-                    workspace_indexer
+                    workspace_indexer,
+                    cancellation_token
                 );
             }
         }
 
         // Identify the symbol at cursor position
-        const identified_symbol = this.identify_symbol_at_position(document, position);
+        const identified_symbol = this.identify_symbol_at_position(
+            document,
+            position,
+            cancellation_token
+        );
         if (!identified_symbol) {
             return [];
         }
@@ -226,7 +245,8 @@ export class ReferencesProvider {
             identified_symbol.type,
             context.includeDeclaration,
             workspace_indexer,
-            document.context_ranges
+            document.context_ranges,
+            cancellation_token
         );
     }
 
@@ -322,7 +342,8 @@ export class ReferencesProvider {
      */
     private identify_symbol_at_position(
         document: DocumentState,
-        position: Position
+        position: Position,
+        cancellation_token?: CancellationToken
     ): IdentifiedSymbol | null {
         const word_info = this.get_word_at_position(document, position);
         if (!word_info) {
@@ -354,17 +375,25 @@ export class ReferencesProvider {
             };
         }
 
-        // For other symbols, we need to check the token type at position
-        if (document.tokens) {
-            for (const token of document.tokens) {
-                if (this.position_in_range(position, token.range)) {
-                    switch (token.type) {
+        // Use line-bucketed index for O(1) line lookup when
+        // available; fall back to linear scan otherwise
+        if (cancellation_token?.isCancellationRequested) {
+            return null;
+        }
+        const the_tokens_to_check: Token[] | undefined =
+            document.token_line_index?.size > 0
+                ? document.token_line_index.get(position.line)
+                : document.tokens;
+        if (the_tokens_to_check) {
+            for (const my_token of the_tokens_to_check) {
+                if (this.position_in_range(position, my_token.range)) {
+                    switch (my_token.type) {
                         case 'MACRO_REF_LOCAL':
                             return { name: word, type: 'local_macro', range };
                         case 'MACRO_REF_GLOBAL':
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
-                            // Use symbol table to determine type - avoids false positives
+                            // Use symbol table to determine type
                             if (document.symbols.programs.has(word)) {
                                 return { name: word, type: 'program', range };
                             }
@@ -395,9 +424,14 @@ export class ReferencesProvider {
         document: DocumentState,
         position: Position,
         context: ReferenceContext,
-        workspace_indexer?: WorkspaceIndexer
+        workspace_indexer?: WorkspaceIndexer,
+        cancellation_token?: CancellationToken
     ): Promise<Location[]> {
-        const identified_symbol = this.identify_symbol_at_position(document, position);
+        const identified_symbol = this.identify_symbol_at_position(
+            document,
+            position,
+            cancellation_token
+        );
         if (!identified_symbol || (identified_symbol.type !== 'local_macro' && identified_symbol.type !== 'global_macro')) {
             return [];
         }
@@ -408,7 +442,8 @@ export class ReferencesProvider {
             identified_symbol.type,
             context.includeDeclaration,
             workspace_indexer,
-            undefined // No context_ranges filtering for macros (they work across all contexts)
+            undefined, // No context_ranges filtering for macros (they work across all contexts)
+            cancellation_token
         );
     }
 
@@ -421,7 +456,8 @@ export class ReferencesProvider {
         symbol_type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix',
         include_declaration: boolean,
         workspace_indexer?: WorkspaceIndexer,
-        context_ranges?: ContextRange[]
+        context_ranges?: ContextRange[],
+        cancellation_token?: CancellationToken
     ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
             symbol_name,
@@ -438,33 +474,51 @@ export class ReferencesProvider {
                 document.tokens,
                 document.uri,
                 search_context,
-                context_ranges
+                context_ranges,
+                cancellation_token
             );
             for (const my_match of matches) {
                 locations.push({ uri: my_match.uri, range: my_match.range });
             }
         }
 
-        // Search workspace
+        // Check cancellation before workspace scan (Req 5.3)
+        if (cancellation_token?.isCancellationRequested) {
+            return this.apply_include_declaration(locations, definition, include_declaration);
+        }
+
+        // Search workspace-indexed files (Req 13.3)
         if (workspace_indexer) {
             const indexed_files = workspace_indexer.get_indexed_files();
             let file_count = 0;
             
             for (const [uri, file_data] of indexed_files.entries()) {
+                // Periodic cancellation check during workspace scan (Req 13.3)
+                if (cancellation_token?.isCancellationRequested) {
+                    break;
+                }
+
                 if (uri === document.uri) continue;
                 
                 const matches = this.scan_tokens_for_references(
                     file_data.tokens,
                     uri,
                     search_context,
-                    file_data.context_ranges
+                    file_data.context_ranges,
+                    cancellation_token
                 );
                 for (const my_match of matches) {
                     locations.push({ uri: my_match.uri, range: my_match.range });
                 }
                 
-                if (++file_count % 10 === 0) {
+                file_count++;
+                // Yield every 10 files to avoid blocking the event loop,
+                // then re-check cancellation after yielding (Req 13.3)
+                if (file_count % 10 === 0) {
                     await new Promise(resolve => setTimeout(resolve, 0));
+                    if (cancellation_token?.isCancellationRequested) {
+                        break;
+                    }
                 }
             }
         }

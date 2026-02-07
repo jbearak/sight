@@ -16,6 +16,7 @@ import { HandlerDependencies } from '../../../src/server-handlers';
  */
 export function create_mock_handler_deps(document_store: DocumentStore): HandlerDependencies {
     return {
+        debounce_manager: null,
         document_store,
         diagnostics_provider: null,
         completion_provider: null,

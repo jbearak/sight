@@ -489,4 +489,15 @@ export class ForwardScopeResolver {
             working_directory: parsed_result.working_directory,
         };
     }
+
+    /**
+     * Dispose the forward scope resolver.
+     * Called during server shutdown to release resources.
+     * The ForwardScopeResolver delegates caching to ScopeResolver,
+     * so there are no internal caches to clear here.
+     */
+    dispose(): void {
+        // No internal caches to clear — caching is delegated to ScopeResolver
+    }
+
 }
