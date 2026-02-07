@@ -121,6 +121,72 @@ function create_tracking_deps(): {
     return { deps, wait_calls };
 }
 
+/**
+ * Create deps with call-order tracking on
+ * wait_for_debounce and document_store.get.
+ */
+function create_order_tracking_deps(): {
+    deps: HandlerDependencies;
+    the_call_order: string[];
+} {
+    const the_call_order: string[] = [];
+
+    const { manager } = create_tracking_debounce_manager();
+    manager.wait_for_debounce = async () => {
+        the_call_order.push('wait_for_debounce');
+    };
+
+    const document_store = new DocumentStore();
+    const original_get = document_store.get.bind(
+        document_store
+    );
+    document_store.get = (uri: string) => {
+        the_call_order.push('document_store.get');
+        return original_get(uri);
+    };
+
+    const deps: HandlerDependencies = {
+        debounce_manager: manager,
+        document_store,
+        diagnostics_provider: null,
+        completion_provider: null,
+        hover_provider: null,
+        definition_provider: null,
+        references_provider: null,
+        symbol_provider: null,
+        formatter_provider: null,
+        workspace_indexer: null,
+        scope_resolver: null,
+        forward_scope_resolver: null,
+        rename_handler: null,
+        get_document_settings: async () => ({}) as any,
+        connection: {
+            sendDiagnostics: () => {},
+            console: { log: () => {} },
+        },
+    };
+
+    return { deps, the_call_order };
+}
+
+/**
+ * Assert that wait_for_debounce was called before
+ * document_store.get in the recorded call order.
+ */
+function assert_debounce_before_get(
+    the_call_order: string[]
+): void {
+    const debounce_idx = the_call_order.indexOf(
+        'wait_for_debounce'
+    );
+    const get_idx = the_call_order.indexOf(
+        'document_store.get'
+    );
+    expect(debounce_idx).toBeGreaterThanOrEqual(0);
+    expect(get_idx).toBeGreaterThanOrEqual(0);
+    expect(debounce_idx).toBeLessThan(get_idx);
+}
+
 describe('Request Freshness', () => {
     /**
      * Req 10.2: Completion handler awaits wait_for_debounce
@@ -146,54 +212,10 @@ describe('Request Freshness', () => {
         });
 
         it('calls wait_for_debounce before accessing document state', async () => {
-            const the_call_order: string[] = [];
-
-            const { manager } =
-                create_tracking_debounce_manager();
-
-            // Override wait_for_debounce to track order
-            const original_wait = manager.wait_for_debounce;
-            manager.wait_for_debounce = async (
-                uri: string
-            ) => {
-                the_call_order.push('wait_for_debounce');
-                await original_wait(uri);
-            };
-
-            const document_store = new DocumentStore();
-            // Override get to track order
-            const original_get = document_store.get.bind(
-                document_store
-            );
-            document_store.get = (uri: string) => {
-                the_call_order.push('document_store.get');
-                return original_get(uri);
-            };
-
-            const deps: HandlerDependencies = {
-                debounce_manager: manager,
-                document_store,
-                diagnostics_provider: null,
-                completion_provider: null,
-                hover_provider: null,
-                definition_provider: null,
-                references_provider: null,
-                symbol_provider: null,
-                formatter_provider: null,
-                workspace_indexer: null,
-                scope_resolver: null,
-                forward_scope_resolver: null,
-                rename_handler: null,
-                get_document_settings: async () =>
-                    ({}) as any,
-                connection: {
-                    sendDiagnostics: () => {},
-                    console: { log: () => {} },
-                },
-            };
+            const { deps, the_call_order } =
+                create_order_tracking_deps();
 
             const handler = create_completion_handler(deps);
-
             await handler(
                 {
                     textDocument: {
@@ -204,18 +226,7 @@ describe('Request Freshness', () => {
                 undefined
             );
 
-            // wait_for_debounce must come before
-            // document_store.get
-            const debounce_idx = the_call_order.indexOf(
-                'wait_for_debounce'
-            );
-            const get_idx = the_call_order.indexOf(
-                'document_store.get'
-            );
-
-            expect(debounce_idx).toBeGreaterThanOrEqual(0);
-            expect(get_idx).toBeGreaterThanOrEqual(0);
-            expect(debounce_idx).toBeLessThan(get_idx);
+            assert_debounce_before_get(the_call_order);
         });
     });
 
@@ -243,50 +254,10 @@ describe('Request Freshness', () => {
         });
 
         it('calls wait_for_debounce before accessing document state', async () => {
-            const the_call_order: string[] = [];
-
-            const { manager } =
-                create_tracking_debounce_manager();
-
-            manager.wait_for_debounce = async (
-                uri: string
-            ) => {
-                the_call_order.push('wait_for_debounce');
-            };
-
-            const document_store = new DocumentStore();
-            const original_get = document_store.get.bind(
-                document_store
-            );
-            document_store.get = (uri: string) => {
-                the_call_order.push('document_store.get');
-                return original_get(uri);
-            };
-
-            const deps: HandlerDependencies = {
-                debounce_manager: manager,
-                document_store,
-                diagnostics_provider: null,
-                completion_provider: null,
-                hover_provider: null,
-                definition_provider: null,
-                references_provider: null,
-                symbol_provider: null,
-                formatter_provider: null,
-                workspace_indexer: null,
-                scope_resolver: null,
-                forward_scope_resolver: null,
-                rename_handler: null,
-                get_document_settings: async () =>
-                    ({}) as any,
-                connection: {
-                    sendDiagnostics: () => {},
-                    console: { log: () => {} },
-                },
-            };
+            const { deps, the_call_order } =
+                create_order_tracking_deps();
 
             const handler = create_hover_handler(deps);
-
             await handler(
                 {
                     textDocument: {
@@ -297,16 +268,7 @@ describe('Request Freshness', () => {
                 undefined
             );
 
-            const debounce_idx = the_call_order.indexOf(
-                'wait_for_debounce'
-            );
-            const get_idx = the_call_order.indexOf(
-                'document_store.get'
-            );
-
-            expect(debounce_idx).toBeGreaterThanOrEqual(0);
-            expect(get_idx).toBeGreaterThanOrEqual(0);
-            expect(debounce_idx).toBeLessThan(get_idx);
+            assert_debounce_before_get(the_call_order);
         });
     });
 
@@ -334,50 +296,10 @@ describe('Request Freshness', () => {
         });
 
         it('calls wait_for_debounce before accessing document state', async () => {
-            const the_call_order: string[] = [];
-
-            const { manager } =
-                create_tracking_debounce_manager();
-
-            manager.wait_for_debounce = async (
-                uri: string
-            ) => {
-                the_call_order.push('wait_for_debounce');
-            };
-
-            const document_store = new DocumentStore();
-            const original_get = document_store.get.bind(
-                document_store
-            );
-            document_store.get = (uri: string) => {
-                the_call_order.push('document_store.get');
-                return original_get(uri);
-            };
-
-            const deps: HandlerDependencies = {
-                debounce_manager: manager,
-                document_store,
-                diagnostics_provider: null,
-                completion_provider: null,
-                hover_provider: null,
-                definition_provider: null,
-                references_provider: null,
-                symbol_provider: null,
-                formatter_provider: null,
-                workspace_indexer: null,
-                scope_resolver: null,
-                forward_scope_resolver: null,
-                rename_handler: null,
-                get_document_settings: async () =>
-                    ({}) as any,
-                connection: {
-                    sendDiagnostics: () => {},
-                    console: { log: () => {} },
-                },
-            };
+            const { deps, the_call_order } =
+                create_order_tracking_deps();
 
             const handler = create_definition_handler(deps);
-
             await handler(
                 {
                     textDocument: {
@@ -388,16 +310,7 @@ describe('Request Freshness', () => {
                 undefined
             );
 
-            const debounce_idx = the_call_order.indexOf(
-                'wait_for_debounce'
-            );
-            const get_idx = the_call_order.indexOf(
-                'document_store.get'
-            );
-
-            expect(debounce_idx).toBeGreaterThanOrEqual(0);
-            expect(get_idx).toBeGreaterThanOrEqual(0);
-            expect(debounce_idx).toBeLessThan(get_idx);
+            assert_debounce_before_get(the_call_order);
         });
     });
 
@@ -428,50 +341,10 @@ describe('Request Freshness', () => {
         });
 
         it('calls wait_for_debounce before accessing document state', async () => {
-            const the_call_order: string[] = [];
-
-            const { manager } =
-                create_tracking_debounce_manager();
-
-            manager.wait_for_debounce = async (
-                uri: string
-            ) => {
-                the_call_order.push('wait_for_debounce');
-            };
-
-            const document_store = new DocumentStore();
-            const original_get = document_store.get.bind(
-                document_store
-            );
-            document_store.get = (uri: string) => {
-                the_call_order.push('document_store.get');
-                return original_get(uri);
-            };
-
-            const deps: HandlerDependencies = {
-                debounce_manager: manager,
-                document_store,
-                diagnostics_provider: null,
-                completion_provider: null,
-                hover_provider: null,
-                definition_provider: null,
-                references_provider: null,
-                symbol_provider: null,
-                formatter_provider: null,
-                workspace_indexer: null,
-                scope_resolver: null,
-                forward_scope_resolver: null,
-                rename_handler: null,
-                get_document_settings: async () =>
-                    ({}) as any,
-                connection: {
-                    sendDiagnostics: () => {},
-                    console: { log: () => {} },
-                },
-            };
+            const { deps, the_call_order } =
+                create_order_tracking_deps();
 
             const handler = create_references_handler(deps);
-
             await handler(
                 {
                     textDocument: {
@@ -485,16 +358,7 @@ describe('Request Freshness', () => {
                 undefined
             );
 
-            const debounce_idx = the_call_order.indexOf(
-                'wait_for_debounce'
-            );
-            const get_idx = the_call_order.indexOf(
-                'document_store.get'
-            );
-
-            expect(debounce_idx).toBeGreaterThanOrEqual(0);
-            expect(get_idx).toBeGreaterThanOrEqual(0);
-            expect(debounce_idx).toBeLessThan(get_idx);
+            assert_debounce_before_get(the_call_order);
         });
     });
 
