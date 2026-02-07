@@ -233,70 +233,79 @@ describe('Completion isIncomplete Property Tests', () => {
                 async (my_line) => {
                     const my_uri = 'file:///biconditional.do';
                     const document_store = new DocumentStore();
-                    await document_store.open(
-                        my_uri,
-                        my_line,
-                        1
-                    );
-
-                    const deps: HandlerDependencies = {
-                        debounce_manager: null,
-                        document_store,
-                        diagnostics_provider: null,
-                        completion_provider: {
-                            get_completions: async () => [],
-                        },
-                        hover_provider: null,
-                        definition_provider: null,
-                        references_provider: null,
-                        symbol_provider: null,
-                        formatter_provider: null,
-                        workspace_indexer: null,
-                        scope_resolver: null,
-                        forward_scope_resolver: null,
-                        rename_handler: null,
-                        get_document_settings: async () =>
-                            ({}) as any,
-                        connection: {
-                            sendDiagnostics: () => {},
-                            console: { log: () => {} },
-                        },
-                    } as any;
-
-                    const handler =
-                        create_completion_handler(deps);
-                    const my_position = Position.create(
-                        0,
-                        my_line.length
-                    );
-
-                    const my_result = await handler(
-                        {
-                            textDocument: { uri: my_uri },
-                            position: my_position,
-                        },
-                        undefined
-                    );
-
-                    const my_document =
-                        document_store.get(my_uri)!;
-                    const my_context =
-                        detect_completion_context(
-                            my_document,
-                            my_position,
-                            my_document.tokens
+                    try {
+                        await document_store.open(
+                            my_uri,
+                            my_line,
+                            1
                         );
 
-                    // Biconditional: handler isIncomplete
-                    // ↔ macro context
-                    if (my_context.type === 'macro') {
-                        expect(
-                            my_result.isIncomplete
-                        ).toBe(true);
-                    } else {
-                        expect(
-                            my_result.isIncomplete
-                        ).toBe(false);
+                        const deps: HandlerDependencies = {
+                            debounce_manager: null,
+                            document_store,
+                            diagnostics_provider: null,
+                            completion_provider: {
+                                get_completions:
+                                    async () => [],
+                            },
+                            hover_provider: null,
+                            definition_provider: null,
+                            references_provider: null,
+                            symbol_provider: null,
+                            formatter_provider: null,
+                            workspace_indexer: null,
+                            scope_resolver: null,
+                            forward_scope_resolver: null,
+                            rename_handler: null,
+                            get_document_settings:
+                                async () => ({}) as any,
+                            connection: {
+                                sendDiagnostics: () => {},
+                                console: {
+                                    log: () => {},
+                                },
+                            },
+                        } as any;
+
+                        const handler =
+                            create_completion_handler(deps);
+                        const my_position = Position.create(
+                            0,
+                            my_line.length
+                        );
+
+                        const my_result = await handler(
+                            {
+                                textDocument: {
+                                    uri: my_uri,
+                                },
+                                position: my_position,
+                            },
+                            undefined
+                        );
+
+                        const my_document =
+                            document_store.get(my_uri)!;
+                        const my_context =
+                            detect_completion_context(
+                                my_document,
+                                my_position,
+                                my_document.tokens
+                            );
+
+                        // Biconditional: handler
+                        // isIncomplete ↔ macro context
+                        if (my_context.type === 'macro') {
+                            expect(
+                                my_result.isIncomplete
+                            ).toBe(true);
+                        } else {
+                            expect(
+                                my_result.isIncomplete
+                            ).toBe(false);
+                        }
+                    } finally {
+                        await document_store.dispose();
                     }
                 }
             ),
