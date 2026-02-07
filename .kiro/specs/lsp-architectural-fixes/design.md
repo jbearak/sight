@@ -2,7 +2,7 @@
 
 ## Overview
 
-This design addresses 9 architectural findings from a review of the Sight Stata LSP. The fixes span resource lifecycle management, debounce pipeline correctness, handler allocation efficiency, cancellation token compliance, token position lookup performance, map cleanup, logging overhead, and completion caching. All changes are internal to the server — no protocol-level or client-facing API changes are required.
+This design addresses 16 architectural findings from a review of the Sight Stata LSP. The fixes span resource lifecycle management, debounce pipeline correctness, handler allocation efficiency, cancellation token compliance, token position lookup performance, map cleanup, logging overhead, completion caching, request freshness, scope resolution content sources, notification handler dependencies, shutdown cleanup for long-running services, and update safety. All changes are internal to the server — no protocol-level or client-facing API changes are required.
 
 ## Architecture
 
@@ -17,11 +17,12 @@ graph TD
     D --> F[Token Position Index<br/>new: line-bucketed map]
 ```
 
-Changes are grouped into three categories:
+Changes are grouped into four categories:
 
-1. **Lifecycle & Debounce** (Findings 1, 2, 3, 8): Add `dispose()` methods, move parse into debounce callback, route cross-file revalidation through debounce, clean up pending_revalidations map.
-2. **Handler Efficiency** (Findings 4, 6, 9, 10): Register handlers once with a mutable deps container, add cancellation checks in providers, gate debug logging, return context-aware `isIncomplete`.
-3. **Performance** (Finding 7): Add a line-bucketed token index to DocumentState for O(1) line + small linear scan lookups.
+1. **Lifecycle & Debounce** (Findings 1, 2, 3, 8, 15, 16): Add `dispose()` methods, move parse into debounce callback, route cross-file revalidation through debounce, clean up pending_revalidations map, cancel background indexer, prevent closed-doc resurrection.
+2. **Handler Efficiency** (Findings 4, 6, 9, 10, 14): Register handlers once with a mutable deps container (including notifications/custom requests), add cancellation checks in providers and resolvers, gate debug logging, return context-aware `isIncomplete`.
+3. **Correctness** (Findings 10, 11, 12): Ensure request freshness with debounced parse, read scope resolution content from TextDocuments, and keep token index correct for multi-line spans.
+4. **Performance** (Finding 7): Add a line-bucketed token index to DocumentState for O(1) line + small linear scan lookups.
 
 ## Components and Interfaces
 
@@ -123,6 +124,8 @@ export function create_shutdown_handler(
         // Dispose scope resolvers
         deps?.scope_resolver?.dispose();
         deps?.forward_scope_resolver?.dispose();
+        // Cancel background indexing
+        deps?.workspace_indexer?.cancel();
 
         // Dispose rename handler
         deps?.rename_handler?.dispose();
@@ -189,7 +192,74 @@ async function validate_text_document(text_document: TextDocument): Promise<void
 }
 ```
 
-### 4. Cross-File Revalidation Through Debounce
+### 4. Request Freshness with Debounce
+
+Add an explicit debounce wait to ensure handlers read the latest state:
+
+```typescript
+// In debounce-manager.ts
+class DocumentDebounceManager implements DebounceManager {
+    private pending_promises: Map<string, Promise<void>> = new Map();
+    private pending_resolvers: Map<string, () => void> = new Map();
+
+    wait_for_debounce(uri: string): Promise<void> {
+        return this.pending_promises.get(uri) ?? Promise.resolve();
+    }
+
+    schedule_validation(uri: string, version: number, callback: () => Promise<void>): void {
+        // ... existing scheduling logic ...
+        const promise = new Promise<void>((resolve) => {
+            this.pending_resolvers.set(uri, resolve);
+        });
+        this.pending_promises.set(uri, promise);
+        this.enqueue_parse(uri, version, async () => {
+            try {
+                await callback();
+            } finally {
+                const resolve = this.pending_resolvers.get(uri);
+                resolve?.();
+                this.pending_resolvers.delete(uri);
+                this.pending_promises.delete(uri);
+            }
+        });
+    }
+}
+```
+
+```typescript
+// In server-handlers.ts (completion/hover/definition/references)
+await deps.debounce_manager?.wait_for_debounce(params.textDocument.uri);
+```
+
+### 5. Scope Resolver Content Source
+
+Ensure cross-file resolution uses the freshest in-memory content:
+
+```typescript
+// In server-factory.ts (ScopeResolver content provider)
+scope_resolver = new ScopeResolver(logger, {
+    read_file: async (uri: string) => {
+        const open_doc = documents.get(uri);
+        if (open_doc) {
+            return open_doc.getText();
+        }
+        const fs_path = URI.parse(uri).fsPath;
+        return fs.promises.readFile(fs_path, 'utf8');
+    },
+    exists: async (uri: string) => {
+        if (documents.get(uri)) return true;
+        const fs_path = URI.parse(uri).fsPath;
+        try {
+            await fs.promises.access(fs_path);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+});
+```
+
+### 6. Cross-File Revalidation Through Debounce
 
 Replace `setTimeout(() => validate_text_document(...), 0)` with `debounce_manager.schedule_validation`:
 
@@ -210,13 +280,14 @@ for (const my_callee_uri of sorted_callees) {
 
 Since `validate_text_document` now schedules through the debounce manager internally, calling it directly is sufficient — the debounce manager will coalesce multiple calls for the same URI.
 
-### 5. Stable Handler Registration
+### 7. Stable Handler Registration
 
 Replace per-request `get_handler_dependencies()` + `create_*_handler()` with a mutable container:
 
 ```typescript
 // In server-factory.ts
 const handler_deps: HandlerDependencies = {
+    debounce_manager,
     document_store,
     diagnostics_provider: null,
     completion_provider: null,
@@ -246,6 +317,8 @@ connection.onCompletion(completion_handler);
 connection.onHover(hover_handler);
 connection.onDefinition(definition_handler);
 // ... etc
+connection.onDidChangeWatchedFiles(create_did_change_watched_files_handler(handler_deps, ...));
+connection.onRequest('sight/getWorkingDirectory', create_get_working_directory_handler(handler_deps));
 
 // Later, when providers are initialized:
 handler_deps.completion_provider = completion_provider;
@@ -255,7 +328,7 @@ handler_deps.hover_provider = hover_provider;
 
 The handler closures capture `handler_deps` by reference, so mutating the object's properties makes new providers visible to already-registered handlers.
 
-### 6. CancellationToken Checking in Providers
+### 8. CancellationToken Checking in Providers and Resolvers
 
 Add periodic cancellation checks in token-scanning loops. The check interval of 500 iterations balances responsiveness against check overhead:
 
@@ -272,9 +345,11 @@ for (let i = 0; i < tokens.length; i++) {
 Similar checks added in:
 - `hover.ts`: `get_word_at_position`, `collect_all_symbol_matches`
 - `definition.ts`: symbol resolution loops
-- `references.ts`: token scanning loops
+- `references.ts`: token scanning loops and workspace-index scans
+- `scope-resolver/index.ts`: traversal loops (backward and forward scope resolution)
+- `forward-scope-resolver/index.ts`: forward-call traversal loops
 
-### 7. Token Position Index
+### 9. Token Position Index
 
 Add a line-bucketed token map to `DocumentState`:
 
@@ -294,21 +369,15 @@ Build the index during `create_document_state`:
 private build_token_line_index(tokens: Token[]): Map<number, Token[]> {
     const index = new Map<number, Token[]>();
     for (const my_token of tokens) {
-        const line = my_token.range.start.line;
-        let bucket = index.get(line);
-        if (!bucket) {
-            bucket = [];
-            index.set(line, bucket);
-        }
-        bucket.push(my_token);
-        // If token spans multiple lines, also index the end line
-        if (my_token.range.end.line !== line) {
-            let end_bucket = index.get(my_token.range.end.line);
-            if (!end_bucket) {
-                end_bucket = [];
-                index.set(my_token.range.end.line, end_bucket);
+        const start_line = my_token.range.start.line;
+        const end_line = my_token.range.end.line;
+        for (let my_line = start_line; my_line <= end_line; my_line++) {
+            let bucket = index.get(my_line);
+            if (!bucket) {
+                bucket = [];
+                index.set(my_line, bucket);
             }
-            end_bucket.push(my_token);
+            bucket.push(my_token);
         }
     }
     return index;
@@ -337,7 +406,7 @@ get_token_at_position(
 }
 ```
 
-### 8. Pending Revalidations Cleanup
+### 10. Pending Revalidations Cleanup
 
 Delete entries after revalidation completes:
 
@@ -356,7 +425,7 @@ debounce_manager.schedule_validation(
 );
 ```
 
-### 9. Gated Debug Logging
+### 11. Gated Debug Logging
 
 Add a `debug` field to `StataLSPConfig`:
 
@@ -397,7 +466,7 @@ if (is_debug && scope_resolver) {
 }
 ```
 
-### 10. Context-Aware isIncomplete
+### 12. Context-Aware isIncomplete
 
 The completion handler determines `isIncomplete` based on the completion context type:
 
@@ -413,6 +482,48 @@ return {
 ```
 
 The `detect_completion_context` function already exists in the completion provider and returns a context with a `type` field. The handler can use this to determine if the context is macro-related. For the fallback path (no document state), `isIncomplete: true` is preserved.
+
+### 13. Document Close vs In-Flight Update Safety
+
+Guard against stale async updates re-inserting closed documents:
+
+```typescript
+// In document-store.ts
+class DocumentStore {
+    private closed_generations: Map<string, number> = new Map();
+    private generations: Map<string, number> = new Map();
+
+    close(uri: string): void {
+        const current = (this.generations.get(uri) ?? 0) + 1;
+        this.generations.set(uri, current);
+        this.closed_generations.set(uri, current);
+        this.documents.delete(uri);
+        this.access_order.delete(uri);
+    }
+
+    private async commit_state(uri: string, state: DocumentState, generation: number): Promise<void> {
+        const closed_gen = this.closed_generations.get(uri);
+        if (closed_gen !== undefined && generation <= closed_gen) {
+            return; // Discard stale update
+        }
+        this.documents.set(uri, state);
+        this.touch_access(uri);
+    }
+}
+```
+
+### 14. Known Limitation: Parse Timeout Preemption
+
+The current `with_parse_timeout` wrapper cannot preempt long-running synchronous
+lexer/parser/analyzer work because it runs on the main event loop. The timeout
+is best-effort and only reports slow operations after completion. A future
+improvement (out of scope for this spec) is to move parsing to a worker thread
+or add cooperative yields/cancellation inside parser stages.
+
+#### Acceptance Criteria
+
+1. THE design SHALL explicitly document that `with_parse_timeout` is best-effort and does not preempt synchronous parse work
+2. THE design SHALL state that true preemption requires moving parse work off the main thread or adding cooperative yields/cancellation inside parser stages
 
 ## Data Models
 
@@ -437,6 +548,14 @@ export interface DocumentState {
 }
 ```
 
+### Modified: HandlerDependencies
+
+```typescript
+export interface HandlerDependencies {
+    debounce_manager?: DocumentDebounceManager;
+    // ... existing fields ...
+}
+```
 ### Modified: StataLSPConfig
 
 ```typescript
@@ -454,12 +573,22 @@ export interface StataLSPConfig {
 }
 ```
 
-### New: DebounceManager.dispose()
+### Modified: DebounceManager
 
 ```typescript
 export interface DebounceManager {
     // ... existing methods ...
+    wait_for_debounce(uri: string): Promise<void>;
     dispose(): void;
+}
+```
+
+### New: DocumentStore Close Generation Tracking
+
+```typescript
+class DocumentStore {
+    private generations: Map<string, number>;
+    private closed_generations: Map<string, number>;
 }
 ```
 
@@ -529,6 +658,42 @@ export interface DebounceManager {
 
 **Validates: Requirements 9.1, 9.2**
 
+### Property 11: Debounce wait resolves before handler reads state
+
+*For any* URI with a pending debounce callback, `wait_for_debounce(uri)` shall
+resolve only after the callback has completed, and resolve immediately when no
+pending callback exists.
+
+**Validates: Requirements 10.1, 10.2, 10.3**
+
+### Property 12: Scope resolver uses in-memory content when open
+
+*For any* URI that is open in TextDocuments, the Scope_Resolver content provider
+shall return the TextDocuments buffer contents, not the Document_Store snapshot.
+
+**Validates: Requirements 11.1, 11.3**
+
+### Property 13: Cancellation short-circuits cross-file resolution
+
+*For any* pre-cancelled `CancellationToken`, scope resolution and forward-call
+resolution shall exit before traversing the full call graph.
+
+**Validates: Requirements 13.1, 13.2**
+
+### Property 14: Closed documents are not reinserted
+
+*For any* document closed while an update is in-flight, the completed update
+shall not reinsert document state if the close generation is newer.
+
+**Validates: Requirements 16.1, 16.2**
+
+### Property 15: Notification handlers observe updated deps
+
+*For any* notification handler created with a mutable deps container, provider
+assignments made after handler creation shall be visible on the next invocation.
+
+**Validates: Requirements 14.1, 14.2, 14.3**
+
 ## Error Handling
 
 | Scenario | Handling |
@@ -562,19 +727,29 @@ Unit tests go in `tests/unit/` and cover:
 - Shutdown handler integration (calls dispose on all components)
 - Debounced parse pipeline (parse happens inside callback, not eagerly)
 - Handler registration (handlers created once, deps mutated)
+- Request freshness (handlers wait for debounce before reading state)
+- Scope resolver content source (TextDocuments preferred when open)
 - CancellationToken early exit in each provider
+- Cancellation propagation in scope resolvers and workspace scans
 - Token position index correctness for specific edge cases
 - Pending revalidations cleanup after callback
 - Debug logging gating with mock connection
 - isIncomplete flag for specific context types
+- Document close vs in-flight update safety
 
 ### Test Organization
 
 - `tests/property/debounce-manager-dispose.prop.test.ts` — Properties 1, 3
+- `tests/property/debounce-wait.prop.test.ts` — Property 11
 - `tests/property/token-position-index.prop.test.ts` — Property 6
 - `tests/property/handler-deps-mutation.prop.test.ts` — Property 4
+- `tests/property/scope-content-provider.prop.test.ts` — Property 12
+- `tests/property/document-close-generation.prop.test.ts` — Property 14
 - `tests/property/completion-is-incomplete.prop.test.ts` — Property 10
 - `tests/unit/shutdown-handler.test.ts` — Properties 2, 7, 8, examples for 1.3, 1.4
 - `tests/unit/cancellation-token.test.ts` — Property 5, examples for 5.1-5.3
 - `tests/unit/debug-logging.test.ts` — Property 9, examples for 8.1, 8.4
 - `tests/unit/debounced-parse-pipeline.test.ts` — Examples for 2.1, 2.3, 3.1
+- `tests/unit/request-freshness.test.ts` — Examples for 10.1-10.3
+- `tests/unit/scope-content-source.test.ts` — Examples for 11.1-11.3
+- `tests/unit/document-close-safety.test.ts` — Examples for 16.1-16.2

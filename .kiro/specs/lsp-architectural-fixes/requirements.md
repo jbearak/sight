@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This feature addresses 9 architectural findings from a review of the Sight Stata LSP server. The findings cover resource lifecycle management, debounce correctness, handler allocation efficiency, cancellation token compliance, position lookup performance, map cleanup, logging overhead, and completion caching. Each finding maps to one or more requirements below.
+This feature addresses 16 architectural findings from a review of the Sight Stata LSP server. The findings cover resource lifecycle management, debounce correctness, handler allocation efficiency, cancellation token compliance, position lookup performance, map cleanup, logging overhead, completion caching, request freshness, scope resolution content sources, notification handler dependencies, shutdown cleanup for long-running services, and update safety. Each finding maps to one or more requirements below.
 
 ## Glossary
 
@@ -111,3 +111,70 @@ This feature addresses 9 architectural findings from a review of the Sight Stata
 1. WHEN the Completion_Handler produces a completion list that is not in a macro context, THE Completion_Handler SHALL return `isIncomplete: false`
 2. WHEN the Completion_Handler produces a completion list that is in a macro context (local macro, global macro, or compound quote trigger), THE Completion_Handler SHALL return `isIncomplete: true`
 3. WHEN the Completion_Handler returns `isIncomplete: false`, THE completion list SHALL be exhaustive for the current trigger context
+
+### Requirement 10: Request Freshness with Debounce
+
+**User Story:** As a developer, I want completion/hover/definition/references to use the most recent document state even when parsing is debounced, so that UI features do not lag behind edits.
+
+#### Acceptance Criteria
+
+1. THE Debounce_Manager SHALL expose a `wait_for_debounce(uri)` (or equivalent) that resolves when any pending debounce callback for the URI has completed or is not pending
+2. WHEN a completion/hover/definition/references request is handled, THE handler SHALL await `wait_for_debounce(uri)` before reading Document_Store state
+3. WHEN no debounce is pending for a URI, `wait_for_debounce(uri)` SHALL resolve immediately without delay
+
+### Requirement 11: Scope Resolver Content Source
+
+**User Story:** As a developer editing an open file, I want cross-file resolution to use the latest in-memory content rather than stale cached state, so that diagnostics and navigation reflect current edits.
+
+#### Acceptance Criteria
+
+1. WHEN a document is open in TextDocuments, THE Scope_Resolver content provider SHALL read its content from the TextDocuments buffer (not Document_Store)
+2. WHEN a document is not open, THE Scope_Resolver content provider SHALL read from disk (current behavior)
+3. WHEN parsing is debounced, THE content provider SHALL still return the most recent TextDocuments content for open files
+
+### Requirement 12: Token Index Correctness for Multi-Line Tokens
+
+**User Story:** As a developer hovering over long strings or multi-line constructs, I want token lookups to always succeed regardless of how many lines a token spans.
+
+#### Acceptance Criteria
+
+1. THE token position index SHALL include every line spanned by a token, not only start/end lines
+2. `get_token_at_position(line, character)` SHALL return the same token as a linear scan for any position within the token range
+
+### Requirement 13: Cancellation Propagation in Cross-File Resolution
+
+**User Story:** As a developer working with large workspaces, I want cancellation to stop cross-file resolution and workspace scans promptly, so that stale requests do not consume resources.
+
+#### Acceptance Criteria
+
+1. WHEN CancellationToken is cancelled, THE Scope_Resolver SHALL check `token.isCancellationRequested` in its traversal loops and return early
+2. WHEN CancellationToken is cancelled, THE Forward_Scope_Resolver SHALL check `token.isCancellationRequested` in its traversal loops and return early
+3. WHEN references search scans workspace-indexed files, THE References provider SHALL periodically check cancellation (or yield) and return early when cancelled
+
+### Requirement 14: Stable Dependencies for Notification Handlers
+
+**User Story:** As an LSP server maintainer, I want all handlers (including notifications and custom requests) to reference a single mutable dependencies object, so that late provider initialization is visible everywhere.
+
+#### Acceptance Criteria
+
+1. THE LSP_Server SHALL register `onDidChangeWatchedFiles` using the same mutable Handler_Dependencies container as other handlers
+2. THE LSP_Server SHALL register the custom `sight/getWorkingDirectory` request handler using the same mutable Handler_Dependencies container
+3. AFTER providers are initialized, these handlers SHALL observe the updated providers without re-registration
+
+### Requirement 15: Shutdown Cleanup for Long-Running Services
+
+**User Story:** As an LSP client, I want the server to cancel background indexing and timers on shutdown, so that shutdown is clean and fast.
+
+#### Acceptance Criteria
+
+1. WHEN the LSP_Server receives a shutdown request, THE LSP_Server SHALL call `Workspace_Indexer.cancel()` if the indexer exists
+2. WHEN the LSP_Server receives a shutdown request, THE LSP_Server SHALL clear any remaining rename-handler timers (already covered by rename handler disposal)
+
+### Requirement 16: Document Close vs In-Flight Update Safety
+
+**User Story:** As a developer, I want closed documents to stay closed and not reappear due to in-flight async updates, so that stale state does not resurface.
+
+#### Acceptance Criteria
+
+1. WHEN a document is closed, THE Document_Store SHALL mark the URI as closed or increment a generation counter
+2. WHEN an in-flight update completes for a closed URI or stale generation, THE Document_Store SHALL discard the result and SHALL NOT reinsert document state
