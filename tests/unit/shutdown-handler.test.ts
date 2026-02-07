@@ -499,15 +499,15 @@ describe('Shutdown Handler', () => {
                                     } finally {
                                         pending_revalidations
                                             .delete(my_uri);
-
-                                        // Entry must be
-                                        // gone even when
-                                        // cancelled
-                                        expect(
-                                            pending_revalidations
-                                                .has(my_uri)
-                                        ).toBe(false);
                                     }
+
+                                    // Entry must be
+                                    // gone even when
+                                    // cancelled
+                                    expect(
+                                        pending_revalidations
+                                            .has(my_uri)
+                                    ).toBe(false);
                                 }
                             }
                         ),
