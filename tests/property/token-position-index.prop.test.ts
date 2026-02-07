@@ -382,8 +382,6 @@ function build_state_with_tokens(
 // ── Property Tests ──────────────────────────────────────────
 
 describe('Token Position Index Property Tests', () => {
-    const my_store = new DocumentStore();
-
     /**
      * Property 6: Token position index matches linear scan
      *
@@ -399,6 +397,7 @@ describe('Token Position Index Property Tests', () => {
         'index lookup matches linear scan for positions'
             + ' inside tokens',
         () => {
+            const my_store = new DocumentStore();
             fc.assert(
                 fc.property(
                     arbitrary_token_list().filter(
@@ -461,6 +460,7 @@ describe('Token Position Index Property Tests', () => {
         'index lookup matches linear scan for random'
             + ' positions inside tokens',
         () => {
+            const my_store = new DocumentStore();
             fc.assert(
                 fc.property(
                     arbitrary_token_list()
@@ -512,6 +512,7 @@ describe('Token Position Index Property Tests', () => {
         'index lookup and linear scan both return undefined'
             + ' for positions outside all tokens',
         () => {
+            const my_store = new DocumentStore();
             fc.assert(
                 fc.property(
                     arbitrary_token_list().chain(
@@ -562,6 +563,7 @@ describe('Token Position Index Property Tests', () => {
         'multi-line tokens are found on every line they'
             + ' span',
         () => {
+            const my_store = new DocumentStore();
             fc.assert(
                 fc.property(
                     arbitrary_token_list().filter(
@@ -658,6 +660,7 @@ describe('Token Position Index Property Tests', () => {
         'empty token list returns undefined for any'
             + ' position',
         () => {
+            const my_store = new DocumentStore();
             fc.assert(
                 fc.property(
                     fc.integer({ min: 0, max: 100 }),
