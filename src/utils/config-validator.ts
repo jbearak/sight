@@ -59,11 +59,13 @@ export function validate_comment_formatting_config(
         // Validate preferredCommentStyle
         if (formatting.preferredCommentStyle !== undefined) {
             if (
+                formatting.preferredCommentStyle === 'line' ||
                 formatting.preferredCommentStyle === '//' ||
                 formatting.preferredCommentStyle === '*' ||
                 formatting.preferredCommentStyle === '/* */'
             ) {
-                validated_config.formatting.preferredCommentStyle = formatting.preferredCommentStyle;
+                validated_config.formatting.preferredCommentStyle =
+                    formatting.preferredCommentStyle;
             } else {
                 log_warning?.(
                     `Invalid preferredCommentStyle: ${formatting.preferredCommentStyle}. ` +
@@ -131,6 +133,13 @@ export function validate_comment_formatting_config(
                 );
             }
         }
+    }
+
+    // Resolve "line" to effective style using lineCommentStyle
+    if (validated_config.formatting.preferredCommentStyle === 'line') {
+        const line_style = config?.lineCommentStyle;
+        validated_config.formatting.preferredCommentStyle =
+            line_style === '*' ? '*' : '//';
     }
 
     // Validate other sections (diagnostics, completion, indexing)
@@ -276,8 +285,8 @@ export function validate_comment_formatting_config(
  * @param style - The comment style to validate
  * @returns true if valid, false otherwise
  */
-export function is_valid_comment_style(style: any): style is '//' | '*' | '/* */' {
-    return style === '//' || style === '*' || style === '/* */';
+export function is_valid_comment_style(style: any): style is 'line' | '//' | '*' | '/* */' {
+    return style === 'line' || style === '//' || style === '*' || style === '/* */';
 }
 
 /**

@@ -451,7 +451,7 @@ export enum StataDiagnosticCode {
 
 // Configuration Types
 export interface CommentFormattingConfig {
-  preferredCommentStyle: '//' | '*' | '/* */';
+  preferredCommentStyle: 'line' | '//' | '*' | '/* */';
   normalizeCommentStyle: boolean;
   commentLineWidth: number;
   lineWidth?: number;
@@ -475,12 +475,13 @@ export interface StataLSPConfig {
     indentSize: number;
     indentStyle: 'spaces' | 'tabs';
     lineWidth: number;
-    preferredCommentStyle: '//' | '*' | '/* */';
+    preferredCommentStyle: 'line' | '//' | '*' | '/* */';
     normalizeCommentStyle: boolean;
     commentLineWidth: number;
     preserve_alignment?: boolean;
     mode?: 'source-preserving' | 'ast';
   };
+  lineCommentStyle?: '//' | '*';
   indexing: {
     maxFileSizeBytes: number;
   };

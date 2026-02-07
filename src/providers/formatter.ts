@@ -553,10 +553,11 @@ export class CodeFormatter {
      * @returns The processor style
      */
     private map_style_to_processor_style(
-        config_style: '//' | '*' | '/* */'
+        config_style: 'line' | '//' | '*' | '/* */'
     ): 'star' | 'slash' | 'block' {
         switch (config_style) {
             case '//':
+            case 'line':
                 return 'slash';
             case '*':
                 return 'star';

@@ -23,8 +23,9 @@ describe('Configuration Validation Property Tests', () => {
                     fc.constant('//'),
                     fc.constant('*'),
                     fc.constant('/* */'),
+                    fc.constant('line'),
                     fc.string({ minLength: 1 }).filter(
-                        (s) => s !== '//' && s !== '*' && s !== '/* */'
+                        (s) => s !== '//' && s !== '*' && s !== '/* */' && s !== 'line'
                     ),
                     fc.integer(),
                     fc.boolean(),
@@ -41,7 +42,7 @@ describe('Configuration Validation Property Tests', () => {
                         my_config
                     );
 
-                    // Valid styles should be preserved
+                    // Valid explicit styles should be preserved
                     if (
                         my_style === '//' ||
                         my_style === '*' ||
@@ -50,10 +51,16 @@ describe('Configuration Validation Property Tests', () => {
                         expect(my_validated.formatting.preferredCommentStyle).toBe(
                             my_style
                         );
+                    } else if (my_style === 'line') {
+                        // 'line' resolves to '//' (default lineCommentStyle)
+                        expect(my_validated.formatting.preferredCommentStyle).toBe(
+                            '//'
+                        );
                     } else {
                         // Invalid styles should fall back to default
+                        // ('line' resolved to '//')
                         expect(my_validated.formatting.preferredCommentStyle).toBe(
-                            DEFAULT_SETTINGS.formatting.preferredCommentStyle
+                            '//'
                         );
                     }
                 }
@@ -272,11 +279,11 @@ describe('Configuration Validation Property Tests', () => {
                             my_validated.formatting.preferredCommentStyle
                         ).toBe('//');
                     } else {
+                        // Default is 'line' which resolves to '//'
+                        // when no lineCommentStyle is provided
                         expect(
                             my_validated.formatting.preferredCommentStyle
-                        ).toBe(
-                            DEFAULT_SETTINGS.formatting.preferredCommentStyle
-                        );
+                        ).toBe('//');
                     }
 
                     if (my_flags.hasNormalize) {

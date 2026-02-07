@@ -93,7 +93,7 @@ const EXPECTED_CONFIG_FIELDS: ConfigFieldSpec[] = [
     {
         path: 'sight.formatting.preferredCommentStyle',
         type: 'string',
-        enum_values: ['//', '*', '/* */'],
+        enum_values: ['line', '//', '*', '/* */'],
     },
     {
         path: 'sight.formatting.normalizeCommentStyle',
@@ -114,6 +114,11 @@ const EXPECTED_CONFIG_FIELDS: ConfigFieldSpec[] = [
         type: 'number',
     },
     // Top-level settings
+    {
+        path: 'sight.lineCommentStyle',
+        type: 'string',
+        enum_values: ['//', '*'],
+    },
     {
         path: 'sight.adoPaths',
         type: 'array',

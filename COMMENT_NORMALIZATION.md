@@ -80,7 +80,7 @@ Add these settings to your VS Code `settings.json`:
 ```json
 {
   "sight.formatting.normalizeCommentStyle": true,
-  "sight.formatting.preferredCommentStyle": "//",
+  "sight.formatting.preferredCommentStyle": "line",
   "sight.formatting.commentLineWidth": 72
 }
 ```
@@ -96,9 +96,9 @@ Add these settings to your VS Code `settings.json`:
 
 #### `preferredCommentStyle` (string)
 
-- **Default:** `"//"`
-- **Options:** `"//"`, `"*"`, `"/* */"`
-- **Description:** Your preferred comment style
+- **Default:** `"line"`
+- **Options:** `"line"`, `"//"`, `"*"`, `"/* */"`
+- **Description:** Your preferred comment style. `"line"` uses the same style as `sight.lineCommentStyle`.
 - **Effect:** All comments will be converted to this style when normalization is enabled
 
 #### `normalizeOnSave` (boolean)
