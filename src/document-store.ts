@@ -111,6 +111,10 @@ export class DocumentStore {
   /**
    * Dispose the document store by awaiting all active update
    * promises and clearing the map. (Req 1.3)
+   *
+   * Only clears active_updates; other maps (documents,
+   * generations, etc.) are left for GC since the store
+   * instance is discarded after dispose.
    */
   async dispose(): Promise<void> {
     const the_promises = Array.from(this.active_updates.values());
@@ -179,9 +183,11 @@ export class DocumentStore {
       // Apply text changes
       const new_content = this.apply_changes(state.content, changes, state.line_offsets);
 
-      // Fast path: skip if content unchanged (e.g., didSave with no edits)
+      // Fast path: skip if content unchanged (e.g., didSave with no edits).
+      // Safe to mutate in place: this path is synchronous (no await
+      // between the .get() above and this mutation), so close()
+      // cannot interleave.
       if (new_content === state.content) {
-        // Just update version, reuse everything else
         state.version = version;
         this.metrics.cache_hits++;
         return;
@@ -283,13 +289,22 @@ export class DocumentStore {
    */
   private decrement_in_flight(uri: string): void {
     const count = (this.in_flight_counts.get(uri) ?? 0) - 1;
-    if (count < 0 && process.env.NODE_ENV === 'development') {
-      console.warn(
-        `decrement_in_flight: negative count for ${uri} ` +
-        `(no matching increment)`
-      );
+    if (count < 0) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(
+          `decrement_in_flight: negative count for ${uri} ` +
+          `(no matching increment)`
+        );
+      }
+      // Treat negative as zero to prevent invalid state
+      this.in_flight_counts.delete(uri);
+      if (!this.documents.has(uri)) {
+        this.closed_generations.delete(uri);
+        this.generations.delete(uri);
+      }
+      return;
     }
-    if (count <= 0) {
+    if (count === 0) {
       this.in_flight_counts.delete(uri);
       if (!this.documents.has(uri)) {
         this.closed_generations.delete(uri);

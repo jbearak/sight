@@ -562,19 +562,33 @@ export class DefinitionProvider {
         position: Position,
         cancellation_token?: CancellationToken
     ): Token | null {
-        if (!document.tokens) {
+        if (cancellation_token?.isCancellationRequested) {
             return null;
         }
-        
-        for (let i = 0; i < document.tokens.length; i++) {
-            if (i % 500 === 0 && cancellation_token?.isCancellationRequested) {
-                return null;
+        // Use line-bucketed index for O(1) line lookup when
+        // available; fall back to linear scan otherwise
+        if (document.token_line_index?.size > 0) {
+            const bucket = document.token_line_index.get(
+                position.line
+            );
+            if (!bucket) return null;
+            for (const my_token of bucket) {
+                if (this.position_in_range(
+                    position, my_token.range
+                )) {
+                    return my_token;
+                }
             }
-            if (this.position_in_range(position, document.tokens[i].range)) {
-                return document.tokens[i];
+            return null;
+        }
+        if (!document.tokens) return null;
+        for (const my_token of document.tokens) {
+            if (this.position_in_range(
+                position, my_token.range
+            )) {
+                return my_token;
             }
         }
-        
         return null;
     }
 

@@ -178,15 +178,24 @@ export class DocumentDebounceManager implements DebounceManager {
         // Schedule new timer
         const timer = setTimeout(() => {
             this.pending_timers.delete(uri);
+            // Capture the current resolver at timer-fire time so
+            // a concurrent schedule_validation can't steal it
+            const my_resolver = this.pending_resolvers.get(uri);
             this.enqueue_parse(uri, version, async () => {
                 try {
                     await callback();
                 } finally {
-                    const resolve = this.pending_resolvers.get(uri);
-                    if (resolve) {
-                        resolve();
-                        this.pending_resolvers.delete(uri);
-                        this.pending_promises.delete(uri);
+                    if (my_resolver) {
+                        my_resolver();
+                        // Only clean up if we're still the
+                        // current resolver
+                        if (
+                            this.pending_resolvers.get(uri)
+                            === my_resolver
+                        ) {
+                            this.pending_resolvers.delete(uri);
+                            this.pending_promises.delete(uri);
+                        }
                     }
                 }
             });
@@ -210,6 +219,14 @@ export class DocumentDebounceManager implements DebounceManager {
                 `Parse queue full, dropping ${uri} v${version}`
             );
             this.metrics.dropped_parses++;
+            // Resolve the pending debounce promise so waiters
+            // are not left hanging
+            const resolve = this.pending_resolvers.get(uri);
+            if (resolve) {
+                resolve();
+                this.pending_resolvers.delete(uri);
+                this.pending_promises.delete(uri);
+            }
             return;
         }
 

@@ -375,22 +375,25 @@ export class ReferencesProvider {
             };
         }
 
-        // For other symbols, we need to check the token type at position
-        if (document.tokens) {
-            for (let i = 0; i < document.tokens.length; i++) {
-                // Periodic cancellation check (Req 5.3, 5.4)
-                if (i % 500 === 0 && cancellation_token?.isCancellationRequested) {
-                    return null;
-                }
-                const token = document.tokens[i];
-                if (this.position_in_range(position, token.range)) {
-                    switch (token.type) {
+        // Use line-bucketed index for O(1) line lookup when
+        // available; fall back to linear scan otherwise
+        if (cancellation_token?.isCancellationRequested) {
+            return null;
+        }
+        const the_tokens_to_check: Token[] | undefined =
+            document.token_line_index?.size > 0
+                ? document.token_line_index.get(position.line)
+                : document.tokens;
+        if (the_tokens_to_check) {
+            for (const my_token of the_tokens_to_check) {
+                if (this.position_in_range(position, my_token.range)) {
+                    switch (my_token.type) {
                         case 'MACRO_REF_LOCAL':
                             return { name: word, type: 'local_macro', range };
                         case 'MACRO_REF_GLOBAL':
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
-                            // Use symbol table to determine type - avoids false positives
+                            // Use symbol table to determine type
                             if (document.symbols.programs.has(word)) {
                                 return { name: word, type: 'program', range };
                             }

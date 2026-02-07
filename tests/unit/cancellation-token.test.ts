@@ -372,16 +372,11 @@ describe(
                                     );
 
                             // With pre-cancelled token,
-                            // the loop should exit at the
-                            // first cancellation check
-                            // (iteration 0, since
-                            // 0 % 500 === 0).
-                            // So we expect 0 matches
-                            // (exits before processing
-                            // any token).
-                            expect(
-                                matches.length
-                            ).toBeLessThan(token_count);
+                            // the loop exits at the first
+                            // cancellation check (iteration
+                            // 0, since 0 % 500 === 0),
+                            // yielding 0 matches.
+                            expect(matches.length).toBe(0);
                         }
                     ),
                     { numRuns: 25 }

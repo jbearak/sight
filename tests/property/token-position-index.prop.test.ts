@@ -42,63 +42,6 @@ const THE_TOKEN_TYPES: TokenType[] = [
 ];
 
 /**
- * Generate a single-line token starting at the given position.
- * The token occupies [start_char, start_char + length) on the
- * given line.
- */
-function arbitrary_single_line_token(
-    line: number,
-    start_char: number
-): fc.Arbitrary<Token> {
-    return fc
-        .record({
-            type: fc.constantFrom(...THE_TOKEN_TYPES),
-            length: fc.integer({ min: 1, max: 20 }),
-        })
-        .map(({ type, length }) => ({
-            type,
-            value: 'x'.repeat(length),
-            range: {
-                start: { line, character: start_char },
-                end: { line, character: start_char + length },
-            },
-        }));
-}
-
-/**
- * Generate a multi-line token starting at (start_line,
- * start_char) and spanning `extra_lines` additional lines.
- */
-function arbitrary_multi_line_token(
-    start_line: number,
-    start_char: number,
-    extra_lines: number
-): fc.Arbitrary<Token> {
-    return fc
-        .record({
-            type: fc.constantFrom(
-                'STRING' as TokenType,
-                'COMMENT_BLOCK' as TokenType
-            ),
-            end_char: fc.integer({ min: 0, max: 40 }),
-        })
-        .map(({ type, end_char }) => ({
-            type,
-            value: 'x',
-            range: {
-                start: {
-                    line: start_line,
-                    character: start_char,
-                },
-                end: {
-                    line: start_line + extra_lines,
-                    character: end_char,
-                },
-            },
-        }));
-}
-
-/**
  * Generate a list of non-overlapping tokens laid out across
  * multiple lines.  Tokens may be single-line or multi-line.
  *

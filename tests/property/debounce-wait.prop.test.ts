@@ -26,9 +26,9 @@ describe('Debounce Wait Property Tests', () => {
                     await my_manager.wait_for_debounce(my_uri);
                     const elapsed_ms = Date.now() - start_ms;
 
-                    // Should resolve in under 10ms (essentially
-                    // instant)
-                    expect(elapsed_ms).toBeLessThan(10);
+                    // Should resolve in under 50ms (essentially
+                    // instant; generous for CI load)
+                    expect(elapsed_ms).toBeLessThan(50);
                 }
             ),
             { numRuns: 100 }

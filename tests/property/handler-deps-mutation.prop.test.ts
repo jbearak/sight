@@ -503,14 +503,14 @@ describe('Handler Deps Mutation Property Tests', () => {
                         // correctness — so we verify deps holds
                         // the mutated values without re-invoking
                         // when those keys are set.
-                        const handler_accessed_keys: ProviderKey[] =
-                            [
+                        const handler_accessed_keys =
+                            new Set<ProviderKey>([
                                 'scope_resolver',
                                 'rename_handler',
                                 'workspace_indexer',
-                            ];
+                            ]);
                         const has_handler_key = keys_to_set.some(
-                            (k) => handler_accessed_keys.includes(k)
+                            (k) => handler_accessed_keys.has(k)
                         );
                         if (!has_handler_key) {
                             // Safe to invoke — none of the keys

@@ -494,8 +494,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                             const static_calls = document_state.forward_calls.filter(c => c.is_static && c.path);
                             connection.console.log(`[reverse-deps] Updating for ${snapshot_uri}`);
                             connection.console.log(`[reverse-deps]   forward_calls: ${document_state.forward_calls.length} total, ${static_calls.length} static`);
-                            for (const fc of static_calls) {
-                                connection.console.log(`[reverse-deps]   - ${fc.type} "${fc.path}" (line ${fc.call_site_line})`);
+                            for (const my_call of static_calls) {
+                                connection.console.log(`[reverse-deps]   - ${my_call.type} "${my_call.path}" (line ${my_call.call_site_line})`);
                             }
                         }
 
