@@ -267,7 +267,7 @@ describe('Handler Deps Mutation Property Tests', () => {
                                 create_sentinel(my_key);
                         }
 
-                        const result = handler({
+                        const result = await handler({
                             textDocument: {
                                 uri: 'file:///test.do',
                             },
@@ -707,7 +707,7 @@ describe('Handler Deps Mutation Property Tests', () => {
                             },
                             undefined
                         );
-                        doc_symbol_handler({
+                        await doc_symbol_handler({
                             textDocument: test_params.textDocument,
                         });
                         await formatting_handler({

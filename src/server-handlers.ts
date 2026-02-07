@@ -488,8 +488,12 @@ export function create_references_handler(
  */
 export function create_document_symbol_handler(
     deps: HandlerDependencies
-): (params: DocumentSymbolParams) => DocumentSymbol[] {
-    return (params: DocumentSymbolParams): DocumentSymbol[] => {
+): (params: DocumentSymbolParams) => Promise<DocumentSymbol[]> {
+    return async (params: DocumentSymbolParams): Promise<DocumentSymbol[]> => {
+        // Wait for any pending debounce to complete before reading state
+        await deps.debounce_manager?.wait_for_debounce(params.textDocument.uri);
+        await deps.document_store.wait_for_update(params.textDocument.uri);
+
         const document_state = deps.document_store.get(params.textDocument.uri);
         if (!document_state || !deps.symbol_provider) {
             return [];
