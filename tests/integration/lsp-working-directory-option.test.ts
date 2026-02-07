@@ -23,6 +23,7 @@ import {
  */
 function create_mock_dependencies(document_store: DocumentStore): HandlerDependencies {
     return {
+        debounce_manager: null,
         document_store,
         diagnostics_provider: null,
         completion_provider: null,

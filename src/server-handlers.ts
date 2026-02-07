@@ -33,7 +33,7 @@ import {
 
 import { DocumentStore } from './document-store';
 import { DiagnosticsProvider } from './providers/diagnostics';
-import { CompletionProvider } from './providers/completion';
+import { CompletionProvider, detect_completion_context } from './providers/completion';
 import { HoverProvider } from './providers/hover';
 import { DefinitionProvider } from './providers/definition';
 import { ReferencesProvider } from './providers/references';
@@ -45,12 +45,14 @@ import { ContextTracker } from './context-tracker';
 import { ScopeResolver } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
 import { RenameHandler } from './utils/file-rename-handler';
+import { DebounceManager, DocumentDebounceManager } from './utils/debounce-manager';
 
 /**
  * Interface defining all dependencies required by LSP handlers.
  * This enables dependency injection for testing.
  */
 export interface HandlerDependencies {
+    debounce_manager: DebounceManager | null;
     document_store: DocumentStore;
     diagnostics_provider: DiagnosticsProvider | null;
     completion_provider: CompletionProvider | null;
@@ -127,6 +129,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
             max_depth: 'information',
         },
     },
+    debug: false,
 };
 
 
@@ -242,6 +245,8 @@ export function create_completion_handler(
     deps: HandlerDependencies
 ): (params: CompletionParams, token?: CancellationToken) => Promise<CompletionList> {
     return async (params: CompletionParams, token?: CancellationToken): Promise<CompletionList> => {
+        // Wait for any pending debounce to complete (Req 10.2)
+        await deps.debounce_manager?.wait_for_debounce(params.textDocument.uri);
         // Wait for any pending document updates to ensure we have the latest state
         await deps.document_store.wait_for_update(params.textDocument.uri);
 
@@ -271,6 +276,7 @@ export function create_completion_handler(
                         context_tracker: new ContextTracker(),
                         line_offsets: [],
                         forward_calls: [],
+                        token_line_index: new Map(),
                     },
                     params.position,
                     trigger_character,
@@ -336,10 +342,18 @@ export function create_completion_handler(
                 token
             );
             
-            // Return as CompletionList with isIncomplete=true to ensure VS Code
-            // re-requests completions as user types
-            // This is critical for macro completions where the replacement range changes dynamically
-            return { isIncomplete: true, items };
+            // Detect completion context to determine isIncomplete (Req 9.1, 9.2)
+            // Macro contexts need isIncomplete=true because the replacement range
+            // changes dynamically as the user types macro delimiters.
+            // Non-macro contexts return isIncomplete=false so the client can cache results.
+            const completion_context = detect_completion_context(
+                document_state,
+                params.position,
+                document_state.tokens
+            );
+            const is_macro_context = completion_context.type === 'macro';
+
+            return { isIncomplete: is_macro_context, items };
         }
 
         // Fallback if completion provider not initialized
@@ -372,6 +386,9 @@ export function create_hover_handler(
     deps: HandlerDependencies
 ): (params: HoverParams, token?: CancellationToken) => Promise<Hover | null> {
     return async (params: HoverParams, token?: CancellationToken): Promise<Hover | null> => {
+        // Wait for any pending debounce to complete (Req 10.2)
+        await deps.debounce_manager?.wait_for_debounce(params.textDocument.uri);
+        await deps.document_store.wait_for_update(params.textDocument.uri);
         const document_state = deps.document_store.get(params.textDocument.uri);
         if (!document_state || !deps.hover_provider) {
             return null;
@@ -406,6 +423,9 @@ export function create_definition_handler(
     deps: HandlerDependencies
 ): (params: DefinitionParams, token?: CancellationToken) => Promise<Definition | null> {
     return async (params: DefinitionParams, token?: CancellationToken): Promise<Definition | null> => {
+        // Wait for any pending debounce to complete (Req 10.2)
+        await deps.debounce_manager?.wait_for_debounce(params.textDocument.uri);
+        await deps.document_store.wait_for_update(params.textDocument.uri);
         const document_state = deps.document_store.get(params.textDocument.uri);
         if (!document_state || !deps.definition_provider) {
             return null;
@@ -441,6 +461,8 @@ export function create_references_handler(
     deps: HandlerDependencies
 ): (params: ReferenceParams, token?: CancellationToken) => Promise<Location[] | null> {
     return async (params: ReferenceParams, token?: CancellationToken): Promise<Location[] | null> => {
+        // Wait for any pending debounce to complete (Req 10.2)
+        await deps.debounce_manager?.wait_for_debounce(params.textDocument.uri);
         await deps.document_store.wait_for_update(params.textDocument.uri);
         const document_state = deps.document_store.get(params.textDocument.uri);
         if (!document_state || !deps.references_provider) {
@@ -452,7 +474,8 @@ export function create_references_handler(
             params.position,
             params.context,
             deps.workspace_indexer || undefined,
-            document_state.context_tracker
+            document_state.context_tracker,
+            token
         );
     };
 }
@@ -580,15 +603,42 @@ export function create_range_formatting_handler(
  * Creates the shutdown handler.
  *
  * @param deps - Handler dependencies for cleanup
+ * @param disposables - Additional disposable components
+ *   (debounce_manager, pending_revalidations)
  * @returns Handler function for shutdown requests
  */
-export function create_shutdown_handler(deps?: HandlerDependencies): () => Promise<void> {
-    return (): Promise<void> => {
-        // Gracefully shutdown and cleanup resources
-        if (deps?.rename_handler) {
-            deps.rename_handler.dispose();
+export function create_shutdown_handler(
+    deps?: HandlerDependencies,
+    disposables?: {
+        debounce_manager?: DocumentDebounceManager;
+        pending_revalidations?: Map<string, { cancelled: boolean }>;
+    }
+): () => Promise<void> {
+    return async (): Promise<void> => {
+        // Cancel all pending revalidations (Req 1.1)
+        if (disposables?.pending_revalidations) {
+            for (const my_token of disposables.pending_revalidations.values()) {
+                my_token.cancelled = true;
+            }
+            disposables.pending_revalidations.clear();
         }
-        return Promise.resolve();
+
+        // Dispose debounce manager — cancels timers,
+        // clears queue (Req 1.2, 1.5)
+        disposables?.debounce_manager?.dispose();
+
+        // Await active document updates (Req 1.3)
+        await deps?.document_store?.dispose();
+
+        // Dispose scope resolvers (Req 1.4)
+        deps?.scope_resolver?.dispose();
+        deps?.forward_scope_resolver?.dispose();
+
+        // Cancel background indexing (Req 15.1)
+        deps?.workspace_indexer?.cancel();
+
+        // Dispose rename handler — clears timers (Req 15.2)
+        deps?.rename_handler?.dispose();
     };
 }
 

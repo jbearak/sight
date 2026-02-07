@@ -699,6 +699,17 @@ export class ScopeResolver {
             token
         );
 
+        // Check cancellation after directive chain traversal
+        if (token?.isCancellationRequested) {
+            return {
+                chain: the_chain,
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: the_out_of_scope,
+                diagnostics: [],
+                has_directives,
+            };
+        }
+
         // Merge symbols with shadowing
         const merged_symbols = this.merge_chain(the_chain);
 
@@ -912,7 +923,8 @@ export class ScopeResolver {
         visited: Set<string>,
         depth: number,
         config: ScopeResolverConfig,
-        request_cache: RequestCache
+        request_cache: RequestCache,
+        token?: CancellationToken
     ): Promise<string | undefined> {
         // Check depth limit
         if (depth > config.max_backward_depth) {
@@ -920,6 +932,11 @@ export class ScopeResolver {
         }
 
         for (const my_directive of directives) {
+            // Check cancellation before processing each directive
+            if (token?.isCancellationRequested) {
+                return undefined;
+            }
+
             const my_parent_uri = URI.file(my_directive.path).toString();
 
             // Cycle detection - skip if already visited
@@ -937,6 +954,11 @@ export class ScopeResolver {
                 );
             } catch (error) {
                 my_parent_result = { error: String(error) };
+            }
+
+            // Check cancellation after file read
+            if (token?.isCancellationRequested) {
+                return undefined;
             }
 
             if ('error' in my_parent_result) {
@@ -992,7 +1014,8 @@ export class ScopeResolver {
                     visited,
                     depth + 1,
                     config,
-                    request_cache
+                    request_cache,
+                    token
                 );
 
                 // Allow same file via different paths
@@ -1051,6 +1074,11 @@ export class ScopeResolver {
         let found_working_directory: string | undefined;
 
         for (const my_directive of directives) {
+            // Check cancellation before processing each directive
+            if (token?.isCancellationRequested) {
+                return { working_directory: found_working_directory };
+            }
+
             const my_parent_uri = URI.file(my_directive.path).toString();
 
             // Cycle detection
@@ -1067,7 +1095,8 @@ export class ScopeResolver {
                 new Set(visited),  // Copy visited set for discovery phase
                 depth,
                 config,
-                request_cache
+                request_cache,
+                token
             );
 
             // Phase 2: Parse with discovered working directory
@@ -2695,4 +2724,15 @@ export class ScopeResolver {
         }
         return lines.join('\n');
     }
+
+    /**
+     * Dispose the scope resolver by clearing all caches.
+     * Called during server shutdown to release memory.
+     */
+    dispose(): void {
+        this.file_cache.clear();
+        this.scope_cache.clear();
+        this.uri_to_cache_keys.clear();
+    }
+
 }

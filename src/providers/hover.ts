@@ -104,6 +104,11 @@ export class HoverProvider {
         cancellation_token?: CancellationToken,
         workspace_root?: string
     ): Promise<Hover | null> {
+        // Check cancellation before starting (Req 5.1)
+        if (cancellation_token?.isCancellationRequested) {
+            return null;
+        }
+
         // Use context tracker from document state if available
         if (!this.context_tracker && document.context_tracker) {
             this.context_tracker = document.context_tracker;
@@ -190,7 +195,7 @@ export class HoverProvider {
         }
 
         // Fallback: Check for subcommand context (not a symbol type)
-        const subcommand_hover = this.get_subcommand_hover(document, position, word);
+        const subcommand_hover = this.get_subcommand_hover(document, position, word, cancellation_token);
         if (subcommand_hover) {
             return { contents: subcommand_hover, range };
         }
@@ -839,13 +844,18 @@ export class HoverProvider {
      * Uses document.tokens if available for accurate detection, otherwise falls back
      * to line-based heuristics.
      */
-    private get_subcommand_context(document: DocumentState, position: Position, hovered_word: string): {
+    private get_subcommand_context(
+        document: DocumentState,
+        position: Position,
+        hovered_word: string,
+        cancellation_token?: CancellationToken
+    ): {
         is_subcommand: boolean;
         prefix_command: string | null;
     } {
         // Try token-based detection first if tokens are available
         if (document.tokens && document.tokens.length > 0) {
-            return this.get_subcommand_context_from_tokens(document, position, hovered_word);
+            return this.get_subcommand_context_from_tokens(document, position, hovered_word, cancellation_token);
         }
 
         // Fall back to line-based heuristics
@@ -856,7 +866,12 @@ export class HoverProvider {
      * Token-based subcommand context detection.
      * Finds the hovered token and checks if the previous non-trivia token is a prefix command.
      */
-    private get_subcommand_context_from_tokens(document: DocumentState, position: Position, hovered_word: string): {
+    private get_subcommand_context_from_tokens(
+        document: DocumentState,
+        position: Position,
+        hovered_word: string,
+        cancellation_token?: CancellationToken
+    ): {
         is_subcommand: boolean;
         prefix_command: string | null;
     } {
@@ -867,6 +882,9 @@ export class HoverProvider {
         // Find the token at the hovered position
         let hovered_token_index = -1;
         for (let i = 0; i < tokens.length; i++) {
+            if (i % 500 === 0 && cancellation_token?.isCancellationRequested) {
+                return { is_subcommand: false, prefix_command: null };
+            }
             const token = tokens[i];
             if (token.range.start.line === position.line &&
                 token.range.start.character <= position.character &&
@@ -1069,8 +1087,13 @@ export class HoverProvider {
     /**
      * Get hover information for subcommands using command database.
      */
-    private get_subcommand_hover(document: DocumentState, position: Position, word: string): MarkupContent | null {
-        const context = this.get_subcommand_context(document, position, word);
+    private get_subcommand_hover(
+        document: DocumentState,
+        position: Position,
+        word: string,
+        cancellation_token?: CancellationToken
+    ): MarkupContent | null {
+        const context = this.get_subcommand_context(document, position, word, cancellation_token);
         if (!context.is_subcommand || !context.prefix_command) {
             return null;
         }

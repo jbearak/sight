@@ -36,6 +36,9 @@ export interface DocumentState {
 
   // Resolved working directory from @lsp-cd directive (for forward scope resolution)
   working_directory?: string;
+
+  // Line-bucketed token index for O(1) line lookup (Req 6.1, 12.1)
+  token_line_index: Map<number, Token[]>;
 }
 
 export class DocumentStore {
@@ -46,6 +49,10 @@ export class DocumentStore {
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
   private workspace_root: string | undefined;
   private scope_resolver: ScopeResolver | undefined;
+
+  // Generation counters for close-vs-update safety (Req 16.1, 16.2)
+  private generations: Map<string, number> = new Map();
+  private closed_generations: Map<string, number> = new Map();
 
   private metrics: DocumentStoreMetrics = {
     parse_count: 0,
@@ -101,15 +108,28 @@ export class DocumentStore {
     return this.scope_resolver;
   }
   /**
+   * Dispose the document store by awaiting all active update
+   * promises and clearing the map. (Req 1.3)
+   */
+  async dispose(): Promise<void> {
+    const the_promises = Array.from(this.active_updates.values());
+    await Promise.allSettled(the_promises);
+    this.active_updates.clear();
+  }
+
+  /**
    * Open a document and parse it.
    * Async to support parse timeout wrapper.
    */
   async open(uri: string, content: string, version: number, workspace_symbols?: SymbolTable): Promise<void> {
+    // Capture generation at start of operation (Req 16.2)
+    const generation = (this.generations.get(uri) ?? 0) + 1;
+    this.generations.set(uri, generation);
+
     const operation = async () => {
       this.evict_if_needed(content.length);
       const state = await this.create_document_state(uri, content, version, workspace_symbols);
-      this.documents.set(uri, state);
-      this.touch_access(uri);
+      this.commit_state(uri, state, generation);
     };
 
     const promise = operation();
@@ -134,6 +154,10 @@ export class DocumentStore {
     version: number,
     workspace_symbols?: SymbolTable
   ): Promise<void> {
+    // Capture generation at start of operation (Req 16.2)
+    const generation = (this.generations.get(uri) ?? 0) + 1;
+    this.generations.set(uri, generation);
+
     const operation = async () => {
       const state = this.documents.get(uri);
       if (!state) {
@@ -166,8 +190,7 @@ export class DocumentStore {
         version,
         workspace_symbols
       );
-      this.documents.set(uri, new_state);
-      this.touch_access(uri);
+      this.commit_state(uri, new_state, generation);
     };
 
     const promise = operation();
@@ -192,6 +215,10 @@ export class DocumentStore {
   }
 
   close(uri: string): void {
+    // Increment generation and record as closed (Req 16.1)
+    const current = (this.generations.get(uri) ?? 0) + 1;
+    this.generations.set(uri, current);
+    this.closed_generations.set(uri, current);
     this.documents.delete(uri);
     this.access_order.delete(uri);
   }
@@ -213,6 +240,24 @@ export class DocumentStore {
    */
   get_metrics(): DocumentStoreMetrics {
     return { ...this.metrics };
+  }
+
+  /**
+   * Commit a document state, guarded by generation counter.
+   * Discards stale updates if the document was closed after
+   * this update started. (Req 16.2)
+   */
+  private commit_state(
+    uri: string,
+    state: DocumentState,
+    generation: number
+  ): void {
+    const closed_gen = this.closed_generations.get(uri);
+    if (closed_gen !== undefined && generation <= closed_gen) {
+      return; // Discard stale update
+    }
+    this.documents.set(uri, state);
+    this.touch_access(uri);
   }
 
   /**
@@ -478,6 +523,9 @@ export class DocumentStore {
         context_tracker: my_context_tracker,
         line_offsets: lex_result.result!.line_offsets,
         forward_calls: [],
+        token_line_index: this.build_token_line_index(
+          lex_result.result!.tokens
+        ),
       };
     }
 
@@ -523,6 +571,9 @@ export class DocumentStore {
       line_offsets: lex_result.result!.line_offsets,
       forward_calls: all_forward_calls,
       working_directory: resolved_working_directory,
+      token_line_index: this.build_token_line_index(
+        lex_result.result!.tokens
+      ),
     };
   }
 
@@ -595,6 +646,7 @@ export class DocumentStore {
       context_tracker: new ContextTracker(),
       line_offsets: offsets,
       forward_calls: [],
+      token_line_index: new Map(),
     };
   }
 
@@ -614,6 +666,65 @@ export class DocumentStore {
 
     return line_offsets;
   }
+
+  /**
+   * Build a line-bucketed token index for O(1) line lookup.
+   * Registers every line a token spans (Req 12.1).
+   */
+  private build_token_line_index(
+    tokens: Token[]
+  ): Map<number, Token[]> {
+    const index = new Map<number, Token[]>();
+    for (const my_token of tokens) {
+      const start_line = my_token.range.start.line;
+      const end_line = my_token.range.end.line;
+      for (let my_line = start_line; my_line <= end_line; my_line++) {
+        let bucket = index.get(my_line);
+        if (!bucket) {
+          bucket = [];
+          index.set(my_line, bucket);
+        }
+        bucket.push(my_token);
+      }
+    }
+    return index;
+  }
+
+  /**
+   * Look up the token at a given (line, character) position using
+   * the precomputed line-bucketed index.  Returns `undefined` when
+   * no token covers the position.
+   *
+   * Boundary semantics match the LSP convention: start is inclusive,
+   * end is exclusive (start <= pos < end).
+   *
+   * Complexity: O(B) where B is the number of tokens that span the
+   * queried line — typically a small constant.
+   *
+   * (Req 6.1, 6.2, 12.2)
+   */
+  get_token_at_position(
+    state: DocumentState,
+    line: number,
+    character: number
+  ): Token | undefined {
+    const bucket = state.token_line_index.get(line);
+    if (!bucket) return undefined;
+    for (const my_token of bucket) {
+      const start = my_token.range.start;
+      const end = my_token.range.end;
+      // Check if (line, character) falls within [start, end)
+      const after_start = line > start.line
+        || (line === start.line && character >= start.character);
+      const before_end = line < end.line
+        || (line === end.line && character < end.character);
+      if (after_start && before_end) {
+        return my_token;
+      }
+    }
+    return undefined;
+  }
+
 
   /**
    * Build diagnostics from lexer, parser, and analyzer errors.

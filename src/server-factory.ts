@@ -59,8 +59,6 @@ import {
     create_did_change_watched_files_handler,
     create_execute_command_handler,
     create_get_working_directory_handler,
-    GetWorkingDirectoryParams,
-    GetWorkingDirectoryResult,
 } from './server-handlers';
 
 import type { TransportType } from './cli';
@@ -230,6 +228,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         config: StataLSPConfig
     ): void {
         const max_revalidations = config.cross_file?.max_callee_revalidations ?? 10;
+        const is_debug = config.debug === true;
 
         const sorted_callees = Array.from(callee_uris).sort((a, b) => {
             return get_document_priority(b) - get_document_priority(a);
@@ -246,10 +245,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
         let count = 0;
         for (const my_callee_uri of sorted_callees) {
             if (count >= max_revalidations) {
-                connection.console.log(
-                    `Callee revalidation limit reached (${max_revalidations}). ` +
-                    `Skipped ${sorted_callees.length - count} callees.`
-                );
+                if (is_debug) {
+                    connection.console.log(
+                        `Callee revalidation limit reached (${max_revalidations}). ` +
+                        `Skipped ${sorted_callees.length - count} callees.`
+                    );
+                }
                 break;
             }
 
@@ -261,10 +262,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     diagnostics_provider.clear_published_version(my_callee_uri);
                 }
 
-                setTimeout(() => {
-                    if (my_token.cancelled) return;
-                    validate_text_document(callee_doc);
-                }, 0);
+                // Route through debounce instead of setTimeout (Req 3.1, 3.2)
+                // validate_text_document now schedules through the debounce
+                // manager internally, which coalesces multiple calls for the
+                // same URI.
+                validate_text_document(callee_doc);
                 count++;
             }
         }
@@ -318,6 +320,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
     ): void {
         const max_revalidations = config.cross_file?.max_callee_revalidations ?? 10;
         const max_depth = config.cross_file?.max_chain_depth ?? 20;
+        const is_debug = config.debug === true;
 
         // First expand caller_uris to include transitive forward-call callers
         const expanded_caller_uris = new Set<string>(caller_uris);
@@ -356,20 +359,26 @@ export async function create_server(options: ServerOptions): Promise<void> {
         const my_token = { cancelled: false };
         pending_revalidations.set(token_key, my_token);
 
-        connection.console.log(`[caller-revalidation] Triggered by ${trigger_uri}, direct callers: ${caller_uris.size}, total (with backward deps): ${all_uris_to_revalidate.size}`);
+        if (is_debug) {
+            connection.console.log(`[caller-revalidation] Triggered by ${trigger_uri}, direct callers: ${caller_uris.size}, total (with backward deps): ${all_uris_to_revalidate.size}`);
+        }
 
         let count = 0;
         for (const my_caller_uri of sorted_callers) {
             if (count >= max_revalidations) {
-                connection.console.log(
-                    `Caller revalidation limit reached (${max_revalidations}). ` +
-                    `Skipped ${sorted_callers.length - count} callers.`
-                );
+                if (is_debug) {
+                    connection.console.log(
+                        `Caller revalidation limit reached (${max_revalidations}). ` +
+                        `Skipped ${sorted_callers.length - count} callers.`
+                    );
+                }
                 break;
             }
 
             const caller_doc = documents.get(my_caller_uri);
-            connection.console.log(`[caller-revalidation] Checking ${my_caller_uri}: doc=${caller_doc ? 'found' : 'not found'}`);
+            if (is_debug) {
+                connection.console.log(`[caller-revalidation] Checking ${my_caller_uri}: doc=${caller_doc ? 'found' : 'not found'}`);
+            }
             if (caller_doc) {
                 // Clear the published version so diagnostics will be republished
                 // even though the caller document's version hasn't changed
@@ -377,153 +386,197 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     diagnostics_provider.clear_published_version(my_caller_uri);
                 }
 
-                setTimeout(() => {
-                    if (my_token.cancelled) return;
-                    connection.console.log(`[caller-revalidation] Revalidating ${my_caller_uri}`);
-                    validate_text_document(caller_doc);
-                }, 0);
+                // Route through debounce instead of setTimeout (Req 3.1, 3.2)
+                validate_text_document(caller_doc);
                 count++;
             }
         }
 
-        connection.console.log(`[caller-revalidation] Scheduled ${count} revalidations`);
+        if (is_debug) {
+            connection.console.log(`[caller-revalidation] Scheduled ${count} revalidations`);
+        }
     }
 
-    /**
-     * Create the HandlerDependencies object with real providers.
-     */
-    function get_handler_dependencies(): HandlerDependencies {
-        return {
-            document_store,
-            diagnostics_provider,
-            completion_provider,
-            hover_provider,
-            definition_provider,
-            references_provider,
-            symbol_provider,
-            formatter_provider,
-            workspace_indexer,
-            scope_resolver,
-            forward_scope_resolver,
-            rename_handler,
-            get_document_settings,
-            connection: {
-                sendDiagnostics: (params) => connection.sendDiagnostics(params),
-                console: { log: (msg) => connection.console.log(msg) },
-            },
-        };
-    }
+    // Mutable handler dependencies container (Req 4.1, 4.2, 14.1, 14.2).
+    // Handlers capture this object by reference, so mutating its properties
+    // after provider initialization makes new providers visible to all
+    // already-registered handlers (Req 4.3, 14.3).
+    const handler_deps: HandlerDependencies = {
+        debounce_manager,
+        document_store,
+        diagnostics_provider: null,
+        completion_provider: null,
+        hover_provider: null,
+        definition_provider: null,
+        references_provider: null,
+        symbol_provider: null,
+        formatter_provider: null,
+        workspace_indexer: null,
+        scope_resolver: null,
+        forward_scope_resolver: null,
+        rename_handler: null,
+        get_document_settings,
+        connection: {
+            sendDiagnostics: (params) => connection.sendDiagnostics(params),
+            console: { log: (msg) => connection.console.log(msg) },
+        },
+    };
 
     /**
      * Validate a text document and publish diagnostics.
+     *
+     * Captures a content snapshot eagerly, then schedules the full
+     * lex/parse/analyze cycle, cross-file revalidation, and diagnostic
+     * publication inside the debounce callback so that rapid edits are
+     * coalesced into a single cycle (Req 2.1, 2.2, 2.3, 3.1, 3.2).
      */
     async function validate_text_document(text_document: TextDocument): Promise<void> {
         last_changed_uri = text_document.uri;
-        connection.console.log(`[validate] Starting validation for ${text_document.uri} v${text_document.version}`);
 
+        // Fetch settings eagerly for debug gating (Req 8.2, 8.3, 8.4)
+        const eager_settings = await get_document_settings(text_document.uri);
+        const is_debug = eager_settings.debug === true;
+
+        if (is_debug) {
+            connection.console.log(`[validate] Starting validation for ${text_document.uri} v${text_document.version}`);
+        }
+
+        // Cancel existing revalidation for this URI (eager, before debounce)
         const existing_token = pending_revalidations.get(text_document.uri);
         if (existing_token) {
             existing_token.cancelled = true;
         }
 
+        // Invalidate scope cache eagerly so stale scopes are never read
         if (scope_resolver) {
-            connection.console.log(`[validate] Invalidating scope cache for ${text_document.uri}`);
+            if (is_debug) {
+                connection.console.log(`[validate] Invalidating scope cache for ${text_document.uri}`);
+            }
             scope_resolver.invalidate_scope_cache(text_document.uri);
         }
 
-        const update_promise = (async () => {
-            const workspace_symbols = workspace_indexer ? workspace_indexer.get_all_symbols() : undefined;
+        // Capture content snapshot for the debounce callback (Req 2.1)
+        const snapshot_uri = text_document.uri;
+        const snapshot_version = text_document.version;
+        const snapshot_content = text_document.getText();
 
-            if (document_store.get(text_document.uri)) {
-                await document_store.update(text_document.uri, [{
-                    text: text_document.getText(),
-                }], text_document.version, workspace_symbols);
-            } else {
-                await document_store.open(text_document.uri, text_document.getText(), text_document.version, workspace_symbols);
-            }
+        debounce_manager.schedule_validation(
+            snapshot_uri,
+            snapshot_version,
+            async () => {
+                // --- Lex/parse/analyze inside debounce callback (Req 2.1, 2.2) ---
+                const workspace_symbols = workspace_indexer
+                    ? workspace_indexer.get_all_symbols()
+                    : undefined;
 
-            if (scope_resolver) {
-                const document_state = document_store.get(text_document.uri);
-                if (document_state?.forward_calls && document_state?.symbols) {
-                    // Log forward calls for debugging
-                    const static_calls = document_state.forward_calls.filter(c => c.is_static && c.path);
-                    connection.console.log(`[reverse-deps] Updating for ${text_document.uri}`);
-                    connection.console.log(`[reverse-deps]   forward_calls: ${document_state.forward_calls.length} total, ${static_calls.length} static`);
-                    for (const fc of static_calls) {
-                        connection.console.log(`[reverse-deps]   - ${fc.type} "${fc.path}" (line ${fc.call_site_line})`);
-                    }
-
-                    const { affected_callees, interface_changed } = scope_resolver.update_reverse_dependencies(
-                        text_document.uri,
-                        document_state.forward_calls,
-                        document_state.symbols
+                if (document_store.get(snapshot_uri)) {
+                    await document_store.update(
+                        snapshot_uri,
+                        [{ text: snapshot_content }],
+                        snapshot_version,
+                        workspace_symbols
                     );
+                } else {
+                    await document_store.open(
+                        snapshot_uri,
+                        snapshot_content,
+                        snapshot_version,
+                        workspace_symbols
+                    );
+                }
 
-                    connection.console.log(`[reverse-deps] Result: affected_callees=${affected_callees.size}, interface_changed=${interface_changed}`);
-
-                    if (affected_callees.size > 0) {
-                        scope_resolver.cascade_invalidate(affected_callees);
-                    }
-
-                    if (affected_callees.size > 0 || interface_changed) {
-                        const settings = await get_document_settings(text_document.uri);
-                        schedule_callee_revalidation(affected_callees, text_document.uri, settings);
-                    }
-
-                    // When this file's interface changes, revalidate all callers
-                    // (files that call this file via do/run/include)
-                    if (interface_changed) {
-                        // Invalidate the file cache for this file so callers read fresh content
-                        // This is necessary because the file cache may have stale data from before
-                        // the in-memory edit was saved to disk. The DidChangeWatchedFiles event
-                        // that normally invalidates the file cache may arrive after caller revalidation.
-                        // Pass preserve_forward_call_relationships=true because we just updated them via update_reverse_dependencies.
-                        scope_resolver.invalidate_file_cache(text_document.uri, { preserve_forward_call_relationships: true });
-
-                        // Log the reverse deps state for debugging
-                        connection.console.log(`[reverse-deps] Reverse deps state:\n${scope_resolver.get_reverse_deps_debug_info()}`);
-
-                        // Revalidate files that call this file via forward calls (do/run/include commands)
-                        const caller_uris = scope_resolver.get_callers_for_callee(text_document.uri);
-                        connection.console.log(`[reverse-deps] Interface changed, forward-call callers for ${text_document.uri}: ${Array.from(caller_uris).join(', ') || '(none)'}`);
-                        if (caller_uris.size > 0) {
-                            const settings = await get_document_settings(text_document.uri);
-                            schedule_caller_revalidation(caller_uris, text_document.uri, settings);
+                // --- Cross-file revalidation scheduling (Req 3.1) ---
+                if (scope_resolver) {
+                    const document_state = document_store.get(snapshot_uri);
+                    if (document_state?.forward_calls && document_state?.symbols) {
+                        // Log forward calls for debugging (Req 8.2, 8.4)
+                        if (is_debug) {
+                            const static_calls = document_state.forward_calls.filter(c => c.is_static && c.path);
+                            connection.console.log(`[reverse-deps] Updating for ${snapshot_uri}`);
+                            connection.console.log(`[reverse-deps]   forward_calls: ${document_state.forward_calls.length} total, ${static_calls.length} static`);
+                            for (const fc of static_calls) {
+                                connection.console.log(`[reverse-deps]   - ${fc.type} "${fc.path}" (line ${fc.call_site_line})`);
+                            }
                         }
 
-                        // Revalidate files that depend on this file via backward directives (@lsp-done-by/@lsp-included-by)
-                        // These are files that inherit symbols FROM this file (transitively)
-                        const backward_children = scope_resolver.get_transitive_backward_directive_children(text_document.uri);
-                        connection.console.log(`[reverse-deps] Interface changed, transitive backward-directive children for ${text_document.uri}: ${backward_children.size} files`);
-                        if (backward_children.size > 0) {
-                            connection.console.log(`[reverse-deps] Transitive dependents: ${Array.from(backward_children).join(', ')}`);
-                            const settings = await get_document_settings(text_document.uri);
-                            schedule_caller_revalidation(backward_children, text_document.uri, settings);
+                        const { affected_callees, interface_changed } = scope_resolver.update_reverse_dependencies(
+                            snapshot_uri,
+                            document_state.forward_calls,
+                            document_state.symbols
+                        );
+
+                        if (is_debug) {
+                            connection.console.log(`[reverse-deps] Result: affected_callees=${affected_callees.size}, interface_changed=${interface_changed}`);
+                        }
+
+                        if (affected_callees.size > 0) {
+                            scope_resolver.cascade_invalidate(affected_callees);
+                        }
+
+                        if (affected_callees.size > 0 || interface_changed) {
+                            const settings = await get_document_settings(snapshot_uri);
+                            schedule_callee_revalidation(affected_callees, snapshot_uri, settings);
+                        }
+
+                        // When this file's interface changes, revalidate all callers
+                        // (files that call this file via do/run/include)
+                        if (interface_changed) {
+                            // Invalidate the file cache for this file so callers read fresh content
+                            // This is necessary because the file cache may have stale data from before
+                            // the in-memory edit was saved to disk. The DidChangeWatchedFiles event
+                            // that normally invalidates the file cache may arrive after caller revalidation.
+                            // Pass preserve_forward_call_relationships=true because we just updated them via update_reverse_dependencies.
+                            scope_resolver.invalidate_file_cache(snapshot_uri, { preserve_forward_call_relationships: true });
+
+                            // Log the reverse deps state for debugging (Req 8.3)
+                            if (is_debug) {
+                                connection.console.log(`[reverse-deps] Reverse deps state:\n${scope_resolver.get_reverse_deps_debug_info()}`);
+                            }
+
+                            // Revalidate files that call this file via forward calls (do/run/include commands)
+                            const caller_uris = scope_resolver.get_callers_for_callee(snapshot_uri);
+                            if (is_debug) {
+                                connection.console.log(`[reverse-deps] Interface changed, forward-call callers for ${snapshot_uri}: ${Array.from(caller_uris).join(', ') || '(none)'}`);
+                            }
+                            if (caller_uris.size > 0) {
+                                const settings = await get_document_settings(snapshot_uri);
+                                schedule_caller_revalidation(caller_uris, snapshot_uri, settings);
+                            }
+
+                            // Revalidate files that depend on this file via backward directives (@lsp-done-by/@lsp-included-by)
+                            // These are files that inherit symbols FROM this file (transitively)
+                            const backward_children = scope_resolver.get_transitive_backward_directive_children(snapshot_uri);
+                            if (is_debug) {
+                                connection.console.log(`[reverse-deps] Interface changed, transitive backward-directive children for ${snapshot_uri}: ${backward_children.size} files`);
+                            }
+                            if (backward_children.size > 0) {
+                                if (is_debug) {
+                                    connection.console.log(`[reverse-deps] Transitive dependents: ${Array.from(backward_children).join(', ')}`);
+                                }
+                                const settings = await get_document_settings(snapshot_uri);
+                                schedule_caller_revalidation(backward_children, snapshot_uri, settings);
+                            }
                         }
                     }
                 }
-            }
-        })();
 
-        debounce_manager.schedule_validation(
-            text_document.uri,
-            text_document.version,
-            async () => {
-                await update_promise;
-
-                const settings = await get_document_settings(text_document.uri);
-                const document_state = document_store.get(text_document.uri);
+                // --- Diagnostic publication (Req 2.3) ---
+                const settings = await get_document_settings(snapshot_uri);
+                const document_state = document_store.get(snapshot_uri);
 
                 if (!document_state) {
-                    connection.sendDiagnostics({ uri: text_document.uri, diagnostics: [] });
+                    connection.sendDiagnostics({ uri: snapshot_uri, diagnostics: [] });
                     return;
                 }
 
                 if (diagnostics_provider) {
-                    const workspace_symbols = workspace_indexer ? workspace_indexer.get_all_symbols() : undefined;
+                    const diag_workspace_symbols = workspace_indexer
+                        ? workspace_indexer.get_all_symbols()
+                        : undefined;
 
                     let forward_scope = undefined;
-                    // Skip forward_scope computation when scope_resolver is available - ScopeResolver.resolve() already calls ForwardScopeResolver internally
+                    // Skip forward_scope computation when scope_resolver is available —
+                    // ScopeResolver.resolve() already calls ForwardScopeResolver internally
                     if (!scope_resolver && forward_scope_resolver && document_state.forward_calls.length > 0) {
                         const max_depth = settings.cross_file?.max_forward_depth ?? 10;
                         forward_scope = await forward_scope_resolver.resolve(
@@ -547,22 +600,24 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     const result = await diagnostics_provider.publish_diagnostics(
                         document_state,
                         settings,
-                        workspace_symbols,
+                        diag_workspace_symbols,
                         scope_resolver || undefined,
                         undefined,
                         forward_scope
                     );
 
                     if (result.pending) {
-                        connection.console.log(`Diagnostics pending for ${text_document.uri}`);
+                        if (is_debug) {
+                            connection.console.log(`Diagnostics pending for ${snapshot_uri}`);
+                        }
                     }
                 } else {
                     if (!settings.diagnostics.enabled) {
-                        connection.sendDiagnostics({ uri: text_document.uri, diagnostics: [] });
+                        connection.sendDiagnostics({ uri: snapshot_uri, diagnostics: [] });
                         return;
                     }
                     connection.sendDiagnostics({
-                        uri: text_document.uri,
+                        uri: snapshot_uri,
                         diagnostics: document_state.diagnostics
                     });
                 }
@@ -633,16 +688,18 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 warn: (msg) => connection.console.warn(msg),
             }, {
                 read_file: async (uri: string) => {
-                    const doc = document_store.get(uri);
-                    if (doc) {
-                        return doc.content;
+                    // Prefer TextDocuments buffer for open files (Req 11.1)
+                    const open_doc = documents.get(uri);
+                    if (open_doc) {
+                        return open_doc.getText();
                     }
+                    // Fall back to disk for closed files (Req 11.2)
                     const fs_path = URI.parse(uri).fsPath;
                     return fs.promises.readFile(fs_path, 'utf8');
                 },
                 exists: async (uri: string) => {
-                    const doc = document_store.get(uri);
-                    if (doc) return true;
+                    // Prefer TextDocuments for open files (Req 11.1)
+                    if (documents.get(uri)) return true;
                     const fs_path = URI.parse(uri).fsPath;
                     try {
                         await fs.promises.access(fs_path);
@@ -677,6 +734,20 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 },
                 scope_resolver || undefined
             );
+
+            // Mutate the mutable handler_deps container so that
+            // already-registered handlers see the new providers (Req 4.3, 14.3)
+            handler_deps.diagnostics_provider = diagnostics_provider;
+            handler_deps.completion_provider = completion_provider;
+            handler_deps.hover_provider = hover_provider;
+            handler_deps.definition_provider = definition_provider;
+            handler_deps.references_provider = references_provider;
+            handler_deps.symbol_provider = symbol_provider;
+            handler_deps.formatter_provider = formatter_provider;
+            handler_deps.workspace_indexer = workspace_indexer;
+            handler_deps.scope_resolver = scope_resolver;
+            handler_deps.forward_scope_resolver = forward_scope_resolver;
+            handler_deps.rename_handler = rename_handler;
 
             // Initialize workspace indexer
             const workspace_folders_promise = connection.workspace.getWorkspaceFolders();
@@ -801,10 +872,15 @@ export async function create_server(options: ServerOptions): Promise<void> {
         validate_text_document(change.document);
     });
 
-    // Wire all handlers
+    // Register all handlers once with the mutable deps container (Req 4.1).
+    // Handler closures capture `handler_deps` by reference, so mutating
+    // its properties later makes new providers visible without
+    // re-registration (Req 4.3, 14.3).
+
+    // Notification handlers (Req 14.1)
     connection.onDidChangeWatchedFiles(
         create_did_change_watched_files_handler(
-            get_handler_dependencies(),
+            handler_deps,
             (uri: string) => URI.parse(uri).fsPath,
             async (uri: string) => {
                 // Trigger caller revalidation when a file changes on disk
@@ -819,65 +895,39 @@ export async function create_server(options: ServerOptions): Promise<void> {
         )
     );
 
-    connection.onCompletion((params, token) => {
-        const deps = get_handler_dependencies();
-        return create_completion_handler(deps)(params, token);
+    // Request handlers — created once, registered once (Req 4.1, 4.2)
+    const completion_handler = create_completion_handler(handler_deps);
+    const hover_handler = create_hover_handler(handler_deps);
+    const definition_handler = create_definition_handler(handler_deps);
+    const references_handler = create_references_handler(handler_deps);
+    const document_symbol_handler = create_document_symbol_handler(handler_deps);
+    const workspace_symbol_handler = create_workspace_symbol_handler(handler_deps);
+    const formatting_handler = create_formatting_handler(handler_deps);
+    const range_formatting_handler = create_range_formatting_handler(handler_deps);
+    const execute_command_handler = create_execute_command_handler(handler_deps);
+    const shutdown_handler = create_shutdown_handler(handler_deps, {
+        debounce_manager,
+        pending_revalidations,
     });
+    const working_directory_handler = create_get_working_directory_handler(handler_deps);
 
+    connection.onCompletion(completion_handler);
     connection.onCompletionResolve(create_completion_resolve_handler());
-
-    connection.onHover((params, token) => {
-        const deps = get_handler_dependencies();
-        return create_hover_handler(deps)(params, token);
-    });
-
-    connection.onDefinition((params, token) => {
-        const deps = get_handler_dependencies();
-        return create_definition_handler(deps)(params, token);
-    });
-
-    connection.onReferences((params, token) => {
-        const deps = get_handler_dependencies();
-        return create_references_handler(deps)(params, token);
-    });
-
-    connection.onDocumentSymbol((params) => {
-        const deps = get_handler_dependencies();
-        return create_document_symbol_handler(deps)(params);
-    });
-
-    connection.onWorkspaceSymbol((params) => {
-        const deps = get_handler_dependencies();
-        return create_workspace_symbol_handler(deps)(params);
-    });
-
-    connection.onDocumentFormatting((params) => {
-        const deps = get_handler_dependencies();
-        return create_formatting_handler(deps)(params);
-    });
-
-    connection.onDocumentRangeFormatting((params) => {
-        const deps = get_handler_dependencies();
-        return create_range_formatting_handler(deps)(params);
-    });
-
+    connection.onHover(hover_handler);
+    connection.onDefinition(definition_handler);
+    connection.onReferences(references_handler);
+    connection.onDocumentSymbol(document_symbol_handler);
+    connection.onWorkspaceSymbol(workspace_symbol_handler);
+    connection.onDocumentFormatting(formatting_handler);
+    connection.onDocumentRangeFormatting(range_formatting_handler);
     connection.onExecuteCommand((params) => {
-        const deps = get_handler_dependencies();
-        return create_execute_command_handler(deps)(params.command, params.arguments || []);
+        return execute_command_handler(params.command, params.arguments || []);
     });
-
-    connection.onShutdown(() => {
-        const deps = get_handler_dependencies();
-        return create_shutdown_handler(deps)();
-    });
-
+    connection.onShutdown(shutdown_handler);
     connection.onExit(create_exit_handler());
 
-    // Register custom request handler for sight/getWorkingDirectory
-    connection.onRequest('sight/getWorkingDirectory', (params: GetWorkingDirectoryParams) => {
-        const deps = get_handler_dependencies();
-        return create_get_working_directory_handler(deps)(params);
-    });
+    // Custom request handler (Req 14.2)
+    connection.onRequest('sight/getWorkingDirectory', working_directory_handler);
 
     // Start listening
     documents.listen(connection);
