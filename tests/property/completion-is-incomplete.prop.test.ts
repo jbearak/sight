@@ -278,12 +278,13 @@ describe('Completion isIncomplete Property Tests', () => {
                         undefined
                     );
 
+                    const my_document =
+                        document_store.get(my_uri)!;
                     const my_context =
                         detect_completion_context(
-                            document_store.get(my_uri)!,
+                            my_document,
                             my_position,
-                            document_store.get(my_uri)!
-                                .tokens
+                            my_document.tokens
                         );
 
                     // Biconditional: handler isIncomplete
