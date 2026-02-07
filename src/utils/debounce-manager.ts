@@ -317,12 +317,21 @@ export class DocumentDebounceManager implements DebounceManager {
 
     /**
      * Cancel pending validation for a document.
+     * Resolves any pending wait_for_debounce promises so
+     * waiters are not left hanging.
      */
     cancel(uri: string): void {
         const existing = this.pending_timers.get(uri);
         if (existing) {
             clearTimeout(existing);
             this.pending_timers.delete(uri);
+        }
+        // Resolve any pending debounce promise
+        const resolve = this.pending_resolvers.get(uri);
+        if (resolve) {
+            resolve();
+            this.pending_resolvers.delete(uri);
+            this.pending_promises.delete(uri);
         }
         // Also remove from queue if pending
         this.parse_queue = this.parse_queue.filter(

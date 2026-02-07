@@ -256,7 +256,8 @@ export class DocumentStore {
   /**
    * Commit a document state, guarded by generation counter.
    * Discards stale updates if the document was closed after
-   * this update started. (Req 16.2)
+   * this update started, or if a newer update has already
+   * committed. (Req 16.2)
    */
   private commit_state(
     uri: string,
@@ -265,7 +266,12 @@ export class DocumentStore {
   ): void {
     const closed_gen = this.closed_generations.get(uri);
     if (closed_gen !== undefined && generation <= closed_gen) {
-      return; // Discard stale update
+      return; // Discard stale update (document closed)
+    }
+    // Discard if a newer update has already committed (Req 16.2)
+    const current_gen = this.generations.get(uri) ?? 0;
+    if (generation < current_gen) {
+      return; // A newer update has already committed
     }
     this.documents.set(uri, state);
     this.touch_access(uri);

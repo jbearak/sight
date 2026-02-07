@@ -116,6 +116,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let forward_scope_resolver: ForwardScopeResolver | null = null;
     let rename_handler: RenameHandler | null = null;
 
+    // Maximum revalidation cascade depth to prevent A→B→C→A loops
+    const MAX_REVALIDATION_DEPTH = 5;
+
     // Cancellation tokens for pending callee revalidations
     const pending_revalidations: Map<string, { cancelled: boolean }> = new Map();
 
@@ -221,11 +224,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     /**
      * Schedule re-validation for affected callee documents.
+     * @param revalidation_depth - Current cascade depth, incremented
+     *   when triggering further revalidation
      */
     function schedule_callee_revalidation(
         callee_uris: Set<string>,
         trigger_uri: string,
-        config: StataLSPConfig
+        config: StataLSPConfig,
+        revalidation_depth: number = 0
     ): void {
         const max_revalidations = config.cross_file?.max_callee_revalidations ?? 10;
         const is_debug = config.debug === true;
@@ -265,8 +271,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 // Route through debounce instead of setTimeout (Req 3.1, 3.2)
                 // validate_text_document now schedules through the debounce
                 // manager internally, which coalesces multiple calls for the
-                // same URI.
-                validate_text_document(callee_doc);
+                // same URI. Pass incremented depth to prevent unbounded cascade.
+                validate_text_document(callee_doc, revalidation_depth + 1);
                 count++;
             }
         }
@@ -312,11 +318,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
      * that call it (via do/run/include) get their diagnostics updated.
      * Also revalidates files that transitively depend on the callers via
      * backward directives (@lsp-done-by/@lsp-included-by).
+     * @param revalidation_depth - Current cascade depth, incremented
+     *   when triggering further revalidation
      */
     function schedule_caller_revalidation(
         caller_uris: Set<string>,
         trigger_uri: string,
-        config: StataLSPConfig
+        config: StataLSPConfig,
+        revalidation_depth: number = 0
     ): void {
         const max_revalidations = config.cross_file?.max_callee_revalidations ?? 10;
         const max_depth = config.cross_file?.max_chain_depth ?? 20;
@@ -387,7 +396,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 }
 
                 // Route through debounce instead of setTimeout (Req 3.1, 3.2)
-                validate_text_document(caller_doc);
+                // Pass incremented depth to prevent unbounded cascade.
+                validate_text_document(caller_doc, revalidation_depth + 1);
                 count++;
             }
         }
@@ -429,8 +439,27 @@ export async function create_server(options: ServerOptions): Promise<void> {
      * lex/parse/analyze cycle, cross-file revalidation, and diagnostic
      * publication inside the debounce callback so that rapid edits are
      * coalesced into a single cycle (Req 2.1, 2.2, 2.3, 3.1, 3.2).
+     *
+     * @param revalidation_depth - Tracks cascade depth to prevent
+     *   unbounded A→B→C→A revalidation loops. Defaults to 0 for
+     *   user-initiated validation.
      */
-    async function validate_text_document(text_document: TextDocument): Promise<void> {
+    async function validate_text_document(
+        text_document: TextDocument,
+        revalidation_depth: number = 0
+    ): Promise<void> {
+        // Guard against unbounded revalidation cascade
+        if (revalidation_depth >= MAX_REVALIDATION_DEPTH) {
+            const eager_settings = await get_document_settings(text_document.uri);
+            if (eager_settings.debug === true) {
+                connection.console.log(
+                    `[validate] Skipping ${text_document.uri} - ` +
+                    `max revalidation depth (${MAX_REVALIDATION_DEPTH}) reached`
+                );
+            }
+            return;
+        }
+
         last_changed_uri = text_document.uri;
 
         // Fetch settings eagerly for debug gating (Req 8.2, 8.3, 8.4)
@@ -515,7 +544,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
                         if (affected_callees.size > 0 || interface_changed) {
                             const settings = await get_document_settings(snapshot_uri);
-                            schedule_callee_revalidation(affected_callees, snapshot_uri, settings);
+                            schedule_callee_revalidation(affected_callees, snapshot_uri, settings, revalidation_depth);
                         }
 
                         // When this file's interface changes, revalidate all callers
@@ -540,7 +569,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                             }
                             if (caller_uris.size > 0) {
                                 const settings = await get_document_settings(snapshot_uri);
-                                schedule_caller_revalidation(caller_uris, snapshot_uri, settings);
+                                schedule_caller_revalidation(caller_uris, snapshot_uri, settings, revalidation_depth);
                             }
 
                             // Revalidate files that depend on this file via backward directives (@lsp-done-by/@lsp-included-by)
@@ -554,7 +583,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                                     connection.console.log(`[reverse-deps] Transitive dependents: ${Array.from(backward_children).join(', ')}`);
                                 }
                                 const settings = await get_document_settings(snapshot_uri);
-                                schedule_caller_revalidation(backward_children, snapshot_uri, settings);
+                                schedule_caller_revalidation(backward_children, snapshot_uri, settings, revalidation_depth);
                             }
                         }
                     }
