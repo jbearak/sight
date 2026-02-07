@@ -413,8 +413,7 @@ describe('Scope Content Provider Property Tests', () => {
                     minLength: 2,
                     maxLength: 15,
                 }),
-                fc.boolean(),
-                async (the_scenarios, _force_mix) => {
+                async (the_scenarios) => {
                     // Deduplicate by URI
                     const seen_uris = new Map<
                         string,
