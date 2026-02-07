@@ -100,7 +100,6 @@ describe('Completion isIncomplete Property Tests', () => {
                 fc.constantFrom('', 'display ', 'gen x = '),
                 fc.constant('`'),
                 fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]{0,5}$/)
-                    .chain(my_id => fc.constant(my_id))
             ).map(([my_prefix, my_backtick, my_id]) =>
                 `${my_prefix}${my_backtick}${my_id}`
             ),
@@ -109,7 +108,6 @@ describe('Completion isIncomplete Property Tests', () => {
                 fc.constantFrom('', 'display ', 'gen x = '),
                 fc.constant('$'),
                 fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]{0,5}$/)
-                    .chain(my_id => fc.constant(my_id))
             ).map(([my_prefix, my_dollar, my_id]) =>
                 `${my_prefix}${my_dollar}${my_id}`
             ),
@@ -118,7 +116,6 @@ describe('Completion isIncomplete Property Tests', () => {
                 fc.constantFrom('', 'display ', 'gen x = '),
                 fc.constant('${'),
                 fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]{0,5}$/)
-                    .chain(my_id => fc.constant(my_id))
             ).map(([my_prefix, my_dollar_brace, my_id]) =>
                 `${my_prefix}${my_dollar_brace}${my_id}`
             ),
