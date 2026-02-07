@@ -274,11 +274,11 @@ describe('LSP Lifecycle - Handler Factories', () => {
     });
 
     describe('Document Symbol Handler', () => {
-        it('should return empty array when no document found', () => {
+        it('should return empty array when no document found', async () => {
             const deps = create_mock_dependencies();
             const handler = create_document_symbol_handler(deps);
 
-            const result = handler({
+            const result = await handler({
                 textDocument: { uri: 'file:///nonexistent.do' },
             });
 
