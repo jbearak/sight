@@ -25,7 +25,7 @@ Each phase operates on the document content and line offsets, marking consumed l
 **Purpose**: Detect multi-line comment blocks with asterisk borders used as section headings.
 
 **Pattern Recognition**:
-```
+```text
 /********************************************************************
  Current contraceptive methods for Rounds IV-VIII (v307_01-v307_21)
 *******************************************************************/

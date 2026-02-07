@@ -56,6 +56,8 @@ const ALL_ASTERISK_PATTERN = /^\*{4,}$/;
 const ALL_SLASH_PATTERN = /^\/{4,}$/;
 const SLASH_DELIM_PATTERN = /^\/\/\s*([-=*+])\1{3,}\s*$/;
 const STAR_DELIM_PATTERN = /^\*\s+([-=+])\1{3,}\s*$/;
+const SLASH_COMMENT_PREFIX_PATTERN = /^\/\/\s*/;
+const STAR_COMMENT_PREFIX_PATTERN = /^\*\s+/;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -132,13 +134,13 @@ export function is_asterisk_delimiter(line: string): boolean {
  * @returns true if the line is a standalone heading candidate
  */
 export function is_standalone_heading(line: string): boolean {
-    // Check for tab at the start (before any other characters)
-    if (line.startsWith('\t')) {
-        return false;
-    }
-
     // Calculate leading whitespace count
     const my_leading_whitespace = line.length - line.trimStart().length;
+
+    // Reject lines with any tab in leading whitespace (including after spaces)
+    if (my_leading_whitespace > 0 && line.slice(0, my_leading_whitespace).includes('\t')) {
+        return false;
+    }
 
     // Reject lines with 4+ spaces of leading whitespace
     if (my_leading_whitespace >= 4) {
@@ -181,13 +183,13 @@ export function count_delimiter_chars(line: string, kind: DelimiterKind): number
 
     // Check for comment-prefixed delimiter patterns
     // Pattern: // ====... or * ----...
-    const my_slash_prefix_match = my_trimmed.match(/^\/\/\s*/);
+    const my_slash_prefix_match = my_trimmed.match(SLASH_COMMENT_PREFIX_PATTERN);
     if (my_slash_prefix_match) {
         const my_after_prefix = my_trimmed.substring(my_slash_prefix_match[0].length);
         return count_leading_delimiter_chars(my_after_prefix, my_delim_char);
     }
 
-    const my_star_prefix_match = my_trimmed.match(/^\*\s+/);
+    const my_star_prefix_match = my_trimmed.match(STAR_COMMENT_PREFIX_PATTERN);
     if (my_star_prefix_match) {
         const my_after_prefix = my_trimmed.substring(my_star_prefix_match[0].length);
         return count_leading_delimiter_chars(my_after_prefix, my_delim_char);
@@ -290,13 +292,6 @@ export function derive_level_from_delimiter_count(count: number): number {
     if (count <= 11) return 3;
     return 4;
 }
-
-
-
-
-
-
-
 
 /**
  * Classify a line as a delimiter line for banner detection.

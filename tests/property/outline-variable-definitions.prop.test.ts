@@ -35,22 +35,6 @@ describe('Outline Variable Definitions Property Tests', () => {
     ];
 
     /**
-     * Variable sources that should appear in the outline.
-     */
-    const OUTLINE_SOURCES: Array<VariableSymbol['source']> = ['gen', 'egen'];
-
-    /**
-     * Variable sources that should NOT appear in the outline.
-     */
-    const EXCLUDED_SOURCES: Array<VariableSymbol['source']> = [
-        'input',
-        'inferred',
-        'directive',
-        'rename',
-        'confirm',
-    ];
-
-    /**
      * Generator for a Stata command that creates a variable with a specific source.
      * Returns the source code and expected variable name.
      */
@@ -79,8 +63,11 @@ describe('Outline Variable Definitions Property Tests', () => {
                     source_code = `gen oldvar = 1\nrename oldvar ${varname}`;
                     break;
                 case 'inferred':
-                    // Inferred variables come from data loading - we can't easily generate these
-                    // Use a directive instead to simulate
+                    // NOTE: Inferred variables come from data loading which
+                    // can't be generated in tests. This produces a 'directive'
+                    // source, so the mixed-source test doesn't truly exercise
+                    // inferred-source exclusion. The 'directive' path covers
+                    // the same filtering logic.
                     source_code = `// @lsp-variables ${varname}`;
                     break;
                 case 'directive':
@@ -805,39 +792,6 @@ describe('Outline Variable Definitions Property Tests', () => {
         type SymbolType = 'program' | 'global_macro' | 'scalar' | 'matrix' | 'gen_variable' | 'egen_variable';
 
         /**
-         * Generator for a single symbol definition with its type.
-         * Returns the source code line(s) and the symbol name.
-         */
-        function arbitrary_symbol_definition(
-            symbol_type: SymbolType
-        ): fc.Arbitrary<{ source_code: string; name: string; type: SymbolType }> {
-            return arbitrary_non_reserved_identifier().map((name) => {
-                let source_code: string;
-                switch (symbol_type) {
-                    case 'program':
-                        source_code = `program ${name}\n    display "hello"\nend`;
-                        break;
-                    case 'global_macro':
-                        source_code = `global ${name} = 1`;
-                        break;
-                    case 'scalar':
-                        source_code = `scalar ${name} = 42`;
-                        break;
-                    case 'matrix':
-                        source_code = `matrix ${name} = (1, 2 \\ 3, 4)`;
-                        break;
-                    case 'gen_variable':
-                        source_code = `gen ${name} = 1`;
-                        break;
-                    case 'egen_variable':
-                        source_code = `egen ${name} = mean(x)`;
-                        break;
-                }
-                return { source_code, name, type: symbol_type };
-            });
-        }
-
-        /**
          * Generator for a document with mixed symbol types.
          * Generates symbols in a random order to test sorting.
          */
@@ -1026,12 +980,12 @@ describe('Outline Variable Definitions Property Tests', () => {
         });
 
         /**
-         * Property 3.3: Symbols on the same line should be sorted by character position
+         * Property 3.3: Symbols on separate lines should be sorted by line number
          *
          * Feature: outline-variable-definitions, Property 3: Document Order Preservation
          * **Validates: Requirements 2.1**
          */
-        it('should sort symbols on the same line by character position', () => {
+        it('should sort symbols on separate lines by line number', () => {
             fc.assert(
                 fc.property(
                     fc.tuple(
@@ -1233,24 +1187,24 @@ describe('Property 4: Section Nesting Consistency', () => {
     }
 
     /**
-     * Helper: find the parent section of a symbol by name.
+     * Helper: find the parent section of a symbol by matcher predicate.
      * Returns the section name or null if the symbol is at root level.
      */
-    function find_parent_section(
+    function find_parent_section_by(
         symbols: DocumentSymbol[],
-        target_name: string,
+        matcher: (s: DocumentSymbol) => boolean,
         parent_section: string | null = null
     ): string | null | undefined {
         for (const my_symbol of symbols) {
-            if (my_symbol.name === target_name && my_symbol.kind === SymbolKind.Field) {
+            if (matcher(my_symbol)) {
                 return parent_section;
             }
             if (my_symbol.children && my_symbol.children.length > 0) {
                 const my_section_name =
                     my_symbol.kind === SymbolKind.Module ? my_symbol.name : parent_section;
-                const my_found = find_parent_section(
+                const my_found = find_parent_section_by(
                     my_symbol.children,
-                    target_name,
+                    matcher,
                     my_section_name
                 );
                 if (my_found !== undefined) {
@@ -1262,13 +1216,16 @@ describe('Property 4: Section Nesting Consistency', () => {
     }
 
     /**
-     * Helper: check if a position is within a range.
+     * Helper: find the parent section of a variable (Field) by name.
      */
-    function is_position_in_range(
-        line: number,
-        range: { start: { line: number }; end: { line: number } }
-    ): boolean {
-        return line >= range.start.line && line <= range.end.line;
+    function find_parent_section(
+        symbols: DocumentSymbol[],
+        target_name: string
+    ): string | null | undefined {
+        return find_parent_section_by(
+            symbols,
+            (s) => s.name === target_name && s.kind === SymbolKind.Field
+        );
     }
 
     /**
@@ -1461,14 +1418,7 @@ describe('Property 4: Section Nesting Consistency', () => {
                             my_outer_parent !== `1. ${outer_section}` &&
                             my_outer_parent !== null
                         ) {
-                            // If not under outer section and not at root, check if it's
-                            // under a section that contains the outer section name
-                            if (
-                                my_outer_parent &&
-                                !my_outer_parent.includes(outer_section)
-                            ) {
-                                return false;
-                            }
+                            return false;
                         }
                     }
 
@@ -1480,14 +1430,7 @@ describe('Property 4: Section Nesting Consistency', () => {
                             my_inner_parent !== `1.1 ${inner_section}` &&
                             my_inner_parent !== null
                         ) {
-                            // If not under inner section and not at root, check if it's
-                            // under a section that contains the inner section name
-                            if (
-                                my_inner_parent &&
-                                !my_inner_parent.includes(inner_section)
-                            ) {
-                                return false;
-                            }
+                            return false;
                         }
                     }
 
@@ -1554,27 +1497,12 @@ describe('Property 4: Section Nesting Consistency', () => {
      */
     function find_parent_section_for_global(
         symbols: DocumentSymbol[],
-        target_name: string,
-        parent_section: string | null = null
+        target_name: string
     ): string | null | undefined {
-        for (const my_symbol of symbols) {
-            if (my_symbol.name === target_name && my_symbol.detail === 'Global Macro') {
-                return parent_section;
-            }
-            if (my_symbol.children && my_symbol.children.length > 0) {
-                const my_section_name =
-                    my_symbol.kind === SymbolKind.Module ? my_symbol.name : parent_section;
-                const my_found = find_parent_section_for_global(
-                    my_symbol.children,
-                    target_name,
-                    my_section_name
-                );
-                if (my_found !== undefined) {
-                    return my_found;
-                }
-            }
-        }
-        return undefined;
+        return find_parent_section_by(
+            symbols,
+            (s) => s.name === target_name && s.detail === 'Global Macro'
+        );
     }
 
     /**

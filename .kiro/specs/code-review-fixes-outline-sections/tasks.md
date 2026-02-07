@@ -77,7 +77,6 @@ Address 11 CodeRabbit review comments on PR #69. Changes span the section genera
 
 ## Notes
 
-- Tasks marked with `*` are optional and can be skipped for faster MVP
 - Existing property tests (Properties 1-9 from original spec) must continue to pass after all changes
 - The single-pass optimization (task 3.1) is the most complex change — verify carefully with existing tests before proceeding
 - `calculate_range_size()` is also used by `find_containing_program()` — do NOT remove it, only remove `find_deepest_containing_section()`
