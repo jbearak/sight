@@ -444,7 +444,23 @@ export class SymbolProvider {
             }
         }
 
-        // 6. Add embedded language blocks as structural elements
+        // 6. Add variables (gen/egen only) - defined in this file
+        for (const [name, variable] of document.symbols.variables) {
+            if (variable.sourceUri === document.uri) {
+                // Only include gen and egen sources
+                if (variable.source === 'gen' || variable.source === 'egen') {
+                    symbols.push({
+                        name: name,
+                        kind: SymbolKind.Field,
+                        range: variable.location.range,
+                        selectionRange: variable.location.range,
+                        detail: `Variable (${variable.source})`,
+                    });
+                }
+            }
+        }
+
+        // 7. Add embedded language blocks as structural elements
         if (document.ast) {
             const the_embedded_blocks = this.extract_embedded_blocks(
                 document.ast.nodes
@@ -474,7 +490,7 @@ export class SymbolProvider {
             return a.name.localeCompare(b.name);
         });
 
-        // 7. Extract sections from document content and integrate
+        // 8. Extract sections from document content and integrate
         const my_sections = extract_sections(document.content, document.line_offsets);
         if (my_sections.length > 0) {
             const my_line_count = get_line_count(document);

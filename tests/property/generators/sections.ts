@@ -90,6 +90,9 @@ export function arbitrary_single_line_section(): fc.Arbitrary<{
  * Generate a valid 3-line banner section.
  * Top and bottom lines are matching delimiter lines; middle line has the section name.
  * Returns the 3 lines joined by newline and the expected extracted name.
+ *
+ * Note: For asterisk delimiter style (block comments), the middle line uses
+ * a leading space or asterisk (not //) to match the expected block comment format.
  */
 export function arbitrary_banner_section(): fc.Arbitrary<{
   lines: string;
@@ -98,30 +101,40 @@ export function arbitrary_banner_section(): fc.Arbitrary<{
   const my_name = arbitrary_section_name();
   const my_delim_style = fc.constantFrom('asterisk', 'slash', 'slash_dash', 'star_dash');
   const my_repeat_count = fc.integer({ min: 4, max: 30 });
+  // Comment prefix for non-asterisk styles
   const my_comment_prefix = fc.constantFrom('//', '*');
+  // Comment prefix for asterisk (block comment) style - use space or asterisk, not //
+  const my_block_comment_prefix = fc.constantFrom(' ', ' *');
 
   return fc
-    .tuple(my_name, my_delim_style, my_repeat_count, my_comment_prefix)
-    .map(([my_n, my_ds, my_rc, my_cp]) => {
+    .tuple(my_name, my_delim_style, my_repeat_count, my_comment_prefix, my_block_comment_prefix)
+    .map(([my_n, my_ds, my_rc, my_cp, my_bcp]) => {
       let my_top_line: string;
       let my_bottom_line: string;
+      let my_middle_prefix: string;
 
       if (my_ds === 'asterisk') {
+        // Block comment style: /****...****/ or ****...****
         my_top_line = '*'.repeat(Math.max(4, my_rc));
         my_bottom_line = '*'.repeat(Math.max(4, my_rc));
+        // Use block comment prefix (space or asterisk) for middle line
+        my_middle_prefix = my_bcp;
       } else if (my_ds === 'slash') {
         my_top_line = '/'.repeat(Math.max(4, my_rc));
         my_bottom_line = '/'.repeat(Math.max(4, my_rc));
+        my_middle_prefix = my_cp;
       } else if (my_ds === 'slash_dash') {
         my_top_line = '// ' + '-'.repeat(Math.max(4, my_rc));
         my_bottom_line = '// ' + '-'.repeat(Math.max(4, my_rc));
+        my_middle_prefix = my_cp;
       } else {
         // star_dash
         my_top_line = '* ' + '-'.repeat(Math.max(4, my_rc));
         my_bottom_line = '* ' + '-'.repeat(Math.max(4, my_rc));
+        my_middle_prefix = my_cp;
       }
 
-      const my_middle_line = `${my_cp} ${my_n}`;
+      const my_middle_line = `${my_middle_prefix} ${my_n}`;
       const my_lines = `${my_top_line}\n${my_middle_line}\n${my_bottom_line}`;
 
       return { lines: my_lines, expected_name: my_n };

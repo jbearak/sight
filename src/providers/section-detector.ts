@@ -56,6 +56,8 @@ const ALL_ASTERISK_PATTERN = /^\*{4,}$/;
 const ALL_SLASH_PATTERN = /^\/{4,}$/;
 const SLASH_DELIM_PATTERN = /^\/\/\s*([-=*+])\1{3,}\s*$/;
 const STAR_DELIM_PATTERN = /^\*\s+([-=+])\1{3,}\s*$/;
+const SLASH_COMMENT_PREFIX_PATTERN = /^\/\/\s*/;
+const STAR_COMMENT_PREFIX_PATTERN = /^\*\s+/;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -74,6 +76,221 @@ export function is_delimiter_only(s: string): boolean {
         }
     }
     return true;
+}
+
+/**
+ * Check if a line is a valid asterisk delimiter for block comment headings.
+ * Returns true for lines with 4+ asterisks and optional whitespace.
+ *
+ * Recognized forms:
+ * - Pure asterisks (4+): ****...
+ * - With whitespace: "  ****  "
+ * - Comment-prefixed: /****...
+ * - Comment-suffixed: ****... followed by asterisk-slash
+ *
+ * @param line - The line to check
+ * @returns true if the line is a valid asterisk delimiter
+ */
+export function is_asterisk_delimiter(line: string): boolean {
+    const my_trimmed = line.trim();
+    if (my_trimmed.length < 4) return false;
+
+    // Check for comment-prefixed form: /****...
+    // Strip leading slash if present
+    let my_content = my_trimmed;
+    if (my_content.startsWith('/')) {
+        my_content = my_content.substring(1);
+    }
+
+    // Check for comment-suffixed form: ...*/
+    // Strip trailing / if present (handles both ****/ and ****/)
+    if (my_content.endsWith('/')) {
+        my_content = my_content.substring(0, my_content.length - 1);
+    }
+
+    // After stripping, must have at least 4 asterisks
+    if (my_content.length < 4) return false;
+
+    // Check that remaining content is all asterisks
+    for (let my_i = 0; my_i < my_content.length; my_i++) {
+        if (my_content[my_i] !== '*') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Check if a line is a standalone heading (not an indented list item).
+ * Returns true for lines at column 0 or with minimal indentation (< 4 spaces).
+ * Returns false for lines with 4+ spaces or starting with a tab character.
+ *
+ * This function filters out indented list items from numbered section detection.
+ * Valid section headings are typically at column 0 or minimally indented,
+ * while list items are indented to show they're subordinate to explanatory text.
+ *
+ * @param line - The line to check
+ * @returns true if the line is a standalone heading candidate
+ */
+export function is_standalone_heading(line: string): boolean {
+    // Calculate leading whitespace count
+    const my_leading_whitespace = line.length - line.trimStart().length;
+
+    // Reject lines with any tab in leading whitespace (including after spaces)
+    if (my_leading_whitespace > 0 && line.slice(0, my_leading_whitespace).includes('\t')) {
+        return false;
+    }
+
+    // Reject lines with 4+ spaces of leading whitespace
+    if (my_leading_whitespace >= 4) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Count the number of delimiter characters in a line.
+ *
+ * For pure delimiter lines (e.g., `****`, `//////`), counts total delimiter characters.
+ * For comment-prefixed delimiters (e.g., `// ====`, `* ----`), counts repeated
+ * delimiter chars after the prefix.
+ *
+ * The delimiter character is determined by the `kind` parameter:
+ * - 'dash' → '-'
+ * - 'asterisk' → '*'
+ * - 'slash' → '/'
+ * - 'equals' → '='
+ * - 'plus' → '+'
+ *
+ * @param line - The line to analyze
+ * @param kind - The delimiter kind to count
+ * @returns The count of delimiter characters
+ */
+export function count_delimiter_chars(line: string, kind: DelimiterKind): number {
+    const my_trimmed = line.trim();
+    if (my_trimmed.length === 0) return 0;
+
+    // Map delimiter kind to character
+    const my_delim_char = delimiter_kind_to_char(kind);
+    if (my_delim_char === null) return 0;
+
+    // Check for pure delimiter line (all same character)
+    if (is_pure_delimiter_line(my_trimmed, my_delim_char)) {
+        return count_char_occurrences(my_trimmed, my_delim_char);
+    }
+
+    // Check for comment-prefixed delimiter patterns
+    // Pattern: // ====... or * ----...
+    const my_slash_prefix_match = my_trimmed.match(SLASH_COMMENT_PREFIX_PATTERN);
+    if (my_slash_prefix_match) {
+        const my_after_prefix = my_trimmed.substring(my_slash_prefix_match[0].length);
+        return count_leading_delimiter_chars(my_after_prefix, my_delim_char);
+    }
+
+    const my_star_prefix_match = my_trimmed.match(STAR_COMMENT_PREFIX_PATTERN);
+    if (my_star_prefix_match) {
+        const my_after_prefix = my_trimmed.substring(my_star_prefix_match[0].length);
+        return count_leading_delimiter_chars(my_after_prefix, my_delim_char);
+    }
+
+    // For asterisk kind, also handle /****... and ****/ patterns
+    if (kind === 'asterisk') {
+        let my_content = my_trimmed;
+
+        // Strip leading slash if present
+        if (my_content.startsWith('/')) {
+            my_content = my_content.substring(1);
+        }
+
+        // Strip trailing slash if present
+        if (my_content.endsWith('/')) {
+            my_content = my_content.substring(0, my_content.length - 1);
+        }
+
+        // Count asterisks if remaining content is all asterisks
+        if (is_pure_delimiter_line(my_content, '*')) {
+            return count_char_occurrences(my_content, '*');
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * Map a delimiter kind to its character.
+ */
+function delimiter_kind_to_char(kind: DelimiterKind): string | null {
+    switch (kind) {
+        case 'dash': return '-';
+        case 'asterisk': return '*';
+        case 'slash': return '/';
+        case 'equals': return '=';
+        case 'plus': return '+';
+        default: return null;
+    }
+}
+
+/**
+ * Check if a string consists only of a single delimiter character.
+ */
+function is_pure_delimiter_line(s: string, delim_char: string): boolean {
+    if (s.length === 0) return false;
+    for (let my_i = 0; my_i < s.length; my_i++) {
+        if (s[my_i] !== delim_char) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Count occurrences of a character in a string.
+ */
+function count_char_occurrences(s: string, char: string): number {
+    let my_count = 0;
+    for (let my_i = 0; my_i < s.length; my_i++) {
+        if (s[my_i] === char) {
+            my_count++;
+        }
+    }
+    return my_count;
+}
+
+/**
+ * Count leading delimiter characters in a string.
+ * Stops counting at the first non-delimiter character.
+ */
+function count_leading_delimiter_chars(s: string, delim_char: string): number {
+    let my_count = 0;
+    for (let my_i = 0; my_i < s.length; my_i++) {
+        if (s[my_i] === delim_char) {
+            my_count++;
+        } else {
+            break;
+        }
+    }
+    return my_count;
+}
+
+/**
+ * Derive nesting level from delimiter character count.
+ *
+ * Level calculation formula:
+ * - 4 characters → level 1
+ * - 5-7 characters → level 2
+ * - 8-11 characters → level 3
+ * - 12+ characters → level 4
+ *
+ * @param count - The number of delimiter characters
+ * @returns The nesting level (1-4)
+ */
+export function derive_level_from_delimiter_count(count: number): number {
+    if (count <= 4) return 1;
+    if (count <= 7) return 2;
+    if (count <= 11) return 3;
+    return 4;
 }
 
 /**
@@ -143,6 +360,40 @@ export function extract_banner_name(line: string): string | null {
 
     return my_text;
 }
+
+/**
+ * Extract heading text from the middle line of a block comment.
+ * Strips leading/trailing asterisks, whitespace, and comment markers.
+ * Returns null if the result is empty or delimiter-only.
+ *
+ * Expected input patterns:
+ * - " Current contraceptive methods..." (leading space)
+ * - "* Current contraceptive methods..." (leading asterisk)
+ * - " * Current contraceptive methods..." (leading space + asterisk)
+ *
+ * @param line - The middle line of a block comment
+ * @returns The extracted heading text, or null if invalid
+ */
+export function extract_block_comment_heading(line: string): string | null {
+    let my_text = line.trim();
+
+    // Strip leading asterisks and whitespace
+    my_text = my_text.replace(/^[\s*]+/, '');
+
+    // Strip trailing asterisks and whitespace
+    my_text = my_text.replace(/[\s*]+$/, '');
+
+    // Trim again
+    my_text = my_text.trim();
+
+    if (my_text.length === 0 || is_delimiter_only(my_text)) {
+        return null;
+    }
+
+    return my_text;
+}
+
+
 
 /**
  * Map a delimiter character to its kind.
@@ -245,6 +496,10 @@ function detect_single_line_sections(
 
 /**
  * Phase 2: Detect banner-style sections (3-line patterns).
+ *
+ * This phase includes two sub-phases:
+ * 1. Block comment headings: asterisk delimiters on lines i-1 and i+1
+ * 2. Standard banner sections: matching delimiter kinds on lines i-1 and i+1
  */
 function detect_banner_sections(
     content: string,
@@ -254,6 +509,59 @@ function detect_banner_sections(
     const my_sections: RawSection[] = [];
     const my_total_lines = get_total_lines(line_offsets);
 
+    // Sub-phase 2a: Detect block comment headings
+    // Pattern: asterisk delimiter / heading text / asterisk delimiter
+    for (let my_line_num = 1; my_line_num < my_total_lines - 1; my_line_num++) {
+        // Skip if any of the 3 lines are already consumed
+        if (consumed_lines.has(my_line_num - 1) ||
+            consumed_lines.has(my_line_num) ||
+            consumed_lines.has(my_line_num + 1)) {
+            continue;
+        }
+
+        const my_line_above = get_line(content, line_offsets, my_line_num - 1);
+        const my_line_below = get_line(content, line_offsets, my_line_num + 1);
+
+        // Check if both lines are asterisk delimiters
+        if (!is_asterisk_delimiter(my_line_above)) continue;
+        if (!is_asterisk_delimiter(my_line_below)) continue;
+
+        // Extract heading text from middle line
+        const my_middle_line = get_line(content, line_offsets, my_line_num);
+        const my_name = extract_block_comment_heading(my_middle_line);
+        if (my_name === null) continue;
+
+        // Calculate level from delimiter counts (use minimum of top and bottom)
+        const my_top_count = count_delimiter_chars(my_line_above, 'asterisk');
+        const my_bottom_count = count_delimiter_chars(my_line_below, 'asterisk');
+        const my_min_count = Math.min(my_top_count, my_bottom_count);
+        const my_level = derive_level_from_delimiter_count(my_min_count);
+
+        const my_middle_length = my_middle_line.length;
+        const my_bottom_length = my_line_below.length;
+
+        my_sections.push({
+            name: my_name,
+            level: my_level,
+            range: {
+                start: { line: my_line_num - 1, character: 0 },
+                end: { line: my_line_num + 1, character: my_bottom_length },
+            },
+            selection_range: {
+                start: { line: my_line_num, character: 0 },
+                end: { line: my_line_num, character: my_middle_length },
+            },
+            detection_type: 'banner',
+        });
+
+        // Mark all three lines as consumed
+        consumed_lines.add(my_line_num - 1);
+        consumed_lines.add(my_line_num);
+        consumed_lines.add(my_line_num + 1);
+    }
+
+    // Sub-phase 2b: Detect standard banner sections
+    // Pattern: delimiter line / heading text / delimiter line (matching kinds)
     for (let my_line_num = 1; my_line_num < my_total_lines - 1; my_line_num++) {
         // Skip if any of the 3 lines are already consumed
         if (consumed_lines.has(my_line_num - 1) ||
@@ -277,12 +585,18 @@ function detect_banner_sections(
         const my_name = extract_banner_name(my_middle_line);
         if (my_name === null) continue;
 
+        // Calculate level from delimiter counts (use minimum of top and bottom)
+        const my_top_count = count_delimiter_chars(my_line_above, my_kind_top);
+        const my_bottom_count = count_delimiter_chars(my_line_below, my_kind_bottom);
+        const my_min_count = Math.min(my_top_count, my_bottom_count);
+        const my_level = derive_level_from_delimiter_count(my_min_count);
+
         const my_middle_length = my_middle_line.length;
         const my_bottom_length = my_line_below.length;
 
         my_sections.push({
             name: my_name,
-            level: 1,
+            level: my_level,
             range: {
                 start: { line: my_line_num - 1, character: 0 },
                 end: { line: my_line_num + 1, character: my_bottom_length },
@@ -338,6 +652,13 @@ function detect_starred_inline_sections(
 
 /**
  * Phase 4: Detect numbered sections (* 1. Name, // 1.1 Name, etc.).
+ *
+ * This phase filters out indented list items by checking if the line is a
+ * standalone heading (not indented with 4+ spaces or tabs). This prevents
+ * false positives from patterns like:
+ *     * 0 not using
+ *     * 1 pill
+ * which are list items, not section headings.
  */
 function detect_numbered_sections(
     content: string,
@@ -353,6 +674,10 @@ function detect_numbered_sections(
         const my_line = get_line(content, line_offsets, my_line_num);
         const my_match = my_line.match(NUMBERED_SECTION_PATTERN);
         if (!my_match) continue;
+
+        // Filter out indented list items (4+ spaces or tabs)
+        // Valid section headings are at column 0 or minimally indented (< 4 spaces)
+        if (!is_standalone_heading(my_line)) continue;
 
         const my_number_prefix = my_match[1];
         const my_rest = my_match[2].trim();
