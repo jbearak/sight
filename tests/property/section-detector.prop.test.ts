@@ -1370,9 +1370,7 @@ describe('Section Detector Property Tests - Stata Outline Improvements', () => {
         });
 
         /**
-         * Subproperty H: Spaces followed by tab - behavior depends on whether tab is at start.
-         * If spaces = 0, tab is at start, so rejected.
-         * If spaces >= 1, tab is not at start, so depends on total leading whitespace count.
+         * Subproperty H: Spaces followed by tab - any tab in leading whitespace rejects.
          */
         it('should handle spaces followed by tab based on position and whitespace count', () => {
             fc.assert(
@@ -1383,20 +1381,9 @@ describe('Section Detector Property Tests - Stata Outline Improvements', () => {
                         const my_spaces = ' '.repeat(my_space_count);
                         const my_line = `${my_spaces}\t${my_content}`;
                         const my_result = is_standalone_heading(my_line);
-                        
-                        // If no leading spaces, the tab is at the start, so rejected
-                        if (my_space_count === 0) {
-                            return my_result === false;
-                        }
-                        
-                        // If spaces >= 1, tab is not at start
-                        // Total leading whitespace = spaces + tab (trimStart removes both)
-                        // A tab counts as 1 character for trimStart purposes
-                        const my_leading_whitespace = my_line.length - my_line.trimStart().length;
-                        if (my_leading_whitespace >= 4) {
-                            return my_result === false;
-                        }
-                        return my_result === true;
+
+                        // Any tab in leading whitespace means indented → always rejected
+                        return my_result === false;
                     }
                 ),
                 { numRuns: 100 }

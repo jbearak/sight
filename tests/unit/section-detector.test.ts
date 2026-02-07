@@ -614,8 +614,8 @@ describe('is_standalone_heading', () => {
     });
 
     it('should handle mixed whitespace (spaces then tab)', () => {
-        // Line starts with spaces, not tab, so check leading whitespace count
-        expect(is_standalone_heading('  \t* mixed')).toBe(true); // 2 spaces + tab, but starts with spaces
+        // Any tab in leading whitespace means indented code → rejected
+        expect(is_standalone_heading('  \t* mixed')).toBe(false);
     });
 
     it('should return false for tab followed by spaces', () => {
@@ -2252,15 +2252,12 @@ describe('List item filtering', () => {
         });
 
         it('should handle spaces followed by tab (tab not at start)', () => {
-            // Line starts with spaces, not tab, so check leading whitespace count
-            // 2 spaces + tab = still only 2 leading spaces before non-space char
+            // Any tab in leading whitespace means indented code → not detected
             const my_content = '  \t* 1. Section Name';  // 2 spaces + tab
             const my_offsets = compute_line_offsets(my_content);
             const my_sections = extract_sections(my_content, my_offsets);
 
-            // Should detect because line starts with spaces (< 4), not tab
-            expect(my_sections.length).toBe(1);
-            expect(my_sections[0].name).toBe('1. Section Name');
+            expect(my_sections.length).toBe(0);
         });
 
         it('should NOT detect when line is only whitespace followed by numbered pattern', () => {
