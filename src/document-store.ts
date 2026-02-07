@@ -45,6 +45,7 @@ export class DocumentStore {
   private documents: Map<string, DocumentState> = new Map();
   private access_order: Set<string> = new Set(); // LRU tracking via insertion order
   private active_updates: Map<string, Promise<void>> = new Map();
+  private in_flight_counts: Map<string, number> = new Map();
   private readonly MAX_DOCUMENTS = 50;
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
   private workspace_root: string | undefined;
@@ -125,6 +126,7 @@ export class DocumentStore {
     // Capture generation at start of operation (Req 16.2)
     const generation = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, generation);
+    this.increment_in_flight(uri);
 
     const operation = async () => {
       this.evict_if_needed(content.length);
@@ -140,6 +142,7 @@ export class DocumentStore {
       if (this.active_updates.get(uri) === promise) {
         this.active_updates.delete(uri);
       }
+      this.decrement_in_flight(uri);
     }
   }
 
@@ -157,6 +160,7 @@ export class DocumentStore {
     // Capture generation at start of operation (Req 16.2)
     const generation = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, generation);
+    this.increment_in_flight(uri);
 
     const operation = async () => {
       const state = this.documents.get(uri);
@@ -201,6 +205,7 @@ export class DocumentStore {
       if (this.active_updates.get(uri) === promise) {
         this.active_updates.delete(uri);
       }
+      this.decrement_in_flight(uri);
     }
   }
 
@@ -258,6 +263,35 @@ export class DocumentStore {
     }
     this.documents.set(uri, state);
     this.touch_access(uri);
+  }
+
+  /**
+   * Increment in-flight operation count for a URI.
+   */
+  private increment_in_flight(uri: string): void {
+    this.in_flight_counts.set(
+      uri,
+      (this.in_flight_counts.get(uri) ?? 0) + 1
+    );
+  }
+
+  /**
+   * Decrement in-flight operation count for a URI.
+   * When the count reaches zero and the document is no longer open,
+   * cleans up closed_generations and generations to prevent
+   * unbounded growth.
+   */
+  private decrement_in_flight(uri: string): void {
+    const count = (this.in_flight_counts.get(uri) ?? 1) - 1;
+    if (count <= 0) {
+      this.in_flight_counts.delete(uri);
+      if (!this.documents.has(uri)) {
+        this.closed_generations.delete(uri);
+        this.generations.delete(uri);
+      }
+    } else {
+      this.in_flight_counts.set(uri, count);
+    }
   }
 
   /**
