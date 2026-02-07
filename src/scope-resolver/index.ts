@@ -2733,6 +2733,12 @@ export class ScopeResolver {
         this.file_cache.clear();
         this.scope_cache.clear();
         this.uri_to_cache_keys.clear();
+        this.reverse_deps.caller_to_callees.clear();
+        this.reverse_deps.callee_to_callers.clear();
+        this.reverse_deps.forward_caller_to_callees.clear();
+        this.reverse_deps.interface_hashes.clear();
+        this.reverse_deps.last_forward_calls.clear();
+        this.backward_directive_children.clear();
     }
 
 }
