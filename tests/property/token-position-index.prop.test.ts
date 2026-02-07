@@ -171,11 +171,14 @@ function arbitrary_position_inside_token(
                 start.line === end.line
                 && start.character >= end.character
             ) {
-                // Zero-width token — skip
+                // Zero-width token — return undefined to
+                // match actual lookup behavior (neither
+                // get_token_at_position nor linear scan
+                // will match this position)
                 return fc.constant({
                     line: start.line,
                     character: start.character,
-                    expected_token: my_token,
+                    expected_token: undefined as unknown as Token,
                 });
             }
 
@@ -240,7 +243,9 @@ function arbitrary_position_inside_token(
 
 /**
  * Generate a position that does NOT fall inside any token.
- * Strategy: pick a line and character in a gap between tokens.
+ * Strategy: pick a line and character in a gap between tokens
+ * (either beyond the last line, before the first token on a
+ * line, or in column 0 of an empty line).
  */
 function arbitrary_position_outside_tokens(
     tokens: Token[]
@@ -252,33 +257,54 @@ function arbitrary_position_outside_tokens(
         });
     }
 
-    // Find the max line across all tokens
+    // Find the max line and min line across all tokens
     let max_line = 0;
+    let min_line = Infinity;
     for (const my_token of tokens) {
         if (my_token.range.end.line > max_line) {
             max_line = my_token.range.end.line;
         }
+        if (my_token.range.start.line < min_line) {
+            min_line = my_token.range.start.line;
+        }
     }
 
-    // Pick a line beyond all tokens — guaranteed gap
-    return fc.record({
-        line: fc.constant(max_line + 5),
-        character: fc.integer({ min: 0, max: 40 }),
-    });
+    // Strategy: pick one of three guaranteed-gap positions
+    return fc.oneof(
+        // Strategy 1: line beyond all tokens — guaranteed
+        // gap
+        fc.record({
+            line: fc.constant(max_line + 5),
+            character: fc.integer({ min: 0, max: 40 }),
+        }),
+        // Strategy 2: line before first token (if any) —
+        // guaranteed gap
+        min_line > 0
+            ? fc.record({
+                  line: fc.constant(min_line - 1),
+                  character: fc.integer({ min: 0, max: 40 }),
+              })
+            : // Fallback to beyond-last if first token is on
+              // line 0
+              fc.record({
+                  line: fc.constant(max_line + 5),
+                  character: fc.integer({ min: 0, max: 40 }),
+              })
+    );
 }
 
 // ── Helpers ─────────────────────────────────────────────────
 
 /**
- * Build a minimal DocumentState with the given tokens and a
- * precomputed token_line_index.  We call the DocumentStore's
- * public `get_token_at_position` method, which reads from
- * `state.token_line_index`.
+ * Build a line-bucketed token index matching DocumentStore's
+ * implementation. Registers every line a token spans.
+ *
+ * This mirrors DocumentStore.build_token_line_index (private)
+ * to ensure test uses same logic as production code.
  */
-function build_state_with_tokens(
+function build_token_line_index(
     tokens: Token[]
-): DocumentState {
-    // Build the line index the same way DocumentStore does
+): Map<number, Token[]> {
     const index = new Map<number, Token[]>();
     for (const my_token of tokens) {
         const start_line = my_token.range.start.line;
@@ -296,6 +322,19 @@ function build_state_with_tokens(
             bucket.push(my_token);
         }
     }
+    return index;
+}
+
+/**
+ * Build a minimal DocumentState with the given tokens and a
+ * precomputed token_line_index.  We call the DocumentStore's
+ * public `get_token_at_position` method, which reads from
+ * `state.token_line_index`.
+ */
+function build_state_with_tokens(
+    tokens: Token[]
+): DocumentState {
+    const index = build_token_line_index(tokens);
 
     // Minimal stub — only fields needed by
     // get_token_at_position

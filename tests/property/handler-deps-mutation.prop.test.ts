@@ -611,6 +611,11 @@ describe('Handler Deps Mutation Property Tests', () => {
 
                         // Create all handler types from the same
                         // deps — this mirrors server-factory.ts
+                        // (completion_handler tested for creation/
+                        // deps capture but not invoked due to null
+                        // provider check requirements)
+                        const completion_handler =
+                            create_completion_handler(deps);
                         const hover_handler =
                             create_hover_handler(deps);
                         const definition_handler =
@@ -683,6 +688,8 @@ describe('Handler Deps Mutation Property Tests', () => {
 
                         // These handlers all read deps at
                         // invocation time, not creation time
+                        // (completion_handler created but not invoked
+                        // because it requires real provider instance)
                         await hover_handler(
                             test_params,
                             undefined

@@ -123,7 +123,7 @@ function create_tracking_deps(): {
 
 /**
  * Create deps with call-order tracking on
- * wait_for_debounce and document_store.get.
+ * wait_for_debounce, wait_for_update, and document_store.get.
  */
 function create_order_tracking_deps(): {
     deps: HandlerDependencies;
@@ -137,6 +137,13 @@ function create_order_tracking_deps(): {
     };
 
     const document_store = new DocumentStore();
+    const original_wait_for_update =
+        document_store.wait_for_update.bind(document_store);
+    document_store.wait_for_update = async (uri: string) => {
+        the_call_order.push('wait_for_update');
+        await original_wait_for_update(uri);
+    };
+
     const original_get = document_store.get.bind(
         document_store
     );
@@ -170,8 +177,8 @@ function create_order_tracking_deps(): {
 }
 
 /**
- * Assert that wait_for_debounce was called before
- * document_store.get in the recorded call order.
+ * Assert that the full wait sequence is correct:
+ * wait_for_debounce → wait_for_update → document_store.get
  */
 function assert_debounce_before_get(
     the_call_order: string[]
@@ -179,12 +186,48 @@ function assert_debounce_before_get(
     const debounce_idx = the_call_order.indexOf(
         'wait_for_debounce'
     );
+    const update_idx = the_call_order.indexOf('wait_for_update');
     const get_idx = the_call_order.indexOf(
         'document_store.get'
     );
+
+    // All three should be called
     expect(debounce_idx).toBeGreaterThanOrEqual(0);
+    expect(update_idx).toBeGreaterThanOrEqual(0);
     expect(get_idx).toBeGreaterThanOrEqual(0);
-    expect(debounce_idx).toBeLessThan(get_idx);
+
+    // Check correct ordering:
+    // debounce < update < get
+    expect(debounce_idx).toBeLessThan(update_idx);
+    expect(update_idx).toBeLessThan(get_idx);
+}
+
+/**
+ * Create minimal deps with null debounce_manager for
+ * graceful degradation testing.
+ */
+function create_null_debounce_deps(): HandlerDependencies {
+    const document_store = new DocumentStore();
+    return {
+        debounce_manager: null,
+        document_store,
+        diagnostics_provider: null,
+        completion_provider: null,
+        hover_provider: null,
+        definition_provider: null,
+        references_provider: null,
+        symbol_provider: null,
+        formatter_provider: null,
+        workspace_indexer: null,
+        scope_resolver: null,
+        forward_scope_resolver: null,
+        rename_handler: null,
+        get_document_settings: async () => ({}) as any,
+        connection: {
+            sendDiagnostics: () => {},
+            console: { log: () => {} },
+        },
+    };
 }
 
 describe('Request Freshness', () => {
@@ -395,29 +438,7 @@ describe('Request Freshness', () => {
      */
     describe('Null debounce_manager (graceful degradation)', () => {
         it('completion handler works without debounce_manager', async () => {
-            const document_store = new DocumentStore();
-            const deps: HandlerDependencies = {
-                debounce_manager: null,
-                document_store,
-                diagnostics_provider: null,
-                completion_provider: null,
-                hover_provider: null,
-                definition_provider: null,
-                references_provider: null,
-                symbol_provider: null,
-                formatter_provider: null,
-                workspace_indexer: null,
-                scope_resolver: null,
-                forward_scope_resolver: null,
-                rename_handler: null,
-                get_document_settings: async () =>
-                    ({}) as any,
-                connection: {
-                    sendDiagnostics: () => {},
-                    console: { log: () => {} },
-                },
-            };
-
+            const deps = create_null_debounce_deps();
             const handler = create_completion_handler(deps);
 
             // Should not throw when debounce_manager is null
@@ -436,29 +457,7 @@ describe('Request Freshness', () => {
         });
 
         it('hover handler works without debounce_manager', async () => {
-            const document_store = new DocumentStore();
-            const deps: HandlerDependencies = {
-                debounce_manager: null,
-                document_store,
-                diagnostics_provider: null,
-                completion_provider: null,
-                hover_provider: null,
-                definition_provider: null,
-                references_provider: null,
-                symbol_provider: null,
-                formatter_provider: null,
-                workspace_indexer: null,
-                scope_resolver: null,
-                forward_scope_resolver: null,
-                rename_handler: null,
-                get_document_settings: async () =>
-                    ({}) as any,
-                connection: {
-                    sendDiagnostics: () => {},
-                    console: { log: () => {} },
-                },
-            };
-
+            const deps = create_null_debounce_deps();
             const handler = create_hover_handler(deps);
 
             // Should not throw when debounce_manager is null
