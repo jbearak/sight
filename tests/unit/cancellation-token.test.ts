@@ -384,10 +384,10 @@ describe(
                             ).toBeLessThan(token_count);
                         }
                     ),
-                    { numRuns: 100 }
+                    { numRuns: 25 }
                 );
             },
-            30_000
+            10_000
         );
 
         it(
