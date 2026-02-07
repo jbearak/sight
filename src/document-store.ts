@@ -282,7 +282,13 @@ export class DocumentStore {
    * unbounded growth.
    */
   private decrement_in_flight(uri: string): void {
-    const count = (this.in_flight_counts.get(uri) ?? 1) - 1;
+    const count = (this.in_flight_counts.get(uri) ?? 0) - 1;
+    if (count < 0 && process.env.NODE_ENV === 'development') {
+      console.warn(
+        `decrement_in_flight: negative count for ${uri} ` +
+        `(no matching increment)`
+      );
+    }
     if (count <= 0) {
       this.in_flight_counts.delete(uri);
       if (!this.documents.has(uri)) {
