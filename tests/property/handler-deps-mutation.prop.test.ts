@@ -71,9 +71,9 @@ type ProviderKey = (typeof PROVIDER_KEYS)[number];
  * Arbitrary that generates a random non-empty subset of provider
  * keys to mutate.
  */
-const arbitrary_provider_subset = fc
-    .subarray([...PROVIDER_KEYS], { minLength: 1 })
-    .filter((arr) => arr.length > 0);
+const arbitrary_provider_subset = fc.subarray([...PROVIDER_KEYS], {
+    minLength: 1,
+});
 
 /**
  * A sentinel object used to verify that a handler sees the
