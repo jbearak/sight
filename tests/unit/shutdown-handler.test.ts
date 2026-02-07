@@ -490,25 +490,24 @@ describe('Shutdown Handler', () => {
                                         if (
                                             my_token.cancelled
                                         ) {
-                                            // Early return
-                                            // on
+                                            // Skip work on
                                             // cancellation
                                             // (as in
                                             // server-
                                             // factory.ts)
-                                            return;
                                         }
                                     } finally {
                                         pending_revalidations
                                             .delete(my_uri);
-                                    }
 
-                                    // Entry must be gone
-                                    // even when cancelled
-                                    expect(
-                                        pending_revalidations
-                                            .has(my_uri)
-                                    ).toBe(false);
+                                        // Entry must be
+                                        // gone even when
+                                        // cancelled
+                                        expect(
+                                            pending_revalidations
+                                                .has(my_uri)
+                                        ).toBe(false);
+                                    }
                                 }
                             }
                         ),

@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { detect_completion_context } from '../../src/providers/completion';
-import { DocumentState } from '../../src/document-store';
+import { DocumentState, DocumentStore } from '../../src/document-store';
 import { ContextTracker } from '../../src/context-tracker';
 import { Position } from 'vscode-languageserver';
+import { create_completion_handler } from '../../src/server-handlers';
+import type { HandlerDependencies } from '../../src/server-handlers';
 
 /**
  * Property tests for isIncomplete reflecting macro context.
@@ -224,35 +226,79 @@ describe('Completion isIncomplete Property Tests', () => {
      *
      * **Validates: Requirements 9.1, 9.2**
      */
-    it('isIncomplete is true iff context type is macro', () => {
-        fc.assert(
-            fc.property(
+    it('isIncomplete is true iff context type is macro', async () => {
+        await fc.assert(
+            fc.asyncProperty(
                 fc.oneof(
                     arbitrary_non_macro_line(),
                     arbitrary_macro_line()
                 ),
-                (my_line) => {
-                    const my_document = create_mock_document(my_line);
+                async (my_line) => {
+                    const my_uri = 'file:///biconditional.do';
+                    const document_store = new DocumentStore();
+                    await document_store.open(
+                        my_uri,
+                        my_line,
+                        1
+                    );
+
+                    const deps: HandlerDependencies = {
+                        debounce_manager: null,
+                        document_store,
+                        diagnostics_provider: null,
+                        completion_provider: {
+                            get_completions: async () => [],
+                        },
+                        hover_provider: null,
+                        definition_provider: null,
+                        references_provider: null,
+                        symbol_provider: null,
+                        formatter_provider: null,
+                        workspace_indexer: null,
+                        scope_resolver: null,
+                        forward_scope_resolver: null,
+                        rename_handler: null,
+                        get_document_settings: async () =>
+                            ({}) as any,
+                        connection: {
+                            sendDiagnostics: () => {},
+                            console: { log: () => {} },
+                        },
+                    } as any;
+
+                    const handler =
+                        create_completion_handler(deps);
                     const my_position = Position.create(
                         0,
                         my_line.length
                     );
 
-                    const my_context = detect_completion_context(
-                        my_document,
-                        my_position,
-                        my_document.tokens
+                    const my_result = await handler(
+                        {
+                            textDocument: { uri: my_uri },
+                            position: my_position,
+                        },
+                        undefined
                     );
 
-                    // The isIncomplete logic from the handler
-                    const is_incomplete =
-                        my_context.type === 'macro';
+                    const my_context =
+                        detect_completion_context(
+                            document_store.get(my_uri)!,
+                            my_position,
+                            document_store.get(my_uri)!
+                                .tokens
+                        );
 
-                    // Biconditional: isIncomplete ↔ macro
+                    // Biconditional: handler isIncomplete
+                    // ↔ macro context
                     if (my_context.type === 'macro') {
-                        expect(is_incomplete).toBe(true);
+                        expect(
+                            my_result.isIncomplete
+                        ).toBe(true);
                     } else {
-                        expect(is_incomplete).toBe(false);
+                        expect(
+                            my_result.isIncomplete
+                        ).toBe(false);
                     }
                 }
             ),
