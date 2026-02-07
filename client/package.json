@@ -108,6 +108,16 @@
           "default": false,
           "description": "Enable indentation diagnostics (missing/unnecessary indentation warnings). Disabled by default since indentation is stylistic in Stata and doesn't affect execution."
         },
+        "sight.lineCommentStyle": {
+          "type": "string",
+          "enum": ["//", "*"],
+          "default": "//",
+          "description": "Line comment character used by the toggle comment shortcut. In Stata, '//' can appear anywhere on a line while '*' must be at the start of a line.",
+          "enumDescriptions": [
+            "Use // for line comments (works anywhere on a line)",
+            "Use * for line comments (must be at the start of a line)"
+          ]
+        },
         "sight.formatting.indentSize": {
           "type": "number",
           "default": 4,
@@ -136,13 +146,15 @@
         "sight.formatting.preferredCommentStyle": {
           "type": "string",
           "enum": [
+            "line",
             "//",
             "*",
             "/* */"
           ],
-          "default": "//",
-          "description": "Preferred comment style for normalization",
+          "default": "line",
+          "description": "Preferred comment style for normalization. 'line' uses the value of sight.lineCommentStyle.",
           "enumDescriptions": [
+            "Use the same style as sight.lineCommentStyle",
             "Use // for line comments",
             "Use * for line comments",
             "Use /* */ for block comments"

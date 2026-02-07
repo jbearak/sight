@@ -10,6 +10,10 @@ import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } fr
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
 import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client } from './send-to-stata';
+import {
+    apply_language_configuration,
+    read_line_comment_style,
+} from './language-config';
 
 let client: LanguageClient;
 const outputChannel = window.createOutputChannel('Sight Language Server');
@@ -25,7 +29,32 @@ export function activate(context: ExtensionContext) {
     // Custom quote auto-close for complex Stata patterns (nested macros, compound strings)
     // VS Code's built-in autoClosingPairs handles basic ` → `' but not nested cases
     context.subscriptions.push(register_quote_auto_close());
-    
+
+    // Apply dynamic language configuration for line comment style
+    let language_config_disposable = apply_language_configuration(
+        read_line_comment_style()
+    );
+    context.subscriptions.push(language_config_disposable);
+
+    // Re-apply language configuration when the setting changes.
+    // Dispose the old config and push the new disposable so
+    // VS Code cleans it up on deactivation.
+    const config_change_listener = workspace.onDidChangeConfiguration(
+        e => {
+            if (e.affectsConfiguration('sight.lineCommentStyle')) {
+                language_config_disposable.dispose();
+                language_config_disposable =
+                    apply_language_configuration(
+                        read_line_comment_style()
+                    );
+                context.subscriptions.push(
+                    language_config_disposable
+                );
+            }
+        }
+    );
+    context.subscriptions.push(config_change_listener);
+
     // Register send-to-stata commands
     register_send_to_stata_commands(context);
     

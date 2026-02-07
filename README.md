@@ -1141,6 +1141,22 @@ A toolbar button (▶) appears in the editor title bar for Stata files, providin
 | `sight.sendToStata.workingDirectory` | enum | `"lsp"` | Working directory mode: "lsp", "none", "file", or "workspace" |
 | `sight.sendToStata.focusStataWindow` | boolean | `false` | Switch focus to Stata after sending code |
 
+### Comments
+
+Configure the line comment character used by VS Code's toggle comment shortcut.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sight.lineCommentStyle` | string | `"//"` | Line comment character used by the toggle comment shortcut. In Stata, `//` can appear anywhere on a line while `*` must be at the start of a line. Options: `"//"`, `"*"` |
+
+To use `*` for comment toggling instead of `//`:
+
+```json
+{
+    "sight.lineCommentStyle": "*"
+}
+```
+
 ## Experimental Features (Not Ready for Use)
 
 **⚠️ Warning:** The following features (Pretty Printer and Comment Formatter) exist in the codebase but are not recommended for production use at this time.
@@ -1156,7 +1172,7 @@ Configure code formatting options.
 | `sight.formatting.lineWidth` | number | `80` | Maximum line width for formatting (minimum: 40) |
 | `sight.formatting.preserveAlignment` | boolean | `true` | Preserve intentional alignment in continuation lines |
 | `sight.formatting.normalizeCommentStyle` | boolean | `false` | Normalize comment styles during formatting |
-| `sight.formatting.preferredCommentStyle` | enum | `"//"` | Preferred comment style for normalization. Options: `"//"`, `"*"`, `"/* */"` |
+| `sight.formatting.preferredCommentStyle` | enum | `"line"` | Preferred comment style for normalization. `"line"` uses the value of `sight.lineCommentStyle`. Options: `"line"`, `"//"`, `"*"`, `"/* */"` |
 | `sight.formatting.commentLineWidth` | number | `72` | Maximum line width for comments (minimum: 40) |
 
 To automatically format on save, enable VS Code's built-in `editor.formatOnSave` setting.

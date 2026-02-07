@@ -456,7 +456,12 @@ export class CodeFormatter {
     ): string {
         try {
             // Get the target comment style
-            const target_style = this.map_style_to_processor_style(comment_config.preferredCommentStyle);
+            // The config validator resolves 'line' to '//' or '*'
+            // before it reaches the formatter, so cast is safe.
+            const target_style = this.map_style_to_processor_style(
+                comment_config.preferredCommentStyle as
+                    '//' | '*' | '/* */'
+            );
 
             // Get context ranges for embedded language awareness
             const the_context_ranges = document.context_ranges || [];
