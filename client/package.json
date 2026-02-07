@@ -2,7 +2,7 @@
   "name": "sight",
   "displayName": "Sight - Comprehensive Stata Language Support",
   "description": "Stata language support: language server, syntax highlighting, and code execution",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "publisher": "jbearak",
   "repository": {
     "type": "git",
@@ -110,7 +110,10 @@
         },
         "sight.lineCommentStyle": {
           "type": "string",
-          "enum": ["//", "*"],
+          "enum": [
+            "//",
+            "*"
+          ],
           "default": "//",
           "description": "Line comment character used by the toggle comment shortcut. In Stata, '//' can appear anywhere on a line while '*' must be at the start of a line.",
           "enumDescriptions": [
