@@ -369,7 +369,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
         pending_revalidations.set(token_key, my_token);
 
         if (is_debug) {
-            connection.console.log(`[caller-revalidation] Triggered by ${trigger_uri}, direct callers: ${caller_uris.size}, total (with backward deps): ${all_uris_to_revalidate.size}`);
+            connection.console.log(
+                `[caller-revalidation] Triggered by ` +
+                `${trigger_uri}, direct callers: ` +
+                `${caller_uris.size}, total (with ` +
+                `backward deps): ${all_uris_to_revalidate.size}`
+            );
         }
 
         let count = 0;
@@ -462,14 +467,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
         last_changed_uri = text_document.uri;
 
-        // Fetch settings eagerly for debug gating (Req 8.2, 8.3, 8.4)
-        const eager_settings = await get_document_settings(text_document.uri);
-        const is_debug = eager_settings.debug === true;
-
-        if (is_debug) {
-            connection.console.log(`[validate] Starting validation for ${text_document.uri} v${text_document.version}`);
-        }
-
         // Cancel existing revalidation for this URI (eager, before debounce)
         const existing_token = pending_revalidations.get(text_document.uri);
         if (existing_token) {
@@ -478,9 +475,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
         // Invalidate scope cache eagerly so stale scopes are never read
         if (scope_resolver) {
-            if (is_debug) {
-                connection.console.log(`[validate] Invalidating scope cache for ${text_document.uri}`);
-            }
             scope_resolver.invalidate_scope_cache(text_document.uri);
         }
 
@@ -493,6 +487,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
             snapshot_uri,
             snapshot_version,
             async () => {
+                // Fetch settings inside debounce callback to avoid
+                // delaying the debounce timer start (Req 8.2, 8.3, 8.4)
+                const settings = await get_document_settings(snapshot_uri);
+                const is_debug = settings.debug === true;
+
                 // --- Lex/parse/analyze inside debounce callback (Req 2.1, 2.2) ---
                 const workspace_symbols = workspace_indexer
                     ? workspace_indexer.get_all_symbols()
@@ -543,7 +542,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         }
 
                         if (affected_callees.size > 0 || interface_changed) {
-                            const settings = await get_document_settings(snapshot_uri);
                             schedule_callee_revalidation(affected_callees, snapshot_uri, settings, revalidation_depth);
                         }
 
@@ -568,7 +566,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
                                 connection.console.log(`[reverse-deps] Interface changed, forward-call callers for ${snapshot_uri}: ${Array.from(caller_uris).join(', ') || '(none)'}`);
                             }
                             if (caller_uris.size > 0) {
-                                const settings = await get_document_settings(snapshot_uri);
                                 schedule_caller_revalidation(caller_uris, snapshot_uri, settings, revalidation_depth);
                             }
 
@@ -582,7 +579,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
                                 if (is_debug) {
                                     connection.console.log(`[reverse-deps] Transitive dependents: ${Array.from(backward_children).join(', ')}`);
                                 }
-                                const settings = await get_document_settings(snapshot_uri);
                                 schedule_caller_revalidation(backward_children, snapshot_uri, settings, revalidation_depth);
                             }
                         }
@@ -590,7 +586,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 }
 
                 // --- Diagnostic publication (Req 2.3) ---
-                const settings = await get_document_settings(snapshot_uri);
                 const document_state = document_store.get(snapshot_uri);
 
                 if (!document_state) {
@@ -875,7 +870,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
             }
         }
 
-        documents.all().forEach(validate_text_document);
+        // Fire-and-forget validation for all documents
+        // Catch errors to prevent unhandled promise rejections
+        documents.all().forEach((doc) => {
+            validate_text_document(doc).catch((err) => {
+                connection.console.error(
+                    `Error validating ${doc.uri} ` +
+                    `after config change: ${err}`
+                );
+            });
+        });
     });
 
     // Document open handler - validate when a document is first opened

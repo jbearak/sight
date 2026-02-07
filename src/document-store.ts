@@ -50,6 +50,7 @@ export class DocumentStore {
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
   private workspace_root: string | undefined;
   private scope_resolver: ScopeResolver | undefined;
+  private disposed: boolean = false;
 
   // Generation counters for close-vs-update safety (Req 16.1, 16.2)
   private generations: Map<string, number> = new Map();
@@ -115,11 +116,24 @@ export class DocumentStore {
    * Only clears active_updates; other maps (documents,
    * generations, etc.) are left for GC since the store
    * instance is discarded after dispose.
+   *
+   * Sets disposed flag to prevent further use.
    */
   async dispose(): Promise<void> {
+    this.disposed = true;
     const the_promises = Array.from(this.active_updates.values());
     await Promise.allSettled(the_promises);
     this.active_updates.clear();
+  }
+
+  /**
+   * Check if the store has been disposed.
+   * Throws an error if called after disposal.
+   */
+  private check_disposed(): void {
+    if (this.disposed) {
+      throw new Error('DocumentStore has been disposed');
+    }
   }
 
   /**
@@ -127,6 +141,7 @@ export class DocumentStore {
    * Async to support parse timeout wrapper.
    */
   async open(uri: string, content: string, version: number, workspace_symbols?: SymbolTable): Promise<void> {
+    this.check_disposed();
     // Capture generation at start of operation (Req 16.2)
     const generation = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, generation);
@@ -161,6 +176,7 @@ export class DocumentStore {
     version: number,
     workspace_symbols?: SymbolTable
   ): Promise<void> {
+    this.check_disposed();
     // Capture generation at start of operation (Req 16.2)
     const generation = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, generation);
@@ -226,6 +242,7 @@ export class DocumentStore {
   }
 
   close(uri: string): void {
+    this.check_disposed();
     // Increment generation and record as closed (Req 16.1)
     const current = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, current);
@@ -235,6 +252,7 @@ export class DocumentStore {
   }
 
   get(uri: string): DocumentState | undefined {
+    this.check_disposed();
     const state = this.documents.get(uri);
     if (state) {
       this.touch_access(uri);
@@ -243,6 +261,7 @@ export class DocumentStore {
   }
 
   getAll(): DocumentState[] {
+    this.check_disposed();
     return Array.from(this.documents.values());
   }
 
