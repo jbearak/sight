@@ -285,8 +285,13 @@ export function validate_comment_formatting_config(
  * @param style - The comment style to validate
  * @returns true if valid, false otherwise
  */
-export function is_valid_comment_style(style: any): style is 'line' | '//' | '*' | '/* */' {
-    return style === 'line' || style === '//' || style === '*' || style === '/* */';
+export function is_valid_comment_style(
+    style: any
+): style is 'line' | '//' | '*' | '/* */' {
+    return style === 'line'
+        || style === '//'
+        || style === '*'
+        || style === '/* */';
 }
 
 /**

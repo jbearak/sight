@@ -326,8 +326,13 @@ describe('Configuration Validation Property Tests', () => {
                     fc.constant('//'),
                     fc.constant('*'),
                     fc.constant('/* */'),
+                    fc.constant('line'),
                     fc.string({ minLength: 1 }).filter(
-                        (s) => s !== '//' && s !== '*' && s !== '/* */'
+                        (s) =>
+                            s !== '//' &&
+                            s !== '*' &&
+                            s !== '/* */' &&
+                            s !== 'line'
                     ),
                     fc.integer(),
                     fc.constant(null)
@@ -336,6 +341,7 @@ describe('Configuration Validation Property Tests', () => {
                     const my_is_valid = is_valid_comment_style(my_style);
 
                     if (
+                        my_style === 'line' ||
                         my_style === '//' ||
                         my_style === '*' ||
                         my_style === '/* */'

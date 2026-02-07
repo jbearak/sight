@@ -36,15 +36,23 @@ export function activate(context: ExtensionContext) {
     );
     context.subscriptions.push(language_config_disposable);
 
-    // Re-apply language configuration when the line comment style setting changes
-    const config_change_listener = workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('sight.lineCommentStyle')) {
-            language_config_disposable.dispose();
-            language_config_disposable = apply_language_configuration(
-                read_line_comment_style()
-            );
+    // Re-apply language configuration when the setting changes.
+    // Dispose the old config and push the new disposable so
+    // VS Code cleans it up on deactivation.
+    const config_change_listener = workspace.onDidChangeConfiguration(
+        e => {
+            if (e.affectsConfiguration('sight.lineCommentStyle')) {
+                language_config_disposable.dispose();
+                language_config_disposable =
+                    apply_language_configuration(
+                        read_line_comment_style()
+                    );
+                context.subscriptions.push(
+                    language_config_disposable
+                );
+            }
         }
-    });
+    );
     context.subscriptions.push(config_change_listener);
 
     // Register send-to-stata commands
