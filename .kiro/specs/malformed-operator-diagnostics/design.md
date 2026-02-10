@@ -51,11 +51,26 @@ flowchart LR
 
 3. **Per-category severity config**: Two config fields — `diagnostics.severity.malformedOperator` (default `'warning'`) for suggestible sequences and `diagnostics.severity.invalidOperatorSequence` (default `'error'`) for invalid sequences — give users granular control. This follows the existing pattern of separate fields per diagnostic category (e.g., `undefinedMacro`, `undefinedVariable`). When either is `'off'`, that category is suppressed.
 
-4. **Suppression reimplements token-based scanning**: The `@lsp-ignore` / `@lsp-ignore-next` directive suppression reimplements the same token-scanning approach used in `src/analyzer/index.ts` (lines 240-264). It is not reused directly because `Analyzer.ignored_lines` is internal to `AnalyzerConfig` and not exposed on `DocumentState`. The `OperatorSequenceAnalyzer` scans COMMENT_LINE and COMMENT_BLOCK tokens for `@lsp-ignore` directives itself, covering all comment styles (`//`, `*`, and `/* */` block comments). This differs from `DiagnosticsProvider.should_suppress_undefined_symbol`, which only recognizes `// @lsp-ignore`. For `@lsp-ignore-next`, the analyzer skips over WHITESPACE, CONTINUATION, COMMENT_LINE, COMMENT_BLOCK, and STATEMENT_TERMINATOR tokens to find the target line (matching the existing analyzer behavior). Note: this skip list is broader than the adjacency-detection "trivia" definition (which is WHITESPACE + CONTINUATION only).
+4. **Suppression reuses `ignored_lines` from `DocumentState`**: The `SemanticAnalyzer` already computes `ignored_lines` (a `Set<number>` of line numbers suppressed by `@lsp-ignore` / `@lsp-ignore-next` directives) during semantic analysis. Currently this set is internal to `AnalyzerConfig`. To avoid duplicating the token-scanning logic and re-scanning tokens, `ignored_lines` will be exposed on `DocumentState` — populated by the `SemanticAnalyzer` alongside other analysis results (tokens, AST, symbols). The `OperatorSequenceAnalyzer` simply checks `document.ignored_lines.has(line)` for each diagnostic it would emit. This is consistent with how `DocumentState` already stores all analysis outputs, and the existing scanning covers all comment styles (`//`, `*`, `/* */`) and handles `@lsp-ignore-next` by skipping over WHITESPACE, CONTINUATION, COMMENT_LINE, COMMENT_BLOCK, and STATEMENT_TERMINATOR tokens to find the target line. Note: the `@lsp-ignore-next` skip list is broader than the adjacency-detection "trivia" definition (which is WHITESPACE + CONTINUATION only).
 
 5. **Lexer prerequisite for `~=`**: The current lexer does not produce `~=` as a compound token. Before implementing the analyzer, the lexer must be updated to recognize `~=` as a compound operator (matching `!=`, `<=`, `>=`, `==`). Without this, `~=` without spaces would be incorrectly flagged as a suggestible sequence.
 
 ## Components and Interfaces
+
+### DocumentState Extension (`src/document-store.ts`)
+
+Add `ignored_lines` to the `DocumentState` interface:
+
+```typescript
+export interface DocumentState {
+  // ... existing fields ...
+
+  // Lines suppressed by @lsp-ignore / @lsp-ignore-next directives
+  ignored_lines: Set<number>;
+}
+```
+
+The `SemanticAnalyzer` already computes this set (in `AnalyzerConfig.ignored_lines`). The change is to copy it onto `DocumentState` after analysis completes, alongside the existing `symbols` and `diagnostics` fields.
 
 ### OperatorSequenceAnalyzer
 
@@ -353,6 +368,7 @@ The `OperatorSequenceAnalyzer` is a pure diagnostic analyzer with no external I/
 
 - **Missing tokens**: If `document.tokens` is empty or undefined, return `[]`.
 - **Missing context tracker**: If `document.context_tracker` is unavailable, skip embedded context filtering (analyze all tokens). This is a defensive fallback — in practice, `DocumentState` always has a context tracker.
+- **Missing `ignored_lines`**: If `document.ignored_lines` is undefined, treat as empty (no suppression). This handles edge cases where the semantic analyzer hasn't run yet.
 - **Config missing fields**: If `malformedOperator` is absent, fall back to `'warning'`. If `invalidOperatorSequence` is absent, fall back to `'error'`. The `DEFAULT_SETTINGS` ensures both fields are always present in validated configs.
 - **Malformed token ranges**: If a token has an invalid range (e.g., end before start), skip that pair. This should never happen with a correct lexer but guards against corruption.
 
