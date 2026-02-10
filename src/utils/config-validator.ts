@@ -170,6 +170,18 @@ export function validate_comment_formatting_config(
             ) {
                 validated_config.diagnostics.severity.styleWarnings = diagnostics.severity.styleWarnings as any;
             }
+            if (
+                diagnostics.severity.malformedOperator &&
+                valid_severities.includes(diagnostics.severity.malformedOperator)
+            ) {
+                validated_config.diagnostics.severity.malformedOperator = diagnostics.severity.malformedOperator as any;
+            }
+            if (
+                diagnostics.severity.invalidOperatorSequence &&
+                valid_severities.includes(diagnostics.severity.invalidOperatorSequence)
+            ) {
+                validated_config.diagnostics.severity.invalidOperatorSequence = diagnostics.severity.invalidOperatorSequence as any;
+            }
         }
 
         if (typeof diagnostics.indentation === 'boolean') {

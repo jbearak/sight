@@ -44,6 +44,7 @@ export interface AnalysisResult {
     diagnostics: SemanticDiagnostic[];
     scopes: ScopeInfo[];
     forward_calls: ForwardCall[];
+    ignored_lines: Set<number>;
 }
 
 // Configuration for semantic analysis
@@ -213,7 +214,13 @@ export class SemanticAnalyzer {
         this.workspace_symbols = undefined;
         this.tokens = undefined;
 
-        return { symbols, diagnostics, scopes, forward_calls: this.forward_calls };
+        return {
+            symbols,
+            diagnostics,
+            scopes,
+            forward_calls: this.forward_calls,
+            ignored_lines: this.config.ignored_lines,
+        };
     }
 
     /**

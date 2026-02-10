@@ -100,6 +100,7 @@ export function create_document_state(my_source: string): DocumentState {
     context_tracker: my_context_tracker,
     line_offsets: my_line_offsets,
     forward_calls: [],
+    ignored_lines: my_analysis_result.ignored_lines,
   };
 }
 

@@ -446,6 +446,10 @@ export enum StataDiagnosticCode {
   // Indentation errors
   UNNECESSARY_INDENTATION = 5001,
   MISSING_INDENTATION = 5002,
+
+  // Malformed operator diagnostics
+  MALFORMED_OPERATOR = 6001,
+  INVALID_OPERATOR_SEQUENCE = 6002,
 }
 
 
@@ -464,6 +468,8 @@ export interface StataLSPConfig {
       undefinedMacro: 'error' | 'warning' | 'information' | 'hint' | 'off';
       undefinedVariable: 'error' | 'warning' | 'information' | 'hint' | 'off';
       styleWarnings: 'error' | 'warning' | 'information' | 'hint' | 'off';
+      malformedOperator: 'error' | 'warning' | 'information' | 'hint' | 'off';
+      invalidOperatorSequence: 'error' | 'warning' | 'information' | 'hint' | 'off';
     };
     indentation: boolean;
   };

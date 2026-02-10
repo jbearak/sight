@@ -18,6 +18,7 @@ import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
+import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 
 /**
  * DiagnosticsProvider aggregates diagnostics from cached parse results.
@@ -42,6 +43,7 @@ export class DiagnosticsProvider {
     private connection: Connection;
     private debounce_manager: DocumentDebounceManager | null = null;
     private indentation_analyzer = new IndentationDiagnosticAnalyzer();
+    private operator_sequence_analyzer = new OperatorSequenceAnalyzer();
     
     // Track published versions to prevent stale diagnostics
     private published_versions: Map<string, number> = new Map();
@@ -304,6 +306,15 @@ export class DiagnosticsProvider {
             // Skip indentation diagnostics in embedded contexts
             if (!this.is_in_embedded_context(my_indentation_diag.range.start, the_context_ranges)) {
                 the_diagnostics.push(my_indentation_diag);
+            }
+        }
+
+        // Add operator sequence diagnostics (malformed operators like '< =' or '| |')
+        const operator_sequence_diagnostics = this.operator_sequence_analyzer.analyze(document, config);
+        for (const my_operator_diag of operator_sequence_diagnostics) {
+            // Skip operator sequence diagnostics in embedded contexts
+            if (!this.is_in_embedded_context(my_operator_diag.range.start, the_context_ranges)) {
+                the_diagnostics.push(my_operator_diag);
             }
         }
 

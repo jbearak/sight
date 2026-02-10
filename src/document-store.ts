@@ -39,6 +39,9 @@ export interface DocumentState {
 
   // Line-bucketed token index for O(1) line lookup (Req 6.1, 12.1)
   token_line_index: Map<number, Token[]>;
+
+  // Lines suppressed by @lsp-ignore / @lsp-ignore-next directives
+  ignored_lines: Set<number>;
 }
 
 export class DocumentStore {
@@ -606,6 +609,7 @@ export class DocumentStore {
         token_line_index: this.build_token_line_index(
           lex_result.result!.tokens
         ),
+        ignored_lines: new Set<number>(),
       };
     }
 
@@ -654,6 +658,7 @@ export class DocumentStore {
       token_line_index: this.build_token_line_index(
         lex_result.result!.tokens
       ),
+      ignored_lines: analyze_result.result!.ignored_lines,
     };
   }
 
@@ -727,6 +732,7 @@ export class DocumentStore {
       line_offsets: offsets,
       forward_calls: [],
       token_line_index: new Map(),
+      ignored_lines: new Set<number>(),
     };
   }
 
