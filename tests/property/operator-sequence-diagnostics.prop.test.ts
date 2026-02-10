@@ -1606,12 +1606,6 @@ describe('Directive Suppression Property Tests', () => {
         // Generator for malformed pairs
         const arbitrary_malformed_pair = fc.constantFrom(...MALFORMED_PAIRS);
 
-        // Generator for comment styles
-        const arbitrary_comment_style = fc.constantFrom(
-            '//', // Slash-slash comment
-            '*',  // Star comment (only valid at start of line, so we'll use // for inline)
-        );
-
         // Default config with default severities
         const my_config: StataLSPConfig = {
             diagnostics: {
