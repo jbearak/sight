@@ -468,11 +468,10 @@ export class OperatorSequenceAnalyzer {
             if (my_node.type === 'command') {
                 const command_node = my_node;
                 if (command_node.ifExpression) {
-                    // Check if the operator is actually within the if qualifier range
-                    if (command_node.ifExpression.range &&
-                        this.is_position_in_range(op_line, op_char, command_node.ifExpression.range)) {
-                        return 'qualifier';
-                    }
+                    // This command has an if qualifier
+                    // Note: ifExpression is a string without range info, so we can't verify
+                    // the operator is actually within the qualifier. This is a best-effort check.
+                    return 'qualifier';
                 }
                 
                 // Check body for prefix commands with brace blocks
