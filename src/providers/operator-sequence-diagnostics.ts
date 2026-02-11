@@ -434,7 +434,7 @@ export class OperatorSequenceAnalyzer {
 
             // Check for if/else control flow nodes
             if (my_node.type === 'if' || my_node.type === 'else') {
-                const control_flow_node = my_node as ControlFlowNode;
+                const control_flow_node = my_node;
                 
                 // FIRST: Recursively check body to see if
                 // operator is in a nested context
@@ -447,6 +447,14 @@ export class OperatorSequenceAnalyzer {
                     if (body_context !== 'other') {
                         return body_context;
                     }
+                    
+                    // If body returned 'other', check if operator is actually within body range
+                    // If so, it's in a plain body context, not in the condition
+                    for (const body_node of control_flow_node.body) {
+                        if (this.is_position_in_range(op_line, op_char, body_node.range)) {
+                            return 'other';
+                        }
+                    }
                 }
                 
                 // THEN: If not in body and node has a
@@ -458,11 +466,13 @@ export class OperatorSequenceAnalyzer {
 
             // Check for command nodes with if qualifier
             if (my_node.type === 'command') {
-                const command_node = my_node as CommandNode;
+                const command_node = my_node;
                 if (command_node.ifExpression) {
-                    // This command has an if qualifier
-                    // The operator is within a command with if qualifier
-                    return 'qualifier';
+                    // Check if the operator is actually within the if qualifier range
+                    if (command_node.ifExpression.range &&
+                        this.is_position_in_range(op_line, op_char, command_node.ifExpression.range)) {
+                        return 'qualifier';
+                    }
                 }
                 
                 // Check body for prefix commands with brace blocks
@@ -476,7 +486,7 @@ export class OperatorSequenceAnalyzer {
 
             // Check for program nodes
             if (my_node.type === 'program') {
-                const program_node = my_node as { type: 'program'; body: StataNode[] };
+                const program_node = my_node;
                 if (program_node.body) {
                     const body_context = this.find_context_in_nodes(program_node.body, op_line, op_char);
                     if (body_context !== 'other') {
@@ -488,12 +498,27 @@ export class OperatorSequenceAnalyzer {
             // Check for other control flow nodes (foreach, forvalues, while, frame)
             if (my_node.type === 'foreach' || my_node.type === 'forvalues' || 
                 my_node.type === 'while' || my_node.type === 'frame') {
-                const control_flow_node = my_node as ControlFlowNode;
+                const control_flow_node = my_node;
+                
+                // FIRST: Recursively check body to see if operator is in a nested context
                 if (control_flow_node.body) {
                     const body_context = this.find_context_in_nodes(control_flow_node.body, op_line, op_char);
                     if (body_context !== 'other') {
                         return body_context;
                     }
+                    
+                    // If body returned 'other', check if operator is actually within body range
+                    // If so, it's in a plain body context, not in the condition
+                    for (const body_node of control_flow_node.body) {
+                        if (this.is_position_in_range(op_line, op_char, body_node.range)) {
+                            return 'other';
+                        }
+                    }
+                }
+                
+                // THEN: If not in body and node has a condition, operator must be in the condition
+                if (control_flow_node.condition) {
+                    return 'control_flow';
                 }
             }
         }
