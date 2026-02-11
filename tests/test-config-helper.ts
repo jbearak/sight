@@ -35,6 +35,7 @@ export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): Stata
                 styleWarnings: 'hint',
                 malformedOperator: 'warning',
                 invalidOperatorSequence: 'error',
+                cStyleLogicalInControlFlow: 'information',
             },
             indentation: true
         },

@@ -2224,7 +2224,7 @@ describe('Directive Suppression Property Tests', () => {
     });
 });
 
-
+describe('C-Style Logical Control Flow Property Tests', () => {
     /**
      * Feature: malformed-operator-diagnostics, Property 2b: C-style logical in if control flow context
      *
@@ -2577,3 +2577,4 @@ describe('Directive Suppression Property Tests', () => {
             { numRuns: 100 }
         );
     });
+});

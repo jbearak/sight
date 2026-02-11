@@ -316,7 +316,7 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
     });
 
     describe('Exact Message Strings for General Invalid Pairs (Requirement 5.9)', () => {
-        const general_invalid_pairs = [
+        const the_general_invalid_pairs = [
             { first: '<', second: '|', pair_key: '< |' },
             { first: '<', second: '&', pair_key: '< &' },
             { first: '>', second: '|', pair_key: '> |' },
@@ -333,16 +333,16 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             { first: '>', second: '<', pair_key: '> <' },
         ];
 
-        for (const pair of general_invalid_pairs) {
-            it(`${pair.pair_key} produces generic invalid message`, () => {
-                const doc = create_document_state(`display x ${pair.first} ${pair.second} y`);
+        for (const my_pair of the_general_invalid_pairs) {
+            it(`${my_pair.pair_key} produces generic invalid message`, () => {
+                const doc = create_document_state(`display x ${my_pair.first} ${my_pair.second} y`);
                 const diagnostics = analyzer.analyze(doc, default_config);
                 const invalid = diagnostics.filter(
                     d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                 );
                 expect(invalid).toHaveLength(1);
                 expect(invalid[0].message).toBe(
-                    `Invalid operator sequence '${pair.pair_key}'. This operator combination is not valid in Stata`
+                    `Invalid operator sequence '${my_pair.pair_key}'. This operator combination is not valid in Stata`
                 );
             });
         }

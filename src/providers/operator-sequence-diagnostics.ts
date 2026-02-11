@@ -515,7 +515,7 @@ export class OperatorSequenceAnalyzer {
         
         // Check if position is before range end
         if (line > range.end.line) return false;
-        if (line === range.end.line && character > range.end.character) return false;
+        if (line === range.end.line && character >= range.end.character) return false;
         
         return true;
     }

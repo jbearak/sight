@@ -130,7 +130,7 @@ Two property-based tests with minimum 100 iterations each:
 **Test file**: `tests/property/cstyle-logical-context-bugfix.prop.test.ts`
 
 Each test is tagged with:
-```
+```text
 Feature: cstyle-logical-context-detection-bugfix, Property N: <property_text>
 ```
 

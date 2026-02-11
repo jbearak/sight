@@ -2,7 +2,7 @@
 
 ## Overview
 
-This feature adds an `OperatorSequenceAnalyzer` that inspects adjacent OPERATOR tokens in Stata source code to detect two categories of malformed sequences:
+This feature adds an `OperatorSequenceAnalyzer` that inspects adjacent OPERATOR tokens in Stata source code to detect three categories of malformed sequences:
 
 1. **Suggestible sequences** — spaced compound operators like `< =` that likely meant `<=` (Warning severity)
 2. **Invalid sequences** — operator combinations with no valid Stata meaning like `< |` or `& &` (Error severity)
@@ -207,7 +207,7 @@ The context detection algorithm:
 
 Two OPERATOR tokens are considered "adjacent" if and only if all tokens between them are trivia (WHITESPACE or CONTINUATION). A STATEMENT_TERMINATOR, COMMENT_LINE, or COMMENT_BLOCK token between them breaks adjacency.
 
-```
+```text
 for each token[i] where token[i].type === 'OPERATOR':
     find next non-trivia token token[j]
     if any token between i and j is STATEMENT_TERMINATOR, COMMENT_LINE, or COMMENT_BLOCK: skip
