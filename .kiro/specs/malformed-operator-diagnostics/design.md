@@ -95,7 +95,7 @@ The `SemanticAnalyzer` already computes this set (in `AnalyzerConfig.ignored_lin
 
 **File**: `src/providers/operator-sequence-diagnostics.ts`
 
-```typescripttypescript
+```typescript
 import { Diagnostic } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { StataLSPConfig } from '../types';
@@ -115,7 +115,7 @@ export class OperatorSequenceAnalyzer {
 
 The analyzer classifies operator pairs using lookup maps:
 
-```typescripttypescript
+```typescript
 /** Suggestible pairs: spaced compound operators with a known intended form */
 const SUGGESTIBLE_PAIRS: Map<string, string> = new Map([
     ['< =', '<='],
@@ -176,7 +176,7 @@ const NEGATION_OPS: Set<string> = new Set(['!', '~']);
 
 To determine whether a C-style logical operator (`&&`, `||`) appears in an `if` control flow statement or an `if` qualifier, the analyzer uses the AST:
 
-```typescripttypescript
+```typescript
 interface OperatorContext {
     kind: 'control_flow' | 'qualifier' | 'other';
 }
@@ -254,7 +254,7 @@ CSTYLE_LOGICAL_IN_CONTROL_FLOW = 6003,
 
 Added to `StataLSPConfig.diagnostics.severity`:
 
-```typescripttypescript
+```typescript
 severity: {
     undefinedMacro: 'error' | 'warning' | 'information' | 'hint' | 'off';
     undefinedVariable: 'error' | 'warning' | 'information' | 'hint' | 'off';
@@ -362,7 +362,7 @@ interface OperatorPairResult {
 
 Each result maps to a standard LSP `Diagnostic`. The `'off'` config value is handled by an early-exit check before classification (if all three categories are `'off'`, return `[]`; if only some are `'off'`, skip results of those kinds). The severity mapping for non-`'off'` values uses a helper that converts config strings to `DiagnosticSeverity` enums:
 
-```typescripttypescript
+```typescript
 // resolve_severity converts a config string to DiagnosticSeverity,
 // using the result's default_severity as fallback if config is undefined.
 function get_config_severity(result: OperatorPairResult, config: StataLSPConfig): string | undefined {
