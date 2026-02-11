@@ -1,6 +1,6 @@
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
-import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
+import { StataDiagnosticCode, StataLSPConfig, Token, StataAST, StataNode, ControlFlowNode, CommandNode } from '../types';
 
 /**
  * Suggestible pairs: spaced compound operators with a known intended form.
@@ -15,8 +15,8 @@ const SUGGESTIBLE_PAIRS: Map<string, string> = new Map([
 ]);
 
 /**
- * Invalid pairs: operator combinations with no valid Stata meaning.
- * These are always errors.
+ * Invalid pairs: operator combinations with no valid Stata meaning (context-independent).
+ * These are always errors regardless of context.
  */
 const INVALID_PAIRS: Set<string> = new Set([
     // Comparison + logical
@@ -29,17 +29,39 @@ const INVALID_PAIRS: Set<string> = new Set([
     '| &', '& |',
     // Double comparison
     '< <', '> >', '< >', '> <',
-    // C-style logical (not valid in Stata)
-    '| |', '& &',
 ]);
 
 /**
- * Pairs that get specialized messages.
+ * C-style logical pairs: context-dependent validity.
+ * Valid (but stylistically discouraged) in if/else if control flow statements.
+ * Invalid in if qualifier expressions.
+ */
+const CSTYLE_LOGICAL_PAIRS: Set<string> = new Set([
+    '| |',  // || - valid in if/else if control flow, invalid in if qualifier
+    '& &',  // && - valid in if/else if control flow, invalid in if qualifier
+]);
+
+/**
+ * Pairs that get specialized messages (context-independent invalid pairs).
  */
 const SPECIAL_MESSAGES: Map<string, string> = new Map([
+    ['| =', "Stata does not support compound assignment operators"],
+]);
+
+/**
+ * Messages for C-style logical in if qualifier context (error).
+ */
+const CSTYLE_QUALIFIER_MESSAGES: Map<string, string> = new Map([
     ['| |', "Stata uses '|' for logical OR, not '||'"],
     ['& &', "Stata uses '&' for logical AND, not '&&'"],
-    ['| =', "Stata does not support compound assignment operators"],
+]);
+
+/**
+ * Messages for C-style logical in control flow context (informational).
+ */
+const CSTYLE_CONTROL_FLOW_MESSAGES: Map<string, string> = new Map([
+    ['| |', "C-style '||' operator in if condition. Consider using '|' for consistency with Stata style"],
+    ['& &', "C-style '&&' operator in if condition. Consider using '&' for consistency with Stata style"],
 ]);
 
 /**
@@ -74,10 +96,15 @@ const ADJACENCY_BREAKERS: Set<string> = new Set([
 ]);
 
 /**
+ * Context for C-style logical operators.
+ */
+type OperatorContext = 'control_flow' | 'qualifier' | 'other';
+
+/**
  * Internal classification result for an operator pair.
  */
 interface OperatorPairResult {
-    kind: 'suggestible' | 'invalid';
+    kind: 'suggestible' | 'invalid' | 'cstyle_control_flow';
     first_token: Token;
     second_token: Token;
     pair_key: string;
@@ -88,10 +115,12 @@ interface OperatorPairResult {
 
 /**
  * OperatorSequenceAnalyzer inspects adjacent OPERATOR tokens in Stata source code
- * to detect two categories of malformed sequences:
+ * to detect three categories of malformed sequences:
  * 
  * 1. Suggestible sequences — spaced compound operators like `< =` that likely meant `<=` (Warning severity)
- * 2. Invalid sequences — operator combinations with no valid Stata meaning like `< |` or `& &` (Error severity)
+ * 2. Invalid sequences — operator combinations with no valid Stata meaning like `< |` (Error severity)
+ * 3. Context-dependent sequences — C-style logical operators (`&&`, `||`) that are valid in
+ *    if/else if control flow statements but invalid in if qualifiers
  * 
  * The analyzer follows the established IndentationDiagnosticAnalyzer pattern: a standalone class
  * instantiated by DiagnosticsProvider, receiving DocumentState and StataLSPConfig, and returning Diagnostic[].
@@ -101,16 +130,17 @@ export class OperatorSequenceAnalyzer {
      * Analyze a document's token stream for malformed operator sequences.
      * Returns diagnostics for suggestible and invalid operator pairs.
      * 
-     * @param document - The document state containing tokens and ignored_lines
+     * @param document - The document state containing tokens, AST, and ignored_lines
      * @param config - LSP configuration for diagnostic settings
      * @returns Array of diagnostics for malformed operator sequences
      */
     analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
-        // Early return if both config severities are 'off'
+        // Early return if all three config severities are 'off'
         const malformed_severity = config.diagnostics?.severity?.malformedOperator ?? 'warning';
         const invalid_severity = config.diagnostics?.severity?.invalidOperatorSequence ?? 'error';
+        const cstyle_severity = config.diagnostics?.severity?.cStyleLogicalInControlFlow ?? 'information';
         
-        if (malformed_severity === 'off' && invalid_severity === 'off') {
+        if (malformed_severity === 'off' && invalid_severity === 'off' && cstyle_severity === 'off') {
             return [];
         }
 
@@ -122,6 +152,9 @@ export class OperatorSequenceAnalyzer {
 
         // Get ignored lines for suppression (default to empty set if undefined)
         const ignored_lines = document.ignored_lines ?? new Set<number>();
+
+        // Get AST for context detection (may be undefined)
+        const ast = document.ast;
 
         const the_diagnostics: Diagnostic[] = [];
         let i = 0;
@@ -147,7 +180,7 @@ export class OperatorSequenceAnalyzer {
             const { second_token, next_index } = adjacency_result;
 
             // Classify the pair
-            const pair_result = this.classify_pair(first_token, second_token);
+            const pair_result = this.classify_pair(first_token, second_token, ast ?? undefined);
 
             if (!pair_result) {
                 // Pair is allowed or unrecognized, skip
@@ -163,10 +196,19 @@ export class OperatorSequenceAnalyzer {
                 continue;
             }
 
-            // Apply config severity override
-            const config_severity = pair_result.kind === 'suggestible'
-                ? malformed_severity
-                : invalid_severity;
+            // Apply config severity override based on result kind
+            let config_severity: 'error' | 'warning' | 'information' | 'hint' | 'off';
+            switch (pair_result.kind) {
+                case 'suggestible':
+                    config_severity = malformed_severity;
+                    break;
+                case 'invalid':
+                    config_severity = invalid_severity;
+                    break;
+                case 'cstyle_control_flow':
+                    config_severity = cstyle_severity;
+                    break;
+            }
 
             if (config_severity === 'off') {
                 // Category is disabled, advance past second token
@@ -256,15 +298,17 @@ export class OperatorSequenceAnalyzer {
     }
 
     /**
-     * Classify an operator pair as suggestible, invalid, allowed, or unrecognized.
+     * Classify an operator pair as suggestible, invalid, cstyle_control_flow, allowed, or unrecognized.
      * 
      * @param first_token - The first OPERATOR token
      * @param second_token - The second OPERATOR token
-     * @returns OperatorPairResult if the pair is suggestible or invalid, null otherwise
+     * @param ast - The AST for context detection (may be undefined)
+     * @returns OperatorPairResult if the pair is suggestible, invalid, or cstyle_control_flow; null otherwise
      */
     private classify_pair(
         first_token: Token,
-        second_token: Token
+        second_token: Token,
+        ast: StataAST | undefined
     ): OperatorPairResult | null {
         const first_value = first_token.value;
         const second_value = second_token.value;
@@ -284,7 +328,42 @@ export class OperatorSequenceAnalyzer {
             };
         }
 
-        // Check if it's an invalid pair
+        // Check if it's a C-style logical pair (context-dependent)
+        if (CSTYLE_LOGICAL_PAIRS.has(pair_key)) {
+            const context = this.get_operator_context(first_token, second_token, ast);
+            
+            if (context === 'control_flow') {
+                // Valid in control flow, emit informational diagnostic
+                const message = CSTYLE_CONTROL_FLOW_MESSAGES.get(pair_key) ?? 
+                    `C-style logical operator in if condition. Consider using single operator for consistency`;
+                return {
+                    kind: 'cstyle_control_flow',
+                    first_token,
+                    second_token,
+                    pair_key,
+                    message,
+                    default_severity: DiagnosticSeverity.Information,
+                    code: StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW,
+                };
+            } else {
+                // Invalid in qualifier or other context
+                const special_message = CSTYLE_QUALIFIER_MESSAGES.get(pair_key);
+                const message = special_message
+                    ? `Invalid operator sequence '${pair_key}'. ${special_message}`
+                    : `Invalid operator sequence '${pair_key}'. This operator combination is not valid in Stata`;
+                return {
+                    kind: 'invalid',
+                    first_token,
+                    second_token,
+                    pair_key,
+                    message,
+                    default_severity: DiagnosticSeverity.Error,
+                    code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE,
+                };
+            }
+        }
+
+        // Check if it's an invalid pair (context-independent)
         if (INVALID_PAIRS.has(pair_key)) {
             const special_message = SPECIAL_MESSAGES.get(pair_key);
             const message = special_message
@@ -309,6 +388,135 @@ export class OperatorSequenceAnalyzer {
 
         // Unrecognized pair, skip
         return null;
+    }
+
+    /**
+     * Determine the context of an operator pair by checking if it falls within
+     * an if/else if control flow condition or an if qualifier expression.
+     * 
+     * @param first_token - The first OPERATOR token
+     * @param second_token - The second OPERATOR token
+     * @param ast - The AST for context detection
+     * @returns 'control_flow' if in if/else if statement, 'qualifier' if in if qualifier, 'other' otherwise
+     */
+    private get_operator_context(
+        first_token: Token,
+        second_token: Token,
+        ast: StataAST | undefined
+    ): OperatorContext {
+        if (!ast || !ast.nodes) {
+            // No AST available, treat as qualifier context (invalid)
+            return 'other';
+        }
+
+        // Get the position of the operator pair (use first token's start)
+        const op_line = first_token.range.start.line;
+        const op_char = first_token.range.start.character;
+
+        // Walk the AST to find nodes containing the operator position
+        const context = this.find_context_in_nodes(ast.nodes, op_line, op_char);
+        return context;
+    }
+
+    /**
+     * Recursively search AST nodes to find the context of an operator.
+     */
+    private find_context_in_nodes(
+        nodes: StataNode[],
+        op_line: number,
+        op_char: number
+    ): OperatorContext {
+        for (const my_node of nodes) {
+            // Check if the operator is within this node's range
+            if (!this.is_position_in_range(op_line, op_char, my_node.range)) {
+                continue;
+            }
+
+            // Check for if/else control flow nodes
+            if (my_node.type === 'if' || my_node.type === 'else') {
+                const control_flow_node = my_node as ControlFlowNode;
+                
+                // For 'else' nodes, check if they have a nested 'if' (else if)
+                // The condition is in the control flow node itself
+                if (control_flow_node.condition) {
+                    // The operator is within a control flow statement
+                    // Check if it's in the condition part (before the body)
+                    // The condition is typically on the same line as the 'if' keyword
+                    // and before the opening brace
+                    return 'control_flow';
+                }
+                
+                // Recursively check body
+                if (control_flow_node.body) {
+                    const body_context = this.find_context_in_nodes(control_flow_node.body, op_line, op_char);
+                    if (body_context !== 'other') {
+                        return body_context;
+                    }
+                }
+            }
+
+            // Check for command nodes with if qualifier
+            if (my_node.type === 'command') {
+                const command_node = my_node as CommandNode;
+                if (command_node.ifExpression) {
+                    // This command has an if qualifier
+                    // The operator is within a command with if qualifier
+                    return 'qualifier';
+                }
+                
+                // Check body for prefix commands with brace blocks
+                if (command_node.body) {
+                    const body_context = this.find_context_in_nodes(command_node.body, op_line, op_char);
+                    if (body_context !== 'other') {
+                        return body_context;
+                    }
+                }
+            }
+
+            // Check for program nodes
+            if (my_node.type === 'program') {
+                const program_node = my_node as { type: 'program'; body: StataNode[] };
+                if (program_node.body) {
+                    const body_context = this.find_context_in_nodes(program_node.body, op_line, op_char);
+                    if (body_context !== 'other') {
+                        return body_context;
+                    }
+                }
+            }
+
+            // Check for other control flow nodes (foreach, forvalues, while, frame)
+            if (my_node.type === 'foreach' || my_node.type === 'forvalues' || 
+                my_node.type === 'while' || my_node.type === 'frame') {
+                const control_flow_node = my_node as ControlFlowNode;
+                if (control_flow_node.body) {
+                    const body_context = this.find_context_in_nodes(control_flow_node.body, op_line, op_char);
+                    if (body_context !== 'other') {
+                        return body_context;
+                    }
+                }
+            }
+        }
+
+        return 'other';
+    }
+
+    /**
+     * Check if a position (line, character) is within a range.
+     */
+    private is_position_in_range(
+        line: number,
+        character: number,
+        range: { start: { line: number; character: number }; end: { line: number; character: number } }
+    ): boolean {
+        // Check if position is after range start
+        if (line < range.start.line) return false;
+        if (line === range.start.line && character < range.start.character) return false;
+        
+        // Check if position is before range end
+        if (line > range.end.line) return false;
+        if (line === range.end.line && character > range.end.character) return false;
+        
+        return true;
     }
 
     /**

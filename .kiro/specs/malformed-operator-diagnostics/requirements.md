@@ -12,9 +12,13 @@ This feature adds diagnostic detection for malformed operator sequences in Stata
    - Logical/C-style assignment: `| =`
    - Double logical: `| &`, `& |`
    - Double comparison: `< <`, `> >`, `< >`, `> <`
-   - C-style logical (not valid in Stata): `| |`, `& &`
+   - C-style logical (context-dependent): `| |`, `& &`
 
 Note: Sequences starting with `=` followed by a comparison or logical operator (e.g., `= <`, `= >`, `= |`, `= &`) are intentionally excluded. These can occur in valid Stata code where an assignment is followed by an expression beginning with a unary or comparison operator.
+
+**Important context distinction for C-style logical operators (`&&` and `||`):**
+- In `if` or `else if` control flow statement contexts (e.g., `if condition { ... }`), `&&` and `||` work synonymously with `&` and `|`. In these contexts, they should NOT emit error diagnostics — only optional informational messages about stylistic preference.
+- In `if` qualifier contexts (e.g., `gen x = 1 if a == 1 && b == 1`), `&&` and `||` are NOT valid and should emit error diagnostics.
 
 ## Prerequisites
 
@@ -26,7 +30,10 @@ Note: Sequences starting with `=` followed by a comparison or logical operator (
 - **Adjacent_Operator_Tokens**: Two OPERATOR tokens with no intervening non-trivia tokens. Trivia includes WHITESPACE and CONTINUATION (`///`) tokens between them. Tokens separated by a STATEMENT_TERMINATOR (newline in CR mode, `;` in semicolon mode) are NOT considered adjacent. COMMENT_LINE and COMMENT_BLOCK tokens between operators also break adjacency (they are not trivia for this purpose).
 - **Malformed_Operator_Sequence**: Two Adjacent_Operator_Tokens that form a suspicious or invalid combination
 - **Suggestible_Sequence**: A malformed operator sequence where the intended compound operator can be inferred (e.g., `< =` → `<=`, `! =` → `!=`, `~ =` → `~=`, `= =` → `==`)
-- **Invalid_Sequence**: A malformed operator sequence that has no valid Stata interpretation (e.g., `< |`, `> &`, `& |`, `< <`, `| |`, `& &`)
+- **Invalid_Sequence**: A malformed operator sequence that has no valid Stata interpretation (e.g., `< |`, `> &`, `& |`, `< <`). Note: `| |` and `& &` are only invalid in certain contexts — see Context_Dependent_Sequence.
+- **Context_Dependent_Sequence**: A malformed operator sequence whose validity depends on the syntactic context. Specifically, `| |` and `& &` are valid (though stylistically discouraged) in `if`/`else if` control flow statement conditions, but invalid in `if` qualifier expressions.
+- **If_Control_Flow_Context**: The condition expression within an `if` or `else if` control flow statement (e.g., `if condition { ... }` or `else if condition { ... }`). In this context, `&&` and `||` work synonymously with `&` and `|`.
+- **If_Qualifier_Context**: The condition expression within an `if` qualifier on a command (e.g., `gen x = 1 if condition`). In this context, `&&` and `||` are NOT valid Stata syntax.
 - **Operator_Token**: A token of type OPERATOR produced by the lexer. Note: operators inside string literals are tokenized as STRING tokens, and operators inside comments are tokenized as COMMENT tokens — the lexer already prevents false positives from these contexts.
 
 ## Requirements
@@ -57,8 +64,19 @@ Note: Code actions (quick fixes) for suggestible sequences are deferred to a fut
 3. WHEN two Adjacent_Operator_Tokens form the sequence `|` followed by `=`, THE Operator_Sequence_Analyzer SHALL emit a diagnostic error with a message noting that Stata does not support compound assignment operators like `|=`
 4. WHEN two Adjacent_Operator_Tokens form a double logical sequence (`| &`, `& |`), THE Operator_Sequence_Analyzer SHALL emit a diagnostic error
 5. WHEN two Adjacent_Operator_Tokens form a double comparison sequence (`< <`, `> >`, `< >`, `> <`), THE Operator_Sequence_Analyzer SHALL emit a diagnostic error
-6. WHEN two Adjacent_Operator_Tokens form a C-style logical operator (`| |`, `& &`), THE Operator_Sequence_Analyzer SHALL emit a diagnostic error with a message noting that Stata uses single `|` and `&` for logical operations
+6. WHEN two Adjacent_Operator_Tokens form a C-style logical operator (`| |`, `& &`) in an If_Qualifier_Context, THE Operator_Sequence_Analyzer SHALL emit a diagnostic error with a message noting that Stata uses single `|` and `&` for logical operations in this context
 7. WHEN an Invalid_Sequence is detected (other than C-style logical or `| =`), THE Operator_Sequence_Analyzer SHALL emit a diagnostic message stating that the operator combination is not valid in Stata
+
+### Requirement 2a: Context-Aware C-Style Logical Operator Handling
+
+**User Story:** As a Stata developer, I want the LSP to correctly distinguish between contexts where `&&` and `||` are valid (if/else if control flow statements) versus invalid (if qualifiers), so that I receive accurate diagnostics.
+
+#### Acceptance Criteria
+
+1. WHEN two Adjacent_Operator_Tokens form a C-style logical operator (`| |`, `& &`) in an If_Control_Flow_Context, THE Operator_Sequence_Analyzer SHALL NOT emit an error diagnostic
+2. WHEN two Adjacent_Operator_Tokens form a C-style logical operator (`| |`, `& &`) in an If_Control_Flow_Context AND the `cStyleLogicalInControlFlow` config is NOT `'off'`, THE Operator_Sequence_Analyzer SHALL emit an informational diagnostic suggesting the use of single `|` or `&` for consistency
+3. WHEN the `cStyleLogicalInControlFlow` config is set to `'off'`, THE Operator_Sequence_Analyzer SHALL NOT emit any diagnostic for C-style logical operators in If_Control_Flow_Context
+4. THE default value for `cStyleLogicalInControlFlow` SHALL be `'information'`
 
 ### Requirement 3: Scope Detection to Stata Context Only
 
@@ -99,9 +117,11 @@ Note: ACs 3-4 ensure that valid expressions like `x > -1`, `x < +1`, and `!x > 0
 7. WHEN a Suggestible_Sequence `~ =` is detected, THE diagnostic message SHALL read: "Malformed operator '~ ='. Did you mean '~='?"
 8. WHEN a Suggestible_Sequence `= =` is detected, THE diagnostic message SHALL read: "Malformed operator '= ='. Did you mean '=='?"
 9. WHEN an Invalid_Sequence is detected (general case), THE diagnostic message SHALL include the specific operator combination found (e.g., "Invalid operator sequence '< |'. This operator combination is not valid in Stata")
-10. WHEN a C-style logical operator `| |` is detected, THE diagnostic message SHALL read: "Invalid operator sequence '| |'. Stata uses '|' for logical OR, not '||'"
-11. WHEN a C-style logical operator `& &` is detected, THE diagnostic message SHALL read: "Invalid operator sequence '& &'. Stata uses '&' for logical AND, not '&&'"
+10. WHEN a C-style logical operator `| |` is detected in If_Qualifier_Context, THE diagnostic message SHALL read: "Invalid operator sequence '| |'. Stata uses '|' for logical OR, not '||'"
+11. WHEN a C-style logical operator `& &` is detected in If_Qualifier_Context, THE diagnostic message SHALL read: "Invalid operator sequence '& &'. Stata uses '&' for logical AND, not '&&'"
 12. WHEN the sequence `| =` is detected, THE diagnostic message SHALL read: "Invalid operator sequence '| ='. Stata does not support compound assignment operators"
+13. WHEN a C-style logical operator `| |` is detected in If_Control_Flow_Context (and config is not 'off'), THE diagnostic message SHALL read: "C-style '||' operator in if condition. Consider using '|' for consistency with Stata style"
+14. WHEN a C-style logical operator `& &` is detected in If_Control_Flow_Context (and config is not 'off'), THE diagnostic message SHALL read: "C-style '&&' operator in if condition. Consider using '&' for consistency with Stata style"
 
 ### Requirement 6: Support Multi-line and Continuation Contexts
 
@@ -134,6 +154,9 @@ Note: ACs 3-4 ensure that valid expressions like `x > -1`, `x < +1`, and `!x > 0
 5. WHEN either field is set to a severity value other than `'off'`, THE Operator_Sequence_Analyzer SHALL use that severity (overriding the defaults in Requirement 5 ACs 1-2)
 6. THE default value for `malformedOperator` SHALL be `'warning'`
 7. THE default value for `invalidOperatorSequence` SHALL be `'error'`
+8. THE `StataLSPConfig.diagnostics.severity` SHALL include a `cStyleLogicalInControlFlow` field with allowed values `'error' | 'warning' | 'information' | 'hint' | 'off'`, controlling the severity of C-style logical operator diagnostics (`&&`, `||`) in If_Control_Flow_Context
+9. THE default value for `cStyleLogicalInControlFlow` SHALL be `'information'`
+10. WHEN `cStyleLogicalInControlFlow` is set to `'off'`, THE Operator_Sequence_Analyzer SHALL NOT emit any diagnostic for C-style logical operators in If_Control_Flow_Context
 
 ### Requirement 9: Diagnostic Codes
 
@@ -144,3 +167,4 @@ Note: ACs 3-4 ensure that valid expressions like `x > -1`, `x < +1`, and `!x > 0
 1. THE `StataDiagnosticCode` enum SHALL include codes in the 6xxx range for malformed operator diagnostics
 2. Suggestible_Sequence diagnostics SHALL use code `MALFORMED_OPERATOR = 6001`
 3. Invalid_Sequence diagnostics SHALL use code `INVALID_OPERATOR_SEQUENCE = 6002`
+4. Context_Dependent_Sequence diagnostics (C-style logical in If_Control_Flow_Context) SHALL use code `CSTYLE_LOGICAL_IN_CONTROL_FLOW = 6003`

@@ -182,6 +182,12 @@ export function validate_comment_formatting_config(
             ) {
                 validated_config.diagnostics.severity.invalidOperatorSequence = diagnostics.severity.invalidOperatorSequence as any;
             }
+            if (
+                diagnostics.severity.cStyleLogicalInControlFlow &&
+                valid_severities.includes(diagnostics.severity.cStyleLogicalInControlFlow)
+            ) {
+                validated_config.diagnostics.severity.cStyleLogicalInControlFlow = diagnostics.severity.cStyleLogicalInControlFlow as any;
+            }
         }
 
         if (typeof diagnostics.indentation === 'boolean') {

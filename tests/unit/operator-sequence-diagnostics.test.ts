@@ -43,7 +43,7 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
         };
     });
 
-    describe('Diagnostic Codes (Requirements 9.1-9.3)', () => {
+    describe('Diagnostic Codes (Requirements 9.1-9.4)', () => {
         it('MALFORMED_OPERATOR should equal 6001', () => {
             expect(StataDiagnosticCode.MALFORMED_OPERATOR).toBe(6001);
         });
@@ -51,15 +51,23 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
         it('INVALID_OPERATOR_SEQUENCE should equal 6002', () => {
             expect(StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE).toBe(6002);
         });
+
+        it('CSTYLE_LOGICAL_IN_CONTROL_FLOW should equal 6003', () => {
+            expect(StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW).toBe(6003);
+        });
     });
 
-    describe('Default Severity Values (Requirements 8.6, 8.7)', () => {
+    describe('Default Severity Values (Requirements 8.6, 8.7, 8.9)', () => {
         it('DEFAULT_SETTINGS.diagnostics.severity.malformedOperator should be "warning"', () => {
             expect(DEFAULT_SETTINGS.diagnostics.severity.malformedOperator).toBe('warning');
         });
 
         it('DEFAULT_SETTINGS.diagnostics.severity.invalidOperatorSequence should be "error"', () => {
             expect(DEFAULT_SETTINGS.diagnostics.severity.invalidOperatorSequence).toBe('error');
+        });
+
+        it('DEFAULT_SETTINGS.diagnostics.severity.cStyleLogicalInControlFlow should be "information"', () => {
+            expect(DEFAULT_SETTINGS.diagnostics.severity.cStyleLogicalInControlFlow).toBe('information');
         });
     });
 
@@ -171,8 +179,8 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
         });
     });
 
-    describe('Exact Message Strings for C-style Logical Pairs (Requirements 5.10-5.11)', () => {
-        it('| | produces message with Stata-specific guidance for OR', () => {
+    describe('Exact Message Strings for C-style Logical Pairs in Qualifier Context (Requirements 5.10-5.11)', () => {
+        it('| | in command (not control flow) produces error message with Stata-specific guidance for OR', () => {
             const doc = create_document_state('display x | | y');
             const diagnostics = analyzer.analyze(doc, default_config);
             const invalid = diagnostics.filter(
@@ -184,7 +192,7 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             );
         });
 
-        it('& & produces message with Stata-specific guidance for AND', () => {
+        it('& & in command (not control flow) produces error message with Stata-specific guidance for AND', () => {
             const doc = create_document_state('display x & & y');
             const diagnostics = analyzer.analyze(doc, default_config);
             const invalid = diagnostics.filter(
@@ -194,6 +202,102 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             expect(invalid[0].message).toBe(
                 "Invalid operator sequence '& &'. Stata uses '&' for logical AND, not '&&'"
             );
+        });
+    });
+
+    describe('Exact Message Strings for C-style Logical Pairs in Control Flow Context (Requirements 5.13-5.14)', () => {
+        it('| | in if control flow produces informational message suggesting single operator', () => {
+            const doc = create_document_state('if a | | b {\n    display "test"\n}');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const cstyle = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+            expect(cstyle).toHaveLength(1);
+            expect(cstyle[0].message).toBe(
+                "C-style '||' operator in if condition. Consider using '|' for consistency with Stata style"
+            );
+        });
+
+        it('& & in if control flow produces informational message suggesting single operator', () => {
+            const doc = create_document_state('if a & & b {\n    display "test"\n}');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const cstyle = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+            expect(cstyle).toHaveLength(1);
+            expect(cstyle[0].message).toBe(
+                "C-style '&&' operator in if condition. Consider using '&' for consistency with Stata style"
+            );
+        });
+    });
+
+    describe('Context Detection: Control Flow vs Qualifier (Requirements 2a.1-2a.4)', () => {
+        it('| | in if control flow statement emits informational diagnostic, not error', () => {
+            const doc = create_document_state('if x | | y {\n    display "test"\n}');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            
+            // Should NOT have INVALID_OPERATOR_SEQUENCE
+            const invalid = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+            expect(invalid).toHaveLength(0);
+            
+            // Should have CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            const cstyle = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+            expect(cstyle).toHaveLength(1);
+            expect(cstyle[0].severity).toBe(DiagnosticSeverity.Information);
+        });
+
+        it('| | in gen command with if qualifier emits error diagnostic', () => {
+            const doc = create_document_state('gen z = 1 if x | | y');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            
+            // Should have INVALID_OPERATOR_SEQUENCE
+            const invalid = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+            expect(invalid).toHaveLength(1);
+            expect(invalid[0].severity).toBe(DiagnosticSeverity.Error);
+            
+            // Should NOT have CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            const cstyle = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+            expect(cstyle).toHaveLength(0);
+        });
+
+        it('& & in else if control flow statement emits informational diagnostic', () => {
+            const doc = create_document_state('if x {\n    display "a"\n}\nelse if y & & z {\n    display "b"\n}');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            
+            // Should have CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            const cstyle = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+            expect(cstyle).toHaveLength(1);
+        });
+
+        it('cStyleLogicalInControlFlow config "off" suppresses informational diagnostic', () => {
+            const config_off: StataLSPConfig = {
+                ...default_config,
+                diagnostics: {
+                    ...default_config.diagnostics,
+                    severity: {
+                        ...default_config.diagnostics.severity,
+                        cStyleLogicalInControlFlow: 'off',
+                    },
+                },
+            };
+            const doc = create_document_state('if x | | y {\n    display "test"\n}');
+            const diagnostics = analyzer.analyze(doc, config_off);
+            
+            // Should NOT have any C-style logical diagnostic
+            const cstyle = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+            expect(cstyle).toHaveLength(0);
         });
     });
 

@@ -70,8 +70,8 @@ gen x = y < = z`;
             );
         });
 
-        it('should emit invalid operator diagnostics alongside parser errors', async () => {
-            // Code with both parser error (unclosed brace) and invalid operator
+        it('should emit C-style logical diagnostics in control flow context', async () => {
+            // Code with both parser error (unclosed brace) and C-style logical in control flow
             const my_content = `if condition {
     display x | | y`;
             const my_uri = 'file:///test_parser_error.do';
@@ -83,14 +83,14 @@ gen x = y < = z`;
                 default_config
             );
 
-            // Should have invalid operator diagnostic
-            const the_invalid_operator = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            // Should have C-style logical diagnostic (informational, not error)
+            const the_cstyle_logical = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
             );
 
-            expect(the_invalid_operator).toHaveLength(1);
-            expect(the_invalid_operator[0].message).toBe(
-                "Invalid operator sequence '| |'. Stata uses '|' for logical OR, not '||'"
+            expect(the_cstyle_logical).toHaveLength(1);
+            expect(the_cstyle_logical[0].message).toBe(
+                "C-style '||' operator in if condition. Consider using '|' for consistency with Stata style"
             );
         });
 
@@ -540,6 +540,119 @@ gen c = x | = y`;
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
             );
             expect(the_operator_diagnostics).toHaveLength(0);
+        });
+    });
+
+    describe('Context-Aware C-Style Logical Handling (Requirements 2a.1-2a.4)', () => {
+        it('should emit informational diagnostic for && in if control flow', async () => {
+            const my_content = `if a & & b {
+    display "test"
+}`;
+            const my_uri = 'file:///test_cstyle_if.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                default_config
+            );
+
+            const the_cstyle = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+            const the_invalid = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+
+            expect(the_cstyle).toHaveLength(1);
+            expect(the_cstyle[0].severity).toBe(DiagnosticSeverity.Information);
+            expect(the_invalid).toHaveLength(0);
+        });
+
+        it('should emit error diagnostic for && in if qualifier', async () => {
+            const my_content = `gen x = 1 if a & & b`;
+            const my_uri = 'file:///test_cstyle_qualifier.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                default_config
+            );
+
+            const the_cstyle = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+            const the_invalid = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+
+            expect(the_cstyle).toHaveLength(0);
+            expect(the_invalid).toHaveLength(1);
+            expect(the_invalid[0].severity).toBe(DiagnosticSeverity.Error);
+        });
+
+        it('should suppress C-style logical in control flow when config is off', async () => {
+            const my_content = `if a | | b {
+    display "test"
+}`;
+            const my_uri = 'file:///test_cstyle_off.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const off_config: StataLSPConfig = {
+                ...default_config,
+                diagnostics: {
+                    ...default_config.diagnostics,
+                    severity: {
+                        ...default_config.diagnostics.severity,
+                        cStyleLogicalInControlFlow: 'off',
+                    },
+                },
+            };
+
+            const the_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                off_config
+            );
+
+            const the_cstyle = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+
+            expect(the_cstyle).toHaveLength(0);
+        });
+
+        it('should use configured severity for C-style logical in control flow', async () => {
+            const my_content = `if a | | b {
+    display "test"
+}`;
+            const my_uri = 'file:///test_cstyle_severity.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const warning_config: StataLSPConfig = {
+                ...default_config,
+                diagnostics: {
+                    ...default_config.diagnostics,
+                    severity: {
+                        ...default_config.diagnostics.severity,
+                        cStyleLogicalInControlFlow: 'warning',
+                    },
+                },
+            };
+
+            const the_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                warning_config
+            );
+
+            const the_cstyle = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+
+            expect(the_cstyle).toHaveLength(1);
+            expect(the_cstyle[0].severity).toBe(DiagnosticSeverity.Warning);
         });
     });
 });
