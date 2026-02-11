@@ -9,7 +9,7 @@ The extension provides intelligent auto-closing for Stata's unique quoting conve
 | `` ` ``    | `` `\|' ``     | Local macro reference                 |
 | `` \`\` `` | `` \`\`\|'' `` | Nested local macro (double backticks) |
 | `` `" ``   | `` `"\|"' ``   | Compound string                       |
-| `"`        | `` `"\|"` ``   | Double-quoted string                  |
+| `"`        | `"\|"`         | Double-quoted string                  |
 
 Note: `|` represents cursor position.
 

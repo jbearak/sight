@@ -1,6 +1,6 @@
-# Formatting
+# Formatting (Experimental)
 
-**Warning:** The following features (Pretty Printer and Comment Formatter) exist in the codebase but are not recommended for production use at this time.
+> **Warning:** The following features (Pretty Printer and Comment Formatter) exist in the codebase but are not recommended for production use at this time.
 
 ## Configuration
 

@@ -178,3 +178,9 @@ VS Code settings take precedence over `.sight.json` when both are present.
   "sight.diagnostics.severity.styleWarnings": "off"
 }
 ```
+
+## See Also
+
+Additional settings are documented alongside their features:
+- [Formatting settings](formatting.md#configuration) - Indentation, line width, comment normalization
+- [Send to Stata settings](send-to-stata.md#configuration-options) - Stata app, auto-save, cursor advancement, working directory

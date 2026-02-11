@@ -225,12 +225,12 @@ Create a `crush.json` file in your project root:
 
 ## Documentation
 
-- [Cross-File Awareness](docs/cross-file.md) - Directives, `do`/`include` detection, scope resolution, working directory
+- [Configuration](docs/configuration.md) - All settings and options
+- [Cross-File Awareness](docs/cross-file.md) - How open files vs workspace indexing works, directives, `do`/`include` detection, scope resolution, working directory
 - [Declaration Directives](docs/declaration-directives.md) - `@lsp-local`, `@lsp-global` for dynamically-created symbols
 - [Syntax Highlighting](docs/syntax-highlighting.md) - TextMate scopes, nesting depth colors, customization
 - [Send to Stata](docs/send-to-stata.md) - Execute code in Stata from VS Code or terminal
 - [Quote Auto-Close](docs/quote-auto-close.md) - Intelligent auto-closing for Stata quoting conventions
-- [Configuration](docs/configuration.md) - All settings and options
 - [Formatting](docs/formatting.md) - Code formatting and comment normalization (experimental)
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
 

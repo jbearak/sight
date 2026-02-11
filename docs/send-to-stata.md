@@ -23,7 +23,7 @@ The extension provides commands to send Stata code directly from VS Code to Stat
 > [!TIP]
 > You can also access these commands via:
 > - an editor toolbar menu (`▶` button)
-  > - the command palette (`Cmd+Shift+P` on Mac, `Ctrl+Shift+P` on Windows).
+> - the command palette (`Cmd+Shift+P` on Mac, `Ctrl+Shift+P` on Windows).
 
 ![Send to Stata Menu](../examples/send_to_stata_menu.png)
 
