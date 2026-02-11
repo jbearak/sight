@@ -436,22 +436,23 @@ export class OperatorSequenceAnalyzer {
             if (my_node.type === 'if' || my_node.type === 'else') {
                 const control_flow_node = my_node as ControlFlowNode;
                 
-                // For 'else' nodes, check if they have a nested 'if' (else if)
-                // The condition is in the control flow node itself
-                if (control_flow_node.condition) {
-                    // The operator is within a control flow statement
-                    // Check if it's in the condition part (before the body)
-                    // The condition is typically on the same line as the 'if' keyword
-                    // and before the opening brace
-                    return 'control_flow';
-                }
-                
-                // Recursively check body
+                // FIRST: Recursively check body to see if
+                // operator is in a nested context
                 if (control_flow_node.body) {
-                    const body_context = this.find_context_in_nodes(control_flow_node.body, op_line, op_char);
+                    const body_context = this.find_context_in_nodes(
+                        control_flow_node.body,
+                        op_line,
+                        op_char
+                    );
                     if (body_context !== 'other') {
                         return body_context;
                     }
+                }
+                
+                // THEN: If not in body and node has a
+                // condition, operator must be in the condition
+                if (control_flow_node.condition) {
+                    return 'control_flow';
                 }
             }
 
