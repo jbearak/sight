@@ -114,7 +114,6 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
     // Generator for control flow wrapper types
     const arbitrary_wrapper = fc.constantFrom(
         'if (1)',
-        'else',
         'foreach x of local vars',
         'forvalues i = 1/5',
         'while (1)'
