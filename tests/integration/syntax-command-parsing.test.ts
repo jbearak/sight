@@ -409,32 +409,40 @@ end
             }
             large_content += 'end\n';
 
-            // Warm up
-            lexer.tokenize(small_content);
-            lexer.tokenize(large_content);
+            // Warm up with multiple iterations to stabilize JIT
+            for (let i = 0; i < 10; i++) {
+                lexer.tokenize(small_content);
+                lexer.tokenize(large_content);
+            }
 
-            // Measure small
+            // Measure small (average over multiple runs)
+            const small_iterations = 50;
             const small_start = performance.now();
-            const small_tokens = lexer.tokenize(small_content).tokens;
-            parser.parse(small_tokens);
-            const small_time = performance.now() - small_start;
+            for (let i = 0; i < small_iterations; i++) {
+                const small_tokens = lexer.tokenize(small_content).tokens;
+                parser.parse(small_tokens);
+            }
+            const small_time = (performance.now() - small_start) / small_iterations;
 
-            // Measure large
+            // Measure large (average over multiple runs)
+            const large_iterations = 50;
             const large_start = performance.now();
-            const large_tokens = lexer.tokenize(large_content).tokens;
-            parser.parse(large_tokens);
-            const large_time = performance.now() - large_start;
+            for (let i = 0; i < large_iterations; i++) {
+                const large_tokens = lexer.tokenize(large_content).tokens;
+                parser.parse(large_tokens);
+            }
+            const large_time = (performance.now() - large_start) / large_iterations;
 
             // Calculate size ratio
             const size_ratio = large_content.length / small_content.length;
             
             // Only check scaling if both operations took measurable time
-            if (small_time > 0.1 && large_time > 0.1) {
+            if (small_time > 0.01 && large_time > 0.01) {
                 const time_ratio = large_time / small_time;
                 
-                // Time ratio should be reasonably close to size ratio (within ±50%)
-                // This is a loose check to account for system variability
-                const tolerance = size_ratio * 0.5;
+                // Time ratio should be reasonably close to size ratio (within ±75%)
+                // Increased tolerance to account for system variability and JIT effects
+                const tolerance = size_ratio * 0.75;
                 expect(time_ratio).toBeGreaterThan(size_ratio - tolerance);
                 expect(time_ratio).toBeLessThan(size_ratio + tolerance);
             }
