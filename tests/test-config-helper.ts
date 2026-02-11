@@ -32,7 +32,10 @@ export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): Stata
             severity: {
                 undefinedMacro: 'warning',
                 undefinedVariable: 'off',
-                styleWarnings: 'hint'
+                styleWarnings: 'hint',
+                malformedOperator: 'warning',
+                invalidOperatorSequence: 'error',
+                cStyleLogicalInControlFlow: 'information',
             },
             indentation: true
         },

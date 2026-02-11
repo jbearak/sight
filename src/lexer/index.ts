@@ -558,8 +558,13 @@ export class StataLexer {
       case '^':
       case '&':
       case '|':
-      case '~':
         return this.makeToken('OPERATOR', char, startLine, startColumn);
+      case '~':
+        if (this.peek() === '=') {
+          this.advance();
+          return this.makeToken('OPERATOR', '~=', startLine, startColumn);
+        }
+        return this.makeToken('OPERATOR', '~', startLine, startColumn);
       case '{':
         return this.makeToken('LBRACE', char, startLine, startColumn);
       case '}':

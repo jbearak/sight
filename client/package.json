@@ -103,6 +103,63 @@
             "Disable this diagnostic"
           ]
         },
+        "sight.diagnostics.severity.malformedOperator": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "warning",
+          "description": "Severity level for spaced compound operator diagnostics (e.g., '< =' instead of '<='). Set to 'off' to disable.",
+          "enumDescriptions": [
+            "Show as error",
+            "Show as warning",
+            "Show as information",
+            "Show as hint",
+            "Disable this diagnostic"
+          ]
+        },
+        "sight.diagnostics.severity.invalidOperatorSequence": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "error",
+          "description": "Severity level for invalid operator sequence diagnostics (e.g., '< |'). Set to 'off' to disable.",
+          "enumDescriptions": [
+            "Show as error",
+            "Show as warning",
+            "Show as information",
+            "Show as hint",
+            "Disable this diagnostic"
+          ]
+        },
+        "sight.diagnostics.severity.cStyleLogicalInControlFlow": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "information",
+          "description": "Severity level for C-style logical operators (&&, ||) in if/else if control flow statements. These operators work in control flow but are stylistically discouraged. Set to 'off' to disable.",
+          "enumDescriptions": [
+            "Show as error",
+            "Show as warning",
+            "Show as information",
+            "Show as hint",
+            "Disable this diagnostic"
+          ]
+        },
         "sight.diagnostics.indentation": {
           "type": "boolean",
           "default": false,
