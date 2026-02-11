@@ -313,20 +313,22 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
     /**
      * Feature: malformed-operator-diagnostics, Property 2: Invalid pair detection and diagnostics
      *
-     * For any invalid operator pair (from the full set: `< |`, `< &`, `> |`, `> &`,
-     * `| <`, `| >`, `& <`, `& >`, `| =`, `| &`, `& |`, `< <`, `> >`, `< >`, `> <`,
-     * `| |`, `& &`) embedded in valid Stata code as adjacent OPERATOR tokens, the
-     * analyzer should emit exactly one diagnostic with:
+     * For any invalid operator pair (excluding C-style logical `| |` and `& &`) embedded
+     * in valid Stata code as adjacent OPERATOR tokens, the analyzer should emit exactly
+     * one diagnostic with:
      * (a) severity Error
      * (b) code INVALID_OPERATOR_SEQUENCE (6002)
      * (c) a message containing the specific pair string
-     * (d) for C-style pairs (`| |`, `& &`), the message should include Stata-specific guidance
-     * (e) for `| =`, the message should note that Stata does not support compound assignment operators
+     * (d) for `| =`, the message should note that Stata does not support compound assignment operators
      *
-     * Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 5.2, 5.3, 5.9, 5.10, 5.11, 5.12, 9.3
+     * Note: C-style logical pairs (`| |`, `& &`) are context-dependent and tested
+     * separately in Properties 2a and 2b.
+     *
+     * Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.7, 5.2, 5.3, 5.9, 5.12, 9.3
      */
     test('invalid pair detection emits correct diagnostic', () => {
-        // Define all invalid pairs with their expected special messages (if any)
+        // Define invalid pairs (excluding C-style logical which are context-dependent)
+        // C-style logical pairs (`| |`, `& &`) are tested in Properties 2a and 2b
         const INVALID_PAIRS: Array<{
             first: string;
             second: string;
@@ -352,9 +354,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
             { first: '>', second: '>' },
             { first: '<', second: '>' },
             { first: '>', second: '<' },
-            // C-style logical (special messages)
-            { first: '|', second: '|', special_message: "Stata uses '|' for logical OR, not '||'" },
-            { first: '&', second: '&', special_message: "Stata uses '&' for logical AND, not '&&'" },
         ];
 
         // Generator for invalid pairs
@@ -450,7 +449,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
 
                     // (e) Check for special messages
                     if (my_pair.special_message) {
-                        // For C-style pairs and |=, check the special message is included
+                        // For |=, check the special message is included
                         expect(my_diag.message).toContain(my_pair.special_message);
                     } else {
                         // For general invalid pairs, check the generic message
@@ -770,17 +769,210 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
     });
 
     /**
+     * Feature: malformed-operator-diagnostics, Property 2a: C-style logical in if qualifier context
+     *
+     * For any C-style logical operator pair (`| |`, `& &`) appearing in an if qualifier context
+     * (e.g., `gen x = 1 if a == 1 && b == 1`), the analyzer should emit exactly one diagnostic with:
+     * (a) severity Error
+     * (b) code INVALID_OPERATOR_SEQUENCE (6002)
+     * (c) a message noting that Stata uses single `|` or `&` for logical operations
+     *
+     * Validates: Requirements 2.6, 5.10, 5.11, 9.3
+     */
+    test('C-style logical in if qualifier context emits error diagnostic', () => {
+        // Define C-style logical pairs and their expected messages
+        const CSTYLE_LOGICAL_PAIRS: Array<{
+            first: string;
+            second: string;
+            expected_message_part: string;
+        }> = [
+            { first: '|', second: '|', expected_message_part: "Stata uses '|' for logical OR, not '||'" },
+            { first: '&', second: '&', expected_message_part: "Stata uses '&' for logical AND, not '&&'" },
+        ];
+
+        // Generator for C-style logical pairs
+        const arbitrary_cstyle_pair = fc.constantFrom(...CSTYLE_LOGICAL_PAIRS);
+
+        // Generator for whitespace between operators (at least one space)
+        const arbitrary_trivia_between = fc.oneof(
+            fc.constant(' '),
+            fc.constant('  '),
+            fc.constant('   '),
+            fc.constant('\t'),
+        );
+
+        // Generator for Stata commands that support if qualifiers
+        const arbitrary_command = fc.constantFrom(
+            'gen',
+            'generate',
+            'replace',
+            'list',
+            'summarize',
+            'sum',
+            'count',
+            'drop',
+            'keep',
+            'tabulate',
+            'tab',
+        );
+
+        // Default config with default severities
+        const my_config: StataLSPConfig = {
+            diagnostics: {
+                enabled: true,
+                severity: {
+                    undefinedMacro: 'warning',
+                    undefinedVariable: 'warning',
+                    styleWarnings: 'warning',
+                    malformedOperator: 'warning',
+                    invalidOperatorSequence: 'error',
+                },
+                indentation: false,
+            },
+            completion: { cacheSize: 100, prefixMaxItems: 50 },
+            formatting: {
+                indentSize: 4,
+                indentStyle: 'spaces',
+                lineWidth: 80,
+                preferredCommentStyle: '//',
+                normalizeCommentStyle: false,
+                commentLineWidth: 72,
+            },
+            indexing: { maxFileSizeBytes: 1000000 },
+            adoPaths: [],
+            indexWorkspace: false,
+            cross_file: {
+                index_workspace: false,
+                max_indexed_files: 100,
+                assume_call_site: 'end',
+                max_backward_depth: 10,
+                max_forward_depth: 10,
+                max_chain_depth: 20,
+                diagnostics: {
+                    out_of_scope: 'warning',
+                    missing_file: 'warning',
+                    max_depth: 'warning',
+                },
+            },
+        };
+
+        const my_analyzer = new OperatorSequenceAnalyzer();
+
+        fc.assert(
+            fc.property(
+                arbitrary_cstyle_pair,
+                arbitrary_trivia_between,
+                arbitrary_command,
+                arbitrary_identifier(),
+                arbitrary_identifier(),
+                arbitrary_identifier(),
+                arbitrary_identifier(),
+                (my_pair, my_trivia, my_command, my_var, my_lhs, my_rhs, my_cond_var) => {
+                    // Build source with C-style logical pair in if qualifier context
+                    // Format: <command> <var> = <lhs> if <cond_var> == 1 <op1> <trivia> <op2> <rhs> == 1
+                    // Example: gen x = 1 if a == 1 & & b == 1
+                    const my_source = `${my_command} ${my_var} = ${my_lhs} if ${my_cond_var} == 1 ${my_pair.first}${my_trivia}${my_pair.second} ${my_rhs} == 1`;
+
+                    // Create document state (tokenizes, parses, analyzes)
+                    const my_doc_state = create_document_state(my_source);
+
+                    // Run the operator sequence analyzer
+                    const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
+
+                    // Filter to only INVALID_OPERATOR_SEQUENCE diagnostics (code 6002)
+                    const my_invalid_diagnostics = my_diagnostics.filter(
+                        (my_d) => my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+                    );
+
+                    // (a) Should emit exactly one diagnostic
+                    expect(my_invalid_diagnostics).toHaveLength(1);
+
+                    const my_diag = my_invalid_diagnostics[0];
+
+                    // (b) Severity should be Error
+                    expect(my_diag.severity).toBe(DiagnosticSeverity.Error);
+
+                    // (c) Code should be INVALID_OPERATOR_SEQUENCE (6002)
+                    expect(my_diag.code).toBe(StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE);
+                    expect(my_diag.code).toBe(6002);
+
+                    // (d) Message should contain the pair key and the expected message part
+                    const my_pair_key = `${my_pair.first} ${my_pair.second}`;
+                    expect(my_diag.message).toContain(`'${my_pair_key}'`);
+                    expect(my_diag.message).toContain(my_pair.expected_message_part);
+
+                    // (e) Range should span from start of first operator to end of second operator
+                    const my_operator_tokens = my_doc_state.tokens.filter(
+                        (my_t) => my_t.type === 'OPERATOR'
+                    );
+
+                    // Find adjacent operator pairs matching our expected pair
+                    let my_first_op_token: typeof my_operator_tokens[0] | undefined;
+                    let my_second_op_token: typeof my_operator_tokens[0] | undefined;
+
+                    for (let idx = 0; idx < my_operator_tokens.length - 1; idx++) {
+                        const candidate_first = my_operator_tokens[idx];
+                        const candidate_second = my_operator_tokens[idx + 1];
+
+                        if (candidate_first.value === my_pair.first &&
+                            candidate_second.value === my_pair.second) {
+                            // Check that these are actually adjacent in the token stream
+                            const first_idx = my_doc_state.tokens.indexOf(candidate_first);
+                            const second_idx = my_doc_state.tokens.indexOf(candidate_second);
+
+                            let is_adjacent = true;
+                            for (let j = first_idx + 1; j < second_idx; j++) {
+                                const between_token = my_doc_state.tokens[j];
+                                if (between_token.type !== 'WHITESPACE' &&
+                                    between_token.type !== 'CONTINUATION') {
+                                    is_adjacent = false;
+                                    break;
+                                }
+                            }
+
+                            if (is_adjacent) {
+                                my_first_op_token = candidate_first;
+                                my_second_op_token = candidate_second;
+                                break;
+                            }
+                        }
+                    }
+
+                    expect(my_first_op_token).toBeDefined();
+                    expect(my_second_op_token).toBeDefined();
+
+                    if (my_first_op_token && my_second_op_token) {
+                        // Diagnostic range should start at first operator's start
+                        expect(my_diag.range.start.line).toBe(my_first_op_token.range.start.line);
+                        expect(my_diag.range.start.character).toBe(my_first_op_token.range.start.character);
+
+                        // Diagnostic range should end at second operator's end
+                        expect(my_diag.range.end.line).toBe(my_second_op_token.range.end.line);
+                        expect(my_diag.range.end.character).toBe(my_second_op_token.range.end.character);
+                    }
+
+                    return true;
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    /**
      * Feature: malformed-operator-diagnostics, Property 9: Config severity override (invalid)
      *
-     * For any invalid operator pair and any `invalidOperatorSequence` config severity value
-     * (`'error'`, `'warning'`, `'information'`, `'hint'`), the emitted diagnostic should
-     * use the configured severity. When `invalidOperatorSequence` is `'off'`, zero invalid
-     * diagnostics should be emitted.
+     * For any invalid operator pair (excluding C-style logical) and any `invalidOperatorSequence`
+     * config severity value (`'error'`, `'warning'`, `'information'`, `'hint'`), the emitted
+     * diagnostic should use the configured severity. When `invalidOperatorSequence` is `'off'`,
+     * zero invalid diagnostics should be emitted.
+     *
+     * Note: C-style logical pairs (`| |`, `& &`) are context-dependent and tested
+     * separately in Property 10.
      *
      * Validates: Requirements 8.2, 8.4, 8.5, 8.7
      */
     test('config severity override for invalid pairs', () => {
-        // Define all invalid pairs
+        // Define invalid pairs (excluding C-style logical which are context-dependent)
         const INVALID_PAIRS: Array<{ first: string; second: string }> = [
             // Comparison + logical
             { first: '<', second: '|' },
@@ -802,9 +994,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
             { first: '>', second: '>' },
             { first: '<', second: '>' },
             { first: '>', second: '<' },
-            // C-style logical
-            { first: '|', second: '|' },
-            { first: '&', second: '&' },
         ];
 
         // All possible severity values
@@ -917,14 +1106,17 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
     /**
      * Feature: malformed-operator-diagnostics, Property 5: Continuation-spanning detection
      *
-     * For any malformed operator pair where the first operator is on one line and
-     * the second is on the next line connected by a `///` continuation, the analyzer
-     * should still detect and emit a diagnostic for the pair.
+     * For any malformed operator pair (excluding C-style logical) where the first operator
+     * is on one line and the second is on the next line connected by a `///` continuation,
+     * the analyzer should still detect and emit a diagnostic for the pair.
+     *
+     * Note: C-style logical pairs (`| |`, `& &`) are context-dependent and excluded
+     * from this test since their behavior depends on AST context.
      *
      * Validates: Requirements 6.1
      */
     test('continuation-spanning detection emits diagnostic', () => {
-        // Define all malformed pairs (both suggestible and invalid)
+        // Define malformed pairs (excluding C-style logical which are context-dependent)
         const MALFORMED_PAIRS: Array<{
             first: string;
             second: string;
@@ -937,7 +1129,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
             { first: '!', second: '=', kind: 'suggestible', expected_code: 6001 },
             { first: '~', second: '=', kind: 'suggestible', expected_code: 6001 },
             { first: '=', second: '=', kind: 'suggestible', expected_code: 6001 },
-            // Invalid pairs
+            // Invalid pairs (excluding C-style logical)
             { first: '<', second: '|', kind: 'invalid', expected_code: 6002 },
             { first: '<', second: '&', kind: 'invalid', expected_code: 6002 },
             { first: '>', second: '|', kind: 'invalid', expected_code: 6002 },
@@ -953,8 +1145,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
             { first: '>', second: '>', kind: 'invalid', expected_code: 6002 },
             { first: '<', second: '>', kind: 'invalid', expected_code: 6002 },
             { first: '>', second: '<', kind: 'invalid', expected_code: 6002 },
-            { first: '|', second: '|', kind: 'invalid', expected_code: 6002 },
-            { first: '&', second: '&', kind: 'invalid', expected_code: 6002 },
         ];
 
         // Generator for malformed pairs
@@ -1063,10 +1253,17 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
      * or `;` in semicolon mode), the analyzer should emit zero diagnostics, even if
      * the pair would otherwise be malformed.
      *
+     * Note: C-style logical pairs (`| |`, `& &`) are context-dependent but are still
+     * included here since the statement terminator boundary should prevent detection
+     * regardless of context.
+     *
      * Validates: Requirements 6.2
      */
     test('statement terminator boundary prevents detection', () => {
-        // Define all malformed pairs (both suggestible and invalid)
+        // Define malformed pairs (excluding C-style logical which are context-dependent)
+        // Note: We exclude C-style logical pairs here because their behavior depends on
+        // AST context, and when separated by statement terminators, the context detection
+        // may behave differently.
         const MALFORMED_PAIRS: Array<{ first: string; second: string }> = [
             // Suggestible pairs
             { first: '<', second: '=' },
@@ -1074,7 +1271,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
             { first: '!', second: '=' },
             { first: '~', second: '=' },
             { first: '=', second: '=' },
-            // Invalid pairs
+            // Invalid pairs (excluding C-style logical)
             { first: '<', second: '|' },
             { first: '<', second: '&' },
             { first: '>', second: '|' },
@@ -1090,8 +1287,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
             { first: '>', second: '>' },
             { first: '<', second: '>' },
             { first: '>', second: '<' },
-            { first: '|', second: '|' },
-            { first: '&', second: '&' },
         ];
 
         // Generator for malformed pairs
@@ -1571,8 +1766,9 @@ describe('Directive Suppression Property Tests', () => {
     /**
      * Property 7: @lsp-ignore suppresses malformed operator diagnostics on same line
      *
-     * For any malformed operator pair on a line with `@lsp-ignore` comment,
-     * the analyzer should emit zero operator sequence diagnostics.
+     * For any malformed operator pair on a line with `@lsp-ignore` comment
+     * (in any comment style: //, *, or block comments), the analyzer should emit zero
+     * operator sequence diagnostics.
      */
     test('@lsp-ignore suppresses malformed operator diagnostics on same line', () => {
         // Define all malformed pairs (both suggestible and invalid)
@@ -1605,6 +1801,14 @@ describe('Directive Suppression Property Tests', () => {
 
         // Generator for malformed pairs
         const arbitrary_malformed_pair = fc.constantFrom(...MALFORMED_PAIRS);
+
+        // Generator for comment styles for @lsp-ignore (inline comments)
+        // Note: * comment style cannot be used inline (must be at start of line)
+        // so we test // and /* */ for inline @lsp-ignore
+        const arbitrary_inline_comment_style = fc.constantFrom(
+            '//',     // Slash-slash comment
+            '/* */',  // Block comment
+        );
 
         // Default config with default severities
         const my_config: StataLSPConfig = {
@@ -1651,12 +1855,19 @@ describe('Directive Suppression Property Tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_malformed_pair,
+                arbitrary_inline_comment_style,
                 arbitrary_identifier(),
                 arbitrary_identifier(),
-                (my_pair, my_lhs, my_rhs) => {
+                (my_pair, my_comment_style, my_lhs, my_rhs) => {
                     // Build source with the malformed pair and @lsp-ignore on same line
-                    // Use // comment style for inline comments
-                    const my_source = `display ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs} // @lsp-ignore`;
+                    let my_source: string;
+                    if (my_comment_style === '/* */') {
+                        // Block comment style
+                        my_source = `display ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs} /* @lsp-ignore */`;
+                    } else {
+                        // Slash-slash comment style
+                        my_source = `display ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs} // @lsp-ignore`;
+                    }
 
                     // Create document state (tokenizes, parses, analyzes)
                     const my_doc_state = create_document_state(my_source);
@@ -1685,7 +1896,8 @@ describe('Directive Suppression Property Tests', () => {
      * Property 7: @lsp-ignore-next suppresses malformed operator diagnostics on next line
      *
      * For any malformed operator pair on a line targeted by `@lsp-ignore-next`
-     * in a preceding comment, the analyzer should emit zero operator sequence diagnostics.
+     * in a preceding comment (in any comment style: //, *, or block comments), the analyzer
+     * should emit zero operator sequence diagnostics.
      */
     test('@lsp-ignore-next suppresses malformed operator diagnostics on next line', () => {
         // Define all malformed pairs (both suggestible and invalid)
@@ -1719,10 +1931,11 @@ describe('Directive Suppression Property Tests', () => {
         // Generator for malformed pairs
         const arbitrary_malformed_pair = fc.constantFrom(...MALFORMED_PAIRS);
 
-        // Generator for comment styles for @lsp-ignore-next
+        // Generator for comment styles for @lsp-ignore-next (all three styles)
         const arbitrary_comment_style = fc.constantFrom(
-            '//',  // Slash-slash comment
-            '*',   // Star comment (at start of line)
+            '//',     // Slash-slash comment
+            '*',      // Star comment (at start of line)
+            '/* */',  // Block comment
         );
 
         // Default config with default severities
@@ -1779,6 +1992,9 @@ describe('Directive Suppression Property Tests', () => {
                     if (my_comment_style === '*') {
                         // Star comment must be at start of line
                         my_source = `* @lsp-ignore-next\ndisplay ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs}`;
+                    } else if (my_comment_style === '/* */') {
+                        // Block comment style
+                        my_source = `/* @lsp-ignore-next */\ndisplay ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs}`;
                     } else {
                         // Slash-slash comment
                         my_source = `// @lsp-ignore-next\ndisplay ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs}`;
@@ -2007,3 +2223,357 @@ describe('Directive Suppression Property Tests', () => {
         );
     });
 });
+
+
+    /**
+     * Feature: malformed-operator-diagnostics, Property 2b: C-style logical in if control flow context
+     *
+     * For any C-style logical operator pair (`| |`, `& &`) appearing in an if or else if
+     * control flow statement condition (e.g., `if a == 1 && b == 1 { ... }`), the analyzer should:
+     * (a) NOT emit an error diagnostic
+     * (b) when `cStyleLogicalInControlFlow` config is not `'off'`, emit an informational diagnostic
+     *     with code CSTYLE_LOGICAL_IN_CONTROL_FLOW (6003) and a message suggesting the use of
+     *     single operators for consistency
+     *
+     * Validates: Requirements 2a.1, 2a.2, 5.13, 5.14, 9.4
+     */
+    test('C-style logical in if control flow context emits informational diagnostic', () => {
+        // Define C-style logical pairs and their expected messages
+        const CSTYLE_LOGICAL_PAIRS: Array<{
+            first: string;
+            second: string;
+            expected_message: string;
+        }> = [
+            {
+                first: '|',
+                second: '|',
+                expected_message: "C-style '||' operator in if condition. Consider using '|' for consistency with Stata style",
+            },
+            {
+                first: '&',
+                second: '&',
+                expected_message: "C-style '&&' operator in if condition. Consider using '&' for consistency with Stata style",
+            },
+        ];
+
+        // Generator for C-style logical pairs
+        const arbitrary_cstyle_pair = fc.constantFrom(...CSTYLE_LOGICAL_PAIRS);
+
+        // Generator for whitespace between operators (at least one space)
+        const arbitrary_trivia_between = fc.oneof(
+            fc.constant(' '),
+            fc.constant('  '),
+            fc.constant('   '),
+            fc.constant('\t'),
+        );
+
+        // Generator for control flow type: 'if' or 'else if'
+        const arbitrary_control_flow_type = fc.constantFrom('if', 'else if') as fc.Arbitrary<'if' | 'else if'>;
+
+        // Default config with default severities (cStyleLogicalInControlFlow: 'information')
+        const my_config: StataLSPConfig = {
+            diagnostics: {
+                enabled: true,
+                severity: {
+                    undefinedMacro: 'warning',
+                    undefinedVariable: 'warning',
+                    styleWarnings: 'warning',
+                    malformedOperator: 'warning',
+                    invalidOperatorSequence: 'error',
+                    cStyleLogicalInControlFlow: 'information',
+                },
+                indentation: false,
+            },
+            completion: { cacheSize: 100, prefixMaxItems: 50 },
+            formatting: {
+                indentSize: 4,
+                indentStyle: 'spaces',
+                lineWidth: 80,
+                preferredCommentStyle: '//',
+                normalizeCommentStyle: false,
+                commentLineWidth: 72,
+            },
+            indexing: { maxFileSizeBytes: 1000000 },
+            adoPaths: [],
+            indexWorkspace: false,
+            cross_file: {
+                index_workspace: false,
+                max_indexed_files: 100,
+                assume_call_site: 'end',
+                max_backward_depth: 10,
+                max_forward_depth: 10,
+                max_chain_depth: 20,
+                diagnostics: {
+                    out_of_scope: 'warning',
+                    missing_file: 'warning',
+                    max_depth: 'warning',
+                },
+            },
+        };
+
+        const my_analyzer = new OperatorSequenceAnalyzer();
+
+        fc.assert(
+            fc.property(
+                arbitrary_cstyle_pair,
+                arbitrary_trivia_between,
+                arbitrary_control_flow_type,
+                arbitrary_identifier(),
+                arbitrary_identifier(),
+                (my_pair, my_trivia, my_control_flow_type, my_lhs, my_rhs) => {
+                    // Build source with C-style logical pair in if/else if control flow context
+                    // Format: if <lhs> == 1 <op1> <trivia> <op2> <rhs> == 1 { display "test" }
+                    // or: if 1 { } else if <lhs> == 1 <op1> <trivia> <op2> <rhs> == 1 { display "test" }
+                    let my_source: string;
+                    if (my_control_flow_type === 'if') {
+                        my_source = `if ${my_lhs} == 1 ${my_pair.first}${my_trivia}${my_pair.second} ${my_rhs} == 1 {\n    display "test"\n}`;
+                    } else {
+                        // else if requires a preceding if block
+                        my_source = `if 1 {\n}\nelse if ${my_lhs} == 1 ${my_pair.first}${my_trivia}${my_pair.second} ${my_rhs} == 1 {\n    display "test"\n}`;
+                    }
+
+                    // Create document state (tokenizes, parses, analyzes)
+                    const my_doc_state = create_document_state(my_source);
+
+                    // Run the operator sequence analyzer
+                    const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
+
+                    // (a) Should NOT emit an error diagnostic (INVALID_OPERATOR_SEQUENCE)
+                    const my_error_diagnostics = my_diagnostics.filter(
+                        (my_d) => my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+                    );
+                    expect(my_error_diagnostics).toHaveLength(0);
+
+                    // (b) Should emit exactly one informational diagnostic (CSTYLE_LOGICAL_IN_CONTROL_FLOW)
+                    const my_cstyle_diagnostics = my_diagnostics.filter(
+                        (my_d) => my_d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+                    );
+                    expect(my_cstyle_diagnostics).toHaveLength(1);
+
+                    const my_diag = my_cstyle_diagnostics[0];
+
+                    // Severity should be Information (default)
+                    expect(my_diag.severity).toBe(DiagnosticSeverity.Information);
+
+                    // Code should be CSTYLE_LOGICAL_IN_CONTROL_FLOW (6003)
+                    expect(my_diag.code).toBe(StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW);
+                    expect(my_diag.code).toBe(6003);
+
+                    // Message should match the expected message
+                    expect(my_diag.message).toBe(my_pair.expected_message);
+
+                    // Range should span from start of first operator to end of second operator
+                    const my_operator_tokens = my_doc_state.tokens.filter(
+                        (my_t) => my_t.type === 'OPERATOR'
+                    );
+
+                    // Find adjacent operator pairs matching our expected pair
+                    let my_first_op_token: typeof my_operator_tokens[0] | undefined;
+                    let my_second_op_token: typeof my_operator_tokens[0] | undefined;
+
+                    for (let idx = 0; idx < my_operator_tokens.length - 1; idx++) {
+                        const candidate_first = my_operator_tokens[idx];
+                        const candidate_second = my_operator_tokens[idx + 1];
+
+                        if (candidate_first.value === my_pair.first &&
+                            candidate_second.value === my_pair.second) {
+                            // Check that these are actually adjacent in the token stream
+                            const first_idx = my_doc_state.tokens.indexOf(candidate_first);
+                            const second_idx = my_doc_state.tokens.indexOf(candidate_second);
+
+                            let is_adjacent = true;
+                            for (let j = first_idx + 1; j < second_idx; j++) {
+                                const between_token = my_doc_state.tokens[j];
+                                if (between_token.type !== 'WHITESPACE' &&
+                                    between_token.type !== 'CONTINUATION') {
+                                    is_adjacent = false;
+                                    break;
+                                }
+                            }
+
+                            if (is_adjacent) {
+                                my_first_op_token = candidate_first;
+                                my_second_op_token = candidate_second;
+                                break;
+                            }
+                        }
+                    }
+
+                    expect(my_first_op_token).toBeDefined();
+                    expect(my_second_op_token).toBeDefined();
+
+                    if (my_first_op_token && my_second_op_token) {
+                        // Diagnostic range should start at first operator's start
+                        expect(my_diag.range.start.line).toBe(my_first_op_token.range.start.line);
+                        expect(my_diag.range.start.character).toBe(my_first_op_token.range.start.character);
+
+                        // Diagnostic range should end at second operator's end
+                        expect(my_diag.range.end.line).toBe(my_second_op_token.range.end.line);
+                        expect(my_diag.range.end.character).toBe(my_second_op_token.range.end.character);
+                    }
+
+                    return true;
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+
+    /**
+     * Feature: malformed-operator-diagnostics, Property 10: Config severity override (C-style in control flow)
+     *
+     * For any C-style logical operator pair (`| |`, `& &`) in an if/else if control flow context
+     * and any `cStyleLogicalInControlFlow` config severity value (`'error'`, `'warning'`,
+     * `'information'`, `'hint'`), the emitted diagnostic should use the configured severity.
+     * When `cStyleLogicalInControlFlow` is `'off'`, zero diagnostics should be emitted for
+     * C-style logical operators in control flow contexts.
+     *
+     * Validates: Requirements 2a.3, 2a.4, 8.8, 8.9, 8.10
+     */
+    test('config severity override for C-style logical in control flow', () => {
+        // Define C-style logical pairs
+        const CSTYLE_LOGICAL_PAIRS: Array<{ first: string; second: string }> = [
+            { first: '|', second: '|' },
+            { first: '&', second: '&' },
+        ];
+
+        // All possible severity values
+        const SEVERITY_VALUES = ['error', 'warning', 'information', 'hint', 'off'] as const;
+
+        // Map config severity to DiagnosticSeverity
+        const severity_map: Record<string, DiagnosticSeverity> = {
+            'error': DiagnosticSeverity.Error,
+            'warning': DiagnosticSeverity.Warning,
+            'information': DiagnosticSeverity.Information,
+            'hint': DiagnosticSeverity.Hint,
+        };
+
+        // Generator for C-style logical pairs
+        const arbitrary_cstyle_pair = fc.constantFrom(...CSTYLE_LOGICAL_PAIRS);
+
+        // Generator for severity values
+        const arbitrary_severity = fc.constantFrom(...SEVERITY_VALUES);
+
+        // Generator for whitespace between operators
+        const arbitrary_trivia_between = fc.oneof(
+            fc.constant(' '),
+            fc.constant('  '),
+            fc.constant('\t'),
+        );
+
+        // Generator for control flow type: 'if' or 'else if'
+        const arbitrary_control_flow_type = fc.constantFrom('if', 'else if') as fc.Arbitrary<'if' | 'else if'>;
+
+        const my_analyzer = new OperatorSequenceAnalyzer();
+
+        fc.assert(
+            fc.property(
+                arbitrary_cstyle_pair,
+                arbitrary_severity,
+                arbitrary_trivia_between,
+                arbitrary_control_flow_type,
+                arbitrary_identifier(),
+                arbitrary_identifier(),
+                (my_pair, my_severity, my_trivia, my_control_flow_type, my_lhs, my_rhs) => {
+                    // Build config with the specified cStyleLogicalInControlFlow severity
+                    const my_config: StataLSPConfig = {
+                        diagnostics: {
+                            enabled: true,
+                            severity: {
+                                undefinedMacro: 'warning',
+                                undefinedVariable: 'warning',
+                                styleWarnings: 'warning',
+                                malformedOperator: 'warning',
+                                invalidOperatorSequence: 'error',
+                                cStyleLogicalInControlFlow: my_severity,
+                            },
+                            indentation: false,
+                        },
+                        completion: { cacheSize: 100, prefixMaxItems: 50 },
+                        formatting: {
+                            indentSize: 4,
+                            indentStyle: 'spaces',
+                            lineWidth: 80,
+                            preferredCommentStyle: '//',
+                            normalizeCommentStyle: false,
+                            commentLineWidth: 72,
+                        },
+                        indexing: { maxFileSizeBytes: 1000000 },
+                        adoPaths: [],
+                        indexWorkspace: false,
+                        cross_file: {
+                            index_workspace: false,
+                            max_indexed_files: 100,
+                            assume_call_site: 'end',
+                            max_backward_depth: 10,
+                            max_forward_depth: 10,
+                            max_chain_depth: 20,
+                            diagnostics: {
+                                out_of_scope: 'warning',
+                                missing_file: 'warning',
+                                max_depth: 'warning',
+                            },
+                        },
+                    };
+
+                    // Build source with C-style logical pair in if/else if control flow context
+                    // Format: if <lhs> == 1 <op1> <trivia> <op2> <rhs> == 1 { display "test" }
+                    // or: if 1 { } else if <lhs> == 1 <op1> <trivia> <op2> <rhs> == 1 { display "test" }
+                    let my_source: string;
+                    if (my_control_flow_type === 'if') {
+                        my_source = `if ${my_lhs} == 1 ${my_pair.first}${my_trivia}${my_pair.second} ${my_rhs} == 1 {\n    display "test"\n}`;
+                    } else {
+                        // else if requires a preceding if block
+                        my_source = `if 1 {\n}\nelse if ${my_lhs} == 1 ${my_pair.first}${my_trivia}${my_pair.second} ${my_rhs} == 1 {\n    display "test"\n}`;
+                    }
+
+                    // Create document state (tokenizes, parses, analyzes)
+                    const my_doc_state = create_document_state(my_source);
+
+                    // Run the operator sequence analyzer
+                    const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
+
+                    // Filter to only CSTYLE_LOGICAL_IN_CONTROL_FLOW diagnostics (code 6003)
+                    const my_cstyle_diagnostics = my_diagnostics.filter(
+                        (my_d) => my_d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+                    );
+
+                    if (my_severity === 'off') {
+                        // When 'off', zero C-style logical diagnostics should be emitted in control flow
+                        expect(my_cstyle_diagnostics).toHaveLength(0);
+
+                        // Also verify no INVALID_OPERATOR_SEQUENCE diagnostic is emitted
+                        // (C-style logical in control flow should NOT be treated as invalid)
+                        const my_invalid_diagnostics = my_diagnostics.filter(
+                            (my_d) => my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+                        );
+                        expect(my_invalid_diagnostics).toHaveLength(0);
+                    } else {
+                        // Should emit exactly one diagnostic with the configured severity
+                        expect(my_cstyle_diagnostics).toHaveLength(1);
+
+                        const my_diag = my_cstyle_diagnostics[0];
+
+                        // Verify the diagnostic uses the configured severity
+                        const expected_severity = severity_map[my_severity];
+                        expect(my_diag.severity).toBe(expected_severity);
+
+                        // Verify the diagnostic code is CSTYLE_LOGICAL_IN_CONTROL_FLOW (6003)
+                        expect(my_diag.code).toBe(StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW);
+                        expect(my_diag.code).toBe(6003);
+
+                        // Also verify no INVALID_OPERATOR_SEQUENCE diagnostic is emitted
+                        // (C-style logical in control flow should NOT be treated as invalid)
+                        const my_invalid_diagnostics = my_diagnostics.filter(
+                            (my_d) => my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+                        );
+                        expect(my_invalid_diagnostics).toHaveLength(0);
+                    }
+
+                    return true;
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });

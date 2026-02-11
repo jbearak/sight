@@ -31,10 +31,10 @@ Implement detection of malformed operator sequences in Stata code with context-a
   - [x] 2.5 Expose `ignored_lines: Set<number>` on the `DocumentState` interface in `src/document-store.ts`, and populate it from the `SemanticAnalyzer`'s `AnalyzerConfig.ignored_lines` after analysis completes (in the `DocumentStore.update` path)
     - _Requirements: 7.1, 7.2_
 
-- [-] 3. Checkpoint
+- [x] 3. Checkpoint
   - Ensure all tests pass (`bun run test`), ask the user if questions arise.
 
-- [ ] 4. Implement the OperatorSequenceAnalyzer with context detection
+- [x] 4. Implement the OperatorSequenceAnalyzer with context detection
   - [x] 4.1 Create `src/providers/operator-sequence-diagnostics.ts` with the `OperatorSequenceAnalyzer` class
     - Define `SUGGESTIBLE_PAIRS` map (`< =` → `<=`, `> =` → `>=`, `! =` → `!=`, `~ =` → `~=`, `= =` → `==`)
     - Define `INVALID_PAIRS` set (context-independent invalid combinations from Requirement 2)
@@ -53,72 +53,72 @@ Implement detection of malformed operator sequences in Stata code with context-a
     - Apply config severity override; skip if category is `'off'`
     - Advance past second token on match to avoid overlapping diagnostics
     - _Requirements: 1.1–1.6, 2.1–2.7, 2a.1–2a.4, 4.1, 4.3, 4.4, 5.1–5.14, 6.1, 6.2, 7.1, 7.2, 8.1–8.10, 9.2, 9.3, 9.4_
-  - [~] 4.2 Write property test: suggestible pair detection (Property 1)
+  - [x] 4.2 Write property test: suggestible pair detection (Property 1)
     - **Property 1: Suggestible pair detection and diagnostics**
     - *For any* suggestible operator pair embedded as adjacent OPERATOR tokens, the analyzer emits exactly one diagnostic with Warning severity, code 6001, correct message template, and correct span
     - **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 5.1, 5.3, 9.2**
-  - [~] 4.3 Write property test: invalid pair detection (Property 2)
+  - [x] 4.3 Write property test: invalid pair detection (Property 2)
     - **Property 2: Invalid pair detection and diagnostics**
     - *For any* invalid operator pair (excluding C-style logical) embedded as adjacent OPERATOR tokens, the analyzer emits exactly one diagnostic with Error severity, code 6002, correct message
     - **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.7, 5.2, 5.3, 5.9, 5.12, 9.3**
-  - [~] 4.3a Write property test: C-style logical in if qualifier context (Property 2a)
+  - [x] 4.3a Write property test: C-style logical in if qualifier context (Property 2a)
     - **Property 2a: C-style logical in if qualifier context**
     - *For any* C-style logical pair in an if qualifier context, the analyzer emits exactly one diagnostic with Error severity, code 6002, message noting single operator usage
     - **Validates: Requirements 2.6, 5.10, 5.11, 9.3**
-  - [~] 4.3b Write property test: C-style logical in if control flow context (Property 2b)
+  - [x] 4.3b Write property test: C-style logical in if control flow context (Property 2b)
     - **Property 2b: C-style logical in if control flow context**
     - *For any* C-style logical pair in an if/else if control flow context, the analyzer emits informational diagnostic (when config not 'off') with code 6003, suggesting single operator for consistency
     - **Validates: Requirements 2a.1, 2a.2, 5.13, 5.14, 9.4**
-  - [~] 4.4 Write property test: no false positives for allowed adjacencies (Property 4)
+  - [x] 4.4 Write property test: no false positives for allowed adjacencies (Property 4)
     - **Property 4: No false positives for allowed adjacencies**
     - *For any* pair of adjacent operators in the allowlist (comparison+arithmetic in either order, negation before comparison), the analyzer emits zero diagnostics
     - **Validates: Requirements 4.3, 4.4**
-  - [~] 4.5 Write property test: config severity override for suggestible (Property 8)
+  - [x] 4.5 Write property test: config severity override for suggestible (Property 8)
     - **Property 8: Config severity override (suggestible)**
     - *For any* suggestible pair and any `malformedOperator` config value, the diagnostic uses the configured severity; when `'off'`, zero suggestible diagnostics are emitted
     - **Validates: Requirements 8.1, 8.3, 8.5, 8.6**
-  - [~] 4.6 Write property test: config severity override for invalid (Property 9)
+  - [x] 4.6 Write property test: config severity override for invalid (Property 9)
     - **Property 9: Config severity override (invalid)**
     - *For any* invalid pair and any `invalidOperatorSequence` config value, the diagnostic uses the configured severity; when `'off'`, zero invalid diagnostics are emitted
     - **Validates: Requirements 8.2, 8.4, 8.5, 8.7**
-  - [~] 4.7 Write property test: config severity override for C-style in control flow (Property 10)
+  - [x] 4.7 Write property test: config severity override for C-style in control flow (Property 10)
     - **Property 10: Config severity override (C-style in control flow)**
     - *For any* C-style logical pair in control flow context and any `cStyleLogicalInControlFlow` config value, the diagnostic uses the configured severity; when `'off'`, zero diagnostics are emitted
     - **Validates: Requirements 2a.3, 2a.4, 8.8, 8.9, 8.10**
 
-- [ ] 5. Continuation and statement boundary handling
+- [x] 5. Continuation and statement boundary handling
   - [x] 5.1 Ensure the adjacency scanner in `OperatorSequenceAnalyzer` correctly handles `///` continuation tokens between operators (treats them as trivia, so pairs spanning continuations are detected)
     - _Requirements: 6.1_
-  - [~] 5.2 Write property test: continuation-spanning detection (Property 5)
+  - [x] 5.2 Write property test: continuation-spanning detection (Property 5)
     - **Property 5: Continuation-spanning detection**
     - *For any* malformed operator pair where the first operator is on one line and the second on the next connected by `///`, the analyzer still detects and emits a diagnostic
     - **Validates: Requirements 6.1**
-  - [~] 5.3 Write property test: statement terminator boundary (Property 6)
+  - [x] 5.3 Write property test: statement terminator boundary (Property 6)
     - **Property 6: Statement terminator boundary**
     - *For any* two operators separated by a statement terminator (newline in CR mode, `;` in semicolon mode), the analyzer emits zero diagnostics even if the pair would otherwise be malformed
     - **Validates: Requirements 6.2**
 
-- [ ] 6. Embedded context filtering and suppression
+- [x] 6. Embedded context filtering and suppression
   - [x] 6.1 Integrate `OperatorSequenceAnalyzer` into `DiagnosticsProvider.get_diagnostics()` in `src/providers/diagnostics.ts`
     - Instantiate as a private field (same pattern as `indentation_analyzer`)
     - Call `analyze()` and filter results through the existing `is_in_embedded_context()` check
     - _Requirements: 3.1, 3.2_
-  - [~] 6.2 Write property test: embedded context suppression (Property 3)
+  - [x] 6.2 Write property test: embedded context suppression (Property 3)
     - **Property 3: Embedded context suppression**
     - *For any* malformed operator pair placed inside a Mata or Python embedded block, the analyzer (via DiagnosticsProvider filtering) emits zero diagnostics for that pair
     - **Validates: Requirements 3.1, 3.2**
-  - [~] 6.3 Write property test: directive suppression (Property 7)
+  - [x] 6.3 Write property test: directive suppression (Property 7)
     - **Property 7: Directive suppression**
     - *For any* malformed operator pair on a line annotated with `@lsp-ignore` or targeted by `@lsp-ignore-next`, the analyzer emits zero diagnostics
     - **Validates: Requirements 7.1, 7.2**
 
-- [ ] 7. VS Code extension settings and documentation
+- [x] 7. VS Code extension settings and documentation
   - [x] 7.1 Add `sight.diagnostics.severity.malformedOperator`, `sight.diagnostics.severity.invalidOperatorSequence`, and `sight.diagnostics.severity.cStyleLogicalInControlFlow` entries to `client/package.json` `contributes.configuration.properties`, following the existing severity setting pattern
     - _Requirements: 8.1, 8.2, 8.6, 8.7, 8.8, 8.9_
   - [x] 7.2 Add documentation rows to `README.md` diagnostics settings table for the three new severity settings
     - _Requirements: 8.1, 8.2, 8.8_
 
-- [ ] 8. Unit tests for exact messages and edge cases
+- [x] 8. Unit tests for exact messages and edge cases
   - [x] 8.1 Write unit tests in `tests/unit/operator-sequence-diagnostics.test.ts`
     - Test exact message strings for each suggestible pair (Requirements 5.4–5.8)
     - Test exact message strings for C-style logical pairs in qualifier context (Requirements 5.10–5.11)
@@ -132,7 +132,7 @@ Implement detection of malformed operator sequences in Stata code with context-a
     - Test context detection: C-style logical in `if x { }` vs `gen y = 1 if x`
     - _Requirements: 4.2, 5.4–5.14, 8.6, 8.7, 8.9, 9.1–9.4_
 
-- [ ] 9. Integration tests
+- [x] 9. Integration tests
   - [x] 9.1 Write integration tests in `tests/integration/operator-sequence-diagnostics.test.ts`
     - Test that malformed operator diagnostics appear alongside other diagnostic types in the full `DiagnosticsProvider` pipeline
     - Test config changes propagate correctly
