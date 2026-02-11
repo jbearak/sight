@@ -593,6 +593,8 @@ export class OperatorSequenceAnalyzer {
                 return DiagnosticSeverity.Information;
             case 'hint':
                 return DiagnosticSeverity.Hint;
+            case 'off':
+                throw new Error('resolve_severity called with "off" - caller must filter before calling');
             default:
                 return default_severity;
         }
