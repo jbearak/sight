@@ -42,7 +42,7 @@ my_analysis          (Program)
   `output_file'      (Local Macro)
 ```
 
-Local macros defined outside of any program appear at the top level.
+Local macros defined outside any program appear at the top level.
 
 ## Code Sections
 
