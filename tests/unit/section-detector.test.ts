@@ -17,6 +17,7 @@ import {
     extract_block_comment_heading,
     derive_numbered_level,
     derive_level_from_delimiter_count,
+    derive_banner_level_from_middle_line,
     extract_sections,
     RawSection,
     DelimiterKind,
@@ -1181,6 +1182,69 @@ describe('extract_banner_name', () => {
     it('should return null for empty name after stripping', () => {
         expect(extract_banner_name('//')).toBeNull();
         expect(extract_banner_name('*')).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// derive_banner_level_from_middle_line()
+// ---------------------------------------------------------------------------
+
+describe('derive_banner_level_from_middle_line', () => {
+    it('should return 1 for "//" prefix', () => {
+        expect(derive_banner_level_from_middle_line('// Section Name')).toBe(1);
+    });
+
+    it('should return 2 for "///" prefix', () => {
+        expect(derive_banner_level_from_middle_line('/// Section Name')).toBe(2);
+    });
+
+    it('should return 3 for "////" prefix', () => {
+        expect(derive_banner_level_from_middle_line('//// Section Name')).toBe(3);
+    });
+
+    it('should return 4 for "/////" or more slashes', () => {
+        expect(derive_banner_level_from_middle_line('///// Section Name')).toBe(4);
+        expect(derive_banner_level_from_middle_line('////// Section Name')).toBe(4);
+    });
+
+    it('should return 1 for "*" prefix', () => {
+        expect(derive_banner_level_from_middle_line('* Section Name')).toBe(1);
+    });
+
+    it('should return 2 for "**" prefix', () => {
+        expect(derive_banner_level_from_middle_line('** Section Name')).toBe(2);
+    });
+
+    it('should return 3 for "***" prefix', () => {
+        expect(derive_banner_level_from_middle_line('*** Section Name')).toBe(3);
+    });
+
+    it('should return 4 for "****" or more asterisks', () => {
+        expect(derive_banner_level_from_middle_line('**** Section Name')).toBe(4);
+        expect(derive_banner_level_from_middle_line('***** Section Name')).toBe(4);
+    });
+
+    it('should return 1 for single "/" (edge case)', () => {
+        expect(derive_banner_level_from_middle_line('/ Section Name')).toBe(1);
+    });
+
+    it('should return 1 for empty string', () => {
+        expect(derive_banner_level_from_middle_line('')).toBe(1);
+    });
+
+    it('should return 1 for whitespace only', () => {
+        expect(derive_banner_level_from_middle_line('   ')).toBe(1);
+        expect(derive_banner_level_from_middle_line('\t')).toBe(1);
+    });
+
+    it('should return 1 for no comment prefix', () => {
+        expect(derive_banner_level_from_middle_line('Section Name')).toBe(1);
+    });
+
+    it('should handle leading whitespace', () => {
+        expect(derive_banner_level_from_middle_line('  // Section')).toBe(1);
+        expect(derive_banner_level_from_middle_line('\t/// Section')).toBe(2);
+        expect(derive_banner_level_from_middle_line('  * Section')).toBe(1);
     });
 });
 
