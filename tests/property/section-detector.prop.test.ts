@@ -1936,7 +1936,7 @@ describe('Property 5: Banner Level from Middle Line Prefix', () => {
      * `*` → 1, `**` → 2, `***` → 3, `****+` → 4
      */
     function expected_level_from_asterisk_count(count: number): number {
-        return Math.min(count, 4);
+        return Math.max(1, Math.min(count, 4));
     }
 
     /**
