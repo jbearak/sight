@@ -30,15 +30,6 @@ The editor extension enables language server features and further provides:
 - **Syntax Highlighting**: Rich syntax highlighting with unique features like macro/string nesting depth coloring
 - **Quote Auto-Close**: Intelligently handles Stata's unique conventions for nested macros and compound strings
 
-> [!TIP]
-> **VS Code:** Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jbearak.sight) or [OpenVSX](https://open-vsx.org/extension/jbearak/sight), or download the `.vsix` from the [releases page](https://github.com/jbearak/sight/releases). Works with VS Code and any of its forks.
-
-> [!NOTE]
-> **Zed:** For the Zed extension, see [jbearak/zed-stata](https://github.com/jbearak/zed-stata).
-
-> [!NOTE]
-> **Neovim**: See the [Neovim setup guide](docs/neovim-setup.md) for instructions on configuring the language server for diagnostics, the [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata) for syntax highlighting, and the send-to-stata module.
-
 ## Documentation
 
 ### Guides
