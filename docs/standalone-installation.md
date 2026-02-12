@@ -35,6 +35,8 @@ This will:
 4. Identify conflicting syntax highlighting extensions (`stata-enhanced`)
 5. Build and install the standalone binary to `~/bin`
 
+> **Note:** Ensure `~/bin` is on your `PATH` so that `sight-language-server` is discoverable. If it isn't, add `export PATH="$HOME/bin:$PATH"` to your shell profile (e.g., `~/.zshrc` or `~/.bashrc`).
+
 > If setup.sh identifies conflicting syntax highlighting extensions, it will ask you what to do (disable/uninstall/do nothing).
 
 Requires [Bun](https://bun.sh) (`brew install bun` or see https://bun.sh).

@@ -294,6 +294,50 @@ export function derive_level_from_delimiter_count(count: number): number {
 }
 
 /**
+ * Derive banner section level from the middle line's comment prefix.
+ *
+ * The level is determined by the comment prefix on the middle line
+ * (the one containing the section name), not by the delimiter lines.
+ *
+ * Slash prefixes: `/` chars counted, level = min(count - 1, 4), floor 1
+ *   `//`  → 1, `///` → 2, `////` → 3, `/////+` → 4
+ *
+ * Asterisk prefixes: `*` chars counted, level = min(count, 4)
+ *   `*`   → 1, `**`  → 2, `***`  → 3, `****+` → 4
+ *
+ * No comment prefix (e.g., ` Section Name`) → level 1
+ *
+ * @param line - The middle line of a banner section
+ * @returns The nesting level (1-4)
+ */
+export function derive_banner_level_from_middle_line(line: string): number {
+    const my_trimmed = line.trim();
+
+    // Count leading `/` chars
+    if (my_trimmed.startsWith('/')) {
+        let my_count = 0;
+        while (my_count < my_trimmed.length && my_trimmed[my_count] === '/') {
+            my_count++;
+        }
+        // `//` → 1, `///` → 2, `////` → 3, `/////+` → 4
+        return Math.max(1, Math.min(my_count - 1, 4));
+    }
+
+    // Count leading `*` chars
+    if (my_trimmed.startsWith('*')) {
+        let my_count = 0;
+        while (my_count < my_trimmed.length && my_trimmed[my_count] === '*') {
+            my_count++;
+        }
+        // `*` → 1, `**` → 2, `***` → 3, `****+` → 4
+        return Math.min(my_count, 4);
+    }
+
+    // No comment prefix → level 1
+    return 1;
+}
+
+/**
  * Classify a line as a delimiter line for banner detection.
  * Returns the delimiter kind if the line is a pure delimiter line, null otherwise.
  *
@@ -531,11 +575,8 @@ function detect_banner_sections(
         const my_name = extract_block_comment_heading(my_middle_line);
         if (my_name === null) continue;
 
-        // Calculate level from delimiter counts (use minimum of top and bottom)
-        const my_top_count = count_delimiter_chars(my_line_above, 'asterisk');
-        const my_bottom_count = count_delimiter_chars(my_line_below, 'asterisk');
-        const my_min_count = Math.min(my_top_count, my_bottom_count);
-        const my_level = derive_level_from_delimiter_count(my_min_count);
+        // Derive level from middle line's comment prefix
+        const my_level = derive_banner_level_from_middle_line(my_middle_line);
 
         const my_middle_length = my_middle_line.length;
         const my_bottom_length = my_line_below.length;
@@ -585,11 +626,8 @@ function detect_banner_sections(
         const my_name = extract_banner_name(my_middle_line);
         if (my_name === null) continue;
 
-        // Calculate level from delimiter counts (use minimum of top and bottom)
-        const my_top_count = count_delimiter_chars(my_line_above, my_kind_top);
-        const my_bottom_count = count_delimiter_chars(my_line_below, my_kind_bottom);
-        const my_min_count = Math.min(my_top_count, my_bottom_count);
-        const my_level = derive_level_from_delimiter_count(my_min_count);
+        // Derive level from middle line's comment prefix
+        const my_level = derive_banner_level_from_middle_line(my_middle_line);
 
         const my_middle_length = my_middle_line.length;
         const my_bottom_length = my_line_below.length;

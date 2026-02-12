@@ -17,6 +17,7 @@ import {
     extract_block_comment_heading,
     derive_numbered_level,
     derive_level_from_delimiter_count,
+    derive_banner_level_from_middle_line,
     extract_sections,
     RawSection,
     DelimiterKind,
@@ -892,8 +893,8 @@ describe('Banner section detection', () => {
         expect(my_sections.length).toBe(1);
         expect(my_sections[0].name).toBe('confirm proper scope of survey years');
         expect(my_sections[0].detection_type).toBe('banner');
-        // 57 dashes → level 4 (12+ chars)
-        expect(my_sections[0].level).toBe(4);
+        // Middle line `// ...` → 2 slashes → level 1
+        expect(my_sections[0].level).toBe(1);
         expect(my_sections[0].range.start.line).toBe(0);
         expect(my_sections[0].range.end.line).toBe(2);
         expect(my_sections[0].selection_range.start.line).toBe(1);
@@ -1181,6 +1182,69 @@ describe('extract_banner_name', () => {
     it('should return null for empty name after stripping', () => {
         expect(extract_banner_name('//')).toBeNull();
         expect(extract_banner_name('*')).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// derive_banner_level_from_middle_line()
+// ---------------------------------------------------------------------------
+
+describe('derive_banner_level_from_middle_line', () => {
+    it('should return 1 for "//" prefix', () => {
+        expect(derive_banner_level_from_middle_line('// Section Name')).toBe(1);
+    });
+
+    it('should return 2 for "///" prefix', () => {
+        expect(derive_banner_level_from_middle_line('/// Section Name')).toBe(2);
+    });
+
+    it('should return 3 for "////" prefix', () => {
+        expect(derive_banner_level_from_middle_line('//// Section Name')).toBe(3);
+    });
+
+    it('should return 4 for "/////" or more slashes', () => {
+        expect(derive_banner_level_from_middle_line('///// Section Name')).toBe(4);
+        expect(derive_banner_level_from_middle_line('////// Section Name')).toBe(4);
+    });
+
+    it('should return 1 for "*" prefix', () => {
+        expect(derive_banner_level_from_middle_line('* Section Name')).toBe(1);
+    });
+
+    it('should return 2 for "**" prefix', () => {
+        expect(derive_banner_level_from_middle_line('** Section Name')).toBe(2);
+    });
+
+    it('should return 3 for "***" prefix', () => {
+        expect(derive_banner_level_from_middle_line('*** Section Name')).toBe(3);
+    });
+
+    it('should return 4 for "****" or more asterisks', () => {
+        expect(derive_banner_level_from_middle_line('**** Section Name')).toBe(4);
+        expect(derive_banner_level_from_middle_line('***** Section Name')).toBe(4);
+    });
+
+    it('should return 1 for single "/" (edge case)', () => {
+        expect(derive_banner_level_from_middle_line('/ Section Name')).toBe(1);
+    });
+
+    it('should return 1 for empty string', () => {
+        expect(derive_banner_level_from_middle_line('')).toBe(1);
+    });
+
+    it('should return 1 for whitespace only', () => {
+        expect(derive_banner_level_from_middle_line('   ')).toBe(1);
+        expect(derive_banner_level_from_middle_line('\t')).toBe(1);
+    });
+
+    it('should return 1 for no comment prefix', () => {
+        expect(derive_banner_level_from_middle_line('Section Name')).toBe(1);
+    });
+
+    it('should handle leading whitespace', () => {
+        expect(derive_banner_level_from_middle_line('  // Section')).toBe(1);
+        expect(derive_banner_level_from_middle_line('\t/// Section')).toBe(2);
+        expect(derive_banner_level_from_middle_line('  * Section')).toBe(1);
     });
 });
 
@@ -1697,13 +1761,12 @@ describe('Level calculation edge cases', () => {
      * should be used for level determination.
      * _Requirements: 2.5_
      */
-    describe('mismatched delimiter counts (minimum used for level)', () => {
-        it('should use minimum count when top has more delimiters than bottom', () => {
-            // Top: 20 asterisks (level 4), Bottom: 4 asterisks (level 1)
-            // Minimum is 4, so level should be 1
+    describe('delimiter lengths do not affect banner level (middle line prefix determines level)', () => {
+        it('should assign level 1 regardless of mismatched asterisk delimiter lengths', () => {
+            // Middle line ` Section Name` has no prefix → level 1
             const my_content = [
                 '********************', // line 0: 20 asterisks
-                ' Section Name',        // line 1: heading
+                ' Section Name',        // line 1: heading (no prefix)
                 '****',                 // line 2: 4 asterisks
             ].join('\n');
             const my_offsets = compute_line_offsets(my_content);
@@ -1711,79 +1774,13 @@ describe('Level calculation edge cases', () => {
 
             expect(my_sections.length).toBe(1);
             expect(my_sections[0].name).toBe('Section Name');
-            expect(my_sections[0].level).toBe(1); // min(20, 4) = 4 → level 1
+            expect(my_sections[0].level).toBe(1); // no prefix → level 1
         });
 
-        it('should use minimum count when bottom has more delimiters than top', () => {
-            // Top: 4 asterisks (level 1), Bottom: 20 asterisks (level 4)
-            // Minimum is 4, so level should be 1
-            const my_content = [
-                '****',                 // line 0: 4 asterisks
-                ' Section Name',        // line 1: heading
-                '********************', // line 2: 20 asterisks
-            ].join('\n');
-            const my_offsets = compute_line_offsets(my_content);
-            const my_sections = extract_sections(my_content, my_offsets);
-
-            expect(my_sections.length).toBe(1);
-            expect(my_sections[0].name).toBe('Section Name');
-            expect(my_sections[0].level).toBe(1); // min(4, 20) = 4 → level 1
-        });
-
-        it('should use minimum count crossing level 1/2 boundary', () => {
-            // Top: 5 asterisks (level 2), Bottom: 4 asterisks (level 1)
-            // Minimum is 4, so level should be 1
-            const my_content = [
-                '*****',                // line 0: 5 asterisks
-                ' Section Name',        // line 1: heading
-                '****',                 // line 2: 4 asterisks
-            ].join('\n');
-            const my_offsets = compute_line_offsets(my_content);
-            const my_sections = extract_sections(my_content, my_offsets);
-
-            expect(my_sections.length).toBe(1);
-            expect(my_sections[0].name).toBe('Section Name');
-            expect(my_sections[0].level).toBe(1); // min(5, 4) = 4 → level 1
-        });
-
-        it('should use minimum count crossing level 2/3 boundary', () => {
-            // Top: 8 asterisks (level 3), Bottom: 7 asterisks (level 2)
-            // Minimum is 7, so level should be 2
+        it('should assign level 1 regardless of equal asterisk delimiter lengths', () => {
             const my_content = [
                 '********',             // line 0: 8 asterisks
-                ' Section Name',        // line 1: heading
-                '*******',              // line 2: 7 asterisks
-            ].join('\n');
-            const my_offsets = compute_line_offsets(my_content);
-            const my_sections = extract_sections(my_content, my_offsets);
-
-            expect(my_sections.length).toBe(1);
-            expect(my_sections[0].name).toBe('Section Name');
-            expect(my_sections[0].level).toBe(2); // min(8, 7) = 7 → level 2
-        });
-
-        it('should use minimum count crossing level 3/4 boundary', () => {
-            // Top: 12 asterisks (level 4), Bottom: 11 asterisks (level 3)
-            // Minimum is 11, so level should be 3
-            const my_content = [
-                '************',         // line 0: 12 asterisks
-                ' Section Name',        // line 1: heading
-                '***********',          // line 2: 11 asterisks
-            ].join('\n');
-            const my_offsets = compute_line_offsets(my_content);
-            const my_sections = extract_sections(my_content, my_offsets);
-
-            expect(my_sections.length).toBe(1);
-            expect(my_sections[0].name).toBe('Section Name');
-            expect(my_sections[0].level).toBe(3); // min(12, 11) = 11 → level 3
-        });
-
-        it('should use minimum count with equal counts (no mismatch)', () => {
-            // Top: 8 asterisks (level 3), Bottom: 8 asterisks (level 3)
-            // Minimum is 8, so level should be 3
-            const my_content = [
-                '********',             // line 0: 8 asterisks
-                ' Section Name',        // line 1: heading
+                ' Section Name',        // line 1: heading (no prefix)
                 '********',             // line 2: 8 asterisks
             ].join('\n');
             const my_offsets = compute_line_offsets(my_content);
@@ -1791,15 +1788,14 @@ describe('Level calculation edge cases', () => {
 
             expect(my_sections.length).toBe(1);
             expect(my_sections[0].name).toBe('Section Name');
-            expect(my_sections[0].level).toBe(3); // min(8, 8) = 8 → level 3
+            expect(my_sections[0].level).toBe(1); // no prefix → level 1
         });
 
-        it('should use minimum count with standard banner patterns (dash delimiters)', () => {
-            // Top: 8 dashes (level 3), Bottom: 5 dashes (level 2)
-            // Minimum is 5, so level should be 2
+        it('should assign level 1 regardless of mismatched dash delimiter lengths', () => {
+            // Middle line `// Section Name` has `//` prefix → level 1
             const my_content = [
                 '// --------',          // line 0: 8 dashes
-                '// Section Name',      // line 1: heading
+                '// Section Name',      // line 1: heading (// prefix)
                 '// -----',             // line 2: 5 dashes
             ].join('\n');
             const my_offsets = compute_line_offsets(my_content);
@@ -1807,15 +1803,13 @@ describe('Level calculation edge cases', () => {
 
             expect(my_sections.length).toBe(1);
             expect(my_sections[0].name).toBe('Section Name');
-            expect(my_sections[0].level).toBe(2); // min(8, 5) = 5 → level 2
+            expect(my_sections[0].level).toBe(1); // // → level 1
         });
 
-        it('should use minimum count with equals delimiters', () => {
-            // Top: 12 equals (level 4), Bottom: 8 equals (level 3)
-            // Minimum is 8, so level should be 3
+        it('should assign level 1 regardless of mismatched equals delimiter lengths', () => {
             const my_content = [
                 '// ============',      // line 0: 12 equals
-                '// Section Name',      // line 1: heading
+                '// Section Name',      // line 1: heading (// prefix)
                 '// ========',          // line 2: 8 equals
             ].join('\n');
             const my_offsets = compute_line_offsets(my_content);
@@ -1823,16 +1817,16 @@ describe('Level calculation edge cases', () => {
 
             expect(my_sections.length).toBe(1);
             expect(my_sections[0].name).toBe('Section Name');
-            expect(my_sections[0].level).toBe(3); // min(12, 8) = 8 → level 3
+            expect(my_sections[0].level).toBe(1); // // → level 1
         });
     });
 
     /**
-     * Integration tests for level calculation with real-world patterns
+     * Integration tests for banner level derived from middle line prefix
      * _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
      */
-    describe('level calculation integration tests', () => {
-        it('should assign level 4 to long delimiter banners (67+ chars)', () => {
+    describe('banner level from middle line prefix', () => {
+        it('should assign level 1 for no-prefix middle line (long delimiters)', () => {
             const my_content = [
                 '*******************************************************************', // 67 asterisks
                 ' Section Name',
@@ -1842,60 +1836,137 @@ describe('Level calculation edge cases', () => {
             const my_sections = extract_sections(my_content, my_offsets);
 
             expect(my_sections.length).toBe(1);
-            expect(my_sections[0].level).toBe(4); // 67 chars → level 4
+            expect(my_sections[0].level).toBe(1); // no prefix → level 1
         });
 
-        it('should assign level 1 to minimal delimiter banners (4 chars)', () => {
+        it('should assign level 1 for no-prefix middle line (4-char delimiters)', () => {
             const my_content = [
-                '****',                 // 4 asterisks
+                '****',
                 ' Section Name',
-                '****',                 // 4 asterisks
+                '****',
             ].join('\n');
             const my_offsets = compute_line_offsets(my_content);
             const my_sections = extract_sections(my_content, my_offsets);
 
             expect(my_sections.length).toBe(1);
-            expect(my_sections[0].level).toBe(1); // 4 chars → level 1
+            expect(my_sections[0].level).toBe(1); // no prefix → level 1
         });
 
-        it('should assign level 2 to medium delimiter banners (5-7 chars)', () => {
+        it('should assign level 1 for no-prefix middle line (6-char delimiters)', () => {
             const my_content = [
-                '******',               // 6 asterisks
+                '******',
                 ' Section Name',
-                '******',               // 6 asterisks
+                '******',
             ].join('\n');
             const my_offsets = compute_line_offsets(my_content);
             const my_sections = extract_sections(my_content, my_offsets);
 
             expect(my_sections.length).toBe(1);
-            expect(my_sections[0].level).toBe(2); // 6 chars → level 2
+            expect(my_sections[0].level).toBe(1); // no prefix → level 1
         });
 
-        it('should assign level 3 to medium-large delimiter banners (8-11 chars)', () => {
+        it('should assign level 1 for no-prefix middle line (10-char delimiters)', () => {
             const my_content = [
-                '**********',           // 10 asterisks
+                '**********',
                 ' Section Name',
-                '**********',           // 10 asterisks
+                '**********',
             ].join('\n');
             const my_offsets = compute_line_offsets(my_content);
             const my_sections = extract_sections(my_content, my_offsets);
 
             expect(my_sections.length).toBe(1);
-            expect(my_sections[0].level).toBe(3); // 10 chars → level 3
+            expect(my_sections[0].level).toBe(1); // no prefix → level 1
         });
 
-        it('should handle block comment patterns with level calculation', () => {
-            // Block comment with /****...****/ pattern
+        it('should assign level 1 for no-prefix middle line (block comment pattern)', () => {
             const my_content = [
-                '/************',        // 12 asterisks (after stripping /)
+                '/************',
                 ' Section Name',
-                '************/',        // 12 asterisks (after stripping /)
+                '************/',
             ].join('\n');
             const my_offsets = compute_line_offsets(my_content);
             const my_sections = extract_sections(my_content, my_offsets);
 
             expect(my_sections.length).toBe(1);
-            expect(my_sections[0].level).toBe(4); // 12 chars → level 4
+            expect(my_sections[0].level).toBe(1); // no prefix → level 1
+        });
+
+        it('should assign level 1 for * middle line prefix', () => {
+            const my_content = [
+                '****************************',
+                '* Section Name',
+                '****************************',
+            ].join('\n');
+            const my_offsets = compute_line_offsets(my_content);
+            const my_sections = extract_sections(my_content, my_offsets);
+
+            expect(my_sections.length).toBe(1);
+            expect(my_sections[0].level).toBe(1); // * → level 1
+        });
+
+        it('should assign level 2 for ** middle line prefix', () => {
+            const my_content = [
+                '****************************',
+                '** Section Name',
+                '****************************',
+            ].join('\n');
+            const my_offsets = compute_line_offsets(my_content);
+            const my_sections = extract_sections(my_content, my_offsets);
+
+            expect(my_sections.length).toBe(1);
+            expect(my_sections[0].level).toBe(2); // ** → level 2
+        });
+
+        it('should assign level 3 for *** middle line prefix', () => {
+            const my_content = [
+                '****************************',
+                '*** Section Name',
+                '****************************',
+            ].join('\n');
+            const my_offsets = compute_line_offsets(my_content);
+            const my_sections = extract_sections(my_content, my_offsets);
+
+            expect(my_sections.length).toBe(1);
+            expect(my_sections[0].level).toBe(3); // *** → level 3
+        });
+
+        it('should assign level 1 for // middle line prefix', () => {
+            const my_content = [
+                '// ----------------------------------------',
+                '// Section Name',
+                '// ----------------------------------------',
+            ].join('\n');
+            const my_offsets = compute_line_offsets(my_content);
+            const my_sections = extract_sections(my_content, my_offsets);
+
+            expect(my_sections.length).toBe(1);
+            expect(my_sections[0].level).toBe(1); // // → level 1
+        });
+
+        it('should assign level 2 for /// middle line prefix', () => {
+            const my_content = [
+                '// ----------------------------------------',
+                '/// Section Name',
+                '// ----------------------------------------',
+            ].join('\n');
+            const my_offsets = compute_line_offsets(my_content);
+            const my_sections = extract_sections(my_content, my_offsets);
+
+            expect(my_sections.length).toBe(1);
+            expect(my_sections[0].level).toBe(2); // /// → level 2
+        });
+
+        it('should assign level 3 for //// middle line prefix', () => {
+            const my_content = [
+                '// ----------------------------------------',
+                '//// Section Name',
+                '// ----------------------------------------',
+            ].join('\n');
+            const my_offsets = compute_line_offsets(my_content);
+            const my_sections = extract_sections(my_content, my_offsets);
+
+            expect(my_sections.length).toBe(1);
+            expect(my_sections[0].level).toBe(3); // //// → level 3
         });
     });
 });
@@ -2616,7 +2687,7 @@ describe('Integration tests for mixed pattern documents', () => {
             expect(my_sections[0].level).toBe(1); // 4 asterisks → level 1
 
             expect(my_sections[1].name).toBe('Long Block Comment Section');
-            expect(my_sections[1].level).toBe(4); // 68 asterisks → level 4
+            expect(my_sections[1].level).toBe(1); // no prefix → level 1
         });
 
         it('should handle pure asterisk banners alongside block comments', () => {

@@ -18,6 +18,7 @@ Sight's sister project [Raven](https://github.com/jbearak/raven) implements a la
 - **Code Completion**: Context-aware completions for commands, options, macros, and variables
 - **Diagnostics**: Real-time syntax error detection and undefined macro warnings
 - **Go-to-Definition**: Jump to definitions of local/global macros and programs across the workspace
+- **Document Outline**: Hierarchical code navigation with programs, macros, variables, and code sections
 - **Workspace Symbols**: Search for symbols across the entire workspace
 - **Cross-file awareness**: Symbol resolution across `do`/`include` chains with position-aware scope
 - **Declaration directives**: Suppress diagnostics for dynamically-created symbols (`@lsp-local`, `@lsp-global`)
@@ -39,6 +40,7 @@ The editor extension enables language server features and further provides:
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
 
 ### Features
+- [Document Outline](docs/document-outline.md) - Hierarchical code navigation with sections, programs, and macros
 - [Cross-File Awareness](docs/cross-file.md) - Workspace indexing, directives, scope resolution
 - [Declaration Directives](docs/declaration-directives.md) - `@lsp-local`, `@lsp-global` for dynamically-created symbols
 - [Send to Stata](docs/send-to-stata.md) - Execute code in Stata from VS Code or terminal
