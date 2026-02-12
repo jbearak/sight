@@ -1881,24 +1881,29 @@ describe('Property 4: Banner Section Level Derivation', () => {
 
 
 // ---------------------------------------------------------------------------
-// Property 5: Minimum Level for Mismatched Delimiters
+// Property 5: Banner Level from Middle Line Prefix
 // ---------------------------------------------------------------------------
 
-describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
+describe('Property 5: Banner Level from Middle Line Prefix', () => {
     /**
-     * Feature: stata-outline-improvements, Property 5: Minimum Level for Mismatched Delimiters
+     * Feature: stata-outline-improvements, Property 5: Banner Level from
+     * Middle Line Prefix
      *
-     * *For any* banner section where the top delimiter has N characters and the
-     * bottom delimiter has M characters (where N ≠ M), the assigned nesting level
-     * should be derived from min(N, M).
+     * *For any* banner section, the nesting level is derived from the comment
+     * prefix on the middle line (the line containing the section name), not
+     * from the delimiter lines.
+     *
+     * Prefix mapping:
+     * - `*` → 1, `**` → 2, `***` → 3, `****+` → 4
+     * - `//` → 1, `///` → 2, `////` → 3, `/////+` → 4
+     * - No prefix → 1
      *
      * **Validates: Requirements 2.5**
      */
 
     /**
      * Generate random heading text content.
-     * Includes alphanumeric characters, spaces, and some special characters.
-     * Excludes asterisks to avoid confusion with delimiters.
+     * Excludes asterisks and slashes to avoid confusion with prefixes.
      */
     function arbitrary_heading_text(): fc.Arbitrary<string> {
         const my_char = fc.constantFrom(
@@ -1910,7 +1915,7 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
             ' ', '_', '-', '(', ')', '[', ']', ':', ';', ',', '.'
         );
         return fc.stringOf(my_char, { minLength: 3, maxLength: 50 })
-            .filter((s) => s.trim().length >= 3); // Ensure non-trivial content
+            .filter((s) => s.trim().length >= 3);
     }
 
     /**
@@ -1927,50 +1932,36 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
     }
 
     /**
-     * Calculate expected level from delimiter count according to the formula:
-     * - 4 chars → level 1
-     * - 5-7 chars → level 2
-     * - 8-11 chars → level 3
-     * - 12+ chars → level 4
+     * Expected level from asterisk prefix count.
+     * `*` → 1, `**` → 2, `***` → 3, `****+` → 4
      */
-    function expected_level_from_count(count: number): number {
-        if (count <= 4) return 1;
-        if (count <= 7) return 2;
-        if (count <= 11) return 3;
-        return 4;
+    function expected_level_from_asterisk_count(count: number): number {
+        return Math.min(count, 4);
     }
 
     /**
-     * Generate two different delimiter counts for mismatched delimiters.
-     * Ensures top_count !== bottom_count.
+     * Expected level from slash prefix count.
+     * `//` → 1, `///` → 2, `////` → 3, `/////+` → 4
      */
-    function arbitrary_mismatched_counts(): fc.Arbitrary<{ top_count: number; bottom_count: number }> {
-        return fc
-            .tuple(
+    function expected_level_from_slash_count(count: number): number {
+        return Math.max(1, Math.min(count - 1, 4));
+    }
+
+    /**
+     * Subproperty A: Block comment banners with asterisk-prefixed middle
+     * lines derive level from the middle line's asterisk count.
+     */
+    it('should derive level from asterisk prefix on middle line (block comments)', () => {
+        fc.assert(
+            fc.property(
+                arbitrary_heading_text(),
+                fc.integer({ min: 1, max: 6 }),
                 fc.integer({ min: 4, max: 20 }),
-                fc.integer({ min: 4, max: 20 })
-            )
-            .filter(([my_top, my_bottom]) => my_top !== my_bottom)
-            .map(([my_top, my_bottom]) => ({
-                top_count: my_top,
-                bottom_count: my_bottom,
-            }));
-    }
-
-    /**
-     * Subproperty A: Block comment headings with mismatched asterisk delimiters
-     * use minimum count for level derivation.
-     */
-    it('should derive level from minimum count for block comment headings with mismatched asterisks', () => {
-        fc.assert(
-            fc.property(
-                arbitrary_heading_text(),
-                arbitrary_mismatched_counts(),
-                (my_heading, { top_count, bottom_count }) => {
-                    const my_top_delim = '*'.repeat(top_count);
-                    const my_bottom_delim = '*'.repeat(bottom_count);
-                    const my_middle = ` ${my_heading}`;
-                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
+                (my_heading, my_prefix_count, my_delim_count) => {
+                    const my_delim = '*'.repeat(my_delim_count);
+                    const my_prefix = '*'.repeat(my_prefix_count);
+                    const my_middle = `${my_prefix} ${my_heading}`;
+                    const my_content = `${my_delim}\n${my_middle}\n${my_delim}`;
                     const my_line_offsets = compute_line_offsets(my_content);
 
                     const my_sections = extract_sections(my_content, my_line_offsets);
@@ -1979,10 +1970,8 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
                         return false;
                     }
 
-                    const my_min_count = Math.min(top_count, bottom_count);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_sections[0].level === my_expected_level;
+                    const my_expected = expected_level_from_asterisk_count(my_prefix_count);
+                    return my_sections[0].level === my_expected;
                 }
             ),
             { numRuns: 100 }
@@ -1990,19 +1979,20 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
     });
 
     /**
-     * Subproperty B: Standard banner sections with mismatched dash delimiters
-     * use minimum count for level derivation.
+     * Subproperty B: Standard banner sections with //-prefixed middle lines
+     * derive level from the middle line's slash count.
      */
-    it('should derive level from minimum count for banner sections with mismatched dashes', () => {
+    it('should derive level from slash prefix on middle line (// banners)', () => {
         fc.assert(
             fc.property(
                 arbitrary_heading_text(),
-                arbitrary_mismatched_counts(),
-                (my_heading, { top_count, bottom_count }) => {
-                    const my_top_delim = '// ' + '-'.repeat(top_count);
-                    const my_bottom_delim = '// ' + '-'.repeat(bottom_count);
-                    const my_middle = `// ${my_heading}`;
-                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
+                fc.integer({ min: 2, max: 6 }),
+                fc.integer({ min: 4, max: 20 }),
+                (my_heading, my_prefix_count, my_delim_count) => {
+                    const my_delim = '// ' + '-'.repeat(my_delim_count);
+                    const my_prefix = '/'.repeat(my_prefix_count);
+                    const my_middle = `${my_prefix} ${my_heading}`;
+                    const my_content = `${my_delim}\n${my_middle}\n${my_delim}`;
                     const my_line_offsets = compute_line_offsets(my_content);
 
                     const my_sections = extract_sections(my_content, my_line_offsets);
@@ -2011,10 +2001,8 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
                         return false;
                     }
 
-                    const my_min_count = Math.min(top_count, bottom_count);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_sections[0].level === my_expected_level;
+                    const my_expected = expected_level_from_slash_count(my_prefix_count);
+                    return my_sections[0].level === my_expected;
                 }
             ),
             { numRuns: 100 }
@@ -2022,247 +2010,19 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
     });
 
     /**
-     * Subproperty C: Standard banner sections with mismatched equals delimiters
-     * use minimum count for level derivation.
+     * Subproperty C: Varying delimiter line lengths do NOT affect the
+     * banner level (level comes from middle line only).
      */
-    it('should derive level from minimum count for banner sections with mismatched equals', () => {
+    it('should produce same level regardless of delimiter line lengths', () => {
         fc.assert(
             fc.property(
                 arbitrary_heading_text(),
-                arbitrary_mismatched_counts(),
-                (my_heading, { top_count, bottom_count }) => {
-                    const my_top_delim = '// ' + '='.repeat(top_count);
-                    const my_bottom_delim = '// ' + '='.repeat(bottom_count);
-                    const my_middle = `// ${my_heading}`;
-                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
-                    const my_line_offsets = compute_line_offsets(my_content);
-
-                    const my_sections = extract_sections(my_content, my_line_offsets);
-
-                    if (my_sections.length !== 1) {
-                        return false;
-                    }
-
-                    const my_min_count = Math.min(top_count, bottom_count);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_sections[0].level === my_expected_level;
-                }
-            ),
-            { numRuns: 100 }
-        );
-    });
-
-    /**
-     * Subproperty D: Standard banner sections with mismatched plus delimiters
-     * use minimum count for level derivation.
-     */
-    it('should derive level from minimum count for banner sections with mismatched plus', () => {
-        fc.assert(
-            fc.property(
-                arbitrary_heading_text(),
-                arbitrary_mismatched_counts(),
-                (my_heading, { top_count, bottom_count }) => {
-                    const my_top_delim = '// ' + '+'.repeat(top_count);
-                    const my_bottom_delim = '// ' + '+'.repeat(bottom_count);
-                    const my_middle = `// ${my_heading}`;
-                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
-                    const my_line_offsets = compute_line_offsets(my_content);
-
-                    const my_sections = extract_sections(my_content, my_line_offsets);
-
-                    if (my_sections.length !== 1) {
-                        return false;
-                    }
-
-                    const my_min_count = Math.min(top_count, bottom_count);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_sections[0].level === my_expected_level;
-                }
-            ),
-            { numRuns: 100 }
-        );
-    });
-
-    /**
-     * Subproperty E: Block comment with comment-prefixed/suffixed asterisk delimiters
-     * with mismatched counts uses minimum for level derivation.
-     */
-    it('should derive level from minimum count for block comments with comment-wrapped asterisks', () => {
-        fc.assert(
-            fc.property(
-                arbitrary_heading_text(),
-                arbitrary_mismatched_counts(),
-                fc.constantFrom('prefix', 'suffix', 'both'),
-                fc.constantFrom('prefix', 'suffix', 'both'),
-                (my_heading, { top_count, bottom_count }, my_top_form, my_bottom_form) => {
-                    // Build top delimiter
-                    const my_top_asterisks = '*'.repeat(top_count);
-                    let my_top_delim: string;
-                    switch (my_top_form) {
-                        case 'prefix': my_top_delim = '/' + my_top_asterisks; break;
-                        case 'suffix': my_top_delim = my_top_asterisks + '/'; break;
-                        case 'both': my_top_delim = '/' + my_top_asterisks + '/'; break;
-                    }
-
-                    // Build bottom delimiter
-                    const my_bottom_asterisks = '*'.repeat(bottom_count);
-                    let my_bottom_delim: string;
-                    switch (my_bottom_form) {
-                        case 'prefix': my_bottom_delim = '/' + my_bottom_asterisks; break;
-                        case 'suffix': my_bottom_delim = my_bottom_asterisks + '/'; break;
-                        case 'both': my_bottom_delim = '/' + my_bottom_asterisks + '/'; break;
-                    }
-
-                    const my_middle = ` ${my_heading}`;
-                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
-                    const my_line_offsets = compute_line_offsets(my_content);
-
-                    const my_sections = extract_sections(my_content, my_line_offsets);
-
-                    if (my_sections.length !== 1) {
-                        return false;
-                    }
-
-                    const my_min_count = Math.min(top_count, bottom_count);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_sections[0].level === my_expected_level;
-                }
-            ),
-            { numRuns: 100 }
-        );
-    });
-
-    /**
-     * Subproperty F: Level derivation with mismatched counts crossing level boundaries.
-     * Tests cases where top and bottom counts would individually produce different levels.
-     */
-    it('should use minimum count when top and bottom would produce different levels', () => {
-        fc.assert(
-            fc.property(
-                arbitrary_heading_text(),
-                // Generate counts that cross level boundaries
-                fc.constantFrom(
-                    { top: 4, bottom: 5 },   // level 1 vs level 2 → min=4 → level 1
-                    { top: 5, bottom: 4 },   // level 2 vs level 1 → min=4 → level 1
-                    { top: 7, bottom: 8 },   // level 2 vs level 3 → min=7 → level 2
-                    { top: 8, bottom: 7 },   // level 3 vs level 2 → min=7 → level 2
-                    { top: 11, bottom: 12 }, // level 3 vs level 4 → min=11 → level 3
-                    { top: 12, bottom: 11 }, // level 4 vs level 3 → min=11 → level 3
-                    { top: 4, bottom: 12 },  // level 1 vs level 4 → min=4 → level 1
-                    { top: 12, bottom: 4 },  // level 4 vs level 1 → min=4 → level 1
-                    { top: 5, bottom: 11 },  // level 2 vs level 3 → min=5 → level 2
-                    { top: 11, bottom: 5 },  // level 3 vs level 2 → min=5 → level 2
-                ),
-                (my_heading, { top, bottom }) => {
-                    const my_top_delim = '*'.repeat(top);
-                    const my_bottom_delim = '*'.repeat(bottom);
-                    const my_middle = ` ${my_heading}`;
-                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
-                    const my_line_offsets = compute_line_offsets(my_content);
-
-                    const my_sections = extract_sections(my_content, my_line_offsets);
-
-                    if (my_sections.length !== 1) {
-                        return false;
-                    }
-
-                    const my_min_count = Math.min(top, bottom);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_sections[0].level === my_expected_level;
-                }
-            ),
-            { numRuns: 100 }
-        );
-    });
-
-    /**
-     * Subproperty G: Star-prefixed banner sections with mismatched delimiters.
-     * Tests `* ----` style delimiters with different counts.
-     */
-    it('should derive level from minimum count for star-prefixed banner sections', () => {
-        fc.assert(
-            fc.property(
-                arbitrary_heading_text(),
-                arbitrary_mismatched_counts(),
-                fc.constantFrom('dash', 'equals', 'plus') as fc.Arbitrary<DelimiterKind>,
-                (my_heading, { top_count, bottom_count }, my_kind) => {
-                    const my_char = delimiter_kind_to_char(my_kind);
-                    const my_top_delim = '* ' + my_char.repeat(top_count);
-                    const my_bottom_delim = '* ' + my_char.repeat(bottom_count);
-                    const my_middle = `* ${my_heading}`;
-                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
-                    const my_line_offsets = compute_line_offsets(my_content);
-
-                    const my_sections = extract_sections(my_content, my_line_offsets);
-
-                    if (my_sections.length !== 1) {
-                        return false;
-                    }
-
-                    const my_min_count = Math.min(top_count, bottom_count);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_sections[0].level === my_expected_level;
-                }
-            ),
-            { numRuns: 100 }
-        );
-    });
-
-    /**
-     * Subproperty H: Pure slash delimiter lines with mismatched counts.
-     * Tests `//////` style delimiters with different counts.
-     */
-    it('should derive level from minimum count for pure slash delimiter banner sections', () => {
-        fc.assert(
-            fc.property(
-                arbitrary_heading_text(),
-                arbitrary_mismatched_counts(),
-                (my_heading, { top_count, bottom_count }) => {
-                    const my_top_delim = '/'.repeat(top_count);
-                    const my_bottom_delim = '/'.repeat(bottom_count);
-                    const my_middle = `// ${my_heading}`;
-                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
-                    const my_line_offsets = compute_line_offsets(my_content);
-
-                    const my_sections = extract_sections(my_content, my_line_offsets);
-
-                    if (my_sections.length !== 1) {
-                        return false;
-                    }
-
-                    const my_min_count = Math.min(top_count, bottom_count);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_sections[0].level === my_expected_level;
-                }
-            ),
-            { numRuns: 100 }
-        );
-    });
-
-    /**
-     * Subproperty I: Verify minimum is used regardless of which delimiter is larger.
-     * Tests both top > bottom and top < bottom cases explicitly.
-     */
-    it('should use minimum regardless of which delimiter is larger', () => {
-        fc.assert(
-            fc.property(
-                arbitrary_heading_text(),
-                fc.integer({ min: 4, max: 10 }),
-                fc.integer({ min: 11, max: 20 }),
-                fc.boolean(),
-                (my_heading, my_small_count, my_large_count, my_top_is_larger) => {
-                    const my_top_count = my_top_is_larger ? my_large_count : my_small_count;
-                    const my_bottom_count = my_top_is_larger ? my_small_count : my_large_count;
-
+                fc.integer({ min: 4, max: 20 }),
+                fc.integer({ min: 4, max: 20 }),
+                (my_heading, my_top_count, my_bottom_count) => {
                     const my_top_delim = '*'.repeat(my_top_count);
                     const my_bottom_delim = '*'.repeat(my_bottom_count);
-                    const my_middle = ` ${my_heading}`;
+                    const my_middle = ` ${my_heading}`; // no prefix → level 1
                     const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
                     const my_line_offsets = compute_line_offsets(my_content);
 
@@ -2272,10 +2032,8 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
                         return false;
                     }
 
-                    // The minimum should always be my_small_count
-                    const my_expected_level = expected_level_from_count(my_small_count);
-
-                    return my_sections[0].level === my_expected_level;
+                    // No prefix → always level 1, regardless of delimiter lengths
+                    return my_sections[0].level === 1;
                 }
             ),
             { numRuns: 100 }
@@ -2283,31 +2041,105 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
     });
 
     /**
-     * Subproperty J: Mismatched delimiters in document with surrounding code.
-     * Verifies level calculation works correctly when block comment is not at file boundaries.
+     * Subproperty D: No-prefix middle lines always produce level 1,
+     * even in block comment patterns with /****...****.
      */
-    it('should derive level from minimum count for block comments in middle of document', () => {
+    it('should assign level 1 for no-prefix middle line in block comments', () => {
         fc.assert(
             fc.property(
                 arbitrary_heading_text(),
-                arbitrary_mismatched_counts(),
-                fc.integer({ min: 1, max: 5 }),
-                fc.integer({ min: 1, max: 5 }),
-                (my_heading, { top_count, bottom_count }, my_lines_before, my_lines_after) => {
-                    const my_top_delim = '*'.repeat(top_count);
-                    const my_bottom_delim = '*'.repeat(bottom_count);
-                    const my_middle = ` ${my_heading}`;
+                fc.integer({ min: 4, max: 20 }),
+                fc.constantFrom('prefix', 'suffix', 'both'),
+                fc.constantFrom('prefix', 'suffix', 'both'),
+                (my_heading, my_count, my_top_form, my_bottom_form) => {
+                    const my_asterisks = '*'.repeat(my_count);
+                    let my_top_delim: string;
+                    switch (my_top_form) {
+                        case 'prefix': my_top_delim = '/' + my_asterisks; break;
+                        case 'suffix': my_top_delim = my_asterisks + '/'; break;
+                        case 'both': my_top_delim = '/' + my_asterisks + '/'; break;
+                    }
+                    let my_bottom_delim: string;
+                    switch (my_bottom_form) {
+                        case 'prefix': my_bottom_delim = '/' + my_asterisks; break;
+                        case 'suffix': my_bottom_delim = my_asterisks + '/'; break;
+                        case 'both': my_bottom_delim = '/' + my_asterisks + '/'; break;
+                    }
 
-                    // Add code lines before and after
-                    const my_before_lines = Array(my_lines_before).fill('display "hello"').join('\n');
-                    const my_after_lines = Array(my_lines_after).fill('gen x = 1').join('\n');
-
-                    const my_content = `${my_before_lines}\n${my_top_delim}\n${my_middle}\n${my_bottom_delim}\n${my_after_lines}`;
+                    const my_middle = ` ${my_heading}`; // no prefix → level 1
+                    const my_content = `${my_top_delim}\n${my_middle}\n${my_bottom_delim}`;
                     const my_line_offsets = compute_line_offsets(my_content);
 
                     const my_sections = extract_sections(my_content, my_line_offsets);
 
-                    // Should detect exactly one banner section
+                    if (my_sections.length !== 1) {
+                        return false;
+                    }
+
+                    return my_sections[0].level === 1;
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    /**
+     * Subproperty E: Star-prefixed banner sections (`* ----`) derive
+     * level from the middle line's `*` prefix, not the delimiters.
+     */
+    it('should derive level from * prefix on middle line (star-prefixed banners)', () => {
+        fc.assert(
+            fc.property(
+                arbitrary_heading_text(),
+                fc.integer({ min: 4, max: 20 }),
+                fc.constantFrom('dash', 'equals', 'plus') as fc.Arbitrary<DelimiterKind>,
+                (my_heading, my_delim_count, my_kind) => {
+                    const my_char = delimiter_kind_to_char(my_kind);
+                    const my_delim = '* ' + my_char.repeat(my_delim_count);
+                    // Middle line has `*` prefix → level 1
+                    const my_middle = `* ${my_heading}`;
+                    const my_content = `${my_delim}\n${my_middle}\n${my_delim}`;
+                    const my_line_offsets = compute_line_offsets(my_content);
+
+                    const my_sections = extract_sections(my_content, my_line_offsets);
+
+                    if (my_sections.length !== 1) {
+                        return false;
+                    }
+
+                    // `*` prefix → level 1
+                    return my_sections[0].level === 1;
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    /**
+     * Subproperty F: Banner level is consistent when embedded in a
+     * document with surrounding code lines.
+     */
+    it('should derive level from middle line prefix in middle of document', () => {
+        fc.assert(
+            fc.property(
+                arbitrary_heading_text(),
+                fc.integer({ min: 1, max: 3 }),
+                fc.integer({ min: 4, max: 20 }),
+                fc.integer({ min: 1, max: 5 }),
+                fc.integer({ min: 1, max: 5 }),
+                (my_heading, my_prefix_count, my_delim_count, my_lines_before, my_lines_after) => {
+                    const my_delim = '*'.repeat(my_delim_count);
+                    const my_prefix = '*'.repeat(my_prefix_count);
+                    const my_middle = `${my_prefix} ${my_heading}`;
+
+                    const my_before = Array(my_lines_before).fill('display "hello"').join('\n');
+                    const my_after = Array(my_lines_after).fill('gen x = 1').join('\n');
+
+                    const my_content = `${my_before}\n${my_delim}\n${my_middle}\n${my_delim}\n${my_after}`;
+                    const my_line_offsets = compute_line_offsets(my_content);
+
+                    const my_sections = extract_sections(my_content, my_line_offsets);
+
                     const my_banner_sections = my_sections.filter(
                         (s) => s.detection_type === 'banner'
                     );
@@ -2316,10 +2148,8 @@ describe('Property 5: Minimum Level for Mismatched Delimiters', () => {
                         return false;
                     }
 
-                    const my_min_count = Math.min(top_count, bottom_count);
-                    const my_expected_level = expected_level_from_count(my_min_count);
-
-                    return my_banner_sections[0].level === my_expected_level;
+                    const my_expected = expected_level_from_asterisk_count(my_prefix_count);
+                    return my_banner_sections[0].level === my_expected;
                 }
             ),
             { numRuns: 100 }

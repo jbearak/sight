@@ -74,6 +74,20 @@ A 3-line block with matching delimiter lines above and below:
 ****
 ```
 
+The delimiter lines can also use the comment character itself:
+
+```stata
+////
+// Section
+////
+```
+
+```stata
+****
+* Section
+****
+```
+
 ### 3. Starred inline sections
 
 Text surrounded by 2+ asterisks on each side:
@@ -107,7 +121,9 @@ This produces a nested outline:
 
 ### Section nesting levels
 
-For single-line and banner sections, the nesting level is derived from the delimiter length:
+#### Single-line sections
+
+For single-line sections (`// Name ----`), the nesting level is derived from the delimiter length:
 
 | Delimiter Length | Level |
 | --- | --- |
@@ -125,6 +141,36 @@ For example, longer delimiters produce higher-level (shallower) headings when yo
 ```
 
 Here `Main Analysis` is level 3 (11 `=` chars) and the subsections are level 1 (4 `-` chars), so the subsections nest under the main heading.
+
+#### Banner sections
+
+For banner sections (3-line delimiter/name/delimiter blocks), the nesting level is derived from the comment prefix on the **middle line** (the line containing the section name). The delimiter lines are purely decorative and do not affect the level.
+
+| Middle line prefix | Level |
+| --- | --- |
+| `*` | 1 |
+| `**` | 2 |
+| `***` | 3 |
+| `****` or more | 4 |
+| `//` | 1 |
+| `///` | 2 |
+| `////` | 3 |
+| `/////` or more | 4 |
+| No prefix | 1 |
+
+For example:
+
+```stata
+****************************
+** Data Cleaning
+****************************
+
+****************************
+*** Variable Construction
+****************************
+```
+
+Here `Data Cleaning` is level 2 (`**` prefix) and `Variable Construction` is level 3 (`***` prefix).
 
 All symbols (programs, macros, variables, etc.) that fall within a section's range appear nested under that section in the outline.
 
