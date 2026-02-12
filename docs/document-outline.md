@@ -132,15 +132,15 @@ For single-line sections (`// Name ----`), the nesting level is derived from the
 | 8-11 characters | 3 |
 | 12+ characters | 4 |
 
-For example, longer delimiters produce higher-level (shallower) headings when you want to group sections:
+For example, longer delimiters produce deeper (more nested) headings:
 
 ```stata
-// Main Analysis ============
-// Subsection A ----
-// Subsection B ----
+// Main Section ----
+// Subsection A ============
+// Subsection B ============
 ```
 
-Here `Main Analysis` is level 3 (11 `=` chars) and the subsections are level 1 (4 `-` chars), so the subsections nest under the main heading.
+Here `Main Section` is level 1 (4 `-` chars) and the subsections are level 3 (12 `=` chars), so the subsections nest under the main heading.
 
 #### Banner sections
 
