@@ -1,0 +1,6 @@
+{
+  "name": "sight-lsp",
+  "description": "Stata language support via the Sight LSP",
+  "version": "1.0.0",
+  "lspServers": "./.lsp.json"
+}

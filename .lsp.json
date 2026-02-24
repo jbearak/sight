@@ -1,0 +1,12 @@
+{
+  "stata": {
+    "command": "sight-language-server",
+    "args": ["--stdio"],
+    "extensionToLanguage": {
+      ".do": "stata",
+      ".ado": "stata",
+      ".doh": "stata",
+      ".mata": "stata"
+    }
+  }
+}
