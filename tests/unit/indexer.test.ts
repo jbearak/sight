@@ -191,4 +191,53 @@ describe('WorkspaceIndexer', () => {
             )
         ).toBe(true);
     });
+
+    it('should derive the workspace root from each indexed file', async () => {
+        const the_updates: any[] = [];
+        indexer.set_on_file_indexed((my_update) => {
+            the_updates.push(my_update);
+        });
+
+        const first_workspace_root = path.join(temp_dir, 'ws1');
+        const second_workspace_root = path.join(temp_dir, 'ws2');
+        const first_data_dir = path.join(first_workspace_root, 'data');
+        const second_data_dir = path.join(second_workspace_root, 'data');
+        const second_scripts_dir = path.join(second_workspace_root, 'scripts');
+        fs.mkdirSync(first_workspace_root, { recursive: true });
+        fs.mkdirSync(first_data_dir, { recursive: true });
+        fs.mkdirSync(second_data_dir, { recursive: true });
+        fs.mkdirSync(second_scripts_dir, { recursive: true });
+
+        fs.writeFileSync(
+            path.join(first_data_dir, 'child.do'),
+            'global WRONG_ROOT \"1\"\n',
+        );
+        fs.writeFileSync(
+            path.join(second_data_dir, 'child.do'),
+            'global RIGHT_ROOT \"1\"\n'
+        );
+
+        const caller_path = path.join(second_scripts_dir, 'caller.do');
+        fs.writeFileSync(
+            caller_path,
+            '// @lsp-cd /data\n' +
+            'do \"child.do\"\n'
+        );
+
+        await indexer.initialize([
+            first_workspace_root,
+            second_workspace_root,
+        ]);
+
+        const caller_uri = URI.file(caller_path).toString();
+        const caller_update = the_updates.find(
+            (my_update) => my_update.uri === caller_uri
+        );
+
+        expect(caller_update).toBeDefined();
+        expect(caller_update.forward_calls).toHaveLength(1);
+        expect(caller_update.forward_calls[0].path).toBe(
+            path.join(second_data_dir, 'child.do')
+        );
+    });
 });

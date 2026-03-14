@@ -39,7 +39,10 @@ type MacroDefNodeLike = {
     range: { start: Position; end: Position };
 };
 import { IContextTracker } from '../context-tracker/types';
-import { ScopeResolver } from '../scope-resolver';
+import {
+    ScopeResolver,
+    build_scope_resolver_config
+} from '../scope-resolver';
 import { WorkspaceIndexer } from '../indexer';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -203,17 +206,9 @@ export class DefinitionProvider {
     ): Promise<Definition | null> {
         // Try scope resolver first
         if (scope_resolver) {
-            const resolve_config = cross_file_config?.assume_call_site
-                ? {
-                    assume_call_site: cross_file_config.assume_call_site,
-                    max_forward_depth: cross_file_config.max_forward_depth,
-                    backward_dependencies: cross_file_config.backward_dependencies,
-                }
-                : {
-                    max_forward_depth: cross_file_config?.max_forward_depth,
-                    backward_dependencies:
-                        cross_file_config?.backward_dependencies,
-                };
+            const resolve_config = build_scope_resolver_config(
+                cross_file_config
+            );
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -268,17 +263,9 @@ export class DefinitionProvider {
     ): Promise<Definition | null> {
         // Try scope resolver first
         if (scope_resolver) {
-            const resolve_config = cross_file_config?.assume_call_site
-                ? {
-                    assume_call_site: cross_file_config.assume_call_site,
-                    max_forward_depth: cross_file_config.max_forward_depth,
-                    backward_dependencies: cross_file_config.backward_dependencies,
-                }
-                : {
-                    max_forward_depth: cross_file_config?.max_forward_depth,
-                    backward_dependencies:
-                        cross_file_config?.backward_dependencies,
-                };
+            const resolve_config = build_scope_resolver_config(
+                cross_file_config
+            );
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -678,19 +665,9 @@ export class DefinitionProvider {
 
         // Try scope resolver first if available
         if (scope_resolver) {
-            // Only pass config if assume_call_site is explicitly set to avoid
-            // overriding the default with undefined
-            const resolve_config = cross_file_config?.assume_call_site
-                ? {
-                    assume_call_site: cross_file_config.assume_call_site,
-                    max_forward_depth: cross_file_config.max_forward_depth,
-                    backward_dependencies: cross_file_config.backward_dependencies,
-                }
-                : {
-                    max_forward_depth: cross_file_config?.max_forward_depth,
-                    backward_dependencies:
-                        cross_file_config?.backward_dependencies,
-                };
+            const resolve_config = build_scope_resolver_config(
+                cross_file_config
+            );
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,

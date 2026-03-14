@@ -109,4 +109,70 @@ describe('ScopeResolver auto backward dependencies', () => {
             )
         ).toBe(true);
     });
+
+    it('follows multi-hop inferred parents in auto mode', async () => {
+        const child_path = write_test_file('child.do', 'display $FROM_GRANDPARENT');
+        const parent_content =
+            'do \"child.do\"\n';
+        const parent_path = write_test_file('parent.do', parent_content);
+        const grandparent_content =
+            'global FROM_GRANDPARENT \"1\"\n' +
+            'do \"parent.do\"\n';
+        const grandparent_path = write_test_file(
+            'grandparent.do',
+            grandparent_content
+        );
+
+        seed_forward_calls(parent_path, parent_content);
+        seed_forward_calls(grandparent_path, grandparent_content);
+
+        const child_uri = URI.file(child_path).toString();
+        const resolved_scope = await resolver.resolve(
+            child_uri,
+            fs.readFileSync(child_path, 'utf8'),
+            { backward_dependencies: 'auto' }
+        );
+
+        expect(resolved_scope.symbols.globalMacros.has('FROM_GRANDPARENT')).toBe(true);
+        expect(
+            resolved_scope.chain.some(
+                (my_entry) => my_entry.uri === URI.file(parent_path).toString()
+            )
+        ).toBe(true);
+        expect(
+            resolved_scope.chain.some(
+                (my_entry) => my_entry.uri === URI.file(grandparent_path).toString()
+            )
+        ).toBe(true);
+    });
+
+    it('inherits working directories through multi-hop inferred parents', async () => {
+        const data_dir = path.join(temp_dir, 'data');
+        fs.mkdirSync(data_dir, { recursive: true });
+        const child_path = path.join(data_dir, 'child.do');
+        fs.writeFileSync(child_path, 'display \"hello\"');
+        const parent_content =
+            'do \"child.do\"\n';
+        const parent_path = path.join(data_dir, 'parent.do');
+        fs.writeFileSync(parent_path, parent_content);
+        const grandparent_content =
+            '// @lsp-cd /data\n' +
+            'do \"parent.do\"\n';
+        const grandparent_path = write_test_file(
+            'grandparent.do',
+            grandparent_content
+        );
+
+        seed_forward_calls(parent_path, parent_content);
+        seed_forward_calls(grandparent_path, grandparent_content);
+
+        const child_uri = URI.file(child_path).toString();
+        const resolved_scope = await resolver.resolve(
+            child_uri,
+            fs.readFileSync(child_path, 'utf8'),
+            { backward_dependencies: 'auto' }
+        );
+
+        expect(resolved_scope.inherited_working_directory).toBe(data_dir);
+    });
 });

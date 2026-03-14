@@ -20,6 +20,7 @@ import {
     Token,
     ContextRange,
     ForwardCall,
+    WorkingDirectoryDirective,
 } from '../types';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
@@ -29,7 +30,10 @@ import {
     merge_symbol_tables
 } from '../analyzer';
 import { DirectiveParser } from '../directive-parser';
-import { ScopeResolver } from '../scope-resolver';
+import {
+    ScopeResolver,
+    build_scope_resolver_config
+} from '../scope-resolver';
 import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { compute_line_offsets } from '../utils/line-utils';
@@ -76,7 +80,7 @@ export class WorkspaceIndexer {
     private max_indexed_files: number = 1000;
     private max_files_reached = false;
     private version: number = 0;
-    private workspace_root: string | undefined;
+    private workspace_roots: string[] = [];
     private on_file_indexed?: (
         update: IndexedFileUpdate
     ) => void | Promise<void>;
@@ -98,7 +102,9 @@ export class WorkspaceIndexer {
         }
         this.ado_paths = ado_paths;
         this.cancelled = false;
-        this.workspace_root = workspace_folders[0];
+        this.workspace_roots = workspace_folders.map((my_folder) =>
+            path.normalize(my_folder)
+        );
         const start_time = Date.now();
 
         for (const folder of [...workspace_folders, ...this.ado_paths]) {
@@ -231,6 +237,7 @@ export class WorkspaceIndexer {
                 'utf8'
             );
             const file_uri = URI.file(file_path).toString();
+            const workspace_root = this.get_workspace_root_for_file(file_path);
 
             // Handle .mata files differently
             if (file_path.endsWith('.mata')) {
@@ -241,7 +248,10 @@ export class WorkspaceIndexer {
             // Parse directives
             const directive_result = this.directive_parser.parse(content, file_uri);
             const resolved_working_directory =
-                directive_result.working_directory?.resolved_path;
+                this.resolve_working_directory(
+                    directive_result.working_directory,
+                    workspace_root
+                );
 
             // Parse and analyze
             const lexResult = this.lexer.tokenize(content);
@@ -252,7 +262,7 @@ export class WorkspaceIndexer {
                 undefined,
                 {
                     working_directory: resolved_working_directory,
-                    workspace_root: this.workspace_root,
+                    workspace_root: workspace_root,
                 },
                 lexResult.tokens
             );
@@ -662,18 +672,9 @@ export class WorkspaceIndexer {
         try {
             const file_path = URI.parse(file_uri).fsPath;
             const content = await fs.promises.readFile(file_path, 'utf8');
-            // Only pass config if assume_call_site is explicitly set to avoid
-            // overriding the default with undefined
-            const resolve_config = cross_file_config?.assume_call_site
-                ? {
-                    assume_call_site: cross_file_config.assume_call_site,
-                    max_forward_depth: cross_file_config.max_forward_depth,
-                    backward_dependencies: cross_file_config.backward_dependencies,
-                }
-                : {
-                    max_forward_depth: cross_file_config?.max_forward_depth,
-                    backward_dependencies: cross_file_config?.backward_dependencies,
-                };
+            const resolve_config = build_scope_resolver_config(
+                cross_file_config
+            );
             const resolved_scope = await scope_resolver.resolve(
                 file_uri,
                 content,
@@ -687,5 +688,71 @@ export class WorkspaceIndexer {
                 ...entry.symbols,
             };
         }
+    }
+
+    private get_workspace_root_for_file(
+        file_path: string
+    ): string | undefined {
+        const normalized_file_path = path.normalize(file_path);
+        let matched_workspace_root: string | undefined;
+
+        for (const my_workspace_root of this.workspace_roots) {
+            const relative_path = path.relative(
+                my_workspace_root,
+                normalized_file_path
+            );
+            const is_within_workspace =
+                relative_path === '' ||
+                (
+                    !relative_path.startsWith('..') &&
+                    !path.isAbsolute(relative_path)
+                );
+
+            if (!is_within_workspace) {
+                continue;
+            }
+
+            if (
+                !matched_workspace_root ||
+                my_workspace_root.length > matched_workspace_root.length
+            ) {
+                matched_workspace_root = my_workspace_root;
+            }
+        }
+
+        return matched_workspace_root;
+    }
+
+    private resolve_working_directory(
+        directive?: WorkingDirectoryDirective,
+        workspace_root?: string
+    ): string | undefined {
+        if (!directive) {
+            return undefined;
+        }
+
+        let resolved_path = directive.resolved_path;
+
+        if (directive.is_workspace_relative) {
+            if (!workspace_root) {
+                return undefined;
+            }
+            resolved_path = path.normalize(
+                path.join(workspace_root, resolved_path)
+            );
+        }
+
+        try {
+            if (
+                fs.existsSync(resolved_path) &&
+                fs.statSync(resolved_path).isDirectory()
+            ) {
+                return resolved_path;
+            }
+        } catch {
+            return undefined;
+        }
+
+        return undefined;
     }
 }

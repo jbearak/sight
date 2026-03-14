@@ -47,6 +47,48 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
     backward_dependencies: 'auto',
 };
 
+export function build_scope_resolver_config(
+    config?: Partial<ScopeResolverConfig>
+): Partial<ScopeResolverConfig> {
+    if (!config) {
+        return {};
+    }
+
+    const resolved_config: Partial<ScopeResolverConfig> = {};
+
+    if (config.assume_call_site !== undefined) {
+        resolved_config.assume_call_site = config.assume_call_site;
+    }
+    if (config.max_backward_depth !== undefined) {
+        resolved_config.max_backward_depth = config.max_backward_depth;
+    }
+    if (config.max_forward_depth !== undefined) {
+        resolved_config.max_forward_depth = config.max_forward_depth;
+    }
+    if (config.max_chain_depth !== undefined) {
+        resolved_config.max_chain_depth = config.max_chain_depth;
+    }
+    if (config.backward_dependencies !== undefined) {
+        resolved_config.backward_dependencies = config.backward_dependencies;
+    }
+
+    if (config.diagnostics) {
+        const diagnostics: NonNullable<ScopeResolverConfig['diagnostics']> = {};
+        if (config.diagnostics.max_depth !== undefined) {
+            diagnostics.max_depth = config.diagnostics.max_depth;
+        }
+        if (config.diagnostics.call_site_identification !== undefined) {
+            diagnostics.call_site_identification =
+                config.diagnostics.call_site_identification;
+        }
+        if (Object.keys(diagnostics).length > 0) {
+            resolved_config.diagnostics = diagnostics;
+        }
+    }
+
+    return resolved_config;
+}
+
 /**
  * Cache for file parsing results within a single resolution request.
  * Ensures we only read/parse each file once per request.
@@ -593,6 +635,26 @@ export class ScopeResolver {
         return hash.toString(36);
     }
 
+    private resolve_working_directory_directive(
+        directive?: WorkingDirectoryDirective
+    ): string | undefined {
+        if (!directive) {
+            return undefined;
+        }
+
+        if (!directive.is_workspace_relative) {
+            return directive.resolved_path;
+        }
+
+        if (!this.workspace_root) {
+            return undefined;
+        }
+
+        return path.normalize(
+            path.join(this.workspace_root, directive.resolved_path)
+        );
+    }
+
     /**
      * Compute a stable hash of the symbols that would be inherited by a child.
      * The hash targets the 'public interface' (globals, programs, scalars, matrices, variables).
@@ -815,7 +877,9 @@ export class ScopeResolver {
         // Check if current file has its own working directory
         // We need to parse directives again to get working_directory (parse_file doesn't return it)
         const directive_parse_result = this.directive_parser.parse(file_content, file_uri);
-        const own_working_directory = directive_parse_result.working_directory?.resolved_path;
+        const own_working_directory = this.resolve_working_directory_directive(
+            directive_parse_result.working_directory
+        );
 
         // Only use inherited working directory if current file doesn't have its own
         const inherited_working_directory = own_working_directory
@@ -1088,28 +1152,35 @@ export class ScopeResolver {
 
             // If the parent has a working_directory directive, resolve it for inheritance
             if (my_parent_result.working_directory_directive) {
-                let resolved_path = my_parent_result.working_directory_directive.resolved_path;
-                
-                // Handle workspace-relative paths
-                if (my_parent_result.working_directory_directive.is_workspace_relative) {
-                    if (this.workspace_root) {
-                        resolved_path = path.normalize(path.join(this.workspace_root, resolved_path));
-                    } else {
-                        this.warn(`discover_working_directory: Cannot resolve workspace-relative path "${my_parent_result.working_directory_directive.path}" - no workspace root set`);
-                        continue;
-                    }
+                const resolved_path = this.resolve_working_directory_directive(
+                    my_parent_result.working_directory_directive
+                );
+
+                if (!resolved_path) {
+                    this.warn(`discover_working_directory: Cannot resolve workspace-relative path \"${my_parent_result.working_directory_directive.path}\" - no workspace root set`);
+                    continue;
                 }
-                
                 return resolved_path;
             }
 
+            const normalized_parent_directives = this.normalize_directives(
+                my_parent_result.directives,
+                []
+            );
+            const effective_parent_directives =
+                this.get_effective_backward_directives(
+                    my_parent_uri,
+                    normalized_parent_directives,
+                    config
+                );
+
             // Otherwise, recursively search deeper ancestors
-            if (my_parent_result.directives.length > 0) {
+            if (effective_parent_directives.length > 0) {
                 // Mark as visited before recursing
                 visited.add(my_parent_uri);
 
                 const my_deeper_wd = await this.discover_working_directory(
-                    my_parent_result.directives,
+                    effective_parent_directives,
                     visited,
                     depth + 1,
                     config,
@@ -1436,10 +1507,16 @@ export class ScopeResolver {
                 my_parent_result.directives,
                 diagnostics
             );
+            const effective_parent_directives =
+                this.get_effective_backward_directives(
+                    my_parent_uri,
+                    normalized_parent_directives,
+                    config
+                );
             // Record chain length before recursion to strip locals from ancestor entries if needed
             const chain_length_before = chain.length;
             const recursive_result = await this.follow_directives(
-                normalized_parent_directives,
+                effective_parent_directives,
                 my_parent_uri,
                 visited,
                 chain,
@@ -1591,7 +1668,10 @@ export class ScopeResolver {
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
 
         // Use file's own working_directory if present, otherwise use inherited
-        const effective_working_directory = my_directive_result.working_directory?.resolved_path ?? inherited_working_directory;
+        const effective_working_directory =
+            this.resolve_working_directory_directive(
+                my_directive_result.working_directory
+            ) ?? inherited_working_directory;
 
         // Pass working_directory to analyzer for path resolution in do/run/include commands
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {

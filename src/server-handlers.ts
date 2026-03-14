@@ -341,6 +341,7 @@ export function create_completion_handler(
                 {
                     assume_call_site: config.cross_file?.assume_call_site,
                     max_forward_depth: config.cross_file?.max_forward_depth,
+                    backward_dependencies: config.cross_file?.backward_dependencies,
                 },
                 forward_scope,
                 workspace_version,
@@ -411,6 +412,7 @@ export function create_hover_handler(
             {
                 assume_call_site: config.cross_file?.assume_call_site,
                 max_forward_depth: config.cross_file?.max_forward_depth,
+                backward_dependencies: config.cross_file?.backward_dependencies,
             },
             token,
             workspace_root
@@ -450,6 +452,7 @@ export function create_definition_handler(
             {
                 assume_call_site: config.cross_file?.assume_call_site,
                 max_forward_depth: config.cross_file?.max_forward_depth,
+                backward_dependencies: config.cross_file?.backward_dependencies,
             },
             token
         );
