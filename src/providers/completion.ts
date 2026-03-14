@@ -862,15 +862,18 @@ export class CompletionProvider {
         cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
         forward_scope?: ForwardResolvedScope,
         workspace_version?: number,
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        graph_version?: number
     ): Promise<CompletionItem[]> {
         const profile_enabled = process.env.SIGHT_COMPLETION_PROFILE === '1';
         const start_time_ms = profile_enabled ? Date.now() : 0;
         try {
-            // Sync caches with workspace version to ensure invalidation
-            if (workspace_version !== undefined) {
-                this.prefix_cache.invalidate_on_workspace_change(workspace_version);
-                this.symbol_cache.invalidate_workspace(workspace_version);
+            // Sync caches with combined workspace + graph version to ensure
+            // invalidation when either workspace symbols or auto-parent edges change
+            const combined_version = (workspace_version ?? 0) + (graph_version ?? 0);
+            if (workspace_version !== undefined || graph_version !== undefined) {
+                this.prefix_cache.invalidate_on_workspace_change(combined_version);
+                this.symbol_cache.invalidate_workspace(combined_version);
             }
 
             // === SYNC PHASE: Fast early returns and context detection ===

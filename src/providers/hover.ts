@@ -130,14 +130,13 @@ export class HoverProvider {
         // Resolve scope if scope_resolver is provided
         let resolved_scope: ResolvedScope | undefined;
         if (scope_resolver) {
-            // Only pass config if assume_call_site is explicitly set to avoid
-            // overriding the default with undefined
             const resolve_config = cross_file_config?.assume_call_site
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                     max_forward_depth: cross_file_config.max_forward_depth,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : { backward_dependencies: cross_file_config?.backward_dependencies, max_forward_depth: cross_file_config?.max_forward_depth };
             resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,

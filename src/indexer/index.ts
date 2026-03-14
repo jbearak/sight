@@ -92,6 +92,7 @@ export class WorkspaceIndexer {
         ado_paths: string[] = []
     ): Promise<void> {
         if (!this.enabled) {
+            this.dependency_graph?.mark_scan_complete();
             return;
         }
         this.ado_paths = ado_paths;
@@ -199,6 +200,7 @@ export class WorkspaceIndexer {
      */
     async index_file(file_path: string): Promise<void> {
         if (this.cancelled || !this.enabled) return;
+        const file_uri = URI.file(file_path).toString();
 
         // Check max files limit
         if (this.metrics.files_indexed >= this.max_indexed_files) {
@@ -216,6 +218,7 @@ export class WorkspaceIndexer {
             // Check file size
             const stats = await fs.promises.stat(file_path);
             if (stats.size > this.size_threshold_bytes) {
+                this.dependency_graph?.remove_caller(file_uri);
                 logger.debug(
                     `Skipping large file ${file_path} ` +
                     `(${stats.size} bytes, ` +
@@ -230,7 +233,6 @@ export class WorkspaceIndexer {
                 file_path,
                 'utf8'
             );
-            const file_uri = URI.file(file_path).toString();
 
             // Handle .mata files differently
             if (file_path.endsWith('.mata')) {
@@ -286,6 +288,7 @@ export class WorkspaceIndexer {
             this.version++;
             this.metrics.files_indexed++;
         } catch (error) {
+            this.dependency_graph?.remove_caller(file_uri);
             logger.error(`Failed to index file ${file_path}: ${error}`);
             this.metrics.files_skipped++;
         }

@@ -28,6 +28,7 @@ export function create_mock_handler_deps(document_store: DocumentStore): Handler
         workspace_indexer: null,
         scope_resolver: null,
         forward_scope_resolver: null,
+        dependency_graph: null,
         rename_handler: null,
         get_document_settings: async () => ({} as any),
         connection: {

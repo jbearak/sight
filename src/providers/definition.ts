@@ -198,16 +198,17 @@ export class DefinitionProvider {
             const resolve_config = cross_file_config?.assume_call_site
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                     max_forward_depth: cross_file_config.max_forward_depth,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : { backward_dependencies: cross_file_config?.backward_dependencies, max_forward_depth: cross_file_config?.max_forward_depth };
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
                 resolve_config,
                 cancellation_token
             );
-            
+
             const local_macro = resolved_scope.symbols.localMacros.get(word);
             if (local_macro) {
                 return {
@@ -254,16 +255,17 @@ export class DefinitionProvider {
             const resolve_config = cross_file_config?.assume_call_site
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                     max_forward_depth: cross_file_config.max_forward_depth,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : { backward_dependencies: cross_file_config?.backward_dependencies, max_forward_depth: cross_file_config?.max_forward_depth };
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
                 resolve_config,
                 cancellation_token
             );
-            
+
             const global_macro = resolved_scope.symbols.globalMacros.get(word);
             if (global_macro) {
                 return {
@@ -323,9 +325,10 @@ export class DefinitionProvider {
             const resolve_config = cross_file_config?.assume_call_site
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                     max_forward_depth: cross_file_config.max_forward_depth,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : { backward_dependencies: cross_file_config?.backward_dependencies, max_forward_depth: cross_file_config?.max_forward_depth };
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -624,21 +627,20 @@ export class DefinitionProvider {
 
         // Try scope resolver first if available
         if (scope_resolver) {
-            // Only pass config if assume_call_site is explicitly set to avoid
-            // overriding the default with undefined
             const resolve_config = cross_file_config?.assume_call_site
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                     max_forward_depth: cross_file_config.max_forward_depth,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : { backward_dependencies: cross_file_config?.backward_dependencies, max_forward_depth: cross_file_config?.max_forward_depth };
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
                 resolve_config,
                 cancellation_token
             );
-            
+
             // Check local macros
             const local_macro = resolved_scope.symbols.localMacros.get(word);
             if (local_macro) {

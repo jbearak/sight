@@ -49,10 +49,11 @@ export class DependencyGraph {
         caller_uri: string,
         forward_calls: ForwardCall[]
     ): GraphUpdateResult {
-        const changed_callees = new Set<string>();
+        const my_caller_uri = this.normalize_uri(caller_uri);
+        const my_changed_callees = new Set<string>();
 
         // Filter to static calls with resolved paths
-        const the_new_callees = new Map<string, AutoBackwardEdge>();
+        const my_new_callees = new Map<string, AutoBackwardEdge>();
         for (const my_call of forward_calls) {
             if (!my_call.is_static || !my_call.path) continue;
 
@@ -60,9 +61,9 @@ export class DependencyGraph {
             const callee_uri = this.path_to_uri(my_call.path);
             // If multiple calls from the same caller to the same callee,
             // keep the earliest call site (first encounter wins)
-            if (!the_new_callees.has(callee_uri)) {
-                the_new_callees.set(callee_uri, {
-                    caller_uri,
+            if (!my_new_callees.has(callee_uri)) {
+                my_new_callees.set(callee_uri, {
+                    caller_uri: my_caller_uri,
                     call_type: my_call.type,
                     call_site_line: my_call.call_site_line,
                 });
@@ -70,80 +71,81 @@ export class DependencyGraph {
         }
 
         // Get old callee set for this caller
-        const old_callees = this.caller_to_callees.get(caller_uri);
+        const my_old_callees = this.caller_to_callees.get(my_caller_uri);
 
         // Remove stale edges (callees no longer referenced)
-        if (old_callees) {
-            for (const my_old_callee of old_callees) {
-                if (!the_new_callees.has(my_old_callee)) {
-                    this.remove_edge(caller_uri, my_old_callee);
-                    changed_callees.add(my_old_callee);
+        if (my_old_callees) {
+            for (const my_old_callee of my_old_callees) {
+                if (!my_new_callees.has(my_old_callee)) {
+                    this.remove_edge(my_caller_uri, my_old_callee);
+                    my_changed_callees.add(my_old_callee);
                 }
             }
         }
 
         // Add or update edges
-        for (const [my_callee_uri, my_edge] of the_new_callees) {
+        for (const [my_callee_uri, my_edge] of my_new_callees) {
             const did_change = this.add_or_update_edge(
                 my_callee_uri,
                 my_edge
             );
             if (did_change) {
-                changed_callees.add(my_callee_uri);
+                my_changed_callees.add(my_callee_uri);
             }
         }
 
         // Update caller → callees index
-        if (the_new_callees.size > 0) {
+        if (my_new_callees.size > 0) {
             this.caller_to_callees.set(
-                caller_uri,
-                new Set(the_new_callees.keys())
+                my_caller_uri,
+                new Set(my_new_callees.keys())
             );
         } else {
-            this.caller_to_callees.delete(caller_uri);
+            this.caller_to_callees.delete(my_caller_uri);
         }
 
-        if (changed_callees.size > 0) {
+        if (my_changed_callees.size > 0) {
             this.version_counter++;
         }
 
-        return { changed_callees };
+        return { changed_callees: my_changed_callees };
     }
 
     /**
      * Remove all edges originating from a caller file.
      */
     remove_caller(caller_uri: string): GraphUpdateResult {
-        const changed_callees = new Set<string>();
-        const old_callees = this.caller_to_callees.get(caller_uri);
+        const my_caller_uri = this.normalize_uri(caller_uri);
+        const my_changed_callees = new Set<string>();
+        const my_old_callees = this.caller_to_callees.get(my_caller_uri);
 
-        if (old_callees) {
-            for (const my_callee_uri of old_callees) {
-                this.remove_edge(caller_uri, my_callee_uri);
-                changed_callees.add(my_callee_uri);
+        if (my_old_callees) {
+            for (const my_callee_uri of my_old_callees) {
+                this.remove_edge(my_caller_uri, my_callee_uri);
+                my_changed_callees.add(my_callee_uri);
             }
-            this.caller_to_callees.delete(caller_uri);
+            this.caller_to_callees.delete(my_caller_uri);
         }
 
-        if (changed_callees.size > 0) {
+        if (my_changed_callees.size > 0) {
             this.version_counter++;
         }
 
-        return { changed_callees };
+        return { changed_callees: my_changed_callees };
     }
 
     /**
      * Get all auto-discovered parent files that call the given file.
      */
     get_parents(callee_uri: string): AutoBackwardEdge[] {
-        return this.callee_to_callers.get(callee_uri) ?? [];
+        return [...(this.callee_to_callers.get(callee_uri) ?? [])];
     }
 
     /**
      * Get the set of callee URIs for a given caller.
      */
     get_callees(caller_uri: string): Set<string> {
-        return this.caller_to_callees.get(caller_uri) ?? new Set();
+        return new Set(this.caller_to_callees.get(caller_uri) ?? []);
     }
 
     /**
@@ -271,6 +273,20 @@ export class DependencyGraph {
         } else {
             this.callee_to_callers.set(callee_uri, new_edges);
         }
+    }
+
+    /**
+     * Canonicalize a URI string by round-tripping through vscode-uri.
+     * Ensures consistent casing/escaping for map lookups.
+     */
+    private normalize_uri(uri: string): string {
+        const { URI } = require('vscode-uri');
+        // If it's already a file:// URI, parse and re-serialize
+        if (uri.startsWith('file://')) {
+            return URI.parse(uri).toString();
+        }
+        // Otherwise treat as a filesystem path
+        return URI.file(uri).toString();
     }
 
     /**

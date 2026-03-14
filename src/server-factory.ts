@@ -431,6 +431,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         workspace_indexer: null,
         scope_resolver: null,
         forward_scope_resolver: null,
+        dependency_graph: null,
         rename_handler: null,
         get_document_settings,
         connection: {
@@ -791,11 +792,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
             handler_deps.workspace_indexer = workspace_indexer;
             handler_deps.scope_resolver = scope_resolver;
             handler_deps.forward_scope_resolver = forward_scope_resolver;
+            handler_deps.dependency_graph = dependency_graph;
             handler_deps.rename_handler = rename_handler;
 
             // Initialize workspace indexer
             const workspace_folders_promise = connection.workspace.getWorkspaceFolders();
             workspace_folders_promise.then((folders) => {
+                if (!folders || !workspace_indexer) {
+                    // No workspace folders or no indexer: scan is trivially complete.
+                    dependency_graph?.mark_scan_complete();
+                    return;
+                }
                 if (folders && workspace_indexer) {
                     const folder_paths = folders
                         .map((f) => URI.parse(f.uri).fsPath)
@@ -934,6 +941,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
         if (scope_resolver) {
             scope_resolver.remove_caller_from_reverse_deps(e.document.uri);
+        }
+        // Restore dependency graph to disk state when a document closes.
+        // In-memory edits may have changed do/run/include edges; reverting
+        // to the workspace indexer's version ensures stale edges don't persist.
+        if (dependency_graph && workspace_indexer) {
+            workspace_indexer.schedule_update(
+                URI.parse(e.document.uri).fsPath
+            );
         }
     });
 

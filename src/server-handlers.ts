@@ -44,6 +44,7 @@ import { StataLSPConfig } from './types';
 import { ContextTracker } from './context-tracker';
 import { ScopeResolver } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
+import { DependencyGraph } from './dependency-graph';
 import { RenameHandler } from './utils/file-rename-handler';
 import { DebounceManager, DocumentDebounceManager } from './utils/debounce-manager';
 
@@ -64,6 +65,7 @@ export interface HandlerDependencies {
     workspace_indexer: WorkspaceIndexer | null;
     scope_resolver: ScopeResolver | null;
     forward_scope_resolver: ForwardScopeResolver | null;
+    dependency_graph: DependencyGraph | null;
     rename_handler: RenameHandler | null;
     get_document_settings: (uri: string) => Promise<StataLSPConfig>;
     connection: {
@@ -332,6 +334,9 @@ export function create_completion_handler(
                 );
             }
             
+            const graph_version = deps.dependency_graph
+                ? deps.dependency_graph.get_version()
+                : undefined;
             const items = await deps.completion_provider.get_completions(
                 document_state,
                 params.position,
@@ -345,7 +350,8 @@ export function create_completion_handler(
                 },
                 forward_scope,
                 workspace_version,
-                token
+                token,
+                graph_version
             );
 
             // Detect completion context to determine isIncomplete (Req 9.1, 9.2)

@@ -843,6 +843,21 @@ export class ScopeResolver {
             }
         }
 
+        // Evict stale entries for this URI that differ only by graph version.
+        // Graph version bumps create new cache keys; old ones become dead weight.
+        const my_old_keys = this.uri_to_cache_keys.get(file_uri);
+        if (my_old_keys) {
+            // Strip graph suffix (|gN) from the new key to get base key
+            const my_base_key = cache_key.replace(/\|g\d+$/, '');
+            for (const my_old_key of my_old_keys) {
+                if (my_old_key !== cache_key &&
+                    my_old_key.replace(/\|g\d+$/, '') === my_base_key) {
+                    this.scope_cache.delete(my_old_key);
+                    my_old_keys.delete(my_old_key);
+                }
+            }
+        }
+
         // Cache the result
         this.scope_cache.set(cache_key, {
             resolved_scope,
