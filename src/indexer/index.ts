@@ -295,14 +295,12 @@ export class WorkspaceIndexer {
             });
             this.version++;
             this.metrics.files_indexed++;
-            if (this.on_file_indexed) {
-                await this.on_file_indexed({
-                    uri: file_uri,
-                    symbols: analyzeResult.symbols,
-                    directives: directive_result.directives,
-                    forward_calls: all_forward_calls,
-                });
-            }
+            await this.notify_file_indexed({
+                uri: file_uri,
+                symbols: analyzeResult.symbols,
+                directives: directive_result.directives,
+                forward_calls: all_forward_calls,
+            });
         } catch (error) {
             logger.error(`Failed to index file ${file_path}: ${error}`);
             this.metrics.files_skipped++;
@@ -357,14 +355,12 @@ export class WorkspaceIndexer {
         });
         this.version++;
         this.metrics.files_indexed++;
-        if (this.on_file_indexed) {
-            await this.on_file_indexed({
-                uri: file_uri,
-                symbols,
-                directives: [],
-                forward_calls: [],
-            });
-        }
+        await this.notify_file_indexed({
+            uri: file_uri,
+            symbols,
+            directives: [],
+            forward_calls: [],
+        });
     }
 
 
@@ -535,6 +531,22 @@ export class WorkspaceIndexer {
         ) => void | Promise<void>
     ): void {
         this.on_file_indexed = on_file_indexed;
+    }
+
+    private async notify_file_indexed(
+        update: IndexedFileUpdate
+    ): Promise<void> {
+        if (!this.on_file_indexed) {
+            return;
+        }
+
+        try {
+            await this.on_file_indexed(update);
+        } catch (my_error) {
+            logger.error(
+                `on_file_indexed callback failed for ${update.uri}: ${my_error}`
+            );
+        }
     }
 
     /**

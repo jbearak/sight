@@ -125,6 +125,23 @@ describe('WorkspaceIndexer', () => {
         expect(metrics.avg_file_time_ms).toBeGreaterThanOrEqual(0);
     });
 
+    it('should keep indexed state when on_file_indexed callback throws', async () => {
+        const file_path = path.join(temp_dir, 'callback-error.do');
+        fs.writeFileSync(file_path, 'program define callback_prog\\nend');
+
+        indexer.set_on_file_indexed(() => {
+            throw new Error('callback failure');
+        });
+
+        await indexer.index_file(file_path);
+
+        const symbols = indexer.get_all_symbols();
+        const metrics = indexer.get_metrics();
+        expect(symbols.programs.has('callback_prog')).toBe(true);
+        expect(metrics.files_indexed).toBe(1);
+        expect(metrics.files_skipped).toBe(0);
+    });
+
     it('should skip files larger than MAX_FILE_SIZE_BYTES', async () => {
         const file_path = path.join(temp_dir, 'large.do');
         // Create a file larger than 10MB
