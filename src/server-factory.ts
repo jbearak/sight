@@ -872,6 +872,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
                             ).then(() => {
                                 if (scope_resolver) {
                                     scope_resolver.set_workspace_scan_complete(true);
+                                    // Scope entries cached during the initial scan
+                                    // may be missing auto-inferred parents because
+                                    // the reverse dependency graph was incomplete.
+                                    scope_resolver.clear_scope_cache();
                                 }
                                 revalidate_all_open_documents();
                             }).catch((error) => {
@@ -880,6 +884,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                                 );
                                 if (scope_resolver) {
                                     scope_resolver.set_workspace_scan_complete(true);
+                                    scope_resolver.clear_scope_cache();
                                 }
                                 revalidate_all_open_documents();
                             });

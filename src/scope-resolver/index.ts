@@ -2488,17 +2488,27 @@ export class ScopeResolver {
     }
 
     /**
-     * Clear all caches.
+     * Clear all scope cache entries while preserving file parse caches and
+     * reverse dependency state.
      */
-    clear_cache(): void {
+    clear_scope_cache(): void {
         const scope_cache_size = this.scope_cache.size;
-        const file_cache_size = this.file_cache.size;
 
         this.scope_cache.clear();
         this.uri_to_cache_keys.clear();
-        this.file_cache.clear();
 
         this.cache_metrics.scope.invalidations += scope_cache_size;
+    }
+
+    /**
+     * Clear all caches.
+     */
+    clear_cache(): void {
+        const file_cache_size = this.file_cache.size;
+
+        this.clear_scope_cache();
+        this.file_cache.clear();
+
         this.cache_metrics.file.invalidations += file_cache_size;
     }
 

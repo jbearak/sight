@@ -187,6 +187,49 @@ local x = 1
         });
     });
 
+    describe('clear_scope_cache', () => {
+        it('refreshes auto backward scope after reverse dependencies appear', async () => {
+            const child_content = 'display $AUTO_PARENT';
+            const child_path = create_file('child.do', child_content);
+            const child_uri = `file://${child_path}`;
+            const parent_content =
+                'global AUTO_PARENT "1"\n' +
+                'do "child.do"\n';
+            const parent_path = create_file('parent.do', parent_content);
+            const parent_uri = `file://${parent_path}`;
+
+            const first_result = await resolver.resolve(
+                child_uri,
+                child_content,
+                { backward_dependencies: 'auto' }
+            );
+            expect(first_result.symbols.globalMacros.has('AUTO_PARENT')).toBe(
+                false
+            );
+
+            const parse_result = (resolver as any).parse_file(
+                parent_uri,
+                parent_content
+            );
+            resolver.update_reverse_dependencies(
+                parent_uri,
+                parse_result.forward_calls,
+                parse_result.symbols
+            );
+
+            resolver.clear_scope_cache();
+
+            const second_result = await resolver.resolve(
+                child_uri,
+                child_content,
+                { backward_dependencies: 'auto' }
+            );
+            expect(second_result.symbols.globalMacros.has('AUTO_PARENT')).toBe(
+                true
+            );
+        });
+    });
+
     describe('reset_cache_metrics', () => {
         it('should reset all counters without clearing caches', async () => {
             const file_path = create_file('test.do', 'local x = 1');
