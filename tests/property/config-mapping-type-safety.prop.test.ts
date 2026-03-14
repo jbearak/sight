@@ -27,6 +27,10 @@ describe('Config Mapping Type Safety Property Tests', () => {
                         fc.constant('end' as const),
                         fc.constant('start' as const)
                     ),
+                    backwardDependencies: fc.oneof(
+                        fc.constant('auto' as const),
+                        fc.constant('explicit' as const)
+                    ),
                 }),
                 (my_cross_file_config) => {
                     const my_raw = {
@@ -45,6 +49,9 @@ describe('Config Mapping Type Safety Property Tests', () => {
                     );
                     expect(my_result.cross_file!.assume_call_site).toBe(
                         my_cross_file_config.assumeCallSite
+                    );
+                    expect(my_result.cross_file!.backward_dependencies).toBe(
+                        my_cross_file_config.backwardDependencies
                     );
                 }
             ),
@@ -236,6 +243,13 @@ describe('Config Mapping Type Safety Property Tests', () => {
                         fc.integer(),
                         fc.boolean()
                     ),
+                    backwardDependencies: fc.oneof(
+                        fc.string().filter(
+                            (s) => s !== 'auto' && s !== 'explicit'
+                        ),
+                        fc.integer(),
+                        fc.boolean()
+                    ),
                 }),
                 (my_invalid_types) => {
                     const my_raw = {
@@ -248,6 +262,9 @@ describe('Config Mapping Type Safety Property Tests', () => {
                     expect(my_result.cross_file!.index_workspace).toBeUndefined();
                     expect(my_result.cross_file!.max_indexed_files).toBeUndefined();
                     expect(my_result.cross_file!.assume_call_site).toBeUndefined();
+                    expect(
+                        my_result.cross_file!.backward_dependencies
+                    ).toBeUndefined();
                 }
             ),
             { numRuns: 100 }

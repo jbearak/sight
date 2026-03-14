@@ -194,12 +194,14 @@ export class DiagnosticsProvider {
             ? {
                 assume_call_site: config.cross_file.assume_call_site,
                 max_forward_depth: config.cross_file?.max_forward_depth,
+                backward_dependencies: config.cross_file?.backward_dependencies,
                 diagnostics: {
                     max_depth: config.cross_file?.diagnostics?.max_depth,
                 },
             }
             : { 
                 max_forward_depth: config.cross_file?.max_forward_depth,
+                backward_dependencies: config.cross_file?.backward_dependencies,
                 diagnostics: {
                     max_depth: config.cross_file?.diagnostics?.max_depth,
                 },
@@ -210,10 +212,22 @@ export class DiagnosticsProvider {
             resolve_config,
             cancellation_token
         ) : undefined;
+        const defer_auto_backward_diagnostics =
+            !!scope_resolver &&
+            config.cross_file?.backward_dependencies === 'auto' &&
+            !resolved_scope?.has_directives &&
+            !scope_resolver.is_workspace_scan_complete();
         
         for (const my_diagnostic of this.extract_semantic_diagnostics(document)) {
             // Suppress Stata-specific semantic diagnostics in embedded contexts
             if (this.is_in_embedded_context(my_diagnostic.range.start, the_context_ranges)) {
+                continue;
+            }
+            if (
+                defer_auto_backward_diagnostics &&
+                (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO ||
+                 my_diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE)
+            ) {
                 continue;
             }
             

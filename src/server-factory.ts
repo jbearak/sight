@@ -649,6 +649,22 @@ export async function create_server(options: ServerOptions): Promise<void> {
         );
     }
 
+    function revalidate_all_open_documents(): void {
+        if (diagnostics_provider) {
+            for (const my_doc of documents.all()) {
+                diagnostics_provider.clear_published_version(my_doc.uri);
+            }
+        }
+
+        documents.all().forEach((my_doc) => {
+            validate_text_document(my_doc).catch((err) => {
+                connection.console.error(
+                    `Error validating ${my_doc.uri} after workspace scan: ${err}`
+                );
+            });
+        });
+    }
+
     // Wire initialize handler
     connection.onInitialize(
         create_initialize_handler(
@@ -741,6 +757,41 @@ export async function create_server(options: ServerOptions): Promise<void> {
             });
 
             scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+            workspace_indexer.set_on_file_indexed(async (update) => {
+                if (!scope_resolver) {
+                    return;
+                }
+
+                scope_resolver.sync_backward_directive_dependencies(
+                    update.uri,
+                    update.directives
+                );
+                const { affected_callees, interface_changed } =
+                    scope_resolver.update_reverse_dependencies(
+                        update.uri,
+                        update.forward_calls,
+                        update.symbols
+                    );
+
+                if (!scope_resolver.is_workspace_scan_complete()) {
+                    return;
+                }
+
+                if (affected_callees.size > 0) {
+                    scope_resolver.cascade_invalidate(affected_callees);
+                }
+
+                if (affected_callees.size === 0 && !interface_changed) {
+                    return;
+                }
+
+                const settings = await get_document_settings(update.uri);
+                schedule_callee_revalidation(
+                    affected_callees,
+                    update.uri,
+                    settings
+                );
+            });
 
             rename_handler = new RenameHandler(
                 (file_path: string) => {
@@ -811,8 +862,29 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
                         const enabled = settings.indexWorkspace !== false &&
                             settings.cross_file?.index_workspace !== false;
+                        if (scope_resolver) {
+                            scope_resolver.set_workspace_scan_complete(!enabled);
+                        }
                         if (enabled && workspace_indexer) {
-                            workspace_indexer.initialize(folder_paths, settings.adoPaths || []);
+                            workspace_indexer.initialize(
+                                folder_paths,
+                                settings.adoPaths || []
+                            ).then(() => {
+                                if (scope_resolver) {
+                                    scope_resolver.set_workspace_scan_complete(true);
+                                }
+                                revalidate_all_open_documents();
+                            }).catch((error) => {
+                                connection.console.error(
+                                    `Workspace indexing failed: ${error}`
+                                );
+                                if (scope_resolver) {
+                                    scope_resolver.set_workspace_scan_complete(true);
+                                }
+                                revalidate_all_open_documents();
+                            });
+                        } else if (scope_resolver) {
+                            scope_resolver.set_workspace_scan_complete(true);
                         }
                     });
                 }

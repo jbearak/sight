@@ -99,7 +99,11 @@ export class HoverProvider {
         position: Position,
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: {
+            assume_call_site?: 'start' | 'end';
+            max_forward_depth?: number;
+            backward_dependencies?: 'auto' | 'explicit';
+        },
 
         cancellation_token?: CancellationToken,
         workspace_root?: string
@@ -136,8 +140,12 @@ export class HoverProvider {
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
                     max_forward_depth: cross_file_config.max_forward_depth,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : {
+                    max_forward_depth: cross_file_config?.max_forward_depth,
+                    backward_dependencies: cross_file_config?.backward_dependencies,
+                };
             resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,

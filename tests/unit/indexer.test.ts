@@ -154,4 +154,41 @@ describe('WorkspaceIndexer', () => {
         // Should only index once despite 3 schedule calls
         expect(metrics.files_indexed).toBe(1);
     });
+
+    it('should report indexed forward calls with workspace-root-aware paths', async () => {
+        const the_updates: any[] = [];
+        indexer.set_on_file_indexed((my_update) => {
+            the_updates.push(my_update);
+        });
+
+        const data_dir = path.join(temp_dir, 'data');
+        const sub_dir = path.join(temp_dir, 'sub');
+        fs.mkdirSync(data_dir);
+        fs.mkdirSync(sub_dir);
+
+        const child_path = path.join(data_dir, 'child.do');
+        fs.writeFileSync(child_path, 'global CHILD_VAR "1"\n');
+
+        const caller_path = path.join(sub_dir, 'caller.do');
+        fs.writeFileSync(
+            caller_path,
+            'do "data/child.do"\n' +
+            '// @lsp-do: "../data/child.do"\n'
+        );
+
+        await indexer.initialize([temp_dir]);
+
+        const caller_uri = URI.file(caller_path).toString();
+        const caller_update = the_updates.find(
+            (my_update) => my_update.uri === caller_uri
+        );
+
+        expect(caller_update).toBeDefined();
+        expect(caller_update.forward_calls).toHaveLength(2);
+        expect(
+            caller_update.forward_calls.every(
+                (my_call: any) => my_call.path === child_path
+            )
+        ).toBe(true);
+    });
 });

@@ -73,7 +73,11 @@ export class DefinitionProvider {
         context_tracker?: IContextTracker,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: {
+            assume_call_site?: 'start' | 'end';
+            max_forward_depth?: number;
+            backward_dependencies?: 'auto' | 'explicit';
+        },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Check cancellation before starting (Req 5.2)
@@ -190,7 +194,11 @@ export class DefinitionProvider {
         document: DocumentState,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: {
+            assume_call_site?: 'start' | 'end';
+            max_forward_depth?: number;
+            backward_dependencies?: 'auto' | 'explicit';
+        },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Try scope resolver first
@@ -199,8 +207,13 @@ export class DefinitionProvider {
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
                     max_forward_depth: cross_file_config.max_forward_depth,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : {
+                    max_forward_depth: cross_file_config?.max_forward_depth,
+                    backward_dependencies:
+                        cross_file_config?.backward_dependencies,
+                };
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -246,7 +259,11 @@ export class DefinitionProvider {
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: {
+            assume_call_site?: 'start' | 'end';
+            max_forward_depth?: number;
+            backward_dependencies?: 'auto' | 'explicit';
+        },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Try scope resolver first
@@ -255,8 +272,13 @@ export class DefinitionProvider {
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
                     max_forward_depth: cross_file_config.max_forward_depth,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : {
+                    max_forward_depth: cross_file_config?.max_forward_depth,
+                    backward_dependencies:
+                        cross_file_config?.backward_dependencies,
+                };
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -284,7 +306,10 @@ export class DefinitionProvider {
 
         // Check workspace indexer
         if (workspace_indexer) {
-            const global_defs = workspace_indexer.find_symbol_definitions(word, 'global');
+            const global_defs = workspace_indexer.find_symbol_definitions(
+                word,
+                'global'
+            );
             if (global_defs.length > 0) {
                 return this.as_locations(global_defs);
             }
@@ -315,7 +340,11 @@ export class DefinitionProvider {
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: {
+            assume_call_site?: 'start' | 'end';
+            max_forward_depth?: number;
+            backward_dependencies?: 'auto' | 'explicit';
+        },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Try scope resolver first
@@ -324,8 +353,13 @@ export class DefinitionProvider {
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
                     max_forward_depth: cross_file_config.max_forward_depth,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : {
+                    max_forward_depth: cross_file_config?.max_forward_depth,
+                    backward_dependencies:
+                        cross_file_config?.backward_dependencies,
+                };
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -405,22 +439,34 @@ export class DefinitionProvider {
 
         // Check workspace indexer
         if (workspace_indexer) {
-            const variable_defs = workspace_indexer.find_symbol_definitions(word, 'variable');
+            const variable_defs = workspace_indexer.find_symbol_definitions(
+                word,
+                'variable'
+            );
             if (variable_defs.length > 0) {
                 return this.as_locations(variable_defs);
             }
 
-            const program_defs = workspace_indexer.find_symbol_definitions(word, 'program');
+            const program_defs = workspace_indexer.find_symbol_definitions(
+                word,
+                'program'
+            );
             if (program_defs.length > 0) {
                 return this.as_locations(program_defs);
             }
 
-            const scalar_defs = workspace_indexer.find_symbol_definitions(word, 'scalar');
+            const scalar_defs = workspace_indexer.find_symbol_definitions(
+                word,
+                'scalar'
+            );
             if (scalar_defs.length > 0) {
                 return this.as_locations(scalar_defs);
             }
 
-            const matrix_defs = workspace_indexer.find_symbol_definitions(word, 'matrix');
+            const matrix_defs = workspace_indexer.find_symbol_definitions(
+                word,
+                'matrix'
+            );
             if (matrix_defs.length > 0) {
                 return this.as_locations(matrix_defs);
             }
@@ -475,7 +521,11 @@ export class DefinitionProvider {
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: {
+            assume_call_site?: 'start' | 'end';
+            max_forward_depth?: number;
+            backward_dependencies?: 'auto' | 'explicit';
+        },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Use existing helper to determine if reference looks like a macro
@@ -611,7 +661,11 @@ export class DefinitionProvider {
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: {
+            assume_call_site?: 'start' | 'end';
+            max_forward_depth?: number;
+            backward_dependencies?: 'auto' | 'explicit';
+        },
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Get the word at the cursor position
@@ -630,8 +684,13 @@ export class DefinitionProvider {
                 ? {
                     assume_call_site: cross_file_config.assume_call_site,
                     max_forward_depth: cross_file_config.max_forward_depth,
+                    backward_dependencies: cross_file_config.backward_dependencies,
                 }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                : {
+                    max_forward_depth: cross_file_config?.max_forward_depth,
+                    backward_dependencies:
+                        cross_file_config?.backward_dependencies,
+                };
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,

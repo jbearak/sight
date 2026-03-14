@@ -1118,6 +1118,52 @@ display \`result'
             expect(out_of_scope_diag).toBeDefined();
             expect(out_of_scope_diag?.message).toContain('after the call site');
         });
+
+        it('defers undefined symbol diagnostics while auto backward scan is incomplete', async () => {
+            const document = create_real_document_state(
+                "display `undefined_macro'"
+            );
+            const auto_config = {
+                ...DEFAULT_CONFIG,
+                cross_file: {
+                    index_workspace: true,
+                    max_indexed_files: 1000,
+                    assume_call_site: 'end' as const,
+                    max_backward_depth: 10,
+                    max_forward_depth: 10,
+                    max_chain_depth: 20,
+                    backward_dependencies: 'auto' as const,
+                    diagnostics: {
+                        out_of_scope: 'information' as const,
+                        missing_file: 'warning' as const,
+                        max_depth: 'warning' as const,
+                    },
+                },
+            } as any;
+
+            const mock_scope_resolver = {
+                resolve: async () => ({
+                    symbols: create_empty_symbol_table(),
+                    chain: [],
+                    out_of_scope_symbols: [],
+                    diagnostics: [],
+                    has_directives: false,
+                }),
+                is_workspace_scan_complete: () => false,
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                auto_config,
+                undefined,
+                mock_scope_resolver as any
+            );
+
+            const undefined_macro = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_macro).toBeUndefined();
+        });
     });
 });
       

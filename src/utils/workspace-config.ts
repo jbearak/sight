@@ -82,6 +82,12 @@ export function map_stata_lsp_json_to_partial_config(raw: unknown): DeepPartial<
         if (cross_file_obj.assumeCallSite === 'end' || cross_file_obj.assumeCallSite === 'start') {
             mapped.cross_file!.assume_call_site = cross_file_obj.assumeCallSite;
         }
+        if (
+            cross_file_obj.backwardDependencies === 'auto' ||
+            cross_file_obj.backwardDependencies === 'explicit'
+        ) {
+            mapped.cross_file!.backward_dependencies = cross_file_obj.backwardDependencies;
+        }
         if (typeof cross_file_obj.maxBackwardDepth === 'number') {
             mapped.cross_file!.max_backward_depth = cross_file_obj.maxBackwardDepth;
         }

@@ -625,6 +625,7 @@ export interface ScopeResolverConfig {
   max_backward_depth: number;      // Limit backward directive chain depth (@lsp-done-by, @lsp-included-by)
   max_forward_depth: number;       // Limit forward-call recursion depth (do/run/include commands)
   max_chain_depth: number;         // Overall limit for combined forward + backward resolution
+  backward_dependencies?: 'auto' | 'explicit';
   diagnostics?: {
     max_depth?: 'error' | 'warning' | 'information' | 'off';
     // Severity for call site identification diagnostics
@@ -658,6 +659,7 @@ export interface CrossFileConfig {
   max_backward_depth: number;      // Limit backward directive chain depth
   max_forward_depth: number;       // Limit forward-call recursion depth  
   max_chain_depth: number;         // Overall limit for combined resolution
+  backward_dependencies: 'auto' | 'explicit';
   max_callee_revalidations?: number;  // Maximum callees to revalidate per caller change (default: 10)
   diagnostics: {
     out_of_scope: 'error' | 'warning' | 'information' | 'off';

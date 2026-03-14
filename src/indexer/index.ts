@@ -19,6 +19,7 @@ import {
     MatrixSymbol,
     Token,
     ContextRange,
+    ForwardCall,
 } from '../types';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
@@ -41,6 +42,13 @@ export interface IndexedFileData {
     uri: string;
     tokens: Token[];
     context_ranges?: ContextRange[];
+}
+
+export interface IndexedFileUpdate {
+    uri: string;
+    symbols: SymbolTable;
+    directives: Directive[];
+    forward_calls: ForwardCall[];
 }
 
 /**
@@ -68,6 +76,10 @@ export class WorkspaceIndexer {
     private max_indexed_files: number = 1000;
     private max_files_reached = false;
     private version: number = 0;
+    private workspace_root: string | undefined;
+    private on_file_indexed?: (
+        update: IndexedFileUpdate
+    ) => void | Promise<void>;
     
     // Debouncing state for file updates
     private pending_updates: Map<string, NodeJS.Timeout> = new Map();
@@ -86,6 +98,7 @@ export class WorkspaceIndexer {
         }
         this.ado_paths = ado_paths;
         this.cancelled = false;
+        this.workspace_root = workspace_folders[0];
         const start_time = Date.now();
 
         for (const folder of [...workspace_folders, ...this.ado_paths]) {
@@ -227,14 +240,36 @@ export class WorkspaceIndexer {
 
             // Parse directives
             const directive_result = this.directive_parser.parse(content, file_uri);
+            const resolved_working_directory =
+                directive_result.working_directory?.resolved_path;
 
             // Parse and analyze
             const lexResult = this.lexer.tokenize(content);
             const parseResult = this.parser.parse(lexResult.tokens);
             const analyzeResult = this.analyzer.analyze(
                 parseResult.ast,
-                file_uri
+                file_uri,
+                undefined,
+                {
+                    working_directory: resolved_working_directory,
+                    workspace_root: this.workspace_root,
+                },
+                lexResult.tokens
             );
+            const directive_forward_calls: ForwardCall[] =
+                (directive_result.forward_calls ?? []).map((my_directive) => ({
+                    type: my_directive.type,
+                    path: my_directive.path,
+                    raw_path: my_directive.raw_path,
+                    call_site_line: my_directive.call_site_line,
+                    range: my_directive.range,
+                    source: 'directive',
+                    is_static: true,
+                }));
+            const all_forward_calls = [
+                ...analyzeResult.forward_calls,
+                ...directive_forward_calls,
+            ];
 
             // Compute context ranges for embedded language support
             const context_tracker = new ContextTracker();
@@ -250,6 +285,14 @@ export class WorkspaceIndexer {
             });
             this.version++;
             this.metrics.files_indexed++;
+            if (this.on_file_indexed) {
+                await this.on_file_indexed({
+                    uri: file_uri,
+                    symbols: analyzeResult.symbols,
+                    directives: directive_result.directives,
+                    forward_calls: all_forward_calls,
+                });
+            }
         } catch (error) {
             logger.error(`Failed to index file ${file_path}: ${error}`);
             this.metrics.files_skipped++;
@@ -304,6 +347,14 @@ export class WorkspaceIndexer {
         });
         this.version++;
         this.metrics.files_indexed++;
+        if (this.on_file_indexed) {
+            await this.on_file_indexed({
+                uri: file_uri,
+                symbols,
+                directives: [],
+                forward_calls: [],
+            });
+        }
     }
 
 
@@ -466,6 +517,17 @@ export class WorkspaceIndexer {
     }
 
     /**
+     * Register a callback invoked whenever a file is indexed.
+     */
+    set_on_file_indexed(
+        on_file_indexed: (
+            update: IndexedFileUpdate
+        ) => void | Promise<void>
+    ): void {
+        this.on_file_indexed = on_file_indexed;
+    }
+
+    /**
      * Get all indexed files with their tokens.
      * Used by ReferencesProvider for workspace-wide search.
      */
@@ -585,7 +647,11 @@ export class WorkspaceIndexer {
     async get_reachable_symbols(
         file_uri: string,
         scope_resolver: ScopeResolver,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number }
+        cross_file_config?: {
+            assume_call_site?: 'start' | 'end';
+            max_forward_depth?: number;
+            backward_dependencies?: 'auto' | 'explicit';
+        }
     ): Promise<SymbolTable> {
         const entry = this.symbol_index.get(file_uri);
         if (!entry) {
@@ -599,8 +665,15 @@ export class WorkspaceIndexer {
             // Only pass config if assume_call_site is explicitly set to avoid
             // overriding the default with undefined
             const resolve_config = cross_file_config?.assume_call_site
-                ? { assume_call_site: cross_file_config.assume_call_site, max_forward_depth: cross_file_config.max_forward_depth }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+                ? {
+                    assume_call_site: cross_file_config.assume_call_site,
+                    max_forward_depth: cross_file_config.max_forward_depth,
+                    backward_dependencies: cross_file_config.backward_dependencies,
+                }
+                : {
+                    max_forward_depth: cross_file_config?.max_forward_depth,
+                    backward_dependencies: cross_file_config?.backward_dependencies,
+                };
             const resolved_scope = await scope_resolver.resolve(
                 file_uri,
                 content,

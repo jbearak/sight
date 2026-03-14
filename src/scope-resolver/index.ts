@@ -44,6 +44,7 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
     max_backward_depth: 10,
     max_forward_depth: 10,
     max_chain_depth: 20,
+    backward_dependencies: 'auto',
 };
 
 /**
@@ -101,6 +102,7 @@ export class ScopeResolver {
     private backward_directive_children: Map<string, Set<string>>;
     private content_provider: ContentProvider;
     private workspace_root: string | undefined;
+    private workspace_scan_complete: boolean;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
         this.directive_parser = new DirectiveParser();
@@ -120,6 +122,7 @@ export class ScopeResolver {
             last_forward_calls: new Map(),
         };
         this.backward_directive_children = new Map();
+        this.workspace_scan_complete = true;
 
         // Default content provider uses fs
         this.content_provider = content_provider || {
@@ -153,6 +156,20 @@ export class ScopeResolver {
      */
     set_workspace_root(workspace_root: string | undefined): void {
         this.workspace_root = workspace_root;
+    }
+
+    /**
+     * Mark whether the initial workspace scan has completed.
+     */
+    set_workspace_scan_complete(is_complete: boolean): void {
+        this.workspace_scan_complete = is_complete;
+    }
+
+    /**
+     * Check whether the initial workspace scan has completed.
+     */
+    is_workspace_scan_complete(): boolean {
+        return this.workspace_scan_complete;
     }
 
     /**
@@ -479,6 +496,82 @@ export class ScopeResolver {
     }
 
     /**
+     * Determine which backward directives should be followed for resolution.
+     * Explicit directives always win for the current file; auto mode only
+     * synthesizes parents when the file has no explicit backward directives.
+     */
+    private get_effective_backward_directives(
+        current_uri: string,
+        normalized_directives: Directive[],
+        config: ScopeResolverConfig
+    ): Directive[] {
+        if (normalized_directives.length > 0) {
+            return normalized_directives;
+        }
+
+        if (config.backward_dependencies !== 'auto') {
+            return normalized_directives;
+        }
+
+        return this.synthesize_auto_backward_directives(current_uri);
+    }
+
+    /**
+     * Synthesize backward directives from the reverse dependency graph.
+     */
+    private synthesize_auto_backward_directives(current_uri: string): Directive[] {
+        const caller_set = this.reverse_deps.callee_to_callers.get(current_uri);
+        if (!caller_set || caller_set.size === 0) {
+            return [];
+        }
+
+        const inferred_callers = Array.from(caller_set)
+            .map((caller_uri) => {
+                const call_edges = this.get_call_edges(caller_uri, current_uri);
+                if (!call_edges || call_edges.length === 0) {
+                    return undefined;
+                }
+
+                const earliest_edge = call_edges.reduce((min_edge, my_edge) =>
+                    my_edge.call_site_line < min_edge.call_site_line
+                        ? my_edge
+                        : min_edge
+                );
+
+                return {
+                    caller_uri,
+                    earliest_edge,
+                };
+            })
+            .filter((value): value is {
+                caller_uri: string;
+                earliest_edge: CallEdge;
+            } => value !== undefined)
+            .sort((a, b) => {
+                if (a.earliest_edge.call_site_line !== b.earliest_edge.call_site_line) {
+                    return a.earliest_edge.call_site_line -
+                        b.earliest_edge.call_site_line;
+                }
+                return a.caller_uri.localeCompare(b.caller_uri);
+            });
+
+        return inferred_callers.map(({ caller_uri, earliest_edge }, my_index) => {
+            const parent_path = URI.parse(caller_uri).fsPath;
+            return {
+                type: earliest_edge.call_type === 'include'
+                    ? 'included-by'
+                    : 'done-by',
+                path: parent_path,
+                raw_path: parent_path,
+                range: {
+                    start: { line: 0, character: my_index },
+                    end: { line: 0, character: my_index },
+                },
+            };
+        });
+    }
+
+    /**
      * Generate cache key for scope resolution.
      */
     private generate_cache_key(file_uri: string, content: string, config: ScopeResolverConfig): string {
@@ -676,6 +769,12 @@ export class ScopeResolver {
             my_directives,
             the_diagnostics
         );
+        const effective_backward_directives =
+            this.get_effective_backward_directives(
+                file_uri,
+                normalized_directives,
+                my_config
+            );
 
         // Register backward directive dependencies for this file
         // Clear old dependencies first, then register new ones
@@ -687,7 +786,7 @@ export class ScopeResolver {
 
         // Follow directive chain and get inherited working directory
         const directive_result = await this.follow_directives(
-            normalized_directives,
+            effective_backward_directives,
             file_uri,
             visited,
             the_chain,
@@ -1497,6 +1596,7 @@ export class ScopeResolver {
         // Pass working_directory to analyzer for path resolution in do/run/include commands
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
+            workspace_root: this.workspace_root,
         });
 
         // Combine forward calls from commands and directives

@@ -125,6 +125,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         max_backward_depth: 10,
         max_forward_depth: 10,
         max_chain_depth: 20,
+        backward_dependencies: 'auto',
         max_callee_revalidations: 10,
         diagnostics: {
             out_of_scope: 'information',

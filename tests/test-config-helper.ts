@@ -16,6 +16,7 @@ export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): Stata
         max_backward_depth: 10,
         max_forward_depth: 10,
         max_chain_depth: 20,
+        backward_dependencies: 'auto',
         max_callee_revalidations: 10,
         assume_call_site: 'end',
         diagnostics: {
