@@ -76,12 +76,21 @@ export class WorkspaceIndexer {
     private pending_updates: Map<string, NodeJS.Timeout> = new Map();
     private update_queue: Set<string> = new Set();
     private is_processing_queue = false;
+    private on_graph_change_callback?: (changed_callees: Set<string>) => void;
 
     /**
      * Set the dependency graph for auto backward dependency discovery.
      */
     set_dependency_graph(graph: DependencyGraph): void {
         this.dependency_graph = graph;
+    }
+
+    /**
+     * Set a callback invoked when the dependency graph changes during
+     * re-indexing, so the caller can cascade-invalidate scope caches.
+     */
+    set_on_graph_change(callback: (changed_callees: Set<string>) => void): void {
+        this.on_graph_change_callback = callback;
     }
 
     /**
@@ -218,7 +227,12 @@ export class WorkspaceIndexer {
             // Check file size
             const stats = await fs.promises.stat(file_path);
             if (stats.size > this.size_threshold_bytes) {
-                this.dependency_graph?.remove_caller(file_uri);
+                if (this.dependency_graph) {
+                    const graph_result = this.dependency_graph.remove_caller(file_uri);
+                    if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+                        this.on_graph_change_callback(graph_result.changed_callees);
+                    }
+                }
                 logger.debug(
                     `Skipping large file ${file_path} ` +
                     `(${stats.size} bytes, ` +
@@ -276,7 +290,12 @@ export class WorkspaceIndexer {
             }
 
             // Update dependency graph with forward calls
-            this.dependency_graph?.update_caller(file_uri, all_forward_calls);
+            if (this.dependency_graph) {
+                const graph_result = this.dependency_graph.update_caller(file_uri, all_forward_calls);
+                if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+                    this.on_graph_change_callback(graph_result.changed_callees);
+                }
+            }
 
             // Store tokens, context ranges, and symbols
             this.token_index.set(file_uri, lexResult.tokens);
@@ -288,7 +307,12 @@ export class WorkspaceIndexer {
             this.version++;
             this.metrics.files_indexed++;
         } catch (error) {
-            this.dependency_graph?.remove_caller(file_uri);
+            if (this.dependency_graph) {
+                const graph_result = this.dependency_graph.remove_caller(file_uri);
+                if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+                    this.on_graph_change_callback(graph_result.changed_callees);
+                }
+            }
             logger.error(`Failed to index file ${file_path}: ${error}`);
             this.metrics.files_skipped++;
         }
@@ -362,7 +386,12 @@ export class WorkspaceIndexer {
         this.update_queue.delete(file_path);
         
         const file_uri = URI.file(file_path).toString();
-        this.dependency_graph?.remove_caller(file_uri);
+        if (this.dependency_graph) {
+            const graph_result = this.dependency_graph.remove_caller(file_uri);
+            if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+                this.on_graph_change_callback(graph_result.changed_callees);
+            }
+        }
         if (this.symbol_index.delete(file_uri)) {
             this.version++;
         }

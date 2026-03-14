@@ -754,6 +754,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // Create and wire dependency graph for auto backward dependencies
             dependency_graph = new DependencyGraph();
             workspace_indexer.set_dependency_graph(dependency_graph);
+            workspace_indexer.set_on_graph_change((changed_callees) => {
+                scope_resolver?.cascade_invalidate(changed_callees);
+            });
             scope_resolver.set_dependency_graph(dependency_graph);
             diagnostics_provider.set_dependency_graph(dependency_graph);
 
@@ -942,9 +945,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
         if (scope_resolver) {
             scope_resolver.remove_caller_from_reverse_deps(e.document.uri);
         }
-        // Restore dependency graph to disk state when a document closes.
-        // In-memory edits may have changed do/run/include edges; reverting
-        // to the workspace indexer's version ensures stale edges don't persist.
+        // Immediately clear stale in-memory graph edges on close.
+        // In-memory edits may have changed do/run/include edges that differ
+        // from the on-disk state; clearing them and cascade-invalidating
+        // ensures callees don't resolve against a stale parent set.
+        if (dependency_graph) {
+            const graph_result = dependency_graph.update_caller(e.document.uri, []);
+            if (graph_result.changed_callees.size > 0 && scope_resolver) {
+                scope_resolver.cascade_invalidate(graph_result.changed_callees);
+            }
+        }
+        // Restore disk-state edges via re-indexing.
         if (dependency_graph && workspace_indexer) {
             workspace_indexer.schedule_update(
                 URI.parse(e.document.uri).fsPath
