@@ -19,7 +19,9 @@ import {
     MatrixSymbol,
     Token,
     ContextRange,
+    ForwardCall,
 } from '../types';
+import { DependencyGraph } from '../dependency-graph';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 import {
@@ -56,6 +58,7 @@ export class WorkspaceIndexer {
     private analyzer = new SemanticAnalyzer();
     private directive_parser = new DirectiveParser();
     private ado_paths: string[] = [];
+    private dependency_graph?: DependencyGraph;
     private metrics: IndexerMetrics = {
         files_indexed: 0,
         files_skipped: 0,
@@ -73,6 +76,13 @@ export class WorkspaceIndexer {
     private pending_updates: Map<string, NodeJS.Timeout> = new Map();
     private update_queue: Set<string> = new Set();
     private is_processing_queue = false;
+
+    /**
+     * Set the dependency graph for auto backward dependency discovery.
+     */
+    set_dependency_graph(graph: DependencyGraph): void {
+        this.dependency_graph = graph;
+    }
 
     /**
      * Initialize the indexer by scanning a list of folders.
@@ -100,6 +110,9 @@ export class WorkspaceIndexer {
                 this.metrics.total_index_time_ms /
                 this.metrics.files_indexed;
         }
+
+        // Mark dependency graph scan as complete
+        this.dependency_graph?.mark_scan_complete();
 
         // Log summary of skipped files
         this.log_skipped_files_summary();
@@ -241,6 +254,28 @@ export class WorkspaceIndexer {
             context_tracker.initialize_from_tokens(lexResult.tokens, content);
             const context_ranges = context_tracker.get_all_context_ranges();
 
+            // Combine forward calls from analyzer (command-detected)
+            // and directive parser (directive-detected)
+            let all_forward_calls = analyzeResult.forward_calls;
+            if (directive_result.forward_calls && directive_result.forward_calls.length > 0) {
+                const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
+                    type: d.type,
+                    path: d.path,
+                    raw_path: d.raw_path,
+                    call_site_line: d.call_site_line,
+                    range: d.range,
+                    source: 'directive' as const,
+                    is_static: true,
+                }));
+                all_forward_calls = [
+                    ...analyzeResult.forward_calls,
+                    ...directive_forward_calls,
+                ];
+            }
+
+            // Update dependency graph with forward calls
+            this.dependency_graph?.update_caller(file_uri, all_forward_calls);
+
             // Store tokens, context ranges, and symbols
             this.token_index.set(file_uri, lexResult.tokens);
             this.context_ranges_index.set(file_uri, context_ranges);
@@ -324,6 +359,7 @@ export class WorkspaceIndexer {
         this.update_queue.delete(file_path);
         
         const file_uri = URI.file(file_path).toString();
+        this.dependency_graph?.remove_caller(file_uri);
         if (this.symbol_index.delete(file_uri)) {
             this.version++;
         }

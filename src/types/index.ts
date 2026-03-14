@@ -616,12 +616,14 @@ export interface ResolvedScope {
   out_of_scope_symbols: OutOfScopeSymbol[];  // Symbols filtered by call site
   diagnostics: DirectiveDiagnostic[];
   has_directives: boolean;         // True if current file has directive comments (regardless of resolution)
+  has_auto_parents: boolean;       // True if auto-discovered (not explicit directive) parents were used
   inherited_working_directory?: string;  // Working directory inherited from parent files (if any)
   forward_call_symbols?: ForwardCallSite[];  // Symbols from current file's forward calls with visibility info
 }
 
 export interface ScopeResolverConfig {
   assume_call_site: 'end' | 'start';
+  backward_dependencies?: 'auto' | 'explicit';  // Auto-discover parents or explicit directives only
   max_backward_depth: number;      // Limit backward directive chain depth (@lsp-done-by, @lsp-included-by)
   max_forward_depth: number;       // Limit forward-call recursion depth (do/run/include commands)
   max_chain_depth: number;         // Overall limit for combined forward + backward resolution
@@ -655,8 +657,9 @@ export interface CrossFileConfig {
   index_workspace: boolean;
   max_indexed_files: number;
   assume_call_site: 'end' | 'start';
+  backward_dependencies: 'auto' | 'explicit';  // Auto-discover parents from workspace scan vs explicit directives only
   max_backward_depth: number;      // Limit backward directive chain depth
-  max_forward_depth: number;       // Limit forward-call recursion depth  
+  max_forward_depth: number;       // Limit forward-call recursion depth
   max_chain_depth: number;         // Overall limit for combined resolution
   max_callee_revalidations?: number;  // Maximum callees to revalidate per caller change (default: 10)
   diagnostics: {

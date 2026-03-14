@@ -270,7 +270,7 @@ describe('Callee Change Caller Revalidation Integration', () => {
             // Add a scope cache entry for the caller
             const cache_key = `${caller_uri}:test-hash:config-hash`;
             const cache_entry = {
-                resolved_scope: { chain: [], symbols, out_of_scope_symbols: [], diagnostics: [], has_directives: false },
+                resolved_scope: { chain: [], symbols, out_of_scope_symbols: [], diagnostics: [], has_directives: false, has_auto_parents: false },
                 content_hash: 'test-hash',
                 timestamp: Date.now(),
                 dependent_uris: new Set([callee_uri]),

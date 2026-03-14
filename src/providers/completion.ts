@@ -859,7 +859,7 @@ export class CompletionProvider {
         trigger_character?: string,
         scope_resolver?: ScopeResolver,
         workspace_symbols?: SymbolTable,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
         forward_scope?: ForwardResolvedScope,
         workspace_version?: number,
         cancellation_token?: CancellationToken
@@ -920,8 +920,8 @@ export class CompletionProvider {
                 // Only pass config if assume_call_site is explicitly set to avoid
                 // overriding the default with undefined
                 const resolve_config = cross_file_config?.assume_call_site
-                    ? { assume_call_site: cross_file_config.assume_call_site, max_forward_depth: cross_file_config.max_forward_depth }
-                    : { max_forward_depth: cross_file_config?.max_forward_depth };
+                    ? { assume_call_site: cross_file_config.assume_call_site, backward_dependencies: cross_file_config.backward_dependencies, max_forward_depth: cross_file_config.max_forward_depth }
+                    : { backward_dependencies: cross_file_config?.backward_dependencies, max_forward_depth: cross_file_config?.max_forward_depth };
                 const temp_scope = await scope_resolver.resolve(
                     document.uri,
                     document.content,
@@ -929,8 +929,9 @@ export class CompletionProvider {
                     cancellation_token
                 );
                 const has_directives = temp_scope.has_directives;
+                const has_auto_parents = temp_scope.has_auto_parents;
 
-                if (has_directives) {
+                if (has_directives || has_auto_parents) {
                     // With directives: use reachable scope chain (precision)
                     resolved_scope = temp_scope;
                     symbols_for_completion = temp_scope.symbols;

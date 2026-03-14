@@ -31,6 +31,7 @@ import { validate_comment_formatting_config } from './utils/config-validator';
 import { read_workspace_file_config_from_root, map_stata_lsp_json_to_partial_config } from './utils/workspace-config';
 import { RenameHandler } from './utils/file-rename-handler';
 import { Logger } from './utils/logger';
+import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
 
@@ -114,6 +115,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let workspace_indexer: WorkspaceIndexer | null = null;
     let scope_resolver: ScopeResolver | null = null;
     let forward_scope_resolver: ForwardScopeResolver | null = null;
+    let dependency_graph: DependencyGraph | null = null;
     let rename_handler: RenameHandler | null = null;
 
     // Maximum revalidation cascade depth to prevent A→B→C→A loops
@@ -533,6 +535,18 @@ export async function create_server(options: ServerOptions): Promise<void> {
                             document_state.symbols
                         );
 
+                        // Update dependency graph for auto backward discovery
+                        if (dependency_graph) {
+                            const graph_result = dependency_graph.update_caller(
+                                snapshot_uri,
+                                document_state.forward_calls
+                            );
+                            // Invalidate scope caches for callees whose parent sets changed
+                            if (graph_result.changed_callees.size > 0) {
+                                scope_resolver.cascade_invalidate(graph_result.changed_callees);
+                            }
+                        }
+
                         if (is_debug) {
                             connection.console.log(`[reverse-deps] Result: affected_callees=${affected_callees.size}, interface_changed=${interface_changed}`);
                         }
@@ -736,6 +750,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
             document_store.set_scope_resolver(scope_resolver);
 
+            // Create and wire dependency graph for auto backward dependencies
+            dependency_graph = new DependencyGraph();
+            workspace_indexer.set_dependency_graph(dependency_graph);
+            scope_resolver.set_dependency_graph(dependency_graph);
+            diagnostics_provider.set_dependency_graph(dependency_graph);
+
             forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
                 max_forward_depth: DEFAULT_SETTINGS.cross_file.max_forward_depth,
             });
@@ -812,7 +832,24 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         const enabled = settings.indexWorkspace !== false &&
                             settings.cross_file?.index_workspace !== false;
                         if (enabled && workspace_indexer) {
-                            workspace_indexer.initialize(folder_paths, settings.adoPaths || []);
+                            workspace_indexer.initialize(folder_paths, settings.adoPaths || []).then(() => {
+                                // mark_scan_complete is called inside initialize()
+                                // After workspace scan completes, re-trigger diagnostics
+                                // for all open documents so deferred diagnostics are evaluated
+                                if (dependency_graph?.is_scan_complete()) {
+                                    for (const my_doc of documents.all()) {
+                                        if (diagnostics_provider) {
+                                            diagnostics_provider.clear_published_version(my_doc.uri);
+                                        }
+                                        validate_text_document(my_doc, 0);
+                                    }
+                                }
+                            });
+                        } else {
+                            // Indexing disabled: scan is trivially complete.
+                            // Mark immediately so diagnostic deferral doesn't
+                            // suppress undefined-symbol warnings permanently.
+                            dependency_graph?.mark_scan_complete();
                         }
                     });
                 }

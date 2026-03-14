@@ -122,6 +122,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         index_workspace: true,
         max_indexed_files: 1000,
         assume_call_site: 'end',
+        backward_dependencies: 'auto',
         max_backward_depth: 10,
         max_forward_depth: 10,
         max_chain_depth: 20,
@@ -339,13 +340,14 @@ export function create_completion_handler(
                 workspace_symbols,
                 {
                     assume_call_site: config.cross_file?.assume_call_site,
+                    backward_dependencies: config.cross_file?.backward_dependencies,
                     max_forward_depth: config.cross_file?.max_forward_depth,
                 },
                 forward_scope,
                 workspace_version,
                 token
             );
-            
+
             // Detect completion context to determine isIncomplete (Req 9.1, 9.2)
             // Macro contexts need isIncomplete=true because the replacement range
             // changes dynamically as the user types macro delimiters.
@@ -409,6 +411,7 @@ export function create_hover_handler(
             deps.scope_resolver || undefined,
             {
                 assume_call_site: config.cross_file?.assume_call_site,
+                backward_dependencies: config.cross_file?.backward_dependencies,
                 max_forward_depth: config.cross_file?.max_forward_depth,
             },
             token,
@@ -448,6 +451,7 @@ export function create_definition_handler(
             deps.workspace_indexer || undefined,
             {
                 assume_call_site: config.cross_file?.assume_call_site,
+                backward_dependencies: config.cross_file?.backward_dependencies,
                 max_forward_depth: config.cross_file?.max_forward_depth,
             },
             token

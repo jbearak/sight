@@ -99,7 +99,7 @@ export class HoverProvider {
         position: Position,
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
 
         cancellation_token?: CancellationToken,
         workspace_root?: string
