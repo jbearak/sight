@@ -138,14 +138,16 @@ export class DependencyGraph {
      * Get all auto-discovered parent files that call the given file.
      */
     get_parents(callee_uri: string): AutoBackwardEdge[] {
-        return [...(this.callee_to_callers.get(callee_uri) ?? [])];
+        const my_uri = this.normalize_uri(callee_uri);
+        return [...(this.callee_to_callers.get(my_uri) ?? [])];
     }
 
     /**
      * Get the set of callee URIs for a given caller.
      */
     get_callees(caller_uri: string): Set<string> {
-        return new Set(this.caller_to_callees.get(caller_uri) ?? []);
+        const my_uri = this.normalize_uri(caller_uri);
+        return new Set(this.caller_to_callees.get(my_uri) ?? []);
     }
 
     /**

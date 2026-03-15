@@ -3,7 +3,7 @@ import * as fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
-import { arbitrary_identifier, arbitrary_local_macro_ref, arbitrary_global_macro_ref } from './generators';
+import { arbitrary_identifier, arbitrary_non_reserved_identifier, arbitrary_local_macro_ref, arbitrary_global_macro_ref } from './generators';
 
 /**
  * Property-based tests for Macro Reference Variable Registration Bug Fix
@@ -257,7 +257,7 @@ describe('Macro Reference Variable Registration Property Tests', () => {
     describe('Property 3: Valid identifiers still registered as variables', () => {
         it('should register valid identifiers in gen command', () => {
             fc.assert(
-                fc.property(arbitrary_identifier(), (varname) => {
+                fc.property(arbitrary_non_reserved_identifier(), (varname) => {
                     const source = `gen ${varname} = 1`;
                     const { tokens } = lexer.tokenize(source);
                     const { ast } = parser.parse(tokens);
@@ -272,7 +272,7 @@ describe('Macro Reference Variable Registration Property Tests', () => {
 
         it('should register valid identifiers in egen command', () => {
             fc.assert(
-                fc.property(arbitrary_identifier(), (varname) => {
+                fc.property(arbitrary_non_reserved_identifier(), (varname) => {
                     const source = `egen ${varname} = mean(x)`;
                     const { tokens } = lexer.tokenize(source);
                     const { ast } = parser.parse(tokens);
@@ -287,7 +287,7 @@ describe('Macro Reference Variable Registration Property Tests', () => {
 
         it('should register valid identifiers in input command', () => {
             fc.assert(
-                fc.property(arbitrary_identifier(), (varname) => {
+                fc.property(arbitrary_non_reserved_identifier(), (varname) => {
                     const source = `input ${varname}`;
                     const { tokens } = lexer.tokenize(source);
                     const { ast } = parser.parse(tokens);
@@ -302,7 +302,7 @@ describe('Macro Reference Variable Registration Property Tests', () => {
 
         it('should register valid identifiers in simple rename command', () => {
             fc.assert(
-                fc.property(arbitrary_identifier(), (varname) => {
+                fc.property(arbitrary_non_reserved_identifier(), (varname) => {
                     const source = `rename old ${varname}`;
                     const { tokens } = lexer.tokenize(source);
                     const { ast } = parser.parse(tokens);
