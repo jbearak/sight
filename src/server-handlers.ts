@@ -403,7 +403,9 @@ export function create_hover_handler(
             ? deps.workspace_indexer.get_all_symbols()
             : undefined;
         const config = await deps.get_document_settings(params.textDocument.uri);
-        const workspace_root = deps.document_store.get_workspace_root();
+        const workspace_root = deps.document_store.get_workspace_root_for_uri(
+            params.textDocument.uri
+        );
         return await deps.hover_provider.get_hover(
             document_state,
             params.position,

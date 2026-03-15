@@ -835,12 +835,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     if (forward_scope_resolver) {
                         forward_scope_resolver.set_workspace_roots(folder_paths);
                     }
+                    if (scope_resolver) {
+                        scope_resolver.set_workspace_roots(folder_paths);
+                    }
+                    document_store.set_workspace_roots(folder_paths);
 
                     if (folder_paths.length > 0) {
-                        document_store.set_workspace_root(folder_paths[0]);
-                        if (scope_resolver) {
-                            scope_resolver.set_workspace_root(folder_paths[0]);
-                        }
                         const loaded = read_workspace_file_config_from_root(folder_paths[0]);
                         workspace_file_config = loaded.partial_config;
                         if (loaded.error) {
@@ -902,20 +902,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 connection.workspace.onDidChangeWorkspaceFolders(async (_event) => {
                     connection.console.log('Workspace folder change event received.');
                     const folders = await connection.workspace.getWorkspaceFolders();
-                    if (folders && folders.length > 0) {
-                        const folder_path = URI.parse(folders[0].uri).fsPath;
-                        if (folder_path) {
-                            document_store.set_workspace_root(folder_path);
-                            if (scope_resolver) {
-                                scope_resolver.set_workspace_root(folder_path);
-                            }
-                        }
-                    } else {
-                        document_store.set_workspace_root(undefined);
-                        if (scope_resolver) {
-                            scope_resolver.set_workspace_root(undefined);
-                        }
+                    const folder_paths = (folders ?? [])
+                        .map((my_folder) => URI.parse(my_folder.uri).fsPath)
+                        .filter((my_path) => my_path !== undefined);
+                    if (forward_scope_resolver) {
+                        forward_scope_resolver.set_workspace_roots(folder_paths);
                     }
+                    if (scope_resolver) {
+                        scope_resolver.set_workspace_roots(folder_paths);
+                    }
+                    document_store.set_workspace_roots(folder_paths);
                 });
             }
         })

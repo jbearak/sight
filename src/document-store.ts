@@ -51,7 +51,7 @@ export class DocumentStore {
   private in_flight_counts: Map<string, number> = new Map();
   private readonly MAX_DOCUMENTS = 50;
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
-  private workspace_root: string | undefined;
+  private workspace_roots: string[] = [];
   private scope_resolver: ScopeResolver | undefined;
   private disposed: boolean = false;
 
@@ -73,14 +73,70 @@ export class DocumentStore {
    * and for fallback path resolution in forward calls.
    */
   set_workspace_root(workspace_root: string | undefined): void {
-    this.workspace_root = workspace_root;
+    this.set_workspace_roots(
+      workspace_root ? [workspace_root] : []
+    );
   }
 
   /**
-   * Get the current workspace root directory.
+   * Set all workspace roots for per-document workspace-relative path resolution.
+   */
+  set_workspace_roots(workspace_roots: string[]): void {
+    this.workspace_roots = Array.from(
+      new Set(
+        workspace_roots.map((my_workspace_root) =>
+          path.resolve(my_workspace_root)
+        )
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * Get the first configured workspace root directory.
+   * Retained for backward compatibility with older callers.
    */
   get_workspace_root(): string | undefined {
-    return this.workspace_root;
+    return this.workspace_roots[0];
+  }
+
+  /**
+   * Get the matching workspace root for a document URI.
+   */
+  get_workspace_root_for_uri(uri: string): string | undefined {
+    return this.get_workspace_root_for_path(URI.parse(uri).fsPath);
+  }
+
+  private get_workspace_root_for_path(
+    file_path: string
+  ): string | undefined {
+    const normalized_file_path = path.resolve(file_path);
+    let matched_workspace_root: string | undefined;
+
+    for (const my_workspace_root of this.workspace_roots) {
+      const relative_path = path.relative(
+        my_workspace_root,
+        normalized_file_path
+      );
+      const is_within_workspace =
+        relative_path === '' ||
+        (
+          !relative_path.startsWith('..') &&
+          !path.isAbsolute(relative_path)
+        );
+
+      if (!is_within_workspace) {
+        continue;
+      }
+
+      if (
+        !matched_workspace_root ||
+        my_workspace_root.length > matched_workspace_root.length
+      ) {
+        matched_workspace_root = my_workspace_root;
+      }
+    }
+
+    return matched_workspace_root;
   }
 
   /**
@@ -479,6 +535,7 @@ export class DocumentStore {
   ): Promise<DocumentState> {
     const start_time = Date.now();
     this.metrics.parse_count++;
+    const workspace_root = this.get_workspace_root_for_uri(uri);
 
     // Create fresh instances for thread safety (async execution means concurrent calls)
     const lexer = new StataLexer();
@@ -540,7 +597,7 @@ export class DocumentStore {
         // File has its own working directory directive
         resolved_working_directory = this.resolve_working_directory(
           directive_result.working_directory,
-          uri
+          workspace_root
         );
       } else if (directive_result.directives.length > 0 && this.scope_resolver) {
         // File has backward directives but no own working directory
@@ -566,7 +623,7 @@ export class DocumentStore {
         workspace_symbols,
         {
           working_directory: resolved_working_directory,
-          workspace_root: this.workspace_root,
+          workspace_root,
         },
         lex_result.result!.tokens
       )
@@ -864,23 +921,23 @@ export class DocumentStore {
    * - If the resolved directory doesn't exist, return undefined (fallback to script dir)
    * 
    * @param directive - The parsed working directory directive
-   * @param uri - The URI of the script file
+   * @param workspace_root - The matching workspace root for the current document
    * @returns The resolved absolute path, or undefined if resolution fails
    */
   private resolve_working_directory(
     directive: WorkingDirectoryDirective,
-    uri: string
+    workspace_root?: string
   ): string | undefined {
     let resolved_path: string;
 
     if (directive.is_workspace_relative) {
       // Resolve relative to workspace root
-      if (!this.workspace_root) {
+      if (!workspace_root) {
         // No workspace root available - cannot resolve workspace-relative path
         return undefined;
       }
       // resolved_path in directive already has leading slash stripped
-      resolved_path = path.normalize(path.join(this.workspace_root, directive.resolved_path));
+      resolved_path = path.normalize(path.join(workspace_root, directive.resolved_path));
     } else {
       // Resolve relative to script's containing directory
       // The directive parser already resolved this for us

@@ -54,6 +54,7 @@ export function build_scope_resolver_config(
         return {};
     }
 
+
     const resolved_config: Partial<ScopeResolverConfig> = {};
 
     if (config.assume_call_site !== undefined) {
@@ -143,7 +144,7 @@ export class ScopeResolver {
     // Track backward directive dependencies: parent_uri → set of child_uris that depend on it via @lsp-done-by/@lsp-included-by
     private backward_directive_children: Map<string, Set<string>>;
     private content_provider: ContentProvider;
-    private workspace_root: string | undefined;
+    private workspace_roots: string[];
     private workspace_scan_complete: boolean;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
@@ -164,6 +165,7 @@ export class ScopeResolver {
             last_forward_calls: new Map(),
         };
         this.backward_directive_children = new Map();
+        this.workspace_roots = [];
         this.workspace_scan_complete = true;
 
         // Default content provider uses fs
@@ -194,10 +196,39 @@ export class ScopeResolver {
     }
 
     /**
-     * Set the workspace root for resolving workspace-relative working directory paths.
+     * Set a single workspace root for resolving workspace-relative paths.
+     * Retained for backward compatibility with existing callers and tests.
      */
     set_workspace_root(workspace_root: string | undefined): void {
-        this.workspace_root = workspace_root;
+        this.set_workspace_roots(
+            workspace_root ? [workspace_root] : []
+        );
+    }
+
+    /**
+     * Set all workspace roots for per-file workspace-relative path resolution.
+     */
+    set_workspace_roots(workspace_roots: string[]): void {
+        const normalized_roots = Array.from(
+            new Set(
+                workspace_roots.map((my_workspace_root) =>
+                    path.resolve(my_workspace_root)
+                )
+            )
+        ).sort((a, b) => a.localeCompare(b));
+        const roots_unchanged =
+            normalized_roots.length === this.workspace_roots.length &&
+            normalized_roots.every(
+                (my_workspace_root, my_index) =>
+                    my_workspace_root === this.workspace_roots[my_index]
+            );
+
+        if (roots_unchanged) {
+            return;
+        }
+
+        this.workspace_roots = normalized_roots;
+        this.clear_cache();
     }
 
     /**
@@ -212,6 +243,43 @@ export class ScopeResolver {
      */
     is_workspace_scan_complete(): boolean {
         return this.workspace_scan_complete;
+    }
+
+    private get_workspace_root_for_uri(uri: string): string | undefined {
+        return this.get_workspace_root_for_path(URI.parse(uri).fsPath);
+    }
+
+    private get_workspace_root_for_path(
+        file_path: string
+    ): string | undefined {
+        const normalized_file_path = path.resolve(file_path);
+        let matched_workspace_root: string | undefined;
+
+        for (const my_workspace_root of this.workspace_roots) {
+            const relative_path = path.relative(
+                my_workspace_root,
+                normalized_file_path
+            );
+            const is_within_workspace =
+                relative_path === '' ||
+                (
+                    !relative_path.startsWith('..') &&
+                    !path.isAbsolute(relative_path)
+                );
+
+            if (!is_within_workspace) {
+                continue;
+            }
+
+            if (
+                !matched_workspace_root ||
+                my_workspace_root.length > matched_workspace_root.length
+            ) {
+                matched_workspace_root = my_workspace_root;
+            }
+        }
+
+        return matched_workspace_root;
     }
 
     /**
@@ -636,7 +704,8 @@ export class ScopeResolver {
     }
 
     private resolve_working_directory_directive(
-        directive?: WorkingDirectoryDirective
+        directive?: WorkingDirectoryDirective,
+        workspace_root?: string
     ): string | undefined {
         if (!directive) {
             return undefined;
@@ -646,12 +715,12 @@ export class ScopeResolver {
             return directive.resolved_path;
         }
 
-        if (!this.workspace_root) {
+        if (!workspace_root) {
             return undefined;
         }
 
         return path.normalize(
-            path.join(this.workspace_root, directive.resolved_path)
+            path.join(workspace_root, directive.resolved_path)
         );
     }
 
@@ -837,14 +906,14 @@ export class ScopeResolver {
                 normalized_directives,
                 my_config
             );
+        const current_workspace_root = this.get_workspace_root_for_uri(file_uri);
 
         // Register backward directive dependencies for this file
         // Clear old dependencies first, then register new ones
-        this.clear_backward_directive_dependencies(file_uri);
-        for (const my_directive of normalized_directives) {
-            const my_parent_uri = URI.file(my_directive.path).toString();
-            this.register_backward_directive_dependency(file_uri, my_parent_uri);
-        }
+        this.replace_backward_directive_dependencies(
+            file_uri,
+            effective_backward_directives
+        );
 
         // Follow directive chain and get inherited working directory
         const directive_result = await this.follow_directives(
@@ -878,7 +947,8 @@ export class ScopeResolver {
         // We need to parse directives again to get working_directory (parse_file doesn't return it)
         const directive_parse_result = this.directive_parser.parse(file_content, file_uri);
         const own_working_directory = this.resolve_working_directory_directive(
-            directive_parse_result.working_directory
+            directive_parse_result.working_directory,
+            current_workspace_root
         );
 
         // Only use inherited working directory if current file doesn't have its own
@@ -1152,8 +1222,11 @@ export class ScopeResolver {
 
             // If the parent has a working_directory directive, resolve it for inheritance
             if (my_parent_result.working_directory_directive) {
+                const parent_workspace_root =
+                    this.get_workspace_root_for_uri(my_parent_uri);
                 const resolved_path = this.resolve_working_directory_directive(
-                    my_parent_result.working_directory_directive
+                    my_parent_result.working_directory_directive,
+                    parent_workspace_root
                 );
 
                 if (!resolved_path) {
@@ -1513,6 +1586,10 @@ export class ScopeResolver {
                     normalized_parent_directives,
                     config
                 );
+            this.replace_backward_directive_dependencies(
+                my_parent_uri,
+                effective_parent_directives
+            );
             // Record chain length before recursion to strip locals from ancestor entries if needed
             const chain_length_before = chain.length;
             const recursive_result = await this.follow_directives(
@@ -1666,17 +1743,19 @@ export class ScopeResolver {
         const my_directive_result = this.directive_parser.parse(content, uri);
         const my_lex_result = this.lexer.tokenize(content);
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
+        const workspace_root = this.get_workspace_root_for_uri(uri);
 
         // Use file's own working_directory if present, otherwise use inherited
         const effective_working_directory =
             this.resolve_working_directory_directive(
-                my_directive_result.working_directory
+                my_directive_result.working_directory,
+                workspace_root
             ) ?? inherited_working_directory;
 
         // Pass working_directory to analyzer for path resolution in do/run/include commands
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
-            workspace_root: this.workspace_root,
+            workspace_root,
         });
 
         // Combine forward calls from commands and directives
@@ -2685,6 +2764,23 @@ export class ScopeResolver {
     }
 
     /**
+     * Replace all backward directive dependencies recorded for a child file.
+     */
+    private replace_backward_directive_dependencies(
+        child_uri: string,
+        directives: Directive[]
+    ): void {
+        this.clear_backward_directive_dependencies(child_uri);
+        for (const my_directive of directives) {
+            const my_parent_uri = URI.file(my_directive.path).toString();
+            this.register_backward_directive_dependency(
+                child_uri,
+                my_parent_uri
+            );
+        }
+    }
+
+    /**
      * Sync backward directive dependencies for a child file using a set of directives.
      * This is a helper for callers (e.g., DocumentStore) that already parsed directives
      * and want to register dependencies without doing a full scope resolve.
@@ -2692,11 +2788,7 @@ export class ScopeResolver {
     sync_backward_directive_dependencies(child_uri: string, directives: Directive[]): void {
         // Normalize directives to match resolve() behavior (handles done-by + included-by collisions)
         const normalized = this.normalize_directives(directives, []);
-        this.clear_backward_directive_dependencies(child_uri);
-        for (const my_directive of normalized) {
-            const my_parent_uri = URI.file(my_directive.path).toString();
-            this.register_backward_directive_dependency(child_uri, my_parent_uri);
-        }
+        this.replace_backward_directive_dependencies(child_uri, normalized);
     }
 
     /**

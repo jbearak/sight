@@ -214,6 +214,74 @@ local result \`parent_var'
         });
     });
 
+    describe('Multi-root DocumentStore behavior', () => {
+        it('uses the matching workspace root for workspace-relative @lsp-cd', async () => {
+            const first_root = path.join(test_dir, 'workspace-a');
+            const second_root = path.join(test_dir, 'workspace-b');
+            document_store.set_workspace_roots([first_root, second_root]);
+            scope_resolver.set_workspace_roots([first_root, second_root]);
+
+            write_file('workspace-a/data/load_data.do', '* wrong root');
+            write_file('workspace-b/data/load_data.do', '* right root');
+
+            const child_content = `// @lsp-cd: "/data"
+do "load_data.do"
+`;
+            const child_path = write_file(
+                'workspace-b/scripts/analysis.do',
+                child_content
+            );
+            const child_uri = URI.file(child_path).toString();
+
+            await document_store.open(child_uri, child_content, 1);
+            const document_state = document_store.get(child_uri);
+
+            expect(document_state).toBeDefined();
+            expect(document_state!.working_directory).toBeDefined();
+            expect(document_state!.working_directory).toBe(
+                path.join(second_root, 'data')
+            );
+
+            const load_data_call = document_state!.forward_calls.find(
+                my_call => my_call.raw_path === 'load_data.do'
+            );
+            expect(load_data_call).toBeDefined();
+            expect(load_data_call!.path).toBe(
+                path.join(second_root, 'data', 'load_data.do')
+            );
+        });
+
+        it('uses the matching workspace root for analyzer fallback paths', async () => {
+            const first_root = path.join(test_dir, 'workspace-a');
+            const second_root = path.join(test_dir, 'workspace-b');
+            document_store.set_workspace_roots([first_root, second_root]);
+
+            write_file('workspace-a/shared/load_data.do', '* wrong root');
+            write_file('workspace-b/shared/load_data.do', '* right root');
+
+            const child_content = `do "shared/load_data"
+`;
+            const child_path = write_file(
+                'workspace-b/scripts/analysis.do',
+                child_content
+            );
+            const child_uri = URI.file(child_path).toString();
+
+            await document_store.open(child_uri, child_content, 1);
+            const document_state = document_store.get(child_uri);
+
+            expect(document_state).toBeDefined();
+
+            const load_data_call = document_state!.forward_calls.find(
+                my_call => my_call.raw_path === 'shared/load_data'
+            );
+            expect(load_data_call).toBeDefined();
+            expect(load_data_call!.path).toBe(
+                path.join(second_root, 'shared', 'load_data.do')
+            );
+        });
+    });
+
     describe('Chain Propagation', () => {
         it('should propagate working directory through multi-level chain', async () => {
             // Create chain: root.do -> middle.do -> leaf.do

@@ -127,7 +127,7 @@ describe('WorkspaceIndexer', () => {
 
     it('should keep indexed state when on_file_indexed callback throws', async () => {
         const file_path = path.join(temp_dir, 'callback-error.do');
-        fs.writeFileSync(file_path, 'program define callback_prog\\nend');
+        fs.writeFileSync(file_path, 'program define callback_prog\nend');
 
         indexer.set_on_file_indexed(() => {
             throw new Error('callback failure');
