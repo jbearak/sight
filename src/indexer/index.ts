@@ -205,6 +205,26 @@ export class WorkspaceIndexer {
     }
 
     /**
+     * Remove stale index entries for a file and notify graph subscribers.
+     * Only bumps version if the file was previously indexed.
+     */
+    private clear_stale_entry(file_uri: string): void {
+        if (this.dependency_graph) {
+            const graph_result = this.dependency_graph.remove_caller(file_uri);
+            if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+                this.on_graph_change_callback(graph_result.changed_callees);
+            }
+        }
+        const was_indexed = this.symbol_index.has(file_uri);
+        this.symbol_index.delete(file_uri);
+        this.token_index.delete(file_uri);
+        this.context_ranges_index.delete(file_uri);
+        if (was_indexed) {
+            this.version++;
+        }
+    }
+
+    /**
      * Index a single file.
      */
     async index_file(file_path: string): Promise<void> {
@@ -220,12 +240,7 @@ export class WorkspaceIndexer {
                     `Skipping remaining files.`
                 );
             }
-            if (this.dependency_graph) {
-                const graph_result = this.dependency_graph.remove_caller(file_uri);
-                if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
-                    this.on_graph_change_callback(graph_result.changed_callees);
-                }
-            }
+            this.clear_stale_entry(file_uri);
             return;
         }
 
@@ -233,12 +248,7 @@ export class WorkspaceIndexer {
             // Check file size
             const stats = await fs.promises.stat(file_path);
             if (stats.size > this.size_threshold_bytes) {
-                if (this.dependency_graph) {
-                    const graph_result = this.dependency_graph.remove_caller(file_uri);
-                    if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
-                        this.on_graph_change_callback(graph_result.changed_callees);
-                    }
-                }
+                this.clear_stale_entry(file_uri);
                 logger.debug(
                     `Skipping large file ${file_path} ` +
                     `(${stats.size} bytes, ` +
@@ -313,12 +323,7 @@ export class WorkspaceIndexer {
             this.version++;
             this.metrics.files_indexed++;
         } catch (error) {
-            if (this.dependency_graph) {
-                const graph_result = this.dependency_graph.remove_caller(file_uri);
-                if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
-                    this.on_graph_change_callback(graph_result.changed_callees);
-                }
-            }
+            this.clear_stale_entry(file_uri);
             logger.error(`Failed to index file ${file_path}: ${error}`);
             this.metrics.files_skipped++;
         }
@@ -392,17 +397,7 @@ export class WorkspaceIndexer {
         this.update_queue.delete(file_path);
         
         const file_uri = URI.file(file_path).toString();
-        if (this.dependency_graph) {
-            const graph_result = this.dependency_graph.remove_caller(file_uri);
-            if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
-                this.on_graph_change_callback(graph_result.changed_callees);
-            }
-        }
-        if (this.symbol_index.delete(file_uri)) {
-            this.version++;
-        }
-        this.token_index.delete(file_uri);
-        this.context_ranges_index.delete(file_uri);
+        this.clear_stale_entry(file_uri);
         this.skipped_files.delete(file_path);
     }
 

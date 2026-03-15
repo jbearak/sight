@@ -230,7 +230,8 @@ export class DiagnosticsProvider {
             this.dependency_graph &&
             !this.dependency_graph.is_scan_complete() &&
             resolved_scope &&
-            !resolved_scope.has_directives;
+            !resolved_scope.has_directives &&
+            !resolved_scope.has_auto_parents;
 
         for (const my_diagnostic of this.extract_semantic_diagnostics(document)) {
             // Suppress Stata-specific semantic diagnostics in embedded contexts
