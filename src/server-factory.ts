@@ -24,7 +24,7 @@ import { command_database } from './command-database';
 import { StataLSPConfig } from './types';
 import type { DeepPartial } from './utils/workspace-config';
 import { WorkspaceIndexer } from './indexer';
-import { ScopeResolver } from './scope-resolver';
+import { ScopeResolver, build_scope_resolver_config } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DocumentDebounceManager } from './utils/debounce-manager';
 import { validate_comment_formatting_config } from './utils/config-validator';
@@ -412,6 +412,69 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
     }
 
+    async function refresh_workspace_state(
+        folder_paths: string[]
+    ): Promise<void> {
+        if (forward_scope_resolver) {
+            forward_scope_resolver.set_workspace_roots(folder_paths);
+        }
+        if (scope_resolver) {
+            scope_resolver.set_workspace_roots(folder_paths);
+        }
+        document_store.set_workspace_roots(folder_paths);
+
+        workspace_file_config = undefined;
+        if (folder_paths.length > 0) {
+            const loaded = read_workspace_file_config_from_root(folder_paths[0]);
+            workspace_file_config = loaded.partial_config;
+            if (loaded.error) {
+                connection.console.log(
+                    `Error reading .sight.json: ${loaded.error}`
+                );
+            }
+        }
+
+        document_settings.clear();
+        const settings = await get_document_settings('');
+
+        if (workspace_indexer) {
+            workspace_indexer.configure(settings);
+            workspace_indexer.set_max_indexed_files(
+                settings.cross_file?.max_indexed_files ?? 1000
+            );
+            workspace_indexer.reset();
+        }
+
+        if (!server_capabilities.has_configuration_capability) {
+            global_settings = settings;
+        }
+
+        const enabled = settings.indexWorkspace !== false &&
+            settings.cross_file?.index_workspace !== false;
+        if (scope_resolver) {
+            scope_resolver.set_workspace_scan_complete(!enabled);
+        }
+
+        if (enabled && workspace_indexer) {
+            try {
+                await workspace_indexer.initialize(
+                    folder_paths,
+                    settings.adoPaths || []
+                );
+            } catch (error) {
+                connection.console.error(
+                    `Workspace indexing failed: ${error}`
+                );
+            }
+        }
+
+        if (scope_resolver) {
+            scope_resolver.set_workspace_scan_complete(true);
+            scope_resolver.clear_scope_cache();
+        }
+        revalidate_all_open_documents();
+    }
+
     // Mutable handler dependencies container (Req 4.1, 4.2, 14.1, 14.2).
     // Handlers capture this object by reference, so mutating its properties
     // after provider initialization makes new providers visible to all
@@ -761,10 +824,22 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 if (!scope_resolver) {
                     return;
                 }
+                const settings = await get_document_settings(update.uri);
+                const resolve_config = build_scope_resolver_config({
+                    assume_call_site: settings.cross_file?.assume_call_site,
+                    max_backward_depth:
+                        settings.cross_file?.max_backward_depth,
+                    max_forward_depth:
+                        settings.cross_file?.max_forward_depth,
+                    max_chain_depth: settings.cross_file?.max_chain_depth,
+                    backward_dependencies:
+                        settings.cross_file?.backward_dependencies,
+                });
 
                 scope_resolver.sync_backward_directive_dependencies(
                     update.uri,
-                    update.directives
+                    update.directives,
+                    resolve_config
                 );
                 const { affected_callees, interface_changed } =
                     scope_resolver.update_reverse_dependencies(
@@ -785,12 +860,41 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     return;
                 }
 
-                const settings = await get_document_settings(update.uri);
                 schedule_callee_revalidation(
                     affected_callees,
                     update.uri,
                     settings
                 );
+
+                if (!interface_changed) {
+                    return;
+                }
+
+                scope_resolver.invalidate_file_cache(update.uri, {
+                    preserve_forward_call_relationships: true,
+                });
+
+                const caller_uris =
+                    scope_resolver.get_callers_for_callee(update.uri);
+                if (caller_uris.size > 0) {
+                    schedule_caller_revalidation(
+                        caller_uris,
+                        update.uri,
+                        settings
+                    );
+                }
+
+                const backward_children =
+                    scope_resolver.get_transitive_backward_directive_children(
+                        update.uri
+                    );
+                if (backward_children.size > 0) {
+                    schedule_caller_revalidation(
+                        backward_children,
+                        update.uri,
+                        settings
+                    );
+                }
             });
 
             rename_handler = new RenameHandler(
@@ -827,72 +931,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // Initialize workspace indexer
             const workspace_folders_promise = connection.workspace.getWorkspaceFolders();
             workspace_folders_promise.then((folders) => {
-                if (folders && workspace_indexer) {
-                    const folder_paths = folders
-                        .map((f) => URI.parse(f.uri).fsPath)
-                        .filter((p) => p !== undefined);
-
-                    if (forward_scope_resolver) {
-                        forward_scope_resolver.set_workspace_roots(folder_paths);
-                    }
-                    if (scope_resolver) {
-                        scope_resolver.set_workspace_roots(folder_paths);
-                    }
-                    document_store.set_workspace_roots(folder_paths);
-
-                    if (folder_paths.length > 0) {
-                        const loaded = read_workspace_file_config_from_root(folder_paths[0]);
-                        workspace_file_config = loaded.partial_config;
-                        if (loaded.error) {
-                            connection.console.log(`Error reading .sight.json: ${loaded.error}`);
-                        }
-                    }
-
-                    get_document_settings('').then((settings) => {
-                        if (workspace_indexer) {
-                            workspace_indexer.configure(settings);
-                            workspace_indexer.set_max_indexed_files(
-                                settings.cross_file?.max_indexed_files ?? 1000
-                            );
-                        }
-
-                        if (!server_capabilities.has_configuration_capability) {
-                            global_settings = settings;
-                        }
-
-                        const enabled = settings.indexWorkspace !== false &&
-                            settings.cross_file?.index_workspace !== false;
-                        if (scope_resolver) {
-                            scope_resolver.set_workspace_scan_complete(!enabled);
-                        }
-                        if (enabled && workspace_indexer) {
-                            workspace_indexer.initialize(
-                                folder_paths,
-                                settings.adoPaths || []
-                            ).then(() => {
-                                if (scope_resolver) {
-                                    scope_resolver.set_workspace_scan_complete(true);
-                                    // Scope entries cached during the initial scan
-                                    // may be missing auto-inferred parents because
-                                    // the reverse dependency graph was incomplete.
-                                    scope_resolver.clear_scope_cache();
-                                }
-                                revalidate_all_open_documents();
-                            }).catch((error) => {
-                                connection.console.error(
-                                    `Workspace indexing failed: ${error}`
-                                );
-                                if (scope_resolver) {
-                                    scope_resolver.set_workspace_scan_complete(true);
-                                    scope_resolver.clear_scope_cache();
-                                }
-                                revalidate_all_open_documents();
-                            });
-                        } else if (scope_resolver) {
-                            scope_resolver.set_workspace_scan_complete(true);
-                        }
-                    });
-                }
+                const folder_paths = (folders ?? [])
+                    .map((my_folder) => URI.parse(my_folder.uri).fsPath)
+                    .filter((my_path) => my_path !== undefined);
+                refresh_workspace_state(folder_paths).catch((error) => {
+                    connection.console.error(
+                        `Workspace refresh failed: ${error}`
+                    );
+                });
             });
 
             if (server_capabilities.has_configuration_capability) {
@@ -905,13 +951,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     const folder_paths = (folders ?? [])
                         .map((my_folder) => URI.parse(my_folder.uri).fsPath)
                         .filter((my_path) => my_path !== undefined);
-                    if (forward_scope_resolver) {
-                        forward_scope_resolver.set_workspace_roots(folder_paths);
-                    }
-                    if (scope_resolver) {
-                        scope_resolver.set_workspace_roots(folder_paths);
-                    }
-                    document_store.set_workspace_roots(folder_paths);
+                    await refresh_workspace_state(folder_paths);
                 });
             }
         })

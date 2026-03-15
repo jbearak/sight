@@ -516,6 +516,32 @@ export class WorkspaceIndexer {
     }
 
     /**
+     * Reset indexed state so the workspace can be rebuilt from scratch.
+     */
+    reset(): void {
+        this.symbol_index.clear();
+        this.token_index.clear();
+        this.context_ranges_index.clear();
+        this.skipped_files.clear();
+        this.metrics = {
+            files_indexed: 0,
+            files_skipped: 0,
+            total_index_time_ms: 0,
+            avg_file_time_ms: 0,
+        };
+        this.max_files_reached = false;
+        this.cancelled = false;
+        this.version++;
+
+        for (const my_timer of this.pending_updates.values()) {
+            clearTimeout(my_timer);
+        }
+        this.pending_updates.clear();
+        this.update_queue.clear();
+        this.is_processing_queue = false;
+    }
+
+    /**
      * Set the maximum number of files to index.
      */
     set_max_indexed_files(limit: number): void {

@@ -209,13 +209,16 @@ export class ScopeResolver {
      * Set all workspace roots for per-file workspace-relative path resolution.
      */
     set_workspace_roots(workspace_roots: string[]): void {
-        const normalized_roots = Array.from(
-            new Set(
-                workspace_roots.map((my_workspace_root) =>
-                    path.resolve(my_workspace_root)
-                )
-            )
-        ).sort((a, b) => a.localeCompare(b));
+        const seen_roots = new Set<string>();
+        const normalized_roots: string[] = [];
+        for (const my_workspace_root of workspace_roots) {
+            const normalized_root = path.resolve(my_workspace_root);
+            if (seen_roots.has(normalized_root)) {
+                continue;
+            }
+            seen_roots.add(normalized_root);
+            normalized_roots.push(normalized_root);
+        }
         const roots_unchanged =
             normalized_roots.length === this.workspace_roots.length &&
             normalized_roots.every(
@@ -246,7 +249,11 @@ export class ScopeResolver {
     }
 
     private get_workspace_root_for_uri(uri: string): string | undefined {
-        return this.get_workspace_root_for_path(URI.parse(uri).fsPath);
+        try {
+            return this.get_workspace_root_for_path(URI.parse(uri).fsPath);
+        } catch {
+            return this.workspace_roots[0];
+        }
     }
 
     private get_workspace_root_for_path(
@@ -279,7 +286,7 @@ export class ScopeResolver {
             }
         }
 
-        return matched_workspace_root;
+        return matched_workspace_root ?? this.workspace_roots[0];
     }
 
     /**
@@ -1228,12 +1235,12 @@ export class ScopeResolver {
                     my_parent_result.working_directory_directive,
                     parent_workspace_root
                 );
-
+                if (resolved_path) {
+                    return resolved_path;
+                }
                 if (!resolved_path) {
                     this.warn(`discover_working_directory: Cannot resolve workspace-relative path \"${my_parent_result.working_directory_directive.path}\" - no workspace root set`);
-                    continue;
                 }
-                return resolved_path;
             }
 
             const normalized_parent_directives = this.normalize_directives(
@@ -2587,6 +2594,12 @@ export class ScopeResolver {
 
         this.clear_scope_cache();
         this.file_cache.clear();
+        this.backward_directive_children.clear();
+        this.reverse_deps.caller_to_callees.clear();
+        this.reverse_deps.callee_to_callers.clear();
+        this.reverse_deps.forward_caller_to_callees.clear();
+        this.reverse_deps.interface_hashes.clear();
+        this.reverse_deps.last_forward_calls.clear();
 
         this.cache_metrics.file.invalidations += file_cache_size;
     }
@@ -2785,10 +2798,28 @@ export class ScopeResolver {
      * This is a helper for callers (e.g., DocumentStore) that already parsed directives
      * and want to register dependencies without doing a full scope resolve.
      */
-    sync_backward_directive_dependencies(child_uri: string, directives: Directive[]): void {
+    sync_backward_directive_dependencies(
+        child_uri: string,
+        directives: Directive[],
+        config: Partial<ScopeResolverConfig> = {
+            backward_dependencies: 'explicit',
+        }
+    ): void {
         // Normalize directives to match resolve() behavior (handles done-by + included-by collisions)
         const normalized = this.normalize_directives(directives, []);
-        this.replace_backward_directive_dependencies(child_uri, normalized);
+        const resolved_config: ScopeResolverConfig = {
+            ...DEFAULT_CONFIG,
+            ...build_scope_resolver_config(config),
+        };
+        const effective_directives = this.get_effective_backward_directives(
+            child_uri,
+            normalized,
+            resolved_config
+        );
+        this.replace_backward_directive_dependencies(
+            child_uri,
+            effective_directives
+        );
     }
 
     /**

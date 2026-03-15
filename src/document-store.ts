@@ -82,13 +82,17 @@ export class DocumentStore {
    * Set all workspace roots for per-document workspace-relative path resolution.
    */
   set_workspace_roots(workspace_roots: string[]): void {
-    this.workspace_roots = Array.from(
-      new Set(
-        workspace_roots.map((my_workspace_root) =>
-          path.resolve(my_workspace_root)
-        )
-      )
-    ).sort((a, b) => a.localeCompare(b));
+    const seen_roots = new Set<string>();
+    const the_normalized_roots: string[] = [];
+    for (const my_workspace_root of workspace_roots) {
+      const normalized_root = path.resolve(my_workspace_root);
+      if (seen_roots.has(normalized_root)) {
+        continue;
+      }
+      seen_roots.add(normalized_root);
+      the_normalized_roots.push(normalized_root);
+    }
+    this.workspace_roots = the_normalized_roots;
   }
 
   /**
@@ -103,7 +107,11 @@ export class DocumentStore {
    * Get the matching workspace root for a document URI.
    */
   get_workspace_root_for_uri(uri: string): string | undefined {
-    return this.get_workspace_root_for_path(URI.parse(uri).fsPath);
+    try {
+      return this.get_workspace_root_for_path(URI.parse(uri).fsPath);
+    } catch {
+      return this.workspace_roots[0];
+    }
   }
 
   private get_workspace_root_for_path(
@@ -136,7 +144,7 @@ export class DocumentStore {
       }
     }
 
-    return matched_workspace_root;
+    return matched_workspace_root ?? this.workspace_roots[0];
   }
 
   /**
