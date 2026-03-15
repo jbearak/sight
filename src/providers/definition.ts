@@ -28,27 +28,6 @@ import {
     MatrixSymbol,
 } from '../types';
 
-/**
- * Build the resolve config for ScopeResolver from cross-file config.
- * Only includes assume_call_site when explicitly set.
- */
-export function build_resolve_config(cross_file_config?: {
-    assume_call_site?: 'start' | 'end';
-    backward_dependencies?: 'auto' | 'explicit';
-    max_forward_depth?: number;
-}): { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number } {
-    if (cross_file_config?.assume_call_site) {
-        return {
-            assume_call_site: cross_file_config.assume_call_site,
-            backward_dependencies: cross_file_config.backward_dependencies,
-            max_forward_depth: cross_file_config.max_forward_depth,
-        };
-    }
-    return {
-        backward_dependencies: cross_file_config?.backward_dependencies,
-        max_forward_depth: cross_file_config?.max_forward_depth,
-    };
-}
 
 /** Symbol with a location, as returned by WorkspaceIndexer.find_symbol_definitions */
 type LocatableSymbol = ProgramSymbol | MacroSymbol | VariableSymbol | ScalarSymbol | MatrixSymbol;
@@ -61,7 +40,7 @@ type MacroDefNodeLike = {
     range: { start: Position; end: Position };
 };
 import { IContextTracker } from '../context-tracker/types';
-import { ScopeResolver } from '../scope-resolver';
+import { ScopeResolver, build_scope_resolver_config } from '../scope-resolver';
 import { WorkspaceIndexer } from '../indexer';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -217,7 +196,7 @@ export class DefinitionProvider {
     ): Promise<Definition | null> {
         // Try scope resolver first
         if (scope_resolver) {
-            const resolve_config = build_resolve_config(cross_file_config);
+            const resolve_config = build_scope_resolver_config(cross_file_config);
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -268,7 +247,7 @@ export class DefinitionProvider {
     ): Promise<Definition | null> {
         // Try scope resolver first
         if (scope_resolver) {
-            const resolve_config = build_resolve_config(cross_file_config);
+            const resolve_config = build_scope_resolver_config(cross_file_config);
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -332,7 +311,7 @@ export class DefinitionProvider {
     ): Promise<Definition | null> {
         // Try scope resolver first
         if (scope_resolver) {
-            const resolve_config = build_resolve_config(cross_file_config);
+            const resolve_config = build_scope_resolver_config(cross_file_config);
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
@@ -631,7 +610,7 @@ export class DefinitionProvider {
 
         // Try scope resolver first if available
         if (scope_resolver) {
-            const resolve_config = build_resolve_config(cross_file_config);
+            const resolve_config = build_scope_resolver_config(cross_file_config);
             const resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,

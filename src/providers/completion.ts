@@ -36,7 +36,7 @@ import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
 import { ScopeResolver } from '../scope-resolver';
-import { build_resolve_config } from './definition';
+import { build_scope_resolver_config } from '../scope-resolver';
 import { merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
 import { logger } from '../utils/logger';
@@ -921,7 +921,7 @@ export class CompletionProvider {
             let symbols_for_completion: SymbolTable = document.symbols;
 
             if (scope_resolver) {
-                const resolve_config = build_resolve_config(cross_file_config);
+                const resolve_config = build_scope_resolver_config(cross_file_config);
                 const temp_scope = await scope_resolver.resolve(
                     document.uri,
                     document.content,

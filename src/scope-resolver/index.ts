@@ -47,6 +47,35 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
 };
 
 /**
+ * Build a Partial<ScopeResolverConfig> with undefined values filtered out.
+ * This prevents undefined values from overriding defaults when spread-merged
+ * in ScopeResolver.resolve().
+ */
+export function build_scope_resolver_config(
+    config?: Partial<ScopeResolverConfig>
+): Partial<ScopeResolverConfig> {
+    if (!config) return {};
+    const result: Partial<ScopeResolverConfig> = {};
+    for (const [my_key, my_value] of Object.entries(config)) {
+        if (my_key === 'diagnostics' && my_value != null
+            && typeof my_value === 'object') {
+            const filtered_diagnostics = Object.fromEntries(
+                Object.entries(
+                    my_value as NonNullable<ScopeResolverConfig['diagnostics']>
+                ).filter(([, v]) => v !== undefined)
+            );
+            if (Object.keys(filtered_diagnostics).length > 0) {
+                result.diagnostics =
+                    filtered_diagnostics as ScopeResolverConfig['diagnostics'];
+            }
+        } else if (my_value !== undefined) {
+            (result as Record<string, unknown>)[my_key] = my_value;
+        }
+    }
+    return result;
+}
+
+/**
  * Cache for file parsing results within a single resolution request.
  * Ensures we only read/parse each file once per request.
  */
