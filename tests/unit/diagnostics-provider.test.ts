@@ -900,7 +900,7 @@ display \`result'
                     reason: 'inheritance_excludes_locals' as const,
                 }],
                 diagnostics: [],
-                has_directives: true,
+                has_directives: true, has_auto_parents: false,
             };
             
             const mock_scope_resolver = {
@@ -946,7 +946,7 @@ display \`result'
                     reason: 'after_call_site' as const,
                 }],
                 diagnostics: [],
-                has_directives: true,
+                has_directives: true, has_auto_parents: false,
             };
             
             const mock_scope_resolver = {
@@ -994,7 +994,7 @@ display \`result'
                     reason: 'inheritance_excludes_locals' as const,
                 }],
                 diagnostics: [],
-                has_directives: true,
+                has_directives: true, has_auto_parents: false,
             };
             
             const mock_scope_resolver = {
@@ -1046,7 +1046,7 @@ display \`result'
                     reason: 'after_call_site' as const,
                 }],
                 diagnostics: [],
-                has_directives: true,
+                has_directives: true, has_auto_parents: false,
             };
             
             const mock_scope_resolver = {
@@ -1097,7 +1097,7 @@ display \`result'
                     reason: 'after_call_site' as const,
                 }],
                 diagnostics: [],
-                has_directives: true,
+                has_directives: true, has_auto_parents: false,
             };
             
             const mock_scope_resolver = {

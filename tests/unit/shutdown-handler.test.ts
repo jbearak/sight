@@ -73,6 +73,7 @@ function create_mock_deps(overrides?: Partial<{
                     );
                 }),
         },
+        dependency_graph: null,
         rename_handler: {
             dispose: overrides?.rename_handler_dispose ?? (() => {
                 calls.push('rename_handler.dispose');

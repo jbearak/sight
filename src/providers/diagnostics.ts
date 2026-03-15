@@ -44,16 +44,24 @@ export class DiagnosticsProvider {
     private debounce_manager: DocumentDebounceManager | null = null;
     private indentation_analyzer = new IndentationDiagnosticAnalyzer();
     private operator_sequence_analyzer = new OperatorSequenceAnalyzer();
-    
+    private dependency_graph?: import('../dependency-graph').DependencyGraph;
+
     // Track published versions to prevent stale diagnostics
     private published_versions: Map<string, number> = new Map();
-    
+
     // Cache filtered diagnostics by (uri, version, config_hash)
     private filtered_cache: Map<string, Map<string, Diagnostic[]>> = new Map();
 
     constructor(connection: Connection, debounce_manager?: DocumentDebounceManager) {
         this.connection = connection;
         this.debounce_manager = debounce_manager || null;
+    }
+
+    /**
+     * Set the dependency graph for diagnostic deferral in auto mode.
+     */
+    set_dependency_graph(graph: import('../dependency-graph').DependencyGraph): void {
+        this.dependency_graph = graph;
     }
     
     /**
@@ -193,12 +201,14 @@ export class DiagnosticsProvider {
         const resolve_config = config.cross_file?.assume_call_site
             ? {
                 assume_call_site: config.cross_file.assume_call_site,
+                backward_dependencies: config.cross_file?.backward_dependencies,
                 max_forward_depth: config.cross_file?.max_forward_depth,
                 diagnostics: {
                     max_depth: config.cross_file?.diagnostics?.max_depth,
                 },
             }
-            : { 
+            : {
+                backward_dependencies: config.cross_file?.backward_dependencies,
                 max_forward_depth: config.cross_file?.max_forward_depth,
                 diagnostics: {
                     max_depth: config.cross_file?.diagnostics?.max_depth,
@@ -211,14 +221,33 @@ export class DiagnosticsProvider {
             cancellation_token
         ) : undefined;
         
+        // Diagnostic deferral for auto backward dependency mode:
+        // If workspace scan is not yet complete and the file has no explicit
+        // directives or auto-discovered parents, defer undefined symbol
+        // diagnostics to avoid false positives.
+        const backward_dep_mode = config.cross_file?.backward_dependencies ?? 'auto';
+        const defer_undefined_diagnostics = backward_dep_mode === 'auto' &&
+            this.dependency_graph &&
+            !this.dependency_graph.is_scan_complete() &&
+            resolved_scope &&
+            !resolved_scope.has_directives &&
+            !resolved_scope.has_auto_parents;
+
         for (const my_diagnostic of this.extract_semantic_diagnostics(document)) {
             // Suppress Stata-specific semantic diagnostics in embedded contexts
             if (this.is_in_embedded_context(my_diagnostic.range.start, the_context_ranges)) {
                 continue;
             }
-            
+
+            // Defer undefined symbol diagnostics until workspace scan completes
+            if (defer_undefined_diagnostics &&
+                (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO ||
+                 my_diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE)) {
+                continue;
+            }
+
             // Check if this is an undefined symbol that's actually defined in cross-file scope
-            if (resolved_scope && 
+            if (resolved_scope &&
                 (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO ||
                  my_diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE)) {
                 const symbol_name = this.extract_symbol_name_from_diagnostic(my_diagnostic);

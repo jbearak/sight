@@ -36,6 +36,7 @@ import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
 import { ScopeResolver } from '../scope-resolver';
+import { build_resolve_config } from './definition';
 import { merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
 import { logger } from '../utils/logger';
@@ -859,18 +860,21 @@ export class CompletionProvider {
         trigger_character?: string,
         scope_resolver?: ScopeResolver,
         workspace_symbols?: SymbolTable,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; max_forward_depth?: number },
+        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
         forward_scope?: ForwardResolvedScope,
         workspace_version?: number,
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        graph_version?: number
     ): Promise<CompletionItem[]> {
         const profile_enabled = process.env.SIGHT_COMPLETION_PROFILE === '1';
         const start_time_ms = profile_enabled ? Date.now() : 0;
         try {
-            // Sync caches with workspace version to ensure invalidation
-            if (workspace_version !== undefined) {
-                this.prefix_cache.invalidate_on_workspace_change(workspace_version);
-                this.symbol_cache.invalidate_workspace(workspace_version);
+            // Sync caches with combined workspace + graph version to ensure
+            // invalidation when either workspace symbols or auto-parent edges change
+            const combined_version = (workspace_version ?? 0) + (graph_version ?? 0);
+            if (workspace_version !== undefined || graph_version !== undefined) {
+                this.prefix_cache.invalidate_on_workspace_change(combined_version);
+                this.symbol_cache.invalidate_workspace(combined_version);
             }
 
             // === SYNC PHASE: Fast early returns and context detection ===
@@ -917,11 +921,7 @@ export class CompletionProvider {
             let symbols_for_completion: SymbolTable = document.symbols;
 
             if (scope_resolver) {
-                // Only pass config if assume_call_site is explicitly set to avoid
-                // overriding the default with undefined
-                const resolve_config = cross_file_config?.assume_call_site
-                    ? { assume_call_site: cross_file_config.assume_call_site, max_forward_depth: cross_file_config.max_forward_depth }
-                    : { max_forward_depth: cross_file_config?.max_forward_depth };
+                const resolve_config = build_resolve_config(cross_file_config);
                 const temp_scope = await scope_resolver.resolve(
                     document.uri,
                     document.content,
@@ -929,8 +929,9 @@ export class CompletionProvider {
                     cancellation_token
                 );
                 const has_directives = temp_scope.has_directives;
+                const has_auto_parents = temp_scope.has_auto_parents;
 
-                if (has_directives) {
+                if (has_directives || has_auto_parents) {
                     // With directives: use reachable scope chain (precision)
                     resolved_scope = temp_scope;
                     symbols_for_completion = temp_scope.symbols;

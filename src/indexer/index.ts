@@ -19,7 +19,9 @@ import {
     MatrixSymbol,
     Token,
     ContextRange,
+    ForwardCall,
 } from '../types';
+import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 import {
@@ -56,6 +58,7 @@ export class WorkspaceIndexer {
     private analyzer = new SemanticAnalyzer();
     private directive_parser = new DirectiveParser();
     private ado_paths: string[] = [];
+    private dependency_graph?: DependencyGraph;
     private metrics: IndexerMetrics = {
         files_indexed: 0,
         files_skipped: 0,
@@ -73,6 +76,22 @@ export class WorkspaceIndexer {
     private pending_updates: Map<string, NodeJS.Timeout> = new Map();
     private update_queue: Set<string> = new Set();
     private is_processing_queue = false;
+    private on_graph_change_callback?: (changed_callees: Set<string>) => void;
+
+    /**
+     * Set the dependency graph for auto backward dependency discovery.
+     */
+    set_dependency_graph(graph: DependencyGraph): void {
+        this.dependency_graph = graph;
+    }
+
+    /**
+     * Set a callback invoked when the dependency graph changes during
+     * re-indexing, so the caller can cascade-invalidate scope caches.
+     */
+    set_on_graph_change(callback: (changed_callees: Set<string>) => void): void {
+        this.on_graph_change_callback = callback;
+    }
 
     /**
      * Initialize the indexer by scanning a list of folders.
@@ -82,6 +101,7 @@ export class WorkspaceIndexer {
         ado_paths: string[] = []
     ): Promise<void> {
         if (!this.enabled) {
+            this.dependency_graph?.mark_scan_complete();
             return;
         }
         this.ado_paths = ado_paths;
@@ -100,6 +120,9 @@ export class WorkspaceIndexer {
                 this.metrics.total_index_time_ms /
                 this.metrics.files_indexed;
         }
+
+        // Mark dependency graph scan as complete
+        this.dependency_graph?.mark_scan_complete();
 
         // Log summary of skipped files
         this.log_skipped_files_summary();
@@ -182,10 +205,32 @@ export class WorkspaceIndexer {
     }
 
     /**
+     * Remove stale index entries for a file and notify graph subscribers.
+     * Only bumps version if the file was previously indexed.
+     */
+    private clear_stale_entry(file_uri: string): void {
+        let graph_result: GraphUpdateResult | undefined;
+        if (this.dependency_graph) {
+            graph_result = this.dependency_graph.remove_caller(file_uri);
+        }
+        const was_indexed = this.symbol_index.has(file_uri);
+        this.symbol_index.delete(file_uri);
+        this.token_index.delete(file_uri);
+        this.context_ranges_index.delete(file_uri);
+        if (was_indexed) {
+            this.version++;
+        }
+        if (graph_result && graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+            this.on_graph_change_callback(graph_result.changed_callees);
+        }
+    }
+
+    /**
      * Index a single file.
      */
     async index_file(file_path: string): Promise<void> {
         if (this.cancelled || !this.enabled) return;
+        const file_uri = URI.file(file_path).toString();
 
         // Check max files limit
         if (this.metrics.files_indexed >= this.max_indexed_files) {
@@ -196,6 +241,7 @@ export class WorkspaceIndexer {
                     `Skipping remaining files.`
                 );
             }
+            this.clear_stale_entry(file_uri);
             return;
         }
 
@@ -203,6 +249,7 @@ export class WorkspaceIndexer {
             // Check file size
             const stats = await fs.promises.stat(file_path);
             if (stats.size > this.size_threshold_bytes) {
+                this.clear_stale_entry(file_uri);
                 logger.debug(
                     `Skipping large file ${file_path} ` +
                     `(${stats.size} bytes, ` +
@@ -217,7 +264,6 @@ export class WorkspaceIndexer {
                 file_path,
                 'utf8'
             );
-            const file_uri = URI.file(file_path).toString();
 
             // Handle .mata files differently
             if (file_path.endsWith('.mata')) {
@@ -241,6 +287,33 @@ export class WorkspaceIndexer {
             context_tracker.initialize_from_tokens(lexResult.tokens, content);
             const context_ranges = context_tracker.get_all_context_ranges();
 
+            // Combine forward calls from analyzer (command-detected)
+            // and directive parser (directive-detected)
+            let all_forward_calls = analyzeResult.forward_calls;
+            if (directive_result.forward_calls && directive_result.forward_calls.length > 0) {
+                const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
+                    type: d.type,
+                    path: d.path,
+                    raw_path: d.raw_path,
+                    call_site_line: d.call_site_line,
+                    range: d.range,
+                    source: 'directive' as const,
+                    is_static: true,
+                }));
+                all_forward_calls = [
+                    ...analyzeResult.forward_calls,
+                    ...directive_forward_calls,
+                ].sort((a, b) => a.call_site_line - b.call_site_line);
+            }
+
+            // Update dependency graph with forward calls
+            if (this.dependency_graph) {
+                const graph_result = this.dependency_graph.update_caller(file_uri, all_forward_calls);
+                if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+                    this.on_graph_change_callback(graph_result.changed_callees);
+                }
+            }
+
             // Store tokens, context ranges, and symbols
             this.token_index.set(file_uri, lexResult.tokens);
             this.context_ranges_index.set(file_uri, context_ranges);
@@ -251,6 +324,7 @@ export class WorkspaceIndexer {
             this.version++;
             this.metrics.files_indexed++;
         } catch (error) {
+            this.clear_stale_entry(file_uri);
             logger.error(`Failed to index file ${file_path}: ${error}`);
             this.metrics.files_skipped++;
         }
@@ -324,11 +398,7 @@ export class WorkspaceIndexer {
         this.update_queue.delete(file_path);
         
         const file_uri = URI.file(file_path).toString();
-        if (this.symbol_index.delete(file_uri)) {
-            this.version++;
-        }
-        this.token_index.delete(file_uri);
-        this.context_ranges_index.delete(file_uri);
+        this.clear_stale_entry(file_uri);
         this.skipped_files.delete(file_path);
     }
 

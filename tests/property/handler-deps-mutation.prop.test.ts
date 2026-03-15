@@ -38,6 +38,7 @@ function create_null_deps(): HandlerDependencies {
         workspace_indexer: null,
         scope_resolver: null,
         forward_scope_resolver: null,
+        dependency_graph: null,
         rename_handler: null,
         get_document_settings: async () => DEFAULT_SETTINGS,
         connection: {
@@ -61,6 +62,7 @@ const PROVIDER_KEYS = [
     'workspace_indexer',
     'scope_resolver',
     'forward_scope_resolver',
+    'dependency_graph',
     'rename_handler',
     'diagnostics_provider',
 ] as const;

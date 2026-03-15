@@ -101,6 +101,7 @@ export class ScopeResolver {
     private backward_directive_children: Map<string, Set<string>>;
     private content_provider: ContentProvider;
     private workspace_root: string | undefined;
+    private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
         this.directive_parser = new DirectiveParser();
@@ -161,6 +162,13 @@ export class ScopeResolver {
      */
     set_forward_scope_resolver(resolver: ForwardScopeResolverInterface): void {
         this.forward_scope_resolver = resolver;
+    }
+
+    /**
+     * Set the dependency graph for auto backward dependency discovery.
+     */
+    set_dependency_graph(graph: import('../dependency-graph').DependencyGraph): void {
+        this.dependency_graph = graph;
     }
 
     /**
@@ -484,7 +492,15 @@ export class ScopeResolver {
     private generate_cache_key(file_uri: string, content: string, config: ScopeResolverConfig): string {
         const content_hash = this.hash_content(content);
         const config_hash = this.hash_content(JSON.stringify(config));
-        return `${file_uri}:${content_hash}:${config_hash}`;
+        // Include graph version in config hash for auto mode so that
+        // scope cache entries are invalidated when the graph changes.
+        // Folded into the config hash (not appended as extra segment) to
+        // preserve the uri:hash:hash cache key format expected by
+        // extract_uri_from_cache_key.
+        const graph_suffix = (config.backward_dependencies !== 'explicit' && this.dependency_graph)
+            ? `|g${this.dependency_graph.get_version()}`
+            : '';
+        return `${file_uri}:${content_hash}:${config_hash}${graph_suffix}`;
     }
 
     /**
@@ -671,9 +687,45 @@ export class ScopeResolver {
         // Create request cache for this resolution chain
         const request_cache: RequestCache = new Map();
 
+        // Auto backward dependency discovery:
+        // If auto mode is enabled and file has no explicit directives,
+        // query the dependency graph for auto-discovered parents.
+        let has_auto_parents = false;
+        let effective_directives = my_directives;
+
+        const backward_mode = my_config.backward_dependencies ?? 'auto';
+        if (backward_mode !== 'explicit' &&
+            my_directives.length === 0 &&
+            this.dependency_graph) {
+            const the_auto_edges =
+                this.dependency_graph.get_parents(file_uri);
+            if (the_auto_edges.length > 0) {
+                has_auto_parents = true;
+                // Synthesize Directive[] from auto-discovered edges
+                effective_directives = the_auto_edges.map(
+                    (my_edge) => ({
+                        type: (my_edge.call_type === 'include'
+                            ? 'included-by'
+                            : 'done-by') as 'done-by' | 'included-by',
+                        path: URI.parse(my_edge.caller_uri).fsPath,
+                        raw_path: URI.parse(my_edge.caller_uri).fsPath,
+                        call_site: {
+                            type: 'line' as const,
+                            // Directive convention: 1-indexed
+                            value: my_edge.call_site_line + 1,
+                        },
+                        range: {
+                            start: { line: 0, character: 0 },
+                            end: { line: 0, character: 0 },
+                        },
+                    })
+                );
+            }
+        }
+
         // Follow directive chain
         const normalized_directives = this.normalize_directives(
-            my_directives,
+            effective_directives,
             the_diagnostics
         );
 
@@ -707,6 +759,7 @@ export class ScopeResolver {
                 out_of_scope_symbols: the_out_of_scope,
                 diagnostics: [],
                 has_directives,
+                has_auto_parents,
             };
         }
 
@@ -774,6 +827,7 @@ export class ScopeResolver {
             out_of_scope_symbols: the_out_of_scope,
             diagnostics: remapped_diagnostics,
             has_directives,
+            has_auto_parents,
             inherited_working_directory,
             forward_call_symbols,
         };
@@ -786,6 +840,21 @@ export class ScopeResolver {
         if (forward_call_symbols) {
             for (const my_call_site of forward_call_symbols) {
                 dependent_uris.add(my_call_site.callee_uri);
+            }
+        }
+
+        // Evict stale entries for this URI that differ only by graph version.
+        // Graph version bumps create new cache keys; old ones become dead weight.
+        const my_old_keys = this.uri_to_cache_keys.get(file_uri);
+        if (my_old_keys) {
+            // Strip graph suffix (|gN) from the new key to get base key
+            const my_base_key = cache_key.replace(/\|g\d+$/, '');
+            for (const my_old_key of my_old_keys) {
+                if (my_old_key !== cache_key &&
+                    my_old_key.replace(/\|g\d+$/, '') === my_base_key) {
+                    this.scope_cache.delete(my_old_key);
+                    my_old_keys.delete(my_old_key);
+                }
             }
         }
 

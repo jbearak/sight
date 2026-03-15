@@ -13,6 +13,8 @@ export * from './providers/formatter';
 export { CommandDatabase, command_database } from './command-database';
 export { ForwardScopeResolver } from './forward-scope-resolver';
 export type { ForwardScopeConfig } from './forward-scope-resolver';
+export { DependencyGraph } from './dependency-graph';
+export type { AutoBackwardEdge, GraphUpdateResult } from './dependency-graph';
 
 // CLI and server factory exports
 export * from './cli';
