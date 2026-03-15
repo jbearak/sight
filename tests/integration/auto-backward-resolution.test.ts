@@ -384,6 +384,47 @@ describe('Auto Backward Resolution', () => {
             expect(scope.has_auto_parents).toBe(false);
             expect(scope.has_directives).toBe(false);
         });
+
+        it('should set has_auto_parents when scan is incomplete but parents already discovered', async () => {
+            const parent_path = write_file(tmp_dir, 'parent.do', [
+                'global from_parent "hello"',
+                'do child.do',
+            ].join('\n'));
+            const child_path = write_file(tmp_dir, 'child.do', [
+                'display $from_parent',
+            ].join('\n'));
+            const parent_uri = URI.file(parent_path).toString();
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            // Graph with pre-injected edges but scan NOT complete
+            const graph = new DependencyGraph();
+            graph.update_caller(parent_uri, [{
+                type: 'do',
+                path: child_path,
+                raw_path: 'child.do',
+                is_static: true,
+                call_site_line: 1,
+                range: { start: { line: 1, character: 0 }, end: { line: 1, character: 10 } },
+                source: 'command',
+            }]);
+            expect(graph.is_scan_complete()).toBe(false);
+            expect(graph.get_parents(child_uri)).toHaveLength(1);
+
+            const resolver = create_scope_resolver();
+            resolver.set_dependency_graph(graph);
+
+            const scope = await resolver.resolve(
+                child_uri,
+                child_content,
+                { backward_dependencies: 'auto' }
+            );
+
+            // Parents already discovered, has_auto_parents should be true
+            // even though scan is not yet complete
+            expect(scope.has_auto_parents).toBe(true);
+            expect(scope.symbols.globalMacros.has('from_parent')).toBe(true);
+        });
     });
 
     describe('workspace indexer integration', () => {

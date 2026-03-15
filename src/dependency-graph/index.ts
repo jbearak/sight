@@ -284,7 +284,7 @@ export class DependencyGraph {
     private normalize_uri(uri: string): string {
         const { URI } = require('vscode-uri');
         // If it's already a file:// URI, parse and re-serialize
-        if (uri.startsWith('file://')) {
+        if (/^file:\/\//i.test(uri)) {
             return URI.parse(uri).toString();
         }
         // Otherwise treat as a filesystem path

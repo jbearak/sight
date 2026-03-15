@@ -220,6 +220,12 @@ export class WorkspaceIndexer {
                     `Skipping remaining files.`
                 );
             }
+            if (this.dependency_graph) {
+                const graph_result = this.dependency_graph.remove_caller(file_uri);
+                if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+                    this.on_graph_change_callback(graph_result.changed_callees);
+                }
+            }
             return;
         }
 

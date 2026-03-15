@@ -39,6 +39,7 @@ import {
 import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
+import { build_resolve_config } from './definition';
 import { get_line_text } from '../utils/line-utils';
 
 /**
@@ -130,13 +131,7 @@ export class HoverProvider {
         // Resolve scope if scope_resolver is provided
         let resolved_scope: ResolvedScope | undefined;
         if (scope_resolver) {
-            const resolve_config = cross_file_config?.assume_call_site
-                ? {
-                    assume_call_site: cross_file_config.assume_call_site,
-                    backward_dependencies: cross_file_config.backward_dependencies,
-                    max_forward_depth: cross_file_config.max_forward_depth,
-                }
-                : { backward_dependencies: cross_file_config?.backward_dependencies, max_forward_depth: cross_file_config?.max_forward_depth };
+            const resolve_config = build_resolve_config(cross_file_config);
             resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,

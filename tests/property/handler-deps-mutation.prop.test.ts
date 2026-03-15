@@ -62,6 +62,7 @@ const PROVIDER_KEYS = [
     'workspace_indexer',
     'scope_resolver',
     'forward_scope_resolver',
+    'dependency_graph',
     'rename_handler',
     'diagnostics_provider',
 ] as const;

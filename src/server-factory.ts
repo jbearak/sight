@@ -814,6 +814,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 if (!folders || !workspace_indexer) {
                     // No workspace folders or no indexer: scan is trivially complete.
                     dependency_graph?.mark_scan_complete();
+                    // Re-trigger diagnostics for open docs so deferred
+                    // diagnostics are evaluated now that scan is "complete"
+                    for (const my_doc of documents.all()) {
+                        if (diagnostics_provider) {
+                            diagnostics_provider.clear_published_version(my_doc.uri);
+                        }
+                        validate_text_document(my_doc, 0);
+                    }
                     return;
                 }
                 if (folders && workspace_indexer) {
@@ -870,6 +878,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
                             // Mark immediately so diagnostic deferral doesn't
                             // suppress undefined-symbol warnings permanently.
                             dependency_graph?.mark_scan_complete();
+                            for (const my_doc of documents.all()) {
+                                if (diagnostics_provider) {
+                                    diagnostics_provider.clear_published_version(my_doc.uri);
+                                }
+                                validate_text_document(my_doc, 0);
+                            }
                         }
                     });
                 }
