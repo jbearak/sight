@@ -1984,10 +1984,19 @@ export class ScopeResolver {
                 diagnostics: parse_result.diagnostics,
             });
 
-            // Register backward directive dependencies from cached file
-            // This ensures transitive dependents are discoverable even when
-            // intermediate files are only read from disk (not opened in editor)
-            this.sync_backward_directive_dependencies(actual_uri, parse_result.directives);
+            // Register only explicit backward directive dependencies from cached
+            // files. Auto-synthesized parents are useful when actively resolving
+            // a file, but caching a callee during forward-call traversal should
+            // not pollute the backward-directive dependency graph with inferred
+            // caller edges.
+            const normalized_cached_directives = this.normalize_directives(
+                parse_result.directives,
+                []
+            );
+            this.replace_backward_directive_dependencies(
+                actual_uri,
+                normalized_cached_directives
+            );
 
             // Register forward call relationships from cached file
             // This ensures callee_to_callers map includes relationships from cached files,
