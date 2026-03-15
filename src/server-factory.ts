@@ -756,6 +756,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
             workspace_indexer.set_dependency_graph(dependency_graph);
             workspace_indexer.set_on_graph_change((changed_callees) => {
                 scope_resolver?.cascade_invalidate(changed_callees);
+                for (const my_callee_uri of changed_callees) {
+                    const my_doc = documents.get(my_callee_uri);
+                    if (!my_doc) {
+                        continue;
+                    }
+                    diagnostics_provider?.clear_published_version(
+                        my_callee_uri
+                    );
+                    void validate_text_document(my_doc, 0);
+                }
             });
             scope_resolver.set_dependency_graph(dependency_graph);
             diagnostics_provider.set_dependency_graph(dependency_graph);

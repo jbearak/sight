@@ -286,7 +286,7 @@ export class WorkspaceIndexer {
                 all_forward_calls = [
                     ...analyzeResult.forward_calls,
                     ...directive_forward_calls,
-                ];
+                ].sort((a, b) => a.call_site_line - b.call_site_line);
             }
 
             // Update dependency graph with forward calls
