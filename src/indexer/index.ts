@@ -103,7 +103,7 @@ export class WorkspaceIndexer {
         this.ado_paths = ado_paths;
         this.cancelled = false;
         this.workspace_roots = workspace_folders.map((my_folder) =>
-            path.normalize(my_folder)
+            path.resolve(my_folder)
         );
         const start_time = Date.now();
 
@@ -731,7 +731,7 @@ export class WorkspaceIndexer {
     private get_workspace_root_for_file(
         file_path: string
     ): string | undefined {
-        const normalized_file_path = path.normalize(file_path);
+        const normalized_file_path = path.resolve(file_path);
         let matched_workspace_root: string | undefined;
 
         for (const my_workspace_root of this.workspace_roots) {

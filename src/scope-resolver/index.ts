@@ -1238,9 +1238,7 @@ export class ScopeResolver {
                 if (resolved_path) {
                     return resolved_path;
                 }
-                if (!resolved_path) {
-                    this.warn(`discover_working_directory: Cannot resolve workspace-relative path \"${my_parent_result.working_directory_directive.path}\" - no workspace root set`);
-                }
+                this.warn(`discover_working_directory: Cannot resolve workspace-relative path \"${my_parent_result.working_directory_directive.path}\" - no workspace root set`);
             }
 
             const normalized_parent_directives = this.normalize_directives(
@@ -2801,9 +2799,7 @@ export class ScopeResolver {
     sync_backward_directive_dependencies(
         child_uri: string,
         directives: Directive[],
-        config: Partial<ScopeResolverConfig> = {
-            backward_dependencies: 'explicit',
-        }
+        config?: Partial<ScopeResolverConfig>
     ): void {
         // Normalize directives to match resolve() behavior (handles done-by + included-by collisions)
         const normalized = this.normalize_directives(directives, []);

@@ -77,6 +77,25 @@ describe('ScopeResolver auto backward dependencies', () => {
         expect(resolved_scope.symbols.globalMacros.has('AUTO_PARENT')).toBe(false);
     });
 
+    it('syncs inferred parents when config is omitted', () => {
+        const child_path = write_test_file('child.do', 'display $AUTO_PARENT');
+        const parent_content =
+            'global AUTO_PARENT "1"\n' +
+            'do "child.do"\n';
+        const parent_path = write_test_file('parent.do', parent_content);
+
+        seed_forward_calls(parent_path, parent_content);
+
+        const child_uri = URI.file(child_path).toString();
+        const parent_uri = URI.file(parent_path).toString();
+
+        resolver.sync_backward_directive_dependencies(child_uri, []);
+
+        expect(
+            resolver.get_backward_directive_children(parent_uri).has(child_uri)
+        ).toBe(true);
+    });
+
     it('prefers explicit backward directives over auto-inferred parents', async () => {
         const child_content =
             '// @lsp-done-by "explicit-parent.do"\n' +

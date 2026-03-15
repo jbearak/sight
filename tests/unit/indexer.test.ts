@@ -257,4 +257,19 @@ describe('WorkspaceIndexer', () => {
             path.join(second_data_dir, 'child.do')
         );
     });
+
+    it('should match relative workspace roots against absolute file paths', async () => {
+        const relative_workspace_root = path.relative(
+            process.cwd(),
+            temp_dir
+        );
+
+        await indexer.initialize([relative_workspace_root]);
+
+        expect(
+            (indexer as any).get_workspace_root_for_file(
+                path.join(temp_dir, 'nested', 'file.do')
+            )
+        ).toBe(path.resolve(temp_dir));
+    });
 });

@@ -214,6 +214,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
     }
 
     /**
+     * Get workspace-level settings without populating per-document caches.
+     */
+    function get_workspace_settings(): Promise<StataLSPConfig> {
+        return get_document_settings('');
+    }
+
+    /**
      * Get priority for a document based on visibility.
      */
     function get_document_priority(uri: string): number {
@@ -435,7 +442,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
 
         document_settings.clear();
-        const settings = await get_document_settings('');
+        const settings = await get_workspace_settings();
 
         if (workspace_indexer) {
             workspace_indexer.configure(settings);
@@ -824,16 +831,18 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 if (!scope_resolver) {
                     return;
                 }
-                const settings = await get_document_settings(update.uri);
+                const workspace_settings = await get_workspace_settings();
                 const resolve_config = build_scope_resolver_config({
-                    assume_call_site: settings.cross_file?.assume_call_site,
+                    assume_call_site:
+                        workspace_settings.cross_file?.assume_call_site,
                     max_backward_depth:
-                        settings.cross_file?.max_backward_depth,
+                        workspace_settings.cross_file?.max_backward_depth,
                     max_forward_depth:
-                        settings.cross_file?.max_forward_depth,
-                    max_chain_depth: settings.cross_file?.max_chain_depth,
+                        workspace_settings.cross_file?.max_forward_depth,
+                    max_chain_depth:
+                        workspace_settings.cross_file?.max_chain_depth,
                     backward_dependencies:
-                        settings.cross_file?.backward_dependencies,
+                        workspace_settings.cross_file?.backward_dependencies,
                 });
 
                 scope_resolver.sync_backward_directive_dependencies(
@@ -863,7 +872,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 schedule_callee_revalidation(
                     affected_callees,
                     update.uri,
-                    settings
+                    workspace_settings
                 );
 
                 if (!interface_changed) {
@@ -880,7 +889,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     schedule_caller_revalidation(
                         caller_uris,
                         update.uri,
-                        settings
+                        workspace_settings
                     );
                 }
 
@@ -892,7 +901,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     schedule_caller_revalidation(
                         backward_children,
                         update.uri,
-                        settings
+                        workspace_settings
                     );
                 }
             });
