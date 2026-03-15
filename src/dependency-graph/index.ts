@@ -139,7 +139,9 @@ export class DependencyGraph {
      */
     get_parents(callee_uri: string): AutoBackwardEdge[] {
         const my_uri = this.normalize_uri(callee_uri);
-        return [...(this.callee_to_callers.get(my_uri) ?? [])];
+        const the_edges = [...(this.callee_to_callers.get(my_uri) ?? [])];
+        the_edges.sort((a, b) => a.caller_uri.localeCompare(b.caller_uri));
+        return the_edges;
     }
 
     /**

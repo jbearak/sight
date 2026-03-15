@@ -21,7 +21,7 @@ import {
     ContextRange,
     ForwardCall,
 } from '../types';
-import { DependencyGraph } from '../dependency-graph';
+import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 import {
@@ -209,11 +209,9 @@ export class WorkspaceIndexer {
      * Only bumps version if the file was previously indexed.
      */
     private clear_stale_entry(file_uri: string): void {
+        let graph_result: GraphUpdateResult | undefined;
         if (this.dependency_graph) {
-            const graph_result = this.dependency_graph.remove_caller(file_uri);
-            if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
-                this.on_graph_change_callback(graph_result.changed_callees);
-            }
+            graph_result = this.dependency_graph.remove_caller(file_uri);
         }
         const was_indexed = this.symbol_index.has(file_uri);
         this.symbol_index.delete(file_uri);
@@ -221,6 +219,9 @@ export class WorkspaceIndexer {
         this.context_ranges_index.delete(file_uri);
         if (was_indexed) {
             this.version++;
+        }
+        if (graph_result && graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
+            this.on_graph_change_callback(graph_result.changed_callees);
         }
     }
 

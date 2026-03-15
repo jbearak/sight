@@ -565,6 +565,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
                             // Invalidate scope caches for callees whose parent sets changed
                             if (graph_result.changed_callees.size > 0) {
                                 scope_resolver.cascade_invalidate(graph_result.changed_callees);
+                                // Only schedule revalidation for callees not already covered
+                                // by affected_callees (which will be scheduled below)
+                                const graph_only_callees = new Set(
+                                    [...graph_result.changed_callees].filter(
+                                        uri => !affected_callees.has(uri)
+                                    )
+                                );
+                                if (graph_only_callees.size > 0) {
+                                    schedule_callee_revalidation(graph_only_callees, snapshot_uri, settings, revalidation_depth);
+                                }
                             }
                         }
 
