@@ -56,7 +56,7 @@ describe('bh_merge c_locals integration test', () => {
         });
         scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
         forward_scope_resolver.set_workspace_roots([fixture_root]);
-        document_store.set_workspace_root(fixture_root);
+        document_store.set_workspace_roots([fixture_root]);
         document_store.set_scope_resolver(scope_resolver);
         
         await indexer.initialize([fixture_root]);

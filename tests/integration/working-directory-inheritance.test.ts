@@ -42,7 +42,7 @@ describe('Working Directory Inheritance Integration Tests', () => {
         forward_scope_resolver = new ForwardScopeResolver(scope_resolver, { max_forward_depth: 10 });
         scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
         document_store = new DocumentStore();
-        document_store.set_workspace_root(test_dir);
+        document_store.set_workspace_roots([test_dir]);
         document_store.set_scope_resolver(scope_resolver);
     });
 

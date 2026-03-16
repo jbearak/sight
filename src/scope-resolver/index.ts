@@ -38,6 +38,7 @@ import { StataParser } from '../parser';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
+import { get_workspace_root_for_uri } from '../utils/workspace-roots';
 
 const DEFAULT_CONFIG: ScopeResolverConfig = {
     assume_call_site: 'end',
@@ -129,7 +130,7 @@ export class ScopeResolver {
     // Track backward directive dependencies: parent_uri → set of child_uris that depend on it via @lsp-done-by/@lsp-included-by
     private backward_directive_children: Map<string, Set<string>>;
     private content_provider: ContentProvider;
-    private workspace_root: string | undefined;
+    private workspace_roots: string[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
@@ -179,10 +180,10 @@ export class ScopeResolver {
     }
 
     /**
-     * Set the workspace root for resolving workspace-relative working directory paths.
+     * Set the workspace roots for resolving workspace-relative working directory paths.
      */
-    set_workspace_root(workspace_root: string | undefined): void {
-        this.workspace_root = workspace_root;
+    set_workspace_roots(workspace_roots: string[]): void {
+        this.workspace_roots = workspace_roots;
     }
 
     /**
@@ -1091,14 +1092,17 @@ export class ScopeResolver {
                 
                 // Handle workspace-relative paths
                 if (my_parent_result.working_directory_directive.is_workspace_relative) {
-                    if (this.workspace_root) {
-                        resolved_path = path.normalize(path.join(this.workspace_root, resolved_path));
+                    const workspace_root = get_workspace_root_for_uri(
+                        this.workspace_roots, my_parent_uri
+                    );
+                    if (workspace_root) {
+                        resolved_path = path.normalize(path.join(workspace_root, resolved_path));
                     } else {
                         this.warn(`discover_working_directory: Cannot resolve workspace-relative path "${my_parent_result.working_directory_directive.path}" - no workspace root set`);
                         continue;
                     }
                 }
-                
+
                 return resolved_path;
             }
 
@@ -1592,9 +1596,10 @@ export class ScopeResolver {
         // Use file's own working_directory if present, otherwise use inherited
         const effective_working_directory = my_directive_result.working_directory?.resolved_path ?? inherited_working_directory;
 
-        // Pass working_directory to analyzer for path resolution in do/run/include commands
+        // Pass working_directory and workspace_root to analyzer for path resolution
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
+            workspace_root: get_workspace_root_for_uri(this.workspace_roots, uri),
         });
 
         // Combine forward calls from commands and directives

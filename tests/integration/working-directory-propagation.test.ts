@@ -44,7 +44,7 @@ describe('Working Directory Propagation Integration Tests', () => {
 
     beforeEach(() => {
         document_store = new DocumentStore();
-        document_store.set_workspace_root(workspace_root);
+        document_store.set_workspace_roots([workspace_root]);
         scope_resolver = new ScopeResolver();
         forward_resolver = new ForwardScopeResolver(scope_resolver);
         forward_resolver.set_workspace_roots([workspace_root]);

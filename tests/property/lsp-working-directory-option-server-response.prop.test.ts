@@ -55,7 +55,7 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         
                         // Setup document store with workspace root
                         const document_store = new DocumentStore();
-                        document_store.set_workspace_root(workspace_root);
+                        document_store.set_workspace_roots([workspace_root]);
                         
                         // Create mock dependencies
                         const deps = create_mock_handler_deps(document_store);
@@ -180,7 +180,7 @@ describe('LSP Working Directory Option - Server Response Correctness', () => {
                         
                         // Setup document store
                         const document_store = new DocumentStore();
-                        document_store.set_workspace_root(workspace_root);
+                        document_store.set_workspace_roots([workspace_root]);
                         
                         // Create mock dependencies
                         const deps = create_mock_handler_deps(document_store);
