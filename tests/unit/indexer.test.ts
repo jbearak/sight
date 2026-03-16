@@ -138,6 +138,86 @@ describe('WorkspaceIndexer', () => {
         expect(metrics.files_indexed).toBe(0);
     });
 
+    describe('reset()', () => {
+        it('should clear all indexes and metrics', async () => {
+            const file_path = path.join(temp_dir, 'test.do');
+            fs.writeFileSync(
+                file_path,
+                'program define myprog\nend\nglobal g = 1'
+            );
+
+            await indexer.index_file(file_path);
+            expect(indexer.get_all_symbols().programs.has('myprog'))
+                .toBe(true);
+            expect(indexer.get_metrics().files_indexed).toBe(1);
+            expect(indexer.get_version()).toBeGreaterThan(0);
+
+            indexer.reset();
+
+            expect(indexer.get_all_symbols().programs.size).toBe(0);
+            expect(indexer.get_all_symbols().globalMacros.size).toBe(0);
+            expect(indexer.get_metrics().files_indexed).toBe(0);
+            expect(indexer.get_metrics().files_skipped).toBe(0);
+            expect(indexer.get_metrics().total_index_time_ms).toBe(0);
+            expect(indexer.get_version()).toBe(0);
+        });
+
+        it('should clear skipped files', async () => {
+            const file_path = path.join(temp_dir, 'large.do');
+            fs.writeFileSync(file_path, 'a'.repeat(600 * 1024));
+
+            await indexer.index_file(file_path);
+            expect(indexer.get_skipped_files().size).toBe(1);
+
+            indexer.reset();
+
+            expect(indexer.get_skipped_files().size).toBe(0);
+        });
+
+        it('should allow re-initialization after reset', async () => {
+            const file_path = path.join(temp_dir, 'test.do');
+            fs.writeFileSync(
+                file_path,
+                'program define first_prog\nend'
+            );
+
+            await indexer.initialize([temp_dir]);
+            expect(indexer.get_all_symbols().programs.has('first_prog'))
+                .toBe(true);
+
+            // Reset and write a new file
+            indexer.reset();
+
+            fs.writeFileSync(
+                file_path,
+                'program define second_prog\nend'
+            );
+
+            await indexer.initialize([temp_dir]);
+            expect(indexer.get_all_symbols().programs.has('first_prog'))
+                .toBe(false);
+            expect(indexer.get_all_symbols().programs.has('second_prog'))
+                .toBe(true);
+        });
+
+        it('should cancel pending updates', async () => {
+            const file_path = path.join(temp_dir, 'pending.do');
+            fs.writeFileSync(
+                file_path,
+                'program define pending_prog\nend'
+            );
+
+            indexer.schedule_update(file_path);
+            indexer.reset();
+
+            // Wait for debounce window to pass
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            // Pending update should not have fired
+            expect(indexer.get_all_symbols().programs.size).toBe(0);
+        });
+    });
+
     it('should debounce rapid file updates', async () => {
         const file_path = path.join(temp_dir, 'debounce.do');
         fs.writeFileSync(file_path, 'program define prog1\nend');

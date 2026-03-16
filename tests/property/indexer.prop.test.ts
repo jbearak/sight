@@ -65,6 +65,91 @@ describe('WorkspaceIndexer Property Tests', () => {
 });
 
 
+describe('WorkspaceIndexer Reset', () => {
+    let temp_dir: string;
+
+    beforeEach(() => {
+        temp_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-prop-'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(temp_dir, { recursive: true, force: true });
+    });
+
+    it(
+        'should clear all state regardless of how many files were indexed',
+        async () => {
+            await fc.assert(
+                fc.asyncProperty(
+                    fc.array(fc.record({
+                        name: fc.hexaString({
+                            minLength: 1,
+                            maxLength: 8
+                        }),
+                        content: fc.constantFrom(
+                            'program define p\nend',
+                            'global g = 1',
+                            'local l = 2',
+                            'scalar s = 3',
+                        )
+                    }), { minLength: 1, maxLength: 10 }),
+                    async (files) => {
+                        const indexer = new WorkspaceIndexer();
+
+                        // Create and index files
+                        for (let i = 0; i < files.length; i++) {
+                            const file_path = path.join(
+                                temp_dir,
+                                `${files[i].name}_${i}.do`
+                            );
+                            fs.writeFileSync(
+                                file_path,
+                                files[i].content
+                            );
+                            await indexer.index_file(file_path);
+                        }
+
+                        // Verify something was indexed
+                        const pre_metrics = indexer.get_metrics();
+                        expect(pre_metrics.files_indexed)
+                            .toBeGreaterThan(0);
+
+                        // Reset
+                        indexer.reset();
+
+                        // Verify all state is cleared
+                        const symbols = indexer.get_all_symbols();
+                        expect(symbols.programs.size).toBe(0);
+                        expect(symbols.localMacros.size).toBe(0);
+                        expect(symbols.globalMacros.size).toBe(0);
+                        expect(symbols.scalars.size).toBe(0);
+
+                        const post_metrics = indexer.get_metrics();
+                        expect(post_metrics.files_indexed).toBe(0);
+                        expect(post_metrics.files_skipped).toBe(0);
+                        expect(post_metrics.total_index_time_ms).toBe(0);
+
+                        expect(indexer.get_version()).toBe(0);
+                        expect(indexer.get_skipped_files().size).toBe(0);
+
+                        // Clean up temp files for next iteration
+                        for (let i = 0; i < files.length; i++) {
+                            const file_path = path.join(
+                                temp_dir,
+                                `${files[i].name}_${i}.do`
+                            );
+                            if (fs.existsSync(file_path)) {
+                                fs.unlinkSync(file_path);
+                            }
+                        }
+                    }
+                ),
+                { numRuns: 20 }
+            );
+        }
+    );
+});
+
 describe('WorkspaceIndexer Config Validation', () => {
     it(
         'should use valid positive threshold or fall back to default',

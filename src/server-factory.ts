@@ -472,6 +472,104 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
     }
 
+    /**
+     * Clear published diagnostics and re-trigger validation for all
+     * currently open documents. Called after workspace state changes.
+     */
+    function revalidate_all_open_docs(): void {
+        for (const my_doc of documents.all()) {
+            if (diagnostics_provider) {
+                diagnostics_provider.clear_published_version(my_doc.uri);
+            }
+            void validate_text_document(my_doc, 0);
+        }
+    }
+
+    /**
+     * Refresh all workspace-wide state after folder changes.
+     * Tears down stale caches, re-roots resolvers, re-reads config,
+     * and re-triggers the workspace scan and document revalidation.
+     *
+     * Called from both onInitialized and onDidChangeWorkspaceFolders.
+     */
+    async function refresh_workspace_state(
+        folder_paths: string[]
+    ): Promise<void> {
+        // --- Teardown stale state ---
+        workspace_indexer?.reset();
+        dependency_graph?.reset();
+        scope_resolver?.clear_cache();
+        document_settings.clear();
+
+        // --- Update workspace roots ---
+        if (folder_paths.length > 0) {
+            document_store.set_workspace_root(folder_paths[0]);
+            if (scope_resolver) {
+                scope_resolver.set_workspace_root(folder_paths[0]);
+            }
+            if (forward_scope_resolver) {
+                forward_scope_resolver.set_workspace_roots(folder_paths);
+            }
+
+            const loaded = read_workspace_file_config_from_root(
+                folder_paths[0]
+            );
+            workspace_file_config = loaded.partial_config;
+            if (loaded.error) {
+                connection.console.log(
+                    `Error reading .sight.json: ${loaded.error}`
+                );
+            }
+        } else {
+            document_store.set_workspace_root(undefined);
+            workspace_file_config = undefined;
+            if (scope_resolver) {
+                scope_resolver.set_workspace_root(undefined);
+            }
+            if (forward_scope_resolver) {
+                forward_scope_resolver.set_workspace_roots([]);
+            }
+        }
+
+        // --- Load settings and configure indexer ---
+        const settings = await get_document_settings('');
+
+        if (!server_capabilities.has_configuration_capability) {
+            global_settings = settings;
+        }
+
+        if (workspace_indexer) {
+            workspace_indexer.configure(settings);
+            workspace_indexer.set_max_indexed_files(
+                settings.cross_file?.max_indexed_files ?? 1000
+            );
+        }
+
+        // --- Scan workspace or mark complete ---
+        const indexing_enabled =
+            settings.indexWorkspace !== false &&
+            settings.cross_file?.index_workspace !== false;
+
+        if (indexing_enabled && workspace_indexer
+            && folder_paths.length > 0) {
+            workspace_indexer.initialize(
+                folder_paths,
+                settings.adoPaths || []
+            ).then(() => {
+                if (dependency_graph?.is_scan_complete()) {
+                    revalidate_all_open_docs();
+                }
+            }).catch((err) => {
+                connection.console.log(
+                    `[indexer] Workspace indexing failed: ${err}`
+                );
+            });
+        } else {
+            dependency_graph?.mark_scan_complete();
+            revalidate_all_open_docs();
+        }
+    }
+
     async function validate_text_document(
         text_document: TextDocument,
         revalidation_depth: number = 0
@@ -826,109 +924,57 @@ export async function create_server(options: ServerOptions): Promise<void> {
             handler_deps.dependency_graph = dependency_graph;
             handler_deps.rename_handler = rename_handler;
 
-            // Initialize workspace indexer
-            const workspace_folders_promise = connection.workspace.getWorkspaceFolders();
-            workspace_folders_promise.then((folders) => {
-                if (!folders || !workspace_indexer) {
-                    // No workspace folders or no indexer: scan is trivially complete.
-                    dependency_graph?.mark_scan_complete();
-                    // Re-trigger diagnostics for open docs so deferred
-                    // diagnostics are evaluated now that scan is "complete"
-                    for (const my_doc of documents.all()) {
-                        if (diagnostics_provider) {
-                            diagnostics_provider.clear_published_version(my_doc.uri);
-                        }
-                        validate_text_document(my_doc, 0);
+            // Initialize workspace state
+            connection.workspace.getWorkspaceFolders().then(
+                async (folders) => {
+                    const folder_paths = (folders ?? [])
+                        .map((my_folder) =>
+                            URI.parse(my_folder.uri).fsPath
+                        )
+                        .filter(
+                            (my_path): my_path is string =>
+                                my_path !== undefined
+                        );
+                    try {
+                        await refresh_workspace_state(folder_paths);
+                    } catch (err) {
+                        connection.console.log(
+                            `[workspace] Failed to initialize` +
+                            ` workspace state: ${err}`
+                        );
                     }
-                    return;
                 }
-                if (folders && workspace_indexer) {
-                    const folder_paths = folders
-                        .map((f) => URI.parse(f.uri).fsPath)
-                        .filter((p) => p !== undefined);
-
-                    if (forward_scope_resolver) {
-                        forward_scope_resolver.set_workspace_roots(folder_paths);
-                    }
-
-                    if (folder_paths.length > 0) {
-                        document_store.set_workspace_root(folder_paths[0]);
-                        if (scope_resolver) {
-                            scope_resolver.set_workspace_root(folder_paths[0]);
-                        }
-                        const loaded = read_workspace_file_config_from_root(folder_paths[0]);
-                        workspace_file_config = loaded.partial_config;
-                        if (loaded.error) {
-                            connection.console.log(`Error reading .sight.json: ${loaded.error}`);
-                        }
-                    }
-
-                    get_document_settings('').then((settings) => {
-                        if (workspace_indexer) {
-                            workspace_indexer.configure(settings);
-                            workspace_indexer.set_max_indexed_files(
-                                settings.cross_file?.max_indexed_files ?? 1000
-                            );
-                        }
-
-                        if (!server_capabilities.has_configuration_capability) {
-                            global_settings = settings;
-                        }
-
-                        const enabled = settings.indexWorkspace !== false &&
-                            settings.cross_file?.index_workspace !== false;
-                        if (enabled && workspace_indexer) {
-                            workspace_indexer.initialize(folder_paths, settings.adoPaths || []).then(() => {
-                                // mark_scan_complete is called inside initialize()
-                                // After workspace scan completes, re-trigger diagnostics
-                                // for all open documents so deferred diagnostics are evaluated
-                                if (dependency_graph?.is_scan_complete()) {
-                                    for (const my_doc of documents.all()) {
-                                        if (diagnostics_provider) {
-                                            diagnostics_provider.clear_published_version(my_doc.uri);
-                                        }
-                                        validate_text_document(my_doc, 0);
-                                    }
-                                }
-                            });
-                        } else {
-                            // Indexing disabled: scan is trivially complete.
-                            // Mark immediately so diagnostic deferral doesn't
-                            // suppress undefined-symbol warnings permanently.
-                            dependency_graph?.mark_scan_complete();
-                            for (const my_doc of documents.all()) {
-                                if (diagnostics_provider) {
-                                    diagnostics_provider.clear_published_version(my_doc.uri);
-                                }
-                                validate_text_document(my_doc, 0);
-                            }
-                        }
-                    });
-                }
-            });
+            );
 
             if (server_capabilities.has_configuration_capability) {
                 connection.client.register(DidChangeConfigurationNotification.type, undefined);
             }
             if (server_capabilities.has_workspace_folder_capability) {
-                connection.workspace.onDidChangeWorkspaceFolders(async (_event) => {
-                    connection.console.log('Workspace folder change event received.');
-                    const folders = await connection.workspace.getWorkspaceFolders();
-                    if (folders && folders.length > 0) {
-                        const folder_path = URI.parse(folders[0].uri).fsPath;
-                        if (folder_path) {
-                            document_store.set_workspace_root(folder_path);
-                            if (scope_resolver) {
-                                scope_resolver.set_workspace_root(folder_path);
-                            }
-                        }
-                    } else {
-                        document_store.set_workspace_root(undefined);
-                        if (scope_resolver) {
-                            scope_resolver.set_workspace_root(undefined);
+                connection.workspace.onDidChangeWorkspaceFolders(
+                    async (_event) => {
+                        connection.console.log(
+                            'Workspace folder change event received.'
+                        );
+                        const folders = await connection.workspace
+                            .getWorkspaceFolders();
+                        const folder_paths = (folders ?? [])
+                            .map((my_folder) =>
+                                URI.parse(my_folder.uri).fsPath
+                            )
+                            .filter(
+                                (my_path): my_path is string =>
+                                    my_path !== undefined
+                            );
+                        try {
+                            await refresh_workspace_state(folder_paths);
+                        } catch (err) {
+                            connection.console.log(
+                                `[workspace] Failed to refresh` +
+                                ` workspace state: ${err}`
+                            );
                         }
                     }
-                });
+                );
             }
         })
     );
