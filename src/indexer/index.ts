@@ -468,6 +468,29 @@ export class WorkspaceIndexer {
     }
 
     /**
+     * Reset the indexer to empty state, cancelling any in-flight scan.
+     * Clears all indexes, metrics, and pending updates so the indexer
+     * can be re-initialized cleanly for a new workspace.
+     */
+    reset(): void {
+        this.cancel();
+        this.symbol_index.clear();
+        this.token_index.clear();
+        this.context_ranges_index.clear();
+        this.skipped_files.clear();
+        this.metrics = {
+            files_indexed: 0,
+            files_skipped: 0,
+            total_index_time_ms: 0,
+            avg_file_time_ms: 0,
+        };
+        this.max_files_reached = false;
+        this.is_processing_queue = false;
+        this.version = 0;
+        this.cancelled = false;
+    }
+
+    /**
      * Configure the indexer with LSP settings.
      */
     configure(config: Partial<StataLSPConfig>): void {
