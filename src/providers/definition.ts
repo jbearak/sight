@@ -26,6 +26,7 @@ import {
     VariableSymbol,
     ScalarSymbol,
     MatrixSymbol,
+    ScopeResolverConfig,
 } from '../types';
 
 
@@ -74,7 +75,7 @@ export class DefinitionProvider {
         context_tracker?: IContextTracker,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
+        cross_file_config?: Partial<ScopeResolverConfig>,
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Check cancellation before starting (Req 5.2)
@@ -191,7 +192,7 @@ export class DefinitionProvider {
         document: DocumentState,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
+        cross_file_config?: Partial<ScopeResolverConfig>,
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Try scope resolver first
@@ -242,7 +243,7 @@ export class DefinitionProvider {
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
+        cross_file_config?: Partial<ScopeResolverConfig>,
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Try scope resolver first
@@ -306,7 +307,7 @@ export class DefinitionProvider {
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
+        cross_file_config?: Partial<ScopeResolverConfig>,
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Try scope resolver first
@@ -461,7 +462,7 @@ export class DefinitionProvider {
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
+        cross_file_config?: Partial<ScopeResolverConfig>,
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Use existing helper to determine if reference looks like a macro
@@ -597,7 +598,7 @@ export class DefinitionProvider {
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
+        cross_file_config?: Partial<ScopeResolverConfig>,
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
         // Get the word at the cursor position

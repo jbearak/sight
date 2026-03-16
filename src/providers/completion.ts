@@ -31,6 +31,7 @@ import {
     ProgramSymbol,
     ForwardResolvedScope,
     ForwardCallSite,
+    ScopeResolverConfig,
 } from '../types';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
@@ -860,7 +861,7 @@ export class CompletionProvider {
         trigger_character?: string,
         scope_resolver?: ScopeResolver,
         workspace_symbols?: SymbolTable,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
+        cross_file_config?: Partial<ScopeResolverConfig>,
         forward_scope?: ForwardResolvedScope,
         workspace_version?: number,
         cancellation_token?: CancellationToken,

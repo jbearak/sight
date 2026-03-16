@@ -59,14 +59,14 @@ export function build_scope_resolver_config(
     for (const [my_key, my_value] of Object.entries(config)) {
         if (my_key === 'diagnostics' && my_value != null
             && typeof my_value === 'object') {
-            const filtered_diagnostics = Object.fromEntries(
+            const my_filtered_diagnostics = Object.fromEntries(
                 Object.entries(
                     my_value as NonNullable<ScopeResolverConfig['diagnostics']>
                 ).filter(([, v]) => v !== undefined)
             );
-            if (Object.keys(filtered_diagnostics).length > 0) {
+            if (Object.keys(my_filtered_diagnostics).length > 0) {
                 result.diagnostics =
-                    filtered_diagnostics as ScopeResolverConfig['diagnostics'];
+                    my_filtered_diagnostics as ScopeResolverConfig['diagnostics'];
             }
         } else if (my_value !== undefined) {
             (result as Record<string, unknown>)[my_key] = my_value;
