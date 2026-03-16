@@ -499,6 +499,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         workspace_indexer?.reset();
         dependency_graph?.reset();
         scope_resolver?.clear_cache();
+        scope_resolver?.reset_reverse_deps();
         document_settings.clear();
 
         // --- Update workspace roots ---
