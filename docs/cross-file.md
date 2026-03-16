@@ -10,7 +10,8 @@ commands.
 
 ### Automatic mode (default)
 
-At startup the LSP scans every Stata file in your workspace and builds a
+At startup the LSP scans eligible Stata files in your workspace folders
+(subject to configured max file size and file count limits) and builds a
 **dependency graph** of which files call which other files via `do`, `run`, and
 `include` commands. When you open a child file, the LSP looks up its parents in
 the graph and inherits the appropriate symbols — no directives required.

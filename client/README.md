@@ -32,7 +32,7 @@ Rich highlighting with nesting depth colors for compound strings and nested macr
 
 ### Cross-File Awareness
 
-Automatically resolves symbols across files — globals, programs, scalars, and variables defined in parent files are inherited by child files via `do`, `run`, and `include` commands. No configuration or directives needed.
+Automatically resolves symbols across files — globals, programs, scalars, and variables defined in parent files are inherited by child files via `do`, `run`, and `include` commands. Works automatically for most projects; some edge cases (e.g., dynamic macro paths or files outside the workspace) require manual configuration — see [Cross-File Awareness](https://github.com/jbearak/sight/blob/main/docs/cross-file.md) for details.
 
 ### Run Code in Stata
 
