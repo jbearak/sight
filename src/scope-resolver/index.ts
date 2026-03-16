@@ -2421,6 +2421,20 @@ export class ScopeResolver {
     }
 
     /**
+     * Clear all reverse dependency maps and backward directive children.
+     * Called from refresh_workspace_state() when workspace folders change,
+     * so stale caller/callee edges from the old workspace are discarded.
+     */
+    reset_reverse_deps(): void {
+        this.reverse_deps.caller_to_callees.clear();
+        this.reverse_deps.callee_to_callers.clear();
+        this.reverse_deps.forward_caller_to_callees.clear();
+        this.reverse_deps.interface_hashes.clear();
+        this.reverse_deps.last_forward_calls.clear();
+        this.backward_directive_children.clear();
+    }
+
+    /**
      * Remove all reverse dependency entries where the given URI is a caller.
      * Called when a document is closed.
      */
@@ -2824,19 +2838,12 @@ export class ScopeResolver {
     }
 
     /**
-     * Dispose the scope resolver by clearing all caches.
-     * Called during server shutdown to release memory.
+     * Dispose the scope resolver by clearing all caches and reverse
+     * dependency maps. Called during server shutdown to release memory.
      */
     dispose(): void {
-        this.file_cache.clear();
-        this.scope_cache.clear();
-        this.uri_to_cache_keys.clear();
-        this.reverse_deps.caller_to_callees.clear();
-        this.reverse_deps.callee_to_callers.clear();
-        this.reverse_deps.forward_caller_to_callees.clear();
-        this.reverse_deps.interface_hashes.clear();
-        this.reverse_deps.last_forward_calls.clear();
-        this.backward_directive_children.clear();
+        this.clear_cache();
+        this.reset_reverse_deps();
     }
 
 }

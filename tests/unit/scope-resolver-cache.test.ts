@@ -9,6 +9,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { create_test_scope_resolver_logger } from '../test-logger';
+import { URI } from 'vscode-uri';
+import { create_empty_symbol_table } from '../../src/analyzer';
+import { ForwardCall } from '../../src/types';
 
 describe('Scope Cache Optimization Unit Tests', () => {
     let resolver: ScopeResolver;
@@ -211,6 +214,106 @@ local x = 1
             await resolver.resolve(file_uri, 'local x = 1');
             const metrics2 = resolver.get_cache_metrics();
             expect(metrics2.scope.hits).toBe(1);
+        });
+    });
+
+    describe('reset_reverse_deps', () => {
+        const make_forward_call = (callee_path: string, line: number): ForwardCall => ({
+            type: 'do',
+            path: callee_path,
+            raw_path: path.basename(callee_path),
+            call_site_line: line,
+            range: { start: { line, character: 0 }, end: { line, character: 10 } },
+            source: 'command',
+            is_static: true,
+        });
+
+        const make_symbols_with_global = (name: string) => {
+            const symbols = create_empty_symbol_table();
+            symbols.globalMacros.set(name, {
+                name,
+                scope: 'global',
+                location: {
+                    uri: 'test',
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
+                },
+                sourceUri: 'test',
+            });
+            return symbols;
+        };
+
+        it('should clear all reverse dep maps and backward directive children', async () => {
+            // Populate reverse deps via update_reverse_dependencies
+            const callee_path = create_file('callee.do', 'local x = 1');
+            const caller_uri = URI.file(path.join(temp_dir, 'caller.do')).toString();
+            const callee_uri = URI.file(callee_path).toString();
+
+            const forward_calls = [make_forward_call(callee_path, 5)];
+            const symbols = make_symbols_with_global('test_global');
+            resolver.update_reverse_dependencies(caller_uri, forward_calls, symbols);
+
+            // Populate backward directive children via resolve
+            const parent_path = create_file('parent.do', 'global parent_g = 1');
+            const child_content = `// @lsp-done-by: ${parent_path}\nlocal y = 1`;
+            const child_path = create_file('child.do', child_content);
+            const child_uri = URI.file(child_path).toString();
+            const parent_uri = URI.file(parent_path).toString();
+            await resolver.resolve(child_uri, child_content);
+
+            // Verify maps are populated
+            expect(resolver.get_callers_for_callee(callee_uri).size).toBeGreaterThan(0);
+            expect(resolver.get_backward_directive_children(parent_uri).size).toBeGreaterThan(0);
+
+            // Reset
+            resolver.reset_reverse_deps();
+
+            // All reverse dep maps should be empty
+            expect(resolver.get_callers_for_callee(callee_uri).size).toBe(0);
+            expect(resolver.get_backward_directive_children(parent_uri).size).toBe(0);
+        });
+
+        it('clear_cache alone should NOT clear reverse deps', async () => {
+            const callee_path = create_file('callee2.do', 'local x = 1');
+            const caller_uri = URI.file(path.join(temp_dir, 'caller2.do')).toString();
+            const callee_uri = URI.file(callee_path).toString();
+
+            const forward_calls = [make_forward_call(callee_path, 5)];
+            const symbols = make_symbols_with_global('test_global2');
+            resolver.update_reverse_dependencies(caller_uri, forward_calls, symbols);
+
+            expect(resolver.get_callers_for_callee(callee_uri).size).toBeGreaterThan(0);
+
+            // clear_cache should not touch reverse deps
+            resolver.clear_cache();
+
+            expect(resolver.get_callers_for_callee(callee_uri).size).toBeGreaterThan(0);
+        });
+
+        it('dispose should clear both caches and reverse deps', async () => {
+            // Populate reverse deps
+            const callee_path = create_file('callee3.do', 'local x = 1');
+            const caller_uri = URI.file(path.join(temp_dir, 'caller3.do')).toString();
+            const callee_uri = URI.file(callee_path).toString();
+
+            const forward_calls = [make_forward_call(callee_path, 5)];
+            const symbols = make_symbols_with_global('test_global3');
+            resolver.update_reverse_dependencies(caller_uri, forward_calls, symbols);
+
+            // Populate scope cache
+            const parent_path = create_file('parent3.do', 'global parent_g3 = 1');
+            const child_content = `// @lsp-done-by: ${parent_path}\nlocal y = 1`;
+            const child_path = create_file('child3.do', child_content);
+            const child_uri = URI.file(child_path).toString();
+            const parent_uri = URI.file(parent_path).toString();
+            await resolver.resolve(child_uri, child_content);
+
+            expect(resolver.get_callers_for_callee(callee_uri).size).toBeGreaterThan(0);
+            expect(resolver.get_backward_directive_children(parent_uri).size).toBeGreaterThan(0);
+
+            resolver.dispose();
+
+            expect(resolver.get_callers_for_callee(callee_uri).size).toBe(0);
+            expect(resolver.get_backward_directive_children(parent_uri).size).toBe(0);
         });
     });
 });
