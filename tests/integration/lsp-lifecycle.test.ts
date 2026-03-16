@@ -147,6 +147,68 @@ describe('LSP Lifecycle - Handler Factories', () => {
             expect(detected_caps).not.toBeNull();
             expect(detected_caps!.has_configuration_capability).toBe(true);
         });
+
+        it('should capture rootUri for fallback', () => {
+            let detected_root_uri: string | null = null;
+            const handler = create_initialize_handler(
+                undefined,
+                undefined,
+                (root_uri) => { detected_root_uri = root_uri; }
+            );
+
+            const params: InitializeParams = {
+                processId: null,
+                rootUri: 'file:///home/user/project',
+                capabilities: {},
+                workspaceFolders: null,
+            };
+
+            handler(params);
+
+            expect(detected_root_uri).toBe('file:///home/user/project');
+        });
+
+        it('should capture rootPath as fallback when rootUri is null', () => {
+            let detected_root_uri: string | null = null;
+            const handler = create_initialize_handler(
+                undefined,
+                undefined,
+                (root_uri) => { detected_root_uri = root_uri; }
+            );
+
+            const params: InitializeParams = {
+                processId: null,
+                rootUri: null,
+                capabilities: {},
+                workspaceFolders: null,
+            };
+            // rootPath is deprecated but some clients still send it
+            (params as any).rootPath = '/home/user/project';
+
+            handler(params);
+
+            expect(detected_root_uri).toBe('/home/user/project');
+        });
+
+        it('should report null when neither rootUri nor rootPath is set', () => {
+            let detected_root_uri: string | null | undefined = undefined;
+            const handler = create_initialize_handler(
+                undefined,
+                undefined,
+                (root_uri) => { detected_root_uri = root_uri; }
+            );
+
+            const params: InitializeParams = {
+                processId: null,
+                rootUri: null,
+                capabilities: {},
+                workspaceFolders: null,
+            };
+
+            handler(params);
+
+            expect(detected_root_uri).toBeNull();
+        });
     });
 
     describe('Shutdown Handler', () => {

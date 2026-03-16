@@ -148,7 +148,8 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
  */
 export function create_initialize_handler(
     on_capabilities_detected?: (caps: ServerCapabilities) => void,
-    on_initialization_options_detected?: (options: any) => void
+    on_initialization_options_detected?: (options: any) => void,
+    on_root_uri_detected?: (root_uri: string | null) => void
 ): (params: InitializeParams) => InitializeResult {
     return (params: InitializeParams): InitializeResult => {
         const capabilities = params.capabilities;
@@ -185,6 +186,16 @@ export function create_initialize_handler(
         // Capture initialization options for config precedence (init > file)
         if (on_initialization_options_detected) {
             on_initialization_options_detected((params as any).initializationOptions);
+        }
+
+        // Capture rootUri for fallback when workspaceFolders is unavailable.
+        // Many CLI-based LSP clients (e.g., Claude Code, Neovim in
+        // single-file mode) send rootUri but may not support the
+        // workspaceFolders capability.
+        if (on_root_uri_detected) {
+            on_root_uri_detected(
+                params.rootUri ?? params.rootPath ?? null
+            );
         }
 
         // Build server capabilities response
