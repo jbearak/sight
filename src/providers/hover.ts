@@ -35,11 +35,12 @@ import {
     OptionSpec,
     ArgumentSpec,
     ResolvedScope,
+    ScopeResolverConfig,
 } from '../types';
 import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
-import { build_resolve_config } from './definition';
+import { build_scope_resolver_config } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
 
 /**
@@ -100,7 +101,7 @@ export class HoverProvider {
         position: Position,
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
-        cross_file_config?: { assume_call_site?: 'start' | 'end'; backward_dependencies?: 'auto' | 'explicit'; max_forward_depth?: number },
+        cross_file_config?: Partial<ScopeResolverConfig>,
 
         cancellation_token?: CancellationToken,
         workspace_root?: string
@@ -131,7 +132,7 @@ export class HoverProvider {
         // Resolve scope if scope_resolver is provided
         let resolved_scope: ResolvedScope | undefined;
         if (scope_resolver) {
-            const resolve_config = build_resolve_config(cross_file_config);
+            const resolve_config = build_scope_resolver_config(cross_file_config);
             resolved_scope = await scope_resolver.resolve(
                 document.uri,
                 document.content,
