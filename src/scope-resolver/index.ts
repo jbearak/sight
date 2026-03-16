@@ -38,6 +38,7 @@ import { StataParser } from '../parser';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
+import { get_workspace_root_for_uri } from '../utils/workspace-roots';
 
 const DEFAULT_CONFIG: ScopeResolverConfig = {
     assume_call_site: 'end',
@@ -129,7 +130,7 @@ export class ScopeResolver {
     // Track backward directive dependencies: parent_uri → set of child_uris that depend on it via @lsp-done-by/@lsp-included-by
     private backward_directive_children: Map<string, Set<string>>;
     private content_provider: ContentProvider;
-    private workspace_root: string | undefined;
+    private workspace_roots: string[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
@@ -179,10 +180,10 @@ export class ScopeResolver {
     }
 
     /**
-     * Set the workspace root for resolving workspace-relative working directory paths.
+     * Set the workspace roots for resolving workspace-relative working directory paths.
      */
-    set_workspace_root(workspace_root: string | undefined): void {
-        this.workspace_root = workspace_root;
+    set_workspace_roots(workspace_roots: string[]): void {
+        this.workspace_roots = workspace_roots;
     }
 
     /**
@@ -798,7 +799,22 @@ export class ScopeResolver {
         // Check if current file has its own working directory
         // We need to parse directives again to get working_directory (parse_file doesn't return it)
         const directive_parse_result = this.directive_parser.parse(file_content, file_uri);
-        const own_working_directory = directive_parse_result.working_directory?.resolved_path;
+        let own_working_directory: string | undefined;
+        if (directive_parse_result.working_directory) {
+            if (directive_parse_result.working_directory.is_workspace_relative) {
+                const my_ws_root = get_workspace_root_for_uri(
+                    this.workspace_roots, file_uri
+                );
+                if (my_ws_root) {
+                    own_working_directory = path.normalize(path.join(
+                        my_ws_root,
+                        directive_parse_result.working_directory.resolved_path
+                    ));
+                }
+            } else {
+                own_working_directory = directive_parse_result.working_directory.resolved_path;
+            }
+        }
 
         // Only use inherited working directory if current file doesn't have its own
         const inherited_working_directory = own_working_directory
@@ -1091,14 +1107,17 @@ export class ScopeResolver {
                 
                 // Handle workspace-relative paths
                 if (my_parent_result.working_directory_directive.is_workspace_relative) {
-                    if (this.workspace_root) {
-                        resolved_path = path.normalize(path.join(this.workspace_root, resolved_path));
+                    const workspace_root = get_workspace_root_for_uri(
+                        this.workspace_roots, my_parent_uri
+                    );
+                    if (workspace_root) {
+                        resolved_path = path.normalize(path.join(workspace_root, resolved_path));
                     } else {
                         this.warn(`discover_working_directory: Cannot resolve workspace-relative path "${my_parent_result.working_directory_directive.path}" - no workspace root set`);
                         continue;
                     }
                 }
-                
+
                 return resolved_path;
             }
 
@@ -1589,12 +1608,27 @@ export class ScopeResolver {
         const my_lex_result = this.lexer.tokenize(content);
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
 
-        // Use file's own working_directory if present, otherwise use inherited
-        const effective_working_directory = my_directive_result.working_directory?.resolved_path ?? inherited_working_directory;
+        // Resolve file's own working_directory (handling workspace-relative paths)
+        const my_workspace_root = get_workspace_root_for_uri(this.workspace_roots, uri);
+        let own_working_directory: string | undefined;
+        if (my_directive_result.working_directory) {
+            if (my_directive_result.working_directory.is_workspace_relative) {
+                if (my_workspace_root) {
+                    own_working_directory = path.normalize(path.join(
+                        my_workspace_root,
+                        my_directive_result.working_directory.resolved_path
+                    ));
+                }
+            } else {
+                own_working_directory = my_directive_result.working_directory.resolved_path;
+            }
+        }
+        const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
-        // Pass working_directory to analyzer for path resolution in do/run/include commands
+        // Pass working_directory and workspace_root to analyzer for path resolution
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
+            workspace_root: my_workspace_root,
         });
 
         // Combine forward calls from commands and directives

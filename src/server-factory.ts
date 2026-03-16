@@ -504,9 +504,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
         // --- Update workspace roots ---
         if (folder_paths.length > 0) {
-            document_store.set_workspace_root(folder_paths[0]);
+            document_store.set_workspace_roots(folder_paths);
             if (scope_resolver) {
-                scope_resolver.set_workspace_root(folder_paths[0]);
+                scope_resolver.set_workspace_roots(folder_paths);
             }
             if (forward_scope_resolver) {
                 forward_scope_resolver.set_workspace_roots(folder_paths);
@@ -522,10 +522,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 );
             }
         } else {
-            document_store.set_workspace_root(undefined);
+            document_store.set_workspace_roots([]);
             workspace_file_config = undefined;
             if (scope_resolver) {
-                scope_resolver.set_workspace_root(undefined);
+                scope_resolver.set_workspace_roots([]);
             }
             if (forward_scope_resolver) {
                 forward_scope_resolver.set_workspace_roots([]);

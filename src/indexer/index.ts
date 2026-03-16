@@ -34,6 +34,7 @@ import { ScopeResolver, build_scope_resolver_config } from '../scope-resolver';
 import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { compute_line_offsets } from '../utils/line-utils';
+import { get_workspace_root_for_path } from '../utils/workspace-roots';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
@@ -77,6 +78,7 @@ export class WorkspaceIndexer {
     private update_queue: Set<string> = new Set();
     private is_processing_queue = false;
     private on_graph_change_callback?: (changed_callees: Set<string>) => void;
+    private workspace_roots: string[] = [];
 
     /**
      * Set the dependency graph for auto backward dependency discovery.
@@ -105,6 +107,7 @@ export class WorkspaceIndexer {
             return;
         }
         this.ado_paths = ado_paths;
+        this.workspace_roots = workspace_folders.map(f => path.resolve(f));
         this.cancelled = false;
         const start_time = Date.now();
 
@@ -277,9 +280,15 @@ export class WorkspaceIndexer {
             // Parse and analyze
             const lexResult = this.lexer.tokenize(content);
             const parseResult = this.parser.parse(lexResult.tokens);
+            const workspace_root = get_workspace_root_for_path(
+                this.workspace_roots,
+                file_path
+            );
             const analyzeResult = this.analyzer.analyze(
                 parseResult.ast,
-                file_uri
+                file_uri,
+                undefined,
+                { workspace_root }
             );
 
             // Compute context ranges for embedded language support
@@ -488,6 +497,7 @@ export class WorkspaceIndexer {
         this.is_processing_queue = false;
         this.version = 0;
         this.cancelled = false;
+        this.workspace_roots = [];
     }
 
     /**

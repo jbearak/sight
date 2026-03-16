@@ -56,7 +56,7 @@ describe('Forward Scope Working Directory Bug - Doubled Path Scenario', () => {
         forward_resolver = new ForwardScopeResolver(scope_resolver);
         scope_resolver.set_forward_scope_resolver(forward_resolver);
         document_store = new DocumentStore();
-        document_store.set_workspace_root(test_dir);
+        document_store.set_workspace_roots([test_dir]);
         document_store.set_scope_resolver(scope_resolver);
     });
 

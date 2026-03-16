@@ -8,6 +8,7 @@ import { ContextRange } from './context-tracker/types';
 import { with_parse_timeout, ParseResult } from './utils/parse-timeout';
 import { DirectiveParser } from './directive-parser';
 import { ScopeResolver } from './scope-resolver';
+import { get_workspace_root_for_uri } from './utils/workspace-roots';
 
 import { URI } from 'vscode-uri';
 import * as path from 'path';
@@ -51,7 +52,7 @@ export class DocumentStore {
   private in_flight_counts: Map<string, number> = new Map();
   private readonly MAX_DOCUMENTS = 50;
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
-  private workspace_root: string | undefined;
+  private workspace_roots: string[] = [];
   private scope_resolver: ScopeResolver | undefined;
   private disposed: boolean = false;
 
@@ -68,19 +69,27 @@ export class DocumentStore {
   };
 
   /**
-   * Set the workspace root directory.
+   * Set the workspace root directories.
    * Used for resolving workspace-relative paths in @lsp-working-directory directives
    * and for fallback path resolution in forward calls.
    */
-  set_workspace_root(workspace_root: string | undefined): void {
-    this.workspace_root = workspace_root;
+  set_workspace_roots(workspace_roots: string[]): void {
+    this.workspace_roots = workspace_roots;
   }
 
   /**
-   * Get the current workspace root directory.
+   * Get the current workspace root directories.
    */
-  get_workspace_root(): string | undefined {
-    return this.workspace_root;
+  get_workspace_roots(): string[] {
+    return this.workspace_roots;
+  }
+
+  /**
+   * Get the workspace root that contains the given URI.
+   * Returns the deepest matching root, falling back to workspace_roots[0].
+   */
+  get_workspace_root_for_uri(uri: string): string | undefined {
+    return get_workspace_root_for_uri(this.workspace_roots, uri);
   }
 
   /**
@@ -566,7 +575,7 @@ export class DocumentStore {
         workspace_symbols,
         {
           working_directory: resolved_working_directory,
-          workspace_root: this.workspace_root,
+          workspace_root: this.get_workspace_root_for_uri(uri),
         },
         lex_result.result!.tokens
       )
@@ -874,13 +883,14 @@ export class DocumentStore {
     let resolved_path: string;
 
     if (directive.is_workspace_relative) {
-      // Resolve relative to workspace root
-      if (!this.workspace_root) {
+      // Resolve relative to the workspace root that contains this file
+      const workspace_root = this.get_workspace_root_for_uri(uri);
+      if (!workspace_root) {
         // No workspace root available - cannot resolve workspace-relative path
         return undefined;
       }
       // resolved_path in directive already has leading slash stripped
-      resolved_path = path.normalize(path.join(this.workspace_root, directive.resolved_path));
+      resolved_path = path.normalize(path.join(workspace_root, directive.resolved_path));
     } else {
       // Resolve relative to script's containing directory
       // The directive parser already resolved this for us
