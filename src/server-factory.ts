@@ -522,6 +522,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             }
         } else {
             document_store.set_workspace_root(undefined);
+            workspace_file_config = undefined;
             if (scope_resolver) {
                 scope_resolver.set_workspace_root(undefined);
             }
@@ -924,12 +925,26 @@ export async function create_server(options: ServerOptions): Promise<void> {
             handler_deps.rename_handler = rename_handler;
 
             // Initialize workspace state
-            connection.workspace.getWorkspaceFolders().then((folders) => {
-                const folder_paths = (folders ?? [])
-                    .map((f) => URI.parse(f.uri).fsPath)
-                    .filter((p): p is string => p !== undefined);
-                void refresh_workspace_state(folder_paths);
-            });
+            connection.workspace.getWorkspaceFolders().then(
+                async (folders) => {
+                    const folder_paths = (folders ?? [])
+                        .map((my_folder) =>
+                            URI.parse(my_folder.uri).fsPath
+                        )
+                        .filter(
+                            (my_path): my_path is string =>
+                                my_path !== undefined
+                        );
+                    try {
+                        await refresh_workspace_state(folder_paths);
+                    } catch (err) {
+                        connection.console.log(
+                            `[workspace] Failed to initialize` +
+                            ` workspace state: ${err}`
+                        );
+                    }
+                }
+            );
 
             if (server_capabilities.has_configuration_capability) {
                 connection.client.register(DidChangeConfigurationNotification.type, undefined);
@@ -943,11 +958,21 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         const folders = await connection.workspace
                             .getWorkspaceFolders();
                         const folder_paths = (folders ?? [])
-                            .map((f) => URI.parse(f.uri).fsPath)
+                            .map((my_folder) =>
+                                URI.parse(my_folder.uri).fsPath
+                            )
                             .filter(
-                                (p): p is string => p !== undefined
+                                (my_path): my_path is string =>
+                                    my_path !== undefined
                             );
-                        await refresh_workspace_state(folder_paths);
+                        try {
+                            await refresh_workspace_state(folder_paths);
+                        } catch (err) {
+                            connection.console.log(
+                                `[workspace] Failed to refresh` +
+                                ` workspace state: ${err}`
+                            );
+                        }
                     }
                 );
             }
