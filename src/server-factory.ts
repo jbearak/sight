@@ -558,6 +558,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 if (dependency_graph?.is_scan_complete()) {
                     revalidate_all_open_docs();
                 }
+            }).catch((err) => {
+                connection.console.log(
+                    `[indexer] Workspace indexing failed: ${err}`
+                );
             });
         } else {
             dependency_graph?.mark_scan_complete();
