@@ -30,7 +30,7 @@ import {
     merge_symbol_tables
 } from '../analyzer';
 import { DirectiveParser } from '../directive-parser';
-import { ScopeResolver } from '../scope-resolver';
+import { ScopeResolver, build_scope_resolver_config } from '../scope-resolver';
 import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { compute_line_offsets } from '../utils/line-utils';
@@ -666,11 +666,7 @@ export class WorkspaceIndexer {
         try {
             const file_path = URI.parse(file_uri).fsPath;
             const content = await fs.promises.readFile(file_path, 'utf8');
-            // Only pass config if assume_call_site is explicitly set to avoid
-            // overriding the default with undefined
-            const resolve_config = cross_file_config?.assume_call_site
-                ? { assume_call_site: cross_file_config.assume_call_site, max_forward_depth: cross_file_config.max_forward_depth }
-                : { max_forward_depth: cross_file_config?.max_forward_depth };
+            const resolve_config = build_scope_resolver_config(cross_file_config);
             const resolved_scope = await scope_resolver.resolve(
                 file_uri,
                 content,
