@@ -799,7 +799,22 @@ export class ScopeResolver {
         // Check if current file has its own working directory
         // We need to parse directives again to get working_directory (parse_file doesn't return it)
         const directive_parse_result = this.directive_parser.parse(file_content, file_uri);
-        const own_working_directory = directive_parse_result.working_directory?.resolved_path;
+        let own_working_directory: string | undefined;
+        if (directive_parse_result.working_directory) {
+            if (directive_parse_result.working_directory.is_workspace_relative) {
+                const my_ws_root = get_workspace_root_for_uri(
+                    this.workspace_roots, file_uri
+                );
+                if (my_ws_root) {
+                    own_working_directory = path.normalize(path.join(
+                        my_ws_root,
+                        directive_parse_result.working_directory.resolved_path
+                    ));
+                }
+            } else {
+                own_working_directory = directive_parse_result.working_directory.resolved_path;
+            }
+        }
 
         // Only use inherited working directory if current file doesn't have its own
         const inherited_working_directory = own_working_directory

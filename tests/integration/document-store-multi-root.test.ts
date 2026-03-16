@@ -124,7 +124,10 @@ describe('DocumentStore multi-root workspace support', () => {
     });
 
     test('file outside all roots falls back to first root', () => {
-        const outside_uri = URI.file('/tmp/outside/file.do').toString();
+        const outside_path = path.resolve(
+            path.join(base_dir, '..', 'outside-root', 'file.do')
+        );
+        const outside_uri = URI.file(outside_path).toString();
         expect(document_store.get_workspace_root_for_uri(outside_uri))
             .toBe(root_a);
     });
