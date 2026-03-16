@@ -6,7 +6,7 @@ Sight is a Language Server Protocol (LSP) implementation for the Stata programmi
 
 **Key Features:**
 - Workspace-wide symbol resolution across `.do`, `.ado`, `.doh`, and `.mata` files
-- Cross-file scope awareness through directive-based linking
+- Automatic cross-file scope awareness (auto-discovers `do`/`run`/`include` relationships), with optional explicit directives
 - Forward reference detection and undefined macro warnings
 - Intelligent completion for commands, options, macros, and variables
 - Real-time diagnostics that trace execution through `do` and `include` chains
@@ -87,11 +87,14 @@ reference position against the definition position:
 Note: The analyzer only knows about symbols defined in the current file. Symbols
 from other files (via workspace indexing) are available for completions and
 go-to-definition, but do NOT suppress undefined macro warnings. To suppress
-warnings for cross-file symbols, the LSP automatically follows `do`, `run`, and
-`include` commands in your code (via ForwardScopeResolver). You can also use
-explicit directives (`@lsp-done-by`, `@lsp-included-by`, `@lsp-do`, `@lsp-run`,
-`@lsp-include`) for cases where auto-detection doesn't work (e.g., dynamic paths
-with macros).
+warnings for cross-file symbols, the LSP uses two mechanisms: (1) auto backward
+discovery via the DependencyGraph (default, `backward_dependencies: 'auto'`),
+which scans the workspace for `do`/`run`/`include` commands and builds parent
+chains automatically; and (2) forward scope resolution via ForwardScopeResolver,
+which follows `do`/`run`/`include` commands within each file. Explicit directives
+(`@lsp-done-by`, `@lsp-included-by`, `@lsp-do`, `@lsp-run`, `@lsp-include`) can
+be used for cases where auto-detection doesn't work (e.g., dynamic paths with
+macros).
 
 **Context Tracker** (`src/context-tracker/`): Tracks language context
 (Stata/Mata/Python) for position-aware features. Validates block structure.
@@ -126,14 +129,29 @@ user-facing examples):
 - `@lsp-do`, `@lsp-run`, `@lsp-include`: Forward call directives (can appear
   anywhere in file comments, unlike header-only backward directives)
 
-**Scope Resolver** (`src/scope-resolver/`): Resolves cross-file scopes by
-following directive chains (`@lsp-done-by`, `@lsp-included-by`). Features:
+**Dependency Graph** (`src/dependency-graph/`): Maintains a bidirectional graph
+of `do`/`run`/`include` relationships across the workspace. Populated during the
+workspace scan by the indexer. Key features:
+- `callee_to_callers` reverse index for auto backward discovery
+- `caller_to_callees` forward index for O(M) cleanup on re-index
+- Monotonic `version_counter` (folded into scope cache keys for invalidation)
+- `scan_complete` flag (gates diagnostic deferral during startup)
+- Only static paths (no macro interpolation) become edges
+
+**Scope Resolver** (`src/scope-resolver/`): Resolves cross-file scopes. In auto
+mode (default), it synthesizes directives from the dependency graph when no
+explicit directives are present. In explicit mode, it uses only header
+directives. Features:
+- Auto backward discovery: when `backward_dependencies === 'auto'` and a file
+  has no explicit directives, `dependency_graph.get_parents()` edges are
+  converted to synthetic `done-by`/`included-by` directives with call-site lines
+- Per-file opt-out: files with explicit directives skip auto-discovery
 - Recursive resolution with cycle detection and a configurable max chain depth
 - Two-level caching (file parse cache + resolved-scope cache) with hash-based validation and cascading invalidation
 - Call-site filtering: only include parent symbols defined on/before the call site; collect out-of-scope symbols separately
 - Inheritance rules:
-  - `done-by` inherits non-local symbols (programs, globals, scalars, matrices, variables)
-  - `included-by` inherits all symbols (including local macros)
+  - `done-by` / `run` inherits non-local symbols (programs, globals, scalars, matrices, variables)
+  - `included-by` / `include` inherits all symbols (including local macros)
 - Deterministic precedence when multiple parents contribute:
   - nearer parents (smaller depth) override more distant ancestors
   - same-depth conflicts: the lattermost directive in the child file header wins
@@ -162,21 +180,23 @@ call directives (`@lsp-do`, `@lsp-run`, `@lsp-include`) and auto-detected
 
 **Completion Provider Architecture**: The completion provider (`src/providers/completion.ts`) determines symbols based on two modes:
 
-1.  **Directive Mode** (when `@lsp-done-by` / `@lsp-included-by` are used):
+1.  **Scope-Resolved Mode** (when auto-discovered parents or explicit directives
+    provide a resolved scope):
     - Uses `ScopeResolver` to build a precise scope chain.
-    - Symbols are inherited only from explicitly linked files.
-    - Local macros are visible if inherited via `@lsp-included-by`.
+    - In auto mode, the dependency graph provides parent relationships; in
+      explicit mode, `@lsp-done-by` / `@lsp-included-by` directives are used.
+    - Local macros are visible if inherited via `include` (auto or directive).
     - The resolved scope applies call-site filtering (on/before call site) and
       emits additional directive diagnostics + out-of-scope symbol info.
 
-2.  **Global Mode** (default):
+2.  **Global Mode** (fallback when no parents are found):
     - Merges **Fresh Document Symbols** (in-memory) with **Workspace Symbols** (indexed from disk).
     - Workspace globals are visible in completions (but do NOT suppress undefined macro warnings in diagnostics).
     - Local macros are only visible from the current file.
 
 Note: The workspace symbol index is used for completions, go-to-definition, and
-workspace symbol search. It does NOT suppress undefined macro warnings - use
-cross-file directives for that.
+workspace symbol search. It does NOT suppress undefined macro warnings — only
+resolved scope (via auto-discovery or explicit directives) suppresses them.
 
 In both modes, completion ordering is made deterministic via `sortText` keys
 computed from multiple ranking factors (scope depth, directive type, symbol type,
@@ -404,7 +424,7 @@ file rename handling.
 - `LexerState` - Tracks delimiter mode and language context
 - `SightConfig` - User configuration
 - `CommandMetadata`, `CommandCache` - Command database structure
-- `CrossFileConfig` - Cross-file resolution settings
+- `CrossFileConfig` - Cross-file resolution settings (includes `backward_dependencies: 'auto' | 'explicit'`)
 - `CompletionRankingFactors` - Completion ordering logic
 - `DocumentStoreMetrics`, `IndexerMetrics` - Performance/telemetry-friendly metrics snapshots
 
