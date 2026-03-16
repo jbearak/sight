@@ -41,7 +41,7 @@ export function get_workspace_root_for_path(
         }
     }
 
-    return best_match ?? workspace_roots[0];
+    return best_match ?? path.resolve(workspace_roots[0]);
 }
 
 /**
@@ -63,6 +63,6 @@ export function get_workspace_root_for_uri(
         const fs_path = URI.parse(uri).fsPath;
         return get_workspace_root_for_path(workspace_roots, fs_path);
     } catch {
-        return workspace_roots[0];
+        return path.resolve(workspace_roots[0]);
     }
 }

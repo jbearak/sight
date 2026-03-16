@@ -115,13 +115,11 @@ describe('ScopeResolver multi-root workspace support', () => {
         const result = await scope_resolver.resolve(child_uri, child_content);
 
         // The directory doesn't exist in root-b, but ScopeResolver
-        // still reports the declared path. If resolved at all, it should
-        // point to root-b/data, NOT root-a/data.
-        if (result.inherited_working_directory) {
-            expect(result.inherited_working_directory).not.toBe(data_dir_a);
-            expect(result.inherited_working_directory).toBe(
-                path.join(root_b, 'data')
-            );
-        }
+        // still reports the declared path — it should point to
+        // root-b/data, NOT root-a/data.
+        expect(result.inherited_working_directory).toBe(
+            path.join(root_b, 'data')
+        );
+        expect(result.inherited_working_directory).not.toBe(data_dir_a);
     });
 });

@@ -31,6 +31,7 @@ describe('DocumentStore multi-root workspace support', () => {
         scope_resolver = new ScopeResolver();
         scope_resolver.set_workspace_roots([root_a, root_b]);
         const forward_resolver = new ForwardScopeResolver(scope_resolver);
+        forward_resolver.set_workspace_roots([root_a, root_b]);
         scope_resolver.set_forward_scope_resolver(forward_resolver);
 
         document_store = new DocumentStore();

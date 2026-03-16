@@ -1593,13 +1593,27 @@ export class ScopeResolver {
         const my_lex_result = this.lexer.tokenize(content);
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
 
-        // Use file's own working_directory if present, otherwise use inherited
-        const effective_working_directory = my_directive_result.working_directory?.resolved_path ?? inherited_working_directory;
+        // Resolve file's own working_directory (handling workspace-relative paths)
+        const my_workspace_root = get_workspace_root_for_uri(this.workspace_roots, uri);
+        let own_working_directory: string | undefined;
+        if (my_directive_result.working_directory) {
+            if (my_directive_result.working_directory.is_workspace_relative) {
+                if (my_workspace_root) {
+                    own_working_directory = path.normalize(path.join(
+                        my_workspace_root,
+                        my_directive_result.working_directory.resolved_path
+                    ));
+                }
+            } else {
+                own_working_directory = my_directive_result.working_directory.resolved_path;
+            }
+        }
+        const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
         // Pass working_directory and workspace_root to analyzer for path resolution
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
-            workspace_root: get_workspace_root_for_uri(this.workspace_roots, uri),
+            workspace_root: my_workspace_root,
         });
 
         // Combine forward calls from commands and directives
