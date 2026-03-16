@@ -145,6 +145,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Initialization options config
     let init_options_config: unknown = undefined;
 
+    // Root URI from initialize params (fallback for clients without
+    // workspaceFolders support, e.g., Claude Code, Neovim single-file)
+    let init_root_uri: string | null = null;
+
     type JsonObject = Record<string, unknown>;
 
     function deep_merge<T>(base: T, overlay: unknown): T {
@@ -801,6 +805,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             },
             (options: any) => {
                 init_options_config = options;
+            },
+            (root_uri: string | null) => {
+                init_root_uri = root_uri;
             }
         )
     );
@@ -925,10 +932,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
             handler_deps.dependency_graph = dependency_graph;
             handler_deps.rename_handler = rename_handler;
 
-            // Initialize workspace state
+            // Initialize workspace state.
+            // Prefer workspaceFolders (LSP 3.6+), fall back to rootUri/
+            // rootPath from the initialize params for clients that don't
+            // support the workspaceFolders capability (e.g., Claude Code,
+            // Neovim single-file mode, Helix).
             connection.workspace.getWorkspaceFolders().then(
                 async (folders) => {
-                    const folder_paths = (folders ?? [])
+                    let folder_paths = (folders ?? [])
                         .map((my_folder) =>
                             URI.parse(my_folder.uri).fsPath
                         )
@@ -936,6 +947,23 @@ export async function create_server(options: ServerOptions): Promise<void> {
                             (my_path): my_path is string =>
                                 my_path !== undefined
                         );
+
+                    // Fall back to rootUri/rootPath when workspaceFolders
+                    // is empty (common with minimal CLI-based LSP clients)
+                    if (folder_paths.length === 0 && init_root_uri) {
+                        const root_path = init_root_uri.startsWith('file://')
+                            ? URI.parse(init_root_uri).fsPath
+                            : init_root_uri;
+                        if (root_path) {
+                            folder_paths = [root_path];
+                            connection.console.log(
+                                `[workspace] No workspaceFolders from`
+                                + ` client; using rootUri fallback:`
+                                + ` ${root_path}`
+                            );
+                        }
+                    }
+
                     try {
                         await refresh_workspace_state(folder_paths);
                     } catch (err) {
