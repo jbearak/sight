@@ -740,12 +740,12 @@ const FILE_IO_COMMANDS: CommandInfo[] = [
         'file_io',
         [],
         [
-            subcommand('open', 'open'),
-            subcommand('read', 'read'),
-            subcommand('write', 'write'),
-            subcommand('close', 'close'),
-            subcommand('seek', 'seek'),
-            subcommand('query', 'query'),
+            subcommand('open', 'o'),
+            subcommand('read', 'r'),
+            subcommand('write', 'w'),
+            subcommand('close', 'c'),
+            subcommand('seek', 'see'),
+            subcommand('query', 'q'),
             subcommand('set', 'set'),
         ]
     ),

@@ -9973,27 +9973,27 @@
       "subcommands": [
         {
           "name": "open",
-          "min_abbreviation": 4
+          "min_abbreviation": 1
         },
         {
           "name": "read",
-          "min_abbreviation": 4
+          "min_abbreviation": 1
         },
         {
           "name": "write",
-          "min_abbreviation": 5
+          "min_abbreviation": 1
         },
         {
           "name": "close",
-          "min_abbreviation": 5
+          "min_abbreviation": 1
         },
         {
           "name": "seek",
-          "min_abbreviation": 4
+          "min_abbreviation": 3
         },
         {
           "name": "query",
-          "min_abbreviation": 5
+          "min_abbreviation": 1
         },
         {
           "name": "set",
