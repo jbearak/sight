@@ -733,6 +733,22 @@ const FILE_IO_COMMANDS: CommandInfo[] = [
             option('compact', 'compact'),
         ]
     ),
+    builtin_command(
+        'file',
+        'fi',
+        'file subcommand handle [arguments]',
+        'file_io',
+        [],
+        [
+            subcommand('open', 'o'),
+            subcommand('read', 'r'),
+            subcommand('write', 'w'),
+            subcommand('close', 'c'),
+            subcommand('seek', 'see'),
+            subcommand('query', 'q'),
+            subcommand('set', 'set'),
+        ]
+    ),
 ];
 
 /**

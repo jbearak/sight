@@ -1159,12 +1159,14 @@ export class SemanticAnalyzer {
      * Process a command node.
      *
      * Symbol extraction handled here:
-     * - Variables: gen/generate, egen, input
+     * - Variables: gen/generate, egen, input, rename/ren, confirm
      * - Scalars: scalar
      * - Matrices: matrix, matrix define
+     * - Macros: tempvar/tempfile/tempname, unab, args,
+     *           gettoken/gettok, file read
      *
-     * Note: `replace` mutates an existing variable and is not currently treated as a
-     * definition site.
+     * Note: `replace` mutates an existing variable and is not
+     * currently treated as a definition site.
      */
     private process_command(
         node: CommandNode,
@@ -1207,6 +1209,10 @@ export class SemanticAnalyzer {
             // gettoken extracts the first token from a string and optionally stores the remainder
             // Syntax: gettoken macname1 [macname2] : macname3 [, options]
             this.extract_gettoken_macros(node, symbols, current_scope, node_index);
+        } else if (cmd_name === 'file' || cmd_name === 'fil' || cmd_name === 'fi') {
+            // file read stores a line from a file into a local macro
+            // Syntax: file read handle macroname
+            this.extract_file_read_macro(node, symbols, current_scope, node_index);
         }
 
         // Extract macros from local() and global() options
@@ -1787,6 +1793,69 @@ export class SemanticAnalyzer {
                 current_scope.localMacros.set(macro_name, macro_symbol);
                 symbols.localMacros.set(macro_name, macro_symbol);
             }
+        }
+    }
+
+    /**
+     * Extract macro from file read command.
+     * Syntax: file read handle macroname
+     *
+     * varlist layout: [0]=subcommand, [1]=handle, [2]=macroname
+     * Only the exact subcommand spelling "read" creates a local
+     * macro.
+     *
+     * Note: this layout assumes 'file' is NOT in FILE_COMMANDS
+     * (file-path-utils.ts), so the parser does not coalesce the
+     * first argument as a file path.
+     */
+    private extract_file_read_macro(
+        node: CommandNode,
+        symbols: SymbolTable,
+        current_scope: ScopeInfo,
+        node_index: number
+    ): void {
+        // Require at least 3 varlist items: subcommand, handle, macroname
+        if (!node.varlist || node.varlist.length < 3) {
+            return;
+        }
+
+        // Only "read" subcommand creates a local macro (exact match)
+        if (node.varlist[0].name !== 'read') {
+            return;
+        }
+
+        const macro_node = node.varlist[2];
+        const macro_name = macro_node.name;
+
+        if (!is_valid_identifier(macro_name)) {
+            return;
+        }
+
+        // Check if macro already exists (first definition wins)
+        const existing_macro = symbols.localMacros.get(macro_name);
+        if (existing_macro) {
+            if (!existing_macro.additional_definitions) {
+                existing_macro.additional_definitions = [];
+            }
+            existing_macro.additional_definitions.push({
+                index: node_index,
+                line: node.range.start.line,
+                location: { uri: this.uri, range: macro_node.range }
+            });
+        } else {
+            const macro_symbol: MacroSymbol = {
+                name: macro_name,
+                scope: 'local',
+                location: { uri: this.uri, range: macro_node.range },
+                sourceUri: this.uri,
+                value: `__file_read_${macro_name}__`,
+                containingScope: current_scope.type,
+                definition_index: node_index,
+                definition_line: node.range.start.line,
+            };
+
+            current_scope.localMacros.set(macro_name, macro_symbol);
+            symbols.localMacros.set(macro_name, macro_symbol);
         }
     }
 
