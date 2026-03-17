@@ -902,7 +902,7 @@ const PROGRAMMING_COMMANDS: CommandInfo[] = [
     ),
     builtin_command(
         'forvalues',
-        'forvalues',
+        'forv',
         'forvalues lname = range { ... }',
         'programming'
     ),

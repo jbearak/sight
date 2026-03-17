@@ -129,7 +129,7 @@ export class StataParser {
       node = this.parseIfStatement();
     } else if (this.checkWord('else')) {
       node = this.parseElseStatement();
-    } else if (this.checkWord('foreach') || this.checkWord('forvalues')) {
+    } else if (this.checkWord('foreach') || this.checkForvalues()) {
       node = this.parseLoopStatement();
     } else if (this.checkWord('while')) {
       node = this.parseWhileStatement();
@@ -1989,7 +1989,8 @@ export class StataParser {
 
   private parseLoopStatement(): ControlFlowNode {
     const loopToken = this.advance(); // consume 'foreach' or 'forvalues'
-    const loopType = loopToken.value as 'foreach' | 'forvalues';
+    const loopType: 'foreach' | 'forvalues' =
+        loopToken.value === 'foreach' ? 'foreach' : 'forvalues';
     const loop_start_line = loopToken.range.start.line;
 
     let loopVar = '';
@@ -2521,7 +2522,7 @@ export class StataParser {
 
       // Synchronize on statement-starting keywords
       if (this.checkWord('program') || this.checkWord('local') || this.checkWord('global') ||
-        this.checkWord('if') || this.checkWord('foreach') || this.checkWord('forvalues') ||
+        this.checkWord('if') || this.checkWord('foreach') || this.checkForvalues() ||
         this.checkWord('while')) {
         return;
       }
@@ -2538,6 +2539,15 @@ export class StataParser {
   private checkWord(word: string): boolean {
     if (this.isAtEnd()) return false;
     return this.peek().type === 'WORD' && this.peek().value === word;
+  }
+
+  /** Check if the current token is a valid abbreviation of `forvalues` (min `forv`). */
+  private checkForvalues(): boolean {
+    if (this.isAtEnd()) return false;
+    const token = this.peek();
+    return token.type === 'WORD' &&
+        token.value.length >= 4 &&
+        'forvalues'.startsWith(token.value);
   }
 
   private advance(): Token {
