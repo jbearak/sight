@@ -50,7 +50,7 @@ local result: list file_global - other
 global file_global value
 ```
 
-**Global macros from other files** also produce warnings unless the LSP can determine the relationship. The LSP automatically follows `do`, `run`, and `include` commands in your code to resolve cross-file symbols. You can also use explicit directives (`@lsp-done-by`, `@lsp-included-by`, `@lsp-do`, `@lsp-run`, `@lsp-include`) for cases where auto-detection doesn't work (e.g., dynamic paths with macros). The workspace indexer provides globals for completions and go-to-definition, but does not suppress undefined macro warnings.
+**Global macros from other files** also produce warnings unless the LSP can determine the relationship. By default (`crossFile.backwardDependencies: "auto"`), the LSP scans the workspace at startup to discover which files call which, and automatically resolves parent–child symbol inheritance. It also follows `do`, `run`, and `include` commands within each file for forward resolution. For cases where auto-detection doesn't work (e.g., dynamic paths with macros), you can use explicit directives (`@lsp-done-by`, `@lsp-included-by`, `@lsp-do`, `@lsp-run`, `@lsp-include`). The workspace indexer provides globals for completions and go-to-definition, but does not suppress undefined macro warnings. See [Cross-File Awareness](cross-file.md) for details.
 
 **First definition wins**: When a macro is defined multiple times, references before the first definition produce warnings, but references after the first definition do not (even if they appear before later redefinitions).
 
@@ -99,6 +99,7 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
     "indentation": false
   },
   "crossFile": {
+    "backwardDependencies": "auto",
     "indexWorkspace": true,
     "maxIndexedFiles": 1000,
     "maxBackwardDepth": 10,
@@ -117,6 +118,7 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 | Option                                  | Type                 | Default         | Description                                                             |
 | --------------------------------------- | -------------------- | --------------- | ----------------------------------------------------------------------- |
 | `diagnostics.indentation`               | boolean              | `false`         | Enable indentation diagnostics                                          |
+| `crossFile.backwardDependencies`        | `"auto"` \| `"explicit"` | `"auto"`    | `"auto"`: discover parents from workspace scan; `"explicit"`: require directives |
 | `crossFile.indexWorkspace`              | boolean              | `true`          | Enable workspace-wide file indexing                                     |
 | `crossFile.maxIndexedFiles`             | number               | `1000`          | Maximum files to index                                                  |
 | `crossFile.maxBackwardDepth`            | number               | `10`            | Maximum recursion depth for backward directive resolution               |

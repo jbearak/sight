@@ -1,6 +1,6 @@
 # Sight - Comprehensive Stata Language Support
 
-Comprehensive language support for Stata: real-time diagnostics, completions, go-to-definition, code formatting, syntax highlighting with nesting depth colors, and integrated code execution.
+Comprehensive language support for Stata: real-time diagnostics, completions, go-to-definition, code formatting, syntax highlighting with nesting depth colors, cross-file symbol resolution, and integrated code execution.
 
 ## Features
 
@@ -29,6 +29,10 @@ Cmd/Ctrl+click to jump to macro and program definitions.
 Rich highlighting with nesting depth colors for compound strings and nested macros.
 
 <img width="581" height="386" src="https://github.com/jbearak/sight/blob/main/examples/nested_locals_within_compound_strings_dark.png?raw=true"/>
+
+### Cross-File Awareness
+
+Automatically resolves symbols across files — globals, programs, scalars, and variables defined in parent files are inherited by child files via `do`, `run`, and `include` commands. Works automatically for most projects; some edge cases (e.g., dynamic macro paths or files outside the workspace) require manual configuration — see [Cross-File Awareness](https://github.com/jbearak/sight/blob/main/docs/cross-file.md) for details.
 
 ### Run Code in Stata
 
