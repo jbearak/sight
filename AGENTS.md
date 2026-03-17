@@ -150,7 +150,7 @@ directives. Features:
 - Two-level caching (file parse cache + resolved-scope cache) with hash-based validation and cascading invalidation
 - Call-site filtering: only include parent symbols defined on/before the call site; collect out-of-scope symbols separately
 - Inheritance rules:
-  - `done-by` / `run` inherits non-local symbols (programs, globals, scalars, matrices, variables)
+  - `done-by` / `run-by` / `do` / `run` inherits non-local symbols (programs, globals, scalars, matrices, variables)
   - `included-by` / `include` inherits all symbols (including local macros)
 - Deterministic precedence when multiple parents contribute:
   - nearer parents (smaller depth) override more distant ancestors

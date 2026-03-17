@@ -18,7 +18,7 @@ the graph and inherits the appropriate symbols — no directives required.
 
 For example, given this project:
 
-```
+```text
 project/
 ├── main.do
 └── scripts/
@@ -62,9 +62,9 @@ completes, all open files are re-validated with the full dependency graph.
 ### Explicit mode
 
 If you prefer full manual control, set `crossFile.backwardDependencies` to
-`"explicit"` in your `.sight.json`. In this mode the LSP will not
-auto-discover parent files — you must add `@lsp-done-by` or
-`@lsp-included-by` directives to each child file's header.
+`"explicit"`. You can set this globally via the VS Code setting
+`sight.crossFile.backwardDependencies`, or per-project by placing a
+`.sight.json` file in your project root:
 
 ```json
 {
@@ -73,6 +73,9 @@ auto-discover parent files — you must add `@lsp-done-by` or
   }
 }
 ```
+
+In this mode the LSP will not auto-discover parent files — you must add
+`@lsp-done-by` or `@lsp-included-by` directives to each child file's header.
 
 **Per-file opt-out:** Even in auto mode, adding an explicit backward directive
 to a file's header causes the LSP to skip auto-discovery for that file and use
@@ -184,9 +187,11 @@ workspace), you can declare parent relationships explicitly.
   (inherits all symbols including locals)
 
 Notes:
-- Directives are only read from the **top of the file** (header). Parsing
-  stops at the first line that is not a comment and not blank after trimming
-  whitespace (so whitespace-only lines still count as blank).
+- Backward directives are only read from the **top of the file** (header).
+  Parsing stops at the first line that is not a comment and not blank after
+  trimming whitespace (so whitespace-only lines still count as blank). Forward
+  directives (`@lsp-do`, `@lsp-run`, `@lsp-include`) can appear anywhere in
+  file comments.
 - The parser also accepts an alternative form without the colon and/or without
   quotes (e.g. `// @lsp-done-by parent.do`), but the spec form above is
   preferred.
@@ -262,8 +267,8 @@ When no `@lsp-working-directory` directive is present:
 
 **Important Notes:**
 
-- The directive must appear in the file **header** (before any non-comment,
-  non-blank code)
+- The backward directive must appear in the file **header** (before any
+  non-comment, non-blank code)
 - If multiple working directory directives are present, the **last one** is
   used (with a warning)
 - The directive only affects path resolution for `do`, `run`, and `include`
@@ -275,7 +280,7 @@ When no `@lsp-working-directory` directive is present:
 **Common Use Case:**
 
 Many Stata projects have a structure like:
-```
+```text
 project/
 ├── main.do           # Run from project root
 ├── scripts/
@@ -315,7 +320,7 @@ directive when the parent already establishes the working directory context.
 
 **Example:**
 
-```
+```text
 project/
 ├── scripts/
 │   ├── loop.do       # Has @lsp-cd: "../" (sets wd to project/)
