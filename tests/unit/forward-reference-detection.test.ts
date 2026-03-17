@@ -107,6 +107,38 @@ local result: list my_vars - dummy
         expect(the_diagnostics).toHaveLength(0);
     });
 
+    it('multiple unab definitions of same macro all suppress warnings', () => {
+        const code = `
+unab foo : _all
+di "\`foo'"
+unab foo : _all
+di "\`foo'"
+`;
+        const result = analyze_code(code);
+        const the_diagnostics = result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+            d.message.includes('foo')
+        );
+        expect(the_diagnostics).toHaveLength(0);
+    });
+
+    it('three unab definitions of same macro all suppress warnings', () => {
+        const code = `
+unab foo : _all
+di "\`foo'"
+unab foo : _all
+di "\`foo'"
+unab foo : _all
+di "\`foo'"
+`;
+        const result = analyze_code(code);
+        const the_diagnostics = result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+            d.message.includes('foo')
+        );
+        expect(the_diagnostics).toHaveLength(0);
+    });
+
     it('forward reference to unab macro produces warning', () => {
         const code = `
 local dummy x
