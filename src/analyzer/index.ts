@@ -1638,23 +1638,35 @@ export class SemanticAnalyzer {
     ): void {
         // For unab command, the first argument is the macro name
         // The syntax is: unab macname : varlist
-        // We need to extract the macro name from the command arguments
         if (node.varlist && node.varlist.length > 0) {
             const macro_name = node.varlist[0].name;
-            
-            const macro_symbol: MacroSymbol = {
-                name: macro_name,
-                scope: 'local',
-                location: { uri: this.uri, range: node.range },
-                sourceUri: this.uri,
-                value: `__unab_${macro_name}__`, // Placeholder value
-                containingScope: current_scope.type,
-                definition_index: node_index,
-                definition_line: node.range.start.line,
-            };
 
-            current_scope.localMacros.set(macro_name, macro_symbol);
-            symbols.localMacros.set(macro_name, macro_symbol);
+            // Check if macro already exists (first definition wins)
+            const existing_macro = symbols.localMacros.get(macro_name);
+            if (existing_macro) {
+                if (!existing_macro.additional_definitions) {
+                    existing_macro.additional_definitions = [];
+                }
+                existing_macro.additional_definitions.push({
+                    index: node_index,
+                    line: node.range.start.line,
+                    location: { uri: this.uri, range: node.varlist[0].range }
+                });
+            } else {
+                const macro_symbol: MacroSymbol = {
+                    name: macro_name,
+                    scope: 'local',
+                    location: { uri: this.uri, range: node.varlist[0].range },
+                    sourceUri: this.uri,
+                    value: `__unab_${macro_name}__`, // Placeholder value
+                    containingScope: current_scope.type,
+                    definition_index: node_index,
+                    definition_line: node.range.start.line,
+                };
+
+                current_scope.localMacros.set(macro_name, macro_symbol);
+                symbols.localMacros.set(macro_name, macro_symbol);
+            }
         }
     }
 

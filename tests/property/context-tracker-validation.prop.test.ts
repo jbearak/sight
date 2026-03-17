@@ -18,9 +18,12 @@ describe('Context Tracker Validation Property Tests', () => {
    * Validates: Requirements 3.1, 3.2, 3.3
    */
   it('should accept valid blocks ending with end', () => {
-    // Filter out strings that would be parsed as block terminators
+    // Filter out strings that would be parsed as block terminators or
+    // contain comment syntax that interferes with block parsing
     const safe_content = fc.string({ minLength: 1, maxLength: 20 }).filter(
-      (s) => !/^(end|mata|python)\b/.test(s.trim())
+      (s) => !/^(end|mata|python)\b/.test(s.trim()) &&
+             !/\/\*|\*\/|\/\//.test(s) &&
+             !/^\s*\*/.test(s)
     );
     fc.assert(
       fc.property(
