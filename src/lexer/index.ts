@@ -746,8 +746,45 @@ export class StataLexer {
   }
 
   private scanLineComment(startLine: number, startColumn: number, style: 'star' | 'slash'): Token {
-    // Consume until end of line
+    // Consume until end of line, but watch for /* in star comments.
+    // In Stata, /* inside a * comment opens a block comment that extends
+    // to the matching */ — potentially spanning multiple lines.
     while (this.peek() !== '\n' && !this.isAtEnd()) {
+      if (style === 'star' && this.peek() === '/' && this.peekNext() === '*') {
+        const my_block_start_line = this.line;
+        const my_block_start_column = this.column;
+        this.advance(); // consume /
+        this.advance(); // consume *
+
+        // Scan until */ or EOF (like scanBlockComment)
+        while (!this.isAtEnd()) {
+          if (this.peek() === '*' && this.peekNext() === '/') {
+            this.advance(); // consume *
+            this.advance(); // consume /
+            break;
+          }
+          this.advance();
+        }
+
+        // Only warn when /* causes multi-line comment behavior
+        // (i.e., */ is on a different line, or unclosed and spans lines)
+        if (this.line !== my_block_start_line) {
+          const my_error: LexerError = {
+            message: 'Block comment `/* */` inside star comment causes'
+              + ' multi-line comment behavior \u2014 subsequent lines until'
+              + ' `*/` will be treated as comment by Stata',
+            range: this.makeRange(
+              my_block_start_line, my_block_start_column,
+              this.line, this.column
+            ),
+            code: LexerErrorCode.BLOCK_COMMENT_IN_STAR_COMMENT,
+          };
+          this.errors.push(my_error);
+        }
+
+        // Continue scanning the rest of the line (star comment still active)
+        continue;
+      }
       this.advance();
     }
 

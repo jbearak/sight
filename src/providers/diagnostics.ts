@@ -518,6 +518,9 @@ export class DiagnosticsProvider {
             case LexerErrorCode.CONTINUATION_NO_SPACE:
                 severity = this.get_severity_from_config(config.diagnostics.severity.styleWarnings);
                 break;
+            case LexerErrorCode.BLOCK_COMMENT_IN_STAR_COMMENT:
+                severity = DiagnosticSeverity.Warning;
+                break;
             default:
                 severity = DiagnosticSeverity.Error;
         }
