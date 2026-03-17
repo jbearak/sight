@@ -3,6 +3,9 @@ import { DocumentState } from '../document-store';
 import { LanguageContext } from '../context-tracker/types';
 import { StataDiagnosticCode, StataLSPConfig, StataNode, StataAST, ControlFlowNode, ProgramNode, Token } from '../types';
 
+const CONTROL_FLOW_RE = /^(if|foreach|while|program|mata|python)\b/;
+const FIRST_WORD_RE = /^(\w+)\b/;
+
 export class IndentationDiagnosticAnalyzer {
   analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
@@ -238,8 +241,8 @@ export class IndentationDiagnosticAnalyzer {
 
   private is_control_flow_start(line: string): boolean {
     if (line === '{') return true;
-    if (/^(if|foreach|while|program|mata|python)\b/.test(line)) return true;
-    const my_match = line.match(/^(\w+)\b/);
+    if (CONTROL_FLOW_RE.test(line)) return true;
+    const my_match = line.match(FIRST_WORD_RE);
     if (my_match) {
       const my_word = my_match[1];
       if (my_word.length >= 4 && 'forvalues'.startsWith(my_word)) return true;
