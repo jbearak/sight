@@ -1650,13 +1650,13 @@ export class SemanticAnalyzer {
                 existing_macro.additional_definitions.push({
                     index: node_index,
                     line: node.range.start.line,
-                    location: { uri: this.uri, range: node.range }
+                    location: { uri: this.uri, range: node.varlist[0].range }
                 });
             } else {
                 const macro_symbol: MacroSymbol = {
                     name: macro_name,
                     scope: 'local',
-                    location: { uri: this.uri, range: node.range },
+                    location: { uri: this.uri, range: node.varlist[0].range },
                     sourceUri: this.uri,
                     value: `__unab_${macro_name}__`, // Placeholder value
                     containingScope: current_scope.type,
