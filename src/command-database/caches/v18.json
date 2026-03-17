@@ -9969,7 +9969,37 @@
       "name": "file",
       "min_abbreviation": 1,
       "options": [],
-      "priority": 3
+      "priority": 3,
+      "subcommands": [
+        {
+          "name": "open",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "read",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "write",
+          "min_abbreviation": 5
+        },
+        {
+          "name": "close",
+          "min_abbreviation": 5
+        },
+        {
+          "name": "seek",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "query",
+          "min_abbreviation": 5
+        },
+        {
+          "name": "set",
+          "min_abbreviation": 3
+        }
+      ]
     },
     "names": {
       "name": "names",
