@@ -1801,7 +1801,12 @@ export class SemanticAnalyzer {
      * Syntax: file read handle macroname
      *
      * varlist layout: [0]=subcommand, [1]=handle, [2]=macroname
-     * Only the exact subcommand spelling "read" creates a local macro.
+     * Only the exact subcommand spelling "read" creates a local
+     * macro.
+     *
+     * Note: this layout assumes 'file' is NOT in FILE_COMMANDS
+     * (file-path-utils.ts), so the parser does not coalesce the
+     * first argument as a file path.
      */
     private extract_file_read_macro(
         node: CommandNode,
