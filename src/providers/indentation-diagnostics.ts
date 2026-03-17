@@ -237,7 +237,14 @@ export class IndentationDiagnosticAnalyzer {
   }
 
   private is_control_flow_start(line: string): boolean {
-    return /^(if|foreach|forvalues|while|program|mata|python)\b/.test(line) || line === '{';
+    if (line === '{') return true;
+    if (/^(if|foreach|while|program|mata|python)\b/.test(line)) return true;
+    const my_match = line.match(/^(\w+)\b/);
+    if (my_match) {
+      const my_word = my_match[1];
+      if (my_word.length >= 4 && 'forvalues'.startsWith(my_word)) return true;
+    }
+    return false;
   }
 
   /**
