@@ -160,6 +160,25 @@
             "Disable this diagnostic"
           ]
         },
+        "sight.diagnostics.severity.mixedLogicalOperators": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "warning",
+          "description": "Severity level for mixed '&' and '|' operators without parentheses. Parentheses clarify precedence and prevent subtle logic bugs. Set to 'off' to disable.",
+          "enumDescriptions": [
+            "Show as error",
+            "Show as warning",
+            "Show as information",
+            "Show as hint",
+            "Disable this diagnostic"
+          ]
+        },
         "sight.diagnostics.indentation": {
           "type": "boolean",
           "default": false,
