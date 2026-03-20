@@ -115,7 +115,7 @@ export class MixedLogicalOperatorAnalyzer {
                 continue;
             }
 
-            if (this.is_expression_breaker(my_token, state)) {
+            if (this.is_expression_breaker(my_token)) {
                 in_continuation = false;
                 this.flush(state, the_diagnostics, severity, ignored_lines);
                 state = this.fresh_state();
@@ -163,25 +163,25 @@ export class MixedLogicalOperatorAnalyzer {
             }
 
             if (my_token.type === 'OPERATOR' && LOGICAL_OPS.has(my_token.value)) {
-                let group = state.groups.get(state.current_group_id);
-                if (!group) {
-                    group = {
+                let my_group = state.groups.get(state.current_group_id);
+                if (!my_group) {
+                    my_group = {
                         id: state.current_group_id,
                         and_tokens: [],
                         or_tokens: [],
                         has_compound_logical_sequence: false,
                     };
-                    state.groups.set(state.current_group_id, group);
+                    state.groups.set(state.current_group_id, my_group);
                 }
 
                 if (this.starts_compound_logical_sequence(the_tokens, i, my_token)) {
-                    group.has_compound_logical_sequence = true;
+                    my_group.has_compound_logical_sequence = true;
                 }
 
                 if (my_token.value === '&') {
-                    group.and_tokens.push(my_token);
+                    my_group.and_tokens.push(my_token);
                 } else {
-                    group.or_tokens.push(my_token);
+                    my_group.or_tokens.push(my_token);
                 }
             }
         }
@@ -207,7 +207,7 @@ export class MixedLogicalOperatorAnalyzer {
             && QUALIFIER_BREAKERS.has(my_token.value);
     }
 
-    private is_expression_breaker(my_token: Token, state: ExpressionState): boolean {
+    private is_expression_breaker(my_token: Token): boolean {
         return EXPRESSION_BREAKERS.has(my_token.type);
     }
 
@@ -217,8 +217,8 @@ export class MixedLogicalOperatorAnalyzer {
         my_token: Token
     ): boolean {
         let in_continuation = false;
-        for (let i = start_index + 1; i < the_tokens.length; i++) {
-            const next_token = the_tokens[i];
+        for (let my_i = start_index + 1; my_i < the_tokens.length; my_i++) {
+            const next_token = the_tokens[my_i];
             if (next_token.type === 'WHITESPACE') {
                 continue;
             }
@@ -244,18 +244,18 @@ export class MixedLogicalOperatorAnalyzer {
         severity: DiagnosticSeverity,
         ignored_lines: Set<number>
     ): void {
-        for (const group of state.groups.values()) {
-            if (group.has_compound_logical_sequence) {
+        for (const my_group of state.groups.values()) {
+            if (my_group.has_compound_logical_sequence) {
                 continue;
             }
-            if (group.and_tokens.length === 0 || group.or_tokens.length === 0) {
+            if (my_group.and_tokens.length === 0 || my_group.or_tokens.length === 0) {
                 continue;
             }
 
-            const first_and = group.and_tokens[0];
-            const first_or = group.or_tokens[0];
-            const last_and = group.and_tokens[group.and_tokens.length - 1];
-            const last_or = group.or_tokens[group.or_tokens.length - 1];
+            const first_and = my_group.and_tokens[0];
+            const first_or = my_group.or_tokens[0];
+            const last_and = my_group.and_tokens[my_group.and_tokens.length - 1];
+            const last_or = my_group.or_tokens[my_group.or_tokens.length - 1];
 
             const first_token = is_before(first_and, first_or) ? first_and : first_or;
             const last_token = is_before(last_and, last_or) ? last_or : last_and;
