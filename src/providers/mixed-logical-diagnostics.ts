@@ -14,7 +14,6 @@ const LOGICAL_OPS: Set<string> = new Set(['&', '|']);
 const EXPRESSION_BREAKERS: Set<string> = new Set([
     'STATEMENT_TERMINATOR',
     'COMMENT_LINE',
-    'COMMENT_BLOCK',
     'COMMA',
     'LBRACE',
     'RBRACE',

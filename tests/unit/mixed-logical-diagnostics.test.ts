@@ -412,6 +412,28 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             );
             expect(mixed).toHaveLength(0);
         });
+
+        it('detects mixed operators across inline block comment', () => {
+            const doc = create_document_state(
+                'keep if x & /* comment */ y | z'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
+        });
+
+        it('detects mixed operators across multiline block comment', () => {
+            const doc = create_document_state(
+                'keep if x & /* comment\nmore */ y | z'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
+        });
     });
 
     describe('Multiple Logical Operators', () => {
