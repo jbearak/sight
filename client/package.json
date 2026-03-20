@@ -2,7 +2,7 @@
   "name": "sight",
   "displayName": "Sight - Comprehensive Stata Language Support",
   "description": "Stata language support: language server, syntax highlighting, and code execution",
-  "version": "0.1.28",
+  "version": "0.2.0",
   "publisher": "jbearak",
   "repository": {
     "type": "git",
@@ -152,6 +152,25 @@
           ],
           "default": "information",
           "description": "Severity level for C-style logical operators (&&, ||) in if/else if control flow statements. These operators work in control flow but are stylistically discouraged. Set to 'off' to disable.",
+          "enumDescriptions": [
+            "Show as error",
+            "Show as warning",
+            "Show as information",
+            "Show as hint",
+            "Disable this diagnostic"
+          ]
+        },
+        "sight.diagnostics.severity.mixedLogicalOperators": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "warning",
+          "description": "Severity level for mixed '&' and '|' operators without parentheses. Parentheses clarify precedence and prevent subtle logic bugs. Set to 'off' to disable.",
           "enumDescriptions": [
             "Show as error",
             "Show as warning",

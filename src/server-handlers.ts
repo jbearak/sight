@@ -97,6 +97,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
             malformedOperator: 'warning',
             invalidOperatorSequence: 'error',
             cStyleLogicalInControlFlow: 'information',
+            mixedLogicalOperators: 'warning',
         },
         indentation: false,
     },
