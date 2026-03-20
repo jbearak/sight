@@ -161,6 +161,24 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             const diagnostics = analyzer.analyze(doc, default_config);
             expect(diagnostics).toHaveLength(0);
         });
+
+        it('does not merge a main expression with a trailing if qualifier', () => {
+            const doc = create_document_state('generate x = a & b if c | d');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
+        });
+
+        it('does not add a mixed warning for invalid && sequences', () => {
+            const doc = create_document_state('keep if x && y | z');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
+        });
     });
 
     describe('Explicit Grouping Suppresses Warning', () => {
@@ -218,6 +236,15 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
                 d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
             );
             expect(mixed).toHaveLength(0);
+        });
+
+        it('still detects mixed operators inside a trailing if qualifier', () => {
+            const doc = create_document_state('generate x = a if b & c | d');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
         });
     });
 

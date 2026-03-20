@@ -8,6 +8,11 @@ import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
 const LOGICAL_OPS: Set<string> = new Set(['&', '|']);
 
 /**
+ * Top-level qualifier keywords that end the preceding expression segment.
+ */
+const QUALIFIER_BREAKERS: Set<string> = new Set(['if', 'in']);
+
+/**
  * Token types that end an expression segment.
  * These reset the mixed-operator tracking state.
  */
@@ -28,6 +33,8 @@ interface ExpressionState {
     paren_depth: number;
     /** Logical operators seen in the current expression segment. */
     logical_tokens: Array<{ token: Token; depth: number }>;
+    /** Whether the segment contains `&&` or `||`. */
+    has_compound_logical_sequence: boolean;
 }
 
 /**
@@ -92,6 +99,16 @@ export class MixedLogicalOperatorAnalyzer {
                 continue;
             }
 
+            // Top-level qualifier keywords (`if`, `in`) start a new
+            // expression segment. This prevents a main expression from being
+            // analyzed together with a trailing qualifier expression.
+            if (this.is_qualifier_breaker(my_token, state)) {
+                in_continuation = false;
+                this.flush(state, the_diagnostics, severity, ignored_lines);
+                state = this.fresh_state();
+                continue;
+            }
+
             // Expression breakers reset tracking
             if (EXPRESSION_BREAKERS.has(my_token.type)) {
                 in_continuation = false;
@@ -128,6 +145,9 @@ export class MixedLogicalOperatorAnalyzer {
             // Track all logical operators and evaluate them by their
             // shallowest shared depth when the expression is flushed.
             if (my_token.type === 'OPERATOR' && LOGICAL_OPS.has(my_token.value)) {
+                if (this.starts_compound_logical_sequence(the_tokens, i, my_token)) {
+                    state.has_compound_logical_sequence = true;
+                }
                 state.logical_tokens.push({
                     token: my_token,
                     depth: state.paren_depth,
@@ -145,7 +165,58 @@ export class MixedLogicalOperatorAnalyzer {
      * Create a fresh expression tracking state.
      */
     private fresh_state(): ExpressionState {
-        return { paren_depth: 0, logical_tokens: [] };
+        return {
+            paren_depth: 0,
+            logical_tokens: [],
+            has_compound_logical_sequence: false,
+        };
+    }
+
+    /**
+     * Check whether a token starts a top-level qualifier expression.
+     */
+    private is_qualifier_breaker(
+        my_token: Token,
+        state: ExpressionState
+    ): boolean {
+        return state.paren_depth === 0
+            && my_token.type === 'WORD'
+            && QUALIFIER_BREAKERS.has(my_token.value);
+    }
+
+    /**
+     * Check whether the current `&`/`|` token starts a `&&` or `||` pair.
+     * These sequences already have their own operator-sequence diagnostic,
+     * so mixed-precedence warnings would be redundant noise.
+     */
+    private starts_compound_logical_sequence(
+        the_tokens: Token[],
+        start_index: number,
+        my_token: Token
+    ): boolean {
+        let in_continuation = false;
+
+        for (let i = start_index + 1; i < the_tokens.length; i++) {
+            const next_token = the_tokens[i];
+
+            if (next_token.type === 'WHITESPACE') {
+                continue;
+            }
+            if (next_token.type === 'CONTINUATION') {
+                in_continuation = true;
+                continue;
+            }
+            if (next_token.type === 'STATEMENT_TERMINATOR' && in_continuation) {
+                in_continuation = false;
+                continue;
+            }
+            if (next_token.type === 'OPERATOR' && next_token.value === my_token.value) {
+                return true;
+            }
+            return false;
+        }
+
+        return false;
     }
 
     /**
@@ -159,6 +230,9 @@ export class MixedLogicalOperatorAnalyzer {
         ignored_lines: Set<number>
     ): void {
         if (state.logical_tokens.length === 0) {
+            return;
+        }
+        if (state.has_compound_logical_sequence) {
             return;
         }
 
