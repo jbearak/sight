@@ -19,6 +19,7 @@ import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
+import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
 
 /**
  * DiagnosticsProvider aggregates diagnostics from cached parse results.
@@ -44,6 +45,7 @@ export class DiagnosticsProvider {
     private debounce_manager: DocumentDebounceManager | null = null;
     private indentation_analyzer = new IndentationDiagnosticAnalyzer();
     private operator_sequence_analyzer = new OperatorSequenceAnalyzer();
+    private mixed_logical_analyzer = new MixedLogicalOperatorAnalyzer();
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     // Track published versions to prevent stale diagnostics
@@ -338,6 +340,14 @@ export class DiagnosticsProvider {
             // Skip operator sequence diagnostics in embedded contexts
             if (!this.is_in_embedded_context(my_operator_diag.range.start, the_context_ranges)) {
                 the_diagnostics.push(my_operator_diag);
+            }
+        }
+
+        // Add mixed logical operator diagnostics (e.g., 'x & y | z')
+        const mixed_logical_diagnostics = this.mixed_logical_analyzer.analyze(document, config);
+        for (const my_mixed_diag of mixed_logical_diagnostics) {
+            if (!this.is_in_embedded_context(my_mixed_diag.range.start, the_context_ranges)) {
+                the_diagnostics.push(my_mixed_diag);
             }
         }
 

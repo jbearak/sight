@@ -453,6 +453,7 @@ export enum StataDiagnosticCode {
   MALFORMED_OPERATOR = 6001,
   INVALID_OPERATOR_SEQUENCE = 6002,
   CSTYLE_LOGICAL_IN_CONTROL_FLOW = 6003,
+  MIXED_LOGICAL_OPERATORS = 6004,
 }
 
 
@@ -474,6 +475,7 @@ export interface StataLSPConfig {
       malformedOperator: 'error' | 'warning' | 'information' | 'hint' | 'off';
       invalidOperatorSequence: 'error' | 'warning' | 'information' | 'hint' | 'off';
       cStyleLogicalInControlFlow: 'error' | 'warning' | 'information' | 'hint' | 'off';
+      mixedLogicalOperators: 'error' | 'warning' | 'information' | 'hint' | 'off';
     };
     indentation: boolean;
   };

@@ -188,6 +188,12 @@ export function validate_comment_formatting_config(
             ) {
                 validated_config.diagnostics.severity.cStyleLogicalInControlFlow = diagnostics.severity.cStyleLogicalInControlFlow as any;
             }
+            if (
+                diagnostics.severity.mixedLogicalOperators &&
+                valid_severities.includes(diagnostics.severity.mixedLogicalOperators)
+            ) {
+                validated_config.diagnostics.severity.mixedLogicalOperators = diagnostics.severity.mixedLogicalOperators as any;
+            }
         }
 
         if (typeof diagnostics.indentation === 'boolean') {
