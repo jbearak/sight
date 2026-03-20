@@ -88,6 +88,44 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             );
             expect(mixed).toHaveLength(1);
         });
+
+        it('detects mixed operators in a wrapped expression', () => {
+            const doc = create_document_state('display (a & b | c)');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
+        });
+
+        it('detects mixed operators in a doubly wrapped expression', () => {
+            const doc = create_document_state('display ((a & b | c))');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
+        });
+
+        it('detects mixed operators in parenthesized if condition', () => {
+            const doc = create_document_state(
+                'if (a & b | c) {\n    display "test"\n}'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
+        });
+
+        it('detects mixed operators in nested expression contexts', () => {
+            const doc = create_document_state('display foo(a & b | c)');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
+        });
     });
 
     describe('No False Positives', () => {
@@ -125,7 +163,7 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
         });
     });
 
-    describe('Parentheses Suppress Warning', () => {
+    describe('Explicit Grouping Suppresses Warning', () => {
         it('no warning for (x & y) | z', () => {
             const doc = create_document_state('display (x & y) | z');
             const diagnostics = analyzer.analyze(doc, default_config);
@@ -243,6 +281,32 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
                 expect(mixed[0].range.start.character).toBe(or_token.range.start.character);
                 expect(mixed[0].range.end.line).toBe(and_token.range.end.line);
                 expect(mixed[0].range.end.character).toBe(and_token.range.end.character);
+            }
+        });
+
+        it('range spans the mixed operators inside a wrapped expression', () => {
+            const doc = create_document_state('display (a & b | c)');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
+
+            const and_token = doc.tokens.find(
+                t => t.type === 'OPERATOR' && t.value === '&'
+            );
+            const or_token = doc.tokens.find(
+                t => t.type === 'OPERATOR' && t.value === '|'
+            );
+
+            expect(and_token).toBeDefined();
+            expect(or_token).toBeDefined();
+
+            if (and_token && or_token) {
+                expect(mixed[0].range.start.line).toBe(and_token.range.start.line);
+                expect(mixed[0].range.start.character).toBe(and_token.range.start.character);
+                expect(mixed[0].range.end.line).toBe(or_token.range.end.line);
+                expect(mixed[0].range.end.character).toBe(or_token.range.end.character);
             }
         });
     });

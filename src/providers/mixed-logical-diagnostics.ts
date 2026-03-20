@@ -27,10 +27,8 @@ const EXPRESSION_BREAKERS: Set<string> = new Set([
 interface ExpressionState {
     /** Current parenthesis nesting depth. */
     paren_depth: number;
-    /** Positions of `&` tokens seen at depth 0. */
-    and_tokens: Token[];
-    /** Positions of `|` tokens seen at depth 0. */
-    or_tokens: Token[];
+    /** Logical operators seen in the current expression segment. */
+    logical_tokens: Array<{ token: Token; depth: number }>;
 }
 
 /**
@@ -49,8 +47,8 @@ function is_before(a: Token, b: Token): boolean {
  *
  * In Stata, `&` binds more tightly than `|`, so `x & y | z` evaluates as
  * `(x & y) | z`. Users may intend `x & (y | z)` instead. This analyzer
- * warns when both operators appear at paren depth 0 in the same expression
- * segment, suggesting parentheses to clarify precedence.
+ * warns when both operators appear at the same shallowest logical depth in
+ * the same expression segment, suggesting parentheses to clarify precedence.
  *
  * Follows the established Pattern B (standalone analyzer class invoked by
  * DiagnosticsProvider), matching IndentationDiagnosticAnalyzer and
@@ -128,14 +126,13 @@ export class MixedLogicalOperatorAnalyzer {
                 continue;
             }
 
-            // Only track OPERATOR tokens with logical values at depth 0
-            if (my_token.type === 'OPERATOR' && state.paren_depth === 0
-                && LOGICAL_OPS.has(my_token.value)) {
-                if (my_token.value === '&') {
-                    state.and_tokens.push(my_token);
-                } else {
-                    state.or_tokens.push(my_token);
-                }
+            // Track all logical operators and evaluate them by their
+            // shallowest shared depth when the expression is flushed.
+            if (my_token.type === 'OPERATOR' && LOGICAL_OPS.has(my_token.value)) {
+                state.logical_tokens.push({
+                    token: my_token,
+                    depth: state.paren_depth,
+                });
             }
         }
 
@@ -149,12 +146,12 @@ export class MixedLogicalOperatorAnalyzer {
      * Create a fresh expression tracking state.
      */
     private fresh_state(): ExpressionState {
-        return { paren_depth: 0, and_tokens: [], or_tokens: [] };
+        return { paren_depth: 0, logical_tokens: [] };
     }
 
     /**
-     * If the current expression state contains both `&` and `|` at depth 0,
-     * emit a diagnostic spanning from the first to the last logical operator.
+     * If the current expression state contains both `&` and `|` at the
+     * shallowest logical depth, emit a diagnostic spanning that mixed range.
      */
     private flush(
         state: ExpressionState,
@@ -162,18 +159,34 @@ export class MixedLogicalOperatorAnalyzer {
         severity: DiagnosticSeverity,
         ignored_lines: Set<number>
     ): void {
-        if (state.and_tokens.length === 0 || state.or_tokens.length === 0) {
+        if (state.logical_tokens.length === 0) {
             return;
         }
 
-        // Find first and last logical operator by position.
-        // Tokens are accumulated left-to-right, so first/last
-        // are at the extremes of each per-type array.
-        const first_and = state.and_tokens[0];
-        const first_or = state.or_tokens[0];
-        const last_and = state.and_tokens[state.and_tokens.length - 1];
-        const last_or = state.or_tokens[state.or_tokens.length - 1];
+        let min_depth = state.logical_tokens[0].depth;
+        for (const my_entry of state.logical_tokens) {
+            if (my_entry.depth < min_depth) {
+                min_depth = my_entry.depth;
+            }
+        }
 
+        const relevant_tokens = state.logical_tokens
+            .filter(my_entry => my_entry.depth === min_depth)
+            .map(my_entry => my_entry.token);
+        const and_tokens = relevant_tokens.filter(
+            my_token => my_token.value === '&'
+        );
+        const or_tokens = relevant_tokens.filter(
+            my_token => my_token.value === '|'
+        );
+        if (and_tokens.length === 0 || or_tokens.length === 0) {
+            return;
+        }
+
+        const first_and = and_tokens[0];
+        const first_or = or_tokens[0];
+        const last_and = and_tokens[and_tokens.length - 1];
+        const last_or = or_tokens[or_tokens.length - 1];
         const first_token = is_before(first_and, first_or)
             ? first_and : first_or;
         const last_token = is_before(last_and, last_or)
