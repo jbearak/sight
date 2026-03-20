@@ -19,10 +19,19 @@ const QUALIFIER_BREAKERS: Set<string> = new Set(['if', 'in']);
 const EXPRESSION_BREAKERS: Set<string> = new Set([
     'STATEMENT_TERMINATOR',
     'COMMENT_LINE',
-    'COMMA',
     'LBRACE',
     'RBRACE',
 ]);
+
+/**
+ * State tracked for a single parenthesis group.
+ */
+interface GroupState {
+    id: number;
+    and_tokens: Token[];
+    or_tokens: Token[];
+    has_compound_logical_sequence: boolean;
+}
 
 /**
  * State tracked while scanning an expression segment for mixed
@@ -31,10 +40,14 @@ const EXPRESSION_BREAKERS: Set<string> = new Set([
 interface ExpressionState {
     /** Current parenthesis nesting depth. */
     paren_depth: number;
-    /** Logical operators seen in the current expression segment. */
-    logical_tokens: Array<{ token: Token; depth: number }>;
-    /** Whether the segment contains `&&` or `||`. */
-    has_compound_logical_sequence: boolean;
+    /** ID of the current parenthesis group. */
+    current_group_id: number;
+    /** Stack of active parenthesis groups. */
+    group_stack: number[];
+    /** Counter to assign unique group IDs. */
+    next_group_id: number;
+    /** Logical operators seen in the current expression segment, grouped by their parenthesis group. */
+    groups: Map<number, GroupState>;
 }
 
 /**
@@ -53,8 +66,8 @@ function is_before(a: Token, b: Token): boolean {
  *
  * In Stata, `&` binds more tightly than `|`, so `x & y | z` evaluates as
  * `(x & y) | z`. Users may intend `x & (y | z)` instead. This analyzer
- * warns when both operators appear at the same shallowest logical depth in
- * the same expression segment, suggesting parentheses to clarify precedence.
+ * warns when both operators appear in the same parenthesis group,
+ * suggesting parentheses to clarify precedence.
  *
  * Follows the established Pattern B (standalone analyzer class invoked by
  * DiagnosticsProvider), matching IndentationDiagnosticAnalyzer and
@@ -85,23 +98,16 @@ export class MixedLogicalOperatorAnalyzer {
 
         const the_diagnostics: Diagnostic[] = [];
         let state = this.fresh_state();
-
         let in_continuation = false;
 
         for (let i = 0; i < the_tokens.length; i++) {
             const my_token = the_tokens[i];
 
-            // STATEMENT_TERMINATOR after /// is part of the continuation,
-            // not an expression breaker (the newline following /// is
-            // tokenized as STATEMENT_TERMINATOR but is semantically trivia).
             if (my_token.type === 'STATEMENT_TERMINATOR' && in_continuation) {
                 in_continuation = false;
                 continue;
             }
 
-            // Top-level qualifier keywords (`if`, `in`) start a new
-            // expression segment. This prevents a main expression from being
-            // analyzed together with a trailing qualifier expression.
             if (this.is_qualifier_breaker(my_token, state)) {
                 in_continuation = false;
                 this.flush(state, the_diagnostics, severity, ignored_lines);
@@ -109,96 +115,110 @@ export class MixedLogicalOperatorAnalyzer {
                 continue;
             }
 
-            // Expression breakers reset tracking
-            if (EXPRESSION_BREAKERS.has(my_token.type)) {
+            if (this.is_expression_breaker(my_token, state)) {
                 in_continuation = false;
                 this.flush(state, the_diagnostics, severity, ignored_lines);
                 state = this.fresh_state();
                 continue;
             }
 
-            // Skip whitespace — it doesn't affect expression structure
+            if (my_token.type === 'COMMA') {
+                if (state.paren_depth === 0) {
+                    in_continuation = false;
+                    this.flush(state, the_diagnostics, severity, ignored_lines);
+                    state = this.fresh_state();
+                } else {
+                    const new_group = state.next_group_id++;
+                    state.group_stack[state.group_stack.length - 1] = new_group;
+                    state.current_group_id = new_group;
+                }
+                continue;
+            }
+
             if (my_token.type === 'WHITESPACE') {
                 continue;
             }
 
-            // /// continuation: set flag so the next STATEMENT_TERMINATOR
-            // is treated as trivia rather than an expression breaker
             if (my_token.type === 'CONTINUATION') {
                 in_continuation = true;
                 continue;
             }
 
-            // Any non-trivia token clears the continuation flag
             in_continuation = false;
 
-            // Track parenthesis depth
-            if (my_token.type === 'LPAREN') {
+            if (my_token.type === 'LPAREN' || my_token.type === 'LBRACKET') {
                 state.paren_depth++;
+                const new_group = state.next_group_id++;
+                state.group_stack.push(new_group);
+                state.current_group_id = new_group;
                 continue;
             }
-            if (my_token.type === 'RPAREN') {
+            if (my_token.type === 'RPAREN' || my_token.type === 'RBRACKET') {
                 state.paren_depth = Math.max(0, state.paren_depth - 1);
+                if (state.group_stack.length > 1) {
+                    state.group_stack.pop();
+                    state.current_group_id = state.group_stack[state.group_stack.length - 1];
+                }
                 continue;
             }
 
-            // Track all logical operators and evaluate them by their
-            // shallowest shared depth when the expression is flushed.
             if (my_token.type === 'OPERATOR' && LOGICAL_OPS.has(my_token.value)) {
-                if (this.starts_compound_logical_sequence(the_tokens, i, my_token)) {
-                    state.has_compound_logical_sequence = true;
+                let group = state.groups.get(state.current_group_id);
+                if (!group) {
+                    group = {
+                        id: state.current_group_id,
+                        and_tokens: [],
+                        or_tokens: [],
+                        has_compound_logical_sequence: false,
+                    };
+                    state.groups.set(state.current_group_id, group);
                 }
-                state.logical_tokens.push({
-                    token: my_token,
-                    depth: state.paren_depth,
-                });
+
+                if (this.starts_compound_logical_sequence(the_tokens, i, my_token)) {
+                    group.has_compound_logical_sequence = true;
+                }
+
+                if (my_token.value === '&') {
+                    group.and_tokens.push(my_token);
+                } else {
+                    group.or_tokens.push(my_token);
+                }
             }
         }
 
-        // Flush any remaining expression
         this.flush(state, the_diagnostics, severity, ignored_lines);
 
         return the_diagnostics;
     }
 
-    /**
-     * Create a fresh expression tracking state.
-     */
     private fresh_state(): ExpressionState {
         return {
             paren_depth: 0,
-            logical_tokens: [],
-            has_compound_logical_sequence: false,
+            current_group_id: 0,
+            group_stack: [0],
+            next_group_id: 1,
+            groups: new Map(),
         };
     }
 
-    /**
-     * Check whether a token starts a top-level qualifier expression.
-     */
-    private is_qualifier_breaker(
-        my_token: Token,
-        state: ExpressionState
-    ): boolean {
+    private is_qualifier_breaker(my_token: Token, state: ExpressionState): boolean {
         return state.paren_depth === 0
             && my_token.type === 'WORD'
             && QUALIFIER_BREAKERS.has(my_token.value);
     }
 
-    /**
-     * Check whether the current `&`/`|` token starts a `&&` or `||` pair.
-     * These sequences already have their own operator-sequence diagnostic,
-     * so mixed-precedence warnings would be redundant noise.
-     */
+    private is_expression_breaker(my_token: Token, state: ExpressionState): boolean {
+        return EXPRESSION_BREAKERS.has(my_token.type);
+    }
+
     private starts_compound_logical_sequence(
         the_tokens: Token[],
         start_index: number,
         my_token: Token
     ): boolean {
         let in_continuation = false;
-
         for (let i = start_index + 1; i < the_tokens.length; i++) {
             const next_token = the_tokens[i];
-
             if (next_token.type === 'WHITESPACE') {
                 continue;
             }
@@ -215,87 +235,55 @@ export class MixedLogicalOperatorAnalyzer {
             }
             return false;
         }
-
         return false;
     }
 
-    /**
-     * If the current expression state contains both `&` and `|` at the
-     * shallowest logical depth, emit a diagnostic spanning that mixed range.
-     */
     private flush(
         state: ExpressionState,
         the_diagnostics: Diagnostic[],
         severity: DiagnosticSeverity,
         ignored_lines: Set<number>
     ): void {
-        if (state.logical_tokens.length === 0) {
-            return;
-        }
-        if (state.has_compound_logical_sequence) {
-            return;
-        }
-
-        let min_depth = state.logical_tokens[0].depth;
-        for (const my_entry of state.logical_tokens) {
-            if (my_entry.depth < min_depth) {
-                min_depth = my_entry.depth;
+        for (const group of state.groups.values()) {
+            if (group.has_compound_logical_sequence) {
+                continue;
             }
+            if (group.and_tokens.length === 0 || group.or_tokens.length === 0) {
+                continue;
+            }
+
+            const first_and = group.and_tokens[0];
+            const first_or = group.or_tokens[0];
+            const last_and = group.and_tokens[group.and_tokens.length - 1];
+            const last_or = group.or_tokens[group.or_tokens.length - 1];
+
+            const first_token = is_before(first_and, first_or) ? first_and : first_or;
+            const last_token = is_before(last_and, last_or) ? last_or : last_and;
+
+            if (ignored_lines.has(first_token.range.start.line)) {
+                continue;
+            }
+
+            the_diagnostics.push({
+                range: Range.create(first_token.range.start, last_token.range.end),
+                message: "Mixed '&' and '|' without parentheses. "
+                    + "Use parentheses to clarify precedence "
+                    + "(e.g., '(x & y) | z' or 'x & (y | z)')",
+                severity,
+                source: 'sight',
+                code: StataDiagnosticCode.MIXED_LOGICAL_OPERATORS,
+            });
         }
-
-        const relevant_tokens = state.logical_tokens
-            .filter(my_entry => my_entry.depth === min_depth)
-            .map(my_entry => my_entry.token);
-        const and_tokens = relevant_tokens.filter(
-            my_token => my_token.value === '&'
-        );
-        const or_tokens = relevant_tokens.filter(
-            my_token => my_token.value === '|'
-        );
-        if (and_tokens.length === 0 || or_tokens.length === 0) {
-            return;
-        }
-
-        const first_and = and_tokens[0];
-        const first_or = or_tokens[0];
-        const last_and = and_tokens[and_tokens.length - 1];
-        const last_or = or_tokens[or_tokens.length - 1];
-        const first_token = is_before(first_and, first_or)
-            ? first_and : first_or;
-        const last_token = is_before(last_and, last_or)
-            ? last_or : last_and;
-
-        // Check suppression via @lsp-ignore
-        if (ignored_lines.has(first_token.range.start.line)) {
-            return;
-        }
-
-        the_diagnostics.push({
-            range: Range.create(first_token.range.start, last_token.range.end),
-            message: "Mixed '&' and '|' without parentheses. "
-                + "Use parentheses to clarify precedence "
-                + "(e.g., '(x & y) | z' or 'x & (y | z)')",
-            severity,
-            source: 'sight',
-            code: StataDiagnosticCode.MIXED_LOGICAL_OPERATORS,
-        });
     }
 
-    /**
-     * Convert a config severity string to LSP DiagnosticSeverity.
-     */
     private resolve_severity(
         config_severity: 'error' | 'warning' | 'information' | 'hint'
     ): DiagnosticSeverity {
         switch (config_severity) {
-            case 'error':
-                return DiagnosticSeverity.Error;
-            case 'warning':
-                return DiagnosticSeverity.Warning;
-            case 'information':
-                return DiagnosticSeverity.Information;
-            case 'hint':
-                return DiagnosticSeverity.Hint;
+            case 'error': return DiagnosticSeverity.Error;
+            case 'warning': return DiagnosticSeverity.Warning;
+            case 'information': return DiagnosticSeverity.Information;
+            case 'hint': return DiagnosticSeverity.Hint;
         }
     }
 }
