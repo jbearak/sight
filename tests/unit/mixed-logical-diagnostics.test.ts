@@ -317,6 +317,37 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             );
             expect(mixed).toHaveLength(0);
         });
+
+        it('@lsp-ignore-next suppresses diagnostic on next line', () => {
+            const doc = create_document_state(
+                '// @lsp-ignore-next\ndisplay x & y | z'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
+        });
+    });
+
+    describe('Continuation Lines', () => {
+        it('detects mixed operators across /// continuation', () => {
+            const doc = create_document_state('keep if x & /// \n y | z');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(1);
+        });
+
+        it('does not warn for same operator across /// continuation', () => {
+            const doc = create_document_state('keep if x & /// \n y & z');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
+        });
     });
 
     describe('Multiple Logical Operators', () => {

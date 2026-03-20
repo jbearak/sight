@@ -82,20 +82,41 @@ export class MixedLogicalOperatorAnalyzer {
         const the_diagnostics: Diagnostic[] = [];
         let state = this.fresh_state();
 
+        let in_continuation = false;
+
         for (let i = 0; i < the_tokens.length; i++) {
             const my_token = the_tokens[i];
 
+            // STATEMENT_TERMINATOR after /// is part of the continuation,
+            // not an expression breaker (the newline following /// is
+            // tokenized as STATEMENT_TERMINATOR but is semantically trivia).
+            if (my_token.type === 'STATEMENT_TERMINATOR' && in_continuation) {
+                in_continuation = false;
+                continue;
+            }
+
             // Expression breakers reset tracking
             if (EXPRESSION_BREAKERS.has(my_token.type)) {
+                in_continuation = false;
                 this.flush(state, the_diagnostics, severity, ignored_lines);
                 state = this.fresh_state();
                 continue;
             }
 
-            // Skip trivia tokens — they don't affect expression structure
-            if (my_token.type === 'WHITESPACE' || my_token.type === 'CONTINUATION') {
+            // Skip whitespace — it doesn't affect expression structure
+            if (my_token.type === 'WHITESPACE') {
                 continue;
             }
+
+            // /// continuation: set flag so the next STATEMENT_TERMINATOR
+            // is treated as trivia rather than an expression breaker
+            if (my_token.type === 'CONTINUATION') {
+                in_continuation = true;
+                continue;
+            }
+
+            // Any non-trivia token clears the continuation flag
+            in_continuation = false;
 
             // Track parenthesis depth
             if (my_token.type === 'LPAREN') {
