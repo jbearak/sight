@@ -83,8 +83,8 @@ export class MixedLogicalOperatorAnalyzer {
      * @returns Array of diagnostics for mixed logical operator expressions
      */
     analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
-        const config_severity = config.diagnostics?.severity?.mixedLogicalOperators ?? 'warning';
-        if (config_severity === 'off') {
+        const my_config_severity = config.diagnostics?.severity?.mixedLogicalOperators ?? 'warning';
+        if (my_config_severity === 'off') {
             return [];
         }
 
@@ -93,44 +93,44 @@ export class MixedLogicalOperatorAnalyzer {
             return [];
         }
 
-        const ignored_lines = document.ignored_lines ?? new Set<number>();
-        const severity = this.resolve_severity(config_severity);
+        const my_ignored_lines = document.ignored_lines ?? new Set<number>();
+        const my_severity = this.resolve_severity(my_config_severity);
 
-        const the_diagnostics: Diagnostic[] = [];
-        let state = this.fresh_state();
-        let in_continuation = false;
+        const my_diagnostics: Diagnostic[] = [];
+        let my_state = this.fresh_state();
+        let my_in_continuation = false;
 
         for (let i = 0; i < the_tokens.length; i++) {
             const my_token = the_tokens[i];
 
-            if (my_token.type === 'STATEMENT_TERMINATOR' && in_continuation) {
-                in_continuation = false;
+            if (my_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
+                my_in_continuation = false;
                 continue;
             }
 
-            if (this.is_qualifier_breaker(my_token, state)) {
-                in_continuation = false;
-                this.flush(state, the_diagnostics, severity, ignored_lines);
-                state = this.fresh_state();
+            if (this.is_qualifier_breaker(my_token, my_state)) {
+                my_in_continuation = false;
+                this.flush(my_state, my_diagnostics, my_severity, my_ignored_lines);
+                my_state = this.fresh_state();
                 continue;
             }
 
             if (this.is_expression_breaker(my_token)) {
-                in_continuation = false;
-                this.flush(state, the_diagnostics, severity, ignored_lines);
-                state = this.fresh_state();
+                my_in_continuation = false;
+                this.flush(my_state, my_diagnostics, my_severity, my_ignored_lines);
+                my_state = this.fresh_state();
                 continue;
             }
 
             if (my_token.type === 'COMMA') {
-                if (state.paren_depth === 0) {
-                    in_continuation = false;
-                    this.flush(state, the_diagnostics, severity, ignored_lines);
-                    state = this.fresh_state();
+                if (my_state.paren_depth === 0) {
+                    my_in_continuation = false;
+                    this.flush(my_state, my_diagnostics, my_severity, my_ignored_lines);
+                    my_state = this.fresh_state();
                 } else {
-                    const new_group = state.next_group_id++;
-                    state.group_stack[state.group_stack.length - 1] = new_group;
-                    state.current_group_id = new_group;
+                    const my_new_group = my_state.next_group_id++;
+                    my_state.group_stack[my_state.group_stack.length - 1] = my_new_group;
+                    my_state.current_group_id = my_new_group;
                 }
                 continue;
             }
@@ -140,38 +140,38 @@ export class MixedLogicalOperatorAnalyzer {
             }
 
             if (my_token.type === 'CONTINUATION') {
-                in_continuation = true;
+                my_in_continuation = true;
                 continue;
             }
 
-            in_continuation = false;
+            my_in_continuation = false;
 
             if (my_token.type === 'LPAREN' || my_token.type === 'LBRACKET') {
-                state.paren_depth++;
-                const new_group = state.next_group_id++;
-                state.group_stack.push(new_group);
-                state.current_group_id = new_group;
+                my_state.paren_depth++;
+                const my_new_group = my_state.next_group_id++;
+                my_state.group_stack.push(my_new_group);
+                my_state.current_group_id = my_new_group;
                 continue;
             }
             if (my_token.type === 'RPAREN' || my_token.type === 'RBRACKET') {
-                state.paren_depth = Math.max(0, state.paren_depth - 1);
-                if (state.group_stack.length > 1) {
-                    state.group_stack.pop();
-                    state.current_group_id = state.group_stack[state.group_stack.length - 1];
+                my_state.paren_depth = Math.max(0, my_state.paren_depth - 1);
+                if (my_state.group_stack.length > 1) {
+                    my_state.group_stack.pop();
+                    my_state.current_group_id = my_state.group_stack[my_state.group_stack.length - 1];
                 }
                 continue;
             }
 
             if (my_token.type === 'OPERATOR' && LOGICAL_OPS.has(my_token.value)) {
-                let my_group = state.groups.get(state.current_group_id);
+                let my_group = my_state.groups.get(my_state.current_group_id);
                 if (!my_group) {
                     my_group = {
-                        id: state.current_group_id,
+                        id: my_state.current_group_id,
                         and_tokens: [],
                         or_tokens: [],
                         has_compound_logical_sequence: false,
                     };
-                    state.groups.set(state.current_group_id, my_group);
+                    my_state.groups.set(my_state.current_group_id, my_group);
                 }
 
                 if (this.starts_compound_logical_sequence(the_tokens, i, my_token)) {
@@ -186,9 +186,9 @@ export class MixedLogicalOperatorAnalyzer {
             }
         }
 
-        this.flush(state, the_diagnostics, severity, ignored_lines);
+        this.flush(my_state, my_diagnostics, my_severity, my_ignored_lines);
 
-        return the_diagnostics;
+        return my_diagnostics;
     }
 
     private fresh_state(): ExpressionState {
@@ -201,8 +201,8 @@ export class MixedLogicalOperatorAnalyzer {
         };
     }
 
-    private is_qualifier_breaker(my_token: Token, state: ExpressionState): boolean {
-        return state.paren_depth === 0
+    private is_qualifier_breaker(my_token: Token, my_state: ExpressionState): boolean {
+        return my_state.paren_depth === 0
             && my_token.type === 'WORD'
             && QUALIFIER_BREAKERS.has(my_token.value);
     }
@@ -216,21 +216,21 @@ export class MixedLogicalOperatorAnalyzer {
         start_index: number,
         my_token: Token
     ): boolean {
-        let in_continuation = false;
+        let my_in_continuation = false;
         for (let my_i = start_index + 1; my_i < the_tokens.length; my_i++) {
-            const next_token = the_tokens[my_i];
-            if (next_token.type === 'WHITESPACE') {
+            const my_next_token = the_tokens[my_i];
+            if (my_next_token.type === 'WHITESPACE') {
                 continue;
             }
-            if (next_token.type === 'CONTINUATION') {
-                in_continuation = true;
+            if (my_next_token.type === 'CONTINUATION') {
+                my_in_continuation = true;
                 continue;
             }
-            if (next_token.type === 'STATEMENT_TERMINATOR' && in_continuation) {
-                in_continuation = false;
+            if (my_next_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
+                my_in_continuation = false;
                 continue;
             }
-            if (next_token.type === 'OPERATOR' && next_token.value === my_token.value) {
+            if (my_next_token.type === 'OPERATOR' && my_next_token.value === my_token.value) {
                 return true;
             }
             return false;
@@ -239,12 +239,12 @@ export class MixedLogicalOperatorAnalyzer {
     }
 
     private flush(
-        state: ExpressionState,
-        the_diagnostics: Diagnostic[],
-        severity: DiagnosticSeverity,
-        ignored_lines: Set<number>
+        my_state: ExpressionState,
+        my_diagnostics: Diagnostic[],
+        my_severity: DiagnosticSeverity,
+        my_ignored_lines: Set<number>
     ): void {
-        for (const my_group of state.groups.values()) {
+        for (const my_group of my_state.groups.values()) {
             if (my_group.has_compound_logical_sequence) {
                 continue;
             }
@@ -252,24 +252,24 @@ export class MixedLogicalOperatorAnalyzer {
                 continue;
             }
 
-            const first_and = my_group.and_tokens[0];
-            const first_or = my_group.or_tokens[0];
-            const last_and = my_group.and_tokens[my_group.and_tokens.length - 1];
-            const last_or = my_group.or_tokens[my_group.or_tokens.length - 1];
+            const my_first_and = my_group.and_tokens[0];
+            const my_first_or = my_group.or_tokens[0];
+            const my_last_and = my_group.and_tokens[my_group.and_tokens.length - 1];
+            const my_last_or = my_group.or_tokens[my_group.or_tokens.length - 1];
 
-            const first_token = is_before(first_and, first_or) ? first_and : first_or;
-            const last_token = is_before(last_and, last_or) ? last_or : last_and;
+            const my_first_token = is_before(my_first_and, my_first_or) ? my_first_and : my_first_or;
+            const my_last_token = is_before(my_last_and, my_last_or) ? my_last_or : my_last_and;
 
-            if (ignored_lines.has(first_token.range.start.line)) {
+            if (my_ignored_lines.has(my_first_token.range.start.line)) {
                 continue;
             }
 
-            the_diagnostics.push({
-                range: Range.create(first_token.range.start, last_token.range.end),
+            my_diagnostics.push({
+                range: Range.create(my_first_token.range.start, my_last_token.range.end),
                 message: "Mixed '&' and '|' without parentheses. "
                     + "Use parentheses to clarify precedence "
                     + "(e.g., '(x & y) | z' or 'x & (y | z)')",
-                severity,
+                severity: my_severity,
                 source: 'sight',
                 code: StataDiagnosticCode.MIXED_LOGICAL_OPERATORS,
             });
@@ -277,9 +277,9 @@ export class MixedLogicalOperatorAnalyzer {
     }
 
     private resolve_severity(
-        config_severity: 'error' | 'warning' | 'information' | 'hint'
+        my_config_severity: 'error' | 'warning' | 'information' | 'hint'
     ): DiagnosticSeverity {
-        switch (config_severity) {
+        switch (my_config_severity) {
             case 'error': return DiagnosticSeverity.Error;
             case 'warning': return DiagnosticSeverity.Warning;
             case 'information': return DiagnosticSeverity.Information;
