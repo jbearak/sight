@@ -444,15 +444,15 @@
         "when": "editorTextFocus && editorLangId == stata"
       },
       {
-        "command": "sight.openSmclPreview",
+        "command": "sight.openSmclPreviewFull",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
         "when": "editorTextFocus && resourceExtname =~ /\\.(smcl|sthlp)/"
       },
       {
-        "command": "sight.openSmclPreviewFull",
-        "key": "alt+ctrl+shift+v",
-        "mac": "alt+cmd+shift+v",
+        "command": "sight.openSmclPreview",
+        "key": "ctrl+k v",
+        "mac": "cmd+k v",
         "when": "editorTextFocus && resourceExtname =~ /\\.(smcl|sthlp)/"
       }
     ],
