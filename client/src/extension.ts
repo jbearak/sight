@@ -135,9 +135,15 @@ export function activate(context: ExtensionContext) {
     });
 }
 
-export function deactivate(): Thenable<void> | undefined {
+export async function deactivate(): Promise<void> {
     if (!client) {
-        return undefined;
+        return;
     }
-    return client.stop();
+    try {
+        await client.stop();
+    } catch {
+        // client.stop() throws if the client isn't running yet
+        // (still starting) or if the shutdown request times out.
+        // Either way, let VS Code proceed with host shutdown.
+    }
 }
