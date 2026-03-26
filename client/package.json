@@ -456,7 +456,7 @@
       "explorer/context": [
         {
           "command": "sight.openInStata",
-          "when": "(isMac || isWindows) && resourceExtname =~ /\\.(smcl|sthlp)/",
+          "when": "(isMac || isWindows) && resourceExtname =~ /\\.(smcl|sthlp)/i",
           "group": "navigation"
         }
       ],
@@ -468,7 +468,7 @@
         },
         {
           "command": "sight.openInStata",
-          "when": "(isMac || isWindows) && resourceExtname =~ /\\.(smcl|sthlp)/",
+          "when": "(isMac || isWindows) && resourceExtname =~ /\\.(smcl|sthlp)/i",
           "group": "navigation"
         }
       ],

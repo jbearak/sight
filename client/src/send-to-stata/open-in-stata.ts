@@ -53,7 +53,12 @@ export function register_open_in_stata(context: vscode.ExtensionContext): void {
             }
 
             if (process.platform === 'win32') {
-                await vscode.env.openExternal(file_uri);
+                const did_open = await vscode.env.openExternal(file_uri);
+                if (!did_open) {
+                    vscode.window.showErrorMessage(
+                        'Failed to open file in Stata. Ensure .smcl/.sthlp files are associated with Stata.'
+                    );
+                }
                 return;
             }
 
