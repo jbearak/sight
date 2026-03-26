@@ -447,13 +447,13 @@
         "command": "sight.openSmclPreviewFull",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
-        "when": "editorTextFocus && resourceExtname =~ /\\.(smcl|sthlp)/"
+        "when": "editorTextFocus && resourceExtname =~ /\\.(smcl|sthlp)/i"
       },
       {
         "command": "sight.openSmclPreview",
         "key": "ctrl+k v",
         "mac": "cmd+k v",
-        "when": "editorTextFocus && resourceExtname =~ /\\.(smcl|sthlp)/"
+        "when": "editorTextFocus && resourceExtname =~ /\\.(smcl|sthlp)/i"
       }
     ],
     "submenus": [
@@ -475,29 +475,29 @@
         },
         {
           "command": "sight.openSmclPreview",
-          "when": "resourceExtname =~ /\\.(smcl|sthlp)/"
+          "when": "resourceExtname =~ /\\.(smcl|sthlp)/i"
         },
         {
           "command": "sight.openSmclPreviewFull",
-          "when": "resourceExtname =~ /\\.(smcl|sthlp)/"
+          "when": "resourceExtname =~ /\\.(smcl|sthlp)/i"
         }
       ],
       "explorer/context": [
         {
           "command": "sight.openInStata",
-          "when": "isMac && resourceExtname =~ /\\.(smcl|sthlp)/",
+          "when": "(isMac || isWindows) && resourceExtname =~ /\\.(smcl|sthlp)/i",
           "group": "sight@1"
         },
         {
           "command": "sight.openSmclPreview",
-          "when": "resourceExtname =~ /\\.(smcl|sthlp)/",
+          "when": "resourceExtname =~ /\\.(smcl|sthlp)/i",
           "group": "sight@2"
         }
       ],
       "editor/title": [
         {
           "command": "sight.openSmclPreview",
-          "when": "resourceExtname =~ /\\.(smcl|sthlp)/",
+          "when": "resourceExtname =~ /\\.(smcl|sthlp)/i",
           "group": "navigation"
         },
         {
@@ -507,7 +507,7 @@
         },
         {
           "command": "sight.openInStata",
-          "when": "isMac && resourceExtname =~ /\\.(smcl|sthlp)/",
+          "when": "(isMac || isWindows) && resourceExtname =~ /\\.(smcl|sthlp)/i",
           "group": "navigation"
         }
       ],
