@@ -395,8 +395,7 @@
       },
       {
         "command": "sight.openInStata",
-        "title": "Sight: Open in Stata",
-        "shortTitle": "Open in Stata",
+        "title": "Open in Stata",
         "icon": "$(file-text)"
       }
     ],
