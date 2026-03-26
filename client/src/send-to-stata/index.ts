@@ -53,3 +53,7 @@ export {
     send_to_stata_windows,
     ensure_executable
 } from './windows-sender';
+
+export {
+    register_open_in_stata
+} from './open-in-stata';

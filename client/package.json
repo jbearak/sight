@@ -392,6 +392,11 @@
       {
         "command": "sight.terminal.cdFile",
         "title": "Sight: Terminal - CD into File Folder"
+      },
+      {
+        "command": "sight.openInStata",
+        "title": "Sight: Open in Stata",
+        "icon": "$(file-text)"
       }
     ],
     "keybindings": [
@@ -442,10 +447,22 @@
       }
     ],
     "menus": {
+      "explorer/context": [
+        {
+          "command": "sight.openInStata",
+          "when": "isMac && resourceExtname =~ /\\.(smcl|sthlp)/",
+          "group": "navigation"
+        }
+      ],
       "editor/title": [
         {
           "submenu": "sight.sendToStata",
           "when": "editorLangId == stata",
+          "group": "navigation"
+        },
+        {
+          "command": "sight.openInStata",
+          "when": "isMac && resourceExtname =~ /\\.(smcl|sthlp)/",
           "group": "navigation"
         }
       ],
