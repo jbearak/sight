@@ -882,3 +882,34 @@ export function create_get_working_directory_handler(
         };
     };
 }
+
+// -----------------------------------------------------------------------
+// sight/resolveSthlpFile
+// -----------------------------------------------------------------------
+
+export interface ResolveSthlpFileParams {
+    topic: string;
+}
+
+export interface ResolveSthlpFileResult {
+    file_path: string | null;
+}
+
+/**
+ * Creates the custom request handler for sight/resolveSthlpFile.
+ *
+ * Resolves a Stata help topic name to an absolute .sthlp file path
+ * by searching ado-paths and workspace roots.
+ */
+export function create_resolve_sthlp_file_handler(
+    deps: HandlerDependencies
+): (params: ResolveSthlpFileParams) => ResolveSthlpFileResult {
+    return (params: ResolveSthlpFileParams): ResolveSthlpFileResult => {
+        if (!deps.workspace_indexer) {
+            return { file_path: null };
+        }
+        return {
+            file_path: deps.workspace_indexer.resolve_sthlp_file(params.topic)
+        };
+    };
+}

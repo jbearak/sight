@@ -658,6 +658,40 @@ export class WorkspaceIndexer {
      * 3. PLUS
      * 4. SITE
      */
+    /**
+     * Resolve a .sthlp help file by topic name.
+     *
+     * Searches ado_paths and workspace roots following Stata's
+     * letter-subdirectory convention (e.g., `r/regress.sthlp`).
+     * Returns the absolute file path or null.
+     */
+    resolve_sthlp_file(topic: string): string | null {
+        const my_basename = `${topic}.sthlp`;
+        const my_first_letter = topic.charAt(0).toLowerCase();
+
+        // Search ado_paths first (PERSONAL, PLUS, SITE, BASE order),
+        // then workspace roots
+        const the_search_dirs = [...this.ado_paths, ...this.workspace_roots];
+
+        for (const my_dir of the_search_dirs) {
+            // Check letter subdirectory: dir/r/regress.sthlp
+            const my_subdir_path = path.join(
+                my_dir, my_first_letter, my_basename
+            );
+            if (fs.existsSync(my_subdir_path)) {
+                return my_subdir_path;
+            }
+
+            // Check directly in directory: dir/regress.sthlp
+            const my_direct_path = path.join(my_dir, my_basename);
+            if (fs.existsSync(my_direct_path)) {
+                return my_direct_path;
+            }
+        }
+
+        return null;
+    }
+
     resolve_program(name: string, referring_uri: string): ProgramSymbol | undefined {
         // 1. Check same directory as referring file
         const referring_path = URI.parse(referring_uri).fsPath;

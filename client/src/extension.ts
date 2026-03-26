@@ -10,6 +10,7 @@ import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } fr
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
 import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata } from './send-to-stata';
+import { register_smcl_preview } from './smcl-preview';
 import {
     apply_language_configuration,
     read_line_comment_style,
@@ -64,6 +65,9 @@ export function activate(context: ExtensionContext) {
     
     // Register open-in-stata command for SMCL/sthlp files
     register_open_in_stata(context);
+
+    // Register SMCL preview commands
+    register_smcl_preview(context, () => client ?? null);
 
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {

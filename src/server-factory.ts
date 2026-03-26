@@ -60,6 +60,7 @@ import {
     create_did_change_watched_files_handler,
     create_execute_command_handler,
     create_get_working_directory_handler,
+    create_resolve_sthlp_file_handler,
 } from './server-handlers';
 
 import type { TransportType } from './cli';
@@ -1139,8 +1140,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
     connection.onShutdown(shutdown_handler);
     connection.onExit(create_exit_handler());
 
-    // Custom request handler (Req 14.2)
+    // Custom request handlers
     connection.onRequest('sight/getWorkingDirectory', working_directory_handler);
+
+    const resolve_sthlp_handler = create_resolve_sthlp_file_handler(handler_deps);
+    connection.onRequest('sight/resolveSthlpFile', resolve_sthlp_handler);
 
     // Start listening
     documents.listen(connection);

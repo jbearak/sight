@@ -322,6 +322,15 @@
     },
     "commands": [
       {
+        "command": "sight.openSmclPreview",
+        "title": "Sight: Open SMCL Preview",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "sight.openSmclPreviewFull",
+        "title": "Sight: Open SMCL Preview (Full Width)"
+      },
+      {
         "command": "sight.resetDepthColors",
         "title": "Sight: Reset Depth Colors Configuration"
       },
@@ -433,6 +442,18 @@
         "command": "sight.terminal.doFile",
         "key": "alt+shift+enter",
         "when": "editorTextFocus && editorLangId == stata"
+      },
+      {
+        "command": "sight.openSmclPreview",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "editorTextFocus && resourceExtname =~ /\\.(smcl|sthlp)/"
+      },
+      {
+        "command": "sight.openSmclPreviewFull",
+        "key": "alt+ctrl+shift+v",
+        "mac": "alt+cmd+shift+v",
+        "when": "editorTextFocus && resourceExtname =~ /\\.(smcl|sthlp)/"
       }
     ],
     "submenus": [
@@ -451,6 +472,14 @@
         {
           "command": "sight.openInStata",
           "when": "false"
+        },
+        {
+          "command": "sight.openSmclPreview",
+          "when": "resourceExtname =~ /\\.(smcl|sthlp)/"
+        },
+        {
+          "command": "sight.openSmclPreviewFull",
+          "when": "resourceExtname =~ /\\.(smcl|sthlp)/"
         }
       ],
       "explorer/context": [
@@ -458,9 +487,19 @@
           "command": "sight.openInStata",
           "when": "isMac && resourceExtname =~ /\\.(smcl|sthlp)/",
           "group": "navigation"
+        },
+        {
+          "command": "sight.openSmclPreview",
+          "when": "resourceExtname =~ /\\.(smcl|sthlp)/",
+          "group": "navigation"
         }
       ],
       "editor/title": [
+        {
+          "command": "sight.openSmclPreview",
+          "when": "resourceExtname =~ /\\.(smcl|sthlp)/",
+          "group": "navigation"
+        },
         {
           "submenu": "sight.sendToStata",
           "when": "editorLangId == stata",
