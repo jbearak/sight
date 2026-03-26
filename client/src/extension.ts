@@ -9,7 +9,7 @@ import {
 import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } from './depth-colors';
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
-import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client } from './send-to-stata';
+import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata } from './send-to-stata';
 import {
     apply_language_configuration,
     read_line_comment_style,
@@ -62,6 +62,9 @@ export function activate(context: ExtensionContext) {
     initialize_cd_context(context);
     register_cd_commands(context);
     
+    // Register open-in-stata command for SMCL/sthlp files
+    register_open_in_stata(context);
+
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {
         outputChannel.appendLine('Reset depth colors command triggered');
