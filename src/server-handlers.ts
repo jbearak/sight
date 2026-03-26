@@ -644,6 +644,7 @@ export function create_shutdown_handler(
     disposables?: {
         debounce_manager?: DocumentDebounceManager;
         pending_revalidations?: Map<string, { cancelled: boolean }>;
+        get_indexer_promise?: () => Promise<void> | undefined;
     }
 ): () => Promise<void> {
     return async (): Promise<void> => {
@@ -666,8 +667,9 @@ export function create_shutdown_handler(
         deps?.scope_resolver?.dispose();
         deps?.forward_scope_resolver?.dispose();
 
-        // Cancel background indexing (Req 15.1)
+        // Cancel background indexing and await completion (Req 15.1)
         deps?.workspace_indexer?.cancel();
+        await disposables?.get_indexer_promise?.();
 
         // Dispose rename handler — clears timers (Req 15.2)
         deps?.rename_handler?.dispose();

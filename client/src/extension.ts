@@ -103,12 +103,15 @@ export function activate(context: ExtensionContext) {
     };
 
     // Options to control the language client
+    const file_watcher = workspace.createFileSystemWatcher('**/*.{do,ado}');
+    context.subscriptions.push(file_watcher);
+
     const clientOptions: LanguageClientOptions = {
         // Register the server for Stata documents
         documentSelector: [{ scheme: 'file', language: 'stata' }],
         synchronize: {
-            // Notify the server about file changes to '.clientrc files contained in the workspace
-            fileEvents: workspace.createFileSystemWatcher('**/*.{do,ado}'),
+            // Notify the server about file changes to .do/.ado files in the workspace
+            fileEvents: file_watcher,
             // Synchronize the 'sight' configuration section with the server
             configurationSection: 'sight'
         }
