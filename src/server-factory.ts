@@ -124,9 +124,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Cancellation tokens for pending callee revalidations
     const pending_revalidations: Map<string, { cancelled: boolean }> = new Map();
 
-    // Track the indexer initialization promise for clean shutdown
-    let indexer_promise: Promise<void> | undefined = undefined;
-
     // Track last changed URI for active-document prioritization
     let last_changed_uri: string | undefined = undefined;
 
@@ -560,7 +557,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
         if (indexing_enabled && workspace_indexer
             && folder_paths.length > 0) {
-            indexer_promise = workspace_indexer.initialize(
+            workspace_indexer.initialize(
                 folder_paths,
                 settings.adoPaths || []
             ).then(() => {
@@ -1124,7 +1121,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
     const shutdown_handler = create_shutdown_handler(handler_deps, {
         debounce_manager,
         pending_revalidations,
-        get_indexer_promise: () => indexer_promise,
     });
     const working_directory_handler = create_get_working_directory_handler(handler_deps);
 
