@@ -447,6 +447,12 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "sight.openInStata",
+          "when": "false"
+        }
+      ],
       "explorer/context": [
         {
           "command": "sight.openInStata",
