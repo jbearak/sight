@@ -53,7 +53,7 @@ body {
     color: var(--vscode-foreground);
     background: var(--vscode-editor-background);
     padding: 16px 24px;
-    line-height: 1.5;
+    line-height: 1.3;
     max-width: 100ch;
 }
 
@@ -81,7 +81,7 @@ hr.smcl-hline {
 }
 .smcl-hline-inline {
     color: var(--vscode-panel-border);
-    letter-spacing: -0.2ch;
+    line-height: 1;
 }
 
 /* Code / commands */

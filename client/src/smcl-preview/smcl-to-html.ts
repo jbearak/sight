@@ -301,6 +301,7 @@ interface RenderContext {
     p2col_widths: number[];
     pending_continuation: boolean;
     in_table_row: boolean;
+    active_style: string | null;
 }
 
 function create_context(): RenderContext {
@@ -313,7 +314,14 @@ function create_context(): RenderContext {
         p2col_widths: [5, 19, 21, 2],
         pending_continuation: false,
         in_table_row: false,
+        active_style: null,
     };
+}
+
+function switch_style(ctx: RenderContext, new_style: string): string {
+    const my_close = ctx.active_style ? '</span>' : '';
+    ctx.active_style = new_style;
+    return `${my_close}<span class="smcl-${new_style}">`;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,8 +392,11 @@ function render_directive(
         case 'smcl':
         case 's6hlp':
             return '';
-        case 'reset':
-            return '';
+        case 'reset': {
+            const my_close = ctx.active_style ? '</span>' : '';
+            ctx.active_style = null;
+            return my_close;
+        }
         case '...':
             ctx.pending_continuation = true;
             return '';
@@ -419,8 +430,7 @@ function render_directive(
             return '<u>';
         case 'sf':
         case 'rm':
-            // Reset font face - close any open formatting
-            return '';
+            return switch_style(ctx, 'txt');
 
         // -- Color/style modes --
         case 'txt':
@@ -428,12 +438,12 @@ function render_directive(
             if (directive.content.length > 0) {
                 return `<span class="smcl-txt">${render_content(directive, ctx)}</span>`;
             }
-            return '';
+            return switch_style(ctx, 'txt');
         case 'com':
             if (directive.content.length > 0) {
                 return `<span class="smcl-com">${render_content(directive, ctx)}</span>`;
             }
-            return '';
+            return switch_style(ctx, 'com');
         case 'cmd':
             return `<code class="smcl-cmd">${render_content(directive, ctx)}</code>`;
         case 'cmdab':
@@ -443,25 +453,25 @@ function render_directive(
             if (directive.content.length > 0) {
                 return `<span class="smcl-res">${render_content(directive, ctx)}</span>`;
             }
-            return '';
+            return switch_style(ctx, 'res');
         case 'err':
         case 'error':
             if (directive.content.length > 0) {
                 return `<span class="smcl-err">${render_content(directive, ctx)}</span>`;
             }
-            return '';
+            return switch_style(ctx, 'err');
         case 'inp':
         case 'input':
             if (directive.content.length > 0) {
                 return `<span class="smcl-inp">${render_content(directive, ctx)}</span>`;
             }
-            return '';
+            return switch_style(ctx, 'inp');
         case 'hi':
         case 'hilite':
             if (directive.content.length > 0) {
                 return `<span class="smcl-hi">${render_content(directive, ctx)}</span>`;
             }
-            return '';
+            return switch_style(ctx, 'hi');
 
         // -- Semantic text --
         case 'opt':
@@ -1040,7 +1050,11 @@ function parse_first_number(args: string): number | null {
 export function smcl_to_html(smcl: string): SmclHtmlResult {
     const the_nodes = parse_smcl(smcl);
     const ctx = create_context();
-    const html = render_nodes(the_nodes, ctx);
+    let html = render_nodes(the_nodes, ctx);
+    // Close any trailing persistent style span
+    if (ctx.active_style) {
+        html += '</span>';
+    }
     return {
         html,
         cross_references: ctx.cross_references,

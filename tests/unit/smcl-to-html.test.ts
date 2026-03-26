@@ -68,16 +68,58 @@ describe('smcl_to_html', () => {
     });
 
     describe('color styles', () => {
-        it('renders {res:text} as result span', () => {
+        it('renders {res:text} as result span (scoped)', () => {
             const result = smcl_to_html('{res:42.5}');
             expect(result.html).toContain('class="smcl-res"');
             expect(result.html).toContain('42.5');
         });
 
-        it('renders {err:text} as error span', () => {
+        it('renders {err:text} as error span (scoped)', () => {
             const result = smcl_to_html('{err:not found}');
             expect(result.html).toContain('class="smcl-err"');
             expect(result.html).toContain('not found');
+        });
+
+        it('renders persistent {res} as style switch', () => {
+            const result = smcl_to_html('{res}42.5');
+            expect(result.html).toContain('class="smcl-res"');
+            expect(result.html).toContain('42.5');
+        });
+
+        it('renders persistent {txt} then {res} with transitions', () => {
+            const result = smcl_to_html(
+                '{txt}label {res}value'
+            );
+            expect(result.html).toContain('smcl-txt');
+            expect(result.html).toContain('smcl-res');
+            expect(result.html).toContain('label');
+            expect(result.html).toContain('value');
+        });
+
+        it('renders persistent {com} for command prompts', () => {
+            const result = smcl_to_html('{com}. tab x');
+            expect(result.html).toContain('smcl-com');
+            expect(result.html).toContain('. tab x');
+        });
+
+        it('closes trailing style span', () => {
+            const result = smcl_to_html('{res}value');
+            // Should not have unclosed spans
+            const open_count = (result.html.match(/<span/g) || []).length;
+            const close_count = (result.html.match(/<\/span>/g) || []).length;
+            expect(open_count).toBe(close_count);
+        });
+
+        it('handles style switch in tabulate output', () => {
+            const smcl =
+                '{txt}       2015 {c |}{res}    116,887\n' +
+                '{txt}       2016 {c |}{res}     11,691';
+            const result = smcl_to_html(smcl);
+            expect(result.html).toContain('smcl-txt');
+            expect(result.html).toContain('smcl-res');
+            expect(result.html).toContain('116,887');
+            expect(result.html).toContain('11,691');
+            expect(result.html).toContain('\u2502'); // vertical bar
         });
     });
 
