@@ -323,12 +323,12 @@
     "commands": [
       {
         "command": "sight.openSmclPreview",
-        "title": "Sight: Open SMCL Preview",
+        "title": "Open SMCL Preview",
         "icon": "$(open-preview)"
       },
       {
         "command": "sight.openSmclPreviewFull",
-        "title": "Sight: Open SMCL Preview (Full Width)"
+        "title": "Open SMCL Preview (Full Width)"
       },
       {
         "command": "sight.resetDepthColors",
@@ -486,12 +486,12 @@
         {
           "command": "sight.openInStata",
           "when": "isMac && resourceExtname =~ /\\.(smcl|sthlp)/",
-          "group": "navigation"
+          "group": "sight@1"
         },
         {
           "command": "sight.openSmclPreview",
           "when": "resourceExtname =~ /\\.(smcl|sthlp)/",
-          "group": "navigation"
+          "group": "sight@2"
         }
       ],
       "editor/title": [
