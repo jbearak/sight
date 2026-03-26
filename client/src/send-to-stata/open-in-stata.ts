@@ -52,6 +52,23 @@ export function register_open_in_stata(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            if (process.platform === 'win32') {
+                const did_open = await vscode.env.openExternal(file_uri);
+                if (!did_open) {
+                    vscode.window.showErrorMessage(
+                        'Failed to open file in Stata. Ensure .smcl/.sthlp files are associated with Stata.'
+                    );
+                }
+                return;
+            }
+
+            if (process.platform !== 'darwin') {
+                vscode.window.showErrorMessage(
+                    'Open in Stata is only supported on macOS and Windows.'
+                );
+                return;
+            }
+
             const file_path = file_uri.fsPath;
             if (/[`$"]/.test(file_path)) {
                 vscode.window.showErrorMessage(
