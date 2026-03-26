@@ -52,6 +52,16 @@ export function register_open_in_stata(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            const file_path = file_uri.fsPath;
+            if (/[`$]/.test(file_path)) {
+                vscode.window.showErrorMessage(
+                    'Cannot open in Stata: the file path contains characters ' +
+                    '($ or `) that Stata would interpret as macro expansions. ' +
+                    'Rename or move the file to a path without these characters.'
+                );
+                return;
+            }
+
             const stata_app = await detect_stata_app();
             if (!stata_app) {
                 vscode.window.showErrorMessage(
@@ -61,7 +71,7 @@ export function register_open_in_stata(context: vscode.ExtensionContext): void {
             }
 
             try {
-                await open_in_stata_app(stata_app, file_uri.fsPath);
+                await open_in_stata_app(stata_app, file_path);
             } catch (error) {
                 const message = error instanceof Error
                     ? error.message : String(error);
