@@ -504,11 +504,6 @@
           "submenu": "sight.sendToStata",
           "when": "editorLangId == stata",
           "group": "navigation"
-        },
-        {
-          "command": "sight.openInStata",
-          "when": "(isMac || isWindows) && resourceExtname =~ /\\.(smcl|sthlp)/i",
-          "group": "navigation"
         }
       ],
       "sight.sendToStata": [
