@@ -63,10 +63,12 @@ interface SmclDirective {
     name: string;
     args: string;
     content: SmclNode[];
+    line?: number;
 }
 
 interface SmclText {
     text: string;
+    line?: number;
 }
 
 type SmclNode = SmclDirective | SmclText;
@@ -92,8 +94,38 @@ const ARGS_ONLY_DIRECTIVES = new Set([
  * Parse SMCL source into a tree of nodes. Handles nested directives
  * like {synopt:{opt vce(robust)}}.
  */
+function build_line_offsets(source: string): number[] {
+    const the_offsets: number[] = [0];
+    for (let i = 0; i < source.length; i++) {
+        if (source[i] === '\n') {
+            the_offsets.push(i + 1);
+        }
+    }
+    return the_offsets;
+}
+
+function line_of(offset: number, line_offsets: number[]): number {
+    // Binary search for the line containing this offset
+    let lo = 0;
+    let hi = line_offsets.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (line_offsets[mid] <= offset) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return lo;
+}
+
 function parse_smcl(source: string): SmclNode[] {
     let pos = 0;
+    const the_line_offsets = build_line_offsets(source);
+
+    function current_line(): number {
+        return line_of(pos, the_line_offsets);
+    }
 
     function parse_nodes(stop_at_close_brace: boolean): SmclNode[] {
         const the_nodes: SmclNode[] = [];
@@ -105,7 +137,10 @@ function parse_smcl(source: string): SmclNode[] {
             if (my_char === '{') {
                 // Flush accumulated text
                 if (pos > text_start) {
-                    the_nodes.push({ text: source.substring(text_start, pos) });
+                    the_nodes.push({
+                        text: source.substring(text_start, pos),
+                        line: line_of(text_start, the_line_offsets),
+                    });
                 }
 
                 const my_directive = parse_directive();
@@ -116,7 +151,10 @@ function parse_smcl(source: string): SmclNode[] {
             } else if (my_char === '}' && stop_at_close_brace) {
                 // Flush text before the brace
                 if (pos > text_start) {
-                    the_nodes.push({ text: source.substring(text_start, pos) });
+                    the_nodes.push({
+                        text: source.substring(text_start, pos),
+                        line: line_of(text_start, the_line_offsets),
+                    });
                 }
                 pos++; // consume '}'
                 return the_nodes;
@@ -127,12 +165,16 @@ function parse_smcl(source: string): SmclNode[] {
 
         // Flush remaining text
         if (pos > text_start) {
-            the_nodes.push({ text: source.substring(text_start, pos) });
+            the_nodes.push({
+                text: source.substring(text_start, pos),
+                line: line_of(text_start, the_line_offsets),
+            });
         }
         return the_nodes;
     }
 
     function parse_directive(): SmclDirective | null {
+        const my_directive_line = current_line();
         pos++; // consume '{'
 
         // Skip leading whitespace
@@ -170,9 +212,9 @@ function parse_smcl(source: string): SmclNode[] {
             while (pos < source.length && source[pos] !== '}') pos++;
             if (pos < source.length) pos++; // consume '}'
             if (my_name === '...') {
-                return { name: '...', args: '', content: [] };
+                return { name: '...', args: '', content: [], line: my_directive_line };
             }
-            return { name: '.-', args: '', content: [] };
+            return { name: '.-', args: '', content: [], line: my_directive_line };
         }
 
         const is_args_only = ARGS_ONLY_DIRECTIVES.has(
@@ -200,7 +242,7 @@ function parse_smcl(source: string): SmclNode[] {
             }
             const my_raw_args = source.substring(args_start, pos).trim();
             if (pos < source.length) pos++; // consume '}'
-            return { name: my_name, args: my_raw_args, content: [] };
+            return { name: my_name, args: my_raw_args, content: [], line: my_directive_line };
         }
 
         // Read args (between name and colon, or name and closing brace)
@@ -240,7 +282,7 @@ function parse_smcl(source: string): SmclNode[] {
             }
         }
 
-        return { name: my_name, args: my_args, content: the_content };
+        return { name: my_name, args: my_args, content: the_content, line: my_directive_line };
     }
 
     return parse_nodes(false);
@@ -275,6 +317,17 @@ function create_context(): RenderContext {
 }
 
 // ---------------------------------------------------------------------------
+// data-line attribute helper
+// ---------------------------------------------------------------------------
+
+function data_line_attr(node: SmclNode): string {
+    if (node.line !== undefined) {
+        return ` data-line="${node.line}"`;
+    }
+    return '';
+}
+
+// ---------------------------------------------------------------------------
 // Node rendering
 // ---------------------------------------------------------------------------
 
@@ -296,7 +349,14 @@ function render_nodes(
                 my_text = my_text.replace(/^\n/, '');
                 ctx.pending_continuation = false;
             }
-            the_parts.push(escape_html(my_text));
+            // Wrap text with data-line for scroll sync anchors
+            if (my_node.line !== undefined) {
+                the_parts.push(
+                    `<span${data_line_attr(my_node)}>${escape_html(my_text)}</span>`
+                );
+            } else {
+                the_parts.push(escape_html(my_text));
+            }
         }
     }
 
@@ -330,7 +390,7 @@ function render_directive(
             ctx.pending_continuation = true;
             return '';
         case '.-':
-            return '<hr class="smcl-hline">';
+            return `<hr class="smcl-hline"${data_line_attr(directive)}>`;
 
         // -- Asis mode --
         case 'asis':
@@ -419,27 +479,28 @@ function render_directive(
             }
             return '</p>';
         case 'pstd':
-            return '<p class="smcl-pstd">';
+            return `<p class="smcl-pstd"${data_line_attr(directive)}>`;
         case 'psee':
-            return '<p class="smcl-psee">';
+            return `<p class="smcl-psee"${data_line_attr(directive)}>`;
         case 'phang':
-            return '<p class="smcl-phang">';
+            return `<p class="smcl-phang"${data_line_attr(directive)}>`;
         case 'phang2':
-            return '<p class="smcl-phang2">';
+            return `<p class="smcl-phang2"${data_line_attr(directive)}>`;
         case 'phang3':
-            return '<p class="smcl-phang3">';
+            return `<p class="smcl-phang3"${data_line_attr(directive)}>`;
         case 'pmore':
-            return '<p class="smcl-pmore">';
+            return `<p class="smcl-pmore"${data_line_attr(directive)}>`;
         case 'pmore2':
-            return '<p class="smcl-pmore2">';
+            return `<p class="smcl-pmore2"${data_line_attr(directive)}>`;
         case 'pmore3':
-            return '<p class="smcl-pmore3">';
+            return `<p class="smcl-pmore3"${data_line_attr(directive)}>`;
         case 'pin':
-            return '<p class="smcl-pin">';
+            return `<p class="smcl-pin"${data_line_attr(directive)}>`;
         case 'pin2':
-            return '<p class="smcl-pin2">';
+            return `<p class="smcl-pin2"${data_line_attr(directive)}>`;
         case 'pin3':
-            return '<p class="smcl-pin3">';
+            return `<p class="smcl-pin3"${data_line_attr(directive)}>`;
+
 
         // -- Line control --
         case 'bind':
@@ -458,9 +519,9 @@ function render_directive(
             return '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
         case 'center':
         case 'centre':
-            return `<div class="smcl-center">${render_content(directive, ctx)}</div>`;
+            return `<div class="smcl-center"${data_line_attr(directive)}>${render_content(directive, ctx)}</div>`;
         case 'right':
-            return `<div class="smcl-right">${render_content(directive, ctx)}</div>`;
+            return `<div class="smcl-right"${data_line_attr(directive)}>${render_content(directive, ctx)}</div>`;
         case 'lalign': {
             const my_width = parse_first_number(directive.args);
             const my_style = my_width
@@ -488,9 +549,9 @@ function render_directive(
 
         // -- Titles and headings --
         case 'title':
-            return `<h2 class="smcl-title">${render_content(directive, ctx)}</h2>`;
+            return `<h2 class="smcl-title"${data_line_attr(directive)}>${render_content(directive, ctx)}</h2>`;
         case 'dlgtab':
-            return `<h3 class="smcl-dlgtab">${render_content(directive, ctx)}</h3>`;
+            return `<h3 class="smcl-dlgtab"${data_line_attr(directive)}>${render_content(directive, ctx)}</h3>`;
 
         // -- Synopt tables --
         case 'synoptset':
@@ -635,26 +696,26 @@ function render_opth(
 }
 
 function render_paragraph_open(directive: SmclDirective): string {
+    const my_dl = data_line_attr(directive);
     if (!directive.args) {
-        return '<p class="smcl-p">';
+        return `<p class="smcl-p"${my_dl}>`;
     }
     // {p #1 #2 #3} - indent parameters
     const the_nums = directive.args.split(/\s+/).map(Number);
     const my_first = the_nums[0] || 0;
     const my_cont = the_nums[1] || 0;
-    const indent = my_cont * 0.6;
-    const text_indent = (my_first - my_cont) * 0.6;
-    return `<p class="smcl-p" style="margin-left:${indent}ch;text-indent:${text_indent}ch">`;
+    const indent_ch = my_cont * 0.6;
+    const text_indent_ch = (my_first - my_cont) * 0.6;
+    return `<p class="smcl-p"${my_dl} style="margin-left:${indent_ch}ch;text-indent:${text_indent_ch}ch">`;
 }
 
 function render_hline(directive: SmclDirective): string {
     const my_width = parse_first_number(directive.args);
     if (my_width) {
-        // Inline hline of specific width
         const my_line = '\u2500'.repeat(my_width);
         return `<span class="smcl-hline-inline">${my_line}</span>`;
     }
-    return '<hr class="smcl-hline">';
+    return `<hr class="smcl-hline"${data_line_attr(directive)}>`;
 }
 
 function render_col(directive: SmclDirective): string {
@@ -679,7 +740,7 @@ function render_synoptset(
     const my_width = parse_first_number(directive.args) || 20;
     ctx.in_synopt_table = true;
     ctx.synopt_col_width = my_width;
-    return '<table class="smcl-synopt-table">';
+    return `<table class="smcl-synopt-table"${data_line_attr(directive)}>`;
 }
 
 function render_synopthdr(
@@ -710,9 +771,9 @@ function render_syntab(
 ): string {
     const my_text = render_content(directive, ctx);
     if (ctx.in_synopt_table) {
-        return `<tr class="smcl-syntab"><td colspan="2"><strong>${my_text}</strong></td></tr>`;
+        return `<tr class="smcl-syntab"${data_line_attr(directive)}><td colspan="2"><strong>${my_text}</strong></td></tr>`;
     }
-    return `<h4 class="smcl-syntab-heading">${my_text}</h4>`;
+    return `<h4 class="smcl-syntab-heading"${data_line_attr(directive)}>${my_text}</h4>`;
 }
 
 function render_synopt(
@@ -729,7 +790,7 @@ function render_synopt(
     // the parent caller handles the description.
     if (ctx.in_synopt_table) {
         ctx.in_table_row = true;
-        return `<tr class="smcl-synopt-row"><td class="smcl-synopt-col1">${my_option_html}</td><td class="smcl-synopt-col2">`;
+        return `<tr class="smcl-synopt-row"${data_line_attr(directive)}><td class="smcl-synopt-col1">${my_option_html}</td><td class="smcl-synopt-col2">`;
     }
     return `<div class="smcl-synopt-inline">${my_option_html}</div>`;
 }
@@ -748,7 +809,7 @@ function render_p2colset(
         the_nums[2] || 21,
         the_nums[3] || 2,
     ];
-    return '<table class="smcl-p2col-table">';
+    return `<table class="smcl-p2col-table"${data_line_attr(directive)}>`;
 }
 
 function render_p2col(
@@ -758,7 +819,7 @@ function render_p2col(
     const my_first_col = render_content(directive, ctx);
     // Second column text comes as sibling nodes until {p_end}
     ctx.in_table_row = true;
-    return `<tr class="smcl-p2col-row"><td class="smcl-p2col-col1">${my_first_col}</td><td class="smcl-p2col-col2">`;
+    return `<tr class="smcl-p2col-row"${data_line_attr(directive)}><td class="smcl-p2col-col1">${my_first_col}</td><td class="smcl-p2col-col2">`;
 }
 
 // -- Links --

@@ -20,24 +20,29 @@ describe('smcl_to_html', () => {
     describe('text formatting', () => {
         it('renders {bf:text} as strong', () => {
             const result = smcl_to_html('{bf:bold text}');
-            expect(result.html).toBe('<strong>bold text</strong>');
+            expect(result.html).toContain('<strong>');
+            expect(result.html).toContain('bold text');
+            expect(result.html).toContain('</strong>');
         });
 
         it('renders {it:text} as em', () => {
             const result = smcl_to_html('{it:italic text}');
-            expect(result.html).toBe('<em>italic text</em>');
+            expect(result.html).toContain('<em>');
+            expect(result.html).toContain('italic text');
+            expect(result.html).toContain('</em>');
         });
 
         it('renders {ul:text} as u', () => {
             const result = smcl_to_html('{ul:underlined}');
-            expect(result.html).toBe('<u>underlined</u>');
+            expect(result.html).toContain('<u>');
+            expect(result.html).toContain('underlined');
+            expect(result.html).toContain('</u>');
         });
 
         it('renders {cmd:text} as code', () => {
             const result = smcl_to_html('{cmd:regress}');
-            expect(result.html).toBe(
-                '<code class="smcl-cmd">regress</code>'
-            );
+            expect(result.html).toContain('class="smcl-cmd"');
+            expect(result.html).toContain('regress');
         });
 
         it('renders {opt name} as code', () => {
@@ -79,37 +84,37 @@ describe('smcl_to_html', () => {
     describe('headings', () => {
         it('renders {title:text} as h2', () => {
             const result = smcl_to_html('{title:Syntax}');
-            expect(result.html).toBe(
-                '<h2 class="smcl-title">Syntax</h2>'
-            );
+            expect(result.html).toContain('smcl-title');
+            expect(result.html).toContain('Syntax');
+            expect(result.html).toContain('</h2>');
         });
 
         it('renders {dlgtab:text} as h3', () => {
             const result = smcl_to_html('{dlgtab:Model}');
-            expect(result.html).toBe(
-                '<h3 class="smcl-dlgtab">Model</h3>'
-            );
+            expect(result.html).toContain('smcl-dlgtab');
+            expect(result.html).toContain('Model');
+            expect(result.html).toContain('</h3>');
         });
     });
 
     describe('paragraphs', () => {
         it('renders {pstd} as paragraph', () => {
             const result = smcl_to_html('{pstd}Some text.{p_end}');
-            expect(result.html).toContain('<p class="smcl-pstd">');
+            expect(result.html).toContain('smcl-pstd');
             expect(result.html).toContain('Some text.');
             expect(result.html).toContain('</p>');
         });
 
         it('renders {phang} as hanging indent paragraph', () => {
             const result = smcl_to_html('{phang}');
-            expect(result.html).toBe('<p class="smcl-phang">');
+            expect(result.html).toContain('smcl-phang');
         });
     });
 
     describe('layout', () => {
         it('renders {hline} as horizontal rule', () => {
             const result = smcl_to_html('{hline}');
-            expect(result.html).toBe('<hr class="smcl-hline">');
+            expect(result.html).toContain('smcl-hline');
         });
 
         it('renders {hline 20} as inline line', () => {
@@ -184,7 +189,7 @@ describe('smcl_to_html', () => {
         it('renders {help topic:display} with custom text', () => {
             const result = smcl_to_html('{help regress:regression}');
             expect(result.html).toContain('data-smcl-topic="regress"');
-            expect(result.html).toContain('regression</a>');
+            expect(result.html).toContain('regression');
         });
 
         it('renders {helpb topic} as bold link', () => {
@@ -265,9 +270,7 @@ describe('smcl_to_html', () => {
                 '{synopt:{opt noconstant}}suppress constant{p_end}\n' +
                 '{synoptline}'
             );
-            expect(result.html).toContain(
-                '<table class="smcl-synopt-table">'
-            );
+            expect(result.html).toContain('smcl-synopt-table');
             expect(result.html).toContain('smcl-synopthdr');
             expect(result.html).toContain('smcl-synoptline');
             expect(result.html).toContain('smcl-syntab');
@@ -282,9 +285,7 @@ describe('smcl_to_html', () => {
                 '{synoptset 20 tabbed}{...}\n{synopthdr}'
             );
             // Should not have a newline between the two
-            expect(result.html).toContain(
-                '<table class="smcl-synopt-table">'
-            );
+            expect(result.html).toContain('smcl-synopt-table');
             expect(result.html).toContain('smcl-synopthdr');
         });
     });
@@ -375,6 +376,70 @@ describe('smcl_to_html', () => {
             const result = smcl_to_html('{cmd:<script>}');
             expect(result.html).not.toContain('<script>');
             expect(result.html).toContain('&lt;script&gt;');
+        });
+    });
+
+    describe('scroll sync data-line attributes', () => {
+        it('stamps data-line on block-level directives', () => {
+            const smcl = '{pstd}Hello{p_end}';
+            const result = smcl_to_html(smcl);
+            expect(result.html).toContain('data-line="0"');
+        });
+
+        it('stamps correct line numbers on multi-line content', () => {
+            const smcl = [
+                '{title:Syntax}',   // line 0
+                '',                  // line 1
+                '{pstd}',            // line 2
+                'Some text.',        // line 3
+                '{p_end}',           // line 4
+            ].join('\n');
+            const result = smcl_to_html(smcl);
+            expect(result.html).toContain(
+                '<h2 class="smcl-title" data-line="0">'
+            );
+            expect(result.html).toContain(
+                '<p class="smcl-pstd" data-line="2">'
+            );
+        });
+
+        it('stamps data-line on text nodes', () => {
+            const smcl = 'line zero\nline one\nline two';
+            const result = smcl_to_html(smcl);
+            expect(result.html).toContain('data-line="0"');
+        });
+
+        it('stamps data-line on hline', () => {
+            const result = smcl_to_html('\n{hline}');
+            expect(result.html).toContain('data-line="1"');
+        });
+
+        it('stamps data-line on synopt table elements', () => {
+            const smcl = [
+                '{synoptset 20}',           // line 0
+                '{synopt:{opt x}}desc{p_end}', // line 1
+            ].join('\n');
+            const result = smcl_to_html(smcl);
+            expect(result.html).toContain(
+                'smcl-synopt-table" data-line="0"'
+            );
+            expect(result.html).toContain(
+                'smcl-synopt-row" data-line="1"'
+            );
+        });
+
+        it('stamps data-line on p2col elements', () => {
+            const smcl = [
+                '{p2colset 5 19 21 2}',  // line 0
+                '{p2col:{cmd:test}}desc{p_end}', // line 1
+            ].join('\n');
+            const result = smcl_to_html(smcl);
+            expect(result.html).toContain(
+                'smcl-p2col-table" data-line="0"'
+            );
+            expect(result.html).toContain(
+                'smcl-p2col-row" data-line="1"'
+            );
         });
     });
 

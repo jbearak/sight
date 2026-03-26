@@ -245,7 +245,10 @@ const WEBVIEW_SCRIPT = `
 (function() {
     const vscode = acquireVsCodeApi();
 
-    // Handle cross-reference link clicks
+    // ----------------------------------------------------------
+    // Cross-reference link clicks
+    // ----------------------------------------------------------
+
     document.addEventListener('click', function(e) {
         const link = e.target.closest('a[data-smcl-topic]');
         if (link) {
@@ -257,13 +260,12 @@ const WEBVIEW_SCRIPT = `
             return;
         }
 
-        // Handle in-page anchor links
-        const anchor = e.target.closest('a.smcl-jumpto');
+        var anchor = e.target.closest('a.smcl-jumpto');
         if (anchor) {
-            const href = anchor.getAttribute('href');
+            var href = anchor.getAttribute('href');
             if (href && href.startsWith('#')) {
                 e.preventDefault();
-                const target = document.getElementById(href.substring(1));
+                var target = document.getElementById(href.substring(1));
                 if (target) {
                     target.scrollIntoView({ behavior: 'smooth' });
                 }
@@ -271,16 +273,121 @@ const WEBVIEW_SCRIPT = `
             return;
         }
 
-        // Handle external browse links - let VS Code handle them
-        const browse = e.target.closest('a.smcl-browse');
+        var browse = e.target.closest('a.smcl-browse');
         if (browse) {
             e.preventDefault();
-            const url = browse.getAttribute('href');
+            var url = browse.getAttribute('href');
             if (url) {
                 vscode.postMessage({ type: 'openExternal', url: url });
             }
             return;
         }
     });
+
+    // ----------------------------------------------------------
+    // Scroll sync
+    // ----------------------------------------------------------
+
+    var ignoreNextScroll = false;
+    var ignoreScrollTimer = null;
+    var scrollRafPending = false;
+
+    // Cache sorted line elements; invalidated on content change
+    var cachedLineElements = null;
+
+    function getLineElements() {
+        if (!cachedLineElements) {
+            cachedLineElements = Array.from(
+                document.querySelectorAll('[data-line]')
+            );
+        }
+        return cachedLineElements;
+    }
+
+    function getTopVisibleLine() {
+        var elements = getLineElements();
+        if (elements.length === 0) return null;
+
+        var bestElement = null;
+        var bestDistance = Infinity;
+
+        for (var i = 0; i < elements.length; i++) {
+            var rect = elements[i].getBoundingClientRect();
+            var distance = Math.abs(rect.top);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestElement = elements[i];
+            }
+            if (rect.top > window.innerHeight) break;
+        }
+
+        if (!bestElement) return null;
+        var line = parseInt(bestElement.getAttribute('data-line'), 10);
+        return isNaN(line) ? null : line;
+    }
+
+    // Preview → editor: use requestAnimationFrame (no setTimeout)
+    window.addEventListener('scroll', function() {
+        if (ignoreNextScroll) return;
+        if (scrollRafPending) return;
+
+        scrollRafPending = true;
+        requestAnimationFrame(function() {
+            scrollRafPending = false;
+            var line = getTopVisibleLine();
+            if (line !== null) {
+                vscode.postMessage({ type: 'revealLine', line: line });
+            }
+        });
+    });
+
+    // Editor → preview: receive scrollToLine messages
+    window.addEventListener('message', function(event) {
+        var msg = event.data;
+        if (msg.type === 'scrollToLine') {
+            scrollToSourceLine(msg.line);
+        }
+    });
+
+    function scrollToSourceLine(targetLine) {
+        var elements = getLineElements();
+        if (elements.length === 0) return;
+
+        // Find the element with the closest data-line <= targetLine
+        var bestElement = null;
+        var bestLine = -1;
+
+        for (var i = 0; i < elements.length; i++) {
+            var line = parseInt(
+                elements[i].getAttribute('data-line'), 10
+            );
+            if (isNaN(line)) continue;
+            if (line <= targetLine && line > bestLine) {
+                bestLine = line;
+                bestElement = elements[i];
+            }
+            if (line > targetLine) break;
+        }
+
+        if (!bestElement) {
+            window.scrollTo(0, 0);
+            suppressScroll();
+            return;
+        }
+
+        var rect = bestElement.getBoundingClientRect();
+        var scrollTarget = window.scrollY + rect.top;
+        window.scrollTo(0, scrollTarget);
+        suppressScroll();
+    }
+
+    function suppressScroll() {
+        ignoreNextScroll = true;
+        if (ignoreScrollTimer) clearTimeout(ignoreScrollTimer);
+        ignoreScrollTimer = setTimeout(function() {
+            ignoreNextScroll = false;
+            ignoreScrollTimer = null;
+        }, 80);
+    }
 })();
 `;
