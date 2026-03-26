@@ -647,6 +647,9 @@ export function create_shutdown_handler(
     }
 ): () => Promise<void> {
     return async (): Promise<void> => {
+        // Cancel background indexing first to stop new work (Req 15.1)
+        deps?.workspace_indexer?.cancel();
+
         // Cancel all pending revalidations (Req 1.1)
         if (disposables?.pending_revalidations) {
             for (const my_token of disposables.pending_revalidations.values()) {
@@ -659,15 +662,23 @@ export function create_shutdown_handler(
         // clears queue (Req 1.2, 1.5)
         disposables?.debounce_manager?.dispose();
 
-        // Await active document updates (Req 1.3)
-        await deps?.document_store?.dispose();
+        // Await active document updates with a timeout so we don't
+        // block the shutdown response to the client (Req 1.3).
+        // process.exit(0) in the exit handler will clean up anything
+        // still in-flight.
+        if (deps?.document_store) {
+            const SHUTDOWN_TIMEOUT_MS = 500;
+            await Promise.race([
+                deps.document_store.dispose(),
+                new Promise<void>(resolve =>
+                    setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)
+                ),
+            ]);
+        }
 
         // Dispose scope resolvers (Req 1.4)
         deps?.scope_resolver?.dispose();
         deps?.forward_scope_resolver?.dispose();
-
-        // Cancel background indexing (Req 15.1)
-        deps?.workspace_indexer?.cancel();
 
         // Dispose rename handler — clears timers (Req 15.2)
         deps?.rename_handler?.dispose();

@@ -106,12 +106,15 @@ export function activate(context: ExtensionContext) {
     };
 
     // Options to control the language client
+    const file_watcher = workspace.createFileSystemWatcher('**/*.{do,ado}');
+    context.subscriptions.push(file_watcher);
+
     const clientOptions: LanguageClientOptions = {
         // Register the server for Stata documents
         documentSelector: [{ scheme: 'file', language: 'stata' }],
         synchronize: {
-            // Notify the server about file changes to '.clientrc files contained in the workspace
-            fileEvents: workspace.createFileSystemWatcher('**/*.{do,ado}'),
+            // Notify the server about file changes to .do/.ado files in the workspace
+            fileEvents: file_watcher,
             // Synchronize the 'sight' configuration section with the server
             configurationSection: 'sight'
         }
@@ -135,9 +138,15 @@ export function activate(context: ExtensionContext) {
     });
 }
 
-export function deactivate(): Thenable<void> | undefined {
+export async function deactivate(): Promise<void> {
     if (!client) {
-        return undefined;
+        return;
     }
-    return client.stop();
+    try {
+        await client.stop();
+    } catch {
+        // client.stop() throws if the client isn't running yet
+        // (still starting) or if the shutdown request times out.
+        // Either way, let VS Code proceed with host shutdown.
+    }
 }
