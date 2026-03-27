@@ -430,7 +430,7 @@ The extension watches `~/.sight/browse/` using Node's `fs.watch` (or a library l
 
 4. **Cross-platform paths and remote development**: `~/.sight/browse/` resolves to `%USERPROFILE%\.sight\browse\` on Windows via `mata: pathjoin()` on the Stata side and `os.homedir()` on the extension side. **Critically, the data browser logic (file watcher, `.dta` parser, row serving) must run on the server side of the extension host**, not the client. In VS Code Remote (SSH, WSL, containers), Stata and the `.dta` temp files live on the remote machine. The extension's server component (where the language server already runs) has filesystem access; the webview panel runs in the client but communicates back via `postMessage`. This is the standard VS Code remote architecture — no special handling is needed as long as all file I/O is in the extension host (server), not the webview (client).
 
-5. **Relationship to Data Wrangler**: Register a custom editor for `.dta` files so double-clicking in the file explorer opens the Sight Data Browser. This is a separate activation path from `vview` but shares all the same infrastructure (parser, webview, grid). Add to M3 milestones.
+5. **Could Data Wrangler handle `.dta` files?**: No — Data Wrangler loads the full file into a pandas DataFrame, which is slow for large datasets and discards Stata-specific metadata (value labels, display formats, variable labels). Instead, register a `CustomReadonlyEditorProvider` so double-clicking a `.dta` file in the Explorer opens the Sight Data Browser. This is a separate activation path from `vview` but shares all the same infrastructure (parser, webview, grid). Add to M3 milestones.
 
 ## `vview.ado` Installation and Updates
 
