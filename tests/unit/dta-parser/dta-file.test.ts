@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 import * as path from 'path';
-import { DtaFile } from '../../../src/dta-parser/index';
+import {
+    DtaFile,
+    make_missing_value,
+} from '../../../src/dta-parser/index';
 
 // -----------------------------------------------------------
 // DtaFile public API integration tests
@@ -98,6 +101,25 @@ describe('DtaFile', () => {
             );
             const the_rows = await my_file.read_rows(70, 10);
             expect(the_rows.length).toBe(4);
+        });
+
+        it('preserves extended missing values exactly', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'missing_values.dta')
+            );
+            const the_rows = await my_file.read_rows(0, 5);
+            expect(the_rows[0][0]).toEqual(
+                make_missing_value('.')
+            );
+            expect(the_rows[1][0]).toEqual(
+                make_missing_value('.a')
+            );
+            expect(the_rows[2][0]).toEqual(
+                make_missing_value('.b')
+            );
+            expect(the_rows[4][0]).toEqual(
+                make_missing_value('.z')
+            );
         });
     });
 

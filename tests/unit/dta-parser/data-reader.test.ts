@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse_metadata } from '../../../src/dta-parser/header';
 import { read_rows_from_buffer } from '../../../src/dta-parser/data-reader';
+import { make_missing_value } from '../../../src/dta-parser';
 import type { DtaMetadata } from '../../../src/dta-parser/types';
 
 // -----------------------------------------------------------
@@ -122,7 +123,7 @@ describe('read_rows_from_buffer', () => {
     // ----- Missing values -----
 
     describe('missing values', () => {
-        it('returns null for missing values (missing_values.dta)', () => {
+        it('returns tagged missing values (missing_values.dta)', () => {
             const { buffer, metadata } =
                 load_fixture('missing_values.dta');
             const the_rows = read_rows_from_buffer(
@@ -134,33 +135,33 @@ describe('read_rows_from_buffer', () => {
             // Variables: x_double, x_byte, x_int, x_long,
             //            x_float
             const my_row0 = the_rows[0];
-            expect(my_row0[0]).toBeNull();  // x_double = .
-            expect(my_row0[1]).toBeNull();  // x_byte = .
-            expect(my_row0[2]).toBeNull();  // x_int = .
-            expect(my_row0[3]).toBeNull();  // x_long = .
-            expect(my_row0[4]).toBeNull();  // x_float = .
+            expect(my_row0[0]).toEqual(make_missing_value('.'));
+            expect(my_row0[1]).toEqual(make_missing_value('.'));
+            expect(my_row0[2]).toEqual(make_missing_value('.'));
+            expect(my_row0[3]).toEqual(make_missing_value('.'));
+            expect(my_row0[4]).toEqual(make_missing_value('.'));
 
             // Row 1 (_n==2): .a in all columns
             const my_row1 = the_rows[1];
-            expect(my_row1[0]).toBeNull();  // x_double = .a
-            expect(my_row1[1]).toBeNull();  // x_byte = .a
-            expect(my_row1[2]).toBeNull();  // x_int = .a
-            expect(my_row1[3]).toBeNull();  // x_long = .a
-            expect(my_row1[4]).toBeNull();  // x_float = .a
+            expect(my_row1[0]).toEqual(make_missing_value('.a'));
+            expect(my_row1[1]).toEqual(make_missing_value('.a'));
+            expect(my_row1[2]).toEqual(make_missing_value('.a'));
+            expect(my_row1[3]).toEqual(make_missing_value('.a'));
+            expect(my_row1[4]).toEqual(make_missing_value('.a'));
 
             // Row 2 (_n==3): x_double = .b, x_byte = .z,
             // x_int = .z, x_long = .z, x_float = .z
             const my_row2 = the_rows[2];
-            expect(my_row2[0]).toBeNull();  // x_double = .b
-            expect(my_row2[1]).toBeNull();  // x_byte = .z
-            expect(my_row2[2]).toBeNull();  // x_int = .z
-            expect(my_row2[3]).toBeNull();  // x_long = .z
-            expect(my_row2[4]).toBeNull();  // x_float = .z
+            expect(my_row2[0]).toEqual(make_missing_value('.b'));
+            expect(my_row2[1]).toEqual(make_missing_value('.z'));
+            expect(my_row2[2]).toEqual(make_missing_value('.z'));
+            expect(my_row2[3]).toEqual(make_missing_value('.z'));
+            expect(my_row2[4]).toEqual(make_missing_value('.z'));
 
             // Row 4 (_n==5): x_double = .z, others are
             // numeric (not null)
             const my_row4 = the_rows[4];
-            expect(my_row4[0]).toBeNull();  // x_double = .z
+            expect(my_row4[0]).toEqual(make_missing_value('.z'));
 
             // x_byte for _n==5: gen byte x_byte = _n
             // if _n <= 100 => 5

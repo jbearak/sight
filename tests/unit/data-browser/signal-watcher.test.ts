@@ -26,6 +26,31 @@ describe('parse_sidecar_json', () => {
         expect(my_result!.version).toBe(1);
     });
 
+    it('parses expanded sidecar JSON', () => {
+        const my_result = parse_sidecar_json(JSON.stringify({
+            version: 1,
+            uuid: 'abc-123',
+            name: 'mydata',
+            dtapath: '/tmp/mydata.dta',
+            N: 1000,
+            k: 5,
+            replace: false,
+            subsetted: true,
+            timestamp: '2026-03-27 10:00:00',
+            source: '/tmp/source.dta',
+            varlist: ['make', 'price'],
+            if: 'foreign == 1',
+            in: '1/10',
+        }));
+
+        expect(my_result).not.toBeNull();
+        expect(my_result!.timestamp).toBe('2026-03-27 10:00:00');
+        expect(my_result!.source).toBe('/tmp/source.dta');
+        expect(my_result!.varlist).toEqual(['make', 'price']);
+        expect(my_result!.if).toBe('foreign == 1');
+        expect(my_result!.in).toBe('1/10');
+    });
+
     it('returns null for invalid JSON', () => {
         expect(parse_sidecar_json('')).toBeNull();
         expect(parse_sidecar_json('not json')).toBeNull();
@@ -93,6 +118,11 @@ describe('parse_sidecar_json', () => {
         expect(parse_sidecar_json(JSON.stringify({
             uuid: 'abc', name: 'mydata', dtapath: '/tmp/x.dta',
             N: 10, k: 2, replace: 'false',
+        }))).toBeNull();
+
+        expect(parse_sidecar_json(JSON.stringify({
+            uuid: 'abc', name: 'mydata', dtapath: '/tmp/x.dta',
+            N: 10, k: 2, replace: false, varlist: 'make',
         }))).toBeNull();
     });
 });

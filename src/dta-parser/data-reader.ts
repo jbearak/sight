@@ -8,66 +8,24 @@
 // Supports format versions 117, 118, and 119.
 // -----------------------------------------------------------
 
-import type { DtaMetadata, Row } from './types';
+import {
+    classify_raw_double_missing_at,
+    classify_raw_float_missing,
+    classify_missing_value,
+    make_missing_value,
+} from './missing-values';
+import type {
+    DtaMetadata,
+    MissingValue,
+    Row,
+    RowCell,
+} from './types';
 
 // The <data> tag that precedes observation bytes
 const DATA_TAG = '<data>';
 const DATA_TAG_LENGTH = DATA_TAG.length; // 6 bytes
 
-// Stata float missing range (IEEE 754 uint32 values):
-//   .  = 0x7F000000
-//   .a = 0x7F000800 (each letter += 0x800)
-//   .z = 0x7F00D000
-// When getFloat32() promotes to a JS double, the bit
-// pattern changes and is_double_missing() cannot detect
-// it. We check the raw uint32 instead.
-const FLOAT_MISSING_DOT = 0x7F000000;
-const FLOAT_MISSING_Z = 0x7F00D000;
-
-// Stata double missing range (big-endian byte patterns):
-//   .  = 7F E0 00 00 00 00 00 00
-//   .a = 7F E0 01 00 00 00 00 00
-//   .z = 7F E0 1A 00 00 00 00 00
-// The letter offset is in byte 2 (big-endian). We check
-// the first two bytes (7F E0), then byte 2 for the
-// range 0x00..0x1A, and bytes 3..7 must be zero.
-const DOUBLE_PREFIX_HI = 0x7FE0;  // bytes 0-1
-const DOUBLE_LETTER_MAX = 0x1A;   // max byte 2
-
 const UTF8_DECODER = new TextDecoder('utf-8');
-
-/**
- * Check whether 8 bytes at `offset` represent a Stata
- * double missing value by examining the raw big-endian
- * bit pattern. The file may be LE or BE.
- */
-function is_double_missing_at(
-    view: DataView,
-    offset: number,
-    little_endian: boolean
-): boolean {
-    // Read the first 4 bytes as a big-endian uint32.
-    // For LE files, read native then byte-swap.
-    const my_hi = little_endian
-        ? view.getUint32(offset + 4, true)
-        : view.getUint32(offset, false);
-
-    // Bytes 0-1 (BE) must be 0x7FE0
-    if ((my_hi >>> 16) !== DOUBLE_PREFIX_HI) return false;
-
-    // Byte 2 (BE) is the letter: 0x00 = ., 0x1A = .z
-    const my_letter = (my_hi >>> 8) & 0xFF;
-    if (my_letter > DOUBLE_LETTER_MAX) return false;
-
-    // Byte 3 (BE) must be zero
-    if ((my_hi & 0xFF) !== 0) return false;
-
-    // Bytes 4-7 (BE) must all be zero
-    const my_lo = little_endian
-        ? view.getUint32(offset, true)
-        : view.getUint32(offset + 4, false);
-    return my_lo === 0;
-}
 
 /**
  * Read a fixed-width string field, stopping at the first
@@ -101,50 +59,65 @@ function read_cell(
     type: string,
     width: number,
     little_endian: boolean
-): number | string | null {
+): RowCell {
     switch (type) {
         case 'byte': {
             const my_val = view.getInt8(offset);
-            if (my_val >= 101) return null;
+            const my_missing_type = classify_missing_value(
+                my_val,
+                'byte'
+            );
+            if (my_missing_type) {
+                return make_missing_value(my_missing_type);
+            }
             return my_val;
         }
         case 'int': {
             const my_val = view.getInt16(
                 offset, little_endian
             );
-            if (my_val >= 32741) return null;
+            const my_missing_type = classify_missing_value(
+                my_val,
+                'int'
+            );
+            if (my_missing_type) {
+                return make_missing_value(my_missing_type);
+            }
             return my_val;
         }
         case 'long': {
             const my_val = view.getInt32(
                 offset, little_endian
             );
-            if (my_val >= 2147483621) return null;
+            const my_missing_type = classify_missing_value(
+                my_val,
+                'long'
+            );
+            if (my_missing_type) {
+                return make_missing_value(my_missing_type);
+            }
             return my_val;
         }
         case 'float': {
-            // Check the raw 32-bit pattern against Stata's
-            // float missing sentinels. Reading as uint32
-            // with the file's endianness gives the
-            // canonical integer value (0x7F000000..1A).
             const my_raw = view.getUint32(
                 offset, little_endian
             );
-            if (
-                my_raw >= FLOAT_MISSING_DOT
-                && my_raw <= FLOAT_MISSING_Z
-            ) {
-                return null;
+            const my_missing_type =
+                classify_raw_float_missing(my_raw);
+            if (my_missing_type) {
+                return make_missing_value(my_missing_type);
             }
             return view.getFloat32(
                 offset, little_endian
             );
         }
         case 'double': {
-            if (is_double_missing_at(
+            const my_missing_type =
+                classify_raw_double_missing_at(
                 view, offset, little_endian
-            )) {
-                return null;
+            );
+            if (my_missing_type) {
+                return make_missing_value(my_missing_type);
             }
             return view.getFloat64(
                 offset, little_endian
@@ -211,7 +184,7 @@ export function read_rows_from_buffer(
     for (let i = 0; i < my_actual_count; i++) {
         const my_row_offset = my_data_start
             + (start + i) * metadata.obs_length;
-        const my_row: Row = [];
+            const my_row: Row = [];
 
         for (
             let j = my_col_start;

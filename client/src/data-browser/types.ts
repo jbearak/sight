@@ -1,3 +1,5 @@
+import type { MissingType } from '../../../src/dta-parser';
+
 // -----------------------------------------------------------
 // Data browser postMessage protocol types
 //
@@ -37,6 +39,11 @@ export interface MetadataMessage {
     variables: VariableDescription[];
     dataset_label: string;
     name: string;
+    source?: string;
+    subsetted?: boolean;
+    varlist?: string[];
+    if_condition?: string;
+    in_condition?: string;
 }
 
 export type ExtensionMessage = RowResponse | MetadataMessage;
@@ -51,8 +58,10 @@ export interface VariableDescription {
 
 export interface CellValue {
     raw: number | string | null;
-    display: string;
-    missing_type?: string; // '.', '.a', etc.
+    raw_display: string;
+    formatted_display: string;
+    label_display?: string;
+    missing_type?: MissingType;
 }
 
 // Sidecar JSON written by vview.ado
@@ -66,4 +75,9 @@ export interface VviewSidecar {
     k: number;
     replace: boolean;
     subsetted: boolean;
+    timestamp?: string;
+    source?: string;
+    varlist?: string[];
+    if?: string;
+    in?: string;
 }

@@ -127,7 +127,20 @@ export interface VariableInfo {
     byte_offset: number;      // offset within an observation row
 }
 
-export type Row = (number | string | null)[];
+export type MissingType =
+    | '.'
+    | '.a' | '.b' | '.c' | '.d' | '.e' | '.f' | '.g'
+    | '.h' | '.i' | '.j' | '.k' | '.l' | '.m' | '.n'
+    | '.o' | '.p' | '.q' | '.r' | '.s' | '.t' | '.u'
+    | '.v' | '.w' | '.x' | '.y' | '.z';
+
+export interface MissingValue {
+    kind: 'missing';
+    missing_type: MissingType;
+}
+
+export type RowCell = number | string | MissingValue;
+export type Row = RowCell[];
 
 export interface SectionOffsets {
     stata_data: number;

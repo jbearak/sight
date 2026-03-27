@@ -28,6 +28,11 @@ program define vview
         }
     }
 
+    local source = c(filename)
+    local timestamp = c(current_date) + " " + c(current_time)
+    local if_condition `"`if'"'
+    local in_condition `"`in'"'
+
     // Save subsetted data
     preserve
 
@@ -54,7 +59,34 @@ program define vview
 
     // Escape backslashes for JSON (Windows paths)
     local json_dtapath = subinstr(`"`dtapath'"', "\", "\\", .)
+    local json_dtapath = subinstr(`"`json_dtapath'"', `"""', "\"", .)
     local json_name = subinstr(`"`name'"', "\", "\\", .)
+    local json_name = subinstr(`"`json_name'"', `"""', "\"", .)
+    local json_source = subinstr(`"`source'"', "\", "\\", .)
+    local json_source = subinstr(`"`json_source'"', `"""', "\"", .)
+    local json_timestamp = subinstr(`"`timestamp'"', "\", "\\", .)
+    local json_timestamp = subinstr(`"`json_timestamp'"', `"""', "\"", .)
+    local json_if = subinstr(`"`if_condition'"', "\", "\\", .)
+    local json_if = subinstr(`"`json_if'"', `"""', "\"", .)
+    local json_in = subinstr(`"`in_condition'"', "\", "\\", .)
+    local json_in = subinstr(`"`json_in'"', `"""', "\"", .)
+
+    local json_varlist "["
+    if `"`varlist'"' != "" & `"`varlist'"' != "_all" {
+        local first_var = 1
+        foreach my_var of local varlist {
+            local json_var = subinstr(`"`my_var'"', "\", "\\", .)
+            local json_var = subinstr(`"`json_var'"', `"""', "\"", .)
+            if `first_var' {
+                local json_varlist `"`json_varlist'"`"`json_var'"'"'
+                local first_var = 0
+            }
+            else {
+                local json_varlist `"`json_varlist',"`json_var'"'"'
+            }
+        }
+    }
+    local json_varlist `"`json_varlist']"'
 
     // Write JSON sidecar
     tempname fh
@@ -62,8 +94,13 @@ program define vview
     file write `fh' `"{"' _n
     file write `fh' `"  "version": 1,"' _n
     file write `fh' `"  "uuid": "`uuid'","' _n
+    file write `fh' `"  "timestamp": "`json_timestamp'","' _n
+    file write `fh' `"  "source": "`json_source'","' _n
     file write `fh' `"  "name": "`json_name'","' _n
     file write `fh' `"  "dtapath": "`json_dtapath'","' _n
+    file write `fh' `"  "varlist": `json_varlist',"' _n
+    file write `fh' `"  "if": "`json_if'","' _n
+    file write `fh' `"  "in": "`json_in'","' _n
     file write `fh' `"  "N": `obs_n',"' _n
     file write `fh' `"  "k": `var_k',"' _n
     file write `fh' `"  "replace": `= cond("`replace'" != "", "true", "false")',"' _n

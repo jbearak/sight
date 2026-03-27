@@ -1,3 +1,5 @@
+import type { Row } from '../../../src/dta-parser';
+
 /**
  * LRU cache for decoded row pages, keyed by start_row.
  *
@@ -6,7 +8,7 @@
  */
 export class RowCache {
     private readonly max_pages: number;
-    private readonly cache: Map<number, (number | string | null)[][]>;
+    private readonly cache: Map<number, Row[]>;
 
     constructor(max_pages: number = 10, _page_size: number = 200) {
         this.max_pages = max_pages;
@@ -21,7 +23,7 @@ export class RowCache {
      */
     get_page(
         start_row: number
-    ): (number | string | null)[][] | undefined {
+    ): Row[] | undefined {
         const my_rows = this.cache.get(start_row);
         if (my_rows === undefined) {
             return undefined;
@@ -39,7 +41,7 @@ export class RowCache {
      */
     set_page(
         start_row: number,
-        rows: (number | string | null)[][]
+        rows: Row[]
     ): void {
         // If key already present, delete so re-insert lands
         // at the end.

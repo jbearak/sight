@@ -609,8 +609,9 @@
   "scripts": {
     "vscode:prepublish": "bun run bundle && bun run copy-server",
     "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --outfile=dist/extension.js --external:vscode --minify",
+    "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
     "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/",
-    "compile": "bun run bundle",
+    "compile": "bun run bundle && bun run bundle:webview",
     "watch": "tsc -watch -p ./",
     "pretest": "bun run compile && bun run lint",
     "lint": "eslint src --ext ts",
@@ -622,6 +623,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@glideapps/glide-data-grid": "^6.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "vscode-languageclient": "^8.1.0"
   },
   "devDependencies": {
@@ -632,6 +636,8 @@
     "typescript": "^4.9.4",
     "eslint": "^8.31.0",
     "@typescript-eslint/parser": "^5.48.1",
-    "@typescript-eslint/eslint-plugin": "^5.48.1"
+    "@typescript-eslint/eslint-plugin": "^5.48.1",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1"
   }
 }

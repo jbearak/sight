@@ -116,9 +116,9 @@ describe('data browser smoke test', () => {
                     expect(my_v117_val).toBeCloseTo(my_v118_val as number, 4);
                     expect(my_v118_val).toBeCloseTo(my_v119_val as number, 4);
                 } else {
-                    // null (missing)
-                    expect(my_v117_val).toBe(my_v118_val);
-                    expect(my_v118_val).toBe(my_v119_val);
+                    // tagged missing values
+                    expect(my_v117_val).toEqual(my_v118_val);
+                    expect(my_v118_val).toEqual(my_v119_val);
                 }
             }
         }

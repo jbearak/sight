@@ -10,9 +10,10 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import {
     DtaFile,
-    apply_display_format,
     type VariableInfo,
+    type Row,
 } from '../../../src/dta-parser';
+import { build_cell_value } from './cell-format';
 import { RowCache } from './row-cache';
 import type {
     WebviewMessage,
@@ -144,6 +145,11 @@ export class DataBrowserPanel implements vscode.Disposable {
                 ),
                 dataset_label: this.dta_file.dataset_label,
                 name: this.sidecar.name,
+                source: this.sidecar.source,
+                subsetted: this.sidecar.subsetted,
+                varlist: this.sidecar.varlist,
+                if_condition: this.sidecar.if,
+                in_condition: this.sidecar.in,
             };
 
             this.panel.webview.postMessage(my_metadata);
@@ -224,7 +230,7 @@ export class DataBrowserPanel implements vscode.Disposable {
     // -------------------------------------------------------
 
     private format_rows(
-        raw_rows: (number | string | null)[][],
+        raw_rows: Row[],
         col_start?: number
     ): CellValue[][] {
         const my_col_offset = col_start ?? 0;
@@ -240,49 +246,18 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     private format_cell(
-        raw: number | string | null,
+        raw: Row[number],
         variable: {
             type: string;
             format: string;
             value_label_name: string;
         }
     ): CellValue {
-        // Null means missing — read_rows returns null for
-        // all missing values (system and extended).
-        if (raw === null) {
-            return {
-                raw: null,
-                display: '.',
-                missing_type: '.',
-            };
-        }
-
-        // Check for value labels
-        if (
-            typeof raw === 'number'
-            && variable.value_label_name
-            && this.dta_file
-        ) {
-            const my_table =
-                this.dta_file.value_label_tables.get(
-                    variable.value_label_name
-                );
-            if (my_table) {
-                const my_label = my_table.get(raw);
-                if (my_label !== undefined) {
-                    return { raw, display: my_label };
-                }
-            }
-        }
-
-        // Apply the variable's display format
-        const my_formatted = apply_display_format(
+        return build_cell_value(
             raw,
-            variable.format
+            variable,
+            this.dta_file?.value_label_tables
+                .get(variable.value_label_name)
         );
-        return {
-            raw,
-            display: my_formatted ?? String(raw),
-        };
     }
 }

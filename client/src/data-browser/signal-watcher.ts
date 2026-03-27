@@ -3,8 +3,13 @@ import * as path from 'path';
 import { homedir } from 'os';
 import type { VviewSidecar } from './types';
 
-const BROWSE_DIR = path.join(homedir(), '.sight', 'browse');
+export const BROWSE_DIR = path.join(
+    homedir(),
+    '.sight',
+    'browse'
+);
 const SIGNAL_PREFIX = 'signal_';
+const MAX_TEMP_FILE_AGE_MS = 24 * 60 * 60 * 1000;
 
 // -------------------------------------------------------
 // Sidecar JSON parser
@@ -35,6 +40,35 @@ export function parse_sidecar_json(
     if (typeof my_rec.N !== 'number') return null;
     if (typeof my_rec.k !== 'number') return null;
     if (typeof my_rec.replace !== 'boolean') return null;
+    if (
+        my_rec.timestamp !== undefined
+        && typeof my_rec.timestamp !== 'string'
+    ) {
+        return null;
+    }
+    if (
+        my_rec.source !== undefined
+        && typeof my_rec.source !== 'string'
+    ) {
+        return null;
+    }
+    if (
+        my_rec.varlist !== undefined
+        && (
+            !Array.isArray(my_rec.varlist)
+            || my_rec.varlist.some(
+                my_value => typeof my_value !== 'string'
+            )
+        )
+    ) {
+        return null;
+    }
+    if (my_rec.if !== undefined && typeof my_rec.if !== 'string') {
+        return null;
+    }
+    if (my_rec.in !== undefined && typeof my_rec.in !== 'string') {
+        return null;
+    }
 
     return {
         version: typeof my_rec.version === 'number'
@@ -51,7 +85,51 @@ export function parse_sidecar_json(
         subsetted: typeof my_rec.subsetted === 'boolean'
             ? my_rec.subsetted
             : false,
+        timestamp: my_rec.timestamp as string | undefined,
+        source: my_rec.source as string | undefined,
+        varlist: my_rec.varlist as string[] | undefined,
+        if: my_rec.if as string | undefined,
+        in: my_rec.in as string | undefined,
     };
+}
+
+function is_browse_temp_filename(filename: string): boolean {
+    return (
+        filename.endsWith('.dta')
+        || filename.endsWith('.json')
+        || filename.startsWith(SIGNAL_PREFIX)
+    );
+}
+
+export function prune_stale_browse_files(
+    browse_dir: string = BROWSE_DIR,
+    now_ms: number = Date.now()
+): void {
+    let the_filenames: string[];
+    try {
+        the_filenames = fs.readdirSync(browse_dir);
+    } catch {
+        return;
+    }
+
+    for (const my_filename of the_filenames) {
+        if (!is_browse_temp_filename(my_filename)) {
+            continue;
+        }
+
+        const my_path = path.join(browse_dir, my_filename);
+        try {
+            const my_stat = fs.statSync(my_path);
+            if (
+                now_ms - my_stat.mtimeMs
+                > MAX_TEMP_FILE_AGE_MS
+            ) {
+                fs.unlinkSync(my_path);
+            }
+        } catch {
+            // Ignore races and permission issues.
+        }
+    }
 }
 
 // -------------------------------------------------------

@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'bun:test';
 import {
+    classify_raw_float_missing,
     is_missing_value,
     classify_missing_value,
     STATA_MISSING,
     STATA_MISSING_A,
+    STATA_MISSING_B,
     STATA_MISSING_Z,
 } from '../../../src/dta-parser/missing-values';
 
@@ -54,12 +56,16 @@ describe('missing-values', () => {
                 .toBe('.');
         });
 
-        it('detects float system missing via constant', () => {
-            expect(is_missing_value(STATA_MISSING, 'float'))
-                .toBe(true);
-            expect(classify_missing_value(
-                STATA_MISSING, 'float'
-            )).toBe('.');
+        it('detects float system missing via raw bits', () => {
+            expect(classify_raw_float_missing(0x7F000000))
+                .toBe('.');
+        });
+
+        it('detects float .a and .z via raw bits', () => {
+            expect(classify_raw_float_missing(0x7F000800))
+                .toBe('.a');
+            expect(classify_raw_float_missing(0x7F00D000))
+                .toBe('.z');
         });
 
         it('detects double system missing via constant', () => {
@@ -99,6 +105,14 @@ describe('missing-values', () => {
             expect(classify_missing_value(
                 STATA_MISSING_A, 'double'
             )).toBe('.a');
+        });
+
+        it('detects double .b via constant', () => {
+            expect(is_missing_value(STATA_MISSING_B, 'double'))
+                .toBe(true);
+            expect(classify_missing_value(
+                STATA_MISSING_B, 'double'
+            )).toBe('.b');
         });
     });
 

@@ -20,6 +20,9 @@ export class DataBrowserPanelManager
     implements vscode.Disposable {
 
     private panels = new Map<string, DataBrowserPanel>();
+    constructor(
+        private readonly extension_uri: vscode.Uri
+    ) {}
 
     async open_or_refresh(
         sidecar: VviewSidecar
@@ -36,9 +39,6 @@ export class DataBrowserPanelManager
             return;
         }
 
-        const my_nonce = generate_nonce();
-        const my_html = build_data_browser_html(my_nonce);
-
         const my_webview_panel =
             vscode.window.createWebviewPanel(
                 VIEW_TYPE,
@@ -47,8 +47,22 @@ export class DataBrowserPanelManager
                 {
                     enableScripts: true,
                     retainContextWhenHidden: true,
+                    localResourceRoots: [
+                        vscode.Uri.joinPath(
+                            this.extension_uri,
+                            'dist',
+                            'data-browser-webview'
+                        ),
+                    ],
                 }
             );
+
+        const my_nonce = generate_nonce();
+        const my_html = build_data_browser_html(
+            my_webview_panel.webview,
+            this.extension_uri,
+            my_nonce
+        );
 
         const my_panel = new DataBrowserPanel(
             my_webview_panel,

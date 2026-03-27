@@ -255,6 +255,9 @@ export class DtaFile {
 export type {
     VariableInfo,
     Row,
+    RowCell,
+    MissingType,
+    MissingValue,
     DtaMetadata,
     DtaType,
     FormatVersion,
@@ -263,5 +266,10 @@ export type {
 export { apply_display_format } from './display-format';
 export {
     classify_missing_value,
+    classify_raw_float_missing,
+    classify_raw_double_missing_at,
     is_missing_value,
+    is_missing_value_object,
+    make_missing_value,
+    STATA_MISSING_B,
 } from './missing-values';

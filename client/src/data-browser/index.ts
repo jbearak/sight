@@ -11,14 +11,27 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { DataBrowserPanelManager } from './panel-manager';
-import { SignalWatcher } from './signal-watcher';
+import {
+    BROWSE_DIR,
+    prune_stale_browse_files,
+    SignalWatcher,
+} from './signal-watcher';
 
 export function register_data_browser(
     context: vscode.ExtensionContext,
     log: (msg: string) => void
 ): void {
-    const my_manager = new DataBrowserPanelManager();
+    const my_manager = new DataBrowserPanelManager(
+        context.extensionUri
+    );
     context.subscriptions.push(my_manager);
+
+    try {
+        fs.mkdirSync(BROWSE_DIR, { recursive: true });
+    } catch {
+        // The watcher/install flow logs its own failures.
+    }
+    prune_stale_browse_files();
 
     const my_watcher = new SignalWatcher(
         (sidecar) => my_manager.open_or_refresh(sidecar),
