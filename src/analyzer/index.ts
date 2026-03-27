@@ -206,7 +206,8 @@ export class SemanticAnalyzer {
             
             // Also check tokens for macro references if provided
             if (tokens && this.config.undefined_macro_enabled) {
-                this.check_token_macro_references(tokens, symbols, diagnostics, reported_ranges);
+                const program_ranges = this.collect_program_ranges(ast.nodes);
+                this.check_token_macro_references(tokens, symbols, diagnostics, reported_ranges, program_ranges);
             }
         }
 
@@ -291,16 +292,16 @@ export class SemanticAnalyzer {
      * when reconstructing content for the directive parser.
      */
     private parse_declaration_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
-        // Pattern to match declaration directives
-        const DECLARATION_PATTERN = /@lsp-(local|global|scalar|matrix|program)\s+(\S+)/;
-        
+        // Pattern to match declaration directives (captures all remaining text)
+        const DECLARATION_PATTERN = /@lsp-(local|global|scalar|matrix|program)\s+(.+)/;
+
         for (const token of tokens) {
             if (token.type !== 'COMMENT_LINE' && token.type !== 'COMMENT_BLOCK') {
                 continue;
             }
-            
+
             const token_content = token.value;
-            
+
             // For block comments, check each line separately
             if (token.type === 'COMMENT_BLOCK') {
                 const my_doc = { content: token_content, line_offsets: compute_line_offsets(token_content) };
@@ -310,9 +311,11 @@ export class SemanticAnalyzer {
                     const my_match = my_line.match(DECLARATION_PATTERN);
                     if (my_match) {
                         const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
-                        const my_name = my_match[2];
+                        const the_names = my_match[2].split(/\s+/).filter(n => n.length > 0);
                         const my_actual_line = token.range.start.line + line_offset;
-                        this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
+                        for (const my_name of the_names) {
+                            this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
+                        }
                     }
                 }
             } else {
@@ -320,9 +323,11 @@ export class SemanticAnalyzer {
                 const my_match = token_content.match(DECLARATION_PATTERN);
                 if (my_match) {
                     const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
-                    const my_name = my_match[2];
+                    const the_names = my_match[2].split(/\s+/).filter(n => n.length > 0);
                     const my_actual_line = token.range.start.line;
-                    this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
+                    for (const my_name of the_names) {
+                        this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
+                    }
                 }
             }
         }
@@ -2069,15 +2074,18 @@ export class SemanticAnalyzer {
 
     /**
      * Detect undefined macro and variable references.
+     * @param inside_program - When true, suppresses undefined global macro
+     *   diagnostics because the program may be called after globals are defined.
      */
     private detect_undefined_references(
         nodes: StataNode[],
         symbols: SymbolTable,
         diagnostics: SemanticDiagnostic[],
-        reported_ranges: Set<string>
+        reported_ranges: Set<string>,
+        inside_program = false
     ): void {
         this.traverse_ast_preorder(nodes, (node, node_index) => {
-            this.check_node_references(node, symbols, diagnostics, reported_ranges, node_index);
+            this.check_node_references(node, symbols, diagnostics, reported_ranges, node_index, inside_program);
         });
     }
 
@@ -2086,7 +2094,8 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         diagnostics: SemanticDiagnostic[],
         reported_ranges: Set<string>,
-        node_index: number
+        node_index: number,
+        inside_program: boolean
     ): void {
         // Check if this line should be ignored
         if (this.config.ignored_lines.has(node.range.start.line)) {
@@ -2095,6 +2104,10 @@ export class SemanticAnalyzer {
 
         switch (node.type) {
             case 'macro_ref':
+                // Suppress undefined global macro warnings inside program blocks
+                if (inside_program && node.scope === 'global') {
+                    break;
+                }
                 this.check_macro_reference(node, symbols, diagnostics, reported_ranges, node_index);
                 break;
 
@@ -2105,10 +2118,14 @@ export class SemanticAnalyzer {
                         'list', // list operations expect macro names as arguments
                         // Other functions like substr, word, etc. may have string/variable args, not macro refs
                     ]);
-                    
+
                     // Only check macro references for functions that expect macro arguments
                     if (FUNCTIONS_WITH_MACRO_ARGS.has(node.extendedFunction.name)) {
                         for (const macro_ref of node.extendedFunction.macroRefs) {
+                            // Suppress undefined global macro warnings inside program blocks
+                            if (inside_program && macro_ref.scope === 'global') {
+                                continue;
+                            }
                             this.check_extended_macro_reference(macro_ref, symbols, diagnostics, reported_ranges, node_index);
                         }
                     }
@@ -2120,8 +2137,8 @@ export class SemanticAnalyzer {
                 break;
 
             case 'program':
-                // Recurse into program body
-                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges);
+                // Recurse into program body with inside_program = true
+                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, true);
                 break;
 
             case 'foreach':
@@ -2130,8 +2147,8 @@ export class SemanticAnalyzer {
             case 'else':
             case 'while':
             case 'frame':
-                // Recurse into control flow body
-                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges);
+                // Recurse into control flow body, preserving inside_program context
+                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, inside_program);
                 break;
 
             default:
@@ -2404,6 +2421,26 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * Collect line ranges of program block bodies from the AST (recursively).
+     * Uses exclusive boundaries (start.line + 1, end.line - 1) to match
+     * the AST pass which only operates on body nodes, not the header/end lines.
+     */
+    private collect_program_ranges(nodes: StataNode[]): Array<[number, number]> {
+        const the_ranges: Array<[number, number]> = [];
+        for (const my_node of nodes) {
+            if (my_node.type === 'program') {
+                // Exclude the header line (program define ...) and the end line
+                the_ranges.push([my_node.range.start.line + 1, my_node.range.end.line - 1]);
+                // Recurse for nested programs
+                the_ranges.push(...this.collect_program_ranges(my_node.body));
+            } else if ('body' in my_node && Array.isArray(my_node.body)) {
+                the_ranges.push(...this.collect_program_ranges(my_node.body));
+            }
+        }
+        return the_ranges;
+    }
+
+    /**
      * Check tokens for macro references and report undefined ones.
      * This catches macro references that aren't parsed into AST nodes.
      * Skips ranges already reported by AST pass to avoid duplicates.
@@ -2412,7 +2449,8 @@ export class SemanticAnalyzer {
         tokens: Token[],
         symbols: SymbolTable,
         diagnostics: SemanticDiagnostic[],
-        reported_ranges: Set<string>
+        reported_ranges: Set<string>,
+        program_ranges: Array<[number, number]>
     ): void {
         for (const token of tokens) {
             // Check if this line should be ignored
@@ -2421,10 +2459,18 @@ export class SemanticAnalyzer {
             }
 
             const range_key = `${token.range.start.line}:${token.range.start.character}:${token.range.end.line}:${token.range.end.character}`;
-            
+
             // Skip if already reported by AST pass
             if (reported_ranges.has(range_key)) {
                 continue;
+            }
+
+            // Suppress undefined global macro warnings inside program blocks
+            if (token.type === 'MACRO_REF_GLOBAL') {
+                const token_line = token.range.start.line;
+                if (program_ranges.some(([start, end]) => token_line >= start && token_line <= end)) {
+                    continue;
+                }
             }
 
             if (token.type === 'MACRO_REF_LOCAL') {
