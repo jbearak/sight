@@ -8,6 +8,7 @@ import {
     DataEditor,
     type DrawHeaderCallback,
     GridCellKind,
+    type GridSelection,
     type GridMouseEventArgs,
     type Item,
 } from '@glideapps/glide-data-grid';
@@ -24,6 +25,10 @@ import {
     get_variable_header_tooltip,
     merge_persisted_and_default_widths,
 } from './grid-model';
+import {
+    create_empty_grid_selection,
+    create_single_column_selection,
+} from './selection-model';
 import { use_row_loader } from './use-row-loader';
 
 const HEADER_HEIGHT_PX = 40;
@@ -54,6 +59,10 @@ export function App() {
     const persist_resize_timeout_ref = useRef<number | null>(null);
     const [header_tooltip, set_header_tooltip] =
         useState<HeaderTooltipState | null>(null);
+    const [grid_selection, set_grid_selection] =
+        useState<GridSelection>(
+            create_empty_grid_selection
+        );
 
     useEffect(() => {
         column_widths_ref.current = column_widths_by_name;
@@ -88,6 +97,9 @@ export function App() {
         if (!metadata) {
             set_column_widths_by_name({});
             set_user_resized_columns(new Set());
+            set_grid_selection(
+                create_empty_grid_selection()
+            );
             return;
         }
 
@@ -102,6 +114,9 @@ export function App() {
         );
         set_user_resized_columns(
             new Set(Object.keys(my_stored_widths))
+        );
+        set_grid_selection(
+            create_empty_grid_selection()
         );
     }, [metadata?.dataset_key]);
 
@@ -299,6 +314,14 @@ export function App() {
         schedule_persist_column_widths(my_next_widths);
     };
 
+    const select_single_column = (
+        col_index: number
+    ) => {
+        set_grid_selection(
+            create_single_column_selection(col_index)
+        );
+    };
+
     return (
         <div className="browser-root">
             <div className="toolbar">
@@ -326,10 +349,19 @@ export function App() {
                     rows={metadata?.nobs ?? 0}
                     headerHeight={HEADER_HEIGHT_PX}
                     rowMarkers="number"
+                    columnSelect="multi"
                     getCellsForSelection={true}
+                    gridSelection={grid_selection}
                     smoothScrollX={true}
                     smoothScrollY={true}
                     drawHeader={draw_header}
+                    onGridSelectionChange={set_grid_selection}
+                    onHeaderClicked={(col_index, _event) => {
+                        select_single_column(col_index);
+                    }}
+                    onHeaderContextMenu={(col_index, _event) => {
+                        select_single_column(col_index);
+                    }}
                     onItemHovered={on_item_hovered}
                     onColumnResize={(_column, _new_size, col_index, new_size_with_grow) => {
                         update_column_width(
