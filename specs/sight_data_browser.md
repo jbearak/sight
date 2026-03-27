@@ -403,21 +403,26 @@ For bidirectional communication (e.g., Stata pushing live updates after `replace
 
 ### M3: Polish
 
-- [ ] Column sorting (client-side for small datasets; may require full-file scan for large ones)
+- [ ] Column sorting (client-side for small datasets; disabled above row count threshold)
 - [ ] Column-level text filter
 - [ ] Keyboard navigation (arrow keys, page up/down, Ctrl+Home/End)
 - [ ] Theming (respect VS Code color theme via CSS variables)
 - [ ] Accessibility (screen reader labels, ARIA attributes on grid)
 - [ ] Performance benchmarking against target table above
+- [ ] Register custom editor for `.dta` files (open from file explorer)
+
+## Resolved Questions
+
+1. **Format version scope**: The TypeScript `.dta` parser (M0) will support v117 (Stata 13) in addition to v118/v119, so users can browse older dataset files. The `vview.ado` itself targets Stata 16+ and will always write the current format.
+
+2. **Column sorting on large files**: Start with (a) — disable sort above a row count threshold. Option (c), building a sort index file on first sort request, is tracked as a future enhancement (see jbearak/sight#108).
+
+3. **Live refresh**: Deferred. The mechanism is unclear — Stata doesn't expose file-change hooks, and polling the dataset file is unreliable since Stata holds a lock on the active dataset. The Phase 2 HTTP server could enable this if Stata scripts explicitly signal updates, but there's no clean way to watch for implicit changes. Revisit only if a concrete design emerges.
+
+4. **Cross-platform paths and remote development**: `~/.sight/browse/` resolves to `%USERPROFILE%\.sight\browse\` on Windows via `mata: pathjoin()` on the Stata side and `os.homedir()` on the extension side. **Critically, the data browser logic (file watcher, `.dta` parser, row serving) must run on the server side of the extension host**, not the client. In VS Code Remote (SSH, WSL, containers), Stata and the `.dta` temp files live on the remote machine. The extension's server component (where the language server already runs) has filesystem access; the webview panel runs in the client but communicates back via `postMessage`. This is the standard VS Code remote architecture — no special handling is needed as long as all file I/O is in the extension host (server), not the webview (client).
+
+5. **Relationship to Data Wrangler**: Register a custom editor for `.dta` files so double-clicking in the file explorer opens the Sight Data Browser. This is a separate activation path from `vview` but shares all the same infrastructure (parser, webview, grid). Add to M3 milestones.
 
 ## Open Questions
 
-1. **Format version scope**: Should M0 support v117 (Stata 13), or only v118+ (Stata 14+)? Supporting v117 is straightforward but adds test surface. Stata 13 is old enough that it may not be worth the effort.
-
-2. **Column sorting on large files**: Sorting a 50M-row dataset requires a full file scan. Options: (a) disable sort above a threshold, (b) sort only the cached pages, (c) build an index file on first sort (expensive but one-time). Recommendation: start with (a), revisit if users request it.
-
-3. **Live refresh**: Should `vview` support a mode where it watches the underlying dataset for changes (e.g., after a `replace` in Stata)? This requires either polling or the Phase 2 HTTP mechanism. Defer to post-M3.
-
-4. **Cross-platform paths**: `~/.sight/browse/` assumes Unix-like paths. On Windows, this should resolve to `%USERPROFILE%\.sight\browse\`. The `.ado` file's `mata: pathjoin()` handles this, but the extension side needs to use `os.homedir()` consistently.
-
-5. **Relationship to Data Wrangler**: Should the extension also register as a handler for `.dta` files in VS Code's file explorer (so double-clicking a `.dta` opens the browser)? This is low-cost and high-value but is a separate feature from the console-triggered `vview` flow.
+_(None at this time.)_
