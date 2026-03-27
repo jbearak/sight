@@ -7,6 +7,7 @@ import {
     describe_visible_rows,
     get_cell_display_value,
     get_variable_header_subtitle,
+    get_variable_header_tooltip,
     get_needed_page_starts,
 } from '../../../client/src/data-browser/webview/grid-model';
 
@@ -106,6 +107,14 @@ describe('grid-model helpers', () => {
             dataset_label: '',
             name: 'auto',
         })[0]?.variable_label).toBe('Car origin');
+
+        expect(get_variable_header_tooltip({
+            name: 'foreign',
+            type: 'byte',
+            format: '%9.0g',
+            label: 'Car origin',
+            has_value_labels: true,
+        })).toBe('Car origin');
     });
 
     it('builds subset-aware status summaries', () => {

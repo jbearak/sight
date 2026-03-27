@@ -33,6 +33,12 @@ export function get_variable_header_subtitle(
     return my_label === '' ? undefined : my_label;
 }
 
+export function get_variable_header_tooltip(
+    variable: VariableDescription
+): string | undefined {
+    return get_variable_header_subtitle(variable);
+}
+
 export function get_cell_display_value(
     cell: CellValue,
     show_labels: boolean,

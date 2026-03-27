@@ -58,7 +58,25 @@ body,
 }
 
 .grid-shell {
+    position: relative;
     min-height: 0;
+}
+
+.header-tooltip {
+    position: absolute;
+    z-index: 20;
+    max-width: 280px;
+    padding: 6px 8px;
+    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+    color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+    transform: translateX(-50%);
+    white-space: normal;
 }
 
 .status-bar {

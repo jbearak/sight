@@ -3,6 +3,7 @@ import {
     DataEditor,
     type DrawHeaderCallback,
     GridCellKind,
+    type GridMouseEventArgs,
     type Item,
 } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
@@ -13,10 +14,17 @@ import {
     describe_status_summary,
     describe_visible_rows,
     get_cell_display_value,
+    get_variable_header_tooltip,
 } from './grid-model';
 import { use_row_loader } from './use-row-loader';
 
 const HEADER_HEIGHT_PX = 40;
+
+type HeaderTooltipState = {
+    text: string;
+    left_px: number;
+    top_px: number;
+};
 
 export function App() {
     const { metadata, ensure_rows, get_row } = use_row_loader();
@@ -24,6 +32,8 @@ export function App() {
     const [show_formats, set_show_formats] = useState(true);
     const [first_visible_row, set_first_visible_row] = useState(0);
     const [visible_row_count, set_visible_row_count] = useState(0);
+    const [header_tooltip, set_header_tooltip] =
+        useState<HeaderTooltipState | null>(null);
 
     const the_columns = useMemo(
         () => build_grid_columns(metadata),
@@ -82,6 +92,31 @@ export function App() {
 
     const status_text = describe_status_summary(metadata);
 
+    const on_item_hovered = (args: GridMouseEventArgs) => {
+        if (!metadata || args.kind !== 'header') {
+            set_header_tooltip(null);
+            return;
+        }
+
+        const my_variable = metadata.variables[args.location[0]];
+        if (!my_variable) {
+            set_header_tooltip(null);
+            return;
+        }
+
+        const my_tooltip = get_variable_header_tooltip(my_variable);
+        if (!my_tooltip) {
+            set_header_tooltip(null);
+            return;
+        }
+
+        set_header_tooltip({
+            text: my_tooltip,
+            left_px: args.bounds.x + Math.min(args.bounds.width / 2, 120),
+            top_px: args.bounds.y + args.bounds.height + 6,
+        });
+    };
+
     return (
         <div className="browser-root">
             <div className="toolbar">
@@ -111,6 +146,7 @@ export function App() {
                     smoothScrollX={true}
                     smoothScrollY={true}
                     drawHeader={draw_header}
+                    onItemHovered={on_item_hovered}
                     onVisibleRegionChanged={(my_range: {
                         x: number;
                         y: number;
@@ -144,6 +180,17 @@ export function App() {
                         };
                     }}
                 />
+                {header_tooltip && (
+                    <div
+                        className="header-tooltip"
+                        style={{
+                            left: `${header_tooltip.left_px}px`,
+                            top: `${header_tooltip.top_px}px`,
+                        }}
+                    >
+                        {header_tooltip.text}
+                    </div>
+                )}
             </div>
             <div className="status-bar">{status_text}</div>
         </div>
