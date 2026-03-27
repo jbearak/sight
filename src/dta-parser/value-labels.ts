@@ -77,14 +77,8 @@ export function parse_value_labels(
         }
         pos += LBL_OPEN_TAG_LENGTH;
 
-        // table_length (int32): total bytes after this field
-        const my_table_length = view.getInt32(
-            pos, little_endian
-        );
+        // table_length (int32): skip — we parse fields directly
         pos += 4;
-
-        // We track the expected end to skip any anomalies
-        const my_table_data_end = pos + my_table_length;
 
         // label_name: null-terminated fixed-width string
         let my_name_end = pos;
