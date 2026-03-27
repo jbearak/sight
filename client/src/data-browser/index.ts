@@ -10,6 +10,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { create_column_width_store } from './column-width-state';
 import { register_data_browser_custom_editor } from './custom-editor';
 import { DataBrowserPanelManager } from './panel-manager';
 import {
@@ -42,15 +43,21 @@ export function register_data_browser(
     context: vscode.ExtensionContext,
     log: (msg: string) => void
 ): void {
+    const my_column_width_store =
+        create_column_width_store(context);
     const my_manager = new DataBrowserPanelManager(
-        context.extensionUri
+        context.extensionUri,
+        my_column_width_store
     );
     context.subscriptions.push(my_manager);
     register_open_data_browser_command(
         context,
         my_manager
     );
-    register_data_browser_custom_editor(context);
+    register_data_browser_custom_editor(
+        context,
+        my_column_width_store
+    );
 
     try {
         fs.mkdirSync(BROWSE_DIR, { recursive: true });

@@ -97,5 +97,6 @@ export function use_row_loader() {
         ensure_rows,
         get_row,
         pages,
+        vscode_api,
     };
 }

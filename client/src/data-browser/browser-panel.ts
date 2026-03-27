@@ -14,6 +14,10 @@ import {
     type Row,
 } from '../../../src/dta-parser';
 import { build_cell_value } from './cell-format';
+import {
+    build_dataset_key,
+    type DataBrowserColumnWidthStore,
+} from './column-width-state';
 import { should_unlink_data_browser_path } from './opening';
 import { RowCache } from './row-cache';
 import type {
@@ -33,17 +37,25 @@ export class DataBrowserPanel implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
     private sidecar: VviewSidecar;
     private dta_path: string;
+    private dataset_key: string;
+    private readonly column_width_store: DataBrowserColumnWidthStore;
     private disposed = false;
 
     constructor(
         panel: vscode.WebviewPanel,
         sidecar: VviewSidecar,
         dta_path: string,
-        webview_html: string
+        webview_html: string,
+        column_width_store: DataBrowserColumnWidthStore
     ) {
         this.panel = panel;
         this.sidecar = sidecar;
         this.dta_path = dta_path;
+        this.dataset_key = build_dataset_key(
+            dta_path,
+            sidecar
+        );
+        this.column_width_store = column_width_store;
 
         panel.webview.html = webview_html;
 
@@ -83,6 +95,10 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         this.sidecar = sidecar;
         this.dta_path = dta_path;
+        this.dataset_key = build_dataset_key(
+            dta_path,
+            sidecar
+        );
 
         await this.initialize();
     }
@@ -169,6 +185,11 @@ export class DataBrowserPanel implements vscode.Disposable {
                 ),
                 dataset_label: this.dta_file.dataset_label,
                 name: this.sidecar.name,
+                dataset_key: this.dataset_key,
+                stored_column_widths:
+                    this.column_width_store.get(
+                        this.dataset_key
+                    ),
                 source: this.sidecar.source,
                 subsetted: this.sidecar.subsetted,
                 varlist: this.sidecar.varlist,
@@ -194,6 +215,12 @@ export class DataBrowserPanel implements vscode.Disposable {
         switch (msg.type) {
             case 'ready':
                 await this.initialize();
+                break;
+            case 'columnWidthsChanged':
+                await this.column_width_store.set(
+                    msg.dataset_key,
+                    msg.widths
+                );
                 break;
             case 'requestRows':
                 await this.handle_row_request(msg);

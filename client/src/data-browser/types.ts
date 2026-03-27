@@ -21,7 +21,16 @@ export interface ReadyMessage {
     type: 'ready';
 }
 
-export type WebviewMessage = RowRequest | ReadyMessage;
+export interface ColumnWidthsChangedMessage {
+    type: 'columnWidthsChanged';
+    dataset_key: string;
+    widths: Record<string, number>;
+}
+
+export type WebviewMessage =
+    | RowRequest
+    | ReadyMessage
+    | ColumnWidthsChangedMessage;
 
 // Extension → Webview messages
 
@@ -39,6 +48,8 @@ export interface MetadataMessage {
     variables: VariableDescription[];
     dataset_label: string;
     name: string;
+    dataset_key: string;
+    stored_column_widths?: Record<string, number>;
     source?: string;
     subsetted?: boolean;
     varlist?: string[];

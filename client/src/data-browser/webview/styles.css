@@ -59,7 +59,10 @@ body,
 
 .grid-shell {
     position: relative;
+    display: flex;
+    min-width: 0;
     min-height: 0;
+    overflow: hidden;
 }
 
 .header-tooltip {
