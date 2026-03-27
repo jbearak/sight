@@ -425,8 +425,12 @@ export function parse_metadata(
     const view = new DataView(buffer);
 
     // 1. Detect format version from the file signature
+    //    (always 117, 118, or 119 — legacy is handled
+    //    by legacy-header.ts)
     const format_version = detect_format_version(bytes);
-    const my_widths = FIELD_WIDTHS[format_version];
+    const my_widths = FIELD_WIDTHS[
+        format_version as 117 | 118 | 119
+    ];
 
     // 2. Parse byte order
     const { byte_order, end: my_after_byteorder } =

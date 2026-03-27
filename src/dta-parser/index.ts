@@ -13,6 +13,10 @@
 
 import * as fs from 'fs';
 import { parse_metadata } from './header';
+import {
+    parse_legacy_metadata,
+    legacy_metadata_buffer_size,
+} from './legacy-header';
 import { read_rows_from_data_buffer } from './data-reader';
 import {
     build_gso_index,
@@ -21,7 +25,13 @@ import {
     type GsoEntry,
 } from './strl-reader';
 import { parse_value_labels } from './value-labels';
-import type { DtaMetadata, VariableInfo, Row } from './types';
+import type {
+    DtaMetadata,
+    LegacyFormatVersion,
+    VariableInfo,
+    Row,
+} from './types';
+import { is_legacy_format } from './types';
 
 // -----------------------------------------------------------
 // Constants
@@ -89,13 +99,8 @@ export class DtaFile {
         try {
             const my_file_size =
                 fs.fstatSync(my_fd).size;
-            const my_metadata_buffer =
-                read_minimal_metadata_buffer(
-                    my_fd,
-                    my_file_size
-                );
-            const my_metadata = parse_metadata(
-                my_metadata_buffer
+            const my_metadata = detect_and_parse_metadata(
+                my_fd, my_file_size
             );
 
             const my_gso_index = read_gso_index(
@@ -299,10 +304,75 @@ export class DtaFile {
     }
 }
 
-function read_minimal_metadata_buffer(
+// -----------------------------------------------------------
+// Format detection and metadata dispatch
+// -----------------------------------------------------------
+
+// Legacy format version bytes
+const LEGACY_VERSION_BYTES = new Set([113, 114, 115]);
+
+// Minimum .dta file must have at least the version byte
+const MIN_LEGACY_HEADER = 109;
+
+function detect_and_parse_metadata(
     fd: number,
     file_size: number
-): ArrayBuffer {
+): DtaMetadata {
+    // Peek at the first byte to determine format family
+    if (file_size < 1) {
+        throw new Error(
+            'Not a valid .dta file: file is empty'
+        );
+    }
+    const my_probe = read_range(fd, 0, 1);
+    const my_first_byte = new Uint8Array(my_probe)[0];
+
+    if (LEGACY_VERSION_BYTES.has(my_first_byte)) {
+        return read_legacy_metadata(fd, file_size);
+    }
+
+    return read_modern_metadata(fd, file_size);
+}
+
+function read_legacy_metadata(
+    fd: number,
+    file_size: number
+): DtaMetadata {
+    if (file_size < MIN_LEGACY_HEADER) {
+        throw new Error(
+            'Not a valid .dta file: too small for ' +
+            'legacy header'
+        );
+    }
+
+    // Read the fixed header to get nvar and format version
+    const my_header = read_range(
+        fd, 0, Math.min(file_size, MIN_LEGACY_HEADER)
+    );
+    const my_header_bytes = new Uint8Array(my_header);
+    const my_version =
+        my_header_bytes[0] as LegacyFormatVersion;
+    const my_byte_order_code = my_header_bytes[1];
+    const my_little_endian = my_byte_order_code === 2;
+    const my_header_view = new DataView(my_header);
+    const my_nvar = my_header_view.getUint16(
+        4, my_little_endian
+    );
+
+    // Compute exact buffer size needed for all metadata
+    const my_needed = legacy_metadata_buffer_size(
+        my_nvar, my_version
+    );
+    const my_read_size = Math.min(file_size, my_needed);
+    const my_buffer = read_range(fd, 0, my_read_size);
+
+    return parse_legacy_metadata(my_buffer, file_size);
+}
+
+function read_modern_metadata(
+    fd: number,
+    file_size: number
+): DtaMetadata {
     let my_read_size = Math.min(
         file_size,
         INITIAL_METADATA_READ_SIZE
@@ -317,8 +387,7 @@ function read_minimal_metadata_buffer(
         );
 
         try {
-            parse_metadata(my_buffer);
-            return my_buffer;
+            return parse_metadata(my_buffer);
         } catch (my_err) {
             my_last_error = my_err;
             if (
@@ -328,9 +397,9 @@ function read_minimal_metadata_buffer(
                 )
             ) {
                 throw new Error(
-                    'Unsupported .dta format: only Stata ' +
-                    '13+ files (format 117, 118, or 119) ' +
-                    'are supported'
+                    'Unsupported .dta format: only ' +
+                    'Stata 8+ files (formats 113-115 ' +
+                    'and 117-119) are supported'
                 );
             }
             if (my_read_size === file_size) {
@@ -409,9 +478,12 @@ function read_data_rows(
     start: number,
     count: number
 ): ArrayBuffer {
+    const my_tag_length = is_legacy_format(
+        metadata.format_version
+    ) ? 0 : DATA_TAG_LENGTH;
     const my_offset =
         metadata.section_offsets.data
-        + DATA_TAG_LENGTH
+        + my_tag_length
         + start * metadata.obs_length;
     const my_length = count * metadata.obs_length;
 
@@ -487,8 +559,10 @@ export type {
     DtaMetadata,
     DtaType,
     FormatVersion,
+    LegacyFormatVersion,
     SectionOffsets,
 } from './types';
+export { is_legacy_format } from './types';
 export { apply_display_format } from './display-format';
 export {
     classify_missing_value,

@@ -307,6 +307,226 @@ describe('DtaFile', () => {
         });
     });
 
+    // ----- legacy format (v115) -----
+
+    describe('legacy format v115', () => {
+        it('opens and reads metadata from auto_v115.dta', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v115.dta')
+            );
+            expect(my_file.nobs).toBe(74);
+            expect(my_file.nvar).toBe(12);
+            expect(my_file.variables.length).toBe(12);
+        });
+
+        it('provides variable names matching modern format', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v115.dta')
+            );
+            const the_names = my_file.variables.map(
+                v => v.name
+            );
+            expect(the_names).toEqual([
+                'make', 'price', 'mpg', 'rep78',
+                'headroom', 'trunk', 'weight', 'length',
+                'turn', 'displacement', 'gear_ratio',
+                'foreign',
+            ]);
+        });
+
+        it('reads the first row', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v115.dta')
+            );
+            const the_rows = await my_file.read_rows(0, 1);
+            expect(the_rows.length).toBe(1);
+            expect(the_rows[0].length).toBe(12);
+
+            // make is a string
+            expect(typeof the_rows[0][0]).toBe('string');
+            expect(
+                (the_rows[0][0] as string).length
+            ).toBeGreaterThan(0);
+
+            // price is numeric
+            expect(typeof the_rows[0][1]).toBe('number');
+            expect(
+                the_rows[0][1] as number
+            ).toBeGreaterThan(0);
+        });
+
+        it('reads all 74 rows', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v115.dta')
+            );
+            const the_rows = await my_file.read_rows(0, 74);
+            expect(the_rows.length).toBe(74);
+
+            for (const my_row of the_rows) {
+                expect(my_row.length).toBe(12);
+            }
+        });
+
+        it('clamps count past end of data', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v115.dta')
+            );
+            const the_rows = await my_file.read_rows(70, 10);
+            expect(the_rows.length).toBe(4);
+        });
+
+        it('provides value label tables', async () => {
+            my_file = await DtaFile.open(
+                path.join(
+                    FIXTURE_DIR, 'value_labels_v115.dta'
+                )
+            );
+            const my_tables = my_file.value_label_tables;
+            expect(my_tables.size).toBeGreaterThan(0);
+
+            const my_foreign = my_tables.get('foreign_lbl');
+            expect(my_foreign).toBeDefined();
+            expect(my_foreign!.get(0)).toBe('Domestic');
+            expect(my_foreign!.get(1)).toBe('Foreign');
+        });
+
+        it('preserves extended missing values', async () => {
+            my_file = await DtaFile.open(
+                path.join(
+                    FIXTURE_DIR, 'missing_values_v115.dta'
+                )
+            );
+            const the_rows = await my_file.read_rows(0, 5);
+            expect(the_rows[0][0]).toEqual(
+                make_missing_value('.')
+            );
+            expect(the_rows[1][0]).toEqual(
+                make_missing_value('.a')
+            );
+            expect(the_rows[4][0]).toEqual(
+                make_missing_value('.z')
+            );
+        });
+
+        it('handles empty dataset', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'empty_v115.dta')
+            );
+            expect(my_file.nobs).toBe(0);
+            expect(my_file.nvar).toBe(3);
+
+            const the_rows = await my_file.read_rows(0, 10);
+            expect(the_rows).toEqual([]);
+        });
+
+        it('handles wide dataset (120 variables)', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'wide_v115.dta')
+            );
+            expect(my_file.nvar).toBe(120);
+            expect(my_file.nobs).toBe(20);
+
+            const the_rows = await my_file.read_rows(0, 1);
+            expect(the_rows[0].length).toBe(120);
+        });
+
+        it('provides dataset label', async () => {
+            my_file = await DtaFile.open(
+                path.join(
+                    FIXTURE_DIR, 'value_labels_v115.dta'
+                )
+            );
+            expect(my_file.dataset_label).toBe(
+                'Value labels test dataset'
+            );
+        });
+    });
+
+    // ----- legacy format (v114) -----
+
+    describe('legacy format v114', () => {
+        it('opens and reads auto_v114.dta', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v114.dta')
+            );
+            expect(my_file.nobs).toBe(74);
+            expect(my_file.nvar).toBe(12);
+        });
+
+        it('reads rows from auto_v114.dta', async () => {
+            my_file = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v114.dta')
+            );
+            const the_rows = await my_file.read_rows(0, 5);
+            expect(the_rows.length).toBe(5);
+            expect(the_rows[0].length).toBe(12);
+        });
+    });
+
+    // ----- cross-version (legacy vs modern) -----
+
+    describe('legacy-to-modern cross-version', () => {
+        it('produces same data across v115 and v117', async () => {
+            const my_f115 = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v115.dta')
+            );
+            const my_f117 = await DtaFile.open(
+                path.join(FIXTURE_DIR, 'auto_v117.dta')
+            );
+
+            // Same variable count and names
+            expect(my_f115.nvar).toBe(my_f117.nvar);
+            expect(my_f115.nobs).toBe(my_f117.nobs);
+            const the_names_115 = my_f115.variables.map(
+                v => v.name
+            );
+            const the_names_117 = my_f117.variables.map(
+                v => v.name
+            );
+            expect(the_names_115).toEqual(the_names_117);
+
+            // Same data (first 5 rows)
+            const the_rows_115 =
+                await my_f115.read_rows(0, 5);
+            const the_rows_117 =
+                await my_f117.read_rows(0, 5);
+            expect(the_rows_115).toEqual(the_rows_117);
+
+            my_f115.close();
+            my_f117.close();
+        });
+
+        it('value labels match across v115 and v117', async () => {
+            const my_f115 = await DtaFile.open(
+                path.join(
+                    FIXTURE_DIR, 'value_labels_v115.dta'
+                )
+            );
+            const my_f117 = await DtaFile.open(
+                path.join(
+                    FIXTURE_DIR, 'value_labels_v117.dta'
+                )
+            );
+
+            const my_tables_115 = my_f115.value_label_tables;
+            const my_tables_117 = my_f117.value_label_tables;
+
+            expect(my_tables_115.size).toBe(
+                my_tables_117.size
+            );
+
+            for (const [my_name, my_map] of my_tables_115) {
+                const my_modern_map =
+                    my_tables_117.get(my_name);
+                expect(my_modern_map).toBeDefined();
+                expect(my_map).toEqual(my_modern_map);
+            }
+
+            my_f115.close();
+            my_f117.close();
+        });
+    });
+
     // ----- empty dataset -----
 
     describe('empty dataset', () => {

@@ -9,7 +9,19 @@ export const FORMAT_SIGNATURES = {
     119: '<stata_dta><header><release>119</release>',
 } as const;
 
-export type FormatVersion = 117 | 118 | 119;
+export type FormatVersion =
+    | 113 | 114 | 115
+    | 117 | 118 | 119;
+
+export type LegacyFormatVersion = 113 | 114 | 115;
+
+const LEGACY_FORMAT_SET = new Set<number>([113, 114, 115]);
+
+export function is_legacy_format(
+    version: FormatVersion
+): version is LegacyFormatVersion {
+    return LEGACY_FORMAT_SET.has(version);
+}
 
 // Type codes vary by format version. v117 uses one set of
 // numeric codes; v118/v119 share another.
@@ -109,6 +121,52 @@ export function type_code_to_dta_type(
 
     throw new Error(
         `Unknown type code ${code} for format v${format_version}`
+    );
+}
+
+// -----------------------------------------------------------
+// Legacy format type codes (113/114/115)
+//
+// Legacy formats use 1-byte type codes. Numeric codes match
+// the v117 set. Fixed strings are 1-244. No strL type.
+// -----------------------------------------------------------
+
+const LEGACY_TYPE_CODES: Record<
+    number,
+    { type: string; width: number }
+> = {
+    251: { type: 'byte',   width: 1 },
+    252: { type: 'int',    width: 2 },
+    253: { type: 'long',   width: 4 },
+    254: { type: 'float',  width: 4 },
+    255: { type: 'double', width: 8 },
+};
+
+const MAX_STR_WIDTH_LEGACY = 244;
+
+export function byte_width_for_legacy_type_code(
+    code: number
+): number {
+    const my_entry = LEGACY_TYPE_CODES[code];
+    if (my_entry) return my_entry.width;
+    if (code >= 1 && code <= MAX_STR_WIDTH_LEGACY) {
+        return code;
+    }
+    throw new Error(
+        `Unknown legacy type code ${code}`
+    );
+}
+
+export function legacy_type_code_to_dta_type(
+    code: number
+): DtaType {
+    const my_entry = LEGACY_TYPE_CODES[code];
+    if (my_entry) return my_entry.type as DtaType;
+    if (code >= 1 && code <= MAX_STR_WIDTH_LEGACY) {
+        return `str${code}` as DtaType;
+    }
+    throw new Error(
+        `Unknown legacy type code ${code}`
     );
 }
 

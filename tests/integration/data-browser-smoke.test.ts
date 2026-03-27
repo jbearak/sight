@@ -130,30 +130,32 @@ describe('data browser smoke test', () => {
         my_v119.close();
     });
 
-    it('fails fast for unsupported legacy .dta formats', async () => {
+    it('fails fast for unsupported ancient .dta formats', async () => {
         const my_temp_dir = fs.mkdtempSync(
             path.join(os.tmpdir(), 'sight-dta-')
         );
-        const my_legacy_path = path.join(
+        const my_ancient_path = path.join(
             my_temp_dir,
-            'legacy_v115.dta'
+            'ancient_v112.dta'
         );
 
         try {
-            const my_legacy_header = Buffer.alloc(128);
-            my_legacy_header[0] = 0x73;
-            my_legacy_header[1] = 0x02;
-            my_legacy_header[2] = 0x01;
+            // Format 112 (Stata 7) — unsupported
+            const my_ancient_header = Buffer.alloc(128);
+            my_ancient_header[0] = 0x70; // 112
+            my_ancient_header[1] = 0x02;
+            my_ancient_header[2] = 0x01;
             fs.writeFileSync(
-                my_legacy_path,
-                my_legacy_header
+                my_ancient_path,
+                my_ancient_header
             );
 
             await expect(
-                DtaFile.open(my_legacy_path)
+                DtaFile.open(my_ancient_path)
             ).rejects.toThrow(
-                'Unsupported .dta format: only Stata 13+ files ' +
-                '(format 117, 118, or 119) are supported'
+                'Unsupported .dta format: only ' +
+                'Stata 8+ files (formats 113-115 ' +
+                'and 117-119) are supported'
             );
         } finally {
             fs.rmSync(my_temp_dir, {
