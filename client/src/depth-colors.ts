@@ -222,26 +222,24 @@ export async function resetDepthColors(
  * Only updates when theme kind changes (dark <-> light).
  */
 export function registerThemeChangeHandler(
-    output_channel?: vscode.OutputChannel
+    logger?: { appendLine(message: string): void }
 ): vscode.Disposable {
     let previous_is_dark = isDarkTheme();
-    
+
     const log = (msg: string) => {
-        if (output_channel) {
-            output_channel.appendLine(`[DepthColors] ${msg}`);
-        }
+        logger?.appendLine(`[DepthColors] ${msg}`);
     };
-    
+
     return vscode.window.onDidChangeActiveColorTheme(async (_theme) => {
         const current_is_dark = isDarkTheme();
-        
+
         // Only update if theme kind changed (dark <-> light)
         if (current_is_dark !== previous_is_dark) {
             log(`Theme kind changed: ${previous_is_dark ? 'dark' : 'light'} -> ${current_is_dark ? 'dark' : 'light'}`);
             previous_is_dark = current_is_dark;
-            
+
             // Update the universal fallback colors
-            await updateUniversalFallbackColors(output_channel);
+            await updateUniversalFallbackColors(logger);
         }
     });
 }
@@ -251,12 +249,10 @@ export function registerThemeChangeHandler(
  * Removes existing top-level depth rules and adds new ones.
  */
 export async function updateUniversalFallbackColors(
-    output_channel?: vscode.OutputChannel
+    logger?: { appendLine(message: string): void }
 ): Promise<void> {
     const log = (msg: string) => {
-        if (output_channel) {
-            output_channel.appendLine(`[DepthColors] ${msg}`);
-        }
+        logger?.appendLine(`[DepthColors] ${msg}`);
     };
 
     try {

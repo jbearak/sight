@@ -57,9 +57,11 @@ export function activate(context: ExtensionContext) {
     output_channel.appendLine('Sight extension activating...');
 
     // Initialize conflict detector
-    const conflictDetector = new ConflictDetector(context, output_channel);
-    conflictDetector.checkAndNotify();
-    context.subscriptions.push(conflictDetector);
+    const conflict_detector = new ConflictDetector(context, {
+        appendLine: (msg) => output_channel?.appendLine(msg),
+    });
+    conflict_detector.checkAndNotify();
+    context.subscriptions.push(conflict_detector);
 
     // Custom quote auto-close for complex Stata patterns (nested macros, compound strings)
     // VS Code's built-in autoClosingPairs handles basic ` → `' but not nested cases
@@ -118,7 +120,9 @@ export function activate(context: ExtensionContext) {
     });
     
     // Register theme change handler to update colors when theme kind changes
-    const theme_change_handler = registerThemeChangeHandler(output_channel);
+    const theme_change_handler = registerThemeChangeHandler({
+        appendLine: (msg) => output_channel?.appendLine(msg),
+    });
     context.subscriptions.push(theme_change_handler);
     output_channel.appendLine('Registered theme change handler');
     

@@ -52,8 +52,13 @@ export class LanguageClientLifecycle<TClient extends ManagedLanguageClient> {
     }
 
     start_client(the_client: TClient): Promise<void> {
-        if (this.start_promise) {
+        if (this.client === the_client && this.start_promise) {
             return this.start_promise;
+        }
+        if (this.stop_promise) {
+            return this.stop_promise.then(() =>
+                this.start_client(the_client)
+            );
         }
 
         this.client = the_client;
@@ -90,6 +95,7 @@ export class LanguageClientLifecycle<TClient extends ManagedLanguageClient> {
 
         const the_client = this.client;
         if (!the_client) {
+            this.deactivating = false;
             this.state = 'stopped';
             return;
         }
@@ -129,11 +135,12 @@ export class LanguageClientLifecycle<TClient extends ManagedLanguageClient> {
         }
 
         const my_start_promise = this.start_promise;
+        const my_success_result = Symbol('startup_success');
         const my_timeout_result = Symbol('startup_timeout');
 
         const my_result = await Promise.race([
             my_start_promise.then(
-                () => true,
+                () => my_success_result,
                 my_error => my_error
             ),
             sleep(this.startup_timeout_ms).then(
@@ -141,7 +148,7 @@ export class LanguageClientLifecycle<TClient extends ManagedLanguageClient> {
             ),
         ]);
 
-        if (my_result === true) {
+        if (my_result === my_success_result) {
             return true;
         }
 
