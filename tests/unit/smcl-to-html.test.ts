@@ -11,6 +11,15 @@ describe('smcl_to_html', () => {
             expect(result.html).toBe('');
         });
 
+        it('closes {asis} when {smcl} resumes normal rendering', () => {
+            const result = smcl_to_html(
+                '{asis}raw\ntext{smcl}{title:Syntax}'
+            );
+            expect(result.html).toContain('<pre class="smcl-asis">');
+            expect(result.html).toContain('</pre><h2 class="smcl-title"');
+            expect(result.html).toContain('Syntax');
+        });
+
         it('renders {.-} as horizontal rule', () => {
             const result = smcl_to_html('{.-}');
             expect(result.html).toContain('<hr');
@@ -263,6 +272,34 @@ describe('smcl_to_html', () => {
             expect(result.html).toContain('Stata website</a>');
         });
 
+        it('preserves port numbers in browse URLs', () => {
+            const result = smcl_to_html(
+                '{browse http://localhost:8080}'
+            );
+            expect(result.html).toContain(
+                'href="http://localhost:8080"'
+            );
+        });
+
+        it('handles browse URL with port and display text', () => {
+            const result = smcl_to_html(
+                '{browse http://localhost:8080:Local server}'
+            );
+            expect(result.html).toContain(
+                'href="http://localhost:8080"'
+            );
+            expect(result.html).toContain('Local server</a>');
+        });
+
+        it('handles mailto URLs in browse', () => {
+            const result = smcl_to_html(
+                '{browse mailto:user@example.com}'
+            );
+            expect(result.html).toContain(
+                'href="mailto:user@example.com"'
+            );
+        });
+
         it('renders {marker name} as anchor', () => {
             const result = smcl_to_html('{marker syntax}');
             expect(result.html).toContain('id="syntax"');
@@ -318,6 +355,34 @@ describe('smcl_to_html', () => {
             expect(result.html).toContain('smcl-syntab');
             expect(result.html).toContain('noconstant');
             expect(result.html).toContain('suppress constant');
+        });
+
+        it('closes synopt table at end of document', () => {
+            const result = smcl_to_html(
+                '{synoptset 20}\n' +
+                '{synopt:{opt x}}desc{p_end}\n' +
+                '{synoptline}'
+            );
+            // Table should be closed even without explicit {p2colreset}
+            const my_html = result.html;
+            const my_open_count = (my_html.match(/<table/g) || []).length;
+            const my_close_count = (my_html.match(/<\/table>/g) || []).length;
+            expect(my_close_count).toBe(my_open_count);
+        });
+
+        it('closes synopt table on {p2colreset}', () => {
+            const result = smcl_to_html(
+                '{synoptset 20}\n' +
+                '{synopt:{opt x}}desc{p_end}\n' +
+                '{synoptline}\n' +
+                '{p2colreset}\n' +
+                'After table'
+            );
+            expect(result.html).toContain('</table>');
+            // Content after table should not be inside the table
+            const my_table_end = result.html.lastIndexOf('</table>');
+            const my_after = result.html.indexOf('After table');
+            expect(my_after).toBeGreaterThan(my_table_end);
         });
     });
 

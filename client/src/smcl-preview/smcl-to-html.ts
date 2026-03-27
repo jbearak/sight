@@ -302,6 +302,8 @@ interface RenderContext {
     pending_continuation: boolean;
     in_table_row: boolean;
     active_style: string | null;
+    active_formats: string[];
+    in_asis: boolean;
 }
 
 function create_context(): RenderContext {
@@ -315,6 +317,8 @@ function create_context(): RenderContext {
         pending_continuation: false,
         in_table_row: false,
         active_style: null,
+        active_formats: [],
+        in_asis: false,
     };
 }
 
@@ -322,6 +326,34 @@ function switch_style(ctx: RenderContext, new_style: string): string {
     const my_close = ctx.active_style ? '</span>' : '';
     ctx.active_style = new_style;
     return `${my_close}<span class="smcl-${new_style}">`;
+}
+
+const FORMAT_TAGS: Record<string, { open: string; close: string }> = {
+    'bf': { open: '<strong>', close: '</strong>' },
+    'it': { open: '<em>', close: '</em>' },
+    'ul': { open: '<u>', close: '</u>' },
+};
+
+function push_format(ctx: RenderContext, fmt: string): string {
+    ctx.active_formats.push(fmt);
+    return FORMAT_TAGS[fmt].open;
+}
+
+function close_all_formats(ctx: RenderContext): string {
+    let result = '';
+    while (ctx.active_formats.length > 0) {
+        const my_fmt = ctx.active_formats.pop()!;
+        result += FORMAT_TAGS[my_fmt].close;
+    }
+    return result;
+}
+
+function close_asis(ctx: RenderContext): string {
+    if (!ctx.in_asis) {
+        return '';
+    }
+    ctx.in_asis = false;
+    return '</pre>';
 }
 
 // ---------------------------------------------------------------------------
@@ -391,11 +423,12 @@ function render_directive(
         // -- Document control --
         case 'smcl':
         case 's6hlp':
-            return '';
+            return close_asis(ctx);
         case 'reset': {
-            const my_close = ctx.active_style ? '</span>' : '';
+            const my_fmt_close = close_all_formats(ctx);
+            const my_style_close = ctx.active_style ? '</span>' : '';
             ctx.active_style = null;
-            return my_close;
+            return close_asis(ctx) + my_fmt_close + my_style_close;
         }
         case '...':
             ctx.pending_continuation = true;
@@ -405,6 +438,10 @@ function render_directive(
 
         // -- Asis mode --
         case 'asis':
+            if (ctx.in_asis) {
+                return '';
+            }
+            ctx.in_asis = true;
             return '<pre class="smcl-asis">';
 
         // -- Text formatting (scoped: {bf:text}) --
@@ -412,25 +449,30 @@ function render_directive(
             if (directive.content.length > 0) {
                 return `<strong>${render_content(directive, ctx)}</strong>`;
             }
-            // Persistent mode: {bf} without content - not easily
-            // handled in pure HTML; render as empty strong open
-            return '<strong>';
+            return push_format(ctx, 'bf');
         case 'it':
             if (directive.content.length > 0) {
                 return `<em>${render_content(directive, ctx)}</em>`;
             }
-            return '<em>';
+            return push_format(ctx, 'it');
         case 'ul':
             if (directive.content.length > 0) {
                 return `<u>${render_content(directive, ctx)}</u>`;
             }
             if (directive.args === 'off') {
+                // Close the most recent 'ul' format
+                const my_idx = ctx.active_formats.lastIndexOf('ul');
+                if (my_idx >= 0) {
+                    ctx.active_formats.splice(my_idx, 1);
+                    return '</u>';
+                }
                 return '';
             }
-            return '<u>';
+            return push_format(ctx, 'ul');
         case 'sf':
         case 'rm':
-            return switch_style(ctx, 'txt');
+            // Reset font face: close all open formats
+            return close_all_formats(ctx) + switch_style(ctx, 'txt');
 
         // -- Color/style modes --
         case 'txt':
@@ -445,7 +487,10 @@ function render_directive(
             }
             return switch_style(ctx, 'com');
         case 'cmd':
-            return `<code class="smcl-cmd">${render_content(directive, ctx)}</code>`;
+            if (directive.content.length > 0) {
+                return `<code class="smcl-cmd">${render_content(directive, ctx)}</code>`;
+            }
+            return switch_style(ctx, 'cmd');
         case 'cmdab':
             return render_cmdab(directive);
         case 'res':
@@ -580,9 +625,18 @@ function render_directive(
             return render_p2colset(directive, ctx);
         case 'p2col':
             return render_p2col(directive, ctx);
-        case 'p2colreset':
-            ctx.in_p2col = false;
-            return '</table>';
+        case 'p2colreset': {
+            let my_close = '';
+            if (ctx.in_synopt_table) {
+                ctx.in_synopt_table = false;
+                my_close += '</tbody></table>';
+            }
+            if (ctx.in_p2col) {
+                ctx.in_p2col = false;
+                my_close += '</table>';
+            }
+            return my_close || '</table>';
+        }
         case 'p2line':
             return '<tr><td colspan="2"><hr class="smcl-hline"></td></tr>';
         case 'p2coldent':
@@ -747,10 +801,19 @@ function render_synoptset(
     directive: SmclDirective,
     ctx: RenderContext
 ): string {
+    // Implicitly close any previous open table
+    let my_prefix = '';
+    if (ctx.in_synopt_table) {
+        my_prefix += '</tbody></table>';
+    }
+    if (ctx.in_p2col) {
+        my_prefix += '</table>';
+        ctx.in_p2col = false;
+    }
     const my_width = parse_first_number(directive.args) || 20;
     ctx.in_synopt_table = true;
     ctx.synopt_col_width = my_width;
-    return `<table class="smcl-synopt-table"${data_line_attr(directive)}>`;
+    return `${my_prefix}<table class="smcl-synopt-table"${data_line_attr(directive)}>`;
 }
 
 function render_synopthdr(
@@ -951,25 +1014,31 @@ function render_browse(
 function split_browse_args(
     raw: string
 ): { url: string; display: string | null } {
-    // Find the first colon that is NOT preceded by a protocol
-    // (i.e., not part of "://")
-    let i = 0;
-    while (i < raw.length) {
-        if (raw[i] === ':') {
-            // Check if this is part of ://
-            if (i + 2 < raw.length && raw[i + 1] === '/' && raw[i + 2] === '/') {
-                i += 3; // skip past ://
-                continue;
-            }
-            // This is the display separator
-            return {
-                url: raw.substring(0, i),
-                display: raw.substring(i + 1),
-            };
-        }
-        i++;
+    // Stata's {browse} uses the LAST colon as the URL:display
+    // separator. Scanning from the end correctly handles port
+    // numbers (http://host:8080) and mailto: URLs since the
+    // display separator is always the final colon.
+    const my_last_colon = raw.lastIndexOf(':');
+    if (my_last_colon < 0) {
+        return { url: raw, display: null };
     }
-    return { url: raw, display: null };
+
+    const my_url = raw.substring(0, my_last_colon);
+    const my_display = raw.substring(my_last_colon + 1);
+
+    // If the "display" part looks like it's part of the URL
+    // (e.g., "//host" from "http://host", digits from port,
+    // or email-like text after "mailto:"), treat as URL only.
+    if (
+        my_display.startsWith('//') ||
+        /^\d+$/.test(my_display) ||
+        /^\d+\//.test(my_display) ||
+        /^(https?|mailto|ftp)$/i.test(my_url)
+    ) {
+        return { url: raw, display: null };
+    }
+
+    return { url: my_url, display: my_display };
 }
 
 function render_marker(directive: SmclDirective): string {
@@ -1051,9 +1120,20 @@ export function smcl_to_html(smcl: string): SmclHtmlResult {
     const the_nodes = parse_smcl(smcl);
     const ctx = create_context();
     let html = render_nodes(the_nodes, ctx);
-    // Close any trailing persistent style span
+    // Close any trailing persistent formats and style span
+    html += close_asis(ctx);
+    html += close_all_formats(ctx);
     if (ctx.active_style) {
         html += '</span>';
+    }
+    // Close any unclosed tables
+    if (ctx.in_synopt_table) {
+        html += '</tbody></table>';
+        ctx.in_synopt_table = false;
+    }
+    if (ctx.in_p2col) {
+        html += '</table>';
+        ctx.in_p2col = false;
     }
     return {
         html,

@@ -51,6 +51,7 @@ export class SmclPanelManager implements vscode.Disposable {
 
         my_preview.on_did_dispose(() => {
             this.panels.delete(my_key);
+            my_preview.cleanup();
         });
 
         this.panels.set(my_key, my_preview);
@@ -78,7 +79,11 @@ export class SmclPanelManager implements vscode.Disposable {
                     `Help file not found for: ${topic}`
                 );
             }
-        } catch {
+        } catch (err) {
+            console.error(
+                `handle_navigate: sendRequest sight/resolveSthlpFile` +
+                ` failed for topic="${topic}":`, err
+            );
             vscode.window.showInformationMessage(
                 `Could not resolve help file for: ${topic}`
             );

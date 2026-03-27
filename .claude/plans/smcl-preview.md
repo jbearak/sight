@@ -30,7 +30,7 @@ A `SmclPanelManager` maintains a `Map<string, SmclPreviewPanel>`. Opening a prev
 ## File Structure
 
 ### New files
-```
+```text
 client/src/smcl-preview/
   index.ts              - Module entry, register_smcl_preview(), command registration
   smcl-to-html.ts       - Core SMCL-to-HTML renderer (pure function, no vscode deps)
@@ -40,7 +40,7 @@ client/src/smcl-preview/
 ```
 
 ### Modified files
-```
+```text
 client/src/extension.ts     - Import and call register_smcl_preview()
 client/package.json         - Commands, keybindings, menus for preview
 src/server-handlers.ts      - New create_resolve_sthlp_file_handler()
@@ -50,7 +50,7 @@ src/indexer/index.ts        - Add sthlp index + get_ado_paths() + resolve_sthlp_
 
 ## Data Flow
 
-```
+```text
 User clicks preview icon / Cmd+Shift+V
   --> sight.openSmclPreview command
   --> SmclPanelManager.open_or_reveal(uri, beside=true)

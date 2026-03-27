@@ -665,7 +665,7 @@ export class WorkspaceIndexer {
      * letter-subdirectory convention (e.g., `r/regress.sthlp`).
      * Returns the absolute file path or null.
      */
-    resolve_sthlp_file(topic: string): string | null {
+    async resolve_sthlp_file(topic: string): Promise<string | null> {
         const my_basename = `${topic}.sthlp`;
         const my_first_letter = topic.charAt(0).toLowerCase();
 
@@ -678,14 +678,86 @@ export class WorkspaceIndexer {
             const my_subdir_path = path.join(
                 my_dir, my_first_letter, my_basename
             );
-            if (fs.existsSync(my_subdir_path)) {
+            try {
+                await fs.promises.access(my_subdir_path);
                 return my_subdir_path;
+            } catch {
+                // not found, continue
             }
 
             // Check directly in directory: dir/regress.sthlp
             const my_direct_path = path.join(my_dir, my_basename);
-            if (fs.existsSync(my_direct_path)) {
+            try {
+                await fs.promises.access(my_direct_path);
                 return my_direct_path;
+            } catch {
+                // not found, continue
+            }
+
+            if (!this.workspace_roots.includes(path.resolve(my_dir))) {
+                continue;
+            }
+
+            const my_recursive_match =
+                await this.find_sthlp_file_recursive(my_dir, my_basename);
+            if (my_recursive_match) {
+                return my_recursive_match;
+            }
+        }
+
+        return null;
+    }
+
+    private static readonly EXCLUDED_DIRS = new Set([
+        '.git',
+        'node_modules',
+        '.svn',
+        '.hg',
+        '__pycache__',
+    ]);
+
+    private static readonly MAX_STHLP_SEARCH_DEPTH = 8;
+
+    private async find_sthlp_file_recursive(
+        root_dir: string,
+        basename: string
+    ): Promise<string | null> {
+        const the_dirs: Array<{ path: string; depth: number }> = [
+            { path: root_dir, depth: 0 },
+        ];
+
+        while (the_dirs.length > 0) {
+            const my_entry = the_dirs.pop()!;
+            if (my_entry.depth >= WorkspaceIndexer.MAX_STHLP_SEARCH_DEPTH) {
+                continue;
+            }
+
+            let the_entries: fs.Dirent[];
+            try {
+                the_entries = await fs.promises.readdir(my_entry.path, {
+                    withFileTypes: true,
+                });
+            } catch {
+                continue;
+            }
+
+            for (const my_dirent of the_entries) {
+                const my_path = path.join(my_entry.path, my_dirent.name);
+                if (my_dirent.isDirectory()) {
+                    if (!WorkspaceIndexer.EXCLUDED_DIRS.has(my_dirent.name)) {
+                        the_dirs.push({
+                            path: my_path,
+                            depth: my_entry.depth + 1,
+                        });
+                    }
+                    continue;
+                }
+                if (
+                    my_dirent.isFile() &&
+                    my_dirent.name === basename
+                ) {
+                    return my_path;
+                }
             }
         }
 

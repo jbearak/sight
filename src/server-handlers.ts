@@ -903,13 +903,13 @@ export interface ResolveSthlpFileResult {
  */
 export function create_resolve_sthlp_file_handler(
     deps: HandlerDependencies
-): (params: ResolveSthlpFileParams) => ResolveSthlpFileResult {
-    return (params: ResolveSthlpFileParams): ResolveSthlpFileResult => {
+): (params: ResolveSthlpFileParams) => Promise<ResolveSthlpFileResult> {
+    return async (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult> => {
         if (!deps.workspace_indexer) {
             return { file_path: null };
         }
         return {
-            file_path: deps.workspace_indexer.resolve_sthlp_file(params.topic)
+            file_path: await deps.workspace_indexer.resolve_sthlp_file(params.topic)
         };
     };
 }
