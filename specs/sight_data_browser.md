@@ -365,10 +365,6 @@ The extension watches `~/.sight/browse/signal` using `vscode.workspace.createFil
 4. If `replace` is true and a tab with the same `name` exists, refresh it; otherwise open a new tab.
 5. Clean up: delete `.json` and `signal` file. Immediately `fs.unlink` the `.dta` file while keeping the mmap / file descriptor open (unlink-on-open pattern). The file disappears from `~/.sight/browse/` but the mmap remains valid for lazy row reads. When the tab closes (or VS Code crashes / the process exits), the OS reclaims the disk space automatically — no orphaned files. **Windows fallback:** Windows does not allow unlinking an open file. On Windows, delete the `.dta` on tab close via `onDidDispose`, and run a startup sweep on extension activation that prunes any `.dta` files in `~/.sight/browse/` older than 24 hours (to catch crashes).
 
-### Phase 2 (future): Local HTTP Server
-
-For bidirectional communication (e.g., Stata pushing live updates after `replace`, or the browser sending filter expressions back to Stata), a local HTTP server on a random port would be more flexible. The port is written to `~/.sight/port`. This is not needed for the initial implementation.
-
 ## Implementation Milestones
 
 ### M0: .dta Parser (TypeScript)
@@ -417,7 +413,7 @@ For bidirectional communication (e.g., Stata pushing live updates after `replace
 
 2. **Column sorting on large files**: Start with (a) — disable sort above a row count threshold. Option (c), building a sort index file on first sort request, is tracked as a future enhancement (see jbearak/sight#108).
 
-3. **Live refresh**: Deferred. The mechanism is unclear — Stata doesn't expose file-change hooks, and polling the dataset file is unreliable since Stata holds a lock on the active dataset. The Phase 2 HTTP server could enable this if Stata scripts explicitly signal updates, but there's no clean way to watch for implicit changes. Revisit only if a concrete design emerges.
+3. **Live refresh**: Deferred. The mechanism is unclear — Stata doesn't expose file-change hooks, and polling the dataset file is unreliable since Stata holds a lock on the active dataset. Revisit only if a concrete design emerges.
 
 4. **Cross-platform paths and remote development**: `~/.sight/browse/` resolves to `%USERPROFILE%\.sight\browse\` on Windows via `mata: pathjoin()` on the Stata side and `os.homedir()` on the extension side. **Critically, the data browser logic (file watcher, `.dta` parser, row serving) must run on the server side of the extension host**, not the client. In VS Code Remote (SSH, WSL, containers), Stata and the `.dta` temp files live on the remote machine. The extension's server component (where the language server already runs) has filesystem access; the webview panel runs in the client but communicates back via `postMessage`. This is the standard VS Code remote architecture — no special handling is needed as long as all file I/O is in the extension host (server), not the webview (client).
 
