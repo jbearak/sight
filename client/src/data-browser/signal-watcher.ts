@@ -10,6 +10,8 @@ export const BROWSE_DIR = path.join(
 );
 const SIGNAL_PREFIX = 'signal_';
 const MAX_TEMP_FILE_AGE_MS = 24 * 60 * 60 * 1000;
+const SIGNAL_READ_RETRY_DELAY_MS = 25;
+const MAX_SIGNAL_READ_RETRIES = 8;
 
 // -------------------------------------------------------
 // Sidecar JSON parser
@@ -93,6 +95,19 @@ export function parse_sidecar_json(
     };
 }
 
+export function get_signal_uuid(
+    signal_filename: string
+): string | null {
+    if (!signal_filename.startsWith(SIGNAL_PREFIX)) {
+        return null;
+    }
+
+    const my_uuid = signal_filename.slice(
+        SIGNAL_PREFIX.length
+    ).trim();
+    return my_uuid !== '' ? my_uuid : null;
+}
+
 function is_browse_temp_filename(filename: string): boolean {
     return (
         filename.endsWith('.dta')
@@ -148,14 +163,17 @@ export type SignalCallback =
 export class SignalWatcher {
     private readonly on_signal: SignalCallback;
     private readonly log: (msg: string) => void;
+    private readonly browse_dir: string;
     private watcher: fs.FSWatcher | null = null;
 
     constructor(
         on_signal: SignalCallback,
-        log?: (msg: string) => void
+        log?: (msg: string) => void,
+        browse_dir: string = BROWSE_DIR
     ) {
         this.on_signal = on_signal;
         this.log = log ?? (() => {});
+        this.browse_dir = browse_dir;
     }
 
     /** Begin watching ~/.sight/browse/. */
@@ -165,10 +183,12 @@ export class SignalWatcher {
         }
 
         try {
-            fs.mkdirSync(BROWSE_DIR, { recursive: true });
+            fs.mkdirSync(this.browse_dir, {
+                recursive: true,
+            });
         } catch (my_err) {
             this.log(
-                `Failed to create ${BROWSE_DIR}: `
+                `Failed to create ${this.browse_dir}: `
                 + String(my_err)
             );
             return;
@@ -176,7 +196,7 @@ export class SignalWatcher {
 
         try {
             this.watcher = fs.watch(
-                BROWSE_DIR,
+                this.browse_dir,
                 (event_type: string, filename: string | null) => {
                     if (
                         event_type === 'rename'
@@ -189,7 +209,7 @@ export class SignalWatcher {
             );
         } catch (my_err) {
             this.log(
-                `Failed to watch ${BROWSE_DIR}: `
+                `Failed to watch ${this.browse_dir}: `
                 + String(my_err)
             );
         }
@@ -203,33 +223,28 @@ export class SignalWatcher {
         }
     }
 
-    private handle_signal(signal_filename: string): void {
+    private handle_signal(
+        signal_filename: string,
+        retry_count: number = 0
+    ): void {
         const my_signal_path = path.join(
-            BROWSE_DIR,
+            this.browse_dir,
             signal_filename
         );
 
-        // Read UUID from the signal file content
-        let my_uuid: string;
-        try {
-            my_uuid = fs.readFileSync(
-                my_signal_path,
-                'utf-8'
-            ).trim();
-        } catch {
-            // Signal file may have been deleted already
-            return;
-        }
-
+        const my_uuid = get_signal_uuid(signal_filename);
         if (!my_uuid) {
-            this.log('Empty signal file: ' + signal_filename);
+            this.log(
+                'Invalid signal filename: '
+                + signal_filename
+            );
             this.try_unlink(my_signal_path);
             return;
         }
 
         // Read companion sidecar JSON
         const my_json_path = path.join(
-            BROWSE_DIR,
+            this.browse_dir,
             my_uuid + '.json'
         );
         let my_content: string;
@@ -239,6 +254,19 @@ export class SignalWatcher {
                 'utf-8'
             );
         } catch (my_err) {
+            if (
+                retry_count
+                < MAX_SIGNAL_READ_RETRIES
+            ) {
+                setTimeout(() => {
+                    this.handle_signal(
+                        signal_filename,
+                        retry_count + 1
+                    );
+                }, SIGNAL_READ_RETRY_DELAY_MS);
+                return;
+            }
+
             this.log(
                 `Failed to read sidecar ${my_json_path}: `
                 + String(my_err)
@@ -250,6 +278,19 @@ export class SignalWatcher {
         // Parse sidecar
         const my_sidecar = parse_sidecar_json(my_content);
         if (!my_sidecar) {
+            if (
+                retry_count
+                < MAX_SIGNAL_READ_RETRIES
+            ) {
+                setTimeout(() => {
+                    this.handle_signal(
+                        signal_filename,
+                        retry_count + 1
+                    );
+                }, SIGNAL_READ_RETRY_DELAY_MS);
+                return;
+            }
+
             this.log(
                 'Invalid sidecar JSON: ' + my_json_path
             );

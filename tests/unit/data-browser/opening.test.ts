@@ -2,6 +2,7 @@ import * as path from 'path';
 import { describe, expect, it } from 'bun:test';
 import {
     build_direct_open_sidecar,
+    expand_home_path,
     should_unlink_data_browser_path,
 } from '../../../client/src/data-browser/opening';
 
@@ -16,6 +17,15 @@ describe('data browser direct-open helpers', () => {
         expect(my_sidecar.source).toBe('/tmp/auto.dta');
         expect(my_sidecar.subsetted).toBe(false);
         expect(my_sidecar.replace).toBe(false);
+    });
+
+    it('expands a leading home directory marker', () => {
+        expect(expand_home_path('~/tmp/example.dta')).toBe(
+            path.join(process.env.HOME ?? '', 'tmp/example.dta')
+        );
+        expect(expand_home_path('/tmp/example.dta')).toBe(
+            '/tmp/example.dta'
+        );
     });
 
     it('only unlinks files inside the browse temp directory', () => {

@@ -66,26 +66,35 @@ program define vview
     mata: st_local("json_if", subinstr(subinstr(st_local("if_condition"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
     mata: st_local("json_in", subinstr(subinstr(st_local("in_condition"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
 
-    local json_varlist "["
-    if `"`varlist'"' != "" & `"`varlist'"' != "_all" {
-        local first_var = 1
-        foreach my_var of local varlist {
-            mata: st_local("json_var", subinstr(subinstr(st_local("my_var"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
-            if `first_var' {
-                local json_varlist `"`json_varlist'"`"`json_var'"'"'
-                local first_var = 0
-            }
-            else {
-                local json_varlist `"`json_varlist',"`json_var'"'"'
-            }
-        }
-    }
-    local json_varlist `"`json_varlist']"'
-
     // Write JSON sidecar with Mata to avoid fragile Stata quote syntax.
     local replace_json = cond("`replace'" != "", "true", "false")
     local subsetted_json = cond("`varlist'`if'`in'" != "", "true", "false")
     mata {
+        my_vview_varlist = strtrim(st_local("varlist"))
+        my_vview_json_varlist = "["
+        if (my_vview_varlist != "" & my_vview_varlist != "_all") {
+            my_vview_vars = tokens(my_vview_varlist)
+            for (my_vview_i = 1; my_vview_i <= cols(my_vview_vars); my_vview_i++) {
+                my_vview_var = subinstr(
+                    subinstr(
+                        my_vview_vars[my_vview_i],
+                        char(92),
+                        char(92) + char(92),
+                        .
+                    ),
+                    char(34),
+                    char(92) + char(34),
+                    .
+                )
+                if (my_vview_i > 1) {
+                    my_vview_json_varlist = my_vview_json_varlist + ","
+                }
+                my_vview_json_varlist = my_vview_json_varlist + char(34) + my_vview_var + char(34)
+            }
+        }
+        my_vview_json_varlist = my_vview_json_varlist + "]"
+        st_local("json_varlist", my_vview_json_varlist)
+
         my_vview_fh = fopen(st_local("jsonpath"), "w")
         my_vview_q = char(34)
         fput(my_vview_fh, "{")
@@ -108,7 +117,8 @@ program define vview
 
     // Signal the extension
     tempname fh
-    file open `fh' using "`signalpath'", write replace
+    cap erase "`signalpath'"
+    file open `fh' using "`signalpath'", write text
     file write `fh' "`uuid'"
     file close `fh'
 

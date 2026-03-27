@@ -12,6 +12,7 @@ import type { DataBrowserColumnWidthStore } from './column-width-state';
 import {
     build_direct_open_sidecar,
     DATA_BROWSER_PANEL_VIEW_TYPE,
+    expand_home_path,
 } from './opening';
 import {
     build_data_browser_html,
@@ -31,13 +32,16 @@ export class DataBrowserPanelManager
     async open_or_refresh(
         sidecar: VviewSidecar
     ): Promise<void> {
+        const my_dta_path = expand_home_path(
+            sidecar.dtapath
+        );
         const my_key = `signal:${sidecar.name}`;
         const my_existing = this.panels.get(my_key);
 
         if (sidecar.replace && my_existing) {
             await my_existing.refresh(
                 sidecar,
-                sidecar.dtapath
+                my_dta_path
             );
             my_existing.reveal(vscode.ViewColumn.Active);
             return;
@@ -71,7 +75,7 @@ export class DataBrowserPanelManager
         const my_panel = new DataBrowserPanel(
             my_webview_panel,
             sidecar,
-            sidecar.dtapath,
+            my_dta_path,
             my_html,
             this.column_width_store
         );

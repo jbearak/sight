@@ -118,4 +118,60 @@ describe('bundled vview asset', () => {
             `file write \`fh' \`"  "version": 1,"' _n`
         );
     });
+
+    it('builds varlist JSON inside Mata rather than fragile Stata quote concatenation', () => {
+        const my_repo_root = path.resolve(
+            import.meta.dir,
+            '..',
+            '..',
+            '..'
+        );
+        const my_source_path = path.join(
+            my_repo_root,
+            'stata',
+            'vview.ado'
+        );
+        const my_source = fs.readFileSync(
+            my_source_path,
+            'utf-8'
+        );
+
+        expect(my_source).toContain(
+            'my_vview_vars = tokens(my_vview_varlist)'
+        );
+        expect(my_source).toContain(
+            'st_local("json_varlist", my_vview_json_varlist)'
+        );
+        expect(my_source).not.toContain(
+            'foreach my_var of local varlist'
+        );
+    });
+
+    it('creates the signal file without replace noise', () => {
+        const my_repo_root = path.resolve(
+            import.meta.dir,
+            '..',
+            '..',
+            '..'
+        );
+        const my_source_path = path.join(
+            my_repo_root,
+            'stata',
+            'vview.ado'
+        );
+        const my_source = fs.readFileSync(
+            my_source_path,
+            'utf-8'
+        );
+
+        expect(my_source).toContain(
+            'cap erase "`signalpath\'"'
+        );
+        expect(my_source).toContain(
+            'file open `fh\' using "`signalpath\'", write text'
+        );
+        expect(my_source).not.toContain(
+            'file open `fh\' using "`signalpath\'", write replace'
+        );
+    });
 });

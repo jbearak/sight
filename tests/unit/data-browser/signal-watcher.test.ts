@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'bun:test';
-import { parse_sidecar_json } from '../../../client/src/data-browser/signal-watcher';
+import {
+    get_signal_uuid,
+    parse_sidecar_json,
+} from '../../../client/src/data-browser/signal-watcher';
 
 describe('parse_sidecar_json', () => {
     const VALID_SIDECAR = JSON.stringify({
@@ -124,5 +127,18 @@ describe('parse_sidecar_json', () => {
             uuid: 'abc', name: 'mydata', dtapath: '/tmp/x.dta',
             N: 10, k: 2, replace: false, varlist: 'make',
         }))).toBeNull();
+    });
+});
+
+describe('get_signal_uuid', () => {
+    it('extracts the uuid from a signal filename', () => {
+        expect(
+            get_signal_uuid('signal__27Mar202619_02_55_2668857098')
+        ).toBe('_27Mar202619_02_55_2668857098');
+    });
+
+    it('rejects invalid signal filenames', () => {
+        expect(get_signal_uuid('signal_')).toBeNull();
+        expect(get_signal_uuid('other_file')).toBeNull();
     });
 });

@@ -1,3 +1,4 @@
+import { homedir } from 'os';
 import * as path from 'path';
 import type { VviewSidecar } from './types';
 import { BROWSE_DIR } from './signal-watcher';
@@ -39,4 +40,24 @@ export function should_unlink_data_browser_path(
         && !my_relative.startsWith('..')
         && !path.isAbsolute(my_relative)
     );
+}
+
+export function expand_home_path(
+    candidate_path: string
+): string {
+    if (candidate_path === '~') {
+        return homedir();
+    }
+
+    if (
+        candidate_path.startsWith('~/')
+        || candidate_path.startsWith('~\\')
+    ) {
+        return path.join(
+            homedir(),
+            candidate_path.slice(2)
+        );
+    }
+
+    return candidate_path;
 }
