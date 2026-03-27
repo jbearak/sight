@@ -708,34 +708,55 @@ export class WorkspaceIndexer {
         return null;
     }
 
+    private static readonly EXCLUDED_DIRS = new Set([
+        '.git',
+        'node_modules',
+        '.svn',
+        '.hg',
+        '__pycache__',
+    ]);
+
+    private static readonly MAX_STHLP_SEARCH_DEPTH = 8;
+
     private async find_sthlp_file_recursive(
         root_dir: string,
         basename: string
     ): Promise<string | null> {
-        const the_dirs = [root_dir];
+        const the_dirs: Array<{ path: string; depth: number }> = [
+            { path: root_dir, depth: 0 },
+        ];
 
         while (the_dirs.length > 0) {
-            const my_dir = the_dirs.pop()!;
+            const my_entry = the_dirs.pop()!;
+            if (my_entry.depth >= WorkspaceIndexer.MAX_STHLP_SEARCH_DEPTH) {
+                continue;
+            }
+
             let the_entries: fs.Dirent[];
             try {
-                the_entries = await fs.promises.readdir(my_dir, {
+                the_entries = await fs.promises.readdir(my_entry.path, {
                     withFileTypes: true,
                 });
             } catch {
                 continue;
             }
 
-            for (const my_entry of the_entries) {
-                const my_entry_path = path.join(my_dir, my_entry.name);
-                if (my_entry.isDirectory()) {
-                    the_dirs.push(my_entry_path);
+            for (const my_dirent of the_entries) {
+                const my_path = path.join(my_entry.path, my_dirent.name);
+                if (my_dirent.isDirectory()) {
+                    if (!WorkspaceIndexer.EXCLUDED_DIRS.has(my_dirent.name)) {
+                        the_dirs.push({
+                            path: my_path,
+                            depth: my_entry.depth + 1,
+                        });
+                    }
                     continue;
                 }
                 if (
-                    my_entry.isFile() &&
-                    my_entry.name === basename
+                    my_dirent.isFile() &&
+                    my_dirent.name === basename
                 ) {
-                    return my_entry_path;
+                    return my_path;
                 }
             }
         }
