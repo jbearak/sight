@@ -38,6 +38,21 @@
         "path": "./syntaxes/stata.tmLanguage.json"
       }
     ],
+    "customEditors": [
+      {
+        "viewType": "sight.dataBrowserEditor",
+        "displayName": "Sight Data Browser",
+        "selector": [
+          {
+            "filenamePattern": "*.dta"
+          },
+          {
+            "filenamePattern": "*.DTA"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "configuration": {
       "title": "Sight Language Server",
       "properties": {
@@ -411,6 +426,11 @@
         "command": "sight.openInStata",
         "title": "Open in Stata",
         "icon": "$(file-text)"
+      },
+      {
+        "command": "sight.openDataBrowser",
+        "title": "Sight: Open Data Browser",
+        "icon": "$(table)"
       }
     ],
     "keybindings": [
@@ -485,6 +505,9 @@
         {
           "command": "sight.openSmclPreviewFull",
           "when": "resourceExtname =~ /\\.(smcl|sthlp)/i"
+        },
+        {
+          "command": "sight.openDataBrowser"
         }
       ],
       "explorer/context": [
@@ -497,12 +520,22 @@
           "command": "sight.openSmclPreview",
           "when": "resourceExtname =~ /\\.(smcl|sthlp)/i",
           "group": "sight@2"
+        },
+        {
+          "command": "sight.openDataBrowser",
+          "when": "resourceExtname =~ /\\.dta/i",
+          "group": "sight@3"
         }
       ],
       "editor/title": [
         {
           "command": "sight.openSmclPreview",
           "when": "resourceExtname =~ /\\.(smcl|sthlp)/i",
+          "group": "navigation"
+        },
+        {
+          "command": "sight.openDataBrowser",
+          "when": "resourceExtname =~ /\\.dta/i",
           "group": "navigation"
         },
         {

@@ -70,31 +70,7 @@ status-bar layout differs from the spec.
 
 ---
 
-## 5. No VS Code command-palette entry for opening data browser content directly
-
-**Spec said:** M2 called for a VS Code command-palette entry so the browser
-could also be triggered from the editor side.
-
-**Current implementation:** The browser is still opened only via the Stata
-`vview` signal flow. There is no `sight.openDataBrowser`-style command.
-
-**Impact:** Users still need Stata to initiate the browser session.
-
----
-
-## 6. No custom readonly editor for `.dta` files
-
-**Spec said:** M3 proposed a `CustomReadonlyEditorProvider` so double-clicking a
-`.dta` in the explorer would open the Sight browser directly.
-
-**Current implementation:** No custom editor provider is registered in the
-client extension.
-
-**Impact:** Explorer-driven `.dta` browsing remains unavailable.
-
----
-
-## 7. PERSONAL ado directory resolution still uses hardcoded platform defaults
+## 5. PERSONAL ado directory resolution still uses hardcoded platform defaults
 
 **Spec said:** `sight.personalAdoDir` should be an override, but the fallback
 should effectively respect the user's actual PERSONAL ado directory rather than
@@ -109,7 +85,7 @@ extension does not truly discover a user-customized PERSONAL directory.
 
 ---
 
-## 8. Remaining deferred M3 polish is still deferred
+## 6. Remaining deferred M3 polish is still deferred
 
 The follow-up intentionally did **not** implement the following spec items:
 

@@ -10,6 +10,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { register_data_browser_custom_editor } from './custom-editor';
 import { DataBrowserPanelManager } from './panel-manager';
 import {
     BROWSE_DIR,
@@ -25,6 +26,11 @@ export function register_data_browser(
         context.extensionUri
     );
     context.subscriptions.push(my_manager);
+    register_open_data_browser_command(
+        context,
+        my_manager
+    );
+    register_data_browser_custom_editor(context);
 
     try {
         fs.mkdirSync(BROWSE_DIR, { recursive: true });
@@ -44,6 +50,69 @@ export function register_data_browser(
     });
 
     install_vview_ado(context, log);
+}
+
+async function resolve_data_browser_uri(
+    arg: unknown
+): Promise<vscode.Uri | undefined> {
+    if (arg instanceof vscode.Uri) {
+        return arg;
+    }
+
+    const my_active_uri = vscode.window.activeTextEditor
+        ?.document.uri;
+    if (
+        my_active_uri
+        && my_active_uri.scheme === 'file'
+        && my_active_uri.fsPath.toLowerCase().endsWith('.dta')
+    ) {
+        return my_active_uri;
+    }
+
+    const the_picks = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        filters: {
+            'Stata Datasets': ['dta'],
+        },
+        openLabel: 'Open in Sight Data Browser',
+    });
+
+    return the_picks?.[0];
+}
+
+function register_open_data_browser_command(
+    context: vscode.ExtensionContext,
+    manager: DataBrowserPanelManager
+): void {
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'sight.openDataBrowser',
+            async (arg: unknown) => {
+                const my_uri = await resolve_data_browser_uri(
+                    arg
+                );
+                if (!my_uri) {
+                    return;
+                }
+
+                if (
+                    my_uri.scheme !== 'file'
+                    || !my_uri.fsPath.toLowerCase().endsWith('.dta')
+                ) {
+                    vscode.window.showErrorMessage(
+                        'Sight Data Browser only supports local .dta files.'
+                    );
+                    return;
+                }
+
+                await manager.open_dataset_path(
+                    my_uri.fsPath
+                );
+            }
+        )
+    );
 }
 
 // -----------------------------------------------------------

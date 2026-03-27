@@ -14,6 +14,7 @@ import {
     type Row,
 } from '../../../src/dta-parser';
 import { build_cell_value } from './cell-format';
+import { should_unlink_data_browser_path } from './opening';
 import { RowCache } from './row-cache';
 import type {
     WebviewMessage,
@@ -51,6 +52,11 @@ export class DataBrowserPanel implements vscode.Disposable {
                 (msg: WebviewMessage) => this.handle_message(msg)
             )
         );
+        this.disposables.push(
+            panel.onDidDispose(() => {
+                this.dispose_core(false);
+            })
+        );
     }
 
     get name(): string {
@@ -82,6 +88,12 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     dispose(): void {
+        this.dispose_core(true);
+    }
+
+    private dispose_core(
+        dispose_panel: boolean
+    ): void {
         if (this.disposed) return;
         this.disposed = true;
 
@@ -92,7 +104,12 @@ export class DataBrowserPanel implements vscode.Disposable {
         // explicitly because unlinking an open file is not
         // supported.  On other platforms the file was already
         // unlinked in initialize().
-        if (process.platform === 'win32') {
+        if (
+            process.platform === 'win32'
+            && should_unlink_data_browser_path(
+                this.dta_path
+            )
+        ) {
             try {
                 fs.unlinkSync(this.dta_path);
             } catch {
@@ -103,7 +120,9 @@ export class DataBrowserPanel implements vscode.Disposable {
         for (const my_d of this.disposables) {
             my_d.dispose();
         }
-        this.panel.dispose();
+        if (dispose_panel) {
+            this.panel.dispose();
+        }
     }
 
     // -------------------------------------------------------
@@ -118,7 +137,12 @@ export class DataBrowserPanel implements vscode.Disposable {
             // immediately.  The open file handle (held inside
             // DtaFile's buffer) keeps the data accessible
             // until close().
-            if (process.platform !== 'win32') {
+            if (
+                process.platform !== 'win32'
+                && should_unlink_data_browser_path(
+                    this.dta_path
+                )
+            ) {
                 try {
                     fs.unlinkSync(this.dta_path);
                 } catch {
