@@ -14,6 +14,9 @@
   "categories": [
     "Programming Languages"
   ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension",
   "contributes": {
     "languages": [
@@ -654,11 +657,12 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "bun run bundle && bun run copy-server",
+    "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server",
     "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --outfile=dist/extension.js --external:vscode --minify",
     "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
+    "copy-vview-ado": "mkdir -p stata && cp ../stata/vview.ado stata/vview.ado",
     "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/",
-    "compile": "bun run bundle && bun run bundle:webview",
+    "compile": "bun run copy-vview-ado && bun run bundle && bun run bundle:webview",
     "watch": "tsc -watch -p ./",
     "pretest": "bun run compile && bun run lint",
     "lint": "eslint src --ext ts",

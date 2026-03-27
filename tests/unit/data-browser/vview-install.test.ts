@@ -291,7 +291,7 @@ describe('vview install orchestration', () => {
         ).toBe('declined');
     });
 
-    it('treats prompt dismissal the same as not now', async () => {
+    it('does not store declined permission when the prompt is dismissed', async () => {
         const my_context = create_context();
 
         const my_result =
@@ -303,7 +303,7 @@ describe('vview install orchestration', () => {
                     inspect_installation: () =>
                         build_status('missing'),
                     prompt_for_vview_install: async () =>
-                        'not_now',
+                        'dismissed',
                 }
             );
 
@@ -313,7 +313,7 @@ describe('vview install orchestration', () => {
                 my_context,
                 VVIEW_INSTALL_PERMISSION_KEY
             )
-        ).toBe('declined');
+        ).toBeUndefined();
     });
 
     it('does not store granted permission if install fails after approval', async () => {

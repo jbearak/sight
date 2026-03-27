@@ -35,6 +35,7 @@ const VVIEW_INSTALL_PERMISSION_KEY =
     'sight.vviewInstallPermission';
 const INSTALL_BUTTON = 'Install';
 const NOT_NOW_BUTTON = 'Not now';
+const VVIEW_INSTALL_PROMPT_DELAY_MS = 1500;
 
 export type VviewInstallHooks =
     CoreVviewInstallHooks<vscode.ExtensionContext>;
@@ -77,7 +78,7 @@ export function register_data_browser(
     });
 
     register_vview_install_commands(context, log);
-    void ensure_vview_ado_installed(context, log);
+    schedule_vview_install_check(context, log);
 }
 
 async function resolve_data_browser_uri(
@@ -186,6 +187,19 @@ function register_vview_install_commands(
     );
 }
 
+function schedule_vview_install_check(
+    context: vscode.ExtensionContext,
+    log: (msg: string) => void
+): void {
+    const my_timeout = setTimeout(() => {
+        void ensure_vview_ado_installed(context, log);
+    }, VVIEW_INSTALL_PROMPT_DELAY_MS);
+
+    context.subscriptions.push({
+        dispose: () => clearTimeout(my_timeout),
+    });
+}
+
 // -----------------------------------------------------------
 // vview.ado installation
 // -----------------------------------------------------------
@@ -193,11 +207,27 @@ function register_vview_install_commands(
 function get_bundled_vview_path(
     context: vscode.ExtensionContext
 ): string {
-    return vscode.Uri.joinPath(
-        context.extensionUri,
-        'stata',
-        'vview.ado'
-    ).fsPath;
+    const the_candidate_paths = [
+        vscode.Uri.joinPath(
+            context.extensionUri,
+            'stata',
+            'vview.ado'
+        ).fsPath,
+        path.resolve(
+            context.extensionUri.fsPath,
+            '..',
+            'stata',
+            'vview.ado'
+        ),
+    ];
+
+    for (const my_candidate_path of the_candidate_paths) {
+        if (fs.existsSync(my_candidate_path)) {
+            return my_candidate_path;
+        }
+    }
+
+    return the_candidate_paths[0];
 }
 
 export function read_bundled_vview_content(
@@ -283,16 +313,17 @@ export async function prompt_for_vview_install(
 ): Promise<VviewInstallPromptChoice> {
     const my_result =
         await vscode.window.showInformationMessage(
-            'Sight Data Browser requires installing '
-            + 'vview.ado into your PERSONAL ado directory: '
-            + target_dir,
+            'Would you like to add "vview.ado" to Stata?\n\n'
+            + 'This works like "browse", but with VS Code.',
             INSTALL_BUTTON,
             NOT_NOW_BUTTON
         );
 
     return my_result === INSTALL_BUTTON
         ? 'install'
-        : 'not_now';
+        : my_result === NOT_NOW_BUTTON
+        ? 'not_now'
+        : 'dismissed';
 }
 
 export function install_vview_ado(

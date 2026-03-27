@@ -12,7 +12,8 @@ export type VviewInstallState =
 
 export type VviewInstallPromptChoice =
     | 'install'
-    | 'not_now';
+    | 'not_now'
+    | 'dismissed';
 
 export interface VviewInstallStatus {
     state: VviewInstallState;
@@ -214,6 +215,11 @@ export async function ensure_vview_ado_installed<
         await hooks.prompt_for_vview_install(
             my_status.target_dir
         );
+    if (my_choice === 'dismissed') {
+        log('vview.ado: prompt dismissed');
+        return false;
+    }
+
     if (my_choice !== 'install') {
         await my_set_permission(context, 'declined');
         log('vview.ado: permission declined');
