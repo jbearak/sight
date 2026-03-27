@@ -37,7 +37,7 @@ Sight is uniquely positioned to offer this because it already maintains a langua
 
 1. **`vview.ado`** — Stata-side command that saves the (optionally subsetted) dataset to a temp `.dta` file, writes a JSON sidecar with request metadata, and touches a signal file.
 
-2. **Signal listener** — Extension-side file watcher on `~/.sight/browse/` that detects new browse requests.
+2. **Signal listener** — Extension-side file watcher on `~/.sight/browse/` that detects new `*.json` sidecar files or `signal_*` files.
 
 3. **`.dta` parser** — TypeScript module that reads `.dta` format 117/118/119 files. Supports:
    - Header-only reads (metadata without observation data)
@@ -85,7 +85,7 @@ vview [varlist] [if] [in] [, Rows(integer) Name(string) Replace]
 ```
 
 5. `restore` the dataset.
-6. Touch `~/.sight/browse/signal` (or overwrite it with the uuid) to notify the extension.
+8. Touch `~/.sight/browse/signal_<uuid>` (or overwrite it with the uuid) to notify the extension.
 
 ### Reference Implementation
 
@@ -108,7 +108,7 @@ program define vview
 
     local dtapath "`browsedir'/`uuid'.dta"
     local jsonpath "`browsedir'/`uuid'.json"
-    local signalpath "`browsedir'/signal"
+    local signalpath "`browsedir'/signal_`uuid'"
 
     // Determine tab name
     if `"`name'"' == "" {
@@ -122,6 +122,12 @@ program define vview
 
     // Save subsetted data
     preserve
+    
+    // Apply if/in qualifiers
+    marksample touse, novarlist
+    qui keep if `touse'
+    drop `touse'
+
     if "`varlist'" != "" {
         keep `varlist'
     }
@@ -132,12 +138,15 @@ program define vview
         }
     }
 
-    local obs_n = _N
-    local var_k : word count `varlist'
-    if `var_k' == 0 local var_k = c(k)
+    local obs_n = c(N)
+    local var_k = c(k)
 
     qui save "`dtapath'", replace
     restore
+
+    // Escape backslashes for JSON (Windows paths)
+    local json_dtapath = subinstr(`"`dtapath'"', "\", "\\", .)
+    local json_name = subinstr(`"`name'"', "\", "\\", .)
 
     // Write JSON sidecar
     tempname fh
@@ -145,8 +154,8 @@ program define vview
     file write `fh' `"{"' _n
     file write `fh' `"  "version": 1,"' _n
     file write `fh' `"  "uuid": "`uuid'","' _n
-    file write `fh' `"  "name": "`name'","' _n
-    file write `fh' `"  "dtapath": "`dtapath'","' _n
+    file write `fh' `"  "name": "`json_name'","' _n
+    file write `fh' `"  "dtapath": "`json_dtapath'","' _n
     file write `fh' `"  "N": `obs_n',"' _n
     file write `fh' `"  "k": `var_k',"' _n
     file write `fh' `"  "replace": `= cond("`replace'" != "", "true", "false")',"' _n
@@ -218,9 +227,9 @@ This is O(1) seek + O(page_size) read regardless of total dataset size.
 
 ### strL Resolution
 
-`strL` fields store an 8-byte `(v, o)` pointer into the GSO (Generic String Object) block. The GSO block must be indexed on first open by reading through it and building a `Map<string, string>` keyed on `"v:o"`. This index is built once and cached; it requires a single pass through the GSO block but does not require loading observation data.
+`strL` fields store an 8-byte `(v, o)` pointer into the GSO (Generic String Object) block. The GSO block must be indexed on first open by reading through it and building a `Map<string, number>` keyed on `"v:o"` that maps to the byte offset in the file where the string starts. This index is built once and cached; it requires a single pass through the GSO block but does not require loading observation data or string content into memory.
 
-For datasets where `strL` usage is minimal (most datasets), this overhead is negligible. For datasets with heavy `strL` usage, the GSO index will consume memory proportional to the number of distinct string values, not the number of observations.
+For datasets where `strL` usage is minimal (most datasets), this overhead is negligible. For datasets with heavy `strL` usage, the GSO index will consume memory proportional to the number of distinct string values (just the offset numbers), not the number of observations or the string content itself. The actual string content is lazily read from disk using the offset only when requested by a row read.
 
 ### Module API
 
@@ -237,7 +246,7 @@ interface DtaFile {
   readonly datasetLabel: string;
 
   // Row access
-  readRows(start: number, count: number): Promise<Row[]>;
+  readRows(start: number, count: number, colStart?: number, colEnd?: number): Promise<Row[]>;
 
   // Cleanup
   close(): void;
@@ -281,6 +290,8 @@ interface RowRequest {
   type: "requestRows";
   start: number;
   count: number;
+  colStart?: number;
+  colEnd?: number;
   requestId: string;
 }
 
@@ -288,6 +299,8 @@ interface RowRequest {
 interface RowResponse {
   type: "rowData";
   start: number;
+  colStart?: number;
+  // rows array is either full width, or subsetted to [colStart, colEnd)
   rows: CellValue[][];
   requestId: string;
 }
@@ -357,13 +370,13 @@ class RowCache {
 
 ### Phase 1: File Watcher
 
-The extension watches `~/.sight/browse/signal` using `vscode.workspace.createFileSystemWatcher` (or `fs.watch`). On change:
+The extension watches `~/.sight/browse/` using Node's `fs.watch` (or a library like `chokidar`). *Do not use `vscode.workspace.createFileSystemWatcher` as it only watches files inside the currently open workspace.* On change:
 
-1. Read the uuid from the signal file.
+1. Detect new `signal_<uuid>` files. Extract the uuid.
 2. Read `~/.sight/browse/<uuid>.json` for request metadata.
 3. Open `~/.sight/browse/<uuid>.dta` via the `.dta` parser.
-4. If `replace` is true and a tab with the same `name` exists, refresh it; otherwise open a new tab.
-5. Clean up: delete `.json` and `signal` file. Immediately `fs.unlink` the `.dta` file while keeping the mmap / file descriptor open (unlink-on-open pattern). The file disappears from `~/.sight/browse/` but the mmap remains valid for lazy row reads. When the tab closes (or VS Code crashes / the process exits), the OS reclaims the disk space automatically — no orphaned files. **Windows fallback:** Windows does not allow unlinking an open file. On Windows, delete the `.dta` on tab close via `onDidDispose`, and run a startup sweep on extension activation that prunes any `.dta` files in `~/.sight/browse/` older than 24 hours (to catch crashes).
+4. If `replace` is true and a tab with the same `name` exists, explicitly close the old `DtaFile` (to prevent file descriptor leaks) and refresh it; otherwise open a new tab.
+5. Clean up: delete `.json` and `signal_<uuid>` file. Immediately `fs.unlink` the `.dta` file while keeping the mmap / file descriptor open (unlink-on-open pattern). The file disappears from `~/.sight/browse/` but the mmap remains valid for lazy row reads. When the tab closes (or VS Code crashes / the process exits), the OS reclaims the disk space automatically — no orphaned files. **Windows fallback:** Windows does not allow unlinking an open file. On Windows, delete the `.dta` on tab close via `onDidDispose`, and run a startup sweep on extension activation that prunes any `.dta` files in `~/.sight/browse/` older than 24 hours (to catch crashes).
 
 ## Implementation Milestones
 
@@ -405,7 +418,7 @@ The extension watches `~/.sight/browse/signal` using `vscode.workspace.createFil
 - [ ] Theming (respect VS Code color theme via CSS variables)
 - [ ] Accessibility (screen reader labels, ARIA attributes on grid)
 - [ ] Performance benchmarking against target table above
-- [ ] Register custom editor for `.dta` files (open from file explorer)
+- [ ] Register custom editor for `.dta` files (open from file explorer). **CRITICAL:** Unlink-on-open logic must be strictly sandboxed to the `~/.sight/browse/` temp directory to avoid deleting user files!
 
 ## Resolved Questions
 
