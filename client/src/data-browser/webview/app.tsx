@@ -62,12 +62,17 @@ export function App() {
     useEffect(() => {
         return () => {
             if (persist_resize_timeout_ref.current !== null) {
+                if (metadata) {
+                    persist_column_widths(
+                        column_widths_ref.current
+                    );
+                }
                 window.clearTimeout(
                     persist_resize_timeout_ref.current
                 );
             }
         };
-    }, []);
+    }, [metadata, vscode_api]);
 
     const sampled_width_hints = useMemo(
         () => collect_sampled_value_width_hints(
@@ -107,15 +112,18 @@ export function App() {
 
         set_column_widths_by_name(my_previous => {
             const my_next: Record<string, number> = {};
+            const my_stored_widths =
+                metadata.stored_column_widths ?? {};
 
             for (const my_variable of metadata.variables) {
                 const my_name = my_variable.name;
-                if (user_resized_columns.has(my_name)) {
+                if (
+                    user_resized_columns.has(my_name)
+                    || my_stored_widths[my_name] !== undefined
+                ) {
                     my_next[my_name] = clamp_column_width(
                         my_previous[my_name]
-                        ?? metadata.stored_column_widths?.[
-                            my_name
-                        ]
+                        ?? my_stored_widths[my_name]
                     );
                     continue;
                 }

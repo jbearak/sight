@@ -16,6 +16,7 @@ import {
 import { build_cell_value } from './cell-format';
 import {
     build_dataset_key,
+    build_dataset_key_aliases,
     type DataBrowserColumnWidthStore,
 } from './column-width-state';
 import { should_unlink_data_browser_path } from './opening';
@@ -38,6 +39,7 @@ export class DataBrowserPanel implements vscode.Disposable {
     private sidecar: VviewSidecar;
     private dta_path: string;
     private dataset_key: string;
+    private dataset_key_aliases: string[];
     private readonly column_width_store: DataBrowserColumnWidthStore;
     private disposed = false;
 
@@ -55,6 +57,11 @@ export class DataBrowserPanel implements vscode.Disposable {
             dta_path,
             sidecar
         );
+        this.dataset_key_aliases =
+            build_dataset_key_aliases(
+                dta_path,
+                sidecar
+            );
         this.column_width_store = column_width_store;
 
         panel.webview.html = webview_html;
@@ -99,6 +106,11 @@ export class DataBrowserPanel implements vscode.Disposable {
             dta_path,
             sidecar
         );
+        this.dataset_key_aliases =
+            build_dataset_key_aliases(
+                dta_path,
+                sidecar
+            );
 
         await this.initialize();
     }
@@ -188,7 +200,8 @@ export class DataBrowserPanel implements vscode.Disposable {
                 dataset_key: this.dataset_key,
                 stored_column_widths:
                     this.column_width_store.get(
-                        this.dataset_key
+                        this.dataset_key,
+                        this.dataset_key_aliases
                     ),
                 source: this.sidecar.source,
                 subsetted: this.sidecar.subsetted,
@@ -218,8 +231,9 @@ export class DataBrowserPanel implements vscode.Disposable {
                 break;
             case 'columnWidthsChanged':
                 await this.column_width_store.set(
-                    msg.dataset_key,
-                    msg.widths
+                    this.dataset_key,
+                    msg.widths,
+                    this.dataset_key_aliases
                 );
                 break;
             case 'requestRows':

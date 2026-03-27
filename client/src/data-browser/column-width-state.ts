@@ -1,3 +1,4 @@
+import * as path from 'path';
 import type { ExtensionContext } from 'vscode';
 import type { VviewSidecar } from './types';
 
@@ -20,10 +21,14 @@ export interface DataBrowserColumnWidthContextLike {
 }
 
 export interface DataBrowserColumnWidthStore {
-    get(dataset_key: string): Record<string, number>;
+    get(
+        dataset_key: string,
+        alias_keys?: readonly string[]
+    ): Record<string, number>;
     set(
         dataset_key: string,
-        widths: Record<string, number>
+        widths: Record<string, number>,
+        alias_keys?: readonly string[]
     ): Promise<void>;
 }
 
@@ -41,6 +46,32 @@ export function build_dataset_key(
         return my_source;
     }
     return dta_path;
+}
+
+export function build_dataset_key_aliases(
+    dta_path: string,
+    sidecar?: Pick<VviewSidecar, 'source' | 'name'>
+): string[] {
+    const the_keys: string[] = [];
+    const my_source = sidecar?.source?.trim();
+    const my_primary = build_dataset_key(dta_path, sidecar);
+    const my_basename = path.basename(my_primary);
+    const my_name = sidecar?.name?.trim();
+
+    if (my_source && my_source !== my_primary) {
+        the_keys.push(my_source);
+    }
+    if (dta_path && dta_path !== my_primary) {
+        the_keys.push(dta_path);
+    }
+    if (my_basename) {
+        the_keys.push(`basename:${my_basename}`);
+    }
+    if (my_name) {
+        the_keys.push(`name:${my_name}`);
+    }
+
+    return [...new Set(the_keys.filter(Boolean))];
 }
 
 export function sanitize_column_widths(
@@ -130,19 +161,43 @@ export function create_column_width_store(
     context: ExtensionContext
 ): DataBrowserColumnWidthStore {
     return {
-        get(dataset_key: string): Record<string, number> {
-            return get_stored_column_widths(context)[dataset_key]
-                ?? {};
+        get(
+            dataset_key: string,
+            alias_keys: readonly string[] = []
+        ): Record<string, number> {
+            const my_all_widths =
+                get_stored_column_widths(context);
+            const the_lookup_keys = [
+                dataset_key,
+                ...alias_keys,
+            ];
+
+            for (const my_key of the_lookup_keys) {
+                if (my_all_widths[my_key] !== undefined) {
+                    return my_all_widths[my_key];
+                }
+            }
+
+            return {};
         },
         async set(
             dataset_key: string,
-            widths: Record<string, number>
+            widths: Record<string, number>,
+            alias_keys: readonly string[] = []
         ): Promise<void> {
-            await set_stored_column_widths(
-                context,
+            const my_sanitized = sanitize_column_widths(widths);
+            const the_write_keys = [
                 dataset_key,
-                widths
-            );
+                ...alias_keys,
+            ];
+
+            for (const my_key of the_write_keys) {
+                await set_stored_column_widths(
+                    context,
+                    my_key,
+                    my_sanitized
+                );
+            }
         },
     };
 }
