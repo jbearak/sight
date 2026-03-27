@@ -317,6 +317,11 @@
             "Change to the directory of the current file",
             "Change to the workspace root directory"
           ]
+        },
+        "sight.personalAdoDir": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Stata's PERSONAL ado directory for vview.ado installation. Leave empty for auto-detection (macOS: ~/Documents/Stata/ado/personal/, Linux: ~/ado/personal/, Windows: %USERPROFILE%\\ado\\personal\\)."
         }
       }
     },
