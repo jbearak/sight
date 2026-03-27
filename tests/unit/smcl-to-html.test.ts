@@ -357,6 +357,19 @@ describe('smcl_to_html', () => {
             expect(result.html).toContain('suppress constant');
         });
 
+        it('closes synopt table at end of document', () => {
+            const result = smcl_to_html(
+                '{synoptset 20}\n' +
+                '{synopt:{opt x}}desc{p_end}\n' +
+                '{synoptline}'
+            );
+            // Table should be closed even without explicit {p2colreset}
+            const my_html = result.html;
+            const my_open_count = (my_html.match(/<table/g) || []).length;
+            const my_close_count = (my_html.match(/<\/table>/g) || []).length;
+            expect(my_close_count).toBe(my_open_count);
+        });
+
         it('closes synopt table on {p2colreset}', () => {
             const result = smcl_to_html(
                 '{synoptset 20}\n' +

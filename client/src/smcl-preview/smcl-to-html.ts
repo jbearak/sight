@@ -1126,6 +1126,15 @@ export function smcl_to_html(smcl: string): SmclHtmlResult {
     if (ctx.active_style) {
         html += '</span>';
     }
+    // Close any unclosed tables
+    if (ctx.in_synopt_table) {
+        html += '</tbody></table>';
+        ctx.in_synopt_table = false;
+    }
+    if (ctx.in_p2col) {
+        html += '</table>';
+        ctx.in_p2col = false;
+    }
     return {
         html,
         cross_references: ctx.cross_references,
