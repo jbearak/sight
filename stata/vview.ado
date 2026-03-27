@@ -6,8 +6,9 @@ program define vview
     syntax [varlist] [if] [in] [, Rows(integer 0) Name(string) Replace]
 
     // Resolve output directory
+    local browseroot "~/.sight"
     local browsedir "~/.sight/browse"
-    mata: st_local("browsedir", pathjoin(pathresolve("~"), ".sight", "browse"))
+    cap mkdir "`browseroot'"
     cap mkdir "`browsedir'"
 
     // Generate request UUID
@@ -57,26 +58,19 @@ program define vview
     qui save "`dtapath'", replace
     restore
 
-    // Escape backslashes for JSON (Windows paths)
-    local json_dtapath = subinstr(`"`dtapath'"', "\", "\\", .)
-    local json_dtapath = subinstr(`"`json_dtapath'"', `"""', "\"", .)
-    local json_name = subinstr(`"`name'"', "\", "\\", .)
-    local json_name = subinstr(`"`json_name'"', `"""', "\"", .)
-    local json_source = subinstr(`"`source'"', "\", "\\", .)
-    local json_source = subinstr(`"`json_source'"', `"""', "\"", .)
-    local json_timestamp = subinstr(`"`timestamp'"', "\", "\\", .)
-    local json_timestamp = subinstr(`"`json_timestamp'"', `"""', "\"", .)
-    local json_if = subinstr(`"`if_condition'"', "\", "\\", .)
-    local json_if = subinstr(`"`json_if'"', `"""', "\"", .)
-    local json_in = subinstr(`"`in_condition'"', "\", "\\", .)
-    local json_in = subinstr(`"`json_in'"', `"""', "\"", .)
+    // Escape backslashes and quotes for JSON.
+    mata: st_local("json_dtapath", subinstr(subinstr(st_local("dtapath"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
+    mata: st_local("json_name", subinstr(subinstr(st_local("name"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
+    mata: st_local("json_source", subinstr(subinstr(st_local("source"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
+    mata: st_local("json_timestamp", subinstr(subinstr(st_local("timestamp"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
+    mata: st_local("json_if", subinstr(subinstr(st_local("if_condition"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
+    mata: st_local("json_in", subinstr(subinstr(st_local("in_condition"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
 
     local json_varlist "["
     if `"`varlist'"' != "" & `"`varlist'"' != "_all" {
         local first_var = 1
         foreach my_var of local varlist {
-            local json_var = subinstr(`"`my_var'"', "\", "\\", .)
-            local json_var = subinstr(`"`json_var'"', `"""', "\"", .)
+            mata: st_local("json_var", subinstr(subinstr(st_local("my_var"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
             if `first_var' {
                 local json_varlist `"`json_varlist'"`"`json_var'"'"'
                 local first_var = 0
@@ -88,27 +82,32 @@ program define vview
     }
     local json_varlist `"`json_varlist']"'
 
-    // Write JSON sidecar
-    tempname fh
-    file open `fh' using "`jsonpath'", write replace
-    file write `fh' `"{"' _n
-    file write `fh' `"  "version": 1,"' _n
-    file write `fh' `"  "uuid": "`uuid'","' _n
-    file write `fh' `"  "timestamp": "`json_timestamp'","' _n
-    file write `fh' `"  "source": "`json_source'","' _n
-    file write `fh' `"  "name": "`json_name'","' _n
-    file write `fh' `"  "dtapath": "`json_dtapath'","' _n
-    file write `fh' `"  "varlist": `json_varlist',"' _n
-    file write `fh' `"  "if": "`json_if'","' _n
-    file write `fh' `"  "in": "`json_in'","' _n
-    file write `fh' `"  "N": `obs_n',"' _n
-    file write `fh' `"  "k": `var_k',"' _n
-    file write `fh' `"  "replace": `= cond("`replace'" != "", "true", "false")',"' _n
-    file write `fh' `"  "subsetted": `= cond("`varlist'`if'`in'" != "", "true", "false")'"' _n
-    file write `fh' `"}"' _n
-    file close `fh'
+    // Write JSON sidecar with Mata to avoid fragile Stata quote syntax.
+    local replace_json = cond("`replace'" != "", "true", "false")
+    local subsetted_json = cond("`varlist'`if'`in'" != "", "true", "false")
+    mata {
+        my_vview_fh = fopen(st_local("jsonpath"), "w")
+        my_vview_q = char(34)
+        fput(my_vview_fh, "{")
+        fput(my_vview_fh, "  " + my_vview_q + "version" + my_vview_q + ": 1,")
+        fput(my_vview_fh, "  " + my_vview_q + "uuid" + my_vview_q + ": " + my_vview_q + st_local("uuid") + my_vview_q + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "timestamp" + my_vview_q + ": " + my_vview_q + st_local("json_timestamp") + my_vview_q + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "source" + my_vview_q + ": " + my_vview_q + st_local("json_source") + my_vview_q + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "name" + my_vview_q + ": " + my_vview_q + st_local("json_name") + my_vview_q + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "dtapath" + my_vview_q + ": " + my_vview_q + st_local("json_dtapath") + my_vview_q + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "varlist" + my_vview_q + ": " + st_local("json_varlist") + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "if" + my_vview_q + ": " + my_vview_q + st_local("json_if") + my_vview_q + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "in" + my_vview_q + ": " + my_vview_q + st_local("json_in") + my_vview_q + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "N" + my_vview_q + ": " + st_local("obs_n") + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "k" + my_vview_q + ": " + st_local("var_k") + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "replace" + my_vview_q + ": " + st_local("replace_json") + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "subsetted" + my_vview_q + ": " + st_local("subsetted_json"))
+        fput(my_vview_fh, "}")
+        fclose(my_vview_fh)
+    }
 
     // Signal the extension
+    tempname fh
     file open `fh' using "`signalpath'", write replace
     file write `fh' "`uuid'"
     file close `fh'
