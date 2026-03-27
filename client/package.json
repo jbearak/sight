@@ -431,6 +431,14 @@
         "command": "sight.openDataBrowser",
         "title": "Sight: Open Data Browser",
         "icon": "$(table)"
+      },
+      {
+        "command": "sight.installVviewAdo",
+        "title": "Sight: Install vview.ado"
+      },
+      {
+        "command": "sight.resetVviewInstallPermission",
+        "title": "Sight: Reset vview.ado Install Permission"
       }
     ],
     "keybindings": [
@@ -508,6 +516,12 @@
         },
         {
           "command": "sight.openDataBrowser"
+        },
+        {
+          "command": "sight.installVviewAdo"
+        },
+        {
+          "command": "sight.resetVviewInstallPermission"
         }
       ],
       "explorer/context": [

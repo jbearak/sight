@@ -2,8 +2,8 @@
  * Data Browser Module
  *
  * Entry point for the data browser feature.  Registers the
- * panel manager, signal watcher, and auto-installs the
- * vview.ado helper into the user's personal ado directory.
+ * panel manager, signal watcher, and manages installation of
+ * the vview.ado helper into the user's personal ado directory.
  */
 
 import * as vscode from 'vscode';
@@ -17,6 +17,26 @@ import {
     prune_stale_browse_files,
     SignalWatcher,
 } from './signal-watcher';
+import {
+    ensure_vview_ado_installed as ensure_vview_ado_installed_core,
+    get_vview_install_state as get_vview_install_state_core,
+    install_vview_ado as install_vview_ado_core,
+    install_vview_ado_manually as install_vview_ado_manually_core,
+    reset_vview_install_permission as reset_vview_install_permission_core,
+    type VviewInstallHooks as CoreVviewInstallHooks,
+    type VviewInstallPermission,
+    type VviewInstallPromptChoice,
+    type VviewInstallState,
+    type VviewInstallStatus,
+} from './vview-install-core';
+
+const VVIEW_INSTALL_PERMISSION_KEY =
+    'sight.vviewInstallPermission';
+const INSTALL_BUTTON = 'Install';
+const NOT_NOW_BUTTON = 'Not now';
+
+export type VviewInstallHooks =
+    CoreVviewInstallHooks<vscode.ExtensionContext>;
 
 export function register_data_browser(
     context: vscode.ExtensionContext,
@@ -49,7 +69,8 @@ export function register_data_browser(
         dispose: () => my_watcher.stop(),
     });
 
-    install_vview_ado(context, log);
+    register_vview_install_commands(context, log);
+    void ensure_vview_ado_installed(context, log);
 }
 
 async function resolve_data_browser_uri(
@@ -115,31 +136,70 @@ function register_open_data_browser_command(
     );
 }
 
-// -----------------------------------------------------------
-// vview.ado auto-installation
-// -----------------------------------------------------------
-
-function install_vview_ado(
+function register_vview_install_commands(
     context: vscode.ExtensionContext,
     log: (msg: string) => void
 ): void {
-    const my_target_dir = get_personal_ado_dir();
-    const my_target_path = path.join(
-        my_target_dir,
-        'vview.ado'
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'sight.installVviewAdo',
+            async () => {
+                const my_installed =
+                    await install_vview_ado_manually(
+                        context,
+                        log
+                    );
+                if (my_installed) {
+                    void vscode.window.showInformationMessage(
+                        'vview.ado is installed and ready for Sight Data Browser.'
+                    );
+                    return;
+                }
+
+                void vscode.window.showErrorMessage(
+                    'Failed to install vview.ado. See the Sight output channel for details.'
+                );
+            }
+        )
     );
 
-    const my_bundled_uri = vscode.Uri.joinPath(
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'sight.resetVviewInstallPermission',
+            async () => {
+                await reset_vview_install_permission(
+                    context,
+                    log
+                );
+                void vscode.window.showInformationMessage(
+                    'Sight vview.ado install permission has been reset.'
+                );
+            }
+        )
+    );
+}
+
+// -----------------------------------------------------------
+// vview.ado installation
+// -----------------------------------------------------------
+
+function get_bundled_vview_path(
+    context: vscode.ExtensionContext
+): string {
+    return vscode.Uri.joinPath(
         context.extensionUri,
         'stata',
         'vview.ado'
-    );
-    const my_bundled_path = my_bundled_uri.fsPath;
+    ).fsPath;
+}
 
-    let my_bundled_content: string;
+export function read_bundled_vview_content(
+    bundled_path: string,
+    log: (msg: string) => void
+): string | null {
     try {
-        my_bundled_content = fs.readFileSync(
-            my_bundled_path,
+        return fs.readFileSync(
+            bundled_path,
             'utf-8'
         );
     } catch (my_err) {
@@ -147,38 +207,159 @@ function install_vview_ado(
             'vview.ado: failed to read bundled file: '
             + String(my_err)
         );
-        return;
+        return null;
+    }
+}
+
+export function get_vview_install_state(
+    target_path: string,
+    bundled_content: string,
+    log: (msg: string) => void
+): VviewInstallState {
+    return get_vview_install_state_core(
+        target_path,
+        bundled_content,
+        log
+    );
+}
+
+function inspect_vview_installation(
+    context: vscode.ExtensionContext,
+    log: (msg: string) => void
+): VviewInstallStatus {
+    const my_target_dir = get_personal_ado_dir();
+    const my_target_path = path.join(
+        my_target_dir,
+        'vview.ado'
+    );
+    const my_bundled_path = get_bundled_vview_path(context);
+    const my_bundled_content = read_bundled_vview_content(
+        my_bundled_path,
+        log
+    );
+
+    if (my_bundled_content === null) {
+        return {
+            state: 'error',
+            target_dir: my_target_dir,
+            target_path: my_target_path,
+            bundled_path: my_bundled_path,
+            error: 'Failed to read bundled vview.ado',
+        };
     }
 
-    // Check whether the target already exists and matches
-    let my_needs_write = true;
-    try {
-        const my_existing = fs.readFileSync(
+    return {
+        state: get_vview_install_state(
             my_target_path,
-            'utf-8'
+            my_bundled_content,
+            log
+        ),
+        target_dir: my_target_dir,
+        target_path: my_target_path,
+        bundled_path: my_bundled_path,
+        bundled_content: my_bundled_content,
+    };
+}
+
+async function set_vview_install_permission(
+    context: vscode.ExtensionContext,
+    permission: VviewInstallPermission | undefined
+): Promise<void> {
+    await context.globalState.update(
+        VVIEW_INSTALL_PERMISSION_KEY,
+        permission
+    );
+}
+
+export async function prompt_for_vview_install(
+    target_dir: string
+): Promise<VviewInstallPromptChoice> {
+    const my_result =
+        await vscode.window.showInformationMessage(
+            'Sight Data Browser requires installing '
+            + 'vview.ado into your PERSONAL ado directory: '
+            + target_dir,
+            INSTALL_BUTTON,
+            NOT_NOW_BUTTON
         );
-        if (my_existing === my_bundled_content) {
-            my_needs_write = false;
+
+    return my_result === INSTALL_BUTTON
+        ? 'install'
+        : 'not_now';
+}
+
+export function install_vview_ado(
+    status: VviewInstallStatus,
+    log: (msg: string) => void
+): boolean {
+    return install_vview_ado_core(status, log);
+}
+
+export async function ensure_vview_ado_installed(
+    context: vscode.ExtensionContext,
+    log: (msg: string) => void,
+    hooks: VviewInstallHooks = {}
+): Promise<boolean> {
+    return ensure_vview_ado_installed_core(
+        context,
+        log,
+        VVIEW_INSTALL_PERMISSION_KEY,
+        {
+            inspect_installation:
+                hooks.inspect_installation
+                ?? inspect_vview_installation,
+            get_permission: hooks.get_permission,
+            set_permission:
+                hooks.set_permission
+                ?? set_vview_install_permission,
+            prompt_for_vview_install:
+                hooks.prompt_for_vview_install
+                ?? prompt_for_vview_install,
+            install_vview_ado:
+                hooks.install_vview_ado
+                ?? install_vview_ado,
         }
-    } catch {
-        // File does not exist — needs write
-    }
+    );
+}
 
-    if (!my_needs_write) {
-        log('vview.ado: already up to date');
-        return;
-    }
+export async function install_vview_ado_manually(
+    context: vscode.ExtensionContext,
+    log: (msg: string) => void,
+    hooks: VviewInstallHooks = {}
+): Promise<boolean> {
+    return install_vview_ado_manually_core(
+        context,
+        log,
+        VVIEW_INSTALL_PERMISSION_KEY,
+        {
+            inspect_installation:
+                hooks.inspect_installation
+                ?? inspect_vview_installation,
+            set_permission:
+                hooks.set_permission
+                ?? set_vview_install_permission,
+            install_vview_ado:
+                hooks.install_vview_ado
+                ?? install_vview_ado,
+        }
+    );
+}
 
-    try {
-        fs.mkdirSync(my_target_dir, { recursive: true });
-        fs.writeFileSync(my_target_path, my_bundled_content);
-        log('vview.ado: installed to ' + my_target_path);
-    } catch (my_err) {
-        log(
-            'vview.ado: failed to install: '
-            + String(my_err)
-        );
-    }
+export async function reset_vview_install_permission(
+    context: vscode.ExtensionContext,
+    log: (msg: string) => void,
+    hooks: Pick<VviewInstallHooks, 'set_permission'> = {}
+): Promise<void> {
+    await reset_vview_install_permission_core(
+        context,
+        log,
+        VVIEW_INSTALL_PERMISSION_KEY,
+        {
+            set_permission:
+                hooks.set_permission
+                ?? set_vview_install_permission,
+        }
+    );
 }
 
 // -----------------------------------------------------------
