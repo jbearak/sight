@@ -58,6 +58,19 @@ describe('WorkspaceIndexer', () => {
         expect(resolved?.name).toBe('myprog');
     });
 
+    it('should resolve nested workspace .sthlp files recursively', async () => {
+        const my_help_dir = path.join(temp_dir, 'pkg', 'sthlp', 'r');
+        const my_help_path = path.join(my_help_dir, 'regress.sthlp');
+        fs.mkdirSync(my_help_dir, { recursive: true });
+        fs.writeFileSync(my_help_path, '{smcl}');
+
+        await indexer.initialize([temp_dir]);
+
+        const resolved = await indexer.resolve_sthlp_file('regress');
+
+        expect(resolved).toBe(my_help_path);
+    });
+
     it('should remove symbols when file is removed', async () => {
         const file_path = path.join(temp_dir, 'test.do');
         fs.writeFileSync(file_path, 'program define todelete\nend');

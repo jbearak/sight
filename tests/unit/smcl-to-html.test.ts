@@ -11,6 +11,15 @@ describe('smcl_to_html', () => {
             expect(result.html).toBe('');
         });
 
+        it('closes {asis} when {smcl} resumes normal rendering', () => {
+            const result = smcl_to_html(
+                '{asis}raw\ntext{smcl}{title:Syntax}'
+            );
+            expect(result.html).toContain('<pre class="smcl-asis">');
+            expect(result.html).toContain('</pre><h2 class="smcl-title"');
+            expect(result.html).toContain('Syntax');
+        });
+
         it('renders {.-} as horizontal rule', () => {
             const result = smcl_to_html('{.-}');
             expect(result.html).toContain('<hr');

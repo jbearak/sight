@@ -693,6 +693,51 @@ export class WorkspaceIndexer {
             } catch {
                 // not found, continue
             }
+
+            if (!this.workspace_roots.includes(path.resolve(my_dir))) {
+                continue;
+            }
+
+            const my_recursive_match =
+                await this.find_sthlp_file_recursive(my_dir, my_basename);
+            if (my_recursive_match) {
+                return my_recursive_match;
+            }
+        }
+
+        return null;
+    }
+
+    private async find_sthlp_file_recursive(
+        root_dir: string,
+        basename: string
+    ): Promise<string | null> {
+        const the_dirs = [root_dir];
+
+        while (the_dirs.length > 0) {
+            const my_dir = the_dirs.pop()!;
+            let the_entries: fs.Dirent[];
+            try {
+                the_entries = await fs.promises.readdir(my_dir, {
+                    withFileTypes: true,
+                });
+            } catch {
+                continue;
+            }
+
+            for (const my_entry of the_entries) {
+                const my_entry_path = path.join(my_dir, my_entry.name);
+                if (my_entry.isDirectory()) {
+                    the_dirs.push(my_entry_path);
+                    continue;
+                }
+                if (
+                    my_entry.isFile() &&
+                    my_entry.name === basename
+                ) {
+                    return my_entry_path;
+                }
+            }
         }
 
         return null;

@@ -303,6 +303,7 @@ interface RenderContext {
     in_table_row: boolean;
     active_style: string | null;
     active_formats: string[];
+    in_asis: boolean;
 }
 
 function create_context(): RenderContext {
@@ -317,6 +318,7 @@ function create_context(): RenderContext {
         in_table_row: false,
         active_style: null,
         active_formats: [],
+        in_asis: false,
     };
 }
 
@@ -344,6 +346,14 @@ function close_all_formats(ctx: RenderContext): string {
         result += FORMAT_TAGS[my_fmt].close;
     }
     return result;
+}
+
+function close_asis(ctx: RenderContext): string {
+    if (!ctx.in_asis) {
+        return '';
+    }
+    ctx.in_asis = false;
+    return '</pre>';
 }
 
 // ---------------------------------------------------------------------------
@@ -413,12 +423,12 @@ function render_directive(
         // -- Document control --
         case 'smcl':
         case 's6hlp':
-            return '';
+            return close_asis(ctx);
         case 'reset': {
             const my_fmt_close = close_all_formats(ctx);
             const my_style_close = ctx.active_style ? '</span>' : '';
             ctx.active_style = null;
-            return my_fmt_close + my_style_close;
+            return close_asis(ctx) + my_fmt_close + my_style_close;
         }
         case '...':
             ctx.pending_continuation = true;
@@ -428,6 +438,10 @@ function render_directive(
 
         // -- Asis mode --
         case 'asis':
+            if (ctx.in_asis) {
+                return '';
+            }
+            ctx.in_asis = true;
             return '<pre class="smcl-asis">';
 
         // -- Text formatting (scoped: {bf:text}) --
@@ -1104,6 +1118,7 @@ export function smcl_to_html(smcl: string): SmclHtmlResult {
     const ctx = create_context();
     let html = render_nodes(the_nodes, ctx);
     // Close any trailing persistent formats and style span
+    html += close_asis(ctx);
     html += close_all_formats(ctx);
     if (ctx.active_style) {
         html += '</span>';
