@@ -403,38 +403,26 @@ export class DirectiveParser {
                     end: { line: i, character: my_line.length },
                 };
 
-                // Validate single argument constraint
+                // Validate at least one argument
                 if (my_rest === '') {
-                    // Missing argument
                     the_diagnostics.push({
-                        message: 'Declaration directive requires exactly one argument',
+                        message: 'Declaration directive requires at least one argument',
                         range: my_range,
                         severity: 'warning',
                     });
                     continue;
                 }
 
-                // Split by whitespace to check for multiple arguments
-                const the_tokens = my_rest.split(/\s+/).filter(t => t.length > 0);
+                // Split by whitespace to get all names
+                const the_names = my_rest.split(/\s+/).filter(t => t.length > 0);
 
-                if (the_tokens.length > 1) {
-                    // Multiple arguments - produce warning
-                    the_diagnostics.push({
-                        message: 'Declaration directive accepts exactly one argument; found multiple tokens',
+                for (const my_name of the_names) {
+                    the_declarations.push({
+                        type: my_type,
+                        name: my_name,
                         range: my_range,
-                        severity: 'warning',
                     });
-                    continue;
                 }
-
-                // Valid single argument
-                const my_name = the_tokens[0];
-
-                the_declarations.push({
-                    type: my_type,
-                    name: my_name,
-                    range: my_range,
-                });
             }
         }
 

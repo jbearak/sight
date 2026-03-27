@@ -161,15 +161,15 @@ describe('Declaration Directive Property Tests', () => {
     });
 
     /**
-     * Property 4: Multiple Argument Warning
+     * Property 4: Multiple Arguments
      *
      * For any declaration directive containing two or more space-separated tokens
-     * after the directive keyword, the parser SHALL produce a warning diagnostic.
+     * after the directive keyword, the parser SHALL produce one declaration per name.
      *
      * **Validates: Requirements 2.2**
      */
-    describe('Property 4: Multiple Argument Warning', () => {
-        test('multiple arguments produce warning diagnostic', () => {
+    describe('Property 4: Multiple Arguments', () => {
+        test('multiple arguments produce one declaration per name', () => {
             fc.assert(
                 fc.property(
                     fc.record({
@@ -179,20 +179,24 @@ describe('Declaration Directive Property Tests', () => {
                         extra_args: fc.array(stata_identifier, { minLength: 0, maxLength: 3 }),
                     }),
                     ({ type, first_arg, second_arg, extra_args }) => {
-                        const all_args = [first_arg, second_arg, ...extra_args].join(' ');
+                        const the_args = [first_arg, second_arg, ...extra_args];
+                        const all_args = the_args.join(' ');
                         const content = `// @lsp-${type} ${all_args}\ngen x = 1`;
 
                         const result = parser.parse(content, 'file:///test.do');
 
-                        // Should NOT produce a declaration (rejected due to multiple args)
-                        expect(result.declaration_directives.length).toBe(0);
+                        // Should produce one declaration per name
+                        expect(result.declaration_directives.length).toBe(the_args.length);
+                        for (let i = 0; i < the_args.length; i++) {
+                            expect(result.declaration_directives[i].type).toBe(type);
+                            expect(result.declaration_directives[i].name).toBe(the_args[i]);
+                        }
 
-                        // Should produce a warning diagnostic
+                        // No diagnostics
                         const declaration_diagnostics = result.diagnostics.filter(d =>
-                            d.message.includes('exactly one argument')
+                            d.message.includes('Declaration directive')
                         );
-                        expect(declaration_diagnostics.length).toBe(1);
-                        expect(declaration_diagnostics[0].severity).toBe('warning');
+                        expect(declaration_diagnostics.length).toBe(0);
                     }
                 ),
                 { numRuns: 100 }
@@ -217,7 +221,7 @@ describe('Declaration Directive Property Tests', () => {
 
                         // Should produce a warning diagnostic
                         const declaration_diagnostics = result.diagnostics.filter(d =>
-                            d.message.includes('requires exactly one argument')
+                            d.message.includes('requires at least one argument')
                         );
                         expect(declaration_diagnostics.length).toBe(1);
                         expect(declaration_diagnostics[0].severity).toBe('warning');
