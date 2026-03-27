@@ -11,19 +11,39 @@ import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
 import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata } from './send-to-stata';
 import { register_smcl_preview } from './smcl-preview';
+import { LanguageClientLifecycle } from './language-client-lifecycle';
 import {
     apply_language_configuration,
     read_line_comment_style,
 } from './language-config';
 
-let client: LanguageClient;
-const outputChannel = window.createOutputChannel('Sight Language Server');
+let client: LanguageClient | null = null;
+let output_channel = window.createOutputChannel('Sight Language Server');
+const client_lifecycle = new LanguageClientLifecycle<LanguageClient>(
+    {
+        appendLine: (message) => {
+            output_channel?.appendLine(message);
+        },
+    },
+    {
+        on_started: (the_client) => {
+            output_channel?.appendLine('Language client started successfully');
+            set_language_client(the_client);
+        },
+    }
+);
 
 export function activate(context: ExtensionContext) {
-    outputChannel.appendLine('Sight extension activating...');
+    if (!output_channel) {
+        output_channel = window.createOutputChannel(
+            'Sight Language Server'
+        );
+    }
+
+    output_channel.appendLine('Sight extension activating...');
 
     // Initialize conflict detector
-    const conflictDetector = new ConflictDetector(context, outputChannel);
+    const conflictDetector = new ConflictDetector(context, output_channel);
     conflictDetector.checkAndNotify();
     context.subscriptions.push(conflictDetector);
 
@@ -71,28 +91,28 @@ export function activate(context: ExtensionContext) {
 
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {
-        outputChannel.appendLine('Reset depth colors command triggered');
-        await resetDepthColors(context, outputChannel);
+        output_channel?.appendLine('Reset depth colors command triggered');
+        await resetDepthColors(context, output_channel ?? undefined);
         window.showInformationMessage('Sight depth colors have been reset and reapplied.');
     });
     context.subscriptions.push(reset_command);
     
     // Configure depth colors for nested strings and macros on first activation
-    outputChannel.appendLine('Calling configureDepthColors...');
-    configureDepthColors(context, outputChannel).catch((error) => {
-        outputChannel.appendLine(`Failed to configureDepthColors: ${error}`);
+    output_channel.appendLine('Calling configureDepthColors...');
+    configureDepthColors(context, output_channel).catch((error) => {
+        output_channel?.appendLine(`Failed to configureDepthColors: ${error}`);
     });
     
     // Register theme change handler to update colors when theme kind changes
-    const theme_change_handler = registerThemeChangeHandler(outputChannel);
+    const theme_change_handler = registerThemeChangeHandler(output_channel);
     context.subscriptions.push(theme_change_handler);
-    outputChannel.appendLine('Registered theme change handler');
+    output_channel.appendLine('Registered theme change handler');
     
     // The server is bundled inside the extension at 'server/server.js'
     const serverModule = context.asAbsolutePath(
         path.join('server', 'server.js')
     );
-    outputChannel.appendLine(`Server module path: ${serverModule}`);
+    output_channel.appendLine(`Server module path: ${serverModule}`);
 
     // The debug options for the server
     // --inspect=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
@@ -132,25 +152,16 @@ export function activate(context: ExtensionContext) {
         clientOptions
     );
 
-    // Start the client. This will also launch the server
-    client.start().then(() => {
-        outputChannel.appendLine('Language client started successfully');
-        // Make client available to send-to-stata commands
-        set_language_client(client);
-    }).catch((error) => {
-        outputChannel.appendLine(`Failed to start language client: ${error}`);
+    // Start the client. This will also launch the server.
+    client_lifecycle.start_client(client).catch((error) => {
+        output_channel?.appendLine(`Failed to start language client: ${error}`);
     });
 }
 
-export async function deactivate(): Promise<void> {
-    if (!client) {
-        return;
-    }
-    try {
-        await client.stop();
-    } catch {
-        // client.stop() throws if the client isn't running yet
-        // (still starting) or if the shutdown request times out.
-        // Either way, let VS Code proceed with host shutdown.
-    }
+export function deactivate(): void {
+    set_language_client(null);
+    void client_lifecycle.deactivate();
+    client = null;
+    output_channel?.dispose();
+    output_channel = null;
 }
