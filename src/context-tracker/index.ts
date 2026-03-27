@@ -354,7 +354,7 @@ export class ContextTracker implements IContextTracker {
         if (!my_is_valid_end) {
           // Emit diagnostic for orphan end commands
           this.diagnostics.push({
-            message: 'Unexpected "end" command - not closing any program, mata, or python block',
+            message: 'Unexpected "end" command - not closing any program, mata, python, or input block',
             range: {
               start: { line: my_line_number, character: 0 },
               end: {
@@ -471,7 +471,7 @@ export class ContextTracker implements IContextTracker {
   private find_program_block_end_lines(doc: { content: string; line_offsets: number[] }): Set<number> {
     const my_program_end_lines = new Set<number>();
     const my_program_stack: number[] = []; // Stack of program start line numbers
-    const my_embedded_stack: string[] = []; // Stack of embedded language blocks ('mata' or 'python')
+    const my_embedded_stack: string[] = []; // Stack of embedded language blocks ('mata', 'python', or 'input')
     const my_line_count = get_line_count(doc);
     
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
@@ -490,13 +490,19 @@ export class ContextTracker implements IContextTracker {
         my_embedded_stack.push('mata');
       } else if (my_first_word === 'python' && my_code_trimmed === 'python') {
         my_embedded_stack.push('python');
+      } else if (my_first_word === 'input') {
+        my_embedded_stack.push('input');
       }
-      
+
       // Check for 'end' command
       if (my_code_trimmed === 'end') {
         // If we're in an embedded language block, this 'end' closes that block
         if (my_embedded_stack.length > 0) {
-          my_embedded_stack.pop();
+          const my_popped = my_embedded_stack.pop();
+          // input block ends are valid (mata/python validated separately via context ranges)
+          if (my_popped === 'input') {
+            my_program_end_lines.add(my_line_number);
+          }
         }
         // Otherwise, if we have program blocks, this 'end' closes a program block
         else if (my_program_stack.length > 0) {
