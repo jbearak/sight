@@ -321,6 +321,18 @@ function read_minimal_metadata_buffer(
             return my_buffer;
         } catch (my_err) {
             my_last_error = my_err;
+            if (
+                my_err instanceof Error
+                && my_err.message.includes(
+                    'unrecognized format signature'
+                )
+            ) {
+                throw new Error(
+                    'Unsupported .dta format: only Stata ' +
+                    '13+ files (format 117, 118, or 119) ' +
+                    'are supported'
+                );
+            }
             if (my_read_size === file_size) {
                 break;
             }

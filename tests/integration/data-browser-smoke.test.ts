@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { DtaFile, apply_display_format } from '../../src/dta-parser';
 
 const FIXTURE_DIR = path.join(__dirname, '../fixtures/dta');
@@ -126,5 +128,38 @@ describe('data browser smoke test', () => {
         my_v117.close();
         my_v118.close();
         my_v119.close();
+    });
+
+    it('fails fast for unsupported legacy .dta formats', async () => {
+        const my_temp_dir = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'sight-dta-')
+        );
+        const my_legacy_path = path.join(
+            my_temp_dir,
+            'legacy_v115.dta'
+        );
+
+        try {
+            const my_legacy_header = Buffer.alloc(128);
+            my_legacy_header[0] = 0x73;
+            my_legacy_header[1] = 0x02;
+            my_legacy_header[2] = 0x01;
+            fs.writeFileSync(
+                my_legacy_path,
+                my_legacy_header
+            );
+
+            await expect(
+                DtaFile.open(my_legacy_path)
+            ).rejects.toThrow(
+                'Unsupported .dta format: only Stata 13+ files ' +
+                '(format 117, 118, or 119) are supported'
+            );
+        } finally {
+            fs.rmSync(my_temp_dir, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });
