@@ -116,6 +116,7 @@ export class LanguageClientLifecycle<TClient extends ManagedLanguageClient> {
             }
             this.start_promise = null;
             this.stop_promise = null;
+            this.deactivating = false;
             this.state = 'stopped';
         }
     }
@@ -175,10 +176,11 @@ export class LanguageClientLifecycle<TClient extends ManagedLanguageClient> {
     }
 
     private async wait_for_stop(the_client: TClient): Promise<void> {
+        const my_success_result = Symbol('stop_success');
         const my_timeout_result = Symbol('stop_timeout');
         const my_result = await Promise.race([
             the_client.stop().then(
-                () => undefined,
+                () => my_success_result,
                 my_error => my_error
             ),
             sleep(this.stop_timeout_ms).then(
@@ -186,7 +188,7 @@ export class LanguageClientLifecycle<TClient extends ManagedLanguageClient> {
             ),
         ]);
 
-        if (my_result === undefined) {
+        if (my_result === my_success_result) {
             return;
         }
 

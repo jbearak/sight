@@ -101,7 +101,7 @@ export function activate(context: ExtensionContext) {
     register_open_in_stata(context);
 
     // Register SMCL preview commands
-    register_smcl_preview(context, () => client ?? null);
+    register_smcl_preview(context, () => client);
 
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {
