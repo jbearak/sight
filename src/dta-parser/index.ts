@@ -85,7 +85,7 @@ export class DtaFile {
         const my_array_buf = my_buf.buffer.slice(
             my_buf.byteOffset,
             my_buf.byteOffset + my_buf.byteLength
-        );
+        ) as ArrayBuffer;
 
         const my_metadata = parse_metadata(my_array_buf);
         const my_gso_index = build_gso_index(

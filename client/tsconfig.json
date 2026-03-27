@@ -7,13 +7,12 @@
         ],
         "sourceMap": true,
         "outDir": "dist",
-        "rootDir": "src",
         "strict": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
         "moduleResolution": "node",
-        "types": ["vscode"]
+        "types": ["vscode", "node"]
     },
     "include": [
         "src/**/*"
