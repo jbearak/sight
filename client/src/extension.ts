@@ -1,5 +1,11 @@
 import * as path from 'path';
-import { workspace, ExtensionContext, window, commands } from 'vscode';
+import {
+    workspace,
+    ExtensionContext,
+    OutputChannel,
+    window,
+    commands
+} from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -18,7 +24,15 @@ import {
 } from './language-config';
 
 let client: LanguageClient | null = null;
-let output_channel = window.createOutputChannel('Sight Language Server');
+let output_channel: OutputChannel | null = window.createOutputChannel(
+    'Sight Language Server'
+);
+const DEACTIVATE_TIMEOUT_MS = 200;
+
+function sleep(my_timeout_ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, my_timeout_ms));
+}
+
 const client_lifecycle = new LanguageClientLifecycle<LanguageClient>(
     {
         appendLine: (message) => {
@@ -158,10 +172,14 @@ export function activate(context: ExtensionContext) {
     });
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
     set_language_client(null);
-    void client_lifecycle.deactivate();
+    const deactivate_promise = client_lifecycle.deactivate();
     client = null;
+    await Promise.race([
+        deactivate_promise,
+        sleep(DEACTIVATE_TIMEOUT_MS)
+    ]);
     output_channel?.dispose();
     output_channel = null;
 }
