@@ -23,7 +23,9 @@ let language_client: LanguageClient | null = null;
 /**
  * Set the language client for LSP requests.
  */
-export function set_language_client(client: LanguageClient): void {
+export function set_language_client(
+    client: LanguageClient | null
+): void {
     language_client = client;
 }
 

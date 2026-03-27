@@ -6,6 +6,10 @@ export { ConflictingExtension } from './conflict-detector-core';
 const DOCS_URL = 'https://github.com/jbearak/sight?tab=readme-ov-file#extension-conflict-detection';
 const STATE_KEY_WARNING_DISMISSED = 'sight.conflictWarningDismissed';
 
+interface ConflictDetectorLogger {
+    appendLine(message: string): void;
+}
+
 export class ConflictDetector {
     private statusBarItem: vscode.StatusBarItem;
     private disposables: vscode.Disposable[] = [];
@@ -13,7 +17,7 @@ export class ConflictDetector {
 
     constructor(
         private context: vscode.ExtensionContext,
-        private outputChannel: vscode.OutputChannel
+        private logger: ConflictDetectorLogger
     ) {
         this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
         this.disposables.push(this.statusBarItem);
@@ -87,12 +91,12 @@ export class ConflictDetector {
                     const extensionIds = conflicts.map(c => c.id);
                     await vscode.commands.executeCommand('workbench.extensions.action.showExtensionsWithIds', extensionIds);
                 } catch (err) {
-                    this.outputChannel.appendLine(`Failed to open extensions view with filter: ${err}`);
+                    this.logger.appendLine(`Failed to open extensions view with filter: ${err}`);
                     // Fallback to regular extensions view
                     try {
                         await vscode.commands.executeCommand('workbench.view.extensions');
                     } catch (fallbackErr) {
-                        this.outputChannel.appendLine(`Failed to open extensions view: ${fallbackErr}`);
+                        this.logger.appendLine(`Failed to open extensions view: ${fallbackErr}`);
                     }
                 }
             } else if (selection === 'More info') {
@@ -100,14 +104,14 @@ export class ConflictDetector {
                 try {
                     await vscode.env.openExternal(vscode.Uri.parse(DOCS_URL));
                 } catch (err) {
-                    this.outputChannel.appendLine(`Failed to open documentation URL: ${err}`);
+                    this.logger.appendLine(`Failed to open documentation URL: ${err}`);
                 }
             } else if (shouldPersistDismissal(selection)) {
                 // Req 2.7: Record dismissal ONLY on Dismiss or close (undefined)
                 try {
                     await this.context.globalState.update(STATE_KEY_WARNING_DISMISSED, true);
                 } catch (err) {
-                    this.outputChannel.appendLine(`Failed to persist dismissal state: ${err}`);
+                    this.logger.appendLine(`Failed to persist dismissal state: ${err}`);
                 }
             }
         });
