@@ -42,6 +42,16 @@ export class DataBrowserReadonlyEditorProvider
         const my_nonce = generate_nonce();
 
         webview_panel.title = `Data: ${my_sidecar.name}`;
+        webview_panel.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(
+                    this.extension_uri,
+                    'dist',
+                    'data-browser-webview'
+                ),
+            ],
+        };
 
         const my_html = build_data_browser_html(
             webview_panel.webview,
