@@ -419,6 +419,90 @@ The extension watches `~/.sight/browse/signal` using `vscode.workspace.createFil
 
 5. **Relationship to Data Wrangler**: Register a custom editor for `.dta` files so double-clicking in the file explorer opens the Sight Data Browser. This is a separate activation path from `vview` but shares all the same infrastructure (parser, webview, grid). Add to M3 milestones.
 
+## `vview.ado` Installation and Updates
+
+### Problem
+
+Stata discovers commands by searching its ado-path (`sysdir` directories). For the user to type `vview` in Stata's console, the `vview.ado` file must exist somewhere on that path. The Sight extension bundles the `.ado` file but Stata has no knowledge of VS Code extensions.
+
+### Strategy: Install to PERSONAL ado directory
+
+The extension installs `vview.ado` into Stata's **PERSONAL** ado directory, which is always on the default ado-path and is the standard location for user-authored programs. This avoids modifying `sysdir` or `adopath` and works without any Stata-side configuration.
+
+### Discovering the PERSONAL path
+
+The PERSONAL directory is **not** a fixed path — it is user-configurable via `sysdir set PERSONAL` and varies across platforms and installations. Common defaults:
+
+| Platform | Typical PERSONAL directory |
+|---|---|
+| macOS | `~/Documents/Stata/ado/personal/` |
+| Linux | `~/ado/personal/` |
+| Windows | `%USERPROFILE%\ado\personal\` |
+
+But users may have changed it, so the extension must not hardcode these paths.
+
+**Discovery mechanism — `stata.personalAdoDir` setting with auto-detection fallback:**
+
+1. **Extension setting** (`sight.personalAdoDir`): If the user has configured this setting, use it directly. This is the escape hatch for non-standard setups.
+
+2. **Auto-detection from `sysdir.ado`**: Stata stores its `sysdir` configuration in a file at `~/ado/personal/sysdir.ado` (the bootstrap location), or within the PERSONAL directory itself. This is unreliable for discovery since it's circular.
+
+3. **Platform defaults**: If no setting is configured, use the platform default:
+   - macOS: `~/Documents/Stata/ado/personal/` (the Stata for Mac default since Stata 16)
+   - Linux: `~/ado/personal/`
+   - Windows: `%USERPROFILE%\ado\personal\`
+
+4. **Validation**: After resolving the path, check that the directory exists (or can be created). If it doesn't exist and creation fails, log a warning and skip installation — the user can configure the setting manually.
+
+**First-run experience:**
+
+On first activation, if the extension uses the platform default and successfully installs `vview.ado`, log a message to the output channel:
+
+```
+Installed vview.ado to /Users/jmb/Documents/Stata/ado/personal/
+If this is not your Stata PERSONAL directory, set sight.personalAdoDir in settings.
+```
+
+This gives users a clear signal if the path is wrong without requiring configuration for the common case.
+
+### Lifecycle
+
+**On extension activation:**
+
+1. Resolve the PERSONAL ado directory (setting → platform default).
+2. Compute the target path: `<PERSONAL>/vview.ado`.
+3. Read the bundled `vview.ado` from the extension's install directory (`context.extensionUri`).
+4. If the target file does not exist, or its content differs from the bundled version, write the bundled version to the target path. Create intermediate directories if they don't exist.
+5. If the target file exists and matches the bundled version, do nothing.
+
+This runs on every activation (which is fast — one `stat` + optional `readFile` comparison) so that extension updates automatically propagate the latest `vview.ado` to Stata.
+
+**Version detection:**
+
+The bundled `vview.ado` includes a version comment in its header (e.g., `*! Version 0.1.0`). The comparison is a byte-level content check, not version parsing — this is simpler, handles any change (bug fixes, formatting), and avoids version-string parsing edge cases.
+
+**Conflict handling:**
+
+If the user has manually placed a `vview.ado` in PERSONAL (or elsewhere on the ado-path), the extension's copy in PERSONAL will take precedence only if it's in the same or earlier directory on the ado-path. Since PERSONAL is searched before PLUS and other user directories by default, the extension's copy wins. If the user has a custom `vview.ado` in SITE or another earlier directory, that one wins — this is acceptable; power users who override the file are opting out of auto-management.
+
+**No uninstall hook:**
+
+VS Code does not provide a reliable extension uninstall lifecycle event. The `vview.ado` file is left in PERSONAL if the extension is uninstalled. This is harmless — the command simply errors once the signal listener is gone. A note in the README tells users they can delete the file manually after uninstalling.
+
+### Bundling
+
+The `vview.ado` source lives at `stata/vview.ado` in the extension source tree. The build step includes it in the extension package (`.vsix`) as a static asset. At runtime, it's read from `context.extensionUri` via `vscode.workspace.fs.readFile`.
+
+### Milestone Mapping
+
+This work belongs in **M2: Stata Integration**:
+
+- [ ] Bundle `vview.ado` as a static asset in the extension package
+- [ ] Add `sight.personalAdoDir` extension setting (optional, string)
+- [ ] Implement PERSONAL directory resolution (setting → platform default)
+- [ ] On activation, install/update `vview.ado` to resolved PERSONAL directory
+- [ ] Log installation status to the output channel (installed, updated, already current, path used)
+
 ## Open Questions
 
 _(None at this time.)_
