@@ -549,7 +549,7 @@
         },
         {
           "command": "sight.openDataBrowser",
-          "when": "resourceExtname =~ /\\.dta/i",
+          "when": "resourceExtname =~ /\\.dta/i && activeCustomEditorId != sight.dataBrowserEditor",
           "group": "navigation"
         },
         {
