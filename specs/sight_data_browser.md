@@ -363,7 +363,7 @@ The extension watches `~/.sight/browse/signal` using `vscode.workspace.createFil
 2. Read `~/.sight/browse/<uuid>.json` for request metadata.
 3. Open `~/.sight/browse/<uuid>.dta` via the `.dta` parser.
 4. If `replace` is true and a tab with the same `name` exists, refresh it; otherwise open a new tab.
-5. Clean up: delete `.json` and `signal` file. The `.dta` file is retained as long as the tab is open, then deleted on tab close.
+5. Clean up: delete `.json` and `signal` file. Immediately `fs.unlink` the `.dta` file while keeping the mmap / file descriptor open (unlink-on-open pattern). The file disappears from `~/.sight/browse/` but the mmap remains valid for lazy row reads. When the tab closes (or VS Code crashes / the process exits), the OS reclaims the disk space automatically — no orphaned files. **Windows fallback:** Windows does not allow unlinking an open file. On Windows, delete the `.dta` on tab close via `onDidDispose`, and run a startup sweep on extension activation that prunes any `.dta` files in `~/.sight/browse/` older than 24 hours (to catch crashes).
 
 ### Phase 2 (future): Local HTTP Server
 
@@ -398,7 +398,7 @@ For bidirectional communication (e.g., Stata pushing live updates after `replace
 - [ ] `vview.ado` — save, sidecar, signal
 - [ ] File watcher in extension
 - [ ] Tab management (replace, naming)
-- [ ] Temp file lifecycle (cleanup on tab close)
+- [ ] Temp file lifecycle (unlink-on-open after mmap; no explicit tab-close cleanup needed)
 - [ ] Register `vview` command in VS Code command palette (for re-triggering from editor side)
 
 ### M3: Polish
