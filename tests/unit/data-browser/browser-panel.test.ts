@@ -2,9 +2,11 @@ import { describe, expect, it } from 'bun:test';
 import { build_cell_value } from '../../../client/src/data-browser/cell-format';
 import { make_missing_value } from '../../../src/dta-parser';
 import {
+    build_grid_columns,
     describe_status_summary,
     describe_visible_rows,
     get_cell_display_value,
+    get_variable_header_subtitle,
     get_needed_page_starts,
 } from '../../../client/src/data-browser/webview/grid-model';
 
@@ -80,6 +82,30 @@ describe('grid-model helpers', () => {
     it('formats visible row counts', () => {
         expect(describe_visible_rows(1000, 0, 50))
             .toBe('Showing 1-50 of 1,000');
+    });
+
+    it('exposes variable labels for header subtitles', () => {
+        expect(get_variable_header_subtitle({
+            name: 'foreign',
+            type: 'byte',
+            format: '%9.0g',
+            label: 'Car origin',
+            has_value_labels: true,
+        })).toBe('Car origin');
+
+        expect(build_grid_columns({
+            type: 'metadata',
+            nobs: 1,
+            variables: [{
+                name: 'foreign',
+                type: 'byte',
+                format: '%9.0g',
+                label: 'Car origin',
+                has_value_labels: true,
+            }],
+            dataset_label: '',
+            name: 'auto',
+        })[0]?.variable_label).toBe('Car origin');
     });
 
     it('builds subset-aware status summaries', () => {

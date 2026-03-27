@@ -383,6 +383,8 @@ export interface VariableSymbol {
   sourceUri: string;
   type?: string;
   label?: string;
+  value_label_name?: string;
+  value_labels?: Map<number | string, string>;
   source: 'gen' | 'egen' | 'input' | 'inferred' | 'directive' | 'rename' | 'confirm';
 }
 

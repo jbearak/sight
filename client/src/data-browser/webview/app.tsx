@@ -1,18 +1,22 @@
 import React, { useMemo, useState } from 'react';
 import {
     DataEditor,
+    type DrawHeaderCallback,
     GridCellKind,
-    type GridColumn,
     type Item,
 } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
 import './styles.css';
 import {
+    build_grid_columns,
+    type BrowserGridColumn,
     describe_status_summary,
     describe_visible_rows,
     get_cell_display_value,
 } from './grid-model';
 import { use_row_loader } from './use-row-loader';
+
+const HEADER_HEIGHT_PX = 40;
 
 export function App() {
     const { metadata, ensure_rows, get_row } = use_row_loader();
@@ -21,16 +25,52 @@ export function App() {
     const [first_visible_row, set_first_visible_row] = useState(0);
     const [visible_row_count, set_visible_row_count] = useState(0);
 
-    const the_columns = useMemo<GridColumn[]>(() => {
-        if (!metadata) {
-            return [];
+    const the_columns = useMemo(
+        () => build_grid_columns(metadata),
+        [metadata]
+    );
+
+    const draw_header: DrawHeaderCallback = ({
+        ctx,
+        column,
+        theme,
+        rect,
+        isSelected,
+        hasSelectedCell,
+    }, draw_content) => {
+        const my_column = column as BrowserGridColumn;
+        const my_variable_label = my_column.variable_label;
+
+        if (!my_variable_label) {
+            draw_content();
+            return;
         }
-        return metadata.variables.map((my_variable, my_index) => ({
-            id: String(my_index),
-            title: my_variable.name,
-            hasMenu: false,
-        }));
-    }, [metadata]);
+
+        const my_text_color =
+            isSelected || hasSelectedCell
+                ? theme.textHeaderSelected
+                : theme.textHeader;
+        const my_left = rect.x + 12;
+        const my_title_y = rect.y + 14;
+        const my_subtitle_y = rect.y + rect.height - 9;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.width, rect.height);
+        ctx.clip();
+
+        ctx.fillStyle = my_text_color;
+        ctx.font = `${theme.headerFontStyle} ${theme.fontFamily}`;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(my_column.title, my_left, my_title_y);
+
+        ctx.fillStyle = my_text_color;
+        ctx.globalAlpha = 0.68;
+        ctx.font = `400 11px ${theme.fontFamily}`;
+        ctx.fillText(my_variable_label, my_left, my_subtitle_y);
+
+        ctx.restore();
+    };
 
     const row_count_text = metadata
         ? describe_visible_rows(
@@ -65,10 +105,12 @@ export function App() {
                 <DataEditor
                     columns={the_columns}
                     rows={metadata?.nobs ?? 0}
+                    headerHeight={HEADER_HEIGHT_PX}
                     rowMarkers="number"
                     getCellsForSelection={true}
                     smoothScrollX={true}
                     smoothScrollY={true}
+                    drawHeader={draw_header}
                     onVisibleRegionChanged={(my_range: {
                         x: number;
                         y: number;

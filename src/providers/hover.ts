@@ -1477,7 +1477,16 @@ export class HoverProvider {
      * @returns MarkupContent with formatted variable info
      */
     private format_variable_hover(
-        variable: { name: string; sourceUri?: string; type?: string; label?: string; source: string; location?: { uri: string; range: { start: { line: number } } } },
+        variable: {
+            name: string;
+            sourceUri?: string;
+            type?: string;
+            label?: string;
+            value_label_name?: string;
+            value_labels?: Map<number | string, string>;
+            source: string;
+            location?: { uri: string; range: { start: { line: number } } };
+        },
         current_uri: string,
         workspace_root?: string
     ): MarkupContent {
@@ -1499,11 +1508,73 @@ export class HoverProvider {
                 : `\n\nDefined at: this file${line_info}`;
         }
 
-        // Note: Type and label display is disabled for now (low priority to fix)
+        const the_details: string[] = [];
+
+        if (variable.type) {
+            the_details.push(
+                `Type: ${this.escape_markdown_text(variable.type)}`
+            );
+        }
+        if (variable.label) {
+            the_details.push(
+                `Label: ${this.escape_markdown_text(variable.label)}`
+            );
+        }
+        if (variable.value_label_name) {
+            the_details.push(
+                `Value Label: \`${this.escape_markdown_text(variable.value_label_name)}\``
+            );
+        }
+
+        const value_label_info = this.format_value_label_mappings(
+            variable.value_labels
+        );
+        if (value_label_info) {
+            the_details.push(value_label_info);
+        }
+
+        const details_text = the_details.length > 0
+            ? `\n\n${the_details.join('\n\n')}`
+            : '';
+
         return {
             kind: MarkupKind.Markdown,
-            value: `**Variable:** \`${variable.name}\`${source_info}`,
+            value: `**Variable:** \`${variable.name}\`${details_text}${source_info}`,
         };
+    }
+
+    private format_value_label_mappings(
+        value_labels?: Map<number | string, string>
+    ): string {
+        if (!value_labels || value_labels.size === 0) {
+            return '';
+        }
+
+        const MAX_VALUE_LABEL_ENTRIES = 12;
+        const the_entries = Array.from(value_labels.entries()).sort(
+            ([value_a], [value_b]) =>
+                String(value_a).localeCompare(
+                    String(value_b),
+                    undefined,
+                    { numeric: true }
+                )
+        );
+        const the_visible_entries = the_entries.slice(
+            0,
+            MAX_VALUE_LABEL_ENTRIES
+        );
+        const the_lines = the_visible_entries.map(
+            ([my_value, my_label]) =>
+                `- \`${this.escape_markdown_text(String(my_value))}\` => ${this.escape_markdown_text(my_label)}`
+        );
+
+        if (the_entries.length > MAX_VALUE_LABEL_ENTRIES) {
+            the_lines.push(
+                `- ... and ${the_entries.length - MAX_VALUE_LABEL_ENTRIES} more`
+            );
+        }
+
+        return `Value Mappings:\n${the_lines.join('\n')}`;
     }
 
     /**
@@ -1864,6 +1935,10 @@ export class HoverProvider {
      */
     private escape_markdown_link_text(text: string): string {
         return text.replace(/[\\[\]()]/g, '\\$&');
+    }
+
+    private escape_markdown_text(text: string): string {
+        return text.replace(/([\\`*_{}\[\]()#+\-.!|])/g, '\\$1');
     }
 
     /**

@@ -27,22 +27,7 @@ reliably display the exact original file path promised by the spec.
 
 ---
 
-## 2. Column headers do not surface variable labels yet
-
-**Spec said:** Column headers should show the variable name with the variable
-label as a subtitle or tooltip.
-
-**Current implementation:** The virtual grid in
-[`client/src/data-browser/webview/app.tsx`](/Users/jmb/repos/sight-viewer-codex/client/src/data-browser/webview/app.tsx)
-uses `title: my_variable.name` only. Variable labels are present in the
-metadata payload but are not rendered in the grid header.
-
-**Impact:** Variable labels are available to the extension, but the header UX is
-still less informative than specified.
-
----
-
-## 3. Value labels render as text only; raw numeric value is not shown in a tooltip
+## 2. Value labels render as text only; raw numeric value is not shown in a tooltip
 
 **Spec said:** Value-labeled cells should display the label, with the numeric
 value available in a tooltip or equivalent affordance.
@@ -57,7 +42,7 @@ value at once” behavior from the spec is still missing.
 
 ---
 
-## 4. Search / column filtering is still not implemented
+## 3. Search / column filtering is still not implemented
 
 **Spec said:** The toolbar should include search/filter support, specifically
 column-level text filtering.
@@ -71,7 +56,7 @@ grid client-side from the browser UI.
 
 ---
 
-## 5. Status bar content is close, but not identical to the spec
+## 4. Status bar content is close, but not identical to the spec
 
 **Spec said:** The status bar should show dataset name, `N × K`, source file
 path, and whether the dataset is subsetted.
@@ -85,7 +70,7 @@ status-bar layout differs from the spec.
 
 ---
 
-## 6. No VS Code command-palette entry for opening data browser content directly
+## 5. No VS Code command-palette entry for opening data browser content directly
 
 **Spec said:** M2 called for a VS Code command-palette entry so the browser
 could also be triggered from the editor side.
@@ -97,7 +82,7 @@ could also be triggered from the editor side.
 
 ---
 
-## 7. No custom readonly editor for `.dta` files
+## 6. No custom readonly editor for `.dta` files
 
 **Spec said:** M3 proposed a `CustomReadonlyEditorProvider` so double-clicking a
 `.dta` in the explorer would open the Sight browser directly.
@@ -109,7 +94,7 @@ client extension.
 
 ---
 
-## 8. PERSONAL ado directory resolution still uses hardcoded platform defaults
+## 7. PERSONAL ado directory resolution still uses hardcoded platform defaults
 
 **Spec said:** `sight.personalAdoDir` should be an override, but the fallback
 should effectively respect the user's actual PERSONAL ado directory rather than
@@ -124,7 +109,7 @@ extension does not truly discover a user-customized PERSONAL directory.
 
 ---
 
-## 9. Remaining deferred M3 polish is still deferred
+## 8. Remaining deferred M3 polish is still deferred
 
 The follow-up intentionally did **not** implement the following spec items:
 

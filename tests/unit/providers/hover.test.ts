@@ -139,6 +139,42 @@ describe('HoverProvider Helper Methods', () => {
         });
     });
 
+    describe('format_variable_hover', () => {
+        it('should include label and value-label details when present', () => {
+            const result = (hover_provider as any).format_variable_hover(
+                {
+                    name: 'foreign',
+                    sourceUri: 'file:///Users/test/project/data.do',
+                    type: 'byte',
+                    label: 'Car origin',
+                    value_label_name: 'origin',
+                    value_labels: new Map([
+                        [0, 'Domestic'],
+                        [1, 'Foreign'],
+                    ]),
+                    source: 'directive',
+                    location: {
+                        uri: 'file:///Users/test/project/data.do',
+                        range: {
+                            start: { line: 9, character: 0 },
+                            end: { line: 9, character: 7 },
+                        },
+                    },
+                },
+                'file:///Users/test/project/main.do',
+                'file:///Users/test/project'
+            );
+
+            expect(result.value).toContain('**Variable:** `foreign`');
+            expect(result.value).toContain('Type: byte');
+            expect(result.value).toContain('Label: Car origin');
+            expect(result.value).toContain('Value Label: `origin`');
+            expect(result.value).toContain('`0` => Domestic');
+            expect(result.value).toContain('`1` => Foreign');
+            expect(result.value).toContain('Source: [data.do](file:///Users/test/project/data.do), line 10');
+        });
+    });
+
     describe('get_macro_hover', () => {
         let document: DocumentState;
         let position: Position;

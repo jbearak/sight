@@ -1,9 +1,37 @@
+import type { GridColumn } from '@glideapps/glide-data-grid';
 import type {
     CellValue,
     MetadataMessage,
+    VariableDescription,
 } from '../types';
 
 export const PAGE_SIZE = 200;
+
+export type BrowserGridColumn = GridColumn & {
+    variable_label?: string;
+};
+
+export function build_grid_columns(
+    metadata: MetadataMessage | null
+): BrowserGridColumn[] {
+    if (!metadata) {
+        return [];
+    }
+
+    return metadata.variables.map((my_variable, my_index) => ({
+        id: String(my_index),
+        title: my_variable.name,
+        variable_label: get_variable_header_subtitle(my_variable),
+        hasMenu: false,
+    }));
+}
+
+export function get_variable_header_subtitle(
+    variable: VariableDescription
+): string | undefined {
+    const my_label = variable.label.trim();
+    return my_label === '' ? undefined : my_label;
+}
 
 export function get_cell_display_value(
     cell: CellValue,
