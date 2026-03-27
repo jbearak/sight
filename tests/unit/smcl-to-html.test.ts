@@ -263,6 +263,34 @@ describe('smcl_to_html', () => {
             expect(result.html).toContain('Stata website</a>');
         });
 
+        it('preserves port numbers in browse URLs', () => {
+            const result = smcl_to_html(
+                '{browse http://localhost:8080}'
+            );
+            expect(result.html).toContain(
+                'href="http://localhost:8080"'
+            );
+        });
+
+        it('handles browse URL with port and display text', () => {
+            const result = smcl_to_html(
+                '{browse http://localhost:8080:Local server}'
+            );
+            expect(result.html).toContain(
+                'href="http://localhost:8080"'
+            );
+            expect(result.html).toContain('Local server</a>');
+        });
+
+        it('handles mailto URLs in browse', () => {
+            const result = smcl_to_html(
+                '{browse mailto:user@example.com}'
+            );
+            expect(result.html).toContain(
+                'href="mailto:user@example.com"'
+            );
+        });
+
         it('renders {marker name} as anchor', () => {
             const result = smcl_to_html('{marker syntax}');
             expect(result.html).toContain('id="syntax"');
@@ -318,6 +346,21 @@ describe('smcl_to_html', () => {
             expect(result.html).toContain('smcl-syntab');
             expect(result.html).toContain('noconstant');
             expect(result.html).toContain('suppress constant');
+        });
+
+        it('closes synopt table on {p2colreset}', () => {
+            const result = smcl_to_html(
+                '{synoptset 20}\n' +
+                '{synopt:{opt x}}desc{p_end}\n' +
+                '{synoptline}\n' +
+                '{p2colreset}\n' +
+                'After table'
+            );
+            expect(result.html).toContain('</table>');
+            // Content after table should not be inside the table
+            const my_table_end = result.html.lastIndexOf('</table>');
+            const my_after = result.html.indexOf('After table');
+            expect(my_after).toBeGreaterThan(my_table_end);
         });
     });
 

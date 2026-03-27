@@ -51,6 +51,7 @@ export class SmclPanelManager implements vscode.Disposable {
 
         my_preview.on_did_dispose(() => {
             this.panels.delete(my_key);
+            my_preview.cleanup();
         });
 
         this.panels.set(my_key, my_preview);

@@ -608,9 +608,18 @@ function render_directive(
             return render_p2colset(directive, ctx);
         case 'p2col':
             return render_p2col(directive, ctx);
-        case 'p2colreset':
-            ctx.in_p2col = false;
-            return '</table>';
+        case 'p2colreset': {
+            let my_close = '';
+            if (ctx.in_synopt_table) {
+                ctx.in_synopt_table = false;
+                my_close += '</tbody></table>';
+            }
+            if (ctx.in_p2col) {
+                ctx.in_p2col = false;
+                my_close += '</table>';
+            }
+            return my_close || '</table>';
+        }
         case 'p2line':
             return '<tr><td colspan="2"><hr class="smcl-hline"></td></tr>';
         case 'p2coldent':
@@ -775,10 +784,19 @@ function render_synoptset(
     directive: SmclDirective,
     ctx: RenderContext
 ): string {
+    // Implicitly close any previous open table
+    let my_prefix = '';
+    if (ctx.in_synopt_table) {
+        my_prefix += '</tbody></table>';
+    }
+    if (ctx.in_p2col) {
+        my_prefix += '</table>';
+        ctx.in_p2col = false;
+    }
     const my_width = parse_first_number(directive.args) || 20;
     ctx.in_synopt_table = true;
     ctx.synopt_col_width = my_width;
-    return `<table class="smcl-synopt-table"${data_line_attr(directive)}>`;
+    return `${my_prefix}<table class="smcl-synopt-table"${data_line_attr(directive)}>`;
 }
 
 function render_synopthdr(
@@ -979,25 +997,31 @@ function render_browse(
 function split_browse_args(
     raw: string
 ): { url: string; display: string | null } {
-    // Find the first colon that is NOT preceded by a protocol
-    // (i.e., not part of "://")
-    let i = 0;
-    while (i < raw.length) {
-        if (raw[i] === ':') {
-            // Check if this is part of ://
-            if (i + 2 < raw.length && raw[i + 1] === '/' && raw[i + 2] === '/') {
-                i += 3; // skip past ://
-                continue;
-            }
-            // This is the display separator
-            return {
-                url: raw.substring(0, i),
-                display: raw.substring(i + 1),
-            };
-        }
-        i++;
+    // Stata's {browse} uses the LAST colon as the URL:display
+    // separator. Scanning from the end correctly handles port
+    // numbers (http://host:8080) and mailto: URLs since the
+    // display separator is always the final colon.
+    const my_last_colon = raw.lastIndexOf(':');
+    if (my_last_colon < 0) {
+        return { url: raw, display: null };
     }
-    return { url: raw, display: null };
+
+    const my_url = raw.substring(0, my_last_colon);
+    const my_display = raw.substring(my_last_colon + 1);
+
+    // If the "display" part looks like it's part of the URL
+    // (e.g., "//host" from "http://host", digits from port,
+    // or email-like text after "mailto:"), treat as URL only.
+    if (
+        my_display.startsWith('//') ||
+        /^\d+$/.test(my_display) ||
+        /^\d+\//.test(my_display) ||
+        /^(https?|mailto|ftp)$/i.test(my_url)
+    ) {
+        return { url: raw, display: null };
+    }
+
+    return { url: my_url, display: my_display };
 }
 
 function render_marker(directive: SmclDirective): string {

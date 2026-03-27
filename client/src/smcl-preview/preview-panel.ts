@@ -21,6 +21,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
     private debounce_timer: ReturnType<typeof setTimeout> | undefined;
     private on_navigate: (topic: string) => void;
+    private disposed = false;
 
     // Scroll sync state
     private scroll_sync_source: 'editor' | 'preview' | null = null;
@@ -88,7 +89,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
         this.disposables.push(this.panel.onDidDispose(callback));
     }
 
-    dispose(): void {
+    /**
+     * Clean up listeners and timers without disposing the panel.
+     * Called when the panel is closed by the user (onDidDispose).
+     */
+    cleanup(): void {
+        if (this.disposed) return;
+        this.disposed = true;
         if (this.debounce_timer !== undefined) {
             clearTimeout(this.debounce_timer);
         }
@@ -98,6 +105,10 @@ export class SmclPreviewPanel implements vscode.Disposable {
         for (const my_disposable of this.disposables) {
             my_disposable.dispose();
         }
+    }
+
+    dispose(): void {
+        this.cleanup();
         this.panel.dispose();
     }
 
