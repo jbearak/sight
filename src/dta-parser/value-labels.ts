@@ -44,7 +44,8 @@ const UTF8_DECODER = new TextDecoder('utf-8');
  */
 export function parse_value_labels(
     buffer: ArrayBuffer,
-    metadata: DtaMetadata
+    metadata: DtaMetadata,
+    base_offset: number = 0
 ): Map<string, Map<number, string>> {
     const my_result = new Map<string, Map<number, string>>();
 
@@ -57,12 +58,14 @@ export function parse_value_labels(
 
     // Position after the <value_labels> tag
     let pos = metadata.section_offsets.value_labels
+        - base_offset
         + VALUE_LABELS_TAG_LENGTH;
 
     // Section ends before </value_labels> which is before
     // the stata_data_close tag
     const my_section_end =
-        metadata.section_offsets.stata_data_close;
+        metadata.section_offsets.stata_data_close
+        - base_offset;
 
     while (pos + LBL_OPEN_TAG_LENGTH <= my_section_end) {
         // Check for <lbl> opening tag

@@ -21,6 +21,11 @@ export interface GsoEntry {
     type: number;            // 129=binary, 130=ASCII
 }
 
+export interface StrlPointer {
+    v: number;
+    o: number;
+}
+
 // -----------------------------------------------------------
 // Constants
 // -----------------------------------------------------------
@@ -43,7 +48,8 @@ const UTF8_DECODER = new TextDecoder('utf-8');
  */
 export function build_gso_index(
     buffer: ArrayBuffer,
-    metadata: DtaMetadata
+    metadata: DtaMetadata,
+    base_offset: number = 0
 ): Map<string, GsoEntry> {
     const my_index = new Map<string, GsoEntry>();
 
@@ -59,11 +65,13 @@ export function build_gso_index(
 
     // Position after the <strls> tag
     let pos = metadata.section_offsets.strls
+        - base_offset
         + STRLS_TAG_LENGTH;
 
     // The section ends at the value_labels offset
     const my_section_end =
-        metadata.section_offsets.value_labels;
+        metadata.section_offsets.value_labels
+        - base_offset;
 
     while (pos + 3 <= my_section_end) {
         // Check for "GSO" marker
@@ -115,7 +123,7 @@ export function build_gso_index(
 
         const my_key = my_v + ':' + my_o;
         my_index.set(my_key, {
-            content_offset: pos,
+            content_offset: pos + base_offset,
             content_length: my_len,
             type: my_type,
         });
@@ -143,9 +151,25 @@ export function resolve_strl(
 ): string | null {
     const view = new DataView(buffer);
     const bytes = new Uint8Array(buffer);
+    const my_pointer = read_strl_pointer(
+        view, metadata, pointer_offset
+    );
+    if (!my_pointer) return '';
+
+    const my_key = my_pointer.v + ':' + my_pointer.o;
+    const my_entry = gso_index.get(my_key);
+    if (!my_entry) return null;
+
+    return decode_gso_entry(bytes, my_entry);
+}
+
+export function read_strl_pointer(
+    view: DataView,
+    metadata: DtaMetadata,
+    pointer_offset: number
+): StrlPointer | null {
     const little_endian = metadata.byte_order === 'LSF';
 
-    // Read the (v, o) pointer
     // v118/v119 pointer layout (LE):
     //   bytes 0-1: v (uint16)
     //   bytes 2-7: o (6-byte little-endian integer)
@@ -162,48 +186,43 @@ export function resolve_strl(
         my_o = view.getUint32(
             pointer_offset + 4, little_endian
         );
+    } else if (little_endian) {
+        my_v = view.getUint16(pointer_offset, true);
+        my_o = view.getUint32(
+            pointer_offset + 2, true
+        );
     } else {
-        // v118/v119: v is uint16, o is 6-byte int
-        if (little_endian) {
-            my_v = view.getUint16(pointer_offset, true);
-            // 6-byte LE integer: read uint32 at +2 for
-            // low bits, uint16 at +6 for high bits
-            my_o = view.getUint32(
-                pointer_offset + 2, true
-            );
-            // High 2 bytes are at pointer_offset+6;
-            // ignore for practical observation counts
-        } else {
-            // Big-endian: v in first 2 bytes, o in next 6
-            my_v = view.getUint16(pointer_offset, false);
-            // Read 6 bytes big-endian
-            const my_hi = view.getUint16(
-                pointer_offset + 2, false
-            );
-            const my_lo = view.getUint32(
-                pointer_offset + 4, false
-            );
-            my_o = my_hi * 0x100000000 + my_lo;
-        }
+        my_v = view.getUint16(pointer_offset, false);
+        const my_hi = view.getUint16(
+            pointer_offset + 2, false
+        );
+        const my_lo = view.getUint32(
+            pointer_offset + 4, false
+        );
+        my_o = my_hi * 0x100000000 + my_lo;
     }
 
-    // (v=0, o=0) means empty string
-    if (my_v === 0 && my_o === 0) return '';
+    if (my_v === 0 && my_o === 0) {
+        return null;
+    }
 
-    const my_key = my_v + ':' + my_o;
-    const my_entry = gso_index.get(my_key);
-    if (!my_entry) return null;
+    return { v: my_v, o: my_o };
+}
 
+export function decode_gso_entry(
+    bytes: Uint8Array,
+    entry: GsoEntry
+): string {
     // Decode content
-    if (my_entry.type === 130) {
+    if (entry.type === 130) {
         // ASCII: content_length includes null terminator
-        const my_str_len = my_entry.content_length > 0
-            ? my_entry.content_length - 1
+        const my_str_len = entry.content_length > 0
+            ? entry.content_length - 1
             : 0;
         return UTF8_DECODER.decode(
             bytes.subarray(
-                my_entry.content_offset,
-                my_entry.content_offset + my_str_len
+                entry.content_offset,
+                entry.content_offset + my_str_len
             )
         );
     }
@@ -211,9 +230,8 @@ export function resolve_strl(
     // Binary (type 129): return raw bytes as string
     return UTF8_DECODER.decode(
         bytes.subarray(
-            my_entry.content_offset,
-            my_entry.content_offset
-                + my_entry.content_length
+            entry.content_offset,
+            entry.content_offset + entry.content_length
         )
     );
 }

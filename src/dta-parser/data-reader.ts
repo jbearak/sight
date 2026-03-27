@@ -137,20 +137,11 @@ function read_cell(
     }
 }
 
-/**
- * Read observation rows from a .dta buffer.
- *
- * @param buffer - The full .dta file as an ArrayBuffer
- * @param metadata - Parsed metadata from parse_metadata()
- * @param start - First row index (0-based)
- * @param count - Number of rows to read
- * @param col_start - First column index (inclusive, optional)
- * @param col_end - Last column index (exclusive, optional)
- * @returns Array of rows, each row an array of cell values
- */
-export function read_rows_from_buffer(
-    buffer: ArrayBuffer,
+function read_rows_from_view(
+    view: DataView,
+    bytes: Uint8Array,
     metadata: DtaMetadata,
+    row_base_offset: number,
     start: number,
     count: number,
     col_start?: number,
@@ -170,21 +161,13 @@ export function read_rows_from_buffer(
     // Resolve column range
     const my_col_start = col_start ?? 0;
     const my_col_end = col_end ?? metadata.nvar;
-
     const little_endian = metadata.byte_order === 'LSF';
-    const view = new DataView(buffer);
-    const bytes = new Uint8Array(buffer);
-
-    // Data starts after the <data> tag
-    const my_data_start =
-        metadata.section_offsets.data + DATA_TAG_LENGTH;
-
     const the_rows: Row[] = [];
 
     for (let i = 0; i < my_actual_count; i++) {
-        const my_row_offset = my_data_start
-            + (start + i) * metadata.obs_length;
-            const my_row: Row = [];
+        const my_row_offset =
+            row_base_offset + i * metadata.obs_length;
+        const my_row: Row = [];
 
         for (
             let j = my_col_start;
@@ -211,4 +194,69 @@ export function read_rows_from_buffer(
     }
 
     return the_rows;
+}
+
+/**
+ * Read observation rows from a .dta buffer.
+ *
+ * @param buffer - The full .dta file as an ArrayBuffer
+ * @param metadata - Parsed metadata from parse_metadata()
+ * @param start - First row index (0-based)
+ * @param count - Number of rows to read
+ * @param col_start - First column index (inclusive, optional)
+ * @param col_end - Last column index (exclusive, optional)
+ * @returns Array of rows, each row an array of cell values
+ */
+export function read_rows_from_buffer(
+    buffer: ArrayBuffer,
+    metadata: DtaMetadata,
+    start: number,
+    count: number,
+    col_start?: number,
+    col_end?: number
+): Row[] {
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+
+    // Data starts after the <data> tag
+    const my_data_start =
+        metadata.section_offsets.data + DATA_TAG_LENGTH;
+
+    return read_rows_from_view(
+        view,
+        bytes,
+        metadata,
+        my_data_start + start * metadata.obs_length,
+        start,
+        count,
+        col_start,
+        col_end
+    );
+}
+
+/**
+ * Read observation rows from a buffer that contains only
+ * contiguous observation bytes, starting at `start`.
+ */
+export function read_rows_from_data_buffer(
+    buffer: ArrayBuffer,
+    metadata: DtaMetadata,
+    start: number,
+    count: number,
+    col_start?: number,
+    col_end?: number
+): Row[] {
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+
+    return read_rows_from_view(
+        view,
+        bytes,
+        metadata,
+        0,
+        start,
+        count,
+        col_start,
+        col_end
+    );
 }

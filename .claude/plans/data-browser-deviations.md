@@ -9,22 +9,7 @@ It intentionally lists only the deltas that still remain.
 
 ---
 
-## 1. File I/O is still full-buffer, not mmap / fd-backed random access
-
-**Spec said:** The browser should support lazy row loading via memory-mapped
-access or explicit file-offset reads against an open file descriptor.
-
-**Current implementation:** [`DtaFile.open()`](/Users/jmb/repos/sight-viewer-codex/src/dta-parser/index.ts)
-still uses `fs.readFileSync()` to load the entire `.dta` into memory, then all
-row reads are `ArrayBuffer` offset math.
-
-**Impact:** The webview grid is now virtualized, but extension memory still
-scales with file size rather than page-cache-backed demand reads. This is the
-largest remaining architecture gap versus the original performance model.
-
----
-
-## 2. `vview` sidecar metadata is richer, but not fully spec-accurate
+## 1. `vview` sidecar metadata is richer, but not fully spec-accurate
 
 **Spec said:** The sidecar example showed:
 - ISO-like UTC timestamp (`2026-03-26T14:30:00Z`)
@@ -42,7 +27,7 @@ reliably display the exact original file path promised by the spec.
 
 ---
 
-## 3. Column headers do not surface variable labels yet
+## 2. Column headers do not surface variable labels yet
 
 **Spec said:** Column headers should show the variable name with the variable
 label as a subtitle or tooltip.
@@ -57,7 +42,7 @@ still less informative than specified.
 
 ---
 
-## 4. Value labels render as text only; raw numeric value is not shown in a tooltip
+## 3. Value labels render as text only; raw numeric value is not shown in a tooltip
 
 **Spec said:** Value-labeled cells should display the label, with the numeric
 value available in a tooltip or equivalent affordance.
@@ -72,7 +57,7 @@ value at once” behavior from the spec is still missing.
 
 ---
 
-## 5. Search / column filtering is still not implemented
+## 4. Search / column filtering is still not implemented
 
 **Spec said:** The toolbar should include search/filter support, specifically
 column-level text filtering.
@@ -86,7 +71,7 @@ grid client-side from the browser UI.
 
 ---
 
-## 6. Status bar content is close, but not identical to the spec
+## 5. Status bar content is close, but not identical to the spec
 
 **Spec said:** The status bar should show dataset name, `N × K`, source file
 path, and whether the dataset is subsetted.
@@ -100,7 +85,7 @@ status-bar layout differs from the spec.
 
 ---
 
-## 7. No VS Code command-palette entry for opening data browser content directly
+## 6. No VS Code command-palette entry for opening data browser content directly
 
 **Spec said:** M2 called for a VS Code command-palette entry so the browser
 could also be triggered from the editor side.
@@ -112,7 +97,7 @@ could also be triggered from the editor side.
 
 ---
 
-## 8. No custom readonly editor for `.dta` files
+## 7. No custom readonly editor for `.dta` files
 
 **Spec said:** M3 proposed a `CustomReadonlyEditorProvider` so double-clicking a
 `.dta` in the explorer would open the Sight browser directly.
@@ -124,7 +109,7 @@ client extension.
 
 ---
 
-## 9. PERSONAL ado directory resolution still uses hardcoded platform defaults
+## 8. PERSONAL ado directory resolution still uses hardcoded platform defaults
 
 **Spec said:** `sight.personalAdoDir` should be an override, but the fallback
 should effectively respect the user's actual PERSONAL ado directory rather than
@@ -139,7 +124,7 @@ extension does not truly discover a user-customized PERSONAL directory.
 
 ---
 
-## 10. Remaining deferred M3 polish is still deferred
+## 9. Remaining deferred M3 polish is still deferred
 
 The follow-up intentionally did **not** implement the following spec items:
 

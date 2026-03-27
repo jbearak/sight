@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
+import * as fs from 'fs';
 import * as path from 'path';
 import {
     DtaFile,
@@ -337,6 +338,39 @@ describe('DtaFile', () => {
 
             // Prevent afterEach double-close
             my_file = null;
+        });
+
+        it('keeps reading after the source path is unlinked', async () => {
+            if (process.platform === 'win32') {
+                return;
+            }
+
+            const my_source_path = path.join(
+                FIXTURE_DIR,
+                'auto_v118.dta'
+            );
+            const my_copy_path = path.join(
+                FIXTURE_DIR,
+                'auto_v118.unlink-copy.dta'
+            );
+
+            fs.copyFileSync(my_source_path, my_copy_path);
+
+            try {
+                my_file = await DtaFile.open(my_copy_path);
+                fs.unlinkSync(my_copy_path);
+
+                const the_rows =
+                    await my_file.read_rows(0, 2);
+                expect(the_rows.length).toBe(2);
+                expect(the_rows[0].length).toBe(12);
+            } finally {
+                try {
+                    fs.unlinkSync(my_copy_path);
+                } catch {
+                    /* file may already be gone */
+                }
+            }
         });
     });
 });

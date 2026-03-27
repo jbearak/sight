@@ -13,10 +13,11 @@
 
 import * as fs from 'fs';
 import { parse_metadata } from './header';
-import { read_rows_from_buffer } from './data-reader';
+import { read_rows_from_data_buffer } from './data-reader';
 import {
     build_gso_index,
-    resolve_strl,
+    decode_gso_entry,
+    read_strl_pointer,
     type GsoEntry,
 } from './strl-reader';
 import { parse_value_labels } from './value-labels';
@@ -25,15 +26,16 @@ import type { DtaMetadata, VariableInfo, Row } from './types';
 // -----------------------------------------------------------
 // Constants
 // -----------------------------------------------------------
-
-const DATA_TAG_LENGTH = '<data>'.length; // 6
+const INITIAL_METADATA_READ_SIZE = 64 * 1024;
+const MAX_READ_RETRIES = 2;
+const DATA_TAG_LENGTH = '<data>'.length;
 
 // -----------------------------------------------------------
 // DtaFile class
 // -----------------------------------------------------------
 
 export class DtaFile {
-    private _buffer: ArrayBuffer;
+    private _fd: number | null;
     private readonly _metadata: DtaMetadata;
     private _gso_index: Map<string, GsoEntry>;
     private _value_label_tables: Map<
@@ -46,7 +48,7 @@ export class DtaFile {
     private readonly _strl_col_indices: number[];
 
     private constructor(
-        buffer: ArrayBuffer,
+        fd: number,
         metadata: DtaMetadata,
         gso_index: Map<string, GsoEntry>,
         value_label_tables: Map<
@@ -54,7 +56,7 @@ export class DtaFile {
             Map<number, string>
         >
     ) {
-        this._buffer = buffer;
+        this._fd = fd;
         this._metadata = metadata;
         this._gso_index = gso_index;
         this._value_label_tables = value_label_tables;
@@ -77,30 +79,42 @@ export class DtaFile {
     /**
      * Open a .dta file and parse all metadata.
      *
-     * Reads the entire file into memory, then parses the
-     * header, builds the GSO index, and parses value labels.
+     * Keeps the file descriptor open for fd-backed random
+     * access. Only metadata and sidecar sections are loaded
+     * into memory; observation rows are read on demand.
      */
     static async open(file_path: string): Promise<DtaFile> {
-        const my_buf = fs.readFileSync(file_path);
-        const my_array_buf = my_buf.buffer.slice(
-            my_buf.byteOffset,
-            my_buf.byteOffset + my_buf.byteLength
-        ) as ArrayBuffer;
+        const my_fd = fs.openSync(file_path, 'r');
 
-        const my_metadata = parse_metadata(my_array_buf);
-        const my_gso_index = build_gso_index(
-            my_array_buf, my_metadata
-        );
-        const my_labels = parse_value_labels(
-            my_array_buf, my_metadata
-        );
+        try {
+            const my_file_size =
+                fs.fstatSync(my_fd).size;
+            const my_metadata_buffer =
+                read_minimal_metadata_buffer(
+                    my_fd,
+                    my_file_size
+                );
+            const my_metadata = parse_metadata(
+                my_metadata_buffer
+            );
 
-        return new DtaFile(
-            my_array_buf,
-            my_metadata,
-            my_gso_index,
-            my_labels
-        );
+            const my_gso_index = read_gso_index(
+                my_fd, my_metadata
+            );
+            const my_labels = read_value_labels(
+                my_fd, my_metadata
+            );
+
+            return new DtaFile(
+                my_fd,
+                my_metadata,
+                my_gso_index,
+                my_labels
+            );
+        } catch (my_err) {
+            fs.closeSync(my_fd);
+            throw my_err;
+        }
     }
 
     // -------------------------------------------------------
@@ -153,13 +167,31 @@ export class DtaFile {
         col_start?: number,
         col_end?: number
     ): Promise<Row[]> {
-        if (this._closed) return [];
+        if (this._closed || this._fd === null) return [];
 
-        const the_rows = read_rows_from_buffer(
-            this._buffer,
+        const my_actual_count = Math.min(
+            count,
+            this._metadata.nobs - start
+        );
+        if (
+            this._metadata.nobs === 0
+            || start >= this._metadata.nobs
+            || my_actual_count <= 0
+        ) {
+            return [];
+        }
+
+        const my_data_buffer = read_data_rows(
+            this._fd,
             this._metadata,
             start,
-            count,
+            my_actual_count
+        );
+        const the_rows = read_rows_from_data_buffer(
+            my_data_buffer,
+            this._metadata,
+            start,
+            my_actual_count,
             col_start,
             col_end
         );
@@ -169,7 +201,7 @@ export class DtaFile {
         if (this._strl_col_indices.length > 0) {
             this._resolve_strls(
                 the_rows,
-                start,
+                my_data_buffer,
                 col_start ?? 0,
                 col_end ?? this._metadata.nvar
             );
@@ -183,12 +215,15 @@ export class DtaFile {
     // -------------------------------------------------------
 
     /**
-     * Release the buffer and internal caches. After close,
-     * read_rows returns empty arrays.
+     * Release the open file handle and internal caches.
+     * After close, read_rows returns empty arrays.
      */
     close(): void {
+        if (this._fd !== null) {
+            fs.closeSync(this._fd);
+            this._fd = null;
+        }
         this._closed = true;
-        this._buffer = new ArrayBuffer(0);
         this._gso_index = new Map();
         this._value_label_tables = new Map();
     }
@@ -200,19 +235,19 @@ export class DtaFile {
     /**
      * Post-process rows to resolve strL placeholders.
      *
-     * For each strL column in the requested range, compute
-     * the pointer offset in the data section and call
-     * resolve_strl() to replace the "__strl__" placeholder.
+     * For each strL column in the requested range, decode
+     * the pointer from the row buffer and fetch the GSO
+     * payload through the open file descriptor.
      */
     private _resolve_strls(
         the_rows: Row[],
-        start: number,
+        data_buffer: ArrayBuffer,
         col_start: number,
         col_end: number
     ): void {
-        const my_data_start =
-            this._metadata.section_offsets.data
-            + DATA_TAG_LENGTH;
+        if (this._fd === null) return;
+
+        const my_view = new DataView(data_buffer);
 
         for (const my_abs_col of this._strl_col_indices) {
             // Skip columns outside the requested range
@@ -229,16 +264,32 @@ export class DtaFile {
                 .variables[my_abs_col];
 
             for (let i = 0; i < the_rows.length; i++) {
-                const my_pointer_offset = my_data_start
-                    + (start + i)
-                        * this._metadata.obs_length
+                const my_pointer_offset =
+                    i * this._metadata.obs_length
                     + my_var.byte_offset;
-
-                const my_resolved = resolve_strl(
-                    this._buffer,
+                const my_pointer = read_strl_pointer(
+                    my_view,
                     this._metadata,
-                    this._gso_index,
                     my_pointer_offset
+                );
+                if (!my_pointer) {
+                    the_rows[i][my_row_col] = '';
+                    continue;
+                }
+
+                const my_key =
+                    my_pointer.v + ':' + my_pointer.o;
+                const my_entry = this._gso_index.get(
+                    my_key
+                );
+                if (!my_entry) {
+                    the_rows[i][my_row_col] = '';
+                    continue;
+                }
+
+                const my_resolved = read_gso_content(
+                    this._fd,
+                    my_entry
                 );
 
                 the_rows[i][my_row_col] =
@@ -246,6 +297,169 @@ export class DtaFile {
             }
         }
     }
+}
+
+function read_minimal_metadata_buffer(
+    fd: number,
+    file_size: number
+): ArrayBuffer {
+    let my_read_size = Math.min(
+        file_size,
+        INITIAL_METADATA_READ_SIZE
+    );
+    let my_last_error: unknown = null;
+
+    while (my_read_size <= file_size) {
+        const my_buffer = read_range(
+            fd,
+            0,
+            my_read_size
+        );
+
+        try {
+            parse_metadata(my_buffer);
+            return my_buffer;
+        } catch (my_err) {
+            my_last_error = my_err;
+            if (my_read_size === file_size) {
+                break;
+            }
+            my_read_size = Math.min(
+                file_size,
+                my_read_size * 2
+            );
+        }
+    }
+
+    throw my_last_error;
+}
+
+function read_gso_index(
+    fd: number,
+    metadata: DtaMetadata
+): Map<string, GsoEntry> {
+    const my_has_strl = metadata.variables.some(
+        my_var => my_var.type === 'strL'
+    );
+    if (!my_has_strl) {
+        return new Map();
+    }
+
+    const my_section_start =
+        metadata.section_offsets.strls;
+    const my_section_length =
+        metadata.section_offsets.value_labels
+        - metadata.section_offsets.strls;
+    if (my_section_length <= 0) {
+        return new Map();
+    }
+
+    const my_buffer = read_range(
+        fd,
+        my_section_start,
+        my_section_length
+    );
+    return build_gso_index(
+        my_buffer,
+        metadata,
+        my_section_start
+    );
+}
+
+function read_value_labels(
+    fd: number,
+    metadata: DtaMetadata
+): Map<string, Map<number, string>> {
+    const my_section_start =
+        metadata.section_offsets.value_labels;
+    const my_section_length =
+        metadata.section_offsets.end_of_file
+        - metadata.section_offsets.value_labels;
+    if (my_section_length <= 0) {
+        return new Map();
+    }
+
+    const my_buffer = read_range(
+        fd,
+        my_section_start,
+        my_section_length
+    );
+    return parse_value_labels(
+        my_buffer,
+        metadata,
+        my_section_start
+    );
+}
+
+function read_data_rows(
+    fd: number,
+    metadata: DtaMetadata,
+    start: number,
+    count: number
+): ArrayBuffer {
+    const my_offset =
+        metadata.section_offsets.data
+        + DATA_TAG_LENGTH
+        + start * metadata.obs_length;
+    const my_length = count * metadata.obs_length;
+
+    return read_range(fd, my_offset, my_length);
+}
+
+function read_gso_content(
+    fd: number,
+    entry: GsoEntry
+): string {
+    const my_buffer = read_range(
+        fd,
+        entry.content_offset,
+        entry.content_length
+    );
+    return decode_gso_entry(
+        new Uint8Array(my_buffer),
+        {
+            ...entry,
+            content_offset: 0,
+        }
+    );
+}
+
+function read_range(
+    fd: number,
+    offset: number,
+    length: number
+): ArrayBuffer {
+    const my_buffer = Buffer.allocUnsafe(length);
+    let my_total_read = 0;
+    let my_attempts = 0;
+
+    while (my_total_read < length) {
+        const my_bytes_read = fs.readSync(
+            fd,
+            my_buffer,
+            my_total_read,
+            length - my_total_read,
+            offset + my_total_read
+        );
+
+        if (my_bytes_read === 0) {
+            my_attempts++;
+            if (my_attempts > MAX_READ_RETRIES) {
+                throw new Error(
+                    `Unexpected EOF while reading ${length} bytes ` +
+                    `at offset ${offset}`
+                );
+            }
+            continue;
+        }
+
+        my_total_read += my_bytes_read;
+    }
+
+    return my_buffer.buffer.slice(
+        my_buffer.byteOffset,
+        my_buffer.byteOffset + my_total_read
+    ) as ArrayBuffer;
 }
 
 // -----------------------------------------------------------
