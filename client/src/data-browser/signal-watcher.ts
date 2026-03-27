@@ -99,7 +99,7 @@ export class SignalWatcher {
         try {
             this.watcher = fs.watch(
                 BROWSE_DIR,
-                (event_type, filename) => {
+                (event_type: string, filename: string | null) => {
                     if (
                         event_type === 'rename'
                         && filename
