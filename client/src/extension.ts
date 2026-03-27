@@ -17,6 +17,7 @@ import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
 import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata } from './send-to-stata';
 import { register_smcl_preview } from './smcl-preview';
+import { register_data_browser } from './data-browser';
 import { LanguageClientLifecycle } from './language-client-lifecycle';
 import {
     apply_language_configuration,
@@ -104,6 +105,12 @@ export function activate(context: ExtensionContext) {
 
     // Register SMCL preview commands
     register_smcl_preview(context, () => client);
+
+    // Register data browser
+    register_data_browser(
+        context,
+        (msg) => output_channel?.appendLine(msg)
+    );
 
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {
