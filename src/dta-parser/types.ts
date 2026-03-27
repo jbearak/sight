@@ -50,13 +50,17 @@ export type DtaType =
  * Return the byte width for a numeric type code in the
  * given format version. Fixed-string codes (1..244 for
  * v117, 1..2045 for v118/v119) equal their own width.
+ *
+ * Note: Modern Stata (16+) writes v118 type codes even
+ * in saveold v117 files, so v117 accepts both code sets.
  */
 export function byte_width_for_type_code(
     code: number,
     format_version: FormatVersion
 ): number {
     if (format_version === 117) {
-        const my_entry = V117_TYPE_CODES[code];
+        const my_entry = V117_TYPE_CODES[code]
+            ?? V118_TYPE_CODES[code];
         if (my_entry) return my_entry.width;
 
         if (code >= 1 && code <= MAX_STR_WIDTH_V117) {
@@ -78,13 +82,17 @@ export function byte_width_for_type_code(
 
 /**
  * Convert a numeric type code to its DtaType label.
+ *
+ * Note: Modern Stata (16+) writes v118 type codes even
+ * in saveold v117 files, so v117 accepts both code sets.
  */
 export function type_code_to_dta_type(
     code: number,
     format_version: FormatVersion
 ): DtaType {
     if (format_version === 117) {
-        const my_entry = V117_TYPE_CODES[code];
+        const my_entry = V117_TYPE_CODES[code]
+            ?? V118_TYPE_CODES[code];
         if (my_entry) return my_entry.type as DtaType;
 
         if (code >= 1 && code <= MAX_STR_WIDTH_V117) {
