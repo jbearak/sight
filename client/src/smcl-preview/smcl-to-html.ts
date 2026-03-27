@@ -487,7 +487,10 @@ function render_directive(
             }
             return switch_style(ctx, 'com');
         case 'cmd':
-            return `<code class="smcl-cmd">${render_content(directive, ctx)}</code>`;
+            if (directive.content.length > 0) {
+                return `<code class="smcl-cmd">${render_content(directive, ctx)}</code>`;
+            }
+            return switch_style(ctx, 'cmd');
         case 'cmdab':
             return render_cmdab(directive);
         case 'res':

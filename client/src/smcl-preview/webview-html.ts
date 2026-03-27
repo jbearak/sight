@@ -96,6 +96,7 @@ code.smcl-opt {
 
 /* Color styles (log file output) */
 .smcl-txt { color: var(--vscode-foreground); }
+.smcl-cmd { font-weight: bold; }
 .smcl-com { font-weight: bold; }
 .smcl-res { font-weight: bold; color: var(--vscode-textLink-foreground, #0066cc); }
 .smcl-err { color: var(--vscode-errorForeground, #cc0000); }
