@@ -665,7 +665,7 @@ export class WorkspaceIndexer {
      * letter-subdirectory convention (e.g., `r/regress.sthlp`).
      * Returns the absolute file path or null.
      */
-    resolve_sthlp_file(topic: string): string | null {
+    async resolve_sthlp_file(topic: string): Promise<string | null> {
         const my_basename = `${topic}.sthlp`;
         const my_first_letter = topic.charAt(0).toLowerCase();
 
@@ -678,14 +678,20 @@ export class WorkspaceIndexer {
             const my_subdir_path = path.join(
                 my_dir, my_first_letter, my_basename
             );
-            if (fs.existsSync(my_subdir_path)) {
+            try {
+                await fs.promises.access(my_subdir_path);
                 return my_subdir_path;
+            } catch {
+                // not found, continue
             }
 
             // Check directly in directory: dir/regress.sthlp
             const my_direct_path = path.join(my_dir, my_basename);
-            if (fs.existsSync(my_direct_path)) {
+            try {
+                await fs.promises.access(my_direct_path);
                 return my_direct_path;
+            } catch {
+                // not found, continue
             }
         }
 

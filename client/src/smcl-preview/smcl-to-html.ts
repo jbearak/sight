@@ -302,6 +302,7 @@ interface RenderContext {
     pending_continuation: boolean;
     in_table_row: boolean;
     active_style: string | null;
+    active_formats: string[];
 }
 
 function create_context(): RenderContext {
@@ -315,6 +316,7 @@ function create_context(): RenderContext {
         pending_continuation: false,
         in_table_row: false,
         active_style: null,
+        active_formats: [],
     };
 }
 
@@ -322,6 +324,26 @@ function switch_style(ctx: RenderContext, new_style: string): string {
     const my_close = ctx.active_style ? '</span>' : '';
     ctx.active_style = new_style;
     return `${my_close}<span class="smcl-${new_style}">`;
+}
+
+const FORMAT_TAGS: Record<string, { open: string; close: string }> = {
+    'bf': { open: '<strong>', close: '</strong>' },
+    'it': { open: '<em>', close: '</em>' },
+    'ul': { open: '<u>', close: '</u>' },
+};
+
+function push_format(ctx: RenderContext, fmt: string): string {
+    ctx.active_formats.push(fmt);
+    return FORMAT_TAGS[fmt].open;
+}
+
+function close_all_formats(ctx: RenderContext): string {
+    let result = '';
+    while (ctx.active_formats.length > 0) {
+        const my_fmt = ctx.active_formats.pop()!;
+        result += FORMAT_TAGS[my_fmt].close;
+    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -393,9 +415,10 @@ function render_directive(
         case 's6hlp':
             return '';
         case 'reset': {
-            const my_close = ctx.active_style ? '</span>' : '';
+            const my_fmt_close = close_all_formats(ctx);
+            const my_style_close = ctx.active_style ? '</span>' : '';
             ctx.active_style = null;
-            return my_close;
+            return my_fmt_close + my_style_close;
         }
         case '...':
             ctx.pending_continuation = true;
@@ -412,25 +435,30 @@ function render_directive(
             if (directive.content.length > 0) {
                 return `<strong>${render_content(directive, ctx)}</strong>`;
             }
-            // Persistent mode: {bf} without content - not easily
-            // handled in pure HTML; render as empty strong open
-            return '<strong>';
+            return push_format(ctx, 'bf');
         case 'it':
             if (directive.content.length > 0) {
                 return `<em>${render_content(directive, ctx)}</em>`;
             }
-            return '<em>';
+            return push_format(ctx, 'it');
         case 'ul':
             if (directive.content.length > 0) {
                 return `<u>${render_content(directive, ctx)}</u>`;
             }
             if (directive.args === 'off') {
+                // Close the most recent 'ul' format
+                const my_idx = ctx.active_formats.lastIndexOf('ul');
+                if (my_idx >= 0) {
+                    ctx.active_formats.splice(my_idx, 1);
+                    return '</u>';
+                }
                 return '';
             }
-            return '<u>';
+            return push_format(ctx, 'ul');
         case 'sf':
         case 'rm':
-            return switch_style(ctx, 'txt');
+            // Reset font face: close all open formats
+            return close_all_formats(ctx) + switch_style(ctx, 'txt');
 
         // -- Color/style modes --
         case 'txt':
@@ -1051,7 +1079,8 @@ export function smcl_to_html(smcl: string): SmclHtmlResult {
     const the_nodes = parse_smcl(smcl);
     const ctx = create_context();
     let html = render_nodes(the_nodes, ctx);
-    // Close any trailing persistent style span
+    // Close any trailing persistent formats and style span
+    html += close_all_formats(ctx);
     if (ctx.active_style) {
         html += '</span>';
     }
