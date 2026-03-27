@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import {
     DtaFile,
     apply_display_format,
+    type VariableInfo,
 } from '../../../src/dta-parser';
 import { RowCache } from './row-cache';
 import type {
@@ -46,7 +47,7 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         this.disposables.push(
             panel.webview.onDidReceiveMessage(
-                msg => this.handle_message(msg)
+                (msg: WebviewMessage) => this.handle_message(msg)
             )
         );
     }
@@ -128,7 +129,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 type: 'metadata',
                 nobs: this.dta_file.nobs,
                 variables: this.dta_file.variables.map(
-                    my_v => ({
+                    (my_v: VariableInfo) => ({
                         name: my_v.name,
                         type: my_v.type,
                         format: my_v.format,
