@@ -51,12 +51,23 @@ export function App() {
     const [user_resized_columns, set_user_resized_columns] =
         useState<Set<string>>(new Set());
     const column_widths_ref = useRef<Record<string, number>>({});
+    const persist_resize_timeout_ref = useRef<number | null>(null);
     const [header_tooltip, set_header_tooltip] =
         useState<HeaderTooltipState | null>(null);
 
     useEffect(() => {
         column_widths_ref.current = column_widths_by_name;
     }, [column_widths_by_name]);
+
+    useEffect(() => {
+        return () => {
+            if (persist_resize_timeout_ref.current !== null) {
+                window.clearTimeout(
+                    persist_resize_timeout_ref.current
+                );
+            }
+        };
+    }, []);
 
     const sampled_width_hints = useMemo(
         () => collect_sampled_value_width_hints(
@@ -207,6 +218,38 @@ export function App() {
         });
     };
 
+    const persist_column_widths = (
+        next_widths: Record<string, number>
+    ) => {
+        if (!metadata) {
+            return;
+        }
+
+        vscode_api.postMessage({
+            type: 'columnWidthsChanged',
+            dataset_key: metadata.dataset_key,
+            widths: next_widths,
+        });
+    };
+
+    const schedule_persist_column_widths = (
+        next_widths: Record<string, number>
+    ) => {
+        if (persist_resize_timeout_ref.current !== null) {
+            window.clearTimeout(
+                persist_resize_timeout_ref.current
+            );
+        }
+
+        persist_resize_timeout_ref.current = window.setTimeout(
+            () => {
+                persist_resize_timeout_ref.current = null;
+                persist_column_widths(next_widths);
+            },
+            150
+        );
+    };
+
     const update_column_width = (
         col_index: number,
         new_size: number,
@@ -222,29 +265,30 @@ export function App() {
         }
 
         const my_width = clamp_column_width(new_size);
-
-        set_column_widths_by_name(my_previous => ({
-            ...my_previous,
+        const my_next_widths = {
+            ...column_widths_ref.current,
             [my_variable.name]: my_width,
-        }));
+        };
+
+        set_column_widths_by_name(my_next_widths);
         set_user_resized_columns(my_previous => {
             const my_next = new Set(my_previous);
             my_next.add(my_variable.name);
             return my_next;
         });
 
-        if (!persist) {
+        if (persist) {
+            if (persist_resize_timeout_ref.current !== null) {
+                window.clearTimeout(
+                    persist_resize_timeout_ref.current
+                );
+                persist_resize_timeout_ref.current = null;
+            }
+            persist_column_widths(my_next_widths);
             return;
         }
 
-        vscode_api.postMessage({
-            type: 'columnWidthsChanged',
-            dataset_key: metadata.dataset_key,
-            widths: {
-                ...column_widths_ref.current,
-                [my_variable.name]: my_width,
-            },
-        });
+        schedule_persist_column_widths(my_next_widths);
     };
 
     return (
