@@ -757,7 +757,7 @@ export class ContextTracker implements IContextTracker {
           'Remove "end" command or add a corresponding program, mata, python, or input block'
         );
         my_suggestions.push(
-          '"end" can only be used to close a mata block'
+          '"end" can only be used to close a program, mata, python, or input block'
         );
         break;
 
