@@ -8,11 +8,11 @@ import {
     DataEditor,
     type DrawHeaderCallback,
     GridCellKind,
+    type GridSelection,
     type GridMouseEventArgs,
     type Item,
     type Theme,
 } from '@glideapps/glide-data-grid';
-import type { GridSelection } from './compact-selection';
 import '@glideapps/glide-data-grid/dist/index.css';
 import './styles.css';
 import {
