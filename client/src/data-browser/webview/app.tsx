@@ -11,6 +11,7 @@ import {
     type GridSelection,
     type GridMouseEventArgs,
     type Item,
+    type Theme,
 } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
 import './styles.css';
@@ -43,6 +44,174 @@ import { ColumnVisibilityPopover } from './column-visibility-popover';
 
 const HEADER_HEIGHT_PX = 40;
 
+function read_css_var(style: CSSStyleDeclaration, name: string): string {
+    return style.getPropertyValue(name).trim();
+}
+
+function read_css_var_or(
+    style: CSSStyleDeclaration,
+    name: string,
+    fallback: string
+): string {
+    return read_css_var(style, name) || fallback;
+}
+
+function build_grid_theme(
+    style: CSSStyleDeclaration
+): Partial<Theme> {
+    const fg = read_css_var_or(
+        style,
+        '--vscode-foreground',
+        '#cccccc'
+    );
+    const editor_fg = read_css_var_or(
+        style,
+        '--vscode-editor-foreground',
+        fg
+    );
+    const editor_bg = read_css_var_or(
+        style,
+        '--vscode-editor-background',
+        '#1e1e1e'
+    );
+    const header_bg = read_css_var_or(
+        style,
+        '--vscode-editorGroupHeader-tabsBackground',
+        editor_bg
+    );
+    const border = read_css_var_or(
+        style,
+        '--vscode-panel-border',
+        'rgba(128,128,128,0.35)'
+    );
+    const selection_bg = read_css_var_or(
+        style,
+        '--vscode-list-activeSelectionBackground',
+        '#094771'
+    );
+    const selection_fg = read_css_var_or(
+        style,
+        '--vscode-list-activeSelectionForeground',
+        '#ffffff'
+    );
+    const hover_bg = read_css_var_or(
+        style,
+        '--vscode-list-hoverBackground',
+        'rgba(128,128,128,0.1)'
+    );
+    const focus_border = read_css_var_or(
+        style,
+        '--vscode-focusBorder',
+        '#007fd4'
+    );
+    const font_family = read_css_var_or(
+        style,
+        '--vscode-editor-font-family',
+        'monospace'
+    );
+    const link_color = read_css_var_or(
+        style,
+        '--vscode-textLink-foreground',
+        focus_border
+    );
+
+    return {
+        bgCell: editor_bg,
+        bgCellMedium: editor_bg,
+        bgHeader: header_bg,
+        bgHeaderHasFocus: selection_bg,
+        bgHeaderHovered: hover_bg,
+        textDark: editor_fg,
+        textMedium: fg,
+        textLight: fg,
+        textHeader: fg,
+        textHeaderSelected: selection_fg,
+        textBubble: editor_fg,
+        bgBubble: header_bg,
+        bgBubbleSelected: editor_bg,
+        bgSearchResult: read_css_var_or(
+            style,
+            '--vscode-editor-findMatchHighlightBackground',
+            '#ea5c0055'
+        ),
+        borderColor: border,
+        horizontalBorderColor: border,
+        headerBottomBorderColor: border,
+        accentColor: focus_border,
+        accentFg: selection_fg,
+        accentLight: selection_bg,
+        linkColor: link_color,
+        fontFamily: font_family,
+    };
+}
+
+type VscodeGridTheme = {
+    grid: Partial<Theme>;
+    missing_fg: Partial<Theme>;
+    missing_bg: Partial<Theme>;
+};
+
+function build_missing_themes(
+    style: CSSStyleDeclaration
+): { fg: Partial<Theme>; bg: Partial<Theme> } {
+    // Foreground: use a muted red that echoes Stata's display
+    // of missing values.  Fall back to the theme's error
+    // foreground, which is red-ish on virtually every theme.
+    const text_color = read_css_var_or(
+        style,
+        '--vscode-editorError-foreground',
+        '#f14c4c'
+    );
+
+    // Background: diff-editor "removed" tint — a subtle
+    // "something is absent" cue.
+    const bg_tint = read_css_var_or(
+        style,
+        '--vscode-diffEditor-removedTextBackground',
+        'rgba(255, 0, 0, 0.06)'
+    );
+
+    return {
+        fg: { textDark: text_color },
+        bg: { bgCell: bg_tint },
+    };
+}
+
+function use_vscode_theme(): VscodeGridTheme {
+    const [revision, set_revision] = useState(0);
+
+    useEffect(() => {
+        const my_observer = new MutationObserver(() => {
+            set_revision(r => r + 1);
+        });
+        my_observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['style', 'class'],
+        });
+        my_observer.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['style', 'class',
+                'data-vscode-theme-kind',
+                'data-vscode-theme-name'],
+        });
+        return () => my_observer.disconnect();
+    }, []);
+
+    return useMemo(
+        () => {
+            const my_style =
+                getComputedStyle(document.documentElement);
+            const my_missing = build_missing_themes(my_style);
+            return {
+                grid: build_grid_theme(my_style),
+                missing_fg: my_missing.fg,
+                missing_bg: my_missing.bg,
+            };
+        },
+        [revision]
+    );
+}
+
 type HeaderTooltipState = {
     text: string;
     left_px: number;
@@ -56,6 +225,8 @@ type ContextMenuState = {
 };
 
 export function App() {
+    const { grid: vscode_theme, missing_fg, missing_bg } =
+        use_vscode_theme();
     const {
         metadata,
         ensure_rows,
@@ -590,6 +761,8 @@ export function App() {
             </div>
             <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
+                    theme={vscode_theme}
+
                     width="100%"
                     height="100%"
                     columns={the_columns}
@@ -605,6 +778,9 @@ export function App() {
                     onGridSelectionChange={set_grid_selection}
                     onHeaderClicked={(col_index, _event) => {
                         select_single_column(col_index);
+                    }}
+                    onCellContextMenu={(_cell, event) => {
+                        event.preventDefault();
                     }}
                     onHeaderContextMenu={(col_index, event) => {
                         event.preventDefault();
@@ -668,12 +844,26 @@ export function App() {
                             )
                             : '';
 
+                        const my_missing_style =
+                            metadata?.missing_value_style
+                            ?? 'foreground';
+                        const my_theme_override =
+                            my_cell?.missing_type
+                            && my_missing_style !== 'none'
+                                ? my_missing_style === 'background'
+                                    ? missing_bg
+                                    : missing_fg
+                                : undefined;
+
                         return {
                             kind: GridCellKind.Text,
                             data: my_display,
                             displayData: my_display,
                             readonly: true,
                             allowOverlay: true,
+                            ...(my_theme_override
+                                ? { themeOverride: my_theme_override }
+                                : undefined),
                         };
                     }}
                 />

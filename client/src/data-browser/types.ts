@@ -49,6 +49,11 @@ export interface RowResponse {
     request_id: string;
 }
 
+export type MissingValueStyle =
+    | 'foreground'
+    | 'background'
+    | 'none';
+
 export interface MetadataMessage {
     type: 'metadata';
     nobs: number;
@@ -63,6 +68,7 @@ export interface MetadataMessage {
     varlist?: string[];
     if_condition?: string;
     in_condition?: string;
+    missing_value_style?: MissingValueStyle;
 }
 
 export type ExtensionMessage = RowResponse | MetadataMessage;

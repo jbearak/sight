@@ -340,6 +340,21 @@
           "type": "string",
           "default": "",
           "description": "Path to Stata's PERSONAL ado directory for vview.ado installation. Leave empty for auto-detection (macOS: ~/Documents/Stata/ado/personal/, Linux: ~/ado/personal/, Windows: %USERPROFILE%\\ado\\personal\\)."
+        },
+        "sight.dataBrowser.missingValueStyle": {
+          "type": "string",
+          "enum": [
+            "foreground",
+            "background",
+            "none"
+          ],
+          "default": "foreground",
+          "description": "How to highlight missing values (., .a–.z) in the data browser",
+          "enumDescriptions": [
+            "Colorize the text (like Stata's default)",
+            "Tint the cell background",
+            "No special highlighting"
+          ]
         }
       }
     },

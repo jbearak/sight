@@ -30,6 +30,7 @@ import type {
     MetadataMessage,
     CellValue,
     VviewSidecar,
+    MissingValueStyle,
 } from './types';
 
 const PAGE_SIZE = 200;
@@ -185,9 +186,18 @@ export class DataBrowserPanel implements vscode.Disposable {
                 }
             }
 
+            const my_missing_style =
+                vscode.workspace
+                    .getConfiguration('sight.dataBrowser')
+                    .get<MissingValueStyle>(
+                        'missingValueStyle',
+                        'foreground'
+                    );
+
             const my_metadata: MetadataMessage = {
                 type: 'metadata',
                 nobs: this.dta_file.nobs,
+                missing_value_style: my_missing_style,
                 variables: this.dta_file.variables.map(
                     (my_v: VariableInfo) => ({
                         name: my_v.name,
