@@ -664,28 +664,10 @@ export function App() {
             return;
         }
 
-        const the_values: string[] = [];
-        the_values.push(
-            metadata.variables[var_index].name
-        );
-
-        for (let row = 0; row < metadata.nobs; row++) {
-            const my_row = get_row(row);
-            const my_cell = my_row?.[var_index];
-            the_values.push(
-                my_cell
-                    ? get_cell_display_value(
-                        my_cell,
-                        show_labels,
-                        show_formats
-                    )
-                    : ''
-            );
-        }
-
-        navigator.clipboard.writeText(
-            the_values.join('\n')
-        );
+        vscode_api.postMessage({
+            type: 'copyColumn',
+            col_index: var_index,
+        });
     };
 
     const update_hidden_columns = (

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
     CellValue,
+    CopyColumnResponse,
     MetadataMessage,
     RowResponse,
     WebviewMessage,
@@ -29,7 +30,8 @@ export function use_row_loader() {
         function on_message(event: MessageEvent) {
             const my_msg = event.data as
                 | MetadataMessage
-                | RowResponse;
+                | RowResponse
+                | CopyColumnResponse;
 
             if (my_msg.type === 'metadata') {
                 set_metadata(my_msg);
@@ -45,6 +47,13 @@ export function use_row_loader() {
                     my_next.set(my_msg.start, my_msg.rows);
                     return my_next;
                 });
+                return;
+            }
+
+            if (my_msg.type === 'columnData') {
+                navigator.clipboard.writeText(
+                    my_msg.values.join('\n')
+                );
             }
         }
 

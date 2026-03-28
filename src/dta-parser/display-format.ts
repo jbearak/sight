@@ -238,7 +238,8 @@ function format_tc(ms_since_epoch: number): string {
 function format_tw(weeks_since_epoch: number): string {
     const my_year = STATA_EPOCH_YEAR
         + Math.floor(weeks_since_epoch / 52);
-    const my_week = (weeks_since_epoch % 52) + 1;
+    let my_week = (weeks_since_epoch % 52) + 1;
+    if (my_week <= 0) my_week += 52;
     return `${my_year}w${my_week}`;
 }
 

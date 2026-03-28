@@ -33,11 +33,17 @@ export interface ColumnVisibilityChangedMessage {
     hidden_columns: string[];
 }
 
+export interface CopyColumnRequest {
+    type: 'copyColumn';
+    col_index: number;
+}
+
 export type WebviewMessage =
     | RowRequest
     | ReadyMessage
     | ColumnWidthsChangedMessage
-    | ColumnVisibilityChangedMessage;
+    | ColumnVisibilityChangedMessage
+    | CopyColumnRequest;
 
 // Extension → Webview messages
 
@@ -71,7 +77,16 @@ export interface MetadataMessage {
     missing_value_style?: MissingValueStyle;
 }
 
-export type ExtensionMessage = RowResponse | MetadataMessage;
+export interface CopyColumnResponse {
+    type: 'columnData';
+    col_index: number;
+    values: string[];
+}
+
+export type ExtensionMessage =
+    | RowResponse
+    | MetadataMessage
+    | CopyColumnResponse;
 
 export interface VariableDescription {
     name: string;

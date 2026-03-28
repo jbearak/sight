@@ -419,7 +419,10 @@ function get_personal_ado_dir(): string {
         ''
     );
     if (my_custom) {
-        return my_custom;
+        return my_custom.replace(
+            /^~(?=\/|$)/,
+            os.homedir()
+        );
     }
 
     const my_home = os.homedir();

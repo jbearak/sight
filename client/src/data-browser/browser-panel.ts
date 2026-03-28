@@ -29,6 +29,7 @@ import type {
     RowResponse,
     MetadataMessage,
     CellValue,
+    CopyColumnResponse,
     VviewSidecar,
     MissingValueStyle,
 } from './types';
@@ -48,6 +49,7 @@ export class DataBrowserPanel implements vscode.Disposable {
     private readonly column_width_store: DataBrowserColumnWidthStore;
     private readonly column_visibility_store: DataBrowserColumnVisibilityStore;
     private disposed = false;
+    private generation = 0;
 
     constructor(
         panel: vscode.WebviewPanel,
@@ -105,9 +107,26 @@ export class DataBrowserPanel implements vscode.Disposable {
         sidecar: VviewSidecar,
         dta_path: string
     ): Promise<void> {
+        this.generation++;
+        const my_old_path = this.dta_path;
         this.dta_file?.close();
         this.dta_file = null;
         this.row_cache.clear();
+
+        // Clean up the old temp file on Windows before
+        // overwriting the path (other platforms unlink
+        // eagerly in initialize()).
+        if (
+            process.platform === 'win32'
+            && my_old_path !== dta_path
+            && should_unlink_data_browser_path(my_old_path)
+        ) {
+            try {
+                fs.unlinkSync(my_old_path);
+            } catch {
+                /* file may already be gone */
+            }
+        }
 
         this.sidecar = sidecar;
         this.dta_path = dta_path;
@@ -293,6 +312,11 @@ export class DataBrowserPanel implements vscode.Disposable {
             case 'requestRows':
                 await this.handle_row_request(msg);
                 break;
+            case 'copyColumn':
+                await this.handle_copy_column(
+                    msg.col_index
+                );
+                break;
         }
     }
 
@@ -320,12 +344,16 @@ export class DataBrowserPanel implements vscode.Disposable {
         }
 
         // Cache miss — read from the .dta file
+        const my_generation = this.generation;
         const the_raw_rows = await this.dta_file.read_rows(
             request.start,
             request.count,
             request.col_start,
             request.col_end
         );
+
+        // Drop stale responses after a refresh
+        if (my_generation !== this.generation) return;
 
         // Cache the raw rows for future requests
         this.row_cache.set_page(request.start, the_raw_rows);
@@ -341,6 +369,58 @@ export class DataBrowserPanel implements vscode.Disposable {
             request_id: request.request_id,
         };
 
+        this.panel.webview.postMessage(my_response);
+    }
+
+    private async handle_copy_column(
+        col_index: number
+    ): Promise<void> {
+        if (!this.dta_file) return;
+
+        const my_variable =
+            this.dta_file.variables[col_index];
+        if (!my_variable) return;
+
+        const my_generation = this.generation;
+        const the_values: string[] = [my_variable.name];
+        const my_nobs = this.dta_file.nobs;
+
+        for (
+            let my_offset = 0;
+            my_offset < my_nobs;
+            my_offset += PAGE_SIZE
+        ) {
+            const my_count = Math.min(
+                PAGE_SIZE,
+                my_nobs - my_offset
+            );
+            const the_raw_rows =
+                await this.dta_file.read_rows(
+                    my_offset,
+                    my_count,
+                    col_index,
+                    col_index + 1
+                );
+
+            if (my_generation !== this.generation) return;
+
+            for (const my_row of the_raw_rows) {
+                const my_cell = this.format_cell(
+                    my_row[0],
+                    my_variable
+                );
+                the_values.push(
+                    my_cell.label_display
+                    ?? my_cell.formatted_display
+                );
+            }
+        }
+
+        const my_response: CopyColumnResponse = {
+            type: 'columnData',
+            col_index,
+            values: the_values,
+        };
         this.panel.webview.postMessage(my_response);
     }
 

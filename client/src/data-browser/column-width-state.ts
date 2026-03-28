@@ -183,19 +183,34 @@ export function create_column_width_store(
             widths: Record<string, number>,
             alias_keys: readonly string[] = []
         ): Promise<void> {
-            const my_sanitized = sanitize_column_widths(widths);
+            const my_sanitized =
+                sanitize_column_widths(widths);
             const the_write_keys = [
                 dataset_key,
                 ...alias_keys,
             ];
 
+            // Single read-modify-write to avoid race
+            // conditions when multiple panels persist
+            // widths concurrently.
+            const my_all_widths =
+                get_stored_column_widths(context);
+            const my_has_entries =
+                Object.keys(my_sanitized).length > 0;
+
             for (const my_key of the_write_keys) {
-                await set_stored_column_widths(
-                    context,
-                    my_key,
-                    my_sanitized
-                );
+                if (!my_key) continue;
+                if (my_has_entries) {
+                    my_all_widths[my_key] = my_sanitized;
+                } else {
+                    delete my_all_widths[my_key];
+                }
             }
+
+            await context.globalState.update(
+                DATA_BROWSER_COLUMN_WIDTHS_KEY,
+                my_all_widths
+            );
         },
     };
 }

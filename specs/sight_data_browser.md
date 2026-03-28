@@ -454,7 +454,7 @@ The PERSONAL directory is **not** a fixed path — it is user-configurable via `
 
 But users may have changed it, so the extension must not hardcode these paths.
 
-**Discovery mechanism — `stata.personalAdoDir` setting with auto-detection fallback:**
+**Discovery mechanism — `sight.personalAdoDir` setting with auto-detection fallback:**
 
 1. **Extension setting** (`sight.personalAdoDir`): If the user has configured this setting, use it directly. This is the escape hatch for non-standard setups.
 

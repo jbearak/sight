@@ -50,7 +50,7 @@ const FIELD_WIDTHS = {
 
 const SECTION_MAP_ENTRIES = 14;
 
-const TEXT_DECODER = new TextDecoder('ascii');
+const TEXT_DECODER = new TextDecoder('utf-8');
 
 // Tag byte sequences (pre-encoded for scanning)
 const TAG_BYTEORDER_OPEN = encode_tag('<byteorder>');
@@ -380,6 +380,14 @@ function parse_variable_types(
     const my_data_start =
         my_tag_pos + TAG_VARIABLE_TYPES_OPEN.length;
 
+    const my_required_bytes = nvar * 2;
+    if (my_data_start + my_required_bytes > bytes.length) {
+        throw new Error(
+            'Corrupt .dta file: variable_types section '
+            + 'truncated'
+        );
+    }
+
     const the_type_codes: number[] = [];
     for (let i = 0; i < nvar; i++) {
         the_type_codes.push(
@@ -407,6 +415,13 @@ function parse_fixed_string_section(
         );
     }
     const my_data_start = my_tag_pos + tag.length;
+
+    const my_required_bytes = nvar * field_width;
+    if (my_data_start + my_required_bytes > bytes.length) {
+        throw new Error(
+            'Corrupt .dta file: section truncated'
+        );
+    }
 
     const the_strings: string[] = [];
     for (let i = 0; i < nvar; i++) {

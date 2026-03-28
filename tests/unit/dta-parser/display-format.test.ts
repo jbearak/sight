@@ -248,6 +248,11 @@ describe('display-format', () => {
             expect(apply_display_format(52, '%tw'))
                 .toBe('1961w1');
         });
+
+        it('formats negative week', () => {
+            expect(apply_display_format(-1, '%tw'))
+                .toBe('1959w52');
+        });
     });
 
     // ----- Month %tm -----
