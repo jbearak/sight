@@ -287,9 +287,11 @@ describe('Configuration Schema Completeness Property Tests', () => {
         const the_expected_paths = new Set(
             EXPECTED_CONFIG_FIELDS.map((f) => f.path)
         );
-        // Filter out client-only settings (sendToStata is handled by VS Code extension, not LSP server)
+        // Filter out client-only settings (not managed by the LSP server)
         const the_setting_keys = Object.keys(config_properties).filter(
             (key) => !key.startsWith('sight.sendToStata.')
+                && !key.startsWith('sight.personalAdoDir')
+                && !key.startsWith('sight.dataBrowser.')
         );
         const setting_arb = fc.constantFrom(...the_setting_keys);
 

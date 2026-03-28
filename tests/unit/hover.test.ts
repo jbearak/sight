@@ -444,7 +444,12 @@ end`;
                         name: 'x',
                         type: 'numeric',
                         label: 'Variable X',
-                        source: 'mydata.dta',
+                        value_label_name: 'origin',
+                        value_labels: new Map([
+                            [0, 'Domestic'],
+                            [1, 'Foreign'],
+                        ]),
+                        source: 'directive',
                     }],
                 ]),
             });
@@ -456,6 +461,10 @@ end`;
             expect(my_hover?.contents).toBeDefined();
             if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
                 expect(my_hover.contents.value).toContain('Variable');
+                expect(my_hover.contents.value).toContain('Label: Variable X');
+                expect(my_hover.contents.value).toContain('Value Label: `origin`');
+                expect(my_hover.contents.value).toContain('`0` => Domestic');
+                expect(my_hover.contents.value).toContain('`1` => Foreign');
             }
         });
 
@@ -469,7 +478,7 @@ end python`;
                         name: 'x',
                         type: 'numeric',
                         label: 'Variable X',
-                        source: 'mydata.dta',
+                        source: 'directive',
                     }],
                 ]),
             });

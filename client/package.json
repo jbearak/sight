@@ -14,6 +14,9 @@
   "categories": [
     "Programming Languages"
   ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension",
   "contributes": {
     "languages": [
@@ -36,6 +39,21 @@
         "language": "stata",
         "scopeName": "source.stata",
         "path": "./syntaxes/stata.tmLanguage.json"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "sight.dataBrowserEditor",
+        "displayName": "Sight Data Browser",
+        "selector": [
+          {
+            "filenamePattern": "*.dta"
+          },
+          {
+            "filenamePattern": "*.DTA"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "configuration": {
@@ -317,6 +335,26 @@
             "Change to the directory of the current file",
             "Change to the workspace root directory"
           ]
+        },
+        "sight.personalAdoDir": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Stata's PERSONAL ado directory for vview.ado installation. Leave empty for auto-detection (macOS: ~/Documents/Stata/ado/personal/, Linux: ~/ado/personal/, Windows: %USERPROFILE%\\ado\\personal\\)."
+        },
+        "sight.dataBrowser.missingValueStyle": {
+          "type": "string",
+          "enum": [
+            "foreground",
+            "background",
+            "none"
+          ],
+          "default": "foreground",
+          "description": "How to highlight missing values (., .a–.z) in the data browser",
+          "enumDescriptions": [
+            "Colorize the text (like Stata's default)",
+            "Tint the cell background",
+            "No special highlighting"
+          ]
         }
       }
     },
@@ -406,6 +444,19 @@
         "command": "sight.openInStata",
         "title": "Open in Stata",
         "icon": "$(file-text)"
+      },
+      {
+        "command": "sight.openDataBrowser",
+        "title": "Sight: Open Data Browser",
+        "icon": "$(table)"
+      },
+      {
+        "command": "sight.installVviewAdo",
+        "title": "Sight: Install vview.ado"
+      },
+      {
+        "command": "sight.resetVviewInstallPermission",
+        "title": "Sight: Reset vview.ado Install Permission"
       }
     ],
     "keybindings": [
@@ -480,6 +531,15 @@
         {
           "command": "sight.openSmclPreviewFull",
           "when": "resourceExtname =~ /\\.(smcl|sthlp)/i"
+        },
+        {
+          "command": "sight.openDataBrowser"
+        },
+        {
+          "command": "sight.installVviewAdo"
+        },
+        {
+          "command": "sight.resetVviewInstallPermission"
         }
       ],
       "explorer/context": [
@@ -492,12 +552,22 @@
           "command": "sight.openSmclPreview",
           "when": "resourceExtname =~ /\\.(smcl|sthlp)/i",
           "group": "sight@2"
+        },
+        {
+          "command": "sight.openDataBrowser",
+          "when": "resourceExtname =~ /\\.dta/i",
+          "group": "sight@3"
         }
       ],
       "editor/title": [
         {
           "command": "sight.openSmclPreview",
           "when": "resourceExtname =~ /\\.(smcl|sthlp)/i",
+          "group": "navigation"
+        },
+        {
+          "command": "sight.openDataBrowser",
+          "when": "resourceExtname =~ /\\.dta/i && activeCustomEditorId != sight.dataBrowserEditor",
           "group": "navigation"
         },
         {
@@ -602,14 +672,17 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "bun run bundle && bun run copy-server",
+    "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server",
     "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --outfile=dist/extension.js --external:vscode --minify",
+    "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
+    "copy-vview-ado": "mkdir -p stata && cp ../stata/vview.ado stata/vview.ado",
     "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/",
-    "compile": "bun run bundle",
+    "compile": "bun run copy-vview-ado && bun run bundle && bun run bundle:webview",
     "watch": "tsc -watch -p ./",
     "pretest": "bun run compile && bun run lint",
     "lint": "eslint src --ext ts",
-    "test": "bun ./out/test/runTest.js",
+    "test": "node ./test/runTest.js",
+    "test:extension": "node ./test/runTest.js",
     "package": "vsce package",
     "publish:vscode": "vsce publish",
     "publish:ovsx": "ovsx publish",
@@ -617,16 +690,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@glideapps/glide-data-grid": "^6.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "vscode-languageclient": "^8.1.0"
   },
   "devDependencies": {
-    "@types/vscode": "^1.75.0",
     "@types/node": "^16.11.7",
-    "@vscode/vsce": "^3.2.1",
-    "ovsx": "^0.8.3",
-    "typescript": "^4.9.4",
-    "eslint": "^8.31.0",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^5.48.1",
     "@typescript-eslint/parser": "^5.48.1",
-    "@typescript-eslint/eslint-plugin": "^5.48.1"
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.2.1",
+    "eslint": "^8.31.0",
+    "ovsx": "^0.8.3",
+    "typescript": "^4.9.4"
   }
 }
