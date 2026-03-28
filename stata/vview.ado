@@ -30,35 +30,38 @@ program define vview
     }
 
     local source = c(filename)
+    local cwd = c(pwd)
     local timestamp = c(current_date) + " " + c(current_time)
     local if_condition `"`if'"'
     local in_condition `"`in'"'
     local source_obs_n = c(N)
     local source_var_k = c(k)
 
-    // Save subsetted data
-    preserve
-
-    // Apply if/in qualifiers
-    marksample touse, novarlist
-    qui keep if `touse'
-    drop `touse'
-
+    // Copy subset into a frame (avoids preserve, which
+    // copies the entire dataset even for `in 1/10`).
+    tempname vview_frame
     if "`varlist'" != "" {
-        keep `varlist'
+        frame put `varlist' `if' `in', into(`vview_frame')
     }
-    if `rows' > 0 {
-        if _N > `rows' {
-            keep in 1/`rows'
-            di as txt "(showing first `rows' of `=_N' observations)"
+    else {
+        frame put _all `if' `in', into(`vview_frame')
+    }
+
+    frame `vview_frame' {
+        if `rows' > 0 {
+            if _N > `rows' {
+                local pre_n = _N
+                keep in 1/`rows'
+                di as txt "(showing first `rows' of `pre_n' observations)"
+            }
         }
+
+        local obs_n = c(N)
+        local var_k = c(k)
+
+        qui save "`dtapath'", replace
     }
-
-    local obs_n = c(N)
-    local var_k = c(k)
-
-    qui save "`dtapath'", replace
-    restore
+    frame drop `vview_frame'
 
     // Escape backslashes and quotes for JSON.
     mata: st_local("json_dtapath", subinstr(subinstr(st_local("dtapath"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
@@ -67,6 +70,7 @@ program define vview
     mata: st_local("json_timestamp", subinstr(subinstr(st_local("timestamp"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
     mata: st_local("json_if", subinstr(subinstr(st_local("if_condition"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
     mata: st_local("json_in", subinstr(subinstr(st_local("in_condition"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
+    mata: st_local("json_cwd", subinstr(subinstr(st_local("cwd"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
 
     // Write JSON sidecar with Mata to avoid fragile Stata quote syntax.
     local replace_json = cond("`replace'" != "", "true", "false")
@@ -104,6 +108,7 @@ program define vview
         fput(my_vview_fh, "  " + my_vview_q + "uuid" + my_vview_q + ": " + my_vview_q + st_local("uuid") + my_vview_q + ",")
         fput(my_vview_fh, "  " + my_vview_q + "timestamp" + my_vview_q + ": " + my_vview_q + st_local("json_timestamp") + my_vview_q + ",")
         fput(my_vview_fh, "  " + my_vview_q + "source" + my_vview_q + ": " + my_vview_q + st_local("json_source") + my_vview_q + ",")
+        fput(my_vview_fh, "  " + my_vview_q + "cwd" + my_vview_q + ": " + my_vview_q + st_local("json_cwd") + my_vview_q + ",")
         fput(my_vview_fh, "  " + my_vview_q + "name" + my_vview_q + ": " + my_vview_q + st_local("json_name") + my_vview_q + ",")
         fput(my_vview_fh, "  " + my_vview_q + "dtapath" + my_vview_q + ": " + my_vview_q + st_local("json_dtapath") + my_vview_q + ",")
         fput(my_vview_fh, "  " + my_vview_q + "varlist" + my_vview_q + ": " + st_local("json_varlist") + ",")

@@ -341,6 +341,12 @@
           "default": "",
           "description": "Path to Stata's PERSONAL ado directory for vview.ado installation. Leave empty for auto-detection (macOS: ~/Documents/Stata/ado/personal/, Linux: ~/ado/personal/, Windows: %USERPROFILE%\\ado\\personal\\)."
         },
+        "sight.dataBrowser.maxStoredLayouts": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1,
+          "description": "Maximum number of dataset layout entries (column widths and visibility) stored across all datasets. When the limit is reached, the least recently used entries are removed first. Each dataset may use multiple entries for alias keys."
+        },
         "sight.dataBrowser.missingValueStyle": {
           "type": "string",
           "enum": [

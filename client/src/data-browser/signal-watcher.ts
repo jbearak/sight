@@ -55,6 +55,12 @@ export function parse_sidecar_json(
         return null;
     }
     if (
+        my_rec.cwd !== undefined
+        && typeof my_rec.cwd !== 'string'
+    ) {
+        return null;
+    }
+    if (
         my_rec.varlist !== undefined
         && (
             !Array.isArray(my_rec.varlist)
@@ -89,6 +95,7 @@ export function parse_sidecar_json(
             : false,
         timestamp: my_rec.timestamp as string | undefined,
         source: my_rec.source as string | undefined,
+        cwd: my_rec.cwd as string | undefined,
         varlist: my_rec.varlist as string[] | undefined,
         if: my_rec.if as string | undefined,
         in: my_rec.in as string | undefined,
@@ -155,25 +162,42 @@ export type SignalCallback =
     (sidecar: VviewSidecar) => void | Promise<void>;
 
 /**
+ * Returns the number of milliseconds to wait before
+ * attempting to claim a signal. A matching workspace
+ * returns 0 (claim immediately); a non-matching one
+ * returns a positive delay to give the right window
+ * a head start.
+ */
+export type ClaimDelayFn =
+    (sidecar: VviewSidecar) => number;
+
+/**
  * Watches ~/.sight/browse/ for signal files created by
  * vview.ado. When a signal_<uuid> file appears, reads the
  * companion <uuid>.json sidecar, parses it, cleans up
  * both files, and invokes the callback.
+ *
+ * An optional claim_delay_fn controls how long to wait
+ * before attempting the atomic claim. This allows windows
+ * whose workspace matches the Stata cwd to claim first.
  */
 export class SignalWatcher {
     private readonly on_signal: SignalCallback;
     private readonly log: (msg: string) => void;
     private readonly browse_dir: string;
+    private readonly claim_delay_fn: ClaimDelayFn;
     private watcher: fs.FSWatcher | null = null;
 
     constructor(
         on_signal: SignalCallback,
         log?: (msg: string) => void,
-        browse_dir: string = BROWSE_DIR
+        browse_dir: string = BROWSE_DIR,
+        claim_delay_fn: ClaimDelayFn = () => 0
     ) {
         this.on_signal = on_signal;
         this.log = log ?? (() => {});
         this.browse_dir = browse_dir;
+        this.claim_delay_fn = claim_delay_fn;
     }
 
     /** Begin watching ~/.sight/browse/. */
@@ -203,7 +227,7 @@ export class SignalWatcher {
                         && filename
                         && filename.startsWith(SIGNAL_PREFIX)
                     ) {
-                        this.handle_signal(filename);
+                        this.read_sidecar(filename);
                     }
                 }
             );
@@ -223,67 +247,48 @@ export class SignalWatcher {
         }
     }
 
-    private handle_signal(
+    /**
+     * Phase 1: Read the companion JSON sidecar
+     * (non-destructive, with retries). Once parsed,
+     * hand off to schedule_claim.
+     */
+    private read_sidecar(
         signal_filename: string,
         retry_count: number = 0
     ): void {
-        const my_signal_path = path.join(
-            this.browse_dir,
-            signal_filename
-        );
-
         const my_uuid = get_signal_uuid(signal_filename);
         if (!my_uuid) {
             this.log(
                 'Invalid signal filename: '
                 + signal_filename
             );
-            this.try_unlink(my_signal_path);
+            this.try_unlink(
+                path.join(
+                    this.browse_dir,
+                    signal_filename
+                )
+            );
             return;
         }
 
-        // Atomically claim this signal on the first
-        // attempt by deleting the signal file. On POSIX,
-        // unlink is atomic — exactly one process succeeds,
-        // others get ENOENT. This prevents multiple VS
-        // Code windows from processing the same signal.
-        if (retry_count === 0) {
-            try {
-                fs.unlinkSync(my_signal_path);
-            } catch (my_err: unknown) {
-                const my_code = (
-                    my_err as NodeJS.ErrnoException
-                ).code;
-                if (my_code === 'ENOENT') {
-                    return;
-                }
-                this.log(
-                    'Failed to claim signal '
-                    + signal_filename + ': '
-                    + String(my_err)
-                );
-                return;
-            }
-        }
-
-        // Read companion sidecar JSON
         const my_json_path = path.join(
             this.browse_dir,
             my_uuid + '.json'
         );
+
         let my_content: string;
         try {
             my_content = fs.readFileSync(
                 my_json_path,
                 'utf-8'
             );
-        } catch (my_err) {
+        } catch {
             if (
                 retry_count
                 < MAX_SIGNAL_READ_RETRIES
             ) {
                 setTimeout(() => {
-                    this.handle_signal(
+                    this.read_sidecar(
                         signal_filename,
                         retry_count + 1
                     );
@@ -292,13 +297,12 @@ export class SignalWatcher {
             }
 
             this.log(
-                `Failed to read sidecar ${my_json_path}: `
-                + String(my_err)
+                'Failed to read sidecar '
+                + my_json_path
             );
             return;
         }
 
-        // Parse sidecar
         const my_sidecar = parse_sidecar_json(my_content);
         if (!my_sidecar) {
             if (
@@ -306,7 +310,7 @@ export class SignalWatcher {
                 < MAX_SIGNAL_READ_RETRIES
             ) {
                 setTimeout(() => {
-                    this.handle_signal(
+                    this.read_sidecar(
                         signal_filename,
                         retry_count + 1
                     );
@@ -317,15 +321,79 @@ export class SignalWatcher {
             this.log(
                 'Invalid sidecar JSON: ' + my_json_path
             );
-            this.try_unlink(my_json_path);
             return;
         }
 
-        // Cleanup sidecar before callback
-        // (signal already deleted during claim)
-        this.try_unlink(my_json_path);
+        this.schedule_claim(
+            signal_filename,
+            my_sidecar,
+            my_json_path
+        );
+    }
 
-        Promise.resolve(this.on_signal(my_sidecar))
+    /**
+     * Phase 2: Compute claim delay and schedule the
+     * atomic claim attempt.
+     */
+    private schedule_claim(
+        signal_filename: string,
+        sidecar: VviewSidecar,
+        json_path: string
+    ): void {
+        const my_delay_ms = this.claim_delay_fn(sidecar);
+        if (my_delay_ms <= 0) {
+            this.attempt_claim(
+                signal_filename,
+                sidecar,
+                json_path
+            );
+            return;
+        }
+        setTimeout(() => {
+            this.attempt_claim(
+                signal_filename,
+                sidecar,
+                json_path
+            );
+        }, my_delay_ms);
+    }
+
+    /**
+     * Phase 3: Atomically claim the signal by deleting
+     * the signal file. On POSIX, unlink is atomic —
+     * exactly one process succeeds, others get ENOENT.
+     * This prevents multiple VS Code windows from
+     * processing the same signal.
+     */
+    private attempt_claim(
+        signal_filename: string,
+        sidecar: VviewSidecar,
+        json_path: string
+    ): void {
+        const my_signal_path = path.join(
+            this.browse_dir,
+            signal_filename
+        );
+        try {
+            fs.unlinkSync(my_signal_path);
+        } catch (my_err: unknown) {
+            const my_code = (
+                my_err as NodeJS.ErrnoException
+            ).code;
+            if (my_code === 'ENOENT') {
+                return;
+            }
+            this.log(
+                'Failed to claim signal '
+                + signal_filename + ': '
+                + String(my_err)
+            );
+            return;
+        }
+
+        this.try_unlink(json_path);
+
+        Promise.resolve(this.on_signal(sidecar))
             .catch(my_err => {
                 this.log(
                     'Signal callback error: '
