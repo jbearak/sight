@@ -72,10 +72,12 @@ export function register_data_browser(
     log: (msg: string) => void
 ): void {
     const my_get_max_layouts = () =>
-        vscode.workspace.getConfiguration('sight').get<number>(
+        Math.max(1, vscode.workspace.getConfiguration(
+            'sight'
+        ).get<number>(
             'dataBrowser.maxStoredLayouts',
             10_000
-        ) ?? 10_000;
+        ) ?? 10_000);
     const my_column_width_store =
         create_column_width_store(
             context,

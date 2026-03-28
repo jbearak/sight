@@ -13,8 +13,8 @@ function evict_excess_layouts<T>(
     max_layouts: number
 ): void {
     const the_keys = Object.keys(map);
-    const evict_count = the_keys.length - max_layouts;
-    for (let i = 0; i < evict_count; i++) {
+    const my_evict_count = the_keys.length - max_layouts;
+    for (let i = 0; i < my_evict_count; i++) {
         delete map[the_keys[i]];
     }
 }
@@ -178,6 +178,8 @@ export function create_column_width_store(
 ): DataBrowserColumnWidthStore {
     const my_get_max = get_max_layouts
         ?? (() => DEFAULT_MAX_STORED_LAYOUTS);
+    let my_pending_write: Promise<void> =
+        Promise.resolve();
 
     return {
         get(
@@ -204,40 +206,52 @@ export function create_column_width_store(
             widths: Record<string, number>,
             alias_keys: readonly string[] = []
         ): Promise<void> {
-            const my_sanitized =
-                sanitize_column_widths(widths);
-            const the_write_keys = [
-                dataset_key,
-                ...alias_keys,
-            ];
-            const my_max_layouts = my_get_max();
+            // Serialize writes so each read-modify-write
+            // sees the result of the previous write.
+            my_pending_write = my_pending_write.then(
+                async () => {
+                    const my_sanitized =
+                        sanitize_column_widths(widths);
+                    const the_write_keys = [
+                        dataset_key,
+                        ...alias_keys,
+                    ];
+                    const my_max_layouts =
+                        my_get_max();
 
-            // Single read-modify-write to avoid race
-            // conditions when multiple panels persist
-            // widths concurrently.
-            const my_all_widths =
-                get_stored_column_widths(context);
-            const my_has_entries =
-                Object.keys(my_sanitized).length > 0;
+                    const my_all_widths =
+                        get_stored_column_widths(
+                            context
+                        );
+                    const my_has_entries =
+                        Object.keys(my_sanitized)
+                            .length > 0;
 
-            for (const my_key of the_write_keys) {
-                if (!my_key) continue;
-                // LRU touch: delete before reinserting
-                delete my_all_widths[my_key];
-                if (my_has_entries) {
-                    my_all_widths[my_key] = my_sanitized;
+                    for (
+                        const my_key of the_write_keys
+                    ) {
+                        if (!my_key) continue;
+                        // LRU touch: delete before
+                        // reinserting
+                        delete my_all_widths[my_key];
+                        if (my_has_entries) {
+                            my_all_widths[my_key] =
+                                my_sanitized;
+                        }
+                    }
+
+                    evict_excess_layouts(
+                        my_all_widths,
+                        my_max_layouts
+                    );
+
+                    await context.globalState.update(
+                        DATA_BROWSER_COLUMN_WIDTHS_KEY,
+                        my_all_widths
+                    );
                 }
-            }
-
-            evict_excess_layouts(
-                my_all_widths,
-                my_max_layouts
             );
-
-            await context.globalState.update(
-                DATA_BROWSER_COLUMN_WIDTHS_KEY,
-                my_all_widths
-            );
+            await my_pending_write;
         },
     };
 }

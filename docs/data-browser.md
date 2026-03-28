@@ -73,7 +73,7 @@ Column widths and visibility settings are saved automatically in VS Code's globa
 
 ### Storage Limit
 
-To prevent unbounded storage growth, Sight limits the number of stored layout entries. When the limit is reached, the least recently used entries are evicted first.
+To prevent unbounded storage growth, Sight limits the number of stored layout entries. When the limit is reached, the least recently saved entries are evicted first.
 
 | Setting | Default | Description |
 |---------|---------|-------------|

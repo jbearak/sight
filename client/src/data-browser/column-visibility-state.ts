@@ -15,8 +15,8 @@ function evict_excess_layouts<T>(
     max_layouts: number
 ): void {
     const the_keys = Object.keys(map);
-    const evict_count = the_keys.length - max_layouts;
-    for (let i = 0; i < evict_count; i++) {
+    const my_evict_count = the_keys.length - max_layouts;
+    for (let i = 0; i < my_evict_count; i++) {
         delete map[the_keys[i]];
     }
 }
@@ -126,6 +126,8 @@ export function create_column_visibility_store(
 ): DataBrowserColumnVisibilityStore {
     const my_get_max = get_max_layouts
         ?? (() => DEFAULT_MAX_STORED_LAYOUTS);
+    let my_pending_write: Promise<void> =
+        Promise.resolve();
 
     return {
         get(
@@ -152,41 +154,53 @@ export function create_column_visibility_store(
             hidden_columns: string[],
             alias_keys: readonly string[] = []
         ): Promise<void> {
-            const my_sanitized = sanitize_hidden_columns(
-                hidden_columns
-            );
-            const the_write_keys = [
-                dataset_key,
-                ...alias_keys,
-            ];
-            const my_max_layouts = my_get_max();
+            // Serialize writes so each read-modify-write
+            // sees the result of the previous write.
+            my_pending_write = my_pending_write.then(
+                async () => {
+                    const my_sanitized =
+                        sanitize_hidden_columns(
+                            hidden_columns
+                        );
+                    const the_write_keys = [
+                        dataset_key,
+                        ...alias_keys,
+                    ];
+                    const my_max_layouts =
+                        my_get_max();
 
-            // Single read-modify-write to avoid race
-            // conditions when multiple panels persist
-            // visibility concurrently.
-            const my_all =
-                get_stored_hidden_columns(context);
-            const my_has_entries =
-                my_sanitized.length > 0;
+                    const my_all =
+                        get_stored_hidden_columns(
+                            context
+                        );
+                    const my_has_entries =
+                        my_sanitized.length > 0;
 
-            for (const my_key of the_write_keys) {
-                if (!my_key) continue;
-                // LRU touch: delete before reinserting
-                delete my_all[my_key];
-                if (my_has_entries) {
-                    my_all[my_key] = my_sanitized;
+                    for (
+                        const my_key of the_write_keys
+                    ) {
+                        if (!my_key) continue;
+                        // LRU touch: delete before
+                        // reinserting
+                        delete my_all[my_key];
+                        if (my_has_entries) {
+                            my_all[my_key] =
+                                my_sanitized;
+                        }
+                    }
+
+                    evict_excess_layouts(
+                        my_all,
+                        my_max_layouts
+                    );
+
+                    await context.globalState.update(
+                        DATA_BROWSER_COLUMN_VISIBILITY_KEY,
+                        my_all
+                    );
                 }
-            }
-
-            evict_excess_layouts(
-                my_all,
-                my_max_layouts
             );
-
-            await context.globalState.update(
-                DATA_BROWSER_COLUMN_VISIBILITY_KEY,
-                my_all
-            );
+            await my_pending_write;
         },
     };
 }
