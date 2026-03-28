@@ -1,12 +1,48 @@
 /**
- * Minimal CompactSelection implementation compatible with
- * @glideapps/glide-data-grid's CompactSelection API.
+ * Minimal CompactSelection compatible with the subset of
+ * @glideapps/glide-data-grid's CompactSelection API that
+ * selection-model.ts actually uses.
  *
- * Avoids a runtime dependency on the grid library so that
- * modules consuming this can be tested in Bun (where the
- * client-only dependency is not installed).
+ * This local module exists so that selection-model.ts (and
+ * its tests) can run without the grid library installed.
+ * The full library is still imported directly by app.tsx
+ * for the DataEditor component.
+ *
+ * GridSelection is defined with a structural interface so
+ * that objects created with either this class or the real
+ * library class are assignable to it.
  */
-export class CompactSelection {
+
+/** Structural interface matching the CompactSelection API
+ *  surface used by this codebase. Both the local class and
+ *  the library class satisfy this interface. */
+export interface CompactSelectionLike {
+    readonly length: number;
+    toArray(): number[];
+    hasIndex(index: number): boolean;
+}
+
+export interface GridSelection {
+    readonly columns: CompactSelectionLike;
+    readonly rows: CompactSelectionLike;
+    readonly current?: {
+        readonly cell: readonly [number, number];
+        readonly range: {
+            readonly x: number;
+            readonly y: number;
+            readonly width: number;
+            readonly height: number;
+        };
+        readonly rangeStack: readonly {
+            readonly x: number;
+            readonly y: number;
+            readonly width: number;
+            readonly height: number;
+        }[];
+    };
+}
+
+export class CompactSelection implements CompactSelectionLike {
     private readonly ranges: readonly [number, number][];
 
     private constructor(
@@ -51,24 +87,4 @@ export class CompactSelection {
         }
         return false;
     }
-}
-
-export interface GridSelection {
-    readonly columns: CompactSelection;
-    readonly rows: CompactSelection;
-    readonly current?: {
-        readonly cell: readonly [number, number];
-        readonly range: {
-            readonly x: number;
-            readonly y: number;
-            readonly width: number;
-            readonly height: number;
-        };
-        readonly rangeStack: readonly {
-            readonly x: number;
-            readonly y: number;
-            readonly width: number;
-            readonly height: number;
-        }[];
-    };
 }
