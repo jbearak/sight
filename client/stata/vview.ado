@@ -41,9 +41,9 @@ program define vview
     preserve
 
     // Apply if/in qualifiers
-    marksample touse, novarlist
-    qui keep if `touse'
-    drop `touse'
+    if `"`if'`in'"' != "" {
+        qui keep `if' `in'
+    }
 
     if "`varlist'" != "" {
         keep `varlist'
