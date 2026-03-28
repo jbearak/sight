@@ -27,10 +27,17 @@ export interface ColumnWidthsChangedMessage {
     widths: Record<string, number>;
 }
 
+export interface ColumnVisibilityChangedMessage {
+    type: 'columnVisibilityChanged';
+    dataset_key: string;
+    hidden_columns: string[];
+}
+
 export type WebviewMessage =
     | RowRequest
     | ReadyMessage
-    | ColumnWidthsChangedMessage;
+    | ColumnWidthsChangedMessage
+    | ColumnVisibilityChangedMessage;
 
 // Extension → Webview messages
 
@@ -50,6 +57,7 @@ export interface MetadataMessage {
     name: string;
     dataset_key: string;
     stored_column_widths?: Record<string, number>;
+    stored_hidden_columns?: string[];
     source?: string;
     subsetted?: boolean;
     varlist?: string[];

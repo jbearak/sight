@@ -78,8 +78,133 @@ body,
     font-size: 12px;
     line-height: 1.35;
     pointer-events: none;
-    transform: translateX(-50%);
     white-space: normal;
+}
+
+/* Column visibility popover */
+
+.columns-popover-anchor {
+    position: relative;
+}
+
+.columns-popover {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 30;
+    min-width: 220px;
+    max-width: 320px;
+    max-height: 360px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+    font-size: 12px;
+}
+
+.columns-popover-filter {
+    padding: 6px 8px;
+    border: none;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    width: 100%;
+    outline: none;
+}
+
+.columns-popover-actions {
+    display: flex;
+    gap: 6px;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.popover-action-btn {
+    border: none;
+    background: transparent;
+    color: var(--vscode-textLink-foreground, inherit);
+    cursor: pointer;
+    padding: 2px 4px;
+    font: inherit;
+}
+
+.popover-action-btn:hover {
+    text-decoration: underline;
+}
+
+.columns-popover-list {
+    overflow-y: auto;
+    flex: 1;
+}
+
+.columns-popover-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    cursor: pointer;
+}
+
+.columns-popover-item:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.columns-popover-item label {
+    cursor: pointer;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.columns-popover-label {
+    opacity: 0.6;
+}
+
+.columns-popover-empty {
+    padding: 8px 10px;
+    opacity: 0.6;
+}
+
+/* Right-click context menu */
+
+.column-context-menu {
+    position: absolute;
+    z-index: 40;
+    min-width: 140px;
+    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+    padding: 4px 0;
+}
+
+.column-context-menu-item {
+    padding: 5px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.column-context-menu-item:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+/* Hidden column count badge */
+
+.hidden-count-badge {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    font-size: 10px;
+    line-height: 16px;
+    vertical-align: middle;
 }
 
 .status-bar {

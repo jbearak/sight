@@ -1,4 +1,4 @@
-import React, {
+import {
     useEffect,
     useMemo,
     useRef,
@@ -26,15 +26,31 @@ import {
     merge_persisted_and_default_widths,
 } from './grid-model';
 import {
+    build_visible_column_map,
+    build_visible_grid_columns,
+    describe_hidden_column_count,
+    hide_all_columns,
+    show_all_columns,
+    toggle_column_hidden,
+} from './column-visibility-model';
+import {
     create_empty_grid_selection,
     create_single_column_selection,
 } from './selection-model';
 import { use_row_loader } from './use-row-loader';
+import { ColumnContextMenu } from './column-context-menu';
+import { ColumnVisibilityPopover } from './column-visibility-popover';
 
 const HEADER_HEIGHT_PX = 40;
 
 type HeaderTooltipState = {
     text: string;
+    left_px: number;
+    top_px: number;
+};
+
+type ContextMenuState = {
+    variable_name: string;
     left_px: number;
     top_px: number;
 };
@@ -63,6 +79,56 @@ export function App() {
         useState<GridSelection>(
             create_empty_grid_selection
         );
+    const [hidden_columns, set_hidden_columns] =
+        useState<Set<string>>(new Set());
+    const [columns_popover_open, set_columns_popover_open] =
+        useState(false);
+    const [context_menu, set_context_menu] =
+        useState<ContextMenuState | null>(null);
+    const grid_shell_ref = useRef<HTMLDivElement>(null);
+    const last_mouse_ref = useRef<{
+        x: number;
+        y: number;
+    }>({ x: 0, y: 0 });
+
+    useEffect(() => {
+        const my_el = grid_shell_ref.current;
+        if (!my_el) {
+            return;
+        }
+
+        const update_mouse = (e: MouseEvent) => {
+            const my_rect =
+                my_el.getBoundingClientRect();
+            last_mouse_ref.current = {
+                x: e.clientX - my_rect.left,
+                y: e.clientY - my_rect.top,
+            };
+        };
+
+        my_el.addEventListener(
+            'mousemove',
+            update_mouse,
+            true
+        );
+        my_el.addEventListener(
+            'contextmenu',
+            update_mouse,
+            true
+        );
+        return () => {
+            my_el.removeEventListener(
+                'mousemove',
+                update_mouse,
+                true
+            );
+            my_el.removeEventListener(
+                'contextmenu',
+                update_mouse,
+                true
+            );
+        };
+    }, []);
 
     useEffect(() => {
         column_widths_ref.current = column_widths_by_name;
@@ -100,6 +166,7 @@ export function App() {
             set_grid_selection(
                 create_empty_grid_selection()
             );
+            set_hidden_columns(new Set());
             return;
         }
 
@@ -117,6 +184,11 @@ export function App() {
         );
         set_grid_selection(
             create_empty_grid_selection()
+        );
+        set_hidden_columns(
+            new Set(
+                metadata.stored_hidden_columns ?? []
+            )
         );
     }, [metadata?.dataset_key]);
 
@@ -156,12 +228,34 @@ export function App() {
         user_resized_columns,
     ]);
 
-    const the_columns = useMemo(
-        () => build_grid_columns(
-            metadata,
-            column_widths_by_name
-        ),
-        [metadata, column_widths_by_name]
+    // Clear selection when hidden columns change
+    useEffect(() => {
+        set_grid_selection(
+            create_empty_grid_selection()
+        );
+        set_context_menu(null);
+    }, [hidden_columns]);
+
+    // Co-derive visible column map and grid columns
+    const { visible_col_map, the_columns } = useMemo(
+        () => {
+            const my_all_columns = build_grid_columns(
+                metadata,
+                column_widths_by_name
+            );
+            const my_map = build_visible_column_map(
+                metadata?.variables ?? [],
+                hidden_columns
+            );
+            return {
+                visible_col_map: my_map,
+                the_columns: build_visible_grid_columns(
+                    my_all_columns,
+                    my_map
+                ),
+            };
+        },
+        [metadata, column_widths_by_name, hidden_columns]
     );
 
     const draw_header: DrawHeaderCallback = ({
@@ -214,7 +308,57 @@ export function App() {
         )
         : 'Loading...';
 
-    const status_text = describe_status_summary(metadata);
+    const hidden_count_text = describe_hidden_column_count(
+        hidden_columns.size
+    );
+    const status_text = [
+        describe_status_summary(metadata),
+        hidden_count_text,
+    ].filter(Boolean).join(' | ');
+
+    const clamp_position = (
+        left: number,
+        top: number,
+        el_width: number,
+        el_height: number
+    ): { left: number; top: number } => {
+        const my_shell = grid_shell_ref.current;
+        if (!my_shell) {
+            return { left, top };
+        }
+        const my_pw = my_shell.clientWidth;
+        const my_ph = my_shell.clientHeight;
+        let my_left = left;
+        let my_top = top;
+
+        if (my_left + el_width > my_pw - 4) {
+            my_left = my_pw - el_width - 4;
+        }
+        if (my_top + el_height > my_ph - 4) {
+            my_top = my_ph - el_height - 4;
+        }
+        my_left = Math.max(4, my_left);
+        my_top = Math.max(4, my_top);
+
+        return { left: my_left, top: my_top };
+    };
+
+    const tooltip_ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const my_el = tooltip_ref.current;
+        if (!my_el || !header_tooltip) {
+            return;
+        }
+        const my_clamped = clamp_position(
+            header_tooltip.left_px,
+            header_tooltip.top_px,
+            my_el.offsetWidth,
+            my_el.offsetHeight
+        );
+        my_el.style.left = `${my_clamped.left}px`;
+        my_el.style.top = `${my_clamped.top}px`;
+    });
 
     const on_item_hovered = (args: GridMouseEventArgs) => {
         if (!metadata || args.kind !== 'header') {
@@ -222,7 +366,10 @@ export function App() {
             return;
         }
 
-        const my_variable = metadata.variables[args.location[0]];
+        const my_var_index =
+            visible_col_map[args.location[0]];
+        const my_variable =
+            metadata.variables[my_var_index];
         if (!my_variable) {
             set_header_tooltip(null);
             return;
@@ -236,8 +383,8 @@ export function App() {
 
         set_header_tooltip({
             text: my_tooltip,
-            left_px: args.bounds.x + Math.min(args.bounds.width / 2, 120),
-            top_px: args.bounds.y + args.bounds.height + 6,
+            left_px: last_mouse_ref.current.x,
+            top_px: last_mouse_ref.current.y + 16,
         });
     };
 
@@ -252,6 +399,20 @@ export function App() {
             type: 'columnWidthsChanged',
             dataset_key: metadata.dataset_key,
             widths: next_widths,
+        });
+    };
+
+    const persist_hidden_columns = (
+        next_hidden: Set<string>
+    ) => {
+        if (!metadata) {
+            return;
+        }
+
+        vscode_api.postMessage({
+            type: 'columnVisibilityChanged',
+            dataset_key: metadata.dataset_key,
+            hidden_columns: [...next_hidden],
         });
     };
 
@@ -282,7 +443,10 @@ export function App() {
             return;
         }
 
-        const my_variable = metadata.variables[col_index];
+        const my_var_index =
+            visible_col_map[col_index];
+        const my_variable =
+            metadata.variables[my_var_index];
         if (!my_variable) {
             return;
         }
@@ -322,6 +486,44 @@ export function App() {
         );
     };
 
+    const copy_column_to_clipboard = (
+        var_index: number
+    ) => {
+        if (!metadata) {
+            return;
+        }
+
+        const the_values: string[] = [];
+        the_values.push(
+            metadata.variables[var_index].name
+        );
+
+        for (let row = 0; row < metadata.nobs; row++) {
+            const my_row = get_row(row);
+            const my_cell = my_row?.[var_index];
+            the_values.push(
+                my_cell
+                    ? get_cell_display_value(
+                        my_cell,
+                        show_labels,
+                        show_formats
+                    )
+                    : ''
+            );
+        }
+
+        navigator.clipboard.writeText(
+            the_values.join('\n')
+        );
+    };
+
+    const update_hidden_columns = (
+        next_hidden: Set<string>
+    ) => {
+        set_hidden_columns(next_hidden);
+        persist_hidden_columns(next_hidden);
+    };
+
     return (
         <div className="browser-root">
             <div className="toolbar">
@@ -340,8 +542,53 @@ export function App() {
                 >
                     Formats
                 </button>
+                <div className="columns-popover-anchor">
+                    <button
+                        className={columns_popover_open ? 'toggle active' : 'toggle'}
+                        onClick={() => set_columns_popover_open(v => !v)}
+                        type="button"
+                    >
+                        Columns
+                        {hidden_columns.size > 0 && (
+                            <span className="hidden-count-badge">
+                                {hidden_columns.size}
+                            </span>
+                        )}
+                    </button>
+                    {columns_popover_open && metadata && (
+                        <ColumnVisibilityPopover
+                            variables={metadata.variables}
+                            hidden_columns={hidden_columns}
+                            on_toggle={name => {
+                                update_hidden_columns(
+                                    toggle_column_hidden(
+                                        hidden_columns,
+                                        name
+                                    )
+                                );
+                            }}
+                            on_show_all={() => {
+                                update_hidden_columns(
+                                    show_all_columns()
+                                );
+                            }}
+                            on_hide_all={() => {
+                                update_hidden_columns(
+                                    hide_all_columns(
+                                        metadata.variables.map(
+                                            v => v.name
+                                        )
+                                    )
+                                );
+                            }}
+                            on_close={() =>
+                                set_columns_popover_open(false)
+                            }
+                        />
+                    )}
+                </div>
             </div>
-            <div className="grid-shell">
+            <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
                     width="100%"
                     height="100%"
@@ -359,8 +606,25 @@ export function App() {
                     onHeaderClicked={(col_index, _event) => {
                         select_single_column(col_index);
                     }}
-                    onHeaderContextMenu={(col_index, _event) => {
+                    onHeaderContextMenu={(col_index, event) => {
+                        event.preventDefault();
                         select_single_column(col_index);
+                        const my_var_index =
+                            visible_col_map[col_index];
+                        const my_variable =
+                            metadata?.variables[my_var_index];
+                        if (!my_variable) {
+                            return;
+                        }
+                        set_context_menu({
+                            variable_name: my_variable.name,
+                            left_px:
+                                last_mouse_ref
+                                    .current.x,
+                            top_px:
+                                last_mouse_ref
+                                    .current.y,
+                        });
                     }}
                     onItemHovered={on_item_hovered}
                     onColumnResize={(_column, _new_size, col_index, new_size_with_grow) => {
@@ -392,7 +656,10 @@ export function App() {
                     }}
                     getCellContent={([col, row]: Item) => {
                         const my_row = get_row(row);
-                        const my_cell = my_row?.[col];
+                        const my_var_index =
+                            visible_col_map[col];
+                        const my_cell =
+                            my_row?.[my_var_index];
                         const my_display = my_cell
                             ? get_cell_display_value(
                                 my_cell,
@@ -412,6 +679,7 @@ export function App() {
                 />
                 {header_tooltip && (
                     <div
+                        ref={tooltip_ref}
                         className="header-tooltip"
                         style={{
                             left: `${header_tooltip.left_px}px`,
@@ -420,6 +688,39 @@ export function App() {
                     >
                         {header_tooltip.text}
                     </div>
+                )}
+                {context_menu && metadata && (
+                    <ColumnContextMenu
+                        left_px={context_menu.left_px}
+                        top_px={context_menu.top_px}
+                        on_copy={() => {
+                            const my_var_index =
+                                metadata.variables
+                                    .findIndex(
+                                        v => v.name
+                                            === context_menu
+                                                .variable_name
+                                    );
+                            if (my_var_index >= 0) {
+                                copy_column_to_clipboard(
+                                    my_var_index
+                                );
+                            }
+                            set_context_menu(null);
+                        }}
+                        on_hide={() => {
+                            update_hidden_columns(
+                                toggle_column_hidden(
+                                    hidden_columns,
+                                    context_menu.variable_name
+                                )
+                            );
+                            set_context_menu(null);
+                        }}
+                        on_close={() =>
+                            set_context_menu(null)
+                        }
+                    />
                 )}
             </div>
             <div className="status-bar">{status_text}</div>

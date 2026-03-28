@@ -9,6 +9,7 @@
 import * as vscode from 'vscode';
 import { DataBrowserPanel } from './browser-panel';
 import type { DataBrowserColumnWidthStore } from './column-width-state';
+import type { DataBrowserColumnVisibilityStore } from './column-visibility-state';
 import {
     build_direct_open_sidecar,
     DATA_BROWSER_PANEL_VIEW_TYPE,
@@ -26,7 +27,8 @@ export class DataBrowserPanelManager
     private panels = new Map<string, DataBrowserPanel>();
     constructor(
         private readonly extension_uri: vscode.Uri,
-        private readonly column_width_store: DataBrowserColumnWidthStore
+        private readonly column_width_store: DataBrowserColumnWidthStore,
+        private readonly column_visibility_store: DataBrowserColumnVisibilityStore
     ) {}
 
     async open_or_refresh(
@@ -77,7 +79,8 @@ export class DataBrowserPanelManager
             sidecar,
             my_dta_path,
             my_html,
-            this.column_width_store
+            this.column_width_store,
+            this.column_visibility_store
         );
 
         my_panel.on_did_dispose(() => {
@@ -135,7 +138,8 @@ export class DataBrowserPanelManager
             my_sidecar,
             dta_path,
             my_html,
-            this.column_width_store
+            this.column_width_store,
+            this.column_visibility_store
         );
 
         my_panel.on_did_dispose(() => {

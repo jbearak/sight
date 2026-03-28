@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { DataBrowserPanel } from './browser-panel';
 import type { DataBrowserColumnWidthStore } from './column-width-state';
+import type { DataBrowserColumnVisibilityStore } from './column-visibility-state';
 import {
     build_direct_open_sidecar,
     DATA_BROWSER_EDITOR_VIEW_TYPE,
@@ -25,7 +26,8 @@ export class DataBrowserReadonlyEditorProvider
 
     constructor(
         private readonly extension_uri: vscode.Uri,
-        private readonly column_width_store: DataBrowserColumnWidthStore
+        private readonly column_width_store: DataBrowserColumnWidthStore,
+        private readonly column_visibility_store: DataBrowserColumnVisibilityStore
     ) {}
 
     async openCustomDocument(
@@ -66,21 +68,24 @@ export class DataBrowserReadonlyEditorProvider
             my_sidecar,
             document.uri.fsPath,
             my_html,
-            this.column_width_store
+            this.column_width_store,
+            this.column_visibility_store
         );
     }
 }
 
 export function register_data_browser_custom_editor(
     context: vscode.ExtensionContext,
-    column_width_store: DataBrowserColumnWidthStore
+    column_width_store: DataBrowserColumnWidthStore,
+    column_visibility_store: DataBrowserColumnVisibilityStore
 ): void {
     context.subscriptions.push(
         vscode.window.registerCustomEditorProvider(
             DATA_BROWSER_EDITOR_VIEW_TYPE,
             new DataBrowserReadonlyEditorProvider(
                 context.extensionUri,
-                column_width_store
+                column_width_store,
+                column_visibility_store
             ),
             {
                 supportsMultipleEditorsPerDocument: true,

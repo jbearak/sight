@@ -19,6 +19,9 @@ import {
     build_dataset_key_aliases,
     type DataBrowserColumnWidthStore,
 } from './column-width-state';
+import type {
+    DataBrowserColumnVisibilityStore,
+} from './column-visibility-state';
 import { should_unlink_data_browser_path } from './opening';
 import { RowCache } from './row-cache';
 import type {
@@ -41,6 +44,7 @@ export class DataBrowserPanel implements vscode.Disposable {
     private dataset_key: string;
     private dataset_key_aliases: string[];
     private readonly column_width_store: DataBrowserColumnWidthStore;
+    private readonly column_visibility_store: DataBrowserColumnVisibilityStore;
     private disposed = false;
 
     constructor(
@@ -48,7 +52,8 @@ export class DataBrowserPanel implements vscode.Disposable {
         sidecar: VviewSidecar,
         dta_path: string,
         webview_html: string,
-        column_width_store: DataBrowserColumnWidthStore
+        column_width_store: DataBrowserColumnWidthStore,
+        column_visibility_store: DataBrowserColumnVisibilityStore
     ) {
         this.panel = panel;
         this.sidecar = sidecar;
@@ -63,6 +68,8 @@ export class DataBrowserPanel implements vscode.Disposable {
                 sidecar
             );
         this.column_width_store = column_width_store;
+        this.column_visibility_store =
+            column_visibility_store;
 
         panel.webview.html = webview_html;
 
@@ -203,6 +210,11 @@ export class DataBrowserPanel implements vscode.Disposable {
                         this.dataset_key,
                         this.dataset_key_aliases
                     ),
+                stored_hidden_columns:
+                    this.column_visibility_store.get(
+                        this.dataset_key,
+                        this.dataset_key_aliases
+                    ),
                 source: this.sidecar.source,
                 subsetted: this.sidecar.subsetted,
                 varlist: this.sidecar.varlist,
@@ -233,6 +245,13 @@ export class DataBrowserPanel implements vscode.Disposable {
                 await this.column_width_store.set(
                     this.dataset_key,
                     msg.widths,
+                    this.dataset_key_aliases
+                );
+                break;
+            case 'columnVisibilityChanged':
+                await this.column_visibility_store.set(
+                    this.dataset_key,
+                    msg.hidden_columns,
                     this.dataset_key_aliases
                 );
                 break;
