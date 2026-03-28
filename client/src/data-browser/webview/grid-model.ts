@@ -175,6 +175,9 @@ export function get_cell_display_value(
     show_formats: boolean
 ): string {
     if (cell.missing_type) {
+        if (show_labels && cell.label_display) {
+            return cell.label_display;
+        }
         return cell.missing_type;
     }
     if (show_labels && cell.label_display) {

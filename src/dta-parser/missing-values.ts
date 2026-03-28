@@ -208,6 +208,21 @@ export function is_missing_value(
  * Classify a Stata missing value. Returns '.', '.a' .. '.z',
  * or null if the value is not missing.
  */
+/**
+ * Convert a MissingType to the int32 key used in value
+ * label tables (long encoding).
+ */
+export function missing_type_to_label_key(
+    missing_type: MissingType
+): number {
+    if (missing_type === '.') {
+        return LONG_MISSING_DOT;
+    }
+    const my_offset =
+        missing_type.charCodeAt(1) - 96; // 'a'=1 .. 'z'=26
+    return LONG_MISSING_DOT + my_offset;
+}
+
 export function classify_missing_value(
     value: number,
     type?: NumericDtaType

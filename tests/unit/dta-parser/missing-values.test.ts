@@ -3,6 +3,7 @@ import {
     classify_raw_float_missing,
     is_missing_value,
     classify_missing_value,
+    missing_type_to_label_key,
     STATA_MISSING,
     STATA_MISSING_A,
     STATA_MISSING_B,
@@ -308,6 +309,25 @@ describe('missing-values', () => {
         it('returns null for normal values', () => {
             expect(classify_missing_value(0.0)).toBeNull();
             expect(classify_missing_value(42)).toBeNull();
+        });
+    });
+
+    // ----- missing_type_to_label_key -----
+
+    describe('missing_type_to_label_key', () => {
+        it('maps . to LONG_MISSING_DOT', () => {
+            expect(missing_type_to_label_key('.'))
+                .toBe(2147483621);
+        });
+
+        it('maps .a to LONG_MISSING_DOT + 1', () => {
+            expect(missing_type_to_label_key('.a'))
+                .toBe(2147483622);
+        });
+
+        it('maps .z to LONG_MISSING_DOT + 26', () => {
+            expect(missing_type_to_label_key('.z'))
+                .toBe(2147483647);
         });
     });
 });

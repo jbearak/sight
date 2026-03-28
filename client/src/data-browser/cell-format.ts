@@ -1,6 +1,7 @@
 import {
     apply_display_format,
     is_missing_value_object,
+    missing_type_to_label_key,
     type MissingValue,
 } from '../../../src/dta-parser';
 import type { CellValue } from './types';
@@ -15,10 +16,23 @@ export function build_cell_value(
     value_label_table?: Map<number, string>
 ): CellValue {
     if (is_missing_value_object(raw)) {
+        let my_label_display: string | undefined;
+        if (
+            variable.value_label_name
+            && value_label_table
+        ) {
+            const my_label_key =
+                missing_type_to_label_key(
+                    raw.missing_type
+                );
+            my_label_display =
+                value_label_table.get(my_label_key);
+        }
         return {
             raw: null,
             raw_display: raw.missing_type,
             formatted_display: raw.missing_type,
+            label_display: my_label_display,
             missing_type: raw.missing_type,
         };
     }

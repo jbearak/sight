@@ -36,6 +36,26 @@ describe('build_cell_value', () => {
         expect(my_cell.formatted_display).toBe('.a');
     });
 
+    it('looks up value label for extended missing values', () => {
+        const my_table = new Map<number, string>([
+            [2147483622, 'Not applicable'],  // .a
+        ]);
+        const my_cell = build_cell_value(
+            make_missing_value('.a'),
+            {
+                type: 'double',
+                format: '%9.0g',
+                value_label_name: 'reason_lbl',
+            },
+            my_table
+        );
+
+        expect(my_cell.raw).toBeNull();
+        expect(my_cell.missing_type).toBe('.a');
+        expect(my_cell.raw_display).toBe('.a');
+        expect(my_cell.label_display).toBe('Not applicable');
+    });
+
     it('preserves raw, formatted, and labeled views', () => {
         const my_table = new Map<number, string>([
             [1, 'Foreign'],
@@ -65,6 +85,24 @@ describe('grid-model helpers', () => {
             formatted_display: '.z',
             missing_type: '.z',
         }, true, true)).toBe('.z');
+
+        // labeled missing shows label when show_labels=true
+        expect(get_cell_display_value({
+            raw: null,
+            raw_display: '.a',
+            formatted_display: '.a',
+            label_display: 'Not applicable',
+            missing_type: '.a',
+        }, true, true)).toBe('Not applicable');
+
+        // labeled missing shows missing type when show_labels=false
+        expect(get_cell_display_value({
+            raw: null,
+            raw_display: '.a',
+            formatted_display: '.a',
+            label_display: 'Not applicable',
+            missing_type: '.a',
+        }, false, true)).toBe('.a');
 
         expect(get_cell_display_value({
             raw: 1,

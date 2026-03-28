@@ -571,5 +571,6 @@ export {
     is_missing_value,
     is_missing_value_object,
     make_missing_value,
+    missing_type_to_label_key,
     STATA_MISSING_B,
 } from './missing-values';
