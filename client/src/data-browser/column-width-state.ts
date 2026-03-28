@@ -208,8 +208,9 @@ export function create_column_width_store(
         ): Promise<void> {
             // Serialize writes so each read-modify-write
             // sees the result of the previous write.
-            my_pending_write = my_pending_write.then(
-                async () => {
+            my_pending_write = my_pending_write
+                .catch(() => {})
+                .then(async () => {
                     const my_sanitized =
                         sanitize_column_widths(widths);
                     const the_write_keys = [
