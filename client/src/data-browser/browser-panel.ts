@@ -185,7 +185,31 @@ export class DataBrowserPanel implements vscode.Disposable {
                     /* file may already be gone */
                 }
             }
+        } catch (my_err: unknown) {
+            // Browse-dir temp files may be gone if another
+            // VS Code window already claimed and deleted
+            // the .dta file. Silently close the panel
+            // instead of showing an error dialog.
+            const my_code = (
+                my_err as NodeJS.ErrnoException
+            ).code;
+            if (
+                my_code === 'ENOENT'
+                && should_unlink_data_browser_path(
+                    this.dta_path
+                )
+            ) {
+                this.dispose();
+                return;
+            }
 
+            vscode.window.showErrorMessage(
+                `Failed to open .dta file: ${my_err}`
+            );
+            return;
+        }
+
+        try {
             const my_missing_style =
                 vscode.workspace
                     .getConfiguration('sight.dataBrowser')
