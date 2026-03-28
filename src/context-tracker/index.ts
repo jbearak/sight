@@ -309,7 +309,7 @@ export class ContextTracker implements IContextTracker {
     const my_line_count = get_line_count(my_doc);
     
     // Track program blocks to know which 'end' commands are valid
-    const my_program_block_ends = this.find_program_block_end_lines(my_doc);
+    const my_valid_end_lines = this.find_valid_end_lines(my_doc);
 
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
       const my_line = get_line_text(my_doc, my_line_number);
@@ -347,14 +347,14 @@ export class ContextTracker implements IContextTracker {
         }
         
         // Check if this 'end' is part of a program block
-        if (!my_is_valid_end && my_program_block_ends.has(my_line_number)) {
+        if (!my_is_valid_end && my_valid_end_lines.has(my_line_number)) {
           my_is_valid_end = true;
         }
 
         if (!my_is_valid_end) {
           // Emit diagnostic for orphan end commands
           this.diagnostics.push({
-            message: 'Unexpected "end" command - not closing any program, mata, or python block',
+            message: 'Unexpected "end" command - not closing any program, mata, python, or input block',
             range: {
               start: { line: my_line_number, character: 0 },
               end: {
@@ -463,15 +463,15 @@ export class ContextTracker implements IContextTracker {
   }
 
   /**
-   * Find line numbers where 'end' commands are valid program block terminators.
-   * Uses stack-based tracking to handle nested program blocks correctly.
-   * This method is aware of embedded language blocks and only considers 'end'
-   * commands that are not used to close mata/python blocks.
+   * Find line numbers where 'end' commands are valid block terminators
+   * (program or input blocks). Uses stack-based tracking to handle nested
+   * blocks correctly. Mata/python block ends are validated separately via
+   * context ranges.
    */
-  private find_program_block_end_lines(doc: { content: string; line_offsets: number[] }): Set<number> {
-    const my_program_end_lines = new Set<number>();
+  private find_valid_end_lines(doc: { content: string; line_offsets: number[] }): Set<number> {
+    const my_valid_end_lines = new Set<number>();
     const my_program_stack: number[] = []; // Stack of program start line numbers
-    const my_embedded_stack: string[] = []; // Stack of embedded language blocks ('mata' or 'python')
+    const my_embedded_stack: ('mata' | 'python' | 'input')[] = []; // Stack of embedded language blocks
     const my_line_count = get_line_count(doc);
     
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
@@ -490,23 +490,29 @@ export class ContextTracker implements IContextTracker {
         my_embedded_stack.push('mata');
       } else if (my_first_word === 'python' && my_code_trimmed === 'python') {
         my_embedded_stack.push('python');
+      } else if (my_first_word === 'input' && my_embedded_stack.length === 0) {
+        my_embedded_stack.push('input');
       }
-      
+
       // Check for 'end' command
       if (my_code_trimmed === 'end') {
         // If we're in an embedded language block, this 'end' closes that block
         if (my_embedded_stack.length > 0) {
-          my_embedded_stack.pop();
+          const my_popped = my_embedded_stack.pop();
+          // input block ends are valid (mata/python validated separately via context ranges)
+          if (my_popped === 'input') {
+            my_valid_end_lines.add(my_line_number);
+          }
         }
         // Otherwise, if we have program blocks, this 'end' closes a program block
         else if (my_program_stack.length > 0) {
           my_program_stack.pop();
-          my_program_end_lines.add(my_line_number);
+          my_valid_end_lines.add(my_line_number);
         }
       }
     }
     
-    return my_program_end_lines;
+    return my_valid_end_lines;
   }
 
   /**
@@ -748,10 +754,10 @@ export class ContextTracker implements IContextTracker {
 
       case ContextErrorCode.UNEXPECTED_END:
         my_suggestions.push(
-          'Remove "end" command or add a corresponding "mata" block'
+          'Remove "end" command or add a corresponding program, mata, python, or input block'
         );
         my_suggestions.push(
-          '"end" can only be used to close a mata block'
+          '"end" can only be used to close a program, mata, python, or input block'
         );
         break;
 
