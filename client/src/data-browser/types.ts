@@ -112,6 +112,7 @@ export interface VviewSidecar {
     subsetted: boolean;
     timestamp?: string;
     source?: string;
+    cwd?: string;
     varlist?: string[];
     if?: string;
     in?: string;

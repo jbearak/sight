@@ -16,6 +16,7 @@ import { register_data_browser_custom_editor } from './custom-editor';
 import { DataBrowserPanelManager } from './panel-manager';
 import {
     BROWSE_DIR,
+    type ClaimDelayFn,
     prune_stale_browse_files,
     SignalWatcher,
 } from './signal-watcher';
@@ -37,18 +38,54 @@ const VVIEW_INSTALL_PERMISSION_KEY =
 const INSTALL_BUTTON = 'Install';
 const NOT_NOW_BUTTON = 'Not now';
 const VVIEW_INSTALL_PROMPT_DELAY_MS = 1500;
+const WORKSPACE_MATCH_DELAY_MS = 300;
 
 export type VviewInstallHooks =
     CoreVviewInstallHooks<vscode.ExtensionContext>;
+
+export function make_claim_delay_fn(
+    get_workspace_folders: () =>
+        readonly vscode.WorkspaceFolder[] | undefined
+): ClaimDelayFn {
+    return (sidecar) => {
+        if (!sidecar.cwd) {
+            return WORKSPACE_MATCH_DELAY_MS;
+        }
+        const the_folders = get_workspace_folders() ?? [];
+        for (const my_folder of the_folders) {
+            const my_folder_path = my_folder.uri.fsPath;
+            if (
+                sidecar.cwd === my_folder_path
+                || sidecar.cwd.startsWith(
+                    my_folder_path + path.sep
+                )
+            ) {
+                return 0;
+            }
+        }
+        return WORKSPACE_MATCH_DELAY_MS;
+    };
+}
 
 export function register_data_browser(
     context: vscode.ExtensionContext,
     log: (msg: string) => void
 ): void {
+    const my_get_max_layouts = () =>
+        vscode.workspace.getConfiguration('sight').get<number>(
+            'dataBrowser.maxStoredLayouts',
+            10_000
+        ) ?? 10_000;
     const my_column_width_store =
-        create_column_width_store(context);
+        create_column_width_store(
+            context,
+            my_get_max_layouts
+        );
     const my_column_visibility_store =
-        create_column_visibility_store(context);
+        create_column_visibility_store(
+            context,
+            my_get_max_layouts
+        );
     const my_manager = new DataBrowserPanelManager(
         context.extensionUri,
         my_column_width_store,
@@ -74,7 +111,11 @@ export function register_data_browser(
 
     const my_watcher = new SignalWatcher(
         (sidecar) => my_manager.open_or_refresh(sidecar),
-        log
+        log,
+        undefined,
+        make_claim_delay_fn(
+            () => vscode.workspace.workspaceFolders
+        )
     );
     my_watcher.start();
 

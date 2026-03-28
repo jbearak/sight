@@ -6,6 +6,18 @@ export const DATA_BROWSER_COLUMN_WIDTHS_KEY =
     'sight.dataBrowser.columnWidths';
 
 const MAX_STORED_COLUMNS_PER_DATASET = 1000;
+export const DEFAULT_MAX_STORED_LAYOUTS = 10_000;
+
+function evict_excess_layouts<T>(
+    map: Record<string, T>,
+    max_layouts: number
+): void {
+    const the_keys = Object.keys(map);
+    const evict_count = the_keys.length - max_layouts;
+    for (let i = 0; i < evict_count; i++) {
+        delete map[the_keys[i]];
+    }
+}
 
 export interface DataBrowserColumnWidthContextLike {
     globalState: {
@@ -134,7 +146,8 @@ export function get_stored_column_widths(
 export async function set_stored_column_widths(
     context: DataBrowserColumnWidthContextLike,
     dataset_key: string,
-    widths: Record<string, number>
+    widths: Record<string, number>,
+    max_layouts: number = DEFAULT_MAX_STORED_LAYOUTS
 ): Promise<void> {
     if (!dataset_key) {
         return;
@@ -143,11 +156,15 @@ export async function set_stored_column_widths(
     const my_all_widths = get_stored_column_widths(context);
     const my_sanitized = sanitize_column_widths(widths);
 
-    if (Object.keys(my_sanitized).length === 0) {
-        delete my_all_widths[dataset_key];
-    } else {
+    // LRU touch: delete before reinserting to move to
+    // end of insertion order
+    delete my_all_widths[dataset_key];
+
+    if (Object.keys(my_sanitized).length > 0) {
         my_all_widths[dataset_key] = my_sanitized;
     }
+
+    evict_excess_layouts(my_all_widths, max_layouts);
 
     await context.globalState.update(
         DATA_BROWSER_COLUMN_WIDTHS_KEY,
@@ -156,8 +173,12 @@ export async function set_stored_column_widths(
 }
 
 export function create_column_width_store(
-    context: ExtensionContext
+    context: ExtensionContext,
+    get_max_layouts?: () => number
 ): DataBrowserColumnWidthStore {
+    const my_get_max = get_max_layouts
+        ?? (() => DEFAULT_MAX_STORED_LAYOUTS);
+
     return {
         get(
             dataset_key: string,
@@ -189,6 +210,7 @@ export function create_column_width_store(
                 dataset_key,
                 ...alias_keys,
             ];
+            const my_max_layouts = my_get_max();
 
             // Single read-modify-write to avoid race
             // conditions when multiple panels persist
@@ -200,12 +222,17 @@ export function create_column_width_store(
 
             for (const my_key of the_write_keys) {
                 if (!my_key) continue;
+                // LRU touch: delete before reinserting
+                delete my_all_widths[my_key];
                 if (my_has_entries) {
                     my_all_widths[my_key] = my_sanitized;
-                } else {
-                    delete my_all_widths[my_key];
                 }
             }
+
+            evict_excess_layouts(
+                my_all_widths,
+                my_max_layouts
+            );
 
             await context.globalState.update(
                 DATA_BROWSER_COLUMN_WIDTHS_KEY,

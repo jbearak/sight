@@ -27,6 +27,8 @@ Sight's sister project [Raven](https://github.com/jbearak/raven) implements a la
 
 The editor extension enables language server features and further provides:
 
+- **Data Browser (`vview`)**: Browse Stata datasets in VS Code with a virtualized grid, column resizing/hiding, and value labels — works like `browse`, but in the editor
+- **SMCL Log Viewer**: Render Stata log files (`.smcl`) with formatted output directly in VS Code
 - **Run Code**: Execute code in the Stata application or terminal with intelligent statement detection and working directory management
 - **Syntax Highlighting**: Rich syntax highlighting with unique features like macro/string nesting depth coloring
 - **Quote Auto-Close**: Intelligently handles Stata's unique conventions for nested macros and compound strings
@@ -40,6 +42,8 @@ The editor extension enables language server features and further provides:
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
 
 ### Features
+- [Data Browser (`vview`)](docs/data-browser.md) - Browse datasets in VS Code with the `vview` command
+- [SMCL Log Viewer](docs/smcl-viewer.md) - Render Stata `.smcl` log files in VS Code
 - [Document Outline](docs/document-outline.md) - Hierarchical code navigation with sections, programs, and macros
 - [Cross-File Awareness](docs/cross-file.md) - Workspace indexing, directives, scope resolution
 - [Declaration Directives](docs/declaration-directives.md) - `@lsp-local`, `@lsp-global` for dynamically-created symbols
