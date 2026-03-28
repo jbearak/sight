@@ -74,6 +74,7 @@ vview [varlist] [if] [in] [, Rows(integer) Name(string) Replace]
   "timestamp": "2026-03-26T14:30:00Z",
   "source": "/path/to/original/dataset.dta",
   "name": "auto",
+  "dtapath": "~/.sight/browse/a1b2c3d4.dta",
   "subsetted": true,
   "varlist": ["make", "price", "mpg"],
   "if": "foreign == 1",

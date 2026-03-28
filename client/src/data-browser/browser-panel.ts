@@ -29,7 +29,6 @@ import type {
     RowResponse,
     MetadataMessage,
     CellValue,
-    CopyColumnResponse,
     VviewSidecar,
     MissingValueStyle,
 } from './types';
@@ -293,7 +292,9 @@ export class DataBrowserPanel implements vscode.Disposable {
     ): Promise<void> {
         switch (msg.type) {
             case 'ready':
-                await this.initialize();
+                if (!this.dta_file) {
+                    await this.initialize();
+                }
                 break;
             case 'columnWidthsChanged':
                 await this.column_width_store.set(
@@ -314,7 +315,9 @@ export class DataBrowserPanel implements vscode.Disposable {
                 break;
             case 'copyColumn':
                 await this.handle_copy_column(
-                    msg.col_index
+                    msg.col_index,
+                    msg.show_labels,
+                    msg.show_formats
                 );
                 break;
         }
@@ -373,7 +376,9 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     private async handle_copy_column(
-        col_index: number
+        col_index: number,
+        show_labels: boolean,
+        show_formats: boolean
     ): Promise<void> {
         if (!this.dta_file) return;
 
@@ -409,19 +414,31 @@ export class DataBrowserPanel implements vscode.Disposable {
                     my_row[0],
                     my_variable
                 );
-                the_values.push(
-                    my_cell.label_display
-                    ?? my_cell.formatted_display
-                );
+                let my_display: string;
+                if (my_cell.missing_type) {
+                    my_display =
+                        (show_labels
+                            && my_cell.label_display)
+                            ? my_cell.label_display
+                            : my_cell.missing_type;
+                } else if (
+                    show_labels
+                    && my_cell.label_display
+                ) {
+                    my_display = my_cell.label_display;
+                } else if (show_formats) {
+                    my_display =
+                        my_cell.formatted_display;
+                } else {
+                    my_display = my_cell.raw_display;
+                }
+                the_values.push(my_display);
             }
         }
 
-        const my_response: CopyColumnResponse = {
-            type: 'columnData',
-            col_index,
-            values: the_values,
-        };
-        this.panel.webview.postMessage(my_response);
+        await vscode.env.clipboard.writeText(
+            the_values.join('\n')
+        );
     }
 
     // -------------------------------------------------------

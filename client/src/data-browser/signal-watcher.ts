@@ -152,7 +152,7 @@ export function prune_stale_browse_files(
 // -------------------------------------------------------
 
 export type SignalCallback =
-    (sidecar: VviewSidecar) => void;
+    (sidecar: VviewSidecar) => void | Promise<void>;
 
 /**
  * Watches ~/.sight/browse/ for signal files created by
@@ -325,7 +325,13 @@ export class SignalWatcher {
         // (signal already deleted during claim)
         this.try_unlink(my_json_path);
 
-        this.on_signal(my_sidecar);
+        Promise.resolve(this.on_signal(my_sidecar))
+            .catch(my_err => {
+                this.log(
+                    'Signal callback error: '
+                    + String(my_err)
+                );
+            });
     }
 
     private try_unlink(file_path: string): void {

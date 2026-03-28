@@ -667,6 +667,8 @@ export function App() {
         vscode_api.postMessage({
             type: 'copyColumn',
             col_index: var_index,
+            show_labels,
+            show_formats,
         });
     };
 

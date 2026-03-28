@@ -36,6 +36,8 @@ export interface ColumnVisibilityChangedMessage {
 export interface CopyColumnRequest {
     type: 'copyColumn';
     col_index: number;
+    show_labels: boolean;
+    show_formats: boolean;
 }
 
 export type WebviewMessage =
@@ -77,16 +79,9 @@ export interface MetadataMessage {
     missing_value_style?: MissingValueStyle;
 }
 
-export interface CopyColumnResponse {
-    type: 'columnData';
-    col_index: number;
-    values: string[];
-}
-
 export type ExtensionMessage =
     | RowResponse
-    | MetadataMessage
-    | CopyColumnResponse;
+    | MetadataMessage;
 
 export interface VariableDescription {
     name: string;
