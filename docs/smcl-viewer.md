@@ -4,7 +4,7 @@ Sight includes a viewer for Stata's SMCL (Stata Markup and Control Language) fil
 
 ## Usage
 
-Open any `.smcl` or `.sthlp` file in VS Code, then:
+Open any `.smcl` or `.sthlp` file in VS Code and use any of the following to open the preview:
 
 - Click the **Open Preview** icon in the editor title bar
 - Right-click the file and select **Open SMCL Preview** or **Open SMCL Preview (Full Width)**

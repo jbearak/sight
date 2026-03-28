@@ -1,12 +1,13 @@
-# Data Browser (`vview`)
+# Data Browser
 
-Sight includes a data browser that lets you view Stata datasets directly in VS Code. It works like Stata's `browse` command, but renders in a VS Code webview panel with a virtualized grid that handles large datasets efficiently.
+Sight includes a data browser for viewing Stata datasets in VS Code. Open `.dta` files directly in the editor, or call `vview` from Stata to send the current dataset to VS Code — either way, data renders in a webview panel with a virtualized grid that handles large datasets efficiently.
 
 ## The `vview` Command
 
 `vview` is a Stata ado-file that exports the current dataset and opens it in the Sight Data Browser. It supports the same syntax as `browse`:
 
 ```stata
+sysuse auto, clear
 vview                          // View all data
 vview price mpg weight         // View specific variables
 vview if foreign == 1          // View with if condition
@@ -19,10 +20,10 @@ vview price mpg if foreign, replace  // Refresh existing panel
 | Option | Description |
 |--------|-------------|
 | `varlist` | Variables to display (default: all) |
-| `if` / `in` | Subset observations |
+| `if` / `in` | Subset observations using Stata's standard qualifiers |
 | `replace` | Refresh the existing panel instead of opening a new one |
 | `name(string)` | Custom tab name (default: current filename) |
-| `rows(integer)` | Limit displayed observations |
+| `rows(integer)` | Cap the number of displayed observations. Applied *after* `if`/`in` filtering — useful when you want to limit output without knowing the exact observation count (e.g., `vview, rows(500)` on a large dataset) |
 
 ### Installation
 
@@ -56,7 +57,7 @@ You can also open `.dta` files directly in the data browser without using `vview
 - Right-click a `.dta` file and select **Open in Sight Data Browser**
 - Run **Sight: Open Data Browser** from the Command Palette
 
-This supports Stata formats 113-119 (Stata 8 through Stata 18+).
+This supports Stata formats 113–119 (Stata 8 through Stata 18).
 
 ## Features
 
