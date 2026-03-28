@@ -37,29 +37,30 @@ program define vview
     local source_obs_n = c(N)
     local source_var_k = c(k)
 
-    // Save subsetted data
-    preserve
-
-    // Apply if/in qualifiers
-    if `"`if'`in'"' != "" {
-        qui keep `if' `in'
-    }
-
+    // Copy subset into a frame (avoids preserve, which
+    // copies the entire dataset even for `in 1/10`).
+    tempname vview_frame
     if "`varlist'" != "" {
-        keep `varlist'
+        frame put `varlist' `if' `in', into(`vview_frame')
     }
-    if `rows' > 0 {
-        if _N > `rows' {
-            keep in 1/`rows'
-            di as txt "(showing first `rows' of `=_N' observations)"
+    else {
+        frame put _all `if' `in', into(`vview_frame')
+    }
+
+    frame `vview_frame' {
+        if `rows' > 0 {
+            if _N > `rows' {
+                keep in 1/`rows'
+                di as txt "(showing first `rows' of `=_N' observations)"
+            }
         }
+
+        local obs_n = c(N)
+        local var_k = c(k)
+
+        qui save "`dtapath'", replace
     }
-
-    local obs_n = c(N)
-    local var_k = c(k)
-
-    qui save "`dtapath'", replace
-    restore
+    frame drop `vview_frame'
 
     // Escape backslashes and quotes for JSON.
     mata: st_local("json_dtapath", subinstr(subinstr(st_local("dtapath"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
