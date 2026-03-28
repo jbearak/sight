@@ -242,6 +242,30 @@ export class SignalWatcher {
             return;
         }
 
+        // Atomically claim this signal on the first
+        // attempt by deleting the signal file. On POSIX,
+        // unlink is atomic — exactly one process succeeds,
+        // others get ENOENT. This prevents multiple VS
+        // Code windows from processing the same signal.
+        if (retry_count === 0) {
+            try {
+                fs.unlinkSync(my_signal_path);
+            } catch (my_err: unknown) {
+                const my_code = (
+                    my_err as NodeJS.ErrnoException
+                ).code;
+                if (my_code === 'ENOENT') {
+                    return;
+                }
+                this.log(
+                    'Failed to claim signal '
+                    + signal_filename + ': '
+                    + String(my_err)
+                );
+                return;
+            }
+        }
+
         // Read companion sidecar JSON
         const my_json_path = path.join(
             this.browse_dir,
@@ -271,7 +295,6 @@ export class SignalWatcher {
                 `Failed to read sidecar ${my_json_path}: `
                 + String(my_err)
             );
-            this.try_unlink(my_signal_path);
             return;
         }
 
@@ -294,13 +317,12 @@ export class SignalWatcher {
             this.log(
                 'Invalid sidecar JSON: ' + my_json_path
             );
-            this.try_unlink(my_signal_path);
             this.try_unlink(my_json_path);
             return;
         }
 
-        // Cleanup both files before callback
-        this.try_unlink(my_signal_path);
+        // Cleanup sidecar before callback
+        // (signal already deleted during claim)
         this.try_unlink(my_json_path);
 
         this.on_signal(my_sidecar);
