@@ -50,8 +50,9 @@ program define vview
     frame `vview_frame' {
         if `rows' > 0 {
             if _N > `rows' {
+                local pre_n = _N
                 keep in 1/`rows'
-                di as txt "(showing first `rows' of `=_N' observations)"
+                di as txt "(showing first `rows' of `pre_n' observations)"
             }
         }
 
