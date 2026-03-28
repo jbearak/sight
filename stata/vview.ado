@@ -30,6 +30,7 @@ program define vview
     }
 
     local source = c(filename)
+    local cwd = c(pwd)
     local timestamp = c(current_date) + " " + c(current_time)
     local if_condition `"`if'"'
     local in_condition `"`in'"'
@@ -67,7 +68,7 @@ program define vview
     mata: st_local("json_timestamp", subinstr(subinstr(st_local("timestamp"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
     mata: st_local("json_if", subinstr(subinstr(st_local("if_condition"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
     mata: st_local("json_in", subinstr(subinstr(st_local("in_condition"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
-    mata: st_local("json_cwd", subinstr(subinstr(c(pwd), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
+    mata: st_local("json_cwd", subinstr(subinstr(st_local("cwd"), char(92), char(92) + char(92), .), char(34), char(92) + char(34), .))
 
     // Write JSON sidecar with Mata to avoid fragile Stata quote syntax.
     local replace_json = cond("`replace'" != "", "true", "false")
