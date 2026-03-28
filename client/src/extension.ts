@@ -15,7 +15,7 @@ import {
 import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } from './depth-colors';
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
-import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata } from './send-to-stata';
+import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata, register_stata_terminal } from './send-to-stata';
 import { register_smcl_preview } from './smcl-preview';
 import { register_data_browser } from './data-browser';
 import { LanguageClientLifecycle } from './language-client-lifecycle';
@@ -93,9 +93,10 @@ export function activate(context: ExtensionContext) {
     );
     context.subscriptions.push(config_change_listener);
 
-    // Register send-to-stata commands
+    // Register send-to-stata commands and Stata terminal profile
     register_send_to_stata_commands(context);
-    
+    register_stata_terminal(context);
+
     // Initialize CD context and register CD commands
     initialize_cd_context(context);
     register_cd_commands(context);

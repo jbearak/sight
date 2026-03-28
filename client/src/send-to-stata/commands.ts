@@ -10,6 +10,7 @@ import {
     detect_stata_app,
     send_to_stata_app,
     send_to_terminal,
+    send_to_stata_terminal,
     StataCommand
 } from './index';
 import { send_to_stata_windows } from './windows-sender';
@@ -17,6 +18,7 @@ import { compute_cursor_position } from './cursor-advance-core';
 import { escape_path_for_stata } from './cd-commands';
 
 export type WorkingDirectoryOption = 'none' | 'file' | 'workspace' | 'lsp';
+export type SendTargetSetting = 'auto' | 'integrated' | 'external';
 
 let language_client: LanguageClient | null = null;
 
@@ -110,6 +112,60 @@ export async function prepare_content_with_cd(
     }
 }
 
+/**
+ * Resolve the effective send target based on the user's target setting
+ * and whether VS Code is running in a remote environment.
+ *
+ * - 'app' commands respect the target setting (auto/integrated/external)
+ * - 'terminal' commands always go to the active terminal (unchanged)
+ */
+export function resolve_effective_target(
+    requested_target: 'app' | 'terminal'
+): 'app' | 'integrated' | 'terminal' | null {
+    if (requested_target === 'terminal') {
+        return 'terminal';
+    }
+
+    const my_config = vscode.workspace.getConfiguration(
+        'sight.sendToStata'
+    );
+    const setting = my_config.get<SendTargetSetting>(
+        'target', 'auto'
+    );
+    const is_remote = vscode.env.remoteName !== undefined
+        && vscode.env.remoteName !== '';
+
+    if (setting === 'integrated') {
+        return 'integrated';
+    }
+
+    if (setting === 'external') {
+        if (is_remote) {
+            vscode.window.showErrorMessage(
+                'The "external" send target is not available ' +
+                'in remote sessions. Change ' +
+                'sight.sendToStata.target to "auto" or ' +
+                '"integrated".'
+            );
+            return null;
+        }
+        return 'app';
+    }
+
+    // 'auto': remote → integrated, local macOS/Windows → app,
+    // local Linux → integrated
+    if (is_remote) {
+        return 'integrated';
+    }
+    if (
+        process.platform === 'darwin'
+        || process.platform === 'win32'
+    ) {
+        return 'app';
+    }
+    return 'integrated';
+}
+
 async function handle_send_command(
     mode: 'statement' | 'upward' | 'downward' | 'file',
     command: StataCommand,
@@ -162,25 +218,31 @@ async function handle_send_command(
 
     try {
         const my_temp_file = await create_temp_file(my_code);
+        const effective_target = resolve_effective_target(target);
 
-        if (target === 'app') {
+        if (effective_target === null) {
+            return;
+        } else if (effective_target === 'integrated') {
+            await send_to_stata_terminal(command, my_temp_file);
+        } else if (effective_target === 'app') {
             if (process.platform === 'win32') {
                 await send_to_stata_windows(command, my_temp_file, context);
             } else if (process.platform !== 'darwin') {
                 vscode.window.showErrorMessage(
-                    'Stata application mode is only available on macOS and Windows. ' +
-                    'Use terminal mode instead.');
+                    'Stata application mode is only available on macOS ' +
+                    'and Windows. Use terminal mode instead.');
                 return;
             } else {
                 const my_stata_app = await detect_stata_app();
                 if (!my_stata_app) {
                     vscode.window.showErrorMessage(
-                        'Stata not found. Install Stata in /Applications/Stata/ or ' +
-                        'configure sight.sendToStata.stataApp setting.');
+                        'Stata not found. Install Stata in ' +
+                        '/Applications/Stata/ or configure ' +
+                        'sight.sendToStata.stataApp setting.');
                     return;
                 }
-                
-                await send_to_stata_app(my_stata_app, command, my_temp_file, 
+
+                await send_to_stata_app(my_stata_app, command, my_temp_file,
                     my_config.get<boolean>('focusStataWindow', false));
             }
         } else {

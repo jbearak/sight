@@ -41,7 +41,9 @@ export {
     register_send_to_stata_commands,
     prepare_content_with_cd,
     set_language_client,
-    WorkingDirectoryOption
+    resolve_effective_target,
+    WorkingDirectoryOption,
+    SendTargetSetting
 } from './commands';
 
 export {
@@ -57,3 +59,14 @@ export {
 export {
     register_open_in_stata
 } from './open-in-stata';
+
+export {
+    detect_stata_cli,
+    clear_stata_cli_cache
+} from './stata-cli-detector';
+
+export {
+    register_stata_terminal,
+    get_or_create_stata_terminal,
+    send_to_stata_terminal
+} from './stata-terminal-manager';

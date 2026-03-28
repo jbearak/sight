@@ -15,7 +15,8 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onTerminalProfile:sight.stataTerminal"
   ],
   "main": "./dist/extension",
   "contributes": {
@@ -56,6 +57,15 @@
         "priority": "default"
       }
     ],
+    "terminal": {
+      "profiles": [
+        {
+          "id": "sight.stataTerminal",
+          "title": "Stata",
+          "icon": "terminal"
+        }
+      ]
+    },
     "configuration": {
       "title": "Sight Language Server",
       "properties": {
@@ -318,6 +328,21 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically advance cursor to the next line after sending a single line to Stata"
+        },
+        "sight.sendToStata.target": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "integrated",
+            "external"
+          ],
+          "default": "auto",
+          "description": "Where to send Stata commands",
+          "enumDescriptions": [
+            "Auto: use the Stata GUI when running locally (macOS/Windows), use the integrated Stata terminal in remote sessions (SSH, WSL, Dev Container, Tunnel) and on Linux",
+            "Always use the integrated VS Code Stata terminal",
+            "Always use the external Stata GUI application (not available in remote sessions)"
+          ]
         },
         "sight.sendToStata.workingDirectory": {
           "type": "string",
