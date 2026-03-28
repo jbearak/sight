@@ -34,11 +34,12 @@ import type {
 } from './types';
 
 const PAGE_SIZE = 200;
+const MAX_CACHED_PAGES = 10;
 
 export class DataBrowserPanel implements vscode.Disposable {
     private panel: vscode.WebviewPanel;
     private dta_file: DtaFile | null = null;
-    private row_cache = new RowCache(10, PAGE_SIZE);
+    private row_cache = new RowCache(MAX_CACHED_PAGES, PAGE_SIZE);
     private disposables: vscode.Disposable[] = [];
     private sidecar: VviewSidecar;
     private dta_path: string;

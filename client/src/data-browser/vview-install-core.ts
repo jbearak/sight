@@ -220,9 +220,12 @@ export async function ensure_vview_ado_installed<
         return false;
     }
 
+    if (my_choice === 'not_now') {
+        log('vview.ado: install deferred by user');
+        return false;
+    }
+
     if (my_choice !== 'install') {
-        await my_set_permission(context, 'declined');
-        log('vview.ado: permission declined');
         return false;
     }
 

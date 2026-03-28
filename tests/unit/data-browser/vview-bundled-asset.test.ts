@@ -6,51 +6,36 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 
+const REPO_ROOT = path.resolve(
+    import.meta.dir,
+    '..',
+    '..',
+    '..'
+);
+const SOURCE_PATH = path.join(REPO_ROOT, 'stata', 'vview.ado');
+
+function load_vview_source(): string {
+    return fs.readFileSync(SOURCE_PATH, 'utf-8');
+}
+
 describe('bundled vview asset', () => {
     it('matches the source vview.ado file', () => {
-        const my_repo_root = path.resolve(
-            import.meta.dir,
-            '..',
-            '..',
-            '..'
-        );
-        const my_source_path = path.join(
-            my_repo_root,
-            'stata',
-            'vview.ado'
-        );
         const my_client_asset_path = path.join(
-            my_repo_root,
+            REPO_ROOT,
             'client',
             'stata',
             'vview.ado'
         );
 
-        expect(fs.existsSync(my_source_path)).toBe(true);
+        expect(fs.existsSync(SOURCE_PATH)).toBe(true);
         expect(fs.existsSync(my_client_asset_path)).toBe(true);
         expect(
             fs.readFileSync(my_client_asset_path, 'utf-8')
-        ).toBe(
-            fs.readFileSync(my_source_path, 'utf-8')
-        );
+        ).toBe(load_vview_source());
     });
 
     it('does not depend on Mata path helpers for browse paths', () => {
-        const my_repo_root = path.resolve(
-            import.meta.dir,
-            '..',
-            '..',
-            '..'
-        );
-        const my_source_path = path.join(
-            my_repo_root,
-            'stata',
-            'vview.ado'
-        );
-        const my_source = fs.readFileSync(
-            my_source_path,
-            'utf-8'
-        );
+        const my_source = load_vview_source();
 
         expect(my_source).toContain(
             'local browseroot "~/.sight"'
@@ -64,21 +49,7 @@ describe('bundled vview asset', () => {
     });
 
     it('uses Mata char-based JSON escaping instead of nested Stata quote escapes', () => {
-        const my_repo_root = path.resolve(
-            import.meta.dir,
-            '..',
-            '..',
-            '..'
-        );
-        const my_source_path = path.join(
-            my_repo_root,
-            'stata',
-            'vview.ado'
-        );
-        const my_source = fs.readFileSync(
-            my_source_path,
-            'utf-8'
-        );
+        const my_source = load_vview_source();
 
         expect(my_source).toContain(
             'char(92) + char(92)'
@@ -92,21 +63,7 @@ describe('bundled vview asset', () => {
     });
 
     it('writes the JSON sidecar through Mata file I/O', () => {
-        const my_repo_root = path.resolve(
-            import.meta.dir,
-            '..',
-            '..',
-            '..'
-        );
-        const my_source_path = path.join(
-            my_repo_root,
-            'stata',
-            'vview.ado'
-        );
-        const my_source = fs.readFileSync(
-            my_source_path,
-            'utf-8'
-        );
+        const my_source = load_vview_source();
 
         expect(my_source).toContain(
             'mata {'
@@ -120,21 +77,7 @@ describe('bundled vview asset', () => {
     });
 
     it('builds varlist JSON inside Mata rather than fragile Stata quote concatenation', () => {
-        const my_repo_root = path.resolve(
-            import.meta.dir,
-            '..',
-            '..',
-            '..'
-        );
-        const my_source_path = path.join(
-            my_repo_root,
-            'stata',
-            'vview.ado'
-        );
-        const my_source = fs.readFileSync(
-            my_source_path,
-            'utf-8'
-        );
+        const my_source = load_vview_source();
 
         expect(my_source).toContain(
             'my_vview_vars = tokens(my_vview_varlist)'
@@ -148,21 +91,7 @@ describe('bundled vview asset', () => {
     });
 
     it('creates the signal file without replace noise', () => {
-        const my_repo_root = path.resolve(
-            import.meta.dir,
-            '..',
-            '..',
-            '..'
-        );
-        const my_source_path = path.join(
-            my_repo_root,
-            'stata',
-            'vview.ado'
-        );
-        const my_source = fs.readFileSync(
-            my_source_path,
-            'utf-8'
-        );
+        const my_source = load_vview_source();
 
         expect(my_source).toContain(
             'cap erase "`signalpath\'"'

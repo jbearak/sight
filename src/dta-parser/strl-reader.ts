@@ -98,16 +98,29 @@ export function build_gso_index(
             // Read as two uint32s to avoid BigInt overhead
             if (little_endian) {
                 my_o = view.getUint32(pos, true);
-                // High 32 bits at pos+4; ignore for
-                // practical observation counts
+                const my_hi = view.getUint32(
+                    pos + 4, true
+                );
+                if (my_hi !== 0) {
+                    throw new Error(
+                        'strL observation number exceeds '
+                        + '32-bit range'
+                    );
+                }
                 pos += 8;
             } else {
                 // Big-endian: high bytes first
                 const my_hi = view.getUint32(pos, false);
+                if (my_hi !== 0) {
+                    throw new Error(
+                        'strL observation number exceeds '
+                        + '32-bit range'
+                    );
+                }
                 const my_lo = view.getUint32(
                     pos + 4, false
                 );
-                my_o = my_hi * 0x100000000 + my_lo;
+                my_o = my_lo;
                 pos += 8;
             }
         }

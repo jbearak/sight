@@ -142,7 +142,7 @@ describe('vview install orchestration', () => {
     it('prompts on startup when permission is unset and install is missing', async () => {
         const my_context = create_context();
         const the_logs: string[] = [];
-        let prompt_calls = 0;
+        let my_prompt_calls = 0;
 
         await ensure_vview_ado_installed(
             my_context,
@@ -152,19 +152,19 @@ describe('vview install orchestration', () => {
                 inspect_installation: () =>
                     build_status('missing'),
                 prompt_for_vview_install: async () => {
-                    prompt_calls += 1;
+                    my_prompt_calls += 1;
                     return 'not_now';
                 },
             }
         );
 
-        expect(prompt_calls).toBe(1);
+        expect(my_prompt_calls).toBe(1);
         expect(
             get_vview_install_permission(
                 my_context,
                 VVIEW_INSTALL_PERMISSION_KEY
             )
-        ).toBe('declined');
+        ).toBeUndefined();
         expect(the_logs).toContain(
             'vview.ado: prompting for install permission'
         );
@@ -172,8 +172,8 @@ describe('vview install orchestration', () => {
 
     it('installs without prompting when permission was already granted', async () => {
         const my_context = create_context('granted');
-        let prompt_calls = 0;
-        let install_calls = 0;
+        let my_prompt_calls = 0;
+        let my_install_calls = 0;
 
         const my_result =
             await ensure_vview_ado_installed(
@@ -184,25 +184,25 @@ describe('vview install orchestration', () => {
                     inspect_installation: () =>
                         build_status('missing'),
                     prompt_for_vview_install: async () => {
-                        prompt_calls += 1;
+                        my_prompt_calls += 1;
                         return 'install';
                     },
                     install_vview_ado: () => {
-                        install_calls += 1;
+                        my_install_calls += 1;
                         return true;
                     },
                 }
             );
 
         expect(my_result).toBe(true);
-        expect(prompt_calls).toBe(0);
-        expect(install_calls).toBe(1);
+        expect(my_prompt_calls).toBe(0);
+        expect(my_install_calls).toBe(1);
     });
 
     it('skips prompt and install when permission was declined', async () => {
         const my_context = create_context('declined');
-        let prompt_calls = 0;
-        let install_calls = 0;
+        let my_prompt_calls = 0;
+        let my_install_calls = 0;
 
         const my_result =
             await ensure_vview_ado_installed(
@@ -213,19 +213,19 @@ describe('vview install orchestration', () => {
                     inspect_installation: () =>
                         build_status('missing'),
                     prompt_for_vview_install: async () => {
-                        prompt_calls += 1;
+                        my_prompt_calls += 1;
                         return 'install';
                     },
                     install_vview_ado: () => {
-                        install_calls += 1;
+                        my_install_calls += 1;
                         return true;
                     },
                 }
             );
 
         expect(my_result).toBe(false);
-        expect(prompt_calls).toBe(0);
-        expect(install_calls).toBe(0);
+        expect(my_prompt_calls).toBe(0);
+        expect(my_install_calls).toBe(0);
     });
 
     it('writes the file and stores granted permission after approval', async () => {
@@ -266,7 +266,7 @@ describe('vview install orchestration', () => {
         ).toBe('granted');
     });
 
-    it('stores declined permission when the user chooses not now', async () => {
+    it('does not persist permission when the user chooses not now', async () => {
         const my_context = create_context();
 
         const my_result =
@@ -288,7 +288,7 @@ describe('vview install orchestration', () => {
                 my_context,
                 VVIEW_INSTALL_PERMISSION_KEY
             )
-        ).toBe('declined');
+        ).toBeUndefined();
     });
 
     it('does not store declined permission when the prompt is dismissed', async () => {
@@ -344,8 +344,8 @@ describe('vview install orchestration', () => {
 
     it('silently updates an outdated install after prior approval', async () => {
         const my_context = create_context('granted');
-        let prompt_calls = 0;
-        let install_calls = 0;
+        let my_prompt_calls = 0;
+        let my_install_calls = 0;
 
         const my_result =
             await ensure_vview_ado_installed(
@@ -356,24 +356,24 @@ describe('vview install orchestration', () => {
                     inspect_installation: () =>
                         build_status('outdated'),
                     prompt_for_vview_install: async () => {
-                        prompt_calls += 1;
+                        my_prompt_calls += 1;
                         return 'install';
                     },
                     install_vview_ado: () => {
-                        install_calls += 1;
+                        my_install_calls += 1;
                         return true;
                     },
                 }
             );
 
         expect(my_result).toBe(true);
-        expect(prompt_calls).toBe(0);
-        expect(install_calls).toBe(1);
+        expect(my_prompt_calls).toBe(0);
+        expect(my_install_calls).toBe(1);
     });
 
     it('manual install succeeds even after a prior decline', async () => {
         const my_context = create_context('declined');
-        let install_calls = 0;
+        let my_install_calls = 0;
 
         const my_result =
             await install_vview_ado_manually(
@@ -384,14 +384,14 @@ describe('vview install orchestration', () => {
                     inspect_installation: () =>
                         build_status('missing'),
                     install_vview_ado: () => {
-                        install_calls += 1;
+                        my_install_calls += 1;
                         return true;
                     },
                 }
             );
 
         expect(my_result).toBe(true);
-        expect(install_calls).toBe(1);
+        expect(my_install_calls).toBe(1);
         expect(
             get_vview_install_permission(
                 my_context,

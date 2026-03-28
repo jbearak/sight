@@ -251,9 +251,16 @@ function parse_nobs(
         my_data_end = my_data_start + 4;
     } else {
         // v119: uint64
-        my_nobs = Number(view.getBigUint64(
+        const my_big_nobs = view.getBigUint64(
             my_data_start, little_endian
-        ));
+        );
+        if (my_big_nobs > BigInt(Number.MAX_SAFE_INTEGER)) {
+            throw new Error(
+                'Dataset too large: observation count '
+                + 'exceeds JavaScript safe integer limit'
+            );
+        }
+        my_nobs = Number(my_big_nobs);
         my_data_end = my_data_start + 8;
     }
 

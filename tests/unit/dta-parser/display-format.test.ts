@@ -175,6 +175,13 @@ describe('display-format', () => {
             expect(apply_display_format(0, '%9.2e'))
                 .toBe('0.00e+00');
         });
+
+        it('handles large exponents correctly', () => {
+            expect(apply_display_format(1e+100, '%9.2e'))
+                .toBe('1.00e+100');
+            expect(apply_display_format(1e-100, '%9.2e'))
+                .toBe('1.00e-100');
+        });
     });
 
     // ----- Date %td -----

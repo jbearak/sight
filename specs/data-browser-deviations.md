@@ -16,7 +16,7 @@ It intentionally lists only the deltas that still remain.
 - original dataset source path
 - exact `varlist`, `if`, and `in` metadata
 
-**Current implementation:** [`stata/vview.ado`](/Users/jmb/repos/sight-viewer-codex/stata/vview.ado)
+**Current implementation:** [`stata/vview.ado`](../stata/vview.ado)
 now emits `timestamp`, `source`, `varlist`, `if`, and `in`, but:
 - `timestamp` is `c(current_date) + " " + c(current_time)`, not ISO UTC
 - `source` comes from `c(filename)`, which is often only a dataset name and may
@@ -76,7 +76,7 @@ status-bar layout differs from the spec.
 should effectively respect the user's actual PERSONAL ado directory rather than
 assuming defaults.
 
-**Current implementation:** [`client/src/data-browser/index.ts`](/Users/jmb/repos/sight-viewer-codex/client/src/data-browser/index.ts)
+**Current implementation:** [`client/src/data-browser/index.ts`](../client/src/data-browser/index.ts)
 uses `sight.personalAdoDir` when set, otherwise falls back to hardcoded
 platform-default PERSONAL locations.
 

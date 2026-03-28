@@ -861,9 +861,9 @@ export function App() {
                             displayData: my_display,
                             readonly: true,
                             allowOverlay: true,
-                            ...(my_theme_override
-                                ? { themeOverride: my_theme_override }
-                                : undefined),
+                            ...(my_theme_override && {
+                                themeOverride: my_theme_override,
+                            }),
                         };
                     }}
                 />

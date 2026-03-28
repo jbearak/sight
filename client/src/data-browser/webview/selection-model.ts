@@ -1,7 +1,7 @@
 import {
     CompactSelection,
     type GridSelection,
-} from '@glideapps/glide-data-grid';
+} from './compact-selection';
 
 export function create_empty_grid_selection(): GridSelection {
     return {

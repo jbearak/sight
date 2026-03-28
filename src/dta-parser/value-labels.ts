@@ -51,15 +51,36 @@ function parse_label_entry_payload(
     bytes: Uint8Array,
     view: DataView,
     little_endian: boolean,
-    pos: number
+    pos: number,
+    entry_end: number
 ): { label_map: Map<number, string>; next_pos: number } {
     // n (int32): number of entries
+    if (pos + 8 > entry_end) {
+        throw new Error(
+            'Corrupt value label table: truncated header'
+        );
+    }
     const my_n = view.getInt32(pos, little_endian);
     pos += 4;
 
     // txt_len (int32): total bytes in the text block
     const my_txt_len = view.getInt32(pos, little_endian);
     pos += 4;
+
+    if (my_n < 0 || my_txt_len < 0) {
+        throw new Error(
+            'Corrupt value label table: negative count '
+            + `or text length (n=${my_n}, `
+            + `txt_len=${my_txt_len})`
+        );
+    }
+
+    if (pos + my_n * 8 + my_txt_len > entry_end) {
+        throw new Error(
+            'Corrupt value label table: payload exceeds '
+            + 'entry bounds'
+        );
+    }
 
     // offsets[n]: byte offsets into text block
     const the_offsets: number[] = [];
@@ -84,6 +105,10 @@ function parse_label_entry_payload(
     const my_label_map = new Map<number, string>();
 
     for (let i = 0; i < my_n; i++) {
+        if (the_offsets[i] < 0
+            || the_offsets[i] >= my_txt_len) {
+            continue;
+        }
         const my_str_start =
             my_text_start + the_offsets[i];
         let my_str_end = my_str_start;
@@ -155,7 +180,7 @@ function parse_modern_entries(
         }
         pos += LBL_OPEN_TAG_LENGTH;
 
-        // table_length (int32): skip
+        // table_length (int32)
         pos += 4;
 
         // label_name
@@ -170,7 +195,8 @@ function parse_modern_entries(
         // Parse the entry payload
         const { label_map, next_pos } =
             parse_label_entry_payload(
-                bytes, view, little_endian, pos
+                bytes, view, little_endian, pos,
+                section_end
             );
         my_result.set(my_label_name, label_map);
 
@@ -216,7 +242,8 @@ function parse_legacy_entries(
         // Parse the entry payload (identical layout)
         const { label_map, next_pos } =
             parse_label_entry_payload(
-                bytes, view, little_endian, pos
+                bytes, view, little_endian, pos,
+                section_end
             );
         my_result.set(my_label_name, label_map);
         pos = next_pos;

@@ -319,7 +319,8 @@ export async function prompt_for_vview_install(
     const my_result =
         await vscode.window.showInformationMessage(
             'Would you like to add "vview.ado" to Stata?\n\n'
-            + 'This works like "browse", but with VS Code.',
+            + 'This works like "browse", but with VS Code.\n\n'
+            + `Install location: ${target_dir}`,
             INSTALL_BUTTON,
             NOT_NOW_BUTTON
         );

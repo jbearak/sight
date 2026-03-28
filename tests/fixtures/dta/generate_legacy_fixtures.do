@@ -1,6 +1,6 @@
 // generate_legacy_fixtures.do — Generate legacy .dta test fixtures
 // Run from: tests/fixtures/dta/
-// Requires: Stata 18
+// Requires: Stata 16+
 //
 // Creates fixtures in v115 (saveold, version(12)), and v114
 // (saveold, version(11)). Format 113 (Stata 8) is not supported

@@ -33,6 +33,8 @@ program define vview
     local timestamp = c(current_date) + " " + c(current_time)
     local if_condition `"`if'"'
     local in_condition `"`in'"'
+    local source_obs_n = c(N)
+    local source_var_k = c(k)
 
     // Save subsetted data
     preserve
@@ -68,7 +70,7 @@ program define vview
 
     // Write JSON sidecar with Mata to avoid fragile Stata quote syntax.
     local replace_json = cond("`replace'" != "", "true", "false")
-    local subsetted_json = cond("`varlist'`if'`in'" != "", "true", "false")
+    local subsetted_json = cond(`obs_n' != `source_obs_n' | `var_k' != `source_var_k', "true", "false")
     mata {
         my_vview_varlist = strtrim(st_local("varlist"))
         my_vview_json_varlist = "["

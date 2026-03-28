@@ -53,14 +53,10 @@ export function build_dataset_key_aliases(
     sidecar?: Pick<VviewSidecar, 'source' | 'name'>
 ): string[] {
     const the_keys: string[] = [];
-    const my_source = sidecar?.source?.trim();
     const my_primary = build_dataset_key(dta_path, sidecar);
     const my_basename = path.basename(my_primary);
     const my_name = sidecar?.name?.trim();
 
-    if (my_source && my_source !== my_primary) {
-        the_keys.push(my_source);
-    }
     if (dta_path && dta_path !== my_primary) {
         the_keys.push(dta_path);
     }
@@ -98,7 +94,9 @@ export function sanitize_column_widths(
         ) {
             continue;
         }
-        my_sanitized[my_name] = Math.round(my_value);
+        my_sanitized[my_name] = Math.max(
+            1, Math.round(my_value)
+        );
         my_count += 1;
     }
 

@@ -43,6 +43,9 @@ import { ScopeResolver } from '../scope-resolver';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
 
+const MARKDOWN_TEXT_ESCAPE_PATTERN =
+    /([\\`*_{}\[\]()#+\-.!|])/g;
+
 /**
  * Represents a matched symbol for hover display.
  * Used to collect all matching symbols before formatting.
@@ -1938,7 +1941,11 @@ export class HoverProvider {
     }
 
     private escape_markdown_text(text: string): string {
-        return text.replace(/([\\`*_{}\[\]()#+\-.!|])/g, '\\$1');
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(MARKDOWN_TEXT_ESCAPE_PATTERN, '\\$1');
     }
 
     /**

@@ -112,7 +112,10 @@ body,
     color: inherit;
     font: inherit;
     width: 100%;
-    outline: none;
+}
+
+.columns-popover-filter:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
 }
 
 .columns-popover-actions {

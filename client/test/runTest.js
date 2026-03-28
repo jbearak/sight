@@ -1,3 +1,4 @@
+/* eslint-env node */
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -15,7 +16,9 @@ function find_code_binary() {
         try {
             fs.accessSync(my_candidate, fs.constants.X_OK);
             return my_candidate;
-        } catch {}
+        } catch {
+            // Ignore non-executable candidates and keep searching.
+        }
     }
 
     return null;
@@ -35,7 +38,9 @@ function try_remove_dir(dir_path) {
             maxRetries: 5,
             retryDelay: 100,
         });
-    } catch {}
+    } catch {
+        // Best-effort cleanup; ignore removal errors.
+    }
 }
 
 async function run_with_system_code(

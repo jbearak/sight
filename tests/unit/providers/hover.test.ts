@@ -173,6 +173,70 @@ describe('HoverProvider Helper Methods', () => {
             expect(result.value).toContain('`1` => Foreign');
             expect(result.value).toContain('Source: [data.do](file:///Users/test/project/data.do), line 10');
         });
+
+        it('should escape markdown-sensitive characters in labels', () => {
+            const result = (hover_provider as any).format_variable_hover(
+                {
+                    name: 'status',
+                    sourceUri: 'file:///Users/test/project/data.do',
+                    type: 'byte',
+                    label: 'Value <html> & "special" *chars*',
+                    value_label_name: 'status_lbl',
+                    value_labels: new Map([
+                        [0, 'Not applicable (N/A)'],
+                        [1, 'Yes [confirmed]'],
+                    ]),
+                    source: 'directive',
+                    location: {
+                        uri: 'file:///Users/test/project/data.do',
+                        range: {
+                            start: { line: 0, character: 0 },
+                            end: { line: 0, character: 6 },
+                        },
+                    },
+                },
+                'file:///Users/test/project/main.do',
+                'file:///Users/test/project'
+            );
+
+            expect(result.value).toContain('&lt;html&gt;');
+            expect(result.value).toContain('&amp;');
+            expect(result.value).toContain('\\*chars\\*');
+            expect(result.value).toContain('\\[confirmed\\]');
+        });
+
+        it('should truncate after 12 value-label mappings', () => {
+            const my_labels = new Map<number, string>();
+            for (let i = 0; i < 15; i++) {
+                my_labels.set(i, `Label ${i}`);
+            }
+
+            const result = (hover_provider as any).format_variable_hover(
+                {
+                    name: 'many_labels',
+                    sourceUri: 'file:///Users/test/project/data.do',
+                    type: 'int',
+                    label: '',
+                    value_label_name: 'big_lbl',
+                    value_labels: my_labels,
+                    source: 'directive',
+                    location: {
+                        uri: 'file:///Users/test/project/data.do',
+                        range: {
+                            start: { line: 0, character: 0 },
+                            end: { line: 0, character: 11 },
+                        },
+                    },
+                },
+                'file:///Users/test/project/main.do',
+                'file:///Users/test/project'
+            );
+
+            expect(result.value).toContain('Label 0');
+            expect(result.value).toContain('Label 11');
+            expect(result.value).toContain('more');
+            expect(result.value).not.toContain('`12` => Label 12');
+        });
     });
 
     describe('get_macro_hover', () => {

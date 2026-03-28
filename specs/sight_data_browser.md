@@ -14,7 +14,7 @@ Sight is uniquely positioned to offer this because it already maintains a langua
 
 ## Architecture
 
-```
+```text
 ┌──────────────────┐         ┌──────────────────────────────────┐
 │   Stata Console  │         │        VS Code / Sight           │
 │                  │         │                                  │
@@ -85,7 +85,7 @@ vview [varlist] [if] [in] [, Rows(integer) Name(string) Replace]
 ```
 
 5. `restore` the dataset.
-8. Touch `~/.sight/browse/signal_<uuid>` (or overwrite it with the uuid) to notify the extension.
+6. Touch `~/.sight/browse/signal_<uuid>` (or overwrite it with the uuid) to notify the extension.
 
 ### Reference Implementation
 
@@ -212,7 +212,7 @@ The **data section** stores observations in fixed-width rows. Observation length
 
 Given the **map** section's pointer to the data block start (`data_offset`) and the computed `obs_length`:
 
-```
+```text
 row_offset(i) = data_offset + (i * obs_length)
 ```
 
@@ -471,7 +471,7 @@ But users may have changed it, so the extension must not hardcode these paths.
 
 On first activation, if the extension uses the platform default and successfully installs `vview.ado`, log a message to the output channel:
 
-```
+```text
 Installed vview.ado to /Users/jmb/Documents/Stata/ado/personal/
 If this is not your Stata PERSONAL directory, set sight.personalAdoDir in settings.
 ```

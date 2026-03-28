@@ -1,3 +1,4 @@
+/* eslint-env node */
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -165,15 +166,9 @@ async function run() {
     } finally {
         vscode.window.createWebviewPanel =
             my_original_create_webview_panel;
-        try {
-            fs.unlinkSync(my_signal_path);
-        } catch {}
-        try {
-            fs.unlinkSync(my_json_path);
-        } catch {}
-        try {
-            fs.unlinkSync(my_browse_dta_path);
-        } catch {}
+        fs.rmSync(my_signal_path, { force: true });
+        fs.rmSync(my_json_path, { force: true });
+        fs.rmSync(my_browse_dta_path, { force: true });
         await close_all_editors();
         log('Finished smoke test cleanup');
     }

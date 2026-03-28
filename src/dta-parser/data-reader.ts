@@ -148,7 +148,12 @@ function read_rows_from_view(
     col_end?: number
 ): Row[] {
     // Handle empty dataset or out-of-range start
-    if (metadata.nobs === 0 || start >= metadata.nobs) {
+    if (
+        metadata.nobs === 0
+        || start < 0
+        || count <= 0
+        || start >= metadata.nobs
+    ) {
         return [];
     }
 
@@ -158,9 +163,14 @@ function read_rows_from_view(
     );
     if (my_actual_count <= 0) return [];
 
-    // Resolve column range
-    const my_col_start = col_start ?? 0;
-    const my_col_end = col_end ?? metadata.nvar;
+    // Resolve and clamp column range
+    const my_col_start = Math.max(0, col_start ?? 0);
+    const my_col_end = Math.min(
+        metadata.nvar, col_end ?? metadata.nvar
+    );
+    if (my_col_start >= my_col_end) {
+        return [];
+    }
     const little_endian = metadata.byte_order === 'LSF';
     const the_rows: Row[] = [];
 

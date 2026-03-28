@@ -37,8 +37,9 @@ describe('build_cell_value', () => {
     });
 
     it('looks up value label for extended missing values', () => {
+        // 2147483622 = 0x7fffffe6 = Stata's int encoding for .a
         const my_table = new Map<number, string>([
-            [2147483622, 'Not applicable'],  // .a
+            [2147483622, 'Not applicable'],
         ]);
         const my_cell = build_cell_value(
             make_missing_value('.a'),
