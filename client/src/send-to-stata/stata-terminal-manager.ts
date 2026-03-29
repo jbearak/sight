@@ -65,6 +65,15 @@ function handle_active_terminal_changed(
 export function register_stata_terminal(
     context: vscode.ExtensionContext
 ): void {
+    // No interactive Stata CLI on Windows (batch mode only).
+    // Skip profile registration on local Windows; remote sessions
+    // (SSH, WSL, Dev Container) connect to a host that may have one.
+    const is_local_windows = process.platform === 'win32'
+        && !vscode.env.remoteName;
+    if (is_local_windows) {
+        return;
+    }
+
     const provider: vscode.TerminalProfileProvider = {
         async provideTerminalProfile(
             _token: vscode.CancellationToken

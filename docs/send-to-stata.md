@@ -9,7 +9,7 @@ The extension provides commands to send Stata code directly from VS Code to Stat
 The extension offers three ways to send code to Stata:
 
 - **Stata GUI Application** (`external`): Sends code to the standalone Stata application via AppleScript (macOS) or COM automation (Windows).
-- **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code. The extension registers a "Stata" terminal profile that launches the Stata CLI (`stata-mp`, `stata-se`, `stata-be`, or `stata`). This works on all platforms, including remote sessions (SSH, WSL, Dev Containers, Tunnels).
+- **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code. The extension registers a "Stata" terminal profile that launches the Stata CLI (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`). This works on macOS, Linux, and remote sessions (SSH, WSL, Dev Containers, Tunnels). Not available on native Windows because Stata has no interactive CLI on that platform.
 - **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal.
 
 ### Target Setting
@@ -19,16 +19,16 @@ The `sight.sendToStata.target` setting controls where the main send commands (`C
 | Value | Behavior |
 |-------|----------|
 | **auto** (default) | Uses the Stata GUI when running locally on macOS/Windows. Uses the integrated Stata terminal in remote sessions and on Linux. |
-| **integrated** | Always uses the integrated VS Code Stata terminal. |
+| **integrated** | Always uses the integrated VS Code Stata terminal. On native Windows (where Stata has no interactive CLI), falls back to the GUI with a warning. |
 | **external** | Always uses the external Stata GUI application. macOS and Windows only; not available in remote sessions or on Linux. |
 
 When the integrated terminal is selected (directly or via auto-detection), the extension will automatically open a Stata terminal if one isn't already running. If multiple Stata terminals are open, commands are sent to the most recently activated one.
 
 ### Stata Terminal Profile
 
-The extension adds a "Stata" terminal profile to VS Code's terminal dropdown. You can open a Stata terminal manually from the terminal profile picker at any time. The Stata CLI binary is detected automatically:
+The extension adds a "Stata" terminal profile to VS Code's terminal dropdown (not shown on native Windows, where Stata has no interactive CLI). You can open a Stata terminal manually from the terminal profile picker at any time. The Stata CLI binary is detected automatically:
 
-1. Checks your PATH for `stata-mp`, `stata-se`, `stata-be`, or `stata` (in priority order)
+1. Checks your PATH for `stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata` (in priority order)
 2. On macOS, falls back to checking inside `/Applications/Stata/*.app/Contents/MacOS/`
 3. If `sight.sendToStata.stataApp` is set, that variant is checked first
 

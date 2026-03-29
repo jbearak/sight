@@ -136,6 +136,19 @@ export function resolve_effective_target(
         && vscode.env.remoteName !== '';
 
     if (setting === 'integrated') {
+        // No interactive Stata CLI on Windows (batch mode only).
+        // Fall back to GUI; remote sessions connect to a host
+        // that may have an interactive CLI.
+        if (process.platform === 'win32' && !is_remote) {
+            vscode.window.showWarningMessage(
+                'The integrated Stata terminal is not available ' +
+                'on Windows (Stata has no interactive CLI on ' +
+                'this platform). Falling back to the Stata GUI. ' +
+                'Use a remote session (SSH, WSL) for integrated ' +
+                'terminal support.'
+            );
+            return 'app';
+        }
         return 'integrated';
     }
 
