@@ -23,7 +23,7 @@ let last_active_profile_terminal: vscode.Terminal | null = null;
  * onDidOpenTerminal. Used to correlate the opened terminal with
  * our profile (VS Code does not expose a terminal-to-profile link).
  */
-let pending_profile_creation = false;
+let pending_profile_creation_count = 0;
 
 /**
  * In-flight creation promise, used to prevent concurrent calls from
@@ -32,8 +32,8 @@ let pending_profile_creation = false;
 let creation_in_flight: Promise<vscode.Terminal> | null = null;
 
 function handle_terminal_opened(terminal: vscode.Terminal): void {
-    if (pending_profile_creation) {
-        pending_profile_creation = false;
+    if (pending_profile_creation_count > 0) {
+        pending_profile_creation_count--;
         the_profile_terminals.add(terminal);
         last_active_profile_terminal = terminal;
     }
@@ -78,7 +78,7 @@ export function register_stata_terminal(
                 );
                 return undefined;
             }
-            pending_profile_creation = true;
+            pending_profile_creation_count++;
             return new vscode.TerminalProfile({
                 name: TERMINAL_NAME,
                 shellPath: stata_cli,

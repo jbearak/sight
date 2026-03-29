@@ -8,9 +8,9 @@ import { StataVariant } from './index';
  * Windows uses PascalCase names; Unix uses lowercase with hyphens.
  */
 const UNIX_CLI_BINARIES: readonly string[] =
-    ['stata-mp', 'stata-se', 'stata-be', 'stata'];
+    ['stata-mp', 'stata-se', 'stata-ic', 'stata-be', 'stata'];
 const WIN_CLI_BINARIES: readonly string[] =
-    ['StataMP', 'StataSE', 'StataBE', 'Stata'];
+    ['StataMP', 'StataSE', 'StataIC', 'StataBE', 'Stata'];
 
 function get_cli_binaries(): readonly string[] {
     return process.platform === 'win32'
@@ -51,6 +51,7 @@ function get_variant_to_cli(): Record<StataVariant, string> {
 const CLI_TO_MACOS_PATH: Record<string, string> = {
     'stata-mp': '/Applications/Stata/StataMP.app/Contents/MacOS/stata-mp',
     'stata-se': '/Applications/Stata/StataSE.app/Contents/MacOS/stata-se',
+    'stata-ic': '/Applications/Stata/StataIC.app/Contents/MacOS/stata-ic',
     'stata-be': '/Applications/Stata/StataBE.app/Contents/MacOS/stata-be',
     'stata': '/Applications/Stata/Stata.app/Contents/MacOS/stata',
 };
@@ -63,7 +64,7 @@ let cached_stata_cli: string | null | undefined = undefined;
 function is_on_path(binary: string): Promise<boolean> {
     const command = process.platform === 'win32' ? 'where' : 'which';
     return new Promise(resolve => {
-        execFile(command, [binary], (error) => {
+        execFile(command, [binary], { timeout: 5000 }, (error) => {
             resolve(error === null);
         });
     });
