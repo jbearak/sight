@@ -263,12 +263,6 @@ async function handle_send_command(
                     await send_to_stata_windows(
                         command, my_temp_file, context
                     );
-                } else if (process.platform !== 'darwin') {
-                    vscode.window.showErrorMessage(
-                        'Stata application mode is only available ' +
-                        'on macOS and Windows. Use terminal mode ' +
-                        'instead.');
-                    return;
                 } else {
                     const my_stata_app = await detect_stata_app();
                     if (!my_stata_app) {
