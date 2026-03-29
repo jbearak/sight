@@ -1,11 +1,10 @@
 import * as vscode from 'vscode';
-import { StataCommand } from './index';
+import { StataCommand, VALID_COMMANDS } from './index';
 import { detect_stata_cli, clear_stata_cli_cache } from './stata-cli-detector';
 import { wrap_path_for_stata_terminal } from './terminal';
 
 const PROFILE_ID = 'sight.stataTerminal';
 const TERMINAL_NAME = 'Stata';
-const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
 
 /**
  * Set of terminals created via our Stata terminal profile.
@@ -17,6 +16,12 @@ const the_profile_terminals = new Set<vscode.Terminal>();
  * The most recently activated terminal from our profile.
  */
 let last_active_profile_terminal: vscode.Terminal | null = null;
+
+/**
+ * Tracks profile terminals in most-recently-activated order (last = most recent).
+ * Used to pick the correct fallback when the active terminal is closed.
+ */
+const the_activation_order: vscode.Terminal[] = [];
 
 /**
  * Flag set before provideTerminalProfile returns, cleared by
@@ -31,22 +36,38 @@ let pending_profile_creation_count = 0;
  */
 let creation_in_flight: Promise<vscode.Terminal> | null = null;
 
+function track_activation(terminal: vscode.Terminal): void {
+    const idx = the_activation_order.indexOf(terminal);
+    if (idx !== -1) {
+        the_activation_order.splice(idx, 1);
+    }
+    the_activation_order.push(terminal);
+}
+
 function handle_terminal_opened(terminal: vscode.Terminal): void {
-    if (pending_profile_creation_count > 0) {
+    if (
+        pending_profile_creation_count > 0
+        && terminal.name === TERMINAL_NAME
+    ) {
         pending_profile_creation_count--;
         the_profile_terminals.add(terminal);
+        track_activation(terminal);
         last_active_profile_terminal = terminal;
     }
 }
 
 function handle_terminal_closed(terminal: vscode.Terminal): void {
     the_profile_terminals.delete(terminal);
+    const idx = the_activation_order.indexOf(terminal);
+    if (idx !== -1) {
+        the_activation_order.splice(idx, 1);
+    }
     if (last_active_profile_terminal === terminal) {
-        last_active_profile_terminal = null;
-        // Fall back to the last remaining profile terminal (insertion order)
-        for (const my_terminal of the_profile_terminals) {
-            last_active_profile_terminal = my_terminal;
-        }
+        // Fall back to the most recently activated profile terminal
+        last_active_profile_terminal =
+            the_activation_order.length > 0
+                ? the_activation_order[the_activation_order.length - 1]
+                : null;
     }
 }
 
@@ -54,6 +75,7 @@ function handle_active_terminal_changed(
     terminal: vscode.Terminal | undefined
 ): void {
     if (terminal && the_profile_terminals.has(terminal)) {
+        track_activation(terminal);
         last_active_profile_terminal = terminal;
     }
 }
@@ -76,15 +98,17 @@ export function register_stata_terminal(
 
     const provider: vscode.TerminalProfileProvider = {
         async provideTerminalProfile(
-            _token: vscode.CancellationToken
+            token: vscode.CancellationToken
         ): Promise<vscode.TerminalProfile | undefined> {
             const stata_cli = await detect_stata_cli();
-            if (!stata_cli) {
-                vscode.window.showErrorMessage(
-                    'Stata CLI not found. Ensure stata-mp, stata-se, ' +
-                    'or stata is on your PATH, or configure ' +
-                    'sight.sendToStata.stataApp.'
-                );
+            if (token.isCancellationRequested || !stata_cli) {
+                if (!token.isCancellationRequested && !stata_cli) {
+                    vscode.window.showErrorMessage(
+                        'Stata CLI not found. Ensure stata-mp, ' +
+                        'stata-se, or stata is on your PATH, or ' +
+                        'configure sight.sendToStata.stataApp.'
+                    );
+                }
                 return undefined;
             }
             pending_profile_creation_count++;
@@ -155,7 +179,11 @@ async function create_stata_terminal(): Promise<vscode.Terminal> {
         iconPath: new vscode.ThemeIcon('terminal'),
     });
 
+    // Track immediately so sendText can be called before
+    // onDidOpenTerminal fires (which would skip this terminal
+    // since pending_profile_creation_count is 0).
     the_profile_terminals.add(terminal);
+    track_activation(terminal);
     last_active_profile_terminal = terminal;
 
     return terminal;

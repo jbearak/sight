@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import * as fs from 'fs/promises';
+import { constants as fs_constants } from 'fs';
 import { StataVariant } from './index';
 
 /**
@@ -88,26 +89,32 @@ export async function detect_stata_cli(): Promise<string | null> {
     const setting_value = config.get<string>('stataApp');
 
     // Build ordered list: user-configured variant first, then defaults
-    const the_variant_map = get_variant_to_cli();
+    const variant_map = get_variant_to_cli();
     const the_default_binaries = get_cli_binaries();
 
     const the_binaries: string[] = [];
-    if (setting_value && setting_value in the_variant_map) {
-        the_binaries.push(
-            the_variant_map[setting_value as StataVariant]
-        );
+    const seen_binaries = new Set<string>();
+    if (setting_value && setting_value in variant_map) {
+        const cli_name = variant_map[setting_value as StataVariant];
+        the_binaries.push(cli_name);
+        seen_binaries.add(cli_name);
     }
     for (const my_binary of the_default_binaries) {
-        if (!the_binaries.includes(my_binary)) {
+        if (!seen_binaries.has(my_binary)) {
             the_binaries.push(my_binary);
+            seen_binaries.add(my_binary);
         }
     }
 
-    // Check PATH
-    for (const my_binary of the_binaries) {
-        if (await is_on_path(my_binary)) {
-            cached_stata_cli = my_binary;
-            return my_binary;
+    // Check PATH (all binaries in parallel, pick first by
+    // priority)
+    const the_path_results = await Promise.all(
+        the_binaries.map(my_binary => is_on_path(my_binary))
+    );
+    for (let i = 0; i < the_binaries.length; i++) {
+        if (the_path_results[i]) {
+            cached_stata_cli = the_binaries[i];
+            return the_binaries[i];
         }
     }
 
@@ -117,7 +124,7 @@ export async function detect_stata_cli(): Promise<string | null> {
             const my_path = CLI_TO_MACOS_PATH[my_binary];
             if (my_path) {
                 try {
-                    await fs.access(my_path);
+                    await fs.access(my_path, fs_constants.X_OK);
                     cached_stata_cli = my_path;
                     return my_path;
                 } catch {

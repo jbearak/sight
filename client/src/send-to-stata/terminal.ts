@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
-import { StataCommand } from './index';
-
-const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
+import { StataCommand, VALID_COMMANDS } from './index';
 
 /**
  * Wraps a file path in Stata compound string syntax for terminal commands.

@@ -6,6 +6,8 @@
 // Core types
 export type StataVariant = 'StataMP' | 'StataSE' | 'StataBE' | 'StataIC' | 'Stata';
 export type StataCommand = 'do' | 'include';
+export const VALID_COMMANDS: readonly StataCommand[] =
+    ['do', 'include'];
 export type SendTarget = 'app' | 'terminal';
 
 // Module exports

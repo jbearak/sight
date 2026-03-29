@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { unlink } from 'fs/promises';
 import { compute_cd_menu_visible, format_cd_command } from './cd-commands';
 import {
     WorkingDirectoryOption,
@@ -132,6 +133,7 @@ export async function execute_cd_command(
             if (process.platform === 'darwin') {
                 const stata_app = await detect_stata_app();
                 if (!stata_app) {
+                    await unlink(temp_file_path).catch(() => {});
                     vscode.window.showErrorMessage(
                         'Stata not found. Install Stata in ' +
                         '/Applications/Stata/ or configure ' +
@@ -156,6 +158,7 @@ export async function execute_cd_command(
                     'do', temp_file_path, context
                 );
             } else {
+                await unlink(temp_file_path).catch(() => {});
                 vscode.window.showErrorMessage(
                     'Stata application mode is only available on ' +
                     'macOS and Windows. Use terminal mode instead.'

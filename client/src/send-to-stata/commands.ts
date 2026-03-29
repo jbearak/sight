@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { unlink } from 'fs/promises';
 import { LanguageClient } from 'vscode-languageclient/node';
 import {
     detect_statement,
@@ -20,6 +21,7 @@ import { escape_path_for_stata } from './cd-commands';
 export type WorkingDirectoryOption = 'none' | 'file' | 'workspace' | 'lsp';
 export type SendTargetSetting = 'auto' | 'integrated' | 'external';
 
+let shown_windows_integrated_warning = false;
 let language_client: LanguageClient | null = null;
 
 /**
@@ -140,13 +142,17 @@ export function resolve_effective_target(
         // Fall back to GUI; remote sessions connect to a host
         // that may have an interactive CLI.
         if (process.platform === 'win32' && !is_remote) {
-            vscode.window.showWarningMessage(
-                'The integrated Stata terminal is not available ' +
-                'on Windows (Stata has no interactive CLI on ' +
-                'this platform). Falling back to the Stata GUI. ' +
-                'Use a remote session (SSH, WSL) for integrated ' +
-                'terminal support.'
-            );
+            if (!shown_windows_integrated_warning) {
+                shown_windows_integrated_warning = true;
+                vscode.window.showWarningMessage(
+                    'The integrated Stata terminal is not ' +
+                    'available on Windows (Stata has no ' +
+                    'interactive CLI on this platform). ' +
+                    'Falling back to the Stata GUI. Use a ' +
+                    'remote session (SSH, WSL) for ' +
+                    'integrated terminal support.'
+                );
+            }
             return 'app';
         }
         return 'integrated';
@@ -159,6 +165,17 @@ export function resolve_effective_target(
                 'in remote sessions. Change ' +
                 'sight.sendToStata.target to "auto" or ' +
                 '"integrated".'
+            );
+            return null;
+        }
+        if (
+            process.platform !== 'darwin'
+            && process.platform !== 'win32'
+        ) {
+            vscode.window.showErrorMessage(
+                'The "external" send target is not available ' +
+                'on Linux. Change sight.sendToStata.target ' +
+                'to "auto" or "integrated".'
             );
             return null;
         }
@@ -244,6 +261,7 @@ async function handle_send_command(
             if (process.platform === 'win32') {
                 await send_to_stata_windows(command, my_temp_file, context);
             } else if (process.platform !== 'darwin') {
+                await unlink(my_temp_file).catch(() => {});
                 vscode.window.showErrorMessage(
                     'Stata application mode is only available on macOS ' +
                     'and Windows. Use terminal mode instead.');
@@ -251,6 +269,7 @@ async function handle_send_command(
             } else {
                 const my_stata_app = await detect_stata_app();
                 if (!my_stata_app) {
+                    await unlink(my_temp_file).catch(() => {});
                     vscode.window.showErrorMessage(
                         'Stata not found. Install Stata in ' +
                         '/Applications/Stata/ or configure ' +
