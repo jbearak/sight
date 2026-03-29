@@ -48,6 +48,7 @@ function handle_terminal_opened(terminal: vscode.Terminal): void {
     if (
         pending_profile_creation_count > 0
         && terminal.name === TERMINAL_NAME
+        && !the_profile_terminals.has(terminal)
     ) {
         pending_profile_creation_count--;
         the_profile_terminals.add(terminal);

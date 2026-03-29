@@ -255,36 +255,46 @@ async function handle_send_command(
 
         const my_temp_file = await create_temp_file(my_code);
 
-        if (effective_target === 'integrated') {
-            await send_to_stata_terminal(command, my_temp_file);
-        } else if (effective_target === 'app') {
-            if (process.platform === 'win32') {
-                await send_to_stata_windows(command, my_temp_file, context);
-            } else if (process.platform !== 'darwin') {
-                await unlink(my_temp_file).catch(() => {});
-                vscode.window.showErrorMessage(
-                    'Stata application mode is only available on macOS ' +
-                    'and Windows. Use terminal mode instead.');
-                return;
-            } else {
-                const my_stata_app = await detect_stata_app();
-                if (!my_stata_app) {
-                    await unlink(my_temp_file).catch(() => {});
+        try {
+            if (effective_target === 'integrated') {
+                await send_to_stata_terminal(command, my_temp_file);
+            } else if (effective_target === 'app') {
+                if (process.platform === 'win32') {
+                    await send_to_stata_windows(
+                        command, my_temp_file, context
+                    );
+                } else if (process.platform !== 'darwin') {
                     vscode.window.showErrorMessage(
-                        'Stata not found. Install Stata in ' +
-                        '/Applications/Stata/ or configure ' +
-                        'sight.sendToStata.stataApp setting.');
+                        'Stata application mode is only available ' +
+                        'on macOS and Windows. Use terminal mode ' +
+                        'instead.');
                     return;
-                }
+                } else {
+                    const my_stata_app = await detect_stata_app();
+                    if (!my_stata_app) {
+                        vscode.window.showErrorMessage(
+                            'Stata not found. Install Stata in ' +
+                            '/Applications/Stata/ or configure ' +
+                            'sight.sendToStata.stataApp setting.');
+                        return;
+                    }
 
-                await send_to_stata_app(my_stata_app, command, my_temp_file,
-                    my_config.get<boolean>('focusStataWindow', false));
+                    await send_to_stata_app(
+                        my_stata_app, command, my_temp_file,
+                        my_config.get<boolean>(
+                            'focusStataWindow', false
+                        )
+                    );
+                }
+            } else {
+                await send_to_terminal(command, my_temp_file);
             }
-        } else {
-            await send_to_terminal(command, my_temp_file);
+        } finally {
+            await unlink(my_temp_file).catch(() => {});
         }
-        
-        // Advance cursor for single-line sends (statement mode without selection)
+
+        // Advance cursor for single-line sends
+        // (statement mode without selection)
         if (statement_end_line !== null) {
             advance_cursor_if_enabled(my_editor, statement_end_line);
         }
