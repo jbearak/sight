@@ -341,7 +341,7 @@
           "enumDescriptions": [
             "Auto: use the Stata GUI when running locally (macOS/Windows), use the integrated Stata terminal in remote sessions (SSH, WSL, Dev Container, Tunnel) and on Linux",
             "Always use the integrated VS Code Stata terminal",
-            "Always use the external Stata GUI application (not available in remote sessions)"
+            "Always use the external Stata GUI application (macOS and Windows only; not available in remote sessions or on Linux)"
           ]
         },
         "sight.sendToStata.workingDirectory": {

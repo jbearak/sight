@@ -115,7 +115,6 @@ export async function execute_cd_command(
     }
     
     const cd_command = format_cd_command(directory_path);
-    const temp_file_path = await create_temp_file(cd_command);
 
     // Resolve effective target using same logic as send commands
     const effective_target = resolve_effective_target(target);
@@ -123,6 +122,8 @@ export async function execute_cd_command(
     if (effective_target === null) {
         return;
     }
+
+    const temp_file_path = await create_temp_file(cd_command);
 
     try {
         if (effective_target === 'integrated') {

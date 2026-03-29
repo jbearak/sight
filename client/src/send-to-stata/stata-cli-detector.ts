@@ -4,21 +4,45 @@ import * as fs from 'fs/promises';
 import { StataVariant } from './index';
 
 /**
- * CLI binary names in priority order.
+ * CLI binary names in priority order, per platform.
+ * Windows uses PascalCase names; Unix uses lowercase with hyphens.
  */
-const CLI_BINARIES = ['stata-mp', 'stata-se', 'stata-be', 'stata'] as const;
+const UNIX_CLI_BINARIES: readonly string[] =
+    ['stata-mp', 'stata-se', 'stata-be', 'stata'];
+const WIN_CLI_BINARIES: readonly string[] =
+    ['StataMP', 'StataSE', 'StataBE', 'Stata'];
+
+function get_cli_binaries(): readonly string[] {
+    return process.platform === 'win32'
+        ? WIN_CLI_BINARIES
+        : UNIX_CLI_BINARIES;
+}
 
 /**
- * Maps GUI variant names to CLI binary names.
+ * Maps GUI variant names to CLI binary names, per platform.
  * Used when the user has set sight.sendToStata.stataApp.
  */
-const VARIANT_TO_CLI: Record<StataVariant, string> = {
+const UNIX_VARIANT_TO_CLI: Record<StataVariant, string> = {
     'StataMP': 'stata-mp',
     'StataSE': 'stata-se',
     'StataBE': 'stata-be',
-    'StataIC': 'stata-se',  // StataIC uses stata-se binary
+    'StataIC': 'stata-ic',
     'Stata': 'stata',
 };
+
+const WIN_VARIANT_TO_CLI: Record<StataVariant, string> = {
+    'StataMP': 'StataMP',
+    'StataSE': 'StataSE',
+    'StataBE': 'StataBE',
+    'StataIC': 'StataIC',
+    'Stata': 'Stata',
+};
+
+function get_variant_to_cli(): Record<StataVariant, string> {
+    return process.platform === 'win32'
+        ? WIN_VARIANT_TO_CLI
+        : UNIX_VARIANT_TO_CLI;
+}
 
 /**
  * Maps CLI binary names to macOS .app bundle paths.
@@ -63,11 +87,16 @@ export async function detect_stata_cli(): Promise<string | null> {
     const setting_value = config.get<string>('stataApp');
 
     // Build ordered list: user-configured variant first, then defaults
+    const the_variant_map = get_variant_to_cli();
+    const the_default_binaries = get_cli_binaries();
+
     const the_binaries: string[] = [];
-    if (setting_value && setting_value in VARIANT_TO_CLI) {
-        the_binaries.push(VARIANT_TO_CLI[setting_value as StataVariant]);
+    if (setting_value && setting_value in the_variant_map) {
+        the_binaries.push(
+            the_variant_map[setting_value as StataVariant]
+        );
     }
-    for (const my_binary of CLI_BINARIES) {
+    for (const my_binary of the_default_binaries) {
         if (!the_binaries.includes(my_binary)) {
             the_binaries.push(my_binary);
         }

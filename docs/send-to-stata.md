@@ -20,7 +20,7 @@ The `sight.sendToStata.target` setting controls where the main send commands (`C
 |-------|----------|
 | **auto** (default) | Uses the Stata GUI when running locally on macOS/Windows. Uses the integrated Stata terminal in remote sessions and on Linux. |
 | **integrated** | Always uses the integrated VS Code Stata terminal. |
-| **external** | Always uses the external Stata GUI application. Not available in remote sessions. |
+| **external** | Always uses the external Stata GUI application. macOS and Windows only; not available in remote sessions or on Linux. |
 
 When the integrated terminal is selected (directly or via auto-detection), the extension will automatically open a Stata terminal if one isn't already running. If multiple Stata terminals are open, commands are sent to the most recently activated one.
 

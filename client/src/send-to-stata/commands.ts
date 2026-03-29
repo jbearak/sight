@@ -217,12 +217,15 @@ async function handle_send_command(
     my_code = await prepare_content_with_cd(my_code, my_editor.document, working_dir);
 
     try {
-        const my_temp_file = await create_temp_file(my_code);
         const effective_target = resolve_effective_target(target);
 
         if (effective_target === null) {
             return;
-        } else if (effective_target === 'integrated') {
+        }
+
+        const my_temp_file = await create_temp_file(my_code);
+
+        if (effective_target === 'integrated') {
             await send_to_stata_terminal(command, my_temp_file);
         } else if (effective_target === 'app') {
             if (process.platform === 'win32') {

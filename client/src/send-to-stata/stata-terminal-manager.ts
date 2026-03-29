@@ -6,7 +6,6 @@ import { wrap_path_for_stata_terminal } from './terminal';
 const PROFILE_ID = 'sight.stataTerminal';
 const TERMINAL_NAME = 'Stata';
 const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
-const TERMINAL_CREATE_TIMEOUT_MS = 10_000;
 
 /**
  * Set of terminals created via our Stata terminal profile.
@@ -27,13 +26,6 @@ let last_active_profile_terminal: vscode.Terminal | null = null;
 let pending_profile_creation = false;
 
 /**
- * Resolve function for the pending terminal creation promise.
- * Set by get_or_create_stata_terminal, called by onDidOpenTerminal.
- */
-let pending_terminal_resolve: ((terminal: vscode.Terminal) => void) | null =
-    null;
-
-/**
  * In-flight creation promise, used to prevent concurrent calls from
  * creating multiple terminals.
  */
@@ -44,10 +36,6 @@ function handle_terminal_opened(terminal: vscode.Terminal): void {
         pending_profile_creation = false;
         the_profile_terminals.add(terminal);
         last_active_profile_terminal = terminal;
-        if (pending_terminal_resolve) {
-            pending_terminal_resolve(terminal);
-            pending_terminal_resolve = null;
-        }
     }
 }
 
@@ -55,7 +43,7 @@ function handle_terminal_closed(terminal: vscode.Terminal): void {
     the_profile_terminals.delete(terminal);
     if (last_active_profile_terminal === terminal) {
         last_active_profile_terminal = null;
-        // Pick the most recently seen profile terminal that's still open
+        // Fall back to the last remaining profile terminal (insertion order)
         for (const my_terminal of the_profile_terminals) {
             last_active_profile_terminal = my_terminal;
         }
@@ -150,29 +138,6 @@ async function create_stata_terminal(): Promise<vscode.Terminal> {
         );
     }
 
-    pending_profile_creation = true;
-    let timeout_handle: ReturnType<typeof setTimeout> | null = null;
-
-    const terminal_promise = new Promise<vscode.Terminal>(
-        (resolve, reject) => {
-            timeout_handle = setTimeout(() => {
-                pending_terminal_resolve = null;
-                pending_profile_creation = false;
-                reject(new Error(
-                    'Timed out waiting for Stata terminal ' +
-                    'to open.'
-                ));
-            }, TERMINAL_CREATE_TIMEOUT_MS);
-
-            pending_terminal_resolve = (
-                terminal: vscode.Terminal
-            ) => {
-                clearTimeout(timeout_handle!);
-                resolve(terminal);
-            };
-        }
-    );
-
     const terminal = vscode.window.createTerminal({
         name: TERMINAL_NAME,
         shellPath: stata_cli,
@@ -181,15 +146,10 @@ async function create_stata_terminal(): Promise<vscode.Terminal> {
         iconPath: new vscode.ThemeIcon('terminal'),
     });
 
-    // onDidOpenTerminal may fire synchronously. If so,
-    // pending_profile_creation is already cleared.
-    if (!pending_profile_creation) {
-        clearTimeout(timeout_handle!);
-        pending_terminal_resolve = null;
-        return terminal;
-    }
+    the_profile_terminals.add(terminal);
+    last_active_profile_terminal = terminal;
 
-    return terminal_promise;
+    return terminal;
 }
 
 /**
