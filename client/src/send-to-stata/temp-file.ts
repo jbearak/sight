@@ -3,6 +3,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
+export const DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS = 5000;
+
 export function get_temp_dir(): string {
     return os.tmpdir();
 }
@@ -31,4 +33,13 @@ export async function create_temp_file(content: string): Promise<string> {
     throw new Error(
         `Failed to create temp file after ${MAX_RETRY_ATTEMPTS} attempts`
     );
+}
+
+export function schedule_temp_file_cleanup(
+    file_path: string,
+    delay_ms = DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS
+): NodeJS.Timeout {
+    return setTimeout(() => {
+        fs.unlink(file_path).catch(() => {});
+    }, delay_ms);
 }

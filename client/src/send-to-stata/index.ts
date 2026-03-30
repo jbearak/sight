@@ -22,7 +22,9 @@ export {
 
 export {
     get_temp_dir,
-    create_temp_file
+    create_temp_file,
+    schedule_temp_file_cleanup,
+    DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS
 } from './temp-file';
 
 export {

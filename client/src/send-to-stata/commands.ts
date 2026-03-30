@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { unlink } from 'fs/promises';
 import { LanguageClient } from 'vscode-languageclient/node';
 import {
     detect_statement,
@@ -8,6 +7,7 @@ import {
     get_upward_bounds,
     get_downward_bounds,
     create_temp_file,
+    schedule_temp_file_cleanup,
     detect_stata_app,
     send_to_stata_app,
     send_to_terminal,
@@ -255,10 +255,6 @@ async function handle_send_command(
 
         const my_temp_file = await create_temp_file(my_code);
 
-        const is_terminal_send =
-            effective_target === 'integrated'
-            || effective_target === 'terminal';
-
         try {
             if (effective_target === 'integrated') {
                 await send_to_stata_terminal(command, my_temp_file);
@@ -288,15 +284,9 @@ async function handle_send_command(
                 await send_to_terminal(command, my_temp_file);
             }
         } finally {
-            if (is_terminal_send) {
-                // terminal.sendText() is fire-and-forget;
-                // give Stata time to read the file
-                setTimeout(() => {
-                    unlink(my_temp_file).catch(() => {});
-                }, 5000);
-            } else {
-                await unlink(my_temp_file).catch(() => {});
-            }
+            // All send targets enqueue execution asynchronously enough that
+            // eager deletion can race the Stata process reading the temp file.
+            schedule_temp_file_cleanup(my_temp_file);
         }
 
         // Advance cursor for single-line sends

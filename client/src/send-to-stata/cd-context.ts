@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { unlink } from 'fs/promises';
 import { compute_cd_menu_visible, format_cd_command } from './cd-commands';
 import {
     WorkingDirectoryOption,
@@ -8,6 +7,7 @@ import {
 } from './commands';
 import {
     create_temp_file,
+    schedule_temp_file_cleanup,
     detect_stata_app,
     send_to_stata_app,
     send_to_terminal,
@@ -170,6 +170,6 @@ export async function execute_cd_command(
         vscode.window.showErrorMessage(
             `Error: ${my_error instanceof Error ? my_error.message : my_error}`);
     } finally {
-        await unlink(temp_file_path).catch(() => {});
+        schedule_temp_file_cleanup(temp_file_path);
     }
 }
