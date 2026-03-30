@@ -255,6 +255,10 @@ async function handle_send_command(
 
         const my_temp_file = await create_temp_file(my_code);
 
+        const is_terminal_send =
+            effective_target === 'integrated'
+            || effective_target === 'terminal';
+
         try {
             if (effective_target === 'integrated') {
                 await send_to_stata_terminal(command, my_temp_file);
@@ -284,7 +288,15 @@ async function handle_send_command(
                 await send_to_terminal(command, my_temp_file);
             }
         } finally {
-            await unlink(my_temp_file).catch(() => {});
+            if (is_terminal_send) {
+                // terminal.sendText() is fire-and-forget;
+                // give Stata time to read the file
+                setTimeout(() => {
+                    unlink(my_temp_file).catch(() => {});
+                }, 5000);
+            } else {
+                await unlink(my_temp_file).catch(() => {});
+            }
         }
 
         // Advance cursor for single-line sends
