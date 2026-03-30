@@ -45,6 +45,13 @@ function delay(time_ms: number): Promise<void> {
     });
 }
 
+function create_terminal_icon(): vscode.ThemeIcon | undefined {
+    if (typeof vscode.ThemeIcon !== 'function') {
+        return undefined;
+    }
+    return new vscode.ThemeIcon('terminal');
+}
+
 function track_activation(terminal: vscode.Terminal): void {
     const idx = the_activation_order.indexOf(terminal);
     if (idx !== -1) {
@@ -128,7 +135,7 @@ export function register_stata_terminal(
                 shellPath: stata_cli,
                 shellArgs: [],
                 isTransient: false,
-                iconPath: new vscode.ThemeIcon('terminal'),
+                iconPath: create_terminal_icon(),
             });
         }
     };
@@ -187,7 +194,7 @@ async function create_stata_terminal(): Promise<vscode.Terminal> {
         shellPath: stata_cli,
         shellArgs: [],
         isTransient: false,
-        iconPath: new vscode.ThemeIcon('terminal'),
+        iconPath: create_terminal_icon(),
     });
 
     // Track immediately so sendText can be called before
