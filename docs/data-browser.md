@@ -27,11 +27,13 @@ vview price mpg if foreign, replace  // Refresh existing panel
 
 ### Installation
 
-Sight automatically installs `vview.ado` into your personal ado directory the first time the extension activates. You'll see a one-time prompt asking for permission.
+Sight automatically installs `vview.ado` the first time the extension activates. You'll see a one-time prompt asking for permission.
 
-- **macOS**: `~/Documents/Stata/ado/personal/`
+- **macOS**: `~/ado/`
 - **Windows**: `%USERPROFILE%\ado\personal\`
 - **Linux**: `~/ado/personal/`
+
+On macOS, Sight defaults to `OLDPLACE` (`~/ado/`) rather than `PERSONAL` to avoid sandbox-related writes into `~/Documents/Stata/...`.
 
 You can override the install location with the `sight.personalAdoDir` setting, or manually install with the **Sight: Install vview.ado** command from the Command Palette.
 
@@ -88,4 +90,4 @@ With the default limit of 10,000 entries and ~3-4 alias keys per dataset, this a
 |---------|---------|-------------|
 | `sight.dataBrowser.missingValueStyle` | `"foreground"` | How to highlight missing values: `"foreground"` (colorize text), `"background"` (tint cell), or `"none"` |
 | `sight.dataBrowser.maxStoredLayouts` | `10000` | Maximum stored layout entries (see above) |
-| `sight.personalAdoDir` | (auto-detected) | Path to personal ado directory for `vview.ado` installation |
+| `sight.personalAdoDir` | (platform default) | Path where Sight installs `vview.ado` |

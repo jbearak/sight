@@ -32,6 +32,7 @@ import {
     type VviewInstallState,
     type VviewInstallStatus,
 } from './vview-install-core';
+import { resolve_personal_ado_dir } from './install-path';
 
 const VVIEW_INSTALL_PERMISSION_KEY =
     'sight.vviewInstallPermission';
@@ -449,10 +450,6 @@ export async function reset_vview_install_permission(
     );
 }
 
-// -----------------------------------------------------------
-// Personal ado directory resolution
-// -----------------------------------------------------------
-
 function get_personal_ado_dir(): string {
     const my_config = vscode.workspace.getConfiguration(
         'sight'
@@ -461,36 +458,9 @@ function get_personal_ado_dir(): string {
         'personalAdoDir',
         ''
     );
-    if (my_custom) {
-        return my_custom.replace(
-            /^~(?=\/|$)/,
-            os.homedir()
-        );
-    }
-
-    const my_home = os.homedir();
-
-    switch (process.platform) {
-        case 'darwin':
-            return path.join(
-                my_home,
-                'Documents',
-                'Stata',
-                'ado',
-                'personal'
-            );
-        case 'win32':
-            return path.join(
-                my_home,
-                'ado',
-                'personal'
-            );
-        default:
-            // Linux and other Unix-like
-            return path.join(
-                my_home,
-                'ado',
-                'personal'
-            );
-    }
+    return resolve_personal_ado_dir(
+        my_custom,
+        os.homedir(),
+        process.platform
+    );
 }

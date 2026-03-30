@@ -364,7 +364,7 @@
         "sight.personalAdoDir": {
           "type": "string",
           "default": "",
-          "description": "Path to Stata's PERSONAL ado directory for vview.ado installation. Leave empty for auto-detection (macOS: ~/Documents/Stata/ado/personal/, Linux: ~/ado/personal/, Windows: %USERPROFILE%\\ado\\personal\\)."
+          "description": "Path where Sight installs vview.ado. Leave empty for the platform default (macOS: ~/ado/, Linux: ~/ado/personal/, Windows: %USERPROFILE%\\ado\\personal\\)."
         },
         "sight.dataBrowser.maxStoredLayouts": {
           "type": "number",

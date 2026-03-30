@@ -449,7 +449,7 @@ The PERSONAL directory is **not** a fixed path — it is user-configurable via `
 
 | Platform | Typical PERSONAL directory |
 |---|---|
-| macOS | `~/Documents/Stata/ado/personal/` |
+| macOS | `~/ado/` |
 | Linux | `~/ado/personal/` |
 | Windows | `%USERPROFILE%\ado\personal\` |
 
@@ -462,7 +462,7 @@ But users may have changed it, so the extension must not hardcode these paths.
 2. **Auto-detection from `sysdir.ado`**: Stata stores its `sysdir` configuration in a file at `~/ado/personal/sysdir.ado` (the bootstrap location), or within the PERSONAL directory itself. This is unreliable for discovery since it's circular.
 
 3. **Platform defaults**: If no setting is configured, use the platform default:
-   - macOS: `~/Documents/Stata/ado/personal/` (the Stata for Mac default since Stata 16)
+   - macOS: `~/ado/` (`OLDPLACE`; preferred to avoid sandbox friction)
    - Linux: `~/ado/personal/`
    - Windows: `%USERPROFILE%\ado\personal\`
 
@@ -473,8 +473,8 @@ But users may have changed it, so the extension must not hardcode these paths.
 On first activation, if the extension uses the platform default and successfully installs `vview.ado`, log a message to the output channel:
 
 ```text
-Installed vview.ado to /Users/jmb/Documents/Stata/ado/personal/
-If this is not your Stata PERSONAL directory, set sight.personalAdoDir in settings.
+Installed vview.ado to /Users/jmb/ado/
+If this is not your preferred Stata ado directory, set sight.personalAdoDir in settings.
 ```
 
 This gives users a clear signal if the path is wrong without requiring configuration for the common case.
