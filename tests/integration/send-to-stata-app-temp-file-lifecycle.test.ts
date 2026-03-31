@@ -31,6 +31,9 @@ const APPLESCRIPT_MODULE_URL = pathToFileURL(
 const STATA_DETECTOR_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'stata-detector.ts')
 ).href;
+const STATA_TERMINAL_MANAGER_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'stata-terminal-manager.ts')
+).href;
 const STATA_CLI_DETECTOR_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'stata-cli-detector.ts')
 ).href;
@@ -427,7 +430,7 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
         }));
     });
 
-    beforeEach(() => {
+    beforeEach(async () => {
         the_error_messages.length = 0;
         current_read_attempt_state = {
             observed_temp_file_path: null,
@@ -466,6 +469,12 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
                 );
             },
         });
+
+        const terminal_manager_module = await import(
+            STATA_TERMINAL_MANAGER_MODULE_URL
+        );
+        terminal_manager_module
+            .reset_stata_terminal_manager_for_tests?.();
     });
 
     afterEach(() => {
