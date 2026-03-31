@@ -264,8 +264,13 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
             ensure_executable: async () => null,
         }));
 
-        commands_module = await import(COMMANDS_MODULE_URL);
-        cd_context_module = await import(CD_CONTEXT_MODULE_URL);
+        const my_import_suffix = `?test=${Date.now()}`;
+        commands_module = await import(
+            `${COMMANDS_MODULE_URL}${my_import_suffix}`
+        );
+        cd_context_module = await import(
+            `${CD_CONTEXT_MODULE_URL}${my_import_suffix}`
+        );
     });
 
     afterEach(() => {
