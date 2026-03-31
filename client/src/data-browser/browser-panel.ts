@@ -301,6 +301,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 if (!this.dta_file) {
                     await this.initialize();
                 } else {
+                    this.generation++;
                     this.row_cache.clear();
                     await this.send_metadata();
                 }
