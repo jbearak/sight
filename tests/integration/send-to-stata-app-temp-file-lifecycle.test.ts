@@ -54,6 +54,12 @@ interface Deferred<T> {
     reject: (reason?: unknown) => void;
 }
 
+interface ReadAttemptState {
+    observed_temp_file_path: string | null;
+    observed_temp_file_content: string | null;
+    read_attempt_deferred: Deferred<void>;
+}
+
 const READ_ATTEMPT_TIMEOUT_MS = 2000;
 
 function create_deferred<T>(): Deferred<T> {
@@ -133,24 +139,22 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
     const the_context_subscriptions: Array<{
         dispose: () => void;
     }> = [];
-    let observed_temp_file_path: string | null = null;
-    let observed_temp_file_content: string | null = null;
-    let read_attempt_deferred = create_deferred<void>();
 
     function simulate_stata_read(
-        temp_file_path: string
+        temp_file_path: string,
+        state: ReadAttemptState
     ): void {
-        observed_temp_file_path = temp_file_path;
+        state.observed_temp_file_path = temp_file_path;
         const my_timeout = setTimeout(async () => {
             try {
-                observed_temp_file_content =
+                state.observed_temp_file_content =
                     await fs.readFile(
                         temp_file_path,
                         'utf8'
                     );
-                read_attempt_deferred.resolve();
+                state.read_attempt_deferred.resolve();
             } catch (my_error) {
-                read_attempt_deferred.reject(my_error);
+                state.read_attempt_deferred.reject(my_error);
             }
         }, 10);
         my_timeout.unref?.();
@@ -162,6 +166,11 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
     let cd_context_module: typeof import(
         '../../client/src/send-to-stata/cd-context'
     ) | null = null;
+    let current_read_attempt_state: ReadAttemptState = {
+        observed_temp_file_path: null,
+        observed_temp_file_content: null,
+        read_attempt_deferred: create_deferred<void>(),
+    };
 
     beforeAll(async () => {
         mock.module('vscode', () => ({
@@ -295,7 +304,10 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
                 temp_file_path: string,
                 _focus_stata: boolean
             ) => {
-                simulate_stata_read(temp_file_path);
+                simulate_stata_read(
+                    temp_file_path,
+                    current_read_attempt_state
+                );
             },
         }));
 
@@ -304,7 +316,10 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
                 _command: string,
                 temp_file_path: string
             ) => {
-                simulate_stata_read(temp_file_path);
+                simulate_stata_read(
+                    temp_file_path,
+                    current_read_attempt_state
+                );
             },
         }));
 
@@ -313,12 +328,24 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
                 _command: string,
                 temp_file_path: string
             ) => {
-                simulate_stata_read(temp_file_path);
+                simulate_stata_read(
+                    temp_file_path,
+                    current_read_attempt_state
+                );
             },
         }));
 
         mock.module(WINDOWS_SENDER_MODULE_URL, () => ({
-            send_to_stata_windows: async () => {},
+            send_to_stata_windows: async (
+                _command: string,
+                temp_file_path: string,
+                _context: unknown
+            ) => {
+                simulate_stata_read(
+                    temp_file_path,
+                    current_read_attempt_state
+                );
+            },
             ensure_executable: async () => null,
         }));
 
@@ -347,9 +374,11 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
 
     test('app-mode send keeps the temp file available until Stata can read it', async () => {
         the_error_messages.length = 0;
-        observed_temp_file_path = null;
-        observed_temp_file_content = null;
-        read_attempt_deferred = create_deferred<void>();
+        current_read_attempt_state = {
+            observed_temp_file_path: null,
+            observed_temp_file_content: null,
+            read_attempt_deferred: create_deferred<void>(),
+        };
 
         const my_context = {
             subscriptions: the_context_subscriptions,
@@ -364,27 +393,33 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
 
         await my_handler?.();
         await expect_to_resolve_within(
-            read_attempt_deferred.promise,
+            current_read_attempt_state.read_attempt_deferred.promise,
             READ_ATTEMPT_TIMEOUT_MS,
             'temp file read attempt'
         );
 
         expect(the_error_messages).toEqual([]);
-        expect(observed_temp_file_path).toBeTruthy();
-        expect(observed_temp_file_content).toBe(
+        expect(
+            current_read_attempt_state.observed_temp_file_path
+        ).toBeTruthy();
+        expect(
+            current_read_attempt_state.observed_temp_file_content
+        ).toBe(
             'display "hello from temp file"'
         );
 
         await wait_for_file_deletion(
-            observed_temp_file_path!
+            current_read_attempt_state.observed_temp_file_path!
         );
     });
 
     test('app-mode cd send keeps the temp file available until Stata can read it', async () => {
         the_error_messages.length = 0;
-        observed_temp_file_path = null;
-        observed_temp_file_content = null;
-        read_attempt_deferred = create_deferred<void>();
+        current_read_attempt_state = {
+            observed_temp_file_path: null,
+            observed_temp_file_content: null,
+            read_attempt_deferred: create_deferred<void>(),
+        };
 
         const my_context = {
             subscriptions: the_context_subscriptions,
@@ -399,19 +434,23 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
 
         await my_handler?.();
         await expect_to_resolve_within(
-            read_attempt_deferred.promise,
+            current_read_attempt_state.read_attempt_deferred.promise,
             READ_ATTEMPT_TIMEOUT_MS,
             'temp file read attempt'
         );
 
         expect(the_error_messages).toEqual([]);
-        expect(observed_temp_file_path).toBeTruthy();
-        expect(observed_temp_file_content).toBe(
+        expect(
+            current_read_attempt_state.observed_temp_file_path
+        ).toBeTruthy();
+        expect(
+            current_read_attempt_state.observed_temp_file_content
+        ).toBe(
             'cd "/tmp"'
         );
 
         await wait_for_file_deletion(
-            observed_temp_file_path!
+            current_read_attempt_state.observed_temp_file_path!
         );
     });
 });
