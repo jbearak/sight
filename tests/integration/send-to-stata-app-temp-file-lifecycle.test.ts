@@ -1,4 +1,5 @@
 import {
+    afterEach,
     afterAll,
     beforeAll,
     describe,
@@ -7,6 +8,8 @@ import {
     mock,
 } from 'bun:test';
 import * as fs from 'fs/promises';
+import * as crypto from 'crypto';
+import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 
@@ -18,13 +21,13 @@ const SEND_TO_STATA_DIR = path.resolve(
 const COMMANDS_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'commands.ts')
 ).href;
+const CD_CONTEXT_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'cd-context.ts')
+).href;
 const INDEX_MODULE_PATH = path.join(
     SEND_TO_STATA_DIR,
     'index.ts'
 );
-const TEMP_FILE_MODULE_URL = pathToFileURL(
-    path.join(SEND_TO_STATA_DIR, 'temp-file.ts')
-).href;
 const WINDOWS_SENDER_MODULE_PATH = path.join(
     SEND_TO_STATA_DIR,
     'windows-sender.ts'
@@ -107,9 +110,14 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
     const the_registered_commands = new Map<string, RegisteredCommand>();
     const the_error_messages: string[] = [];
     const the_temp_files = new Set<string>();
+    const the_context_subscriptions: Array<{
+        dispose: () => void;
+    }> = [];
     let observed_temp_file_path: string | null = null;
     let observed_temp_file_content: string | null = null;
     let read_attempt_deferred = create_deferred<void>();
+    let commands_module: typeof import('../../client/src/send-to-stata/commands') | null = null;
+    let cd_context_module: typeof import('../../client/src/send-to-stata/cd-context') | null = null;
 
     beforeAll(async () => {
         mock.module('vscode', () => ({
@@ -198,12 +206,8 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
             LanguageClient: class LanguageClient {},
         }));
 
-        mock.module(INDEX_MODULE_PATH, async () => {
-            const actual_module = await import(
-                `${TEMP_FILE_MODULE_URL}?test=${Date.now()}`
-            );
+        mock.module(INDEX_MODULE_PATH, () => {
             return {
-                ...actual_module,
                 VALID_COMMANDS: ['do', 'include'],
                 detect_statement: () => ({ start_line: 0, end_line: 0 }),
                 get_statement_text: () => 'display "hello from temp file"',
@@ -213,14 +217,18 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
                     file_path: string,
                     delay_ms = 40
                 ) => {
-                    return setTimeout(() => {
+                    const my_timeout = setTimeout(() => {
                         fs.unlink(file_path).catch(() => {});
                     }, delay_ms);
+                    my_timeout.unref?.();
+                    return my_timeout;
                 },
                 create_temp_file: async (content: string) => {
-                    const file_path = await actual_module.create_temp_file(
-                        content
+                    const file_path = path.join(
+                        os.tmpdir(),
+                        `stata_send_test_${crypto.randomUUID()}.do`
                     );
+                    await fs.writeFile(file_path, content, 'utf8');
                     the_temp_files.add(file_path);
                     return file_path;
                 },
@@ -233,7 +241,7 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
                     _focus_stata: boolean
                 ) => {
                     observed_temp_file_path = temp_file_path;
-                    setTimeout(async () => {
+                    const my_timeout = setTimeout(async () => {
                         try {
                             observed_temp_file_content = await fs.readFile(
                                 temp_file_path,
@@ -244,6 +252,7 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
                             read_attempt_deferred.reject(my_error);
                         }
                     }, 10);
+                    my_timeout.unref?.();
                 },
                 send_to_terminal: async () => {},
                 send_to_stata_terminal: async () => {},
@@ -254,6 +263,17 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
             send_to_stata_windows: async () => {},
             ensure_executable: async () => null,
         }));
+
+        commands_module = await import(COMMANDS_MODULE_URL);
+        cd_context_module = await import(CD_CONTEXT_MODULE_URL);
+    });
+
+    afterEach(() => {
+        while (the_context_subscriptions.length > 0) {
+            const my_subscription = the_context_subscriptions.pop();
+            my_subscription?.dispose();
+        }
+        the_registered_commands.clear();
     });
 
     afterAll(async () => {
@@ -263,7 +283,6 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
     });
 
     test('app-mode send keeps the temp file available until Stata can read it', async () => {
-        the_registered_commands.clear();
         the_error_messages.length = 0;
         observed_temp_file_path = null;
         observed_temp_file_content = null;
@@ -271,15 +290,11 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
         const restore_platform = set_process_platform('darwin');
 
         try {
-            const commands_module = await import(
-                `${COMMANDS_MODULE_URL}?test=${Date.now()}`
-            );
-
             const my_context = {
-                subscriptions: [],
+                subscriptions: the_context_subscriptions,
             };
 
-            commands_module.register_send_to_stata_commands(my_context);
+            commands_module!.register_send_to_stata_commands(my_context);
 
             const my_handler = the_registered_commands.get(
                 'sight.doLineOrSelection'
@@ -312,7 +327,6 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
     });
 
     test('app-mode cd send keeps the temp file available until Stata can read it', async () => {
-        the_registered_commands.clear();
         the_error_messages.length = 0;
         observed_temp_file_path = null;
         observed_temp_file_content = null;
@@ -320,17 +334,11 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
         const restore_platform = set_process_platform('darwin');
 
         try {
-            const cd_context_module = await import(
-                pathToFileURL(
-                    path.join(SEND_TO_STATA_DIR, 'cd-context.ts')
-                ).href + `?test=${Date.now()}`
-            );
-
             const my_context = {
-                subscriptions: [],
+                subscriptions: the_context_subscriptions,
             };
 
-            cd_context_module.register_cd_commands(my_context);
+            cd_context_module!.register_cd_commands(my_context);
 
             const my_handler = the_registered_commands.get(
                 'sight.cdFile'
