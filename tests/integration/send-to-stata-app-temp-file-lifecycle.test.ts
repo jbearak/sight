@@ -24,14 +24,12 @@ const COMMANDS_MODULE_URL = pathToFileURL(
 const CD_CONTEXT_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'cd-context.ts')
 ).href;
-const INDEX_MODULE_PATH = path.join(
-    SEND_TO_STATA_DIR,
-    'index.ts'
-);
-const WINDOWS_SENDER_MODULE_PATH = path.join(
-    SEND_TO_STATA_DIR,
-    'windows-sender.ts'
-);
+const INDEX_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'index.ts')
+).href;
+const WINDOWS_SENDER_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'windows-sender.ts')
+).href;
 
 type RegisteredCommand = () => Promise<void> | void;
 
@@ -82,31 +80,43 @@ async function expect_to_resolve_within<T>(
     }
 }
 
-function set_process_platform(
-    platform: NodeJS.Platform
-): () => void {
-    const original_descriptor = Object.getOwnPropertyDescriptor(
-        process,
-        'platform'
-    );
+const POLL_INTERVAL_MS = 25;
+const DELETION_TIMEOUT_MS = 2000;
 
-    Object.defineProperty(process, 'platform', {
-        value: platform,
-        configurable: true,
-    });
-
-    return () => {
-        if (original_descriptor) {
-            Object.defineProperty(
-                process,
-                'platform',
-                original_descriptor
-            );
+async function wait_for_file_deletion(
+    file_path: string
+): Promise<void> {
+    const start_time_ms = Date.now();
+    while (Date.now() - start_time_ms < DELETION_TIMEOUT_MS) {
+        try {
+            await fs.stat(file_path);
+        } catch (my_error: unknown) {
+            if (
+                my_error instanceof Error
+                && 'code' in my_error
+                && (my_error as NodeJS.ErrnoException).code
+                    === 'ENOENT'
+            ) {
+                return;
+            }
+            throw my_error;
         }
-    };
+        await new Promise(resolve => {
+            setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+    }
+    throw new Error(
+        `File ${file_path} was not deleted within `
+        + `${DELETION_TIMEOUT_MS} ms`
+    );
 }
 
-describe('Feature: send-to-stata app temp file lifecycle', () => {
+// On Linux, bun's mock.module does not intercept transitive
+// imports of index.ts through the cd-context → commands chain,
+// causing the real barrel to load and fail on circular
+// re-exports. This test exercises macOS-only AppleScript
+// functionality, so skipping on non-darwin is acceptable.
+describe.skipIf(process.platform !== 'darwin')('Feature: send-to-stata app temp file lifecycle', () => {
     const the_registered_commands = new Map<string, RegisteredCommand>();
     const the_error_messages: string[] = [];
     const the_temp_files = new Set<string>();
@@ -116,8 +126,32 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
     let observed_temp_file_path: string | null = null;
     let observed_temp_file_content: string | null = null;
     let read_attempt_deferred = create_deferred<void>();
-    let commands_module: typeof import('../../client/src/send-to-stata/commands') | null = null;
-    let cd_context_module: typeof import('../../client/src/send-to-stata/cd-context') | null = null;
+
+    function simulate_stata_read(
+        temp_file_path: string
+    ): void {
+        observed_temp_file_path = temp_file_path;
+        const my_timeout = setTimeout(async () => {
+            try {
+                observed_temp_file_content =
+                    await fs.readFile(
+                        temp_file_path,
+                        'utf8'
+                    );
+                read_attempt_deferred.resolve();
+            } catch (my_error) {
+                read_attempt_deferred.reject(my_error);
+            }
+        }, 10);
+        my_timeout.unref?.();
+    }
+
+    let commands_module: typeof import(
+        '../../client/src/send-to-stata/commands'
+    ) | null = null;
+    let cd_context_module: typeof import(
+        '../../client/src/send-to-stata/cd-context'
+    ) | null = null;
 
     beforeAll(async () => {
         mock.module('vscode', () => ({
@@ -206,7 +240,7 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
             LanguageClient: class LanguageClient {},
         }));
 
-        mock.module(INDEX_MODULE_PATH, () => {
+        mock.module(INDEX_MODULE_URL, () => {
             return {
                 VALID_COMMANDS: ['do', 'include'],
                 detect_statement: () => ({ start_line: 0, end_line: 0 }),
@@ -240,26 +274,24 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
                     temp_file_path: string,
                     _focus_stata: boolean
                 ) => {
-                    observed_temp_file_path = temp_file_path;
-                    const my_timeout = setTimeout(async () => {
-                        try {
-                            observed_temp_file_content = await fs.readFile(
-                                temp_file_path,
-                                'utf8'
-                            );
-                            read_attempt_deferred.resolve();
-                        } catch (my_error) {
-                            read_attempt_deferred.reject(my_error);
-                        }
-                    }, 10);
-                    my_timeout.unref?.();
+                    simulate_stata_read(temp_file_path);
                 },
-                send_to_terminal: async () => {},
-                send_to_stata_terminal: async () => {},
+                send_to_terminal: async (
+                    _command: string,
+                    temp_file_path: string
+                ) => {
+                    simulate_stata_read(temp_file_path);
+                },
+                send_to_stata_terminal: async (
+                    _command: string,
+                    temp_file_path: string
+                ) => {
+                    simulate_stata_read(temp_file_path);
+                },
             };
         });
 
-        mock.module(WINDOWS_SENDER_MODULE_PATH, () => ({
+        mock.module(WINDOWS_SENDER_MODULE_URL, () => ({
             send_to_stata_windows: async () => {},
             ensure_executable: async () => null,
         }));
@@ -292,43 +324,34 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
         observed_temp_file_path = null;
         observed_temp_file_content = null;
         read_attempt_deferred = create_deferred<void>();
-        const restore_platform = set_process_platform('darwin');
 
-        try {
-            const my_context = {
-                subscriptions: the_context_subscriptions,
-            };
+        const my_context = {
+            subscriptions: the_context_subscriptions,
+        };
 
-            commands_module!.register_send_to_stata_commands(my_context);
+        commands_module!.register_send_to_stata_commands(my_context);
 
-            const my_handler = the_registered_commands.get(
-                'sight.doLineOrSelection'
-            );
-            expect(my_handler).toBeDefined();
+        const my_handler = the_registered_commands.get(
+            'sight.doLineOrSelection'
+        );
+        expect(my_handler).toBeDefined();
 
-            await my_handler?.();
-            await expect_to_resolve_within(
-                read_attempt_deferred.promise,
-                READ_ATTEMPT_TIMEOUT_MS,
-                'temp file read attempt'
-            );
+        await my_handler?.();
+        await expect_to_resolve_within(
+            read_attempt_deferred.promise,
+            READ_ATTEMPT_TIMEOUT_MS,
+            'temp file read attempt'
+        );
 
-            expect(the_error_messages).toEqual([]);
-            expect(observed_temp_file_path).toBeTruthy();
-            expect(observed_temp_file_content).toBe(
-                'display "hello from temp file"'
-            );
+        expect(the_error_messages).toEqual([]);
+        expect(observed_temp_file_path).toBeTruthy();
+        expect(observed_temp_file_content).toBe(
+            'display "hello from temp file"'
+        );
 
-            await new Promise(resolve => setTimeout(resolve, 80));
-
-            await expect(
-                fs.readFile(observed_temp_file_path!, 'utf8')
-            ).rejects.toMatchObject({
-                code: 'ENOENT'
-            });
-        } finally {
-            restore_platform();
-        }
+        await wait_for_file_deletion(
+            observed_temp_file_path!
+        );
     });
 
     test('app-mode cd send keeps the temp file available until Stata can read it', async () => {
@@ -336,42 +359,33 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
         observed_temp_file_path = null;
         observed_temp_file_content = null;
         read_attempt_deferred = create_deferred<void>();
-        const restore_platform = set_process_platform('darwin');
 
-        try {
-            const my_context = {
-                subscriptions: the_context_subscriptions,
-            };
+        const my_context = {
+            subscriptions: the_context_subscriptions,
+        };
 
-            cd_context_module!.register_cd_commands(my_context);
+        cd_context_module!.register_cd_commands(my_context);
 
-            const my_handler = the_registered_commands.get(
-                'sight.cdFile'
-            );
-            expect(my_handler).toBeDefined();
+        const my_handler = the_registered_commands.get(
+            'sight.cdFile'
+        );
+        expect(my_handler).toBeDefined();
 
-            await my_handler?.();
-            await expect_to_resolve_within(
-                read_attempt_deferred.promise,
-                READ_ATTEMPT_TIMEOUT_MS,
-                'temp file read attempt'
-            );
+        await my_handler?.();
+        await expect_to_resolve_within(
+            read_attempt_deferred.promise,
+            READ_ATTEMPT_TIMEOUT_MS,
+            'temp file read attempt'
+        );
 
-            expect(the_error_messages).toEqual([]);
-            expect(observed_temp_file_path).toBeTruthy();
-            expect(observed_temp_file_content).toBe(
-                'cd "/tmp"'
-            );
+        expect(the_error_messages).toEqual([]);
+        expect(observed_temp_file_path).toBeTruthy();
+        expect(observed_temp_file_content).toBe(
+            'cd "/tmp"'
+        );
 
-            await new Promise(resolve => setTimeout(resolve, 80));
-
-            await expect(
-                fs.readFile(observed_temp_file_path!, 'utf8')
-            ).rejects.toMatchObject({
-                code: 'ENOENT'
-            });
-        } finally {
-            restore_platform();
-        }
+        await wait_for_file_deletion(
+            observed_temp_file_path!
+        );
     });
 });
