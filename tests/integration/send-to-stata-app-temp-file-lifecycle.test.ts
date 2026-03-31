@@ -38,6 +38,8 @@ interface Deferred<T> {
     reject: (reason?: unknown) => void;
 }
 
+const READ_ATTEMPT_TIMEOUT_MS = 2000;
+
 function create_deferred<T>(): Deferred<T> {
     let resolve!: (value: T | PromiseLike<T>) => void;
     let reject!: (reason?: unknown) => void;
@@ -46,6 +48,35 @@ function create_deferred<T>(): Deferred<T> {
         reject = the_reject;
     });
     return { promise, resolve, reject };
+}
+
+async function expect_to_resolve_within<T>(
+    promise: Promise<T>,
+    timeout_ms: number,
+    description: string
+): Promise<T> {
+    let my_timeout_handle: NodeJS.Timeout | null = null;
+
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>((_resolve, reject) => {
+                my_timeout_handle = setTimeout(() => {
+                    reject(
+                        new Error(
+                            `${description} timed out after `
+                            + `${timeout_ms} ms`
+                        )
+                    );
+                }, timeout_ms);
+                my_timeout_handle.unref?.();
+            }),
+        ]);
+    } finally {
+        if (my_timeout_handle) {
+            clearTimeout(my_timeout_handle);
+        }
+    }
 }
 
 function set_process_platform(
@@ -256,7 +287,11 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
             expect(my_handler).toBeDefined();
 
             await my_handler?.();
-            await read_attempt_deferred.promise;
+            await expect_to_resolve_within(
+                read_attempt_deferred.promise,
+                READ_ATTEMPT_TIMEOUT_MS,
+                'temp file read attempt'
+            );
 
             expect(the_error_messages).toEqual([]);
             expect(observed_temp_file_path).toBeTruthy();
@@ -303,7 +338,11 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
             expect(my_handler).toBeDefined();
 
             await my_handler?.();
-            await read_attempt_deferred.promise;
+            await expect_to_resolve_within(
+                read_attempt_deferred.promise,
+                READ_ATTEMPT_TIMEOUT_MS,
+                'temp file read attempt'
+            );
 
             expect(the_error_messages).toEqual([]);
             expect(observed_temp_file_path).toBeTruthy();
