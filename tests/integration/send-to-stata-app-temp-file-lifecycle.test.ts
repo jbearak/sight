@@ -37,9 +37,6 @@ const STATA_TERMINAL_MANAGER_MODULE_URL = pathToFileURL(
 const STATA_CLI_DETECTOR_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'stata-cli-detector.ts')
 ).href;
-const STATEMENT_DETECTOR_MODULE_URL = pathToFileURL(
-    path.join(SEND_TO_STATA_DIR, 'statement-detector.ts')
-).href;
 const TEMP_FILE_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'temp-file.ts')
 ).href;
@@ -341,15 +338,6 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
             LanguageClient: class LanguageClient {},
         }));
 
-        mock.module(STATEMENT_DETECTOR_MODULE_URL, () => {
-            return {
-                detect_statement: () => ({ start_line: 0, end_line: 0 }),
-                get_statement_text: () => 'display "hello from temp file"',
-                get_upward_bounds: () => ({ start_line: 0, end_line: 0 }),
-                get_downward_bounds: () => ({ start_line: 0, end_line: 0 }),
-            };
-        });
-
         mock.module(TEMP_FILE_MODULE_URL, () => {
             return {
                 DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS: 5000,
@@ -365,9 +353,12 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
                     return my_timeout;
                 },
                 create_temp_file: async (content: string) => {
+                    const random_hex = crypto
+                        .randomBytes(16)
+                        .toString('hex');
                     const file_path = path.join(
                         os.tmpdir(),
-                        `stata_send_test_${crypto.randomUUID()}.do`
+                        `stata_send_${random_hex}.do`
                     );
                     await fs.writeFile(file_path, content, 'utf8');
                     the_temp_files.add(file_path);
