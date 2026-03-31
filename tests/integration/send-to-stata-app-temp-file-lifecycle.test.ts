@@ -24,8 +24,23 @@ const COMMANDS_MODULE_URL = pathToFileURL(
 const CD_CONTEXT_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'cd-context.ts')
 ).href;
-const INDEX_MODULE_URL = pathToFileURL(
-    path.join(SEND_TO_STATA_DIR, 'index.ts')
+const APPLESCRIPT_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'applescript.ts')
+).href;
+const STATA_DETECTOR_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'stata-detector.ts')
+).href;
+const STATA_TERMINAL_MANAGER_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'stata-terminal-manager.ts')
+).href;
+const STATEMENT_DETECTOR_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'statement-detector.ts')
+).href;
+const TEMP_FILE_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'temp-file.ts')
+).href;
+const TERMINAL_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'terminal.ts')
 ).href;
 const WINDOWS_SENDER_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'windows-sender.ts')
@@ -111,12 +126,7 @@ async function wait_for_file_deletion(
     );
 }
 
-// On Linux, bun's mock.module does not intercept transitive
-// imports of index.ts through the cd-context → commands chain,
-// causing the real barrel to load and fail on circular
-// re-exports. This test exercises macOS-only AppleScript
-// functionality, so skipping on non-darwin is acceptable.
-describe.skipIf(process.platform !== 'darwin')('Feature: send-to-stata app temp file lifecycle', () => {
+describe('Feature: send-to-stata app temp file lifecycle', () => {
     const the_registered_commands = new Map<string, RegisteredCommand>();
     const the_error_messages: string[] = [];
     const the_temp_files = new Set<string>();
@@ -240,13 +250,17 @@ describe.skipIf(process.platform !== 'darwin')('Feature: send-to-stata app temp 
             LanguageClient: class LanguageClient {},
         }));
 
-        mock.module(INDEX_MODULE_URL, () => {
+        mock.module(STATEMENT_DETECTOR_MODULE_URL, () => {
             return {
-                VALID_COMMANDS: ['do', 'include'],
                 detect_statement: () => ({ start_line: 0, end_line: 0 }),
                 get_statement_text: () => 'display "hello from temp file"',
                 get_upward_bounds: () => ({ start_line: 0, end_line: 0 }),
                 get_downward_bounds: () => ({ start_line: 0, end_line: 0 }),
+            };
+        });
+
+        mock.module(TEMP_FILE_MODULE_URL, () => {
+            return {
                 schedule_temp_file_cleanup: (
                     file_path: string,
                     delay_ms = 40
@@ -266,30 +280,42 @@ describe.skipIf(process.platform !== 'darwin')('Feature: send-to-stata app temp 
                     the_temp_files.add(file_path);
                     return file_path;
                 },
-                detect_stata_app: async () => 'StataMP',
-                clear_stata_cache: () => {},
-                send_to_stata_app: async (
-                    _stata_app: string,
-                    _command: string,
-                    temp_file_path: string,
-                    _focus_stata: boolean
-                ) => {
-                    simulate_stata_read(temp_file_path);
-                },
-                send_to_terminal: async (
-                    _command: string,
-                    temp_file_path: string
-                ) => {
-                    simulate_stata_read(temp_file_path);
-                },
-                send_to_stata_terminal: async (
-                    _command: string,
-                    temp_file_path: string
-                ) => {
-                    simulate_stata_read(temp_file_path);
-                },
             };
         });
+
+        mock.module(STATA_DETECTOR_MODULE_URL, () => ({
+            detect_stata_app: async () => 'StataMP',
+            clear_stata_cache: () => {},
+        }));
+
+        mock.module(APPLESCRIPT_MODULE_URL, () => ({
+            send_to_stata_app: async (
+                _stata_app: string,
+                _command: string,
+                temp_file_path: string,
+                _focus_stata: boolean
+            ) => {
+                simulate_stata_read(temp_file_path);
+            },
+        }));
+
+        mock.module(TERMINAL_MODULE_URL, () => ({
+            send_to_terminal: async (
+                _command: string,
+                temp_file_path: string
+            ) => {
+                simulate_stata_read(temp_file_path);
+            },
+        }));
+
+        mock.module(STATA_TERMINAL_MANAGER_MODULE_URL, () => ({
+            send_to_stata_terminal: async (
+                _command: string,
+                temp_file_path: string
+            ) => {
+                simulate_stata_read(temp_file_path);
+            },
+        }));
 
         mock.module(WINDOWS_SENDER_MODULE_URL, () => ({
             send_to_stata_windows: async () => {},

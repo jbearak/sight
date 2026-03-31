@@ -8,11 +8,13 @@ import {
 import {
     create_temp_file,
     schedule_temp_file_cleanup,
-    detect_stata_app,
-    send_to_stata_app,
-    send_to_terminal,
+} from './temp-file';
+import { detect_stata_app } from './stata-detector';
+import { send_to_stata_app } from './applescript';
+import { send_to_terminal } from './terminal';
+import {
     send_to_stata_terminal
-} from './index';
+} from './stata-terminal-manager';
 
 const CONTEXT_KEY = 'sight.cdMenuVisible';
 
