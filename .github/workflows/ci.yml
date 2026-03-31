@@ -99,7 +99,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Build npm package
         run: bun run build:npm
       - name: Test package creation
