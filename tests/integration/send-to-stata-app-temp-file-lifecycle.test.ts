@@ -2,6 +2,7 @@ import {
     afterEach,
     afterAll,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     test,
@@ -160,19 +161,33 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
         my_timeout.unref?.();
     }
 
-    let commands_module: typeof import(
-        '../../client/src/send-to-stata/commands'
-    ) | null = null;
-    let cd_context_module: typeof import(
-        '../../client/src/send-to-stata/cd-context'
-    ) | null = null;
     let current_read_attempt_state: ReadAttemptState = {
         observed_temp_file_path: null,
         observed_temp_file_content: null,
         read_attempt_deferred: create_deferred<void>(),
     };
+    let registered_module_mocks = false;
+
+    async function import_send_modules() {
+        const my_import_suffix = `?test=${Date.now()}-${Math.random()}`;
+        const commands_module = await import(
+            `${COMMANDS_MODULE_URL}${my_import_suffix}`
+        );
+        const cd_context_module = await import(
+            `${CD_CONTEXT_MODULE_URL}${my_import_suffix}`
+        );
+        return {
+            commands_module,
+            cd_context_module,
+        };
+    }
 
     beforeAll(async () => {
+        if (registered_module_mocks) {
+            return;
+        }
+        registered_module_mocks = true;
+
         mock.module('vscode', () => ({
             env: {
                 remoteName: '',
@@ -348,14 +363,15 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
             },
             ensure_executable: async () => null,
         }));
+    });
 
-        const my_import_suffix = `?test=${Date.now()}`;
-        commands_module = await import(
-            `${COMMANDS_MODULE_URL}${my_import_suffix}`
-        );
-        cd_context_module = await import(
-            `${CD_CONTEXT_MODULE_URL}${my_import_suffix}`
-        );
+    beforeEach(() => {
+        the_error_messages.length = 0;
+        current_read_attempt_state = {
+            observed_temp_file_path: null,
+            observed_temp_file_content: null,
+            read_attempt_deferred: create_deferred<void>(),
+        };
     });
 
     afterEach(() => {
@@ -373,18 +389,13 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
     });
 
     test('app-mode send keeps the temp file available until Stata can read it', async () => {
-        the_error_messages.length = 0;
-        current_read_attempt_state = {
-            observed_temp_file_path: null,
-            observed_temp_file_content: null,
-            read_attempt_deferred: create_deferred<void>(),
-        };
+        const { commands_module } = await import_send_modules();
 
         const my_context = {
             subscriptions: the_context_subscriptions,
         };
 
-        commands_module!.register_send_to_stata_commands(my_context);
+        commands_module.register_send_to_stata_commands(my_context);
 
         const my_handler = the_registered_commands.get(
             'sight.doLineOrSelection'
@@ -414,18 +425,13 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
     });
 
     test('app-mode cd send keeps the temp file available until Stata can read it', async () => {
-        the_error_messages.length = 0;
-        current_read_attempt_state = {
-            observed_temp_file_path: null,
-            observed_temp_file_content: null,
-            read_attempt_deferred: create_deferred<void>(),
-        };
+        const { cd_context_module } = await import_send_modules();
 
         const my_context = {
             subscriptions: the_context_subscriptions,
         };
 
-        cd_context_module!.register_cd_commands(my_context);
+        cd_context_module.register_cd_commands(my_context);
 
         const my_handler = the_registered_commands.get(
             'sight.cdFile'
