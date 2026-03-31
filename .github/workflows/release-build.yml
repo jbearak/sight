@@ -19,6 +19,7 @@ concurrency:
 # Default token permissions: read-only. We do not publish and do not create
 # releases in this workflow.
 permissions:
+  actions: write
   contents: read
 
 jobs:
@@ -85,3 +86,14 @@ jobs:
             dist/sight-server.js.sha256
             client/*.vsix
             client/*.vsix.sha256
+
+      - name: Trigger release publish workflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          the_tag: ${{ inputs.tag || github.ref_name }}
+          the_publish_vscode: ${{ vars.RELEASE_PUBLISH_VSCODE || 'false' }}
+        run: >-
+          gh workflow run release-publish.yml
+          --ref "${{ github.event.repository.default_branch }}"
+          -f tag="$the_tag"
+          -f publish_vscode="$the_publish_vscode"
