@@ -64,6 +64,46 @@ interface ReadAttemptState {
     read_attempt_deferred: Deferred<void>;
 }
 
+interface SharedVscodeTestState {
+    registered_commands: Map<string, RegisteredCommand>;
+    error_messages: string[];
+    active_text_editor: {
+        document: {
+            uri: {
+                fsPath: string;
+                toString: () => string;
+            };
+            lineCount: number;
+            save: () => Promise<boolean>;
+            getText: () => string;
+        };
+        selection: {
+            isEmpty: boolean;
+            active: {
+                line: number;
+            };
+        };
+        revealRange: () => void;
+    };
+    on_terminal_send_text: (text: string) => void;
+}
+
+const SHARED_VSCODE_TEST_STATE_KEY = '__sight_shared_vscode_test_state';
+
+function set_shared_vscode_test_state(
+    state: SharedVscodeTestState
+): void {
+    (globalThis as Record<string, unknown>)[
+        SHARED_VSCODE_TEST_STATE_KEY
+    ] = state;
+}
+
+function clear_shared_vscode_test_state(): void {
+    delete (globalThis as Record<string, unknown>)[
+        SHARED_VSCODE_TEST_STATE_KEY
+    ];
+}
+
 const READ_ATTEMPT_TIMEOUT_MS = 2000;
 
 function create_deferred<T>(): Deferred<T> {
@@ -257,6 +297,9 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
                 onDidCloseTerminal: () => ({
                     dispose: () => {},
                 }),
+                ThemeIcon: class ThemeIcon {
+                    constructor(public id: string) {}
+                },
             },
             commands: {
                 registerCommand: (
@@ -391,6 +434,38 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
             observed_temp_file_content: null,
             read_attempt_deferred: create_deferred<void>(),
         };
+        set_shared_vscode_test_state({
+            registered_commands: the_registered_commands,
+            error_messages: the_error_messages,
+            active_text_editor: {
+                document: {
+                    uri: {
+                        fsPath: '/tmp/example.do',
+                        toString: () => 'file:///tmp/example.do',
+                    },
+                    lineCount: 1,
+                    save: async () => true,
+                    getText: () => 'display "hello from temp file"',
+                },
+                selection: {
+                    isEmpty: false,
+                    active: {
+                        line: 0,
+                    },
+                },
+                revealRange: () => {},
+            },
+            on_terminal_send_text: (text: string) => {
+                const temp_file_path = text.replace(
+                    /^[^ ]+\s+/,
+                    ''
+                );
+                simulate_stata_read(
+                    temp_file_path,
+                    current_read_attempt_state
+                );
+            },
+        });
     });
 
     afterEach(() => {
@@ -399,6 +474,7 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
             my_subscription?.dispose();
         }
         the_registered_commands.clear();
+        clear_shared_vscode_test_state();
     });
 
     afterAll(async () => {
