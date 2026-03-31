@@ -31,14 +31,17 @@ const APPLESCRIPT_MODULE_URL = pathToFileURL(
 const STATA_DETECTOR_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'stata-detector.ts')
 ).href;
-const STATA_TERMINAL_MANAGER_MODULE_URL = pathToFileURL(
-    path.join(SEND_TO_STATA_DIR, 'stata-terminal-manager.ts')
+const STATA_CLI_DETECTOR_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'stata-cli-detector.ts')
 ).href;
 const STATEMENT_DETECTOR_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'statement-detector.ts')
 ).href;
 const TEMP_FILE_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'temp-file.ts')
+).href;
+const INDEX_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'index.ts')
 ).href;
 const TERMINAL_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'terminal.ts')
@@ -133,7 +136,7 @@ async function wait_for_file_deletion(
     );
 }
 
-describe('Feature: send-to-stata app temp file lifecycle', () => {
+describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
     const the_registered_commands = new Map<string, RegisteredCommand>();
     const the_error_messages: string[] = [];
     const the_temp_files = new Set<string>();
@@ -236,6 +239,24 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
                     return Promise.resolve(undefined);
                 },
                 showWarningMessage: () => Promise.resolve(undefined),
+                createTerminal: () => ({
+                    name: 'Stata',
+                    processId: Promise.resolve(1234),
+                    show: () => {},
+                    sendText: (text: string) => {
+                        const temp_file_path = text.replace(
+                            /^[^ ]+\s+/,
+                            ''
+                        );
+                        simulate_stata_read(
+                            temp_file_path,
+                            current_read_attempt_state
+                        );
+                    },
+                }),
+                onDidCloseTerminal: () => ({
+                    dispose: () => {},
+                }),
             },
             commands: {
                 registerCommand: (
@@ -312,6 +333,15 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
             clear_stata_cache: () => {},
         }));
 
+        mock.module(STATA_CLI_DETECTOR_MODULE_URL, () => ({
+            detect_stata_cli: async () => '/usr/local/bin/stata-mp',
+            clear_stata_cli_cache: () => {},
+        }));
+
+        mock.module(INDEX_MODULE_URL, () => ({
+            VALID_COMMANDS: ['do', 'include'],
+        }));
+
         mock.module(APPLESCRIPT_MODULE_URL, () => ({
             send_to_stata_app: async (
                 _stata_app: string,
@@ -327,19 +357,8 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
         }));
 
         mock.module(TERMINAL_MODULE_URL, () => ({
+            wrap_path_for_stata_terminal: (my_path: string) => my_path,
             send_to_terminal: async (
-                _command: string,
-                temp_file_path: string
-            ) => {
-                simulate_stata_read(
-                    temp_file_path,
-                    current_read_attempt_state
-                );
-            },
-        }));
-
-        mock.module(STATA_TERMINAL_MANAGER_MODULE_URL, () => ({
-            send_to_stata_terminal: async (
                 _command: string,
                 temp_file_path: string
             ) => {
@@ -386,6 +405,7 @@ describe('Feature: send-to-stata app temp file lifecycle', () => {
         for (const my_file_path of the_temp_files) {
             await fs.unlink(my_file_path).catch(() => {});
         }
+        mock.restore();
     });
 
     test('app-mode send keeps the temp file available until Stata can read it', async () => {

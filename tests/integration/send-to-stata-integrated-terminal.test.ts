@@ -1,4 +1,5 @@
 import {
+    afterAll,
     beforeAll,
     beforeEach,
     describe,
@@ -126,7 +127,7 @@ async function import_terminal_manager_module(
     return terminal_manager;
 }
 
-describe('Feature: integrated terminal first-send reliability', () => {
+describe.serial('Feature: integrated terminal first-send reliability', () => {
     beforeAll(() => {
         if (registered_module_mocks) {
             return;
@@ -191,6 +192,11 @@ describe('Feature: integrated terminal first-send reliability', () => {
 
     beforeEach(() => {
         current_vscode_state = null;
+    });
+
+    afterAll(() => {
+        current_vscode_state = null;
+        mock.restore();
     });
 
     test('waits for a new terminal to become ready before sending', async () => {
