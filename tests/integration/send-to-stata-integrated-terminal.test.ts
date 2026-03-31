@@ -1,4 +1,5 @@
 import {
+    afterAll,
     beforeAll,
     beforeEach,
     describe,
@@ -59,8 +60,23 @@ interface VscodeMockState {
     terminal: MockTerminal;
 }
 
+interface SharedVscodeTestState {
+    registered_commands?: Map<string, (...args: unknown[]) => unknown>;
+    error_messages?: string[];
+    active_text_editor?: unknown;
+    on_terminal_send_text?: (text: string) => void;
+}
+
 let current_vscode_state: VscodeMockState | null = null;
 let registered_module_mocks = false;
+const SHARED_VSCODE_TEST_STATE_KEY = '__sight_shared_vscode_test_state';
+
+function get_shared_vscode_test_state():
+    SharedVscodeTestState | null {
+    return (globalThis as Record<string, SharedVscodeTestState | undefined>)[
+        SHARED_VSCODE_TEST_STATE_KEY
+    ] ?? null;
+}
 
 function create_deferred<T>(): Deferred<T> {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -126,7 +142,7 @@ async function import_terminal_manager_module(
     return terminal_manager;
 }
 
-describe('Feature: integrated terminal first-send reliability', () => {
+describe.serial('Feature: integrated terminal first-send reliability', () => {
     beforeAll(() => {
         if (registered_module_mocks) {
             return;
@@ -134,19 +150,40 @@ describe('Feature: integrated terminal first-send reliability', () => {
         registered_module_mocks = true;
 
         mock.module('vscode', () => ({
+            env: {
+                remoteName: '',
+            },
+            workspace: {
+                getConfiguration: () => ({
+                    get: <T>(_key: string, default_value?: T): T => {
+                        return default_value as T;
+                    }
+                }),
+                getWorkspaceFolder: () => null,
+            },
             window: {
                 createTerminal: () => {
-                    if (!current_vscode_state) {
-                        throw new Error('Missing VS Code test state.');
+                    if (current_vscode_state) {
+                        current_vscode_state.create_terminal_calls += 1;
+                        return current_vscode_state.terminal;
                     }
-                    current_vscode_state.create_terminal_calls += 1;
-                    return current_vscode_state.terminal;
+                    const shared_state = get_shared_vscode_test_state();
+                    return {
+                        name: 'Stata',
+                        processId: Promise.resolve(1234),
+                        show: () => {},
+                        sendText: (text: string) => {
+                            shared_state?.on_terminal_send_text?.(text);
+                        },
+                    };
                 },
                 onDidCloseTerminal: (
                     listener: (terminal: MockTerminal) => void
                 ) => {
                     if (!current_vscode_state) {
-                        throw new Error('Missing VS Code test state.');
+                        return {
+                            dispose: () => {},
+                        };
                     }
                     current_vscode_state.the_close_listeners.push(listener);
                     return {
@@ -167,9 +204,53 @@ describe('Feature: integrated terminal first-send reliability', () => {
                         }
                     };
                 },
+                activeTextEditor: get_shared_vscode_test_state()
+                    ?.active_text_editor,
+                showErrorMessage: (message: string) => {
+                    get_shared_vscode_test_state()
+                        ?.error_messages
+                        ?.push(message);
+                    return Promise.resolve(undefined);
+                },
+                showWarningMessage: () => Promise.resolve(undefined),
+            },
+            commands: {
+                registerCommand: (
+                    name: string,
+                    handler: (...args: unknown[]) => unknown
+                ) => {
+                    get_shared_vscode_test_state()
+                        ?.registered_commands
+                        ?.set(name, handler);
+                    return {
+                        dispose: () => {
+                            get_shared_vscode_test_state()
+                                ?.registered_commands
+                                ?.delete(name);
+                        }
+                    };
+                }
             },
             ThemeIcon: class ThemeIcon {
                 constructor(public id: string) {}
+            },
+            Position: class Position {
+                constructor(
+                    public line: number,
+                    public character: number
+                ) {}
+            },
+            Selection: class Selection {
+                constructor(
+                    public anchor: unknown,
+                    public active: unknown
+                ) {}
+            },
+            Range: class Range {
+                constructor(
+                    public start: unknown,
+                    public end: unknown
+                ) {}
             },
         }));
 
@@ -186,11 +267,17 @@ describe('Feature: integrated terminal first-send reliability', () => {
             wrap_path_for_stata_terminal: (my_path: string) => {
                 return '`"' + my_path + `"'`;
             },
+            send_to_terminal: async () => {},
         }));
     });
 
     beforeEach(() => {
         current_vscode_state = null;
+    });
+
+    afterAll(() => {
+        current_vscode_state = null;
+        mock.restore();
     });
 
     test('waits for a new terminal to become ready before sending', async () => {
