@@ -228,12 +228,6 @@ export class DataBrowserPanel implements vscode.Disposable {
             return;
         }
 
-        await this.send_metadata();
-    }
-
-    private async send_metadata(): Promise<void> {
-        if (!this.dta_file) return;
-
         try {
             const my_missing_style =
                 vscode.workspace
@@ -300,9 +294,6 @@ export class DataBrowserPanel implements vscode.Disposable {
             case 'ready':
                 if (!this.dta_file) {
                     await this.initialize();
-                } else {
-                    this.row_cache.clear();
-                    await this.send_metadata();
                 }
                 break;
             case 'columnWidthsChanged':
