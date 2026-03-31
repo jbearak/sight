@@ -352,6 +352,8 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
 
         mock.module(TEMP_FILE_MODULE_URL, () => {
             return {
+                DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS: 5000,
+                get_temp_dir: () => os.tmpdir(),
                 schedule_temp_file_cleanup: (
                     file_path: string,
                     delay_ms = 40
@@ -389,6 +391,11 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
         }));
 
         mock.module(APPLESCRIPT_MODULE_URL, () => ({
+            escape_for_applescript: (my_path: string) => {
+                return my_path
+                    .replace(/\\/g, '\\\\')
+                    .replace(/"/g, '\\"');
+            },
             send_to_stata_app: async (
                 _stata_app: string,
                 _command: string,
