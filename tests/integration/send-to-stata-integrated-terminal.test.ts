@@ -187,6 +187,7 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
             wrap_path_for_stata_terminal: (my_path: string) => {
                 return '`"' + my_path + `"'`;
             },
+            send_to_terminal: async () => {},
         }));
     });
 
