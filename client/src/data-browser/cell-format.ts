@@ -3,7 +3,7 @@ import {
     is_missing_value_object,
     missing_type_to_label_key,
     type MissingValue,
-} from '../../../src/dta-parser';
+} from '@jbearak/dta-parser';
 import type { CellValue } from './types';
 
 export function build_cell_value(

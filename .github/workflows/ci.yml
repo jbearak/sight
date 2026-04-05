@@ -133,7 +133,7 @@ jobs:
         run: |
           cd client
           ls -la *.vsix
-          npx vsce ls *.vsix
+          npx vsce ls --no-dependencies *.vsix
       - name: Validate extension manifest
         run: |
           cd client

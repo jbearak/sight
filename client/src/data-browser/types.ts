@@ -1,4 +1,4 @@
-import type { MissingType } from '../../../src/dta-parser';
+import type { MissingType } from '@jbearak/dta-parser';
 
 // -----------------------------------------------------------
 // Data browser postMessage protocol types

@@ -1,4 +1,4 @@
-import type { Row } from '../../../src/dta-parser';
+import type { Row } from '@jbearak/dta-parser';
 
 /**
  * LRU cache for decoded row pages, keyed by start_row.

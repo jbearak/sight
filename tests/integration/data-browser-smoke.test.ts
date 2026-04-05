@@ -2,7 +2,8 @@ import { describe, it, expect } from 'bun:test';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { DtaFile, apply_display_format } from '../../src/dta-parser';
+import { apply_display_format } from '@jbearak/dta-parser';
+import { DtaFile } from '@jbearak/dta-parser/node';
 
 const FIXTURE_DIR = path.join(__dirname, '../fixtures/dta');
 
