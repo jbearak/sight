@@ -26,11 +26,13 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
     let scope_resolver: ScopeResolver;
     let forward_resolver: ForwardScopeResolver;
     let temp_dir: string;
+    let current_iteration_dir: string | null;
 
     beforeEach(() => {
         scope_resolver = new ScopeResolver();
         forward_resolver = new ForwardScopeResolver(scope_resolver);
         temp_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wd-propagation-test-'));
+        current_iteration_dir = null;
     });
 
     afterEach(() => {
@@ -40,8 +42,19 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
     /**
      * Helper to write a file to the temp directory.
      */
+    const begin_iteration = (): void => {
+        current_iteration_dir = fs.mkdtempSync(path.join(temp_dir, 'iter-'));
+    };
+
+    const get_iteration_path = (name: string): string => {
+        if (current_iteration_dir === null) {
+            throw new Error('begin_iteration() must be called before get_iteration_path()');
+        }
+        return path.join(current_iteration_dir, name);
+    };
+
     const write_file = (name: string, content: string): string => {
-        const file_path = path.join(temp_dir, name);
+        const file_path = get_iteration_path(name);
         const dir = path.dirname(file_path);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
@@ -77,6 +90,26 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
         )
     ).map(([first, rest]) => first + rest);
 
+    const RESERVED_FILE_NAMES = new Set([
+        'parent.do',
+        'nested.do',
+        'child.do',
+        'grandchild.do',
+        'child0.do',
+        'child1.do',
+        'child2.do',
+        'child3.do',
+        'sibling.do',
+        'single.do',
+    ]);
+
+    const normalize_generated_file_name = (name: string): string => {
+        if (RESERVED_FILE_NAMES.has(name)) {
+            return `gen_${name}`;
+        }
+        return name;
+    };
+
     // Generator for valid file names (simple alphanumeric)
     const file_name_gen = fc.tuple(
         fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')),
@@ -84,7 +117,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
             fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789_'.split('')),
             { minLength: 0, maxLength: 10 }
         )
-    ).map(([first, rest]) => first + rest + '.do');
+    ).map(([first, rest]) =>
+        normalize_generated_file_name(first + rest + '.do')
+    );
 
     // Generator for working directory synonyms
     const wd_synonym_gen = fc.constantFrom(
@@ -111,6 +146,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (my_dir_name, my_synonym) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Create parent file with working directory directive
                         const parent_content = `// @lsp-${my_synonym}: "${my_dir_name}"\nlocal parent_var = 1`;
@@ -157,6 +193,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (my_dir_name, my_synonym) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Create parent file with working directory directive
                         const parent_content = `// @lsp-${my_synonym}: "${my_dir_name}"\nlocal parent_var = 1`;
@@ -214,6 +251,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (parent_dir, nested_dir, parent_synonym, nested_synonym) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Ensure directories are different for meaningful test
                         const actual_nested_dir = parent_dir === nested_dir
@@ -271,6 +309,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (my_file_name) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Create parent file WITHOUT working directory directive
                         const parent_content = `local parent_var = 1`;
@@ -324,6 +363,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (my_dir_name, nesting_depth, my_synonym) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Create a chain of files: parent -> child1 -> child2 -> ... -> childN
                         const the_files: string[] = [];
@@ -381,6 +421,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (parent_dir, child_override_dir, my_synonym) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Ensure directories are different
                         const actual_child_dir = parent_dir === child_override_dir
@@ -445,6 +486,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (my_dir_name, call_type, my_synonym) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Create parent file with working directory directive
                         const parent_content = `// @lsp-${my_synonym}: "${my_dir_name}"\nlocal parent_var = 1`;
@@ -507,6 +549,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (my_dir_name, my_synonym) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Create parent file with working directory directive
                         const parent_content = `// @lsp-${my_synonym}: "${my_dir_name}"\n// @lsp-do: "child.do"\nlocal parent_var = 1`;
@@ -558,6 +601,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (parent_dir, child_dir, my_synonym) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Ensure directories are different
                         const actual_child_dir = parent_dir === child_dir
@@ -629,6 +673,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (child_name, missing_name, call_type) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Skip if child_name === missing_name (would be circular dependency, not missing file)
                         if (child_name === missing_name) {
@@ -701,6 +746,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (child_name, missing_name, call_site_line) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Skip if child_name === missing_name (would be circular dependency, not missing file)
                         if (child_name === missing_name) {
@@ -780,6 +826,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (child_name, grandchild_name, missing_name) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
 
                         // Ensure unique names
                         const actual_grandchild = grandchild_name === child_name
@@ -855,6 +902,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     async (missing_name, call_type) => {
                         // Clear cache at the start of each iteration to avoid stale data
                         scope_resolver.clear_cache();
+                        begin_iteration();
                         // Create parent file that directly references a missing file
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -862,7 +910,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                         // Create forward call to a non-existent file
                         const forward_calls: ForwardCall[] = [{
                             type: call_type,
-                            path: path.join(temp_dir, missing_name),
+                            path: get_iteration_path(missing_name),
                             raw_path: missing_name,
                             call_site_line: 0,
                             range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
@@ -917,6 +965,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     fc.integer({ min: 1, max: 3 }),
                     async (missing_name, nesting_depth) => {
                         scope_resolver.clear_cache();
+                        begin_iteration();
                         // Create a chain of files where the last one references a missing file
                         const the_files: string[] = [];
 
@@ -983,6 +1032,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     file_name_gen,
                     async (chain_length, missing_name) => {
                         scope_resolver.clear_cache();
+                        begin_iteration();
                         // Create a chain of files
                         const the_file_names: string[] = [];
                         const the_file_paths: string[] = [];
@@ -1059,6 +1109,7 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     file_name_gen,
                     async (child_name) => {
                         scope_resolver.clear_cache();
+                        begin_iteration();
                         // Create parent file
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -1115,6 +1166,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                 fc.asyncProperty(
                     fc.integer({ min: 2, max: 5 }),
                     async (max_depth) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create a chain of files that exceeds max depth
                         const the_file_names: string[] = [];
                         const the_file_paths: string[] = [];
@@ -1198,8 +1252,11 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     file_name_gen,
                     async (subdir_name, nested_file_name) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create a subdirectory structure
-                        const subdir_path = path.join(temp_dir, subdir_name);
+                        const subdir_path = get_iteration_path(subdir_name);
                         if (!fs.existsSync(subdir_path)) {
                             fs.mkdirSync(subdir_path, { recursive: true });
                         }
@@ -1258,6 +1315,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     wd_synonym_gen,
                     async (nested_dir, my_synonym) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create parent file WITHOUT working directory
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -1324,6 +1384,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                         { minLength: 1, maxLength: 10 }
                     ),
                     async (local_name, global_name) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create a single file WITHOUT working directory directive
                         const file_content = `local ${local_name} = 1\nglobal ${global_name} = 2`;
                         const file_path = write_file('single.do', file_content);
@@ -1366,6 +1429,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                 fc.asyncProperty(
                     fc.integer({ min: 2, max: 4 }),
                     async (nesting_depth) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create a chain of files WITHOUT working directory directives
                         const the_files: string[] = [];
 
@@ -1430,6 +1496,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     wd_synonym_gen,
                     async (nested_dir, my_synonym) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create parent file WITHOUT working directory directive
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -1493,6 +1562,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     file_name_gen,
                     fc.constantFrom('do', 'run', 'include') as fc.Arbitrary<'do' | 'run' | 'include'>,
                     async (nested_name, call_type) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create parent file WITHOUT working directory directive
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -1547,6 +1619,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     dir_name_gen,
                     wd_synonym_gen,
                     async (wd_dir, my_synonym) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create parent file WITHOUT working directory directive
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);
@@ -1615,6 +1690,9 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                     fc.constantFrom('do', 'run', 'include') as fc.Arbitrary<'do' | 'run' | 'include'>,
                     file_name_gen,
                     async (call_type, nested_name) => {
+                        scope_resolver.clear_cache();
+                        begin_iteration();
+
                         // Create parent file WITHOUT working directory
                         const parent_content = `local parent_var = 1`;
                         const parent_path = write_file('parent.do', parent_content);

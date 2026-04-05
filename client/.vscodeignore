@@ -22,5 +22,8 @@ tests/**
 *.md
 !README.md
 
+# Dependencies are bundled by esbuild into dist/; exclude raw node_modules
+node_modules/**
+
 # Old VSIX files
 *.vsix
