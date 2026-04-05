@@ -714,7 +714,7 @@
     "lint": "eslint src --ext ts",
     "test": "node ./test/runTest.js",
     "test:extension": "node ./test/runTest.js",
-    "package": "vsce package",
+    "package": "vsce package --no-dependencies",
     "publish:vscode": "vsce publish",
     "publish:ovsx": "ovsx publish",
     "publish:all": "npm run publish:vscode && npm run publish:ovsx",
