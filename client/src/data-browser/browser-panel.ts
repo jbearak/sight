@@ -9,10 +9,10 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import {
-    DtaFile,
     type VariableInfo,
     type Row,
-} from '../../../src/dta-parser';
+} from '@jbearak/dta-parser';
+import { DtaFile } from '@jbearak/dta-parser/node';
 import { build_cell_value } from './cell-format';
 import {
     build_dataset_key,

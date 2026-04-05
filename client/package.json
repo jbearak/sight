@@ -721,6 +721,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@jbearak/dta-parser": "github:jbearak/dta-parser#v0.1.1",
     "@glideapps/glide-data-grid": "^6.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

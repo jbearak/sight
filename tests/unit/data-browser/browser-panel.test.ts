@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { make_missing_value } from '@jbearak/dta-parser';
 import { build_cell_value } from '../../../client/src/data-browser/cell-format';
-import { make_missing_value } from '../../../src/dta-parser';
 import {
     build_grid_columns,
     clamp_column_width,
