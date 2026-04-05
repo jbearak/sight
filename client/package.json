@@ -715,8 +715,8 @@
     "test": "node ./test/runTest.js",
     "test:extension": "node ./test/runTest.js",
     "package": "vsce package --no-dependencies",
-    "publish:vscode": "vsce publish",
-    "publish:ovsx": "ovsx publish",
+    "publish:vscode": "echo 'Internal-only: use the release workflow (vsce publish --packagePath client/*.vsix) for actual publishing.'",
+    "publish:ovsx": "echo 'Internal-only: use the release workflow (ovsx publish client/*.vsix) for actual publishing.'",
     "publish:all": "npm run publish:vscode && npm run publish:ovsx",
     "typecheck": "tsc --noEmit"
   },
