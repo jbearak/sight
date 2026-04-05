@@ -1,6 +1,5 @@
 # Development files
 .vscode/**
-node_modules/**
 src/**
 tsconfig.json
 bun.lock
