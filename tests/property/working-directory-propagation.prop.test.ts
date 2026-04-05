@@ -47,7 +47,10 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
     };
 
     const get_iteration_path = (name: string): string => {
-        return path.join(current_iteration_dir ?? temp_dir, name);
+        if (current_iteration_dir === null) {
+            throw new Error('begin_iteration() must be called before get_iteration_path()');
+        }
+        return path.join(current_iteration_dir, name);
     };
 
     const write_file = (name: string, content: string): string => {
