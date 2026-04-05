@@ -30,7 +30,7 @@
     "test:watch": "bun test --watch ./tests",
     "lint": "eslint -c .eslintrc.cjs src/**/*.ts",
     "clean": "rm -rf dist bin",
-    "package": "bun run build && cd client && bun run copy-server && bun run package",
+    "package": "bun run build && npm install --no-package-lock && cd client && bun run copy-server && bun run package",
     "version:patch": "bun scripts/bump-version.ts patch",
     "version:minor": "bun scripts/bump-version.ts minor",
     "version:major": "bun scripts/bump-version.ts major",
