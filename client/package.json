@@ -714,7 +714,7 @@
     "lint": "eslint src --ext ts",
     "test": "node ./test/runTest.js",
     "test:extension": "node ./test/runTest.js",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package",
     "publish:vscode": "vsce publish",
     "publish:ovsx": "ovsx publish",
     "publish:all": "npm run publish:vscode && npm run publish:ovsx",
@@ -727,6 +727,13 @@
     "react-dom": "^18.3.1",
     "vscode-languageclient": "^8.1.0"
   },
+  "bundledDependencies": [
+    "@jbearak/dta-parser",
+    "@glideapps/glide-data-grid",
+    "react",
+    "react-dom",
+    "vscode-languageclient"
+  ],
   "devDependencies": {
     "@types/node": "^16.11.7",
     "@types/react": "^18.3.11",

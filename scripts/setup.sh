@@ -120,8 +120,13 @@ handle_extension_conflict() {
 
 # Step 1: Install dependencies
 echo "Installing dependencies..."
+# Run both bun install and npm install here because vsce expects npm-style
+# dependency metadata; bun install alone does not produce a node_modules tree
+# that vsce reliably packages for the client VSIX.
 bun install
 bun install --cwd client
+echo "Normalizing client package metadata for VSIX packaging..."
+npm install --prefix client
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
 
