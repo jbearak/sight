@@ -13,6 +13,7 @@ coverage/
 !.vscode/extensions.json
 .idea/
 *.tsbuildinfo
+package-lock.json
 *.vsix
 client/server/
 .tmp/

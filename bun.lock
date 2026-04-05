@@ -5,7 +5,7 @@
     "": {
       "name": "stata-lsp",
       "dependencies": {
-        "@jbearak/dta-parser": "github:jbearak/dta-parser#v0.1.1",
+        "@jbearak/dta-parser": "^0.1.1",
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.11",
         "vscode-uri": "^3.0.8",
@@ -32,7 +32,7 @@
       "version": "0.4.2",
       "dependencies": {
         "@glideapps/glide-data-grid": "^6.0.3",
-        "@jbearak/dta-parser": "github:jbearak/dta-parser#v0.1.1",
+        "@jbearak/dta-parser": "^0.1.1",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "vscode-languageclient": "^8.1.0",
@@ -239,7 +239,7 @@
 
     "@istanbuljs/schema": ["@istanbuljs/schema@0.1.3", "", {}, "sha512-ZXRY4jNvVgSVQ8DL3LTcakaAtXwTVUxE81hslsyD2AtoXW/wVob10HkOJ1X/pAlcI7D+2YoZKg5do8G/w6RYgA=="],
 
-    "@jbearak/dta-parser": ["@jbearak/dta-parser@github:jbearak/dta-parser#4b1cdfa", {}, "jbearak-dta-parser-4b1cdfa", "sha512-Gg20fvqJt786+s3a+kCZaPrnP5nYMdWQus+ZkPKn6nayTniqwCATt9dULOtHWNhG60p29TQIkvcPr7rI7u/7jQ=="],
+    "@jbearak/dta-parser": ["@jbearak/dta-parser@0.1.1", "", {}, "sha512-BcQ257+HJMfhiSenEA7HVfsIT0ciQrQ86nE2svELtpHx6QTd36qS3OLyJH/evmmyE7LI7kbd4PnSEZx/QtnIAw=="],
 
     "@jest/console": ["@jest/console@29.7.0", "", { "dependencies": { "@jest/types": "^29.6.3", "@types/node": "*", "chalk": "^4.0.0", "jest-message-util": "^29.7.0", "jest-util": "^29.7.0", "slash": "^3.0.0" } }, "sha512-5Ni4CU7XHQi32IJ398EEP4RrB8eV09sXP2ROqD4bksHrnTree52PsxvX8tpL8LvTZ3pFzXyPbNQReSN41CAhOg=="],
 

@@ -714,26 +714,19 @@
     "lint": "eslint src --ext ts",
     "test": "node ./test/runTest.js",
     "test:extension": "node ./test/runTest.js",
-    "package": "vsce package",
+    "package": "vsce package --no-dependencies",
     "publish:vscode": "vsce publish",
     "publish:ovsx": "ovsx publish",
     "publish:all": "npm run publish:vscode && npm run publish:ovsx",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@jbearak/dta-parser": "github:jbearak/dta-parser#v0.1.1",
+    "@jbearak/dta-parser": "^0.1.1",
     "@glideapps/glide-data-grid": "^6.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vscode-languageclient": "^8.1.0"
   },
-  "bundledDependencies": [
-    "@jbearak/dta-parser",
-    "@glideapps/glide-data-grid",
-    "react",
-    "react-dom",
-    "vscode-languageclient"
-  ],
   "devDependencies": {
     "@types/node": "^16.11.7",
     "@types/react": "^18.3.11",
