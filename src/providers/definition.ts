@@ -968,8 +968,21 @@ export class DefinitionProvider {
             const unquoted_path = directive_match[3];
             const file_path = quoted_path || unquoted_path;
             const match_start = directive_match.index!;
-            const path_start = match_start +
-                directive_match[0].length - file_path.length - (quoted_path ? 1 : 0);
+
+            // Locate the path span by walking past the `@lsp-<keyword>:?\s+`
+            // prefix rather than working backward from `match[0].length`. This
+            // stays correct when the path is a substring of the directive
+            // keyword (e.g. `@lsp-do: "do"`) AND when the regex is later
+            // broadened to capture trailing parameters like `line=5` or
+            // `match="..."` in `match[0]`.
+            const DIRECTIVE_PREFIX = '@lsp-';
+            let cursor = match_start + DIRECTIVE_PREFIX.length + directive_match[1].length;
+            if (line_text[cursor] === ':') cursor++;
+            while (cursor < line_text.length && /\s/.test(line_text[cursor])) {
+                cursor++;
+            }
+            if (quoted_path) cursor++; // skip opening quote
+            const path_start = cursor;
             const path_end = path_start + file_path.length;
             if (position.character >= path_start &&
                 position.character <= path_end) {

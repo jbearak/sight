@@ -1185,6 +1185,85 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const single = my_definition as { uri: string };
             expect(single.uri).toContain('helper');
         });
+
+        // Regression tests: parameterized @lsp-* directives (line=, match="...")
+        // See definition.ts L965: path_start must reflect the path-only span,
+        // not the full match (which the regex currently truncates at the path
+        // boundary, but this contract should hold even if the regex is later
+        // broadened to capture trailing parameters).
+
+        it('resolves @lsp-do when the quoted path is a substring of the directive keyword', async () => {
+            // `do` appears both inside `@lsp-do` and as the file name. The
+            // path_start calculation must not be fooled by the earlier
+            // occurrence inside the directive keyword.
+            const do_path = path.join(temp_dir, 'do.do');
+            fs.writeFileSync(do_path, '// Helper file named "do"');
+
+            const my_content = '// @lsp-do: "do"';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                `file://${path.join(temp_dir, 'test.do')}`
+            );
+            init_tracker_from_source(context_tracker, my_content);
+
+            const path_char = my_content.lastIndexOf('do'); // "do" inside the quotes
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: path_char + 1 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).not.toBeNull();
+            const single = my_definition as { uri: string };
+            expect(single.uri).toContain('do.do');
+        });
+
+        const the_parameterized_cases: Array<{
+            name: string;
+            directive: string;
+        }> = [
+            { name: '@lsp-done-by with line=', directive: '@lsp-done-by: "parent.do" line=5' },
+            { name: '@lsp-included-by with line=', directive: '@lsp-included-by: "parent.do" line=5' },
+            { name: '@lsp-do with line=', directive: '@lsp-do: "parent.do" line=5' },
+            { name: '@lsp-run with line=', directive: '@lsp-run: "parent.do" line=5' },
+            { name: '@lsp-include with line=', directive: '@lsp-include: "parent.do" line=5' },
+            { name: '@lsp-done-by with match="..."', directive: '@lsp-done-by: "parent.do" match="some string"' },
+            { name: '@lsp-do with match="..."', directive: '@lsp-do: "parent.do" match="some string"' },
+            { name: '@lsp-done-by with line= and match="..."', directive: '@lsp-done-by: "parent.do" line=5 match="foo"' },
+        ];
+
+        for (const my_case of the_parameterized_cases) {
+            it(`resolves ${my_case.name} when cursor sits on the quoted path`, async () => {
+                const parent_path = path.join(temp_dir, 'parent.do');
+                fs.writeFileSync(parent_path, '// Parent file');
+
+                const my_content = `// ${my_case.directive}`;
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    `file://${path.join(temp_dir, 'test.do')}`
+                );
+                init_tracker_from_source(context_tracker, my_content);
+
+                // Cursor on a character that is unambiguously inside "parent.do"
+                // and NOT inside the directive keyword substring.
+                const path_first_char = my_content.indexOf('parent.do');
+                const cursor_char = path_first_char + 3; // middle of "parent.do"
+
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: cursor_char },
+                    undefined,
+                    context_tracker
+                );
+
+                expect(my_definition).not.toBeNull();
+                const single = my_definition as { uri: string };
+                expect(single.uri).toContain('parent.do');
+            });
+        }
     });
 
     describe('DefinitionProvider - Symbol Precedence', () => {
