@@ -108,10 +108,10 @@ export class WorkspaceIndexer {
      * the same symbol name).
      */
     get_related_uris(uri: string): Set<string> {
-        const relatedUris = new Set<string>([uri]);
-        if (!this.dependency_graph) return relatedUris;
+        const the_related_uris = new Set<string>([uri]);
+        if (!this.dependency_graph) return the_related_uris;
 
-        const parentToChildrenMap = new Map<string, Set<string>>();
+        const the_parent_to_children_map = new Map<string, Set<string>>();
         for (const [my_child_uri, my_child_entry] of this.symbol_index) {
             for (const my_directive of my_child_entry.directives) {
                 if (
@@ -121,28 +121,28 @@ export class WorkspaceIndexer {
                     continue;
                 }
                 const my_parent_uri = URI.file(my_directive.path).toString();
-                let childrenSet = parentToChildrenMap.get(my_parent_uri);
-                if (!childrenSet) {
-                    childrenSet = new Set<string>();
-                    parentToChildrenMap.set(my_parent_uri, childrenSet);
+                let my_children_set = the_parent_to_children_map.get(my_parent_uri);
+                if (!my_children_set) {
+                    my_children_set = new Set<string>();
+                    the_parent_to_children_map.set(my_parent_uri, my_children_set);
                 }
-                childrenSet.add(my_child_uri);
+                my_children_set.add(my_child_uri);
             }
         }
 
-        const workStack: string[] = [uri];
-        while (workStack.length > 0) {
-            const my_uri = workStack.pop()!;
+        const the_work_stack: string[] = [uri];
+        while (the_work_stack.length > 0) {
+            const my_uri = the_work_stack.pop()!;
             for (const my_edge of this.dependency_graph.get_parents(my_uri)) {
-                if (!relatedUris.has(my_edge.caller_uri)) {
-                    relatedUris.add(my_edge.caller_uri);
-                    workStack.push(my_edge.caller_uri);
+                if (!the_related_uris.has(my_edge.caller_uri)) {
+                    the_related_uris.add(my_edge.caller_uri);
+                    the_work_stack.push(my_edge.caller_uri);
                 }
             }
             for (const my_callee of this.dependency_graph.get_callees(my_uri)) {
-                if (!relatedUris.has(my_callee)) {
-                    relatedUris.add(my_callee);
-                    workStack.push(my_callee);
+                if (!the_related_uris.has(my_callee)) {
+                    the_related_uris.add(my_callee);
+                    the_work_stack.push(my_callee);
                 }
             }
             const my_entry = this.symbol_index.get(my_uri);
@@ -155,22 +155,22 @@ export class WorkspaceIndexer {
                         continue;
                     }
                     const my_parent_uri = URI.file(my_directive.path).toString();
-                    if (!relatedUris.has(my_parent_uri)) {
-                        relatedUris.add(my_parent_uri);
-                        workStack.push(my_parent_uri);
+                    if (!the_related_uris.has(my_parent_uri)) {
+                        the_related_uris.add(my_parent_uri);
+                        the_work_stack.push(my_parent_uri);
                     }
                 }
             }
-            const childrenSet = parentToChildrenMap.get(my_uri);
-            if (childrenSet) {
-                for (const my_child_uri of childrenSet) {
-                    if (relatedUris.has(my_child_uri)) continue;
-                    relatedUris.add(my_child_uri);
-                    workStack.push(my_child_uri);
+            const my_children_set = the_parent_to_children_map.get(my_uri);
+            if (my_children_set) {
+                for (const my_child_uri of my_children_set) {
+                    if (the_related_uris.has(my_child_uri)) continue;
+                    the_related_uris.add(my_child_uri);
+                    the_work_stack.push(my_child_uri);
                 }
             }
         }
-        return relatedUris;
+        return the_related_uris;
     }
 
     /**
