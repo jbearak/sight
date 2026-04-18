@@ -254,4 +254,80 @@ describe('Find References - call-site scope filtering (issue #127)', () => {
         expect(leaks_branch_a).toBe(false);
         expect(leaks_branch_b).toBe(false);
     });
+
+    it('respects transitive forward calls for call-site filtering', async () => {
+        // main.do does mid.do at line 5; mid.do does leaf.do at line 3;
+        // leaf.do defines `deep_prog`. Nested call sites carry the
+        // outermost parent's call line, so the filter is correct
+        // transitively.
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `* line 0\n` +
+            `* line 1\n` +
+            `deep_prog\n` +                 // line 2 — BEFORE any do
+            `* line 3\n` +
+            `* line 4\n` +
+            `do "mid.do"\n` +               // line 5
+            `* line 6\n` +
+            `* line 7\n` +
+            `* line 8\n` +
+            `* line 9\n` +
+            `deep_prog\n`;                  // line 10 — AFTER do "mid.do"
+        writeFileSync(main_path, main_content);
+
+        const mid_path = join(test_temp_dir, 'mid.do');
+        const mid_content =
+            `* line 0\n` +
+            `* line 1\n` +
+            `* line 2\n` +
+            `do "leaf.do"\n`;               // line 3
+        writeFileSync(mid_path, mid_content);
+
+        const leaf_path = join(test_temp_dir, 'leaf.do');
+        const leaf_content =
+            `program define deep_prog\n` +
+            `end\n`;
+        writeFileSync(leaf_path, leaf_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
+
+        const leaf_uri = URI.file(leaf_path).toString();
+
+        // (a) Cursor on line 10 — AFTER do "mid.do" on line 5. leaf.do's
+        //     transitive call site carries call_line=5, so deep_prog is
+        //     visible and classification returns program.
+        const after_cursor_line = 10;
+        const after_cursor_char = main_content
+            .split('\n')[after_cursor_line]
+            .indexOf('deep_prog') + 3;
+        const after_locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: after_cursor_line, character: after_cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker
+        );
+        const after_has_leaf = after_locations.some(loc => loc.uri === leaf_uri);
+        expect(after_has_leaf).toBe(true);
+
+        // (b) Cursor on line 2 — BEFORE do "mid.do" on line 5. Nothing
+        //     is in scope yet; classification must not return program.
+        const before_cursor_line = 2;
+        const before_cursor_char = main_content
+            .split('\n')[before_cursor_line]
+            .indexOf('deep_prog') + 3;
+        const before_locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: before_cursor_line, character: before_cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker
+        );
+        const before_has_leaf = before_locations.some(loc => loc.uri === leaf_uri);
+        expect(before_has_leaf).toBe(false);
+    });
 });
