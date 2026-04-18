@@ -200,4 +200,58 @@ describe('Find References - call-site scope filtering (issue #127)', () => {
         const has_parent_def = locations.some(loc => loc.uri === main_uri);
         expect(has_parent_def).toBe(true);
     });
+
+    it('does not pool refs across unrelated branches that share a program name', async () => {
+        // main.do does branch_a then branch_b. Both branches define a
+        // program named `common_helper`. The cursor in main.do is placed
+        // on line 0 — BEFORE either do call — so neither branch is in
+        // scope yet and the classifier must not return program.
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `common_helper\n` +
+            `do "branch_a.do"\n` +
+            `do "branch_b.do"\n`;
+        writeFileSync(main_path, main_content);
+
+        const branch_a_path = join(test_temp_dir, 'branch_a.do');
+        const branch_a_content =
+            `program define common_helper\n` +
+            `end\n`;
+        writeFileSync(branch_a_path, branch_a_content);
+
+        const branch_b_path = join(test_temp_dir, 'branch_b.do');
+        const branch_b_content =
+            `program define common_helper\n` +
+            `end\n`;
+        writeFileSync(branch_b_path, branch_b_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
+
+        // Cursor on `common_helper` at line 0 in main.do.
+        const cursor_line = 0;
+        const cursor_char = main_content
+            .split('\n')[cursor_line]
+            .indexOf('common_helper') + 3;
+
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: cursor_line, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker
+        );
+
+        // Neither branch has been called yet at cursor line 0 — nothing
+        // from either branch should be pooled.
+        const branch_a_uri = URI.file(branch_a_path).toString();
+        const branch_b_uri = URI.file(branch_b_path).toString();
+        const leaks_branch_a = locations.some(loc => loc.uri === branch_a_uri);
+        const leaks_branch_b = locations.some(loc => loc.uri === branch_b_uri);
+        expect(leaks_branch_a).toBe(false);
+        expect(leaks_branch_b).toBe(false);
+    });
 });
