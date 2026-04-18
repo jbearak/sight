@@ -29,7 +29,6 @@ import {
     ProgramSignature,
     ProgramNode,
     ProgramSymbol,
-    ForwardCallSite,
     ScopeResolverConfig,
 } from '../types';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
