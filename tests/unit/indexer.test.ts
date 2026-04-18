@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { WorkspaceIndexer } from '../../src/indexer';
+import { DependencyGraph } from '../../src/dependency-graph';
 import { URI } from 'vscode-uri';
 
 describe('WorkspaceIndexer', () => {
@@ -229,6 +230,46 @@ describe('WorkspaceIndexer', () => {
             // Pending update should not have fired
             expect(indexer.get_all_symbols().programs.size).toBe(0);
         });
+    });
+
+    it('should reflect unsaved backward directives in get_related_uris', async () => {
+        // Regression: get_related_uris must not miss parent-child relationships
+        // when the child file's `@lsp-done-by` directive exists only in an
+        // unsaved buffer, not on disk.
+        const parent_path = path.join(temp_dir, 'parent.do');
+        const child_path = path.join(temp_dir, 'child.do');
+        fs.writeFileSync(parent_path, 'program define myprog\nend\n');
+        // Child on disk has NO backward directive yet.
+        fs.writeFileSync(child_path, 'myprog\n');
+
+        const graph = new DependencyGraph();
+        indexer.set_dependency_graph(graph);
+        await indexer.initialize([temp_dir]);
+
+        const parent_uri = URI.file(parent_path).toString();
+        const child_uri = URI.file(child_path).toString();
+
+        // Simulate the user adding `@lsp-done-by: "parent.do"` to the
+        // child buffer without saving.
+        indexer.set_buffer_directives(child_uri, [
+            {
+                type: 'done-by',
+                path: parent_path,
+                raw_path: 'parent.do',
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 30 },
+                },
+            },
+        ]);
+
+        const related = indexer.get_related_uris(parent_uri);
+        expect(related.has(child_uri)).toBe(true);
+
+        // Clearing the overlay drops the buffer-only relationship.
+        indexer.clear_buffer_directives(child_uri);
+        const related_after_clear = indexer.get_related_uris(parent_uri);
+        expect(related_after_clear.has(child_uri)).toBe(false);
     });
 
     it('should debounce rapid file updates', async () => {

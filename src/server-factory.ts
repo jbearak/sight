@@ -888,6 +888,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
             document_store.set_scope_resolver(scope_resolver);
 
+            // Mirror backward directive edits from open buffers into the
+            // indexer so `get_related_uris` reflects unsaved edits (e.g.,
+            // a just-added `@lsp-done-by`) without waiting for reindex.
+            const the_indexer_for_overlay = workspace_indexer;
+            document_store.set_on_backward_directives_parsed((uri, directives) => {
+                the_indexer_for_overlay.set_buffer_directives(uri, directives);
+            });
+
             // Create and wire dependency graph for auto backward dependencies
             dependency_graph = new DependencyGraph();
             workspace_indexer.set_dependency_graph(dependency_graph);
@@ -1057,6 +1065,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         document_settings.delete(e.document.uri);
         document_store.close(e.document.uri);
         debounce_manager.on_close(e.document.uri);
+        workspace_indexer?.clear_buffer_directives(e.document.uri);
         if (diagnostics_provider) {
             diagnostics_provider.on_document_closed(e.document.uri);
         }

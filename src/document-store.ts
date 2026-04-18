@@ -1,5 +1,5 @@
 import { TextDocumentContentChangeEvent, Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import { StataAST, SymbolTable, Token, DocumentStoreMetrics, ForwardCall, WorkingDirectoryDirective } from './types';
+import { StataAST, SymbolTable, Token, DocumentStoreMetrics, ForwardCall, WorkingDirectoryDirective, Directive } from './types';
 import { StataLexer } from './lexer';
 import { StataParser } from './parser';
 import { SemanticAnalyzer } from './analyzer';
@@ -54,6 +54,9 @@ export class DocumentStore {
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
   private workspace_roots: string[] = [];
   private scope_resolver: ScopeResolver | undefined;
+  private on_backward_directives_parsed:
+    | ((uri: string, directives: Directive[]) => void)
+    | undefined;
   private disposed: boolean = false;
 
   // Generation counters for close-vs-update safety (Req 16.1, 16.2)
@@ -120,6 +123,19 @@ export class DocumentStore {
    */
   get_scope_resolver(): ScopeResolver | undefined {
     return this.scope_resolver;
+  }
+
+  /**
+   * Register a callback that fires whenever a document's backward
+   * directives are reparsed. Used to mirror buffer-state directives
+   * into the workspace indexer so find-references reflects unsaved
+   * `@lsp-done-by` / `@lsp-included-by` edits without waiting for
+   * reindex-from-disk.
+   */
+  set_on_backward_directives_parsed(
+    callback: ((uri: string, directives: Directive[]) => void) | undefined
+  ): void {
+    this.on_backward_directives_parsed = callback;
   }
   /**
    * Dispose the document store by awaiting all active update
@@ -544,6 +560,9 @@ export class DocumentStore {
           uri,
           directive_result.directives
         );
+      }
+      if (this.on_backward_directives_parsed) {
+        this.on_backward_directives_parsed(uri, directive_result.directives);
       }
       if (directive_result.working_directory) {
         // File has its own working directory directive

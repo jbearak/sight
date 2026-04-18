@@ -51,6 +51,11 @@ export interface IndexedFileData {
  */
 export class WorkspaceIndexer {
     private symbol_index: Map<string, { symbols: SymbolTable; directives: Directive[] }> = new Map();
+    // Overlay of backward directives parsed from unsaved buffers. When
+    // present for a URI, these replace the on-disk directives in
+    // `get_related_uris` so parent/child relationships reflect the live
+    // editor state rather than the last saved version.
+    private buffer_directives_overlay: Map<string, Directive[]> = new Map();
     private token_index: Map<string, Token[]> = new Map();
     private context_ranges_index: Map<string, ContextRange[]> = new Map();
     private enabled = true;
@@ -88,6 +93,24 @@ export class WorkspaceIndexer {
     }
 
     /**
+     * Record the backward directives parsed from an open buffer. These
+     * override the on-disk directives for the same URI in
+     * `get_related_uris`, so unsaved `@lsp-done-by` / `@lsp-included-by`
+     * edits are visible to find-references immediately.
+     */
+    set_buffer_directives(uri: string, directives: Directive[]): void {
+        this.buffer_directives_overlay.set(uri, directives);
+    }
+
+    /**
+     * Drop a buffer directive overlay (e.g., on document close), so
+     * `get_related_uris` falls back to the on-disk index for this URI.
+     */
+    clear_buffer_directives(uri: string): void {
+        this.buffer_directives_overlay.delete(uri);
+    }
+
+    /**
      * Return the set of URIs reachable from `uri` through the
      * dependency graph — ancestors (files that `do`/`run`/`include`
      * this one, transitively) and descendants (files this one calls,
@@ -112,8 +135,11 @@ export class WorkspaceIndexer {
         if (!this.dependency_graph) return the_related_uris;
 
         const the_parent_to_children_map = new Map<string, Set<string>>();
-        for (const [my_child_uri, my_child_entry] of this.symbol_index) {
-            for (const my_directive of my_child_entry.directives) {
+        const record_child_directives = (
+            my_child_uri: string,
+            my_directives: Directive[]
+        ): void => {
+            for (const my_directive of my_directives) {
                 if (
                     my_directive.type !== 'done-by' &&
                     my_directive.type !== 'included-by'
@@ -128,6 +154,15 @@ export class WorkspaceIndexer {
                 }
                 my_children_set.add(my_child_uri);
             }
+        };
+        // Disk-indexed children (skip any URI with a live buffer overlay).
+        for (const [my_child_uri, my_child_entry] of this.symbol_index) {
+            if (this.buffer_directives_overlay.has(my_child_uri)) continue;
+            record_child_directives(my_child_uri, my_child_entry.directives);
+        }
+        // Buffer overlay (may include URIs not yet on disk).
+        for (const [my_child_uri, my_directives] of this.buffer_directives_overlay) {
+            record_child_directives(my_child_uri, my_directives);
         }
 
         const the_work_stack: string[] = [uri];
@@ -145,9 +180,11 @@ export class WorkspaceIndexer {
                     the_work_stack.push(my_callee);
                 }
             }
-            const my_entry = this.symbol_index.get(my_uri);
-            if (my_entry) {
-                for (const my_directive of my_entry.directives) {
+            const my_buffer_directives = this.buffer_directives_overlay.get(my_uri);
+            const my_entry_directives = my_buffer_directives
+                ?? this.symbol_index.get(my_uri)?.directives;
+            if (my_entry_directives) {
+                for (const my_directive of my_entry_directives) {
                     if (
                         my_directive.type !== 'done-by' &&
                         my_directive.type !== 'included-by'
