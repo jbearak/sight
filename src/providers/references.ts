@@ -151,43 +151,70 @@ export class ReferencesProvider {
     }
 
     /**
-     * Find the definition location for a symbol.
+     * Find all definition locations for a symbol — current document first,
+     * then the workspace index so cross-file definitions are included.
      */
-    private find_definition(
+    private find_definitions(
         document: DocumentState,
         symbol_name: string,
-        symbol_type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix'
-    ): Location | null {
+        symbol_type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix',
+        workspace_indexer?: WorkspaceIndexer
+    ): Location[] {
+        const locations: Location[] = [];
+        const seen = new Set<string>();
+        const push = (loc: Location | null | undefined): void => {
+            if (!loc) return;
+            const key = `${loc.uri}:${loc.range.start.line}:${loc.range.start.character}:${loc.range.end.line}:${loc.range.end.character}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            locations.push(loc);
+        };
+
         const symbols = document.symbols;
-        
         switch (symbol_type) {
             case 'local_macro': {
                 const local_macro = symbols.localMacros.get(symbol_name);
-                return local_macro ? { uri: local_macro.location.uri, range: local_macro.location.range } : null;
+                if (local_macro) push({ uri: local_macro.location.uri, range: local_macro.location.range });
+                break;
             }
             case 'global_macro': {
                 const global_macro = symbols.globalMacros.get(symbol_name);
-                return global_macro ? { uri: global_macro.location.uri, range: global_macro.location.range } : null;
+                if (global_macro) push({ uri: global_macro.location.uri, range: global_macro.location.range });
+                break;
             }
             case 'program': {
                 const program = symbols.programs.get(symbol_name);
-                return program ? { uri: program.location.uri, range: program.location.range } : null;
+                if (program) push({ uri: program.location.uri, range: program.location.range });
+                break;
             }
             case 'variable': {
                 const variable = symbols.variables.get(symbol_name);
-                return variable ? { uri: variable.location.uri, range: variable.location.range } : null;
+                if (variable) push({ uri: variable.location.uri, range: variable.location.range });
+                break;
             }
             case 'scalar': {
                 const scalar = symbols.scalars.get(symbol_name);
-                return scalar ? { uri: scalar.location.uri, range: scalar.location.range } : null;
+                if (scalar) push({ uri: scalar.location.uri, range: scalar.location.range });
+                break;
             }
             case 'matrix': {
                 const matrix = symbols.matrices.get(symbol_name);
-                return matrix ? { uri: matrix.location.uri, range: matrix.location.range } : null;
+                if (matrix) push({ uri: matrix.location.uri, range: matrix.location.range });
+                break;
             }
-            default:
-                return null;
         }
+
+        if (workspace_indexer) {
+            const ws_type: 'program' | 'local' | 'global' | 'variable' | 'scalar' | 'matrix' =
+                symbol_type === 'local_macro' ? 'local' :
+                symbol_type === 'global_macro' ? 'global' :
+                symbol_type;
+            for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
+                push({ uri: my_def.location.uri, range: my_def.location.range });
+            }
+        }
+
+        return locations;
     }
 
     /**
@@ -233,6 +260,7 @@ export class ReferencesProvider {
         const identified_symbol = this.identify_symbol_at_position(
             document,
             position,
+            workspace_indexer,
             cancellation_token
         );
         if (!identified_symbol) {
@@ -256,30 +284,22 @@ export class ReferencesProvider {
      */
     private apply_include_declaration(
         locations: Location[],
-        definition: Location | null,
+        definitions: Location[],
         include_declaration: boolean
     ): Location[] {
-        if (include_declaration && definition) {
-            // Add definition to results if not already present (avoid duplicates)
-            const already_has_definition = locations.some(loc =>
-                loc.uri === definition.uri &&
-                loc.range.start.line === definition.range.start.line &&
-                loc.range.start.character === definition.range.start.character &&
-                loc.range.end.line === definition.range.end.line &&
-                loc.range.end.character === definition.range.end.character
-            );
-            if (!already_has_definition) {
-                locations.push(definition);
+        const location_key = (loc: Location): string =>
+            `${loc.uri}:${loc.range.start.line}:${loc.range.start.character}:${loc.range.end.line}:${loc.range.end.character}`;
+        const definition_keys = new Set(definitions.map(location_key));
+
+        if (include_declaration) {
+            const present_keys = new Set(locations.map(location_key));
+            for (const my_def of definitions) {
+                if (!present_keys.has(location_key(my_def))) {
+                    locations.push(my_def);
+                }
             }
-        } else if (!include_declaration && definition) {
-            // Filter out definition from results
-            const filtered_locations = locations.filter(loc => 
-                !(loc.uri === definition.uri && 
-                  loc.range.start.line === definition.range.start.line &&
-                  loc.range.start.character === definition.range.start.character &&
-                  loc.range.end.line === definition.range.end.line &&
-                  loc.range.end.character === definition.range.end.character)
-            );
+        } else if (definition_keys.size > 0) {
+            const filtered_locations = locations.filter(loc => !definition_keys.has(location_key(loc)));
             return this.sort_locations(filtered_locations);
         }
         return this.sort_locations(locations);
@@ -343,6 +363,7 @@ export class ReferencesProvider {
     private identify_symbol_at_position(
         document: DocumentState,
         position: Position,
+        workspace_indexer?: WorkspaceIndexer,
         cancellation_token?: CancellationToken
     ): IdentifiedSymbol | null {
         const word_info = this.get_word_at_position(document, position);
@@ -352,11 +373,11 @@ export class ReferencesProvider {
 
         const { word, range } = word_info;
         const line = get_line_text(document, position.line);
-        
+
         // Check for macro references by looking at surrounding context
         const char_before_start = range.start.character > 0 ? line[range.start.character - 1] : '';
         const chars_before_start = range.start.character >= 2 ? line.substring(range.start.character - 2, range.start.character) : char_before_start;
-        
+
         // Global macro: $name or ${name}
         if (char_before_start === '$' || chars_before_start === '${') {
             return {
@@ -365,7 +386,7 @@ export class ReferencesProvider {
                 range,
             };
         }
-        
+
         // Local macro: `name'
         if (char_before_start === '`') {
             return {
@@ -393,26 +414,72 @@ export class ReferencesProvider {
                         case 'MACRO_REF_GLOBAL':
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
-                            // Use symbol table to determine type
-                            if (document.symbols.programs.has(word)) {
-                                return { name: word, type: 'program', range };
-                            }
-                            if (document.symbols.variables.has(word)) {
-                                return { name: word, type: 'variable', range };
-                            }
-                            if (document.symbols.scalars.has(word)) {
-                                return { name: word, type: 'scalar', range };
-                            }
-                            if (document.symbols.matrices.has(word)) {
-                                return { name: word, type: 'matrix', range };
-                            }
-                            return null;
+                            return this.classify_word_symbol(word, range, document, workspace_indexer);
                     }
                 }
             }
         }
 
         // Return null if we can't determine the type reliably
+        return null;
+    }
+
+    /**
+     * Classify a WORD token against the local symbol table, falling back
+     * to the workspace index for cross-file symbols. The WORD case covers
+     * both reference sites (e.g., `tab analysis_sample`) and definition
+     * sites that tokenize as plain words (e.g., `global data_path`, where
+     * `data_path` is a WORD, not a MACRO_REF_GLOBAL).
+     */
+    private classify_word_symbol(
+        word: string,
+        range: Range,
+        document: DocumentState,
+        workspace_indexer?: WorkspaceIndexer
+    ): IdentifiedSymbol | null {
+        if (document.symbols.programs.has(word)) {
+            return { name: word, type: 'program', range };
+        }
+        if (document.symbols.variables.has(word)) {
+            return { name: word, type: 'variable', range };
+        }
+        if (document.symbols.scalars.has(word)) {
+            return { name: word, type: 'scalar', range };
+        }
+        if (document.symbols.matrices.has(word)) {
+            return { name: word, type: 'matrix', range };
+        }
+        // Only treat a WORD as a macro when the cursor is at the declaration
+        // itself. In Stata, macro references use `$name`/`${name}` or `` `name' ``,
+        // so a plain WORD elsewhere must not resolve to macro usages even if a
+        // macro of the same name exists.
+        const global_macro = document.symbols.globalMacros.get(word);
+        if (global_macro && this.position_in_range(range.start, global_macro.location.range)) {
+            return { name: word, type: 'global_macro', range };
+        }
+        const local_macro = document.symbols.localMacros.get(word);
+        if (local_macro && this.position_in_range(range.start, local_macro.location.range)) {
+            return { name: word, type: 'local_macro', range };
+        }
+
+        // Fall back to cross-file non-macro symbols. Macros are intentionally
+        // excluded here: macro references must appear as `$name`/`${name}` or
+        // `` `name' `` in source, so a plain WORD shouldn't resolve to a macro.
+        if (workspace_indexer) {
+            if (workspace_indexer.find_symbol_definitions(word, 'variable').length > 0) {
+                return { name: word, type: 'variable', range };
+            }
+            if (workspace_indexer.find_symbol_definitions(word, 'program').length > 0) {
+                return { name: word, type: 'program', range };
+            }
+            if (workspace_indexer.find_symbol_definitions(word, 'scalar').length > 0) {
+                return { name: word, type: 'scalar', range };
+            }
+            if (workspace_indexer.find_symbol_definitions(word, 'matrix').length > 0) {
+                return { name: word, type: 'matrix', range };
+            }
+        }
+
         return null;
     }
 
@@ -430,6 +497,7 @@ export class ReferencesProvider {
         const identified_symbol = this.identify_symbol_at_position(
             document,
             position,
+            workspace_indexer,
             cancellation_token
         );
         if (!identified_symbol || (identified_symbol.type !== 'local_macro' && identified_symbol.type !== 'global_macro')) {
@@ -466,7 +534,12 @@ export class ReferencesProvider {
         };
 
         const locations: Location[] = [];
-        const definition = this.find_definition(document, symbol_name, symbol_type);
+        const definitions = this.find_definitions(
+            document,
+            symbol_name,
+            symbol_type,
+            workspace_indexer
+        );
 
         // Search current document
         if (document.tokens) {
@@ -484,7 +557,7 @@ export class ReferencesProvider {
 
         // Check cancellation before workspace scan (Req 5.3)
         if (cancellation_token?.isCancellationRequested) {
-            return this.apply_include_declaration(locations, definition, include_declaration);
+            return this.apply_include_declaration(locations, definitions, include_declaration);
         }
 
         // Search workspace-indexed files (Req 13.3)
@@ -523,7 +596,7 @@ export class ReferencesProvider {
             }
         }
 
-        return this.apply_include_declaration(locations, definition, include_declaration);
+        return this.apply_include_declaration(locations, definitions, include_declaration);
     }
 
     /**

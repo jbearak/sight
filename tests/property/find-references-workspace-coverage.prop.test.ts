@@ -75,6 +75,7 @@ describe('Feature: find-references, Property 7: Workspace Coverage', () => {
     function create_mock_indexer(indexed_files: Map<string, IndexedFileData>) {
         return {
             get_indexed_files: () => indexed_files,
+            find_symbol_definitions: () => [],
         } as any;
     }
 
