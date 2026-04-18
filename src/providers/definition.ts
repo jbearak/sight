@@ -165,8 +165,17 @@ export class DefinitionProvider {
                     );
                 }
 
+                // Cursor on a macro's declaration name tokenizes as WORD. Try
+                // that first — it only returns non-null when the position is
+                // inside a macro declaration range, so same-named variables
+                // (Stata allows cross-namespace collisions) don't win here.
+                const macro_declaration = this.resolve_word_as_macro_declaration(word, position, document);
+                if (macro_declaration) {
+                    return macro_declaration;
+                }
+
                 // WORD token: search variables, programs, scalars, matrices (NOT macros)
-                const non_macro_result = await this.resolve_non_macro_symbols(
+                return await this.resolve_non_macro_symbols(
                     word,
                     document,
                     workspace_symbols,
@@ -175,13 +184,6 @@ export class DefinitionProvider {
                     cross_file_config,
                     cancellation_token
                 );
-                if (non_macro_result) {
-                    return non_macro_result;
-                }
-                // Fallback: cursor sits on a macro's declaration name, which
-                // tokenizes as WORD rather than MACRO_REF_*. Return the
-                // macro's own location so clients receive a valid definition.
-                return this.resolve_word_as_macro_declaration(word, position, document);
             }
         }
 

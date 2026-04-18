@@ -105,6 +105,28 @@ describe('References Provider - Include Declaration', () => {
         expect(has_declaration).toBe(false);
     });
 
+    it('should find macro references from a declaration site even when a same-named variable exists', async () => {
+        // Stata permits name collisions across namespaces. The cursor on
+        // `data_path` in the `global` declaration must identify this as the
+        // macro, so Find References includes the `$data_path` usage.
+        const content = 'gen data_path = 1\nglobal data_path "config"\ndisplay $data_path\n';
+        const document = create_document_with_symbols(content);
+
+        // Cursor inside `data_path` in `global data_path` on line 1
+        const position: Position = { line: 1, character: 10 };
+        const context: ReferenceContext = { includeDeclaration: true };
+
+        const results = await references_provider.get_references(document, position, context);
+
+        // The `$data_path` reference on line 2 must be present.
+        const has_macro_ref = results.some(loc => loc.range.start.line === 2);
+        expect(has_macro_ref).toBe(true);
+
+        // The variable definition on line 0 must NOT be returned.
+        const has_variable = results.some(loc => loc.range.start.line === 0);
+        expect(has_variable).toBe(false);
+    });
+
     it('should handle case where definition does not exist', async () => {
         const content = `display "\`undefined_var'"`;
         const document = create_document_with_symbols(content);

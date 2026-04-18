@@ -173,6 +173,63 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             });
         });
 
+        it('should resolve to the global macro declaration when a variable of the same name exists', async () => {
+            // Stata permits name collisions across namespaces. A cursor on
+            // `data_path` in `global data_path "..."` must point to the macro,
+            // not the variable that happens to share the name.
+            const my_content = 'gen data_path = 1\nglobal data_path "data"\n';
+            const my_doc = create_test_document(my_content, {
+                variables: new Map([
+                    ['data_path', {
+                        name: 'data_path',
+                        sourceUri: 'file:///test.do',
+                        location: {
+                            uri: 'file:///test.do',
+                            range: {
+                                start: { line: 0, character: 4 },
+                                end: { line: 0, character: 13 },
+                            },
+                        },
+                        type: 'numeric' as const,
+                        source: 'directive' as const,
+                    }],
+                ]),
+                globalMacros: new Map([
+                    ['data_path', {
+                        name: 'data_path',
+                        scope: 'global',
+                        sourceUri: 'file:///test.do',
+                        location: {
+                            uri: 'file:///test.do',
+                            range: {
+                                start: { line: 1, character: 7 },
+                                end: { line: 1, character: 16 },
+                            },
+                        },
+                        value: 'data',
+                    }],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            // Cursor inside `data_path` in the `global` declaration on line 1
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 10 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).not.toBeNull();
+            expect(my_definition).toMatchObject({
+                uri: 'file:///test.do',
+                range: {
+                    start: { line: 1, character: 7 },
+                    end: { line: 1, character: 16 },
+                },
+            });
+        });
+
         it('should return definition when cursor is on local macro declaration name', async () => {
             const my_content = 'local my_var = 5';
             const my_doc = create_test_document(my_content, {

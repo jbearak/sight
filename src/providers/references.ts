@@ -467,6 +467,20 @@ export class ReferencesProvider {
         document: DocumentState,
         workspace_indexer?: WorkspaceIndexer
     ): IdentifiedSymbol | null {
+        // Cursor sitting inside a macro's own declaration range must resolve
+        // to the macro even when a non-macro symbol of the same name exists.
+        // Stata allows cross-namespace name collisions (e.g., variable and
+        // global macro both named `data_path`), so the declaration-range check
+        // runs first.
+        const global_macro = document.symbols.globalMacros.get(word);
+        if (global_macro && this.position_in_range(range.start, global_macro.location.range)) {
+            return { name: word, type: 'global_macro', range };
+        }
+        const local_macro = document.symbols.localMacros.get(word);
+        if (local_macro && this.position_in_range(range.start, local_macro.location.range)) {
+            return { name: word, type: 'local_macro', range };
+        }
+
         if (document.symbols.programs.has(word)) {
             return { name: word, type: 'program', range };
         }
@@ -478,18 +492,6 @@ export class ReferencesProvider {
         }
         if (document.symbols.matrices.has(word)) {
             return { name: word, type: 'matrix', range };
-        }
-        // Only treat a WORD as a macro when the cursor is at the declaration
-        // itself. In Stata, macro references use `$name`/`${name}` or `` `name' ``,
-        // so a plain WORD elsewhere must not resolve to macro usages even if a
-        // macro of the same name exists.
-        const global_macro = document.symbols.globalMacros.get(word);
-        if (global_macro && this.position_in_range(range.start, global_macro.location.range)) {
-            return { name: word, type: 'global_macro', range };
-        }
-        const local_macro = document.symbols.localMacros.get(word);
-        if (local_macro && this.position_in_range(range.start, local_macro.location.range)) {
-            return { name: word, type: 'local_macro', range };
         }
 
         // Fall back to cross-file non-macro symbols. Macros are intentionally
