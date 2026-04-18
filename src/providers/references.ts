@@ -17,6 +17,9 @@ import { LanguageContext, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
+import type { ScopeResolver } from '../scope-resolver';
+import { build_scope_resolver_config } from '../scope-resolver';
+import type { ScopeResolverConfig } from '../types';
 
 export interface ReferenceSearchContext {
     symbol_name: string;
@@ -36,6 +39,12 @@ export interface IdentifiedSymbol {
 }
 
 export class ReferencesProvider {
+    private readonly scope_resolver?: ScopeResolver;
+
+    constructor(scope_resolver?: ScopeResolver) {
+        this.scope_resolver = scope_resolver;
+    }
+
     /**
      * Extract symbol name from local macro token value.
      * Strips backtick and quote from `name' format.
@@ -232,7 +241,7 @@ export class ReferencesProvider {
 
     /**
      * Find all references to the symbol at the given position.
-     * 
+     *
      * @param document - The document state
      * @param position - The cursor position
      * @param context - LSP reference context (includeDeclaration)
@@ -246,7 +255,8 @@ export class ReferencesProvider {
         context: ReferenceContext,
         workspace_indexer?: WorkspaceIndexer,
         context_tracker?: IContextTracker,
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        cross_file_config?: Partial<ScopeResolverConfig>
     ): Promise<Location[]> {
         // Check cancellation before starting (Req 5.3)
         if (cancellation_token?.isCancellationRequested) {
@@ -256,7 +266,7 @@ export class ReferencesProvider {
         // Check if we're in an embedded language context
         if (context_tracker) {
             const my_context = context_tracker.get_context_at_position(position);
-            
+
             // In embedded language context, only resolve macros
             if (my_context !== LanguageContext.STATA) {
                 return await this.get_macro_references_only(
@@ -264,17 +274,19 @@ export class ReferencesProvider {
                     position,
                     context,
                     workspace_indexer,
-                    cancellation_token
+                    cancellation_token,
+                    cross_file_config
                 );
             }
         }
 
         // Identify the symbol at cursor position
-        const identified_symbol = this.identify_symbol_at_position(
+        const identified_symbol = await this.identify_symbol_at_position(
             document,
             position,
             workspace_indexer,
-            cancellation_token
+            cancellation_token,
+            cross_file_config
         );
         if (!identified_symbol) {
             return [];
@@ -413,12 +425,13 @@ export class ReferencesProvider {
     /**
      * Identify the symbol at the cursor position and determine its type.
      */
-    private identify_symbol_at_position(
+    private async identify_symbol_at_position(
         document: DocumentState,
         position: Position,
         workspace_indexer?: WorkspaceIndexer,
-        cancellation_token?: CancellationToken
-    ): IdentifiedSymbol | null {
+        cancellation_token?: CancellationToken,
+        cross_file_config?: Partial<ScopeResolverConfig>
+    ): Promise<IdentifiedSymbol | null> {
         const word_info = this.get_word_at_position(document, position);
         if (!word_info) {
             return null;
@@ -467,7 +480,7 @@ export class ReferencesProvider {
                         case 'MACRO_REF_GLOBAL':
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
-                            return this.classify_word_symbol(word, range, document, workspace_indexer);
+                            return await this.classify_word_symbol(word, range, document, workspace_indexer, cross_file_config, cancellation_token);
                     }
                 }
             }
@@ -484,17 +497,19 @@ export class ReferencesProvider {
      * sites that tokenize as plain words (e.g., `global data_path`, where
      * `data_path` is a WORD, not a MACRO_REF_GLOBAL).
      */
-    private classify_word_symbol(
+    private async classify_word_symbol(
         word: string,
         range: Range,
         document: DocumentState,
-        workspace_indexer?: WorkspaceIndexer
-    ): IdentifiedSymbol | null {
+        workspace_indexer?: WorkspaceIndexer,
+        cross_file_config?: Partial<ScopeResolverConfig>,
+        cancellation_token?: CancellationToken
+    ): Promise<IdentifiedSymbol | null> {
         // Cursor sitting inside a macro's own declaration range must resolve
         // to the macro even when a non-macro symbol of the same name exists.
         // Stata allows cross-namespace name collisions (e.g., variable and
         // global macro both named `data_path`), so the declaration-range check
-        // runs first.
+        // runs first and stays sync against document.symbols.
         const global_macro = document.symbols.globalMacros.get(word);
         if (global_macro && this.position_in_range(range.start, global_macro.location.range)) {
             return { name: word, type: 'global_macro', range };
@@ -504,6 +519,97 @@ export class ReferencesProvider {
             return { name: word, type: 'local_macro', range };
         }
 
+        // Scope-resolver path: the classifier asks ScopeResolver what symbols
+        // are visible at the cursor. `resolved_scope.symbols` already merges
+        // the current file with every parent reachable via backward directives
+        // (done-by / included-by, auto or explicit). `forward_call_symbols`
+        // lists forward calls (do/run/include) with the line they were
+        // invoked on; a call is visible only when its call_line is strictly
+        // less than the cursor line.
+        if (this.scope_resolver) {
+            const resolve_config = build_scope_resolver_config(cross_file_config);
+            const resolved_scope = await this.scope_resolver.resolve(
+                document.uri,
+                document.content,
+                resolve_config,
+                cancellation_token
+            );
+            const cursor_line = range.start.line;
+
+            // 1. Backward chain + current file (always in scope).
+            //    Order matches the pre-fix in-document ordering: programs →
+            //    variables → scalars → matrices. Variables here are
+            //    current-file or parent declarations; workspace-wide
+            //    variables fall through to step 3.
+            if (resolved_scope.symbols.programs.has(word)) {
+                return { name: word, type: 'program', range };
+            }
+            if (resolved_scope.symbols.variables.has(word)) {
+                return { name: word, type: 'variable', range };
+            }
+            if (resolved_scope.symbols.scalars.has(word)) {
+                return { name: word, type: 'scalar', range };
+            }
+            if (resolved_scope.symbols.matrices.has(word)) {
+                return { name: word, type: 'matrix', range };
+            }
+
+            // 2. Forward calls before the cursor. Nested call sites already
+            //    carry the parent's call_line (set by ForwardScopeResolver),
+            //    so the filter is correct transitively. Preserve kind
+            //    priority across all visible sites: program → scalar →
+            //    matrix.
+            let best_forward_type: 'program' | 'scalar' | 'matrix' | null = null;
+            let best_forward_priority = -1;
+            for (const my_site of resolved_scope.forward_call_symbols ?? []) {
+                if (my_site.call_line >= cursor_line) {
+                    continue;
+                }
+
+                let site_type: 'program' | 'scalar' | 'matrix' | null = null;
+                let site_priority = -1;
+                if (my_site.symbols.programs.has(word)) {
+                    site_type = 'program';
+                    site_priority = 3;
+                } else if (my_site.symbols.scalars.has(word)) {
+                    site_type = 'scalar';
+                    site_priority = 2;
+                } else if (my_site.symbols.matrices.has(word)) {
+                    site_type = 'matrix';
+                    site_priority = 1;
+                }
+
+                if (site_priority > best_forward_priority && site_type) {
+                    best_forward_type = site_type;
+                    best_forward_priority = site_priority;
+                }
+                if (best_forward_priority === 3) {
+                    break;
+                }
+            }
+            if (best_forward_type) {
+                return { name: word, type: best_forward_type, range };
+            }
+
+            // 3. Variables remain workspace-wide: dataset columns are
+            //    legitimately shared across unrelated modules, so no
+            //    call-site filter here.
+            if (workspace_indexer) {
+                const has_cross_file_variable = workspace_indexer
+                    .find_symbol_definitions(word, 'variable')
+                    .some(my_def => my_def.sourceUri !== document.uri);
+                if (has_cross_file_variable) {
+                    return { name: word, type: 'variable', range };
+                }
+            }
+
+            return null;
+        }
+
+        // Fallback path (test-only): production always wires scope_resolver,
+        // but unit/integration tests that construct ReferencesProvider with
+        // zero args land here. Preserve the pre-fix behavior so those tests
+        // don't regress.
         if (document.symbols.programs.has(word)) {
             return { name: word, type: 'program', range };
         }
@@ -517,18 +623,6 @@ export class ReferencesProvider {
             return { name: word, type: 'matrix', range };
         }
 
-        // Fall back to cross-file non-macro symbols. Macros are intentionally
-        // excluded here: macro references must appear as `$name`/`${name}` or
-        // `` `name' `` in source, so a plain WORD shouldn't resolve to a macro.
-        // Same-URI entries are ignored: the on-disk index can lag unsaved
-        // buffer edits, and document.symbols above is the fresh view.
-        //
-        // Ordering matters. Related-file code symbols (programs, scalars,
-        // matrices) are checked before workspace-wide variables: a name
-        // collision with a variable in an unrelated module must not outrank
-        // a real code-level definition reachable through the dependency
-        // graph. Variables remain a workspace-wide fallback because dataset
-        // columns are legitimately shared across unrelated analyses.
         if (workspace_indexer) {
             const the_related = workspace_indexer.get_related_uris(document.uri);
             const has_cross_file_any = (
@@ -572,13 +666,15 @@ export class ReferencesProvider {
         position: Position,
         context: ReferenceContext,
         workspace_indexer?: WorkspaceIndexer,
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        cross_file_config?: Partial<ScopeResolverConfig>
     ): Promise<Location[]> {
-        const identified_symbol = this.identify_symbol_at_position(
+        const identified_symbol = await this.identify_symbol_at_position(
             document,
             position,
             workspace_indexer,
-            cancellation_token
+            cancellation_token,
+            cross_file_config
         );
         if (!identified_symbol || (identified_symbol.type !== 'local_macro' && identified_symbol.type !== 'global_macro')) {
             return [];

@@ -496,6 +496,7 @@ export function create_references_handler(
         if (!document_state || !deps.references_provider) {
             return null;
         }
+        const config = await deps.get_document_settings(params.textDocument.uri);
 
         return await deps.references_provider.get_references(
             document_state,
@@ -503,7 +504,12 @@ export function create_references_handler(
             params.context,
             deps.workspace_indexer || undefined,
             document_state.context_tracker,
-            token
+            token,
+            {
+                assume_call_site: config.cross_file?.assume_call_site,
+                backward_dependencies: config.cross_file?.backward_dependencies,
+                max_forward_depth: config.cross_file?.max_forward_depth,
+            }
         );
     };
 }
