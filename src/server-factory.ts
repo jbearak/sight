@@ -855,7 +855,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
             );
             hover_provider = new HoverProvider(command_database);
             definition_provider = new DefinitionProvider();
-            references_provider = new ReferencesProvider();
             symbol_provider = new SymbolProvider();
             formatter_provider = new CodeFormatter();
             workspace_indexer = new WorkspaceIndexer();
@@ -885,6 +884,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     }
                 }
             });
+
+            references_provider = new ReferencesProvider(scope_resolver);
 
             document_store.set_scope_resolver(scope_resolver);
 
