@@ -130,9 +130,18 @@ export class WorkspaceIndexer {
      * current one (excluding unrelated modules that happen to reuse
      * the same symbol name).
      */
-    get_related_uris(uri: string): Set<string> {
+    get_related_uris(
+        uri: string,
+        options?: { include_only?: boolean }
+    ): Set<string> {
         const the_related_uris = new Set<string>([uri]);
         if (!this.dependency_graph) return the_related_uris;
+
+        const is_include_only = options?.include_only === true;
+        const is_allowed_directive = (my_type: Directive['type']): boolean => {
+            if (is_include_only) return my_type === 'included-by';
+            return my_type === 'done-by' || my_type === 'included-by';
+        };
 
         const the_parent_to_children_map = new Map<string, Set<string>>();
         const record_child_directives = (
@@ -140,12 +149,7 @@ export class WorkspaceIndexer {
             my_directives: Directive[]
         ): void => {
             for (const my_directive of my_directives) {
-                if (
-                    my_directive.type !== 'done-by' &&
-                    my_directive.type !== 'included-by'
-                ) {
-                    continue;
-                }
+                if (!is_allowed_directive(my_directive.type)) continue;
                 const my_parent_uri = URI.file(my_directive.path).toString();
                 let my_children_set = the_parent_to_children_map.get(my_parent_uri);
                 if (!my_children_set) {
@@ -169,12 +173,16 @@ export class WorkspaceIndexer {
         while (the_work_stack.length > 0) {
             const my_uri = the_work_stack.pop()!;
             for (const my_edge of this.dependency_graph.get_parents(my_uri)) {
+                if (is_include_only && my_edge.call_type !== 'include') continue;
                 if (!the_related_uris.has(my_edge.caller_uri)) {
                     the_related_uris.add(my_edge.caller_uri);
                     the_work_stack.push(my_edge.caller_uri);
                 }
             }
-            for (const my_callee of this.dependency_graph.get_callees(my_uri)) {
+            const the_callees = is_include_only
+                ? this.dependency_graph.get_callees_by_type(my_uri, 'include')
+                : this.dependency_graph.get_callees(my_uri);
+            for (const my_callee of the_callees) {
                 if (!the_related_uris.has(my_callee)) {
                     the_related_uris.add(my_callee);
                     the_work_stack.push(my_callee);
@@ -185,12 +193,7 @@ export class WorkspaceIndexer {
                 ?? this.symbol_index.get(my_uri)?.directives;
             if (my_entry_directives) {
                 for (const my_directive of my_entry_directives) {
-                    if (
-                        my_directive.type !== 'done-by' &&
-                        my_directive.type !== 'included-by'
-                    ) {
-                        continue;
-                    }
+                    if (!is_allowed_directive(my_directive.type)) continue;
                     const my_parent_uri = URI.file(my_directive.path).toString();
                     if (!the_related_uris.has(my_parent_uri)) {
                         the_related_uris.add(my_parent_uri);

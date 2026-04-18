@@ -272,6 +272,40 @@ describe('WorkspaceIndexer', () => {
         expect(related_after_clear.has(child_uri)).toBe(false);
     });
 
+    it('should restrict get_related_uris to include chains when include_only is set', async () => {
+        // Local macros only propagate through `include` chains in Stata,
+        // never through `do`/`run`. `get_related_uris` must be able to
+        // return an include-only reachable set so find-references on a
+        // local macro doesn't scan unrelated do-called files.
+        const parent_path = path.join(temp_dir, 'parent.do');
+        const included_path = path.join(temp_dir, 'included_child.do');
+        const done_path = path.join(temp_dir, 'done_child.do');
+        fs.writeFileSync(
+            parent_path,
+            `include "${included_path}"\ndo "${done_path}"\n`,
+        );
+        fs.writeFileSync(included_path, 'display "in include"\n');
+        fs.writeFileSync(done_path, 'display "in do"\n');
+
+        const graph = new DependencyGraph();
+        indexer.set_dependency_graph(graph);
+        await indexer.initialize([temp_dir]);
+
+        const parent_uri = URI.file(parent_path).toString();
+        const included_uri = URI.file(included_path).toString();
+        const done_uri = URI.file(done_path).toString();
+
+        const all_related = indexer.get_related_uris(parent_uri);
+        expect(all_related.has(included_uri)).toBe(true);
+        expect(all_related.has(done_uri)).toBe(true);
+
+        const include_only = indexer.get_related_uris(parent_uri, {
+            include_only: true,
+        });
+        expect(include_only.has(included_uri)).toBe(true);
+        expect(include_only.has(done_uri)).toBe(false);
+    });
+
     it('should debounce rapid file updates', async () => {
         const file_path = path.join(temp_dir, 'debounce.do');
         fs.writeFileSync(file_path, 'program define prog1\nend');

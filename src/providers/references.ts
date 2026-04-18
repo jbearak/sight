@@ -644,9 +644,17 @@ export class ReferencesProvider {
         // scalars, matrices, macros) is a code-level symbol where cross-module
         // name collisions are almost always coincidental, so we restrict the
         // scan to dep-graph-reachable files.
+        //
+        // Local macros are narrower still: Stata only propagates locals
+        // through `include` chains, never through `do` or `run`. A local
+        // with the same name in a `do`-called child is a different macro,
+        // so the reachable set is restricted to include-only edges.
         const restrict_to_related = symbol_type !== 'variable';
         const the_related = workspace_indexer
-            ? workspace_indexer.get_related_uris(document.uri)
+            ? workspace_indexer.get_related_uris(
+                document.uri,
+                symbol_type === 'local_macro' ? { include_only: true } : undefined
+            )
             : new Set<string>([document.uri]);
 
         // Check cancellation before workspace scan (Req 5.3)

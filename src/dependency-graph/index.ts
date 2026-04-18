@@ -153,6 +153,35 @@ export class DependencyGraph {
     }
 
     /**
+     * Get the callees that `caller_uri` reaches through the given
+     * `call_type` (e.g., only `include`). Used by find-references to
+     * restrict local-macro scans to include chains — `do`/`run` don't
+     * propagate local macros in Stata.
+     */
+    get_callees_by_type(
+        caller_uri: string,
+        call_type: ForwardCallType
+    ): Set<string> {
+        const my_caller_uri = this.normalize_uri(caller_uri);
+        const the_callees = this.caller_to_callees.get(my_caller_uri);
+        const the_filtered = new Set<string>();
+        if (!the_callees) return the_filtered;
+        for (const my_callee_uri of the_callees) {
+            const the_edges = this.callee_to_callers.get(my_callee_uri) ?? [];
+            for (const my_edge of the_edges) {
+                if (
+                    my_edge.caller_uri === my_caller_uri &&
+                    my_edge.call_type === call_type
+                ) {
+                    the_filtered.add(my_callee_uri);
+                    break;
+                }
+            }
+        }
+        return the_filtered;
+    }
+
+    /**
      * Mark the initial workspace scan as complete.
      * After this, diagnostic deferral is no longer needed.
      */

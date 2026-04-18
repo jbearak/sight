@@ -563,4 +563,82 @@ describe('Find References - definition site & cross-file symbols', () => {
         const leaks_unrelated = locations.some(loc => loc.uri === unrelated_uri);
         expect(leaks_unrelated).toBe(false);
     });
+
+    it('does not leak local macro references across do/run boundaries', async () => {
+        // Stata only propagates locals through `include`. A `do`-called
+        // child with a same-named local macro reference is unrelated to
+        // the parent's local.
+        const parent_path = join(test_temp_dir, 'parent.do');
+        const child_path = join(test_temp_dir, 'child.do');
+        const parent_content =
+            `local x = 5\n` +
+            `display "\`x'"\n` +
+            `do "${child_path}"\n`;
+        const child_content = `display "\`x'"\n`;
+        writeFileSync(parent_path, parent_content);
+        writeFileSync(child_path, child_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const parent_uri = URI.file(parent_path).toString();
+        const child_uri = URI.file(child_path).toString();
+        await document_store.open(parent_uri, parent_content, 1);
+        await document_store.open(child_uri, child_content, 1);
+        const document_state = document_store.get(parent_uri)!;
+
+        // Cursor on `x` inside `` `x' `` on line 1 (the reference in parent).
+        const ref_line = 1;
+        const ref_char = parent_content
+            .split('\n')[ref_line]
+            .indexOf("`x'") + 1;
+
+        const locations = await references_provider.get_references(
+            document_state,
+            { line: ref_line, character: ref_char },
+            { includeDeclaration: false },
+            indexer,
+            document_state.context_tracker
+        );
+
+        const has_child_ref = locations.some(loc => loc.uri === child_uri);
+        expect(has_child_ref).toBe(false);
+    });
+
+    it('still includes local macro references across include chains', async () => {
+        // The `do`-exclusion above must not regress `include` behavior.
+        // `include` propagates locals, so child refs are legitimate hits.
+        const parent_path = join(test_temp_dir, 'parent.do');
+        const child_path = join(test_temp_dir, 'child.do');
+        const parent_content =
+            `local x = 5\n` +
+            `display "\`x'"\n` +
+            `include "${child_path}"\n`;
+        const child_content = `display "\`x'"\n`;
+        writeFileSync(parent_path, parent_content);
+        writeFileSync(child_path, child_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const parent_uri = URI.file(parent_path).toString();
+        const child_uri = URI.file(child_path).toString();
+        await document_store.open(parent_uri, parent_content, 1);
+        await document_store.open(child_uri, child_content, 1);
+        const document_state = document_store.get(parent_uri)!;
+
+        const ref_line = 1;
+        const ref_char = parent_content
+            .split('\n')[ref_line]
+            .indexOf("`x'") + 1;
+
+        const locations = await references_provider.get_references(
+            document_state,
+            { line: ref_line, character: ref_char },
+            { includeDeclaration: false },
+            indexer,
+            document_state.context_tracker
+        );
+
+        const has_child_ref = locations.some(loc => loc.uri === child_uri);
+        expect(has_child_ref).toBe(true);
+    });
 });
