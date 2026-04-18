@@ -41,6 +41,7 @@ import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
 import { build_scope_resolver_config } from '../scope-resolver';
+import { get_visible_forward_call_sites } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
 
@@ -465,29 +466,6 @@ export class HoverProvider {
     }
 
     /**
-     * Get visible forward call symbols at a given position.
-     * Symbols from forward calls are only visible AFTER the call site line.
-     *
-     * @param resolved_scope - The resolved scope containing forward_call_symbols
-     * @param position - The cursor position
-     * @returns Array of ForwardCallSite objects that are visible at the position
-     */
-    private get_visible_forward_call_sites(
-        resolved_scope: ResolvedScope | undefined,
-        position: Position
-    ): import('../types').ForwardCallSite[] {
-        if (!resolved_scope?.forward_call_symbols) {
-            return [];
-        }
-
-        // Filter to only include call sites where cursor is AFTER the call line
-        // Symbols become visible after the call site line (cursor_line > call_line)
-        return resolved_scope.forward_call_symbols.filter(
-            call_site => position.line > call_site.call_line
-        );
-    }
-
-    /**
      * Get hover info for a local macro only.
      * Checks resolved scope, forward call symbols (with position filtering), and document symbols.
      *
@@ -528,7 +506,7 @@ export class HoverProvider {
             // Check forward call symbols with position filtering
             // Only include symbols where cursor line > call_line (visible AFTER call site)
             if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = this.get_visible_forward_call_sites(resolved_scope, position);
+                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
                 for (const my_call_site of the_visible_call_sites) {
                     // For 'include' type, local macros are visible; for 'do' type, they are not
                     if (my_call_site.effective_type === 'include') {
@@ -620,7 +598,7 @@ export class HoverProvider {
             // Check forward call symbols with position filtering
             // Global macros are visible from both 'do' and 'include' types
             if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = this.get_visible_forward_call_sites(resolved_scope, position);
+                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
                 for (const my_call_site of the_visible_call_sites) {
                     const forward_global_macro = my_call_site.symbols.globalMacros.get(word);
                     if (forward_global_macro) {
@@ -702,7 +680,7 @@ export class HoverProvider {
 
             // Check forward call symbols with position filtering
             if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = this.get_visible_forward_call_sites(resolved_scope, position);
+                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
                 for (const my_call_site of the_visible_call_sites) {
                     const forward_scalar = my_call_site.symbols.scalars.get(word);
                     if (forward_scalar) {
@@ -789,7 +767,7 @@ export class HoverProvider {
 
             // Check forward call symbols with position filtering
             if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = this.get_visible_forward_call_sites(resolved_scope, position);
+                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
                 for (const my_call_site of the_visible_call_sites) {
                     const forward_matrix = my_call_site.symbols.matrices.get(word);
                     if (forward_matrix) {
@@ -1348,7 +1326,7 @@ export class HoverProvider {
             // Check forward call symbols with position filtering
             // Programs are visible from both 'do' and 'include' types
             if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = this.get_visible_forward_call_sites(resolved_scope, position);
+                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
                 for (const my_call_site of the_visible_call_sites) {
                     const forward_program = my_call_site.symbols.programs.get(word);
                     if (forward_program) {
@@ -1449,7 +1427,7 @@ export class HoverProvider {
             // Check forward call symbols with position filtering
             // Variables are visible from both 'do' and 'include' types
             if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = this.get_visible_forward_call_sites(resolved_scope, position);
+                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
                 for (const my_call_site of the_visible_call_sites) {
                     const forward_variable = my_call_site.symbols.variables.get(word);
                     if (forward_variable) {
