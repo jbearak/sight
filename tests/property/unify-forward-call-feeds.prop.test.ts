@@ -13,7 +13,8 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer, create_empty_symbol_table } from '../../src/analyzer';
 import { ContextTracker } from '../../src/context-tracker';
-import { DocumentState, StataDiagnosticCode, ForwardCallSite, StataLSPConfig, ForwardResolvedScope } from '../../src/types';
+import { DocumentState, StataDiagnosticCode, ForwardCallSite, StataLSPConfig, ResolvedScope } from '../../src/types';
+import { ScopeResolver } from '../../src/scope-resolver';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -37,6 +38,17 @@ const DEFAULT_CONFIG: StataLSPConfig = {
 
 function create_mock_connection() {
     return { sendDiagnostics: () => {} };
+}
+
+/**
+ * Wire a stub ScopeResolver whose .resolve() returns the provided
+ * ResolvedScope. Used to feed canned forward_call_symbols to
+ * DiagnosticsProvider without standing up a full resolver.
+ */
+function make_stub_scope_resolver(resolved_scope: ResolvedScope): ScopeResolver {
+    const the_stub = new ScopeResolver();
+    (the_stub as any).resolve = async () => resolved_scope;
+    return the_stub;
 }
 
 function create_document_state(content: string, uri: string): DocumentState {
@@ -144,10 +156,16 @@ describe('Feature: unify-forward-call-feeds', () => {
                         const caller_uri = URI.file(caller_path).toString();
                         const doc_state = create_document_state(caller_content, caller_uri);
 
-                        // Create forward_scope with the symbol
-                        const forward_scope: ForwardResolvedScope = {
+                        // Build a ResolvedScope carrying forward_call_symbols
+                        // and wire it through a stub ScopeResolver.
+                        const resolved_scope: ResolvedScope = {
+                            chain: [],
                             symbols: create_empty_symbol_table(),
-                            call_sites: [{
+                            out_of_scope_symbols: [],
+                            diagnostics: [],
+                            has_directives: false,
+                            has_auto_parents: false,
+                            forward_call_symbols: [{
                                 callee_uri: URI.file(callee_path).toString(),
                                 call_line: call_line,
                                 symbols: {
@@ -160,17 +178,14 @@ describe('Feature: unify-forward-call-feeds', () => {
                                 },
                                 effective_type: 'do' as const,
                             }] as ForwardCallSite[],
-                            diagnostics: [],
                         };
 
-                        // Get diagnostics with forward_scope (no scope_resolver)
+                        const stub_resolver = make_stub_scope_resolver(resolved_scope);
                         const diagnostics = await provider.get_diagnostics(
                             doc_state,
                             DEFAULT_CONFIG,
                             undefined,
-                            undefined,
-                            undefined,
-                            forward_scope
+                            stub_resolver
                         );
 
                         const has_undefined_warning = diagnostics.some(d => 
@@ -219,7 +234,7 @@ describe('Feature: unify-forward-call-feeds', () => {
                         const caller_uri = URI.file(caller_path).toString();
                         const doc_state = create_document_state(caller_content, caller_uri);
 
-                        // Create forward_scope with the symbol
+                        // Build symbols for the forward-call site
                         const symbols = create_empty_symbol_table();
                         if (is_local) {
                             symbols.localMacros.set(symbol_name, {
@@ -235,24 +250,27 @@ describe('Feature: unify-forward-call-feeds', () => {
                             });
                         }
 
-                        const forward_scope: ForwardResolvedScope = {
+                        const resolved_scope: ResolvedScope = {
+                            chain: [],
                             symbols: create_empty_symbol_table(),
-                            call_sites: [{
+                            out_of_scope_symbols: [],
+                            diagnostics: [],
+                            has_directives: false,
+                            has_auto_parents: false,
+                            forward_call_symbols: [{
                                 callee_uri: URI.file(callee_path).toString(),
                                 call_line: 0,
                                 symbols,
                                 effective_type,
                             }] as ForwardCallSite[],
-                            diagnostics: [],
                         };
 
+                        const stub_resolver = make_stub_scope_resolver(resolved_scope);
                         const diagnostics = await provider.get_diagnostics(
                             doc_state,
                             DEFAULT_CONFIG,
                             undefined,
-                            undefined,
-                            undefined,
-                            forward_scope
+                            stub_resolver
                         );
 
                         const has_undefined_warning = diagnostics.some(d => 

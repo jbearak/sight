@@ -747,36 +747,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         ? workspace_indexer.get_all_symbols()
                         : undefined;
 
-                    let forward_scope = undefined;
-                    // Skip forward_scope computation when scope_resolver is available —
-                    // ScopeResolver.resolve() already calls ForwardScopeResolver internally
-                    if (!scope_resolver && forward_scope_resolver && document_state.forward_calls.length > 0) {
-                        const max_depth = settings.cross_file?.max_forward_depth ?? 10;
-                        forward_scope = await forward_scope_resolver.resolve(
-                            document_state.uri,
-                            document_state.forward_calls,
-                            'include',
-                            {
-                                visited: new Map(),
-                                effective_call_type: 'include',
-                                depth: 0,
-                                diagnostics: [],
-                                working_directory: document_state.working_directory,
-                                call_chain: [],
-                            },
-                            undefined,
-                            undefined,
-                            { max_forward_depth: max_depth }
-                        );
-                    }
-
                     const result = await diagnostics_provider.publish_diagnostics(
                         document_state,
                         settings,
                         diag_workspace_symbols,
                         scope_resolver || undefined,
-                        undefined,
-                        forward_scope
+                        undefined
                     );
 
                     if (result.pending) {
