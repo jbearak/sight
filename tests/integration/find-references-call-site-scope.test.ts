@@ -330,4 +330,51 @@ describe('Find References - call-site scope filtering (issue #127)', () => {
         const before_has_leaf = before_locations.some(loc => loc.uri === leaf_uri);
         expect(before_has_leaf).toBe(false);
     });
+
+    it('keeps pre-fix behavior when ReferencesProvider is constructed without a scope_resolver', async () => {
+        // The fallback path is intended only for test-only setups that
+        // construct `new ReferencesProvider()`. Production always wires a
+        // scope_resolver. This test pins the fallback so those setups do
+        // not regress.
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `shared_prog\n` +
+            `do "defs.do"\n`;
+        writeFileSync(main_path, main_content);
+
+        const defs_path = join(test_temp_dir, 'defs.do');
+        const defs_content =
+            `program define shared_prog\n` +
+            `end\n`;
+        writeFileSync(defs_path, defs_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        // Build a references_provider WITHOUT a scope_resolver.
+        const fallback_provider = new ReferencesProvider();
+
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
+
+        const cursor_line = 0;
+        const cursor_char = main_content
+            .split('\n')[cursor_line]
+            .indexOf('shared_prog') + 3;
+
+        const locations = await fallback_provider.get_references(
+            document_state,
+            { line: cursor_line, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker
+        );
+
+        // Pre-fix behavior: without scope_resolver, the classifier uses
+        // get_related_uris and pools defs.do in. Pin that behavior so
+        // test-only setups don't regress.
+        const defs_uri = URI.file(defs_path).toString();
+        const pools_defs_in_fallback = locations.some(loc => loc.uri === defs_uri);
+        expect(pools_defs_in_fallback).toBe(true);
+    });
 });
