@@ -303,7 +303,6 @@ export function create_completion_handler(
                     undefined,
                     undefined,
                     undefined,
-                    undefined,
                     token
                 );
                 // Return as CompletionList with isIncomplete=true to force VS Code
@@ -360,7 +359,6 @@ export function create_completion_handler(
                     backward_dependencies: config.cross_file?.backward_dependencies,
                     max_forward_depth: config.cross_file?.max_forward_depth,
                 },
-                forward_scope,
                 workspace_version,
                 token,
                 graph_version

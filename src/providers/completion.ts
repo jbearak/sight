@@ -29,7 +29,6 @@ import {
     ProgramSignature,
     ProgramNode,
     ProgramSymbol,
-    ForwardResolvedScope,
     ForwardCallSite,
     ScopeResolverConfig,
 } from '../types';
@@ -38,6 +37,7 @@ import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
 import { ScopeResolver } from '../scope-resolver';
 import { build_scope_resolver_config } from '../scope-resolver';
+import { get_visible_forward_call_sites } from '../scope-resolver';
 import { merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
 import { logger } from '../utils/logger';
@@ -51,29 +51,6 @@ import {
     MacroCompletionContext
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
-
-/**
- * Get visible forward call symbols at a given position.
- * Symbols from forward calls are only visible AFTER the call site line.
- *
- * @param resolved_scope - The resolved scope containing forward_call_symbols
- * @param position - The cursor position
- * @returns Array of ForwardCallSite objects that are visible at the position
- */
-function get_visible_forward_call_sites(
-    resolved_scope: ResolvedScope | undefined,
-    position: Position
-): ForwardCallSite[] {
-    if (!resolved_scope?.forward_call_symbols) {
-        return [];
-    }
-
-    // Filter to only include call sites where cursor is AFTER the call line
-    // Symbols become visible after the call site line (cursor_line > call_line)
-    return resolved_scope.forward_call_symbols.filter(
-        call_site => position.line > call_site.call_line
-    );
-}
 
 /**
  * Map ForwardCallSite.effective_type to directive_type for ranking.
@@ -850,7 +827,6 @@ export class CompletionProvider {
      * @param scope_resolver - Optional scope resolver for cross-file awareness
      * @param workspace_symbols - Optional workspace-wide symbol table
      * @param cross_file_config - Optional cross-file config for scope resolution
-     * @param forward_scope - Optional forward-resolved scope for forward calls
      * @param workspace_version - Optional workspace version for cache validation
      * @param cancellation_token - Optional cancellation token
      * @returns Array of completion items
@@ -862,7 +838,6 @@ export class CompletionProvider {
         scope_resolver?: ScopeResolver,
         workspace_symbols?: SymbolTable,
         cross_file_config?: Partial<ScopeResolverConfig>,
-        forward_scope?: ForwardResolvedScope,
         workspace_version?: number,
         cancellation_token?: CancellationToken,
         graph_version?: number
@@ -987,8 +962,7 @@ export class CompletionProvider {
                         document,
                         position,
                         symbols_for_completion,
-                        resolved_scope,
-                        forward_scope
+                        resolved_scope
                     );
                     the_completions.push(...macro_completions);
                     return the_completions;
@@ -1007,7 +981,7 @@ export class CompletionProvider {
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_command_completions(document, position, symbols_for_completion, resolved_scope, forward_scope);
+                    return this.get_command_completions(document, position, symbols_for_completion, resolved_scope);
 
                 case 'option':
                     // Suppress option completions in embedded language contexts
@@ -1018,21 +992,21 @@ export class CompletionProvider {
 
                 case 'macro':
                     // Always provide macro completions (macros work in all contexts)
-                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, resolved_scope, forward_scope);
+                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, resolved_scope);
 
                 case 'variable':
                     // Suppress variable completions in embedded language contexts
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_variable_completions(document, position, symbols_for_completion, resolved_scope, forward_scope);
+                    return this.get_variable_completions(document, position, symbols_for_completion, resolved_scope);
 
                 case 'program':
                     // Suppress program completions in embedded language contexts
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_program_completions(document, position, symbols_for_completion, resolved_scope, forward_scope);
+                    return this.get_program_completions(document, position, symbols_for_completion, resolved_scope);
 
                 case 'directive_path':
                     // File path completions for directives (e.g., @lsp-done-by:)
@@ -1076,8 +1050,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
-        resolved_scope?: ResolvedScope,
-        forward_scope?: ForwardResolvedScope
+        resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const prefix = this.get_word_at_position(document, position);
         
@@ -1141,48 +1114,14 @@ export class CompletionProvider {
             }
         }
 
-        // Add forward scope symbols (from forward_scope parameter - legacy path)
-        if (forward_scope) {
-            const cursor_line = position.line;
-            for (const call_site of forward_scope.call_sites) {
-                if (call_site.call_line < cursor_line) {
-                    for (const [name, program] of call_site.symbols.programs) {
-                        if ((prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) && 
-                            !seen_labels.has(name.toLowerCase())) {
-                            seen_labels.add(name.toLowerCase());
-                            
-                            const ranking_factors: CompletionRankingFactors = {
-                                scope_depth: 1,
-                                directive_type: map_effective_type_to_directive(call_site.effective_type),
-                                symbol_type: 'user-program',
-                                alphabetical_order: program.name,
-                                parent_uri: program.sourceUri
-                            };
-                            
-                            const source_path = this.get_relative_path(program.sourceUri);
-                            const detail = `User-defined program (from ${source_path})`;
-                            
-                            the_completions.push({
-                                label: program.name,
-                                kind: CompletionItemKind.Function,
-                                detail,
-                                documentation: `Defined at ${program.sourceUri}`,
-                                sortText: compute_ranking_key(ranking_factors),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
         // Add forward call symbols from resolved_scope (position-aware filtering)
         // This handles symbols from current file's forward call directives
         // Programs are visible from both 'do' and 'include' types
         if (resolved_scope?.forward_call_symbols) {
-            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position);
+            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
             for (const my_call_site of the_visible_call_sites) {
                 for (const [name, program] of my_call_site.symbols.programs) {
-                    if ((prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) && 
+                    if ((prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) &&
                         !seen_labels.has(name.toLowerCase())) {
                         seen_labels.add(name.toLowerCase());
                         
@@ -1585,7 +1524,6 @@ export class CompletionProvider {
      * @param document - The document state
      * @param position - The cursor position for prefix extraction
      * @param resolved_scope - Optional resolved scope for cross-file symbols
-     * @param forward_scope - Optional forward-resolved scope for forward calls
      * @returns Array of completion items filtered by prefix and sorted alphabetically
      */
     private get_macro_completions(
@@ -1593,8 +1531,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
-        resolved_scope?: ResolvedScope,
-        forward_scope?: ForwardResolvedScope
+        resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         // Use context.form to determine scope and delimiter behavior
         const scope = context.scope;
@@ -1748,59 +1685,10 @@ export class CompletionProvider {
             seen_labels.add(name);
         }
 
-        // Add forward scope symbols (from forward_scope parameter - legacy path)
-        if (forward_scope) {
-            const cursor_line = position.line;
-            for (const call_site of forward_scope.call_sites) {
-                if (call_site.call_line < cursor_line) {
-                    const forward_macros = scope === 'local' ? call_site.symbols.localMacros : call_site.symbols.globalMacros;
-                    
-                    for (const [name, macro] of forward_macros) {
-                        // Case-insensitive prefix match
-                        if (!(prefix === '' || name.toLowerCase().startsWith(prefix_lower))) {
-                            continue;
-                        }
-
-                        // Skip if already added
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: scope === 'local' ? 'local-macro' : 'global-macro',
-                            alphabetical_order: name,
-                            parent_uri: macro.sourceUri,
-                        };
-
-                        const source_path = this.get_relative_path(macro.sourceUri);
-                        const detail = `${scope} macro (from ${source_path})`;
-
-                        // Compute newText with optional closing delimiter
-                        const new_text = name + (needs_closing_delimiter ? closing_char : '');
-
-                        the_completions.push({
-                            label: name,
-                            kind: CompletionItemKind.Variable,
-                            detail,
-                            documentation: macro.value ? `Value: ${macro.value}` : undefined,
-                            sortText: compute_ranking_key(ranking_factors),
-                            textEdit: {
-                                range: replacement_range,
-                                newText: new_text,
-                            },
-                        });
-                        seen_labels.add(name);
-                    }
-                }
-            }
-        }
-
         // Add forward call symbols from resolved_scope (position-aware filtering)
         // This handles symbols from current file's forward call directives
         if (resolved_scope?.forward_call_symbols) {
-            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position);
+            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
             for (const my_call_site of the_visible_call_sites) {
                 // For local macros, only include from 'include' type (not 'do')
                 // For global macros, include from both 'do' and 'include' types
@@ -1908,8 +1796,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
-        resolved_scope?: ResolvedScope,
-        forward_scope?: ForwardResolvedScope
+        resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
         const seen_labels = new Set<string>();
@@ -2061,116 +1948,11 @@ export class CompletionProvider {
             seen_labels.add(name);
         }
 
-        // Add forward scope symbols
-        if (forward_scope) {
-            const cursor_line = position.line;
-            for (const call_site of forward_scope.call_sites) {
-                if (call_site.call_line < cursor_line) {
-                    // Variables
-                    for (const [name, variable] of call_site.symbols.variables) {
-                        // Skip if already added
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: 'variable',
-                            alphabetical_order: name,
-                            parent_uri: variable.sourceUri
-                        };
-
-                        const source_path = this.get_relative_path(variable.sourceUri);
-                        const detail = variable.type ? `${variable.type} variable (from ${source_path})` : `Variable (from ${source_path})`;
-
-                        the_completions.push({
-                            label: name,
-                            kind: CompletionItemKind.Field,
-                            detail,
-                            documentation: variable.label || `Created via ${variable.source}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                            textEdit: {
-                                range: replacement_range,
-                                newText: name,
-                            },
-                            filterText: name,
-                        });
-                        seen_labels.add(name);
-                    }
-
-                    // Scalars
-                    for (const [name, scalar] of call_site.symbols.scalars) {
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: 'scalar',
-                            alphabetical_order: name,
-                            parent_uri: scalar.sourceUri
-                        };
-
-                        const source_path = this.get_relative_path(scalar.sourceUri);
-                        const detail = `Scalar (from ${source_path})`;
-
-                        the_completions.push({
-                            label: name,
-                            kind: CompletionItemKind.Constant,
-                            detail,
-                            documentation: `Defined at ${scalar.sourceUri}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                            textEdit: {
-                                range: replacement_range,
-                                newText: name,
-                            },
-                            filterText: name,
-                        });
-                        seen_labels.add(name);
-                    }
-
-                    // Matrices
-                    for (const [name, matrix] of call_site.symbols.matrices) {
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: 'matrix',
-                            alphabetical_order: name,
-                            parent_uri: matrix.sourceUri
-                        };
-
-                        const source_path = this.get_relative_path(matrix.sourceUri);
-                        const detail = `Matrix (from ${source_path})`;
-
-                        the_completions.push({
-                            label: name,
-                            kind: CompletionItemKind.Struct,
-                            detail,
-                            documentation: `Defined at ${matrix.sourceUri}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                            textEdit: {
-                                range: replacement_range,
-                                newText: name,
-                            },
-                            filterText: name,
-                        });
-                        seen_labels.add(name);
-                    }
-                }
-            }
-        }
-
         // Add forward call symbols from resolved_scope (position-aware filtering)
         // This handles symbols from current file's forward call directives
         // Variables, scalars, and matrices are visible from both 'do' and 'include' types
         if (resolved_scope?.forward_call_symbols) {
-            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position);
+            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
             for (const my_call_site of the_visible_call_sites) {
                 // Variables
                 for (const [name, variable] of my_call_site.symbols.variables) {
@@ -2281,8 +2063,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
-        resolved_scope?: ResolvedScope,
-        forward_scope?: ForwardResolvedScope
+        resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
         const seen_labels = new Set<string>();
@@ -2322,46 +2103,11 @@ export class CompletionProvider {
             seen_labels.add(name);
         }
 
-        // Add forward scope symbols (from forward_scope parameter - legacy path)
-        if (forward_scope) {
-            const cursor_line = position.line;
-            for (const call_site of forward_scope.call_sites) {
-                if (call_site.call_line < cursor_line) {
-                    for (const [name, program] of call_site.symbols.programs) {
-                        // Skip if already added
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: 'user-program',
-                            alphabetical_order: program.name,
-                            parent_uri: program.sourceUri
-                        };
-
-                        const source_path = this.get_relative_path(program.sourceUri);
-                        const detail = `User-defined program (from ${source_path})`;
-
-                        the_completions.push({
-                            label: program.name,
-                            kind: CompletionItemKind.Function,
-                            detail,
-                            documentation: `Defined at ${program.sourceUri}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                        });
-                        seen_labels.add(name);
-                    }
-                }
-            }
-        }
-
         // Add forward call symbols from resolved_scope (position-aware filtering)
         // This handles symbols from current file's forward call directives
         // Programs are visible from both 'do' and 'include' types
         if (resolved_scope?.forward_call_symbols) {
-            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position);
+            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
             for (const my_call_site of the_visible_call_sites) {
                 for (const [name, program] of my_call_site.symbols.programs) {
                     // Skip if already added
