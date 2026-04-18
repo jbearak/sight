@@ -556,29 +556,39 @@ export class ReferencesProvider {
 
             // 2. Forward calls before the cursor. Nested call sites already
             //    carry the parent's call_line (set by ForwardScopeResolver),
-            //    so the filter is correct transitively.
-            //
-            //    Three separate loops (not one nested loop) so kind priority
-            //    is preserved across sites: a program match in any visible
-            //    site wins over a scalar match in any other site, matching
-            //    the backward-chain ordering above.
-            const the_visible_sites = resolved_scope.forward_call_symbols?.filter(
-                my_site => my_site.call_line < cursor_line
-            ) ?? [];
-            for (const my_site of the_visible_sites) {
+            //    so the filter is correct transitively. Preserve kind
+            //    priority across all visible sites: program → scalar →
+            //    matrix.
+            let best_forward_type: 'program' | 'scalar' | 'matrix' | null = null;
+            let best_forward_priority = -1;
+            for (const my_site of resolved_scope.forward_call_symbols ?? []) {
+                if (my_site.call_line >= cursor_line) {
+                    continue;
+                }
+
+                let site_type: 'program' | 'scalar' | 'matrix' | null = null;
+                let site_priority = -1;
                 if (my_site.symbols.programs.has(word)) {
-                    return { name: word, type: 'program', range };
+                    site_type = 'program';
+                    site_priority = 3;
+                } else if (my_site.symbols.scalars.has(word)) {
+                    site_type = 'scalar';
+                    site_priority = 2;
+                } else if (my_site.symbols.matrices.has(word)) {
+                    site_type = 'matrix';
+                    site_priority = 1;
+                }
+
+                if (site_priority > best_forward_priority && site_type) {
+                    best_forward_type = site_type;
+                    best_forward_priority = site_priority;
+                }
+                if (best_forward_priority === 3) {
+                    break;
                 }
             }
-            for (const my_site of the_visible_sites) {
-                if (my_site.symbols.scalars.has(word)) {
-                    return { name: word, type: 'scalar', range };
-                }
-            }
-            for (const my_site of the_visible_sites) {
-                if (my_site.symbols.matrices.has(word)) {
-                    return { name: word, type: 'matrix', range };
-                }
+            if (best_forward_type) {
+                return { name: word, type: best_forward_type, range };
             }
 
             // 3. Variables remain workspace-wide: dataset columns are

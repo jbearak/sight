@@ -66,6 +66,12 @@ describe('Find References - call-site scope filtering (issue #127)', () => {
     });
 
     afterEach(() => {
+        try {
+            pipeline?.scope_resolver?.dispose();
+        } catch {}
+        try {
+            pipeline?.forward_scope_resolver?.dispose();
+        } catch {}
         if (existsSync(test_temp_dir)) {
             rmSync(test_temp_dir, { recursive: true, force: true });
         }
