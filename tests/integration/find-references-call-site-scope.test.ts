@@ -112,4 +112,47 @@ describe('Find References - call-site scope filtering (issue #127)', () => {
         const leaks_defs = locations.some(loc => loc.uri === defs_uri);
         expect(leaks_defs).toBe(false);
     });
+
+    it('classifies a WORD as a program when the cursor is after the do call that brings it into scope', async () => {
+        // Same files as the regression test, plus a second reference to
+        // `shared_prog` on a line that is AFTER the do "defs.do" call.
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `shared_prog\n` +
+            `do "defs.do"\n` +
+            `shared_prog\n`;
+        writeFileSync(main_path, main_content);
+
+        const defs_path = join(test_temp_dir, 'defs.do');
+        const defs_content =
+            `program define shared_prog\n` +
+            `end\n`;
+        writeFileSync(defs_path, defs_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
+
+        // Cursor on `shared_prog` at line 2 (AFTER the do on line 1).
+        const cursor_line = 2;
+        const cursor_char = main_content
+            .split('\n')[cursor_line]
+            .indexOf('shared_prog') + 3;
+
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: cursor_line, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker
+        );
+
+        // defs.do IS reachable at line 2 — classification should return
+        // program and defs.do's declaration should be pooled in.
+        const defs_uri = URI.file(defs_path).toString();
+        const has_defs_ref = locations.some(loc => loc.uri === defs_uri);
+        expect(has_defs_ref).toBe(true);
+    });
 });
