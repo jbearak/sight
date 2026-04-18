@@ -19,7 +19,6 @@ function make_program(name: string, uri: string): ProgramSymbol {
         name,
         location: { uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: name.length } } },
         sourceUri: uri,
-        definition_line: 0,
     };
 }
 
@@ -55,7 +54,7 @@ describe('get_visible_symbols_at equivalence with ForwardScopeResolver.get_symbo
                 fc.array(arb_program_site, { maxLength: 8 }),
                 fc.integer({ min: 0, max: 60 }),
                 (raw_sites, cursor_line) => {
-                    const sites: ForwardCallSite[] = raw_sites.map((rs, i) => ({
+                    const sites: ForwardCallSite[] = raw_sites.map(rs => ({
                         callee_uri: rs.callee_uri,
                         call_line: rs.call_line,
                         symbols: {

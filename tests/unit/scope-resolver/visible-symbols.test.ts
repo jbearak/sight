@@ -16,7 +16,6 @@ const make_program = (name: string, uri: string): ProgramSymbol => ({
     name,
     location: { uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: name.length } } },
     sourceUri: uri,
-    definition_line: 0,
 });
 
 const empty_scope: ResolvedScope = {
