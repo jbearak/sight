@@ -293,21 +293,24 @@ export class ReferencesProvider {
         definitions: Location[],
         include_declaration: boolean
     ): Location[] {
-        const represents_declaration = (loc: Location): boolean => {
-            for (const my_def of definitions) {
-                if (my_def.uri !== loc.uri) continue;
-                if (this.ranges_overlap(my_def.range, loc.range)) {
-                    return true;
-                }
+        const is_declaration_match = (loc: Location, def: Location): boolean => {
+            if (loc.uri !== def.uri) return false;
+            // Program symbols store the whole `program ... end` body as the
+            // declaration range, so a recursive call inside the body would
+            // overlap and be mistaken for the declaration. Restrict the check
+            // to the first line of a multi-line definition — that's where the
+            // declaration name lives.
+            if (def.range.start.line !== def.range.end.line) {
+                if (loc.range.start.line !== def.range.start.line) return false;
             }
-            return false;
+            return this.ranges_overlap(def.range, loc.range);
         };
+        const represents_declaration = (loc: Location): boolean =>
+            definitions.some(def => is_declaration_match(loc, def));
 
         if (include_declaration) {
             for (const my_def of definitions) {
-                const already_present = locations.some(
-                    loc => loc.uri === my_def.uri && this.ranges_overlap(loc.range, my_def.range)
-                );
+                const already_present = locations.some(loc => is_declaration_match(loc, my_def));
                 if (!already_present) {
                     locations.push(my_def);
                 }

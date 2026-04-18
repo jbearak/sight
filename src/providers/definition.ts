@@ -84,10 +84,18 @@ export class DefinitionProvider {
             return null;
         }
 
+        // File-path / directive resolution runs first so cross-file directives
+        // like `@lsp-done-by` and `do "..."` work from every context — including
+        // inside embedded-language blocks and inside comments.
+        const file_definition = this.get_include_definition(document, position);
+        if (file_definition) {
+            return file_definition;
+        }
+
         // Check if we're in an embedded language context
         if (context_tracker) {
             const my_context = context_tracker.get_context_at_position(position);
-            
+
             // In embedded language context, only resolve macros, not programs
             if (my_context !== LanguageContext.STATA) {
                 return await this.get_macro_definition_only(
@@ -105,20 +113,10 @@ export class DefinitionProvider {
         // Get the word at the cursor position
         const word_info = this.get_word_at_position(document, position);
         if (!word_info) {
-            // Check if we're on a "do", "run", or "include" command line for file navigation
-            return this.get_include_definition(document, position);
+            return null;
         }
 
         const { word } = word_info;
-
-        // First check if this might be a file path in a command or directive.
-        // This runs before the comment-suppression check so cross-file
-        // directives like `@lsp-done-by` (which live inside comments) still
-        // navigate correctly.
-        const file_definition = this.get_include_definition(document, position);
-        if (file_definition) {
-            return file_definition;
-        }
 
         // Suppress symbol definitions inside comments (star, //, ///, and /* */).
         // File-path / directive navigation above is unaffected.

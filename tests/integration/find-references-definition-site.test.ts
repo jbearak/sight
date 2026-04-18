@@ -4,32 +4,29 @@
  *   2. Cursor on a cross-file variable whose definition lives in a parent file.
  */
 
-import { describe, it, expect, beforeEach, afterAll } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { ReferencesProvider } from '../../src/providers/references';
 import { DocumentStore } from '../../src/document-store';
 import { join } from 'path';
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
 import { URI } from 'vscode-uri';
 
 describe('Find References - definition site & cross-file symbols', () => {
-    const test_temp_dir = join(process.cwd(), 'temp_test_find_refs');
+    let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let references_provider: ReferencesProvider;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
-        mkdirSync(test_temp_dir);
-
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'find-refs-'));
         indexer = new WorkspaceIndexer();
         references_provider = new ReferencesProvider();
         document_store = new DocumentStore();
     });
 
-    afterAll(() => {
+    afterEach(() => {
         if (existsSync(test_temp_dir)) {
             rmSync(test_temp_dir, { recursive: true, force: true });
         }

@@ -83,6 +83,28 @@ describe('References Provider - Include Declaration', () => {
         }
     });
 
+    it('should keep a recursive call inside a program body when includeDeclaration is false', async () => {
+        // program define my_prog
+        //     my_prog           // recursive call — not the declaration
+        // end
+        const content = 'program define my_prog\n    my_prog\nend';
+        const document = create_document_with_symbols(content);
+
+        // Position on the recursive call on line 1 (character 6 lands inside my_prog)
+        const position: Position = { line: 1, character: 6 };
+        const context: ReferenceContext = { includeDeclaration: false };
+
+        const results = await references_provider.get_references(document, position, context);
+
+        // The recursive call must still be reported even though it sits inside the declaration's body range.
+        const has_recursive_call = results.some(loc => loc.range.start.line === 1);
+        expect(has_recursive_call).toBe(true);
+
+        // The declaration name itself (line 0) must be excluded.
+        const has_declaration = results.some(loc => loc.range.start.line === 0);
+        expect(has_declaration).toBe(false);
+    });
+
     it('should handle case where definition does not exist', async () => {
         const content = `display "\`undefined_var'"`;
         const document = create_document_with_symbols(content);

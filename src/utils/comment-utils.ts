@@ -12,7 +12,7 @@ import { Token } from '../types';
 import { get_line_text, compute_line_offsets } from './line-utils';
 
 export function is_cursor_in_comment(document: DocumentState, position: Position): boolean {
-    if (document.tokens) {
+    if (document.tokens && document.tokens.length > 0) {
         return is_cursor_in_comment_from_tokens(document.tokens, position);
     }
 
@@ -82,7 +82,10 @@ function find_line_comment_start(line: string): number {
             return i;
         }
 
-        if (char === '*' && (i === 0 || /\s/.test(line[i - 1]))) {
+        // `*` is a comment only when it is line-leading (everything before it
+        // on the line is whitespace). Otherwise it is multiplication, e.g.,
+        // `gen z = x * y`.
+        if (char === '*' && line.slice(0, i).trim() === '') {
             return i;
         }
     }

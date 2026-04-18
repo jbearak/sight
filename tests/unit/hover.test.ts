@@ -17,13 +17,13 @@ import { StataLexer } from '../../src/lexer';
  * Helper to create a minimal document state for testing.
  */
 function create_test_document(content: string, symbols?: Partial<SymbolTable>): DocumentState {
-    const lexer = new StataLexer();
-    const lex_result = lexer.tokenize(content);
+    const my_lexer = new StataLexer();
+    const my_lex_result = my_lexer.tokenize(content);
     return {
         uri: 'file:///test.do',
         version: 1,
         content,
-        tokens: lex_result.tokens,
+        tokens: my_lex_result.tokens,
         ast: null,
         symbols: {
             programs: symbols?.programs || new Map(),
@@ -141,6 +141,18 @@ describe('HoverProvider - Context-Aware Behavior', () => {
 
             // "regress" inside /* ... */ on line 0 around character 12
             const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 12 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should suppress hover inside a multi-line block comment', async () => {
+            // Block comment spans two lines; "regress" appears on line 1 inside the comment
+            const my_content = '/* start comment\nregress inside comment */\nregress y x';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "regress" on line 1 inside the comment starts at character 0
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 1, character: 2 });
 
             expect(my_hover).toBeNull();
         });

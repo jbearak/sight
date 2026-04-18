@@ -22,13 +22,13 @@ function create_test_document(
     symbols?: Partial<SymbolTable>,
     uri?: string
 ): DocumentState {
-    const lexer = new StataLexer();
-    const lex_result = lexer.tokenize(content);
+    const my_lexer = new StataLexer();
+    const my_lex_result = my_lexer.tokenize(content);
     return {
         uri: uri || `file://${process.cwd()}/test.do`,
         version: 1,
         content,
-        tokens: lex_result.tokens,
+        tokens: my_lex_result.tokens,
         ast: null,
         symbols: {
             programs: symbols?.programs || new Map(),
@@ -1014,13 +1014,33 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             // Create test file
             const helper_path = path.join(temp_dir, 'helper.do');
             fs.writeFileSync(helper_path, '// Helper file');
-            
+
             const my_content = '// @lsp-do: "helper"';
             const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
-            
+
             const my_definition = await definition_provider.get_definition(
                 my_doc,
                 { line: 0, character: 15 } // Position on "helper"
+            );
+
+            expect(my_definition).not.toBeNull();
+            expect(my_definition?.uri).toContain('helper');
+        });
+
+        it('should resolve @lsp-do directive inside a mata block', async () => {
+            const helper_path = path.join(temp_dir, 'helper.do');
+            fs.writeFileSync(helper_path, '// Helper file');
+
+            const my_content = 'mata\n// @lsp-do: "helper"\nend';
+            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // Position on "helper" on line 1 (inside the mata block)
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 16 },
+                undefined,
+                context_tracker
             );
 
             expect(my_definition).not.toBeNull();
