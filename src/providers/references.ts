@@ -281,28 +281,55 @@ export class ReferencesProvider {
     /**
      * Apply includeDeclaration logic to locations.
      * Shared between get_references and get_macro_references_only.
+     *
+     * A scanned token match and a stored definition represent the same
+     * declaration when their ranges overlap in the same file. Programs in
+     * particular store their declaration range as the whole `program
+     * define ... end` body, while the WORD-token scan produces a narrow range
+     * covering just the name — so range equality alone under-dedupes.
      */
     private apply_include_declaration(
         locations: Location[],
         definitions: Location[],
         include_declaration: boolean
     ): Location[] {
-        const location_key = (loc: Location): string =>
-            `${loc.uri}:${loc.range.start.line}:${loc.range.start.character}:${loc.range.end.line}:${loc.range.end.character}`;
-        const definition_keys = new Set(definitions.map(location_key));
+        const represents_declaration = (loc: Location): boolean => {
+            for (const my_def of definitions) {
+                if (my_def.uri !== loc.uri) continue;
+                if (this.ranges_overlap(my_def.range, loc.range)) {
+                    return true;
+                }
+            }
+            return false;
+        };
 
         if (include_declaration) {
-            const present_keys = new Set(locations.map(location_key));
             for (const my_def of definitions) {
-                if (!present_keys.has(location_key(my_def))) {
+                const already_present = locations.some(
+                    loc => loc.uri === my_def.uri && this.ranges_overlap(loc.range, my_def.range)
+                );
+                if (!already_present) {
                     locations.push(my_def);
                 }
             }
-        } else if (definition_keys.size > 0) {
-            const filtered_locations = locations.filter(loc => !definition_keys.has(location_key(loc)));
+        } else if (definitions.length > 0) {
+            const filtered_locations = locations.filter(loc => !represents_declaration(loc));
             return this.sort_locations(filtered_locations);
         }
         return this.sort_locations(locations);
+    }
+
+    /**
+     * Return true if two ranges share any text (not just touch at endpoints).
+     */
+    private ranges_overlap(a: Range, b: Range): boolean {
+        const before = (p1: Position, p2: Position): boolean =>
+            p1.line < p2.line || (p1.line === p2.line && p1.character <= p2.character);
+        const strictly_before = (p1: Position, p2: Position): boolean =>
+            p1.line < p2.line || (p1.line === p2.line && p1.character < p2.character);
+        return before(a.start, b.start)
+            ? strictly_before(b.start, a.end)
+            : strictly_before(a.start, b.end);
     }
 
     /**

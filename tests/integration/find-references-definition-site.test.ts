@@ -159,6 +159,55 @@ describe('Find References - definition site & cross-file symbols', () => {
         expect(has_main_ref).toBe(true);
     });
 
+    it('does not enumerate a program definition twice when the cursor is on the name', async () => {
+        const main_path = join(test_temp_dir, 'demo_main.do');
+        const main_content =
+            `* Main analysis file\n` +
+            `program define clean_survey_data\n` +
+            `    drop if age < 0\n` +
+            `end\n` +
+            `do "demo_subprocess.do"\n`;
+        writeFileSync(main_path, main_content);
+
+        const sub_path = join(test_temp_dir, 'demo_subprocess.do');
+        const sub_content =
+            `* Sub-analysis\n` +
+            `clean_survey_data\n`;
+        writeFileSync(sub_path, sub_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const sub_uri = URI.file(sub_path).toString();
+        await document_store.open(sub_uri, sub_content, 1);
+        const sub_document_state = document_store.get(sub_uri)!;
+
+        // Cursor inside `clean_survey_data` on the call line.
+        const call_line = 1;
+        const name_char = sub_content
+            .split('\n')[call_line]
+            .indexOf('clean_survey_data') + 3;
+
+        const locations = await references_provider.get_references(
+            sub_document_state,
+            { line: call_line, character: name_char },
+            { includeDeclaration: true },
+            indexer,
+            sub_document_state.context_tracker
+        );
+
+        const main_uri = URI.file(main_path).toString();
+        const main_refs = locations.filter(loc => loc.uri === main_uri);
+        // We should see exactly one location in `demo_main.do`
+        // (the program definition). The old code listed the declaration name
+        // range AND the full program body range separately.
+        expect(main_refs.length).toBe(1);
+
+        // Whichever range is returned, it must be a single-line range (not the
+        // multi-line full program body).
+        const the_main_ref = main_refs[0];
+        expect(the_main_ref.range.start.line).toBe(the_main_ref.range.end.line);
+    });
+
     it('excludes cross-file declarations when includeDeclaration is false', async () => {
         const main_path = join(test_temp_dir, 'demo_main.do');
         const main_content =
