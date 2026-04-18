@@ -111,6 +111,23 @@ export class WorkspaceIndexer {
         const the_related = new Set<string>([uri]);
         if (!this.dependency_graph) return the_related;
 
+        const the_parent_children = new Map<string, Set<string>>();
+        for (const [my_child_uri, my_child_entry] of this.symbol_index) {
+            for (const my_directive of my_child_entry.directives) {
+                if (my_directive.type !== 'done-by' &&
+                    my_directive.type !== 'included-by') {
+                    continue;
+                }
+                const my_parent_uri = URI.file(my_directive.path).toString();
+                let the_children = the_parent_children.get(my_parent_uri);
+                if (!the_children) {
+                    the_children = new Set<string>();
+                    the_parent_children.set(my_parent_uri, the_children);
+                }
+                the_children.add(my_child_uri);
+            }
+        }
+
         const the_stack: string[] = [uri];
         while (the_stack.length > 0) {
             const my_uri = the_stack.pop()!;
@@ -139,16 +156,12 @@ export class WorkspaceIndexer {
                     }
                 }
             }
-            for (const [my_child_uri, my_child_entry] of this.symbol_index) {
-                if (the_related.has(my_child_uri)) continue;
-                for (const my_directive of my_child_entry.directives) {
-                    if (my_directive.type !== 'done-by' && my_directive.type !== 'included-by') {
-                        continue;
-                    }
-                    if (URI.file(my_directive.path).toString() !== my_uri) continue;
+            const the_children = the_parent_children.get(my_uri);
+            if (the_children) {
+                for (const my_child_uri of the_children) {
+                    if (the_related.has(my_child_uri)) continue;
                     the_related.add(my_child_uri);
                     the_stack.push(my_child_uri);
-                    break;
                 }
             }
         }

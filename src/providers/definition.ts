@@ -932,10 +932,13 @@ export class DefinitionProvider {
     /**
      * Handle navigation for "do", "run", "include" commands and @lsp-* directives.
      *
-     * The regexes match anywhere on the line (so directives nested inside
-     * comments still resolve), but we only navigate when the cursor actually
-     * sits on the quoted path — otherwise clicking an unrelated word on a line
-     * like `// note: @lsp-do: "helper"` would also jump to helper.do.
+     * `do`/`run`/`include` only match when they are the first non-whitespace
+     * token on the line, so command navigation does not trigger from inside
+     * comments. The `@lsp-*` regex is intentionally unanchored, which lets
+     * directives nested inside comments still resolve. We still only navigate
+     * when the cursor actually sits on the quoted path — otherwise clicking an
+     * unrelated word on a line like `// note: @lsp-do: "helper"` would also
+     * jump to helper.do.
      */
     private get_include_definition(document: DocumentState, position: Position): Definition | null {
         const line_text = get_line_text(document, position.line);
