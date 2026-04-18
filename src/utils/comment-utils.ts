@@ -38,10 +38,6 @@ function is_cursor_in_comment_heuristic(content: string, position: Position): bo
     const doc = { content, line_offsets: compute_line_offsets(content) };
     const current_line = get_line_text(doc, position.line);
 
-    if (current_line === '') {
-        return false;
-    }
-
     const line_comment_pos = find_line_comment_start(current_line);
     if (line_comment_pos !== -1 && position.character >= line_comment_pos) {
         return true;

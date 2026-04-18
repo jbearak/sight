@@ -941,7 +941,7 @@ export class DefinitionProvider {
         const line_text = get_line_text(document, position.line);
 
         // Check for do/run/include commands
-        const include_match = line_text.match(/^\s*(do|run|include)\s+(["']?)([^"'\s]+)\2/i);
+        const include_match = line_text.match(/^\s*(do|run|include)\s+(["']?)([^"'\s]+)\2/);
         if (include_match) {
             const file_path = include_match[3];
             const path_start = include_match.index! +
