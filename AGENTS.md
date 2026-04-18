@@ -173,6 +173,7 @@ call directives (`@lsp-do`, `@lsp-run`, `@lsp-include`) and auto-detected
 - `completion.ts` - Auto-complete for commands, options, macros, variables
 - `completion/macro-completion.ts` - Specialized macro completion logic
 - `definition.ts` - Go-to-definition for macros, programs, and included files
+- `references.ts` - Find references for macros, programs, variables, and other symbols
 - `diagnostics.ts` - Error/warning reporting
 - `formatter.ts` - Code formatting (PrettyPrinter + optional comment normalization; preserves embedded blocks)
 - `hover.ts` - Hover information
