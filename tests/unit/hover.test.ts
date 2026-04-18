@@ -11,15 +11,19 @@ import { DocumentState } from '../../src/document-store';
 import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
 import { LanguageContext } from '../../src/context-tracker/types';
+import { StataLexer } from '../../src/lexer';
 
 /**
  * Helper to create a minimal document state for testing.
  */
 function create_test_document(content: string, symbols?: Partial<SymbolTable>): DocumentState {
+    const lexer = new StataLexer();
+    const lex_result = lexer.tokenize(content);
     return {
         uri: 'file:///test.do',
         version: 1,
         content,
+        tokens: lex_result.tokens,
         ast: null,
         symbols: {
             programs: symbols?.programs || new Map(),
@@ -28,7 +32,7 @@ function create_test_document(content: string, symbols?: Partial<SymbolTable>): 
             variables: symbols?.variables || new Map(),
         },
         diagnostics: [],
-    };
+    } as unknown as DocumentState;
 }
 
 /**
@@ -104,6 +108,97 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
                 expect(my_hover.contents.value).toContain('Local Macro');
             }
+        });
+    });
+
+    describe('Comment Context Hover', () => {
+        it('should suppress hover inside star line comment', async () => {
+            const my_content = '* see generate below\ngenerate x = 1';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "generate" in the comment starts at character 6 on line 0
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 9 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should suppress hover inside slash-slash line comment', async () => {
+            const my_content = '// run generate here\ngenerate x = 1';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "generate" in the comment starts at character 7 on line 0
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 10 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should suppress hover inside block comment', async () => {
+            const my_content = '/* calls regress here */\nregress y x';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "regress" inside /* ... */ on line 0 around character 12
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 12 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should suppress hover inside triple-slash line comment', async () => {
+            const my_content = '/// run generate here\ngenerate x = 1';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "generate" in the comment starts at character 8 on line 0
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 10 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should suppress hover inside triple-slash continuation after code', async () => {
+            // '/// generate' starts at column 13 on line 0
+            const my_content = 'local y = 1 /// generate here\ngenerate x = 1';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "generate" in the continuation comment starts at column 16 on line 0
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 19 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should still provide hover for code on the line after a /// continuation', async () => {
+            const my_content = 'local y = 1 /// suppress hover here\ngenerate x = 1';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "generate" on line 1 is real code
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 1, character: 2 });
+
+            expect(my_hover).not.toBeNull();
+        });
+
+        it('should still provide hover on code adjacent to a comment', async () => {
+            const my_content = '* Define global configuration\ngenerate x = 1';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "generate" on line 1 is real code
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 1, character: 2 });
+
+            expect(my_hover).not.toBeNull();
+        });
+
+        it('should provide hover on character immediately after an inline block comment', async () => {
+            // "/* note */" ends at column 10; "generate" begins at column 10
+            const my_content = '/* note */generate x = 1';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 10 });
+
+            expect(my_hover).not.toBeNull();
         });
     });
 

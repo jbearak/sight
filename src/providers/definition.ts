@@ -50,6 +50,7 @@ import * as fs from 'fs';
 import { URI } from 'vscode-uri';
 import { resolvePathWithDoFallback } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
+import { is_cursor_in_comment } from '../utils/comment-utils';
 
 /**
  * Definition Provider class.
@@ -110,10 +111,19 @@ export class DefinitionProvider {
 
         const { word } = word_info;
 
-        // First check if this might be a file path in a command or directive
+        // First check if this might be a file path in a command or directive.
+        // This runs before the comment-suppression check so cross-file
+        // directives like `@lsp-done-by` (which live inside comments) still
+        // navigate correctly.
         const file_definition = this.get_include_definition(document, position);
         if (file_definition) {
             return file_definition;
+        }
+
+        // Suppress symbol definitions inside comments (star, //, ///, and /* */).
+        // File-path / directive navigation above is unaffected.
+        if (is_cursor_in_comment(document, position)) {
+            return null;
         }
 
         // Get token at position for disambiguation
@@ -641,6 +651,13 @@ export class DefinitionProvider {
         cross_file_config?: Partial<ScopeResolverConfig>,
         cancellation_token?: CancellationToken
     ): Promise<Definition | null> {
+        // Suppress definition inside comments that appear in embedded-language
+        // contexts. Directive navigation doesn't apply here, so it is safe to
+        // check before word extraction.
+        if (is_cursor_in_comment(document, position)) {
+            return null;
+        }
+
         // Get the word at the cursor position
         const word_info = this.get_word_at_position(document, position);
         if (!word_info) {

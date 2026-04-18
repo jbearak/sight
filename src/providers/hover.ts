@@ -42,6 +42,7 @@ import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
+import { is_cursor_in_comment } from '../utils/comment-utils';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
@@ -117,6 +118,11 @@ export class HoverProvider {
         // Use context tracker from document state if available
         if (!this.context_tracker && document.context_tracker) {
             this.context_tracker = document.context_tracker;
+        }
+
+        // Suppress hover inside comments
+        if (is_cursor_in_comment(document, position)) {
+            return null;
         }
 
         // Get the word at the cursor position

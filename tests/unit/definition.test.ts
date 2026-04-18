@@ -9,6 +9,7 @@ import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
 import { SymbolTable, MacroSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
+import { StataLexer } from '../../src/lexer';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -21,10 +22,13 @@ function create_test_document(
     symbols?: Partial<SymbolTable>,
     uri?: string
 ): DocumentState {
+    const lexer = new StataLexer();
+    const lex_result = lexer.tokenize(content);
     return {
         uri: uri || `file://${process.cwd()}/test.do`,
         version: 1,
         content,
+        tokens: lex_result.tokens,
         ast: null,
         symbols: {
             programs: symbols?.programs || new Map(),
@@ -33,7 +37,7 @@ function create_test_document(
             variables: symbols?.variables || new Map(),
         },
         diagnostics: [],
-    };
+    } as unknown as DocumentState;
 }
 
 describe('DefinitionProvider - Context-Aware Behavior', () => {
@@ -669,6 +673,180 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             );
 
             expect(my_definition).toBeNull();
+        });
+    });
+
+    describe('Comment Context Definition', () => {
+        function make_variable_symbols(name: string) {
+            return {
+                variables: new Map([
+                    [
+                        name,
+                        {
+                            name,
+                            sourceUri: 'file:///test.do',
+                            location: {
+                                uri: 'file:///test.do',
+                                range: {
+                                    start: { line: 0, character: 0 },
+                                    end: { line: 0, character: name.length },
+                                },
+                            },
+                            type: 'numeric' as const,
+                            source: 'directive' as const,
+                        },
+                    ],
+                ]),
+            };
+        }
+
+        it('should suppress definition inside star line comment', async () => {
+            const my_content = 'display 1\n* my_var here';
+            const my_doc = create_test_document(my_content, make_variable_symbols('my_var'));
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "my_var" in the comment starts at column 2 on line 1
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 4 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('should suppress definition inside slash-slash line comment', async () => {
+            const my_content = 'display 1\n// my_var here';
+            const my_doc = create_test_document(my_content, make_variable_symbols('my_var'));
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "my_var" in the comment starts at column 3 on line 1
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 5 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('should suppress definition inside triple-slash line comment', async () => {
+            const my_content = 'display 1\n/// my_var here';
+            const my_doc = create_test_document(my_content, make_variable_symbols('my_var'));
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "my_var" in the comment starts at column 4 on line 1
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 6 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('should suppress definition inside triple-slash continuation after code', async () => {
+            // 'display 1 /// my_var here\ndisplay my_var' — the continuation comment starts at column 10
+            const my_content = 'display 1 /// my_var here\ndisplay my_var';
+            const my_doc = create_test_document(my_content, make_variable_symbols('my_var'));
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "my_var" inside the continuation comment starts at column 14 on line 0
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 16 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('should suppress definition inside block comment', async () => {
+            const my_content = 'display 1\n/* my_var here */';
+            const my_doc = create_test_document(my_content, make_variable_symbols('my_var'));
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "my_var" in the /* ... */ comment starts at column 3 on line 1
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 5 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('should still resolve definitions on code after a /// continuation', async () => {
+            // Line 1 has real code with my_var
+            const my_content = 'display 1 /// suppressed here\ndisplay my_var';
+            const my_doc = create_test_document(my_content, make_variable_symbols('my_var'));
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "my_var" on line 1 starts at column 8
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 10 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).not.toBeNull();
+        });
+
+        it('should suppress definition inside a comment in a mata block', async () => {
+            const my_content = 'local x = 1\nmata\n// x\nend';
+            const my_doc = create_test_document(my_content, {
+                localMacros: new Map([
+                    [
+                        'x',
+                        {
+                            name: 'x',
+                            scope: 'local',
+                            sourceUri: 'file:///test.do',
+                            location: {
+                                uri: 'file:///test.do',
+                                range: {
+                                    start: { line: 0, character: 6 },
+                                    end: { line: 0, character: 7 },
+                                },
+                            },
+                            value: '1',
+                        },
+                    ],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            // "x" inside "// x" on line 2 (in mata block) is at column 3
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 2, character: 3 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('should allow definition on character immediately after an inline block comment', async () => {
+            // "/* note */" ends at column 10; "my_var" begins at column 10
+            const my_content = '/* note */my_var';
+            const my_doc = create_test_document(my_content, make_variable_symbols('my_var'));
+            init_tracker_from_source(context_tracker, my_content);
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 10 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).not.toBeNull();
         });
     });
 
