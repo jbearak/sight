@@ -18,6 +18,7 @@ Sight's sister project [Raven](https://github.com/jbearak/raven) implements a la
 - **Code Completion**: Context-aware completions for commands, options, macros, and variables
 - **Diagnostics**: Real-time syntax error detection and undefined macro warnings
 - **Go-to-Definition**: Jump to definitions of local/global macros and programs across the workspace
+- **Find References**: Locate every use of a macro, program, or variable across related files
 - **Document Outline**: Hierarchical code navigation with programs, macros, variables, and code sections
 - **Workspace Symbols**: Search for symbols across the entire workspace
 - **Cross-file awareness**: Symbol resolution across `do`/`include` chains with position-aware scope

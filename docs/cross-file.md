@@ -506,6 +506,25 @@ Notes:
   that both directive types can inherit (e.g., globals/programs/scalars/
   matrices), header order controls same-depth conflicts.
 
+## Find References Across Files
+
+Find References returns different result sets depending on the symbol kind, so
+the list reflects how Stata actually scopes each construct:
+
+- **Programs, scalars, matrices, and macros** — returned only for files that
+  share a dependency-graph edge with the current file (ancestors or
+  descendants via `do`, `run`, `include`, or their `@lsp-*` directive
+  equivalents, transitively). Same-named symbols in unrelated modules are
+  almost always coincidental, so they are omitted.
+- **Variables** — returned for the entire workspace. Stata variables are
+  dataset column names rather than file-bound symbols, so name matches in
+  unrelated analyses are often legitimate. Results from files related by
+  dependency edges are listed first; unrelated files follow.
+
+Isolated files with no `do`/`run`/`include` edges are considered related only
+to themselves, so Find References on a program in such a file returns just the
+current file's matches.
+
 ## Call Site Diagnostics
 
 The LSP provides informative diagnostics when processing cross-file

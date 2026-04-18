@@ -1126,13 +1126,64 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
         it('should return null when neither exact path nor .do fallback exists', async () => {
             const my_content = 'do "nonexistent"';
             const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
-            
+
             const my_definition = await definition_provider.get_definition(
                 my_doc,
                 { line: 0, character: 8 } // Position on "nonexistent"
             );
 
             expect(my_definition).toBeNull();
+        });
+
+        it('should not navigate to directive target when cursor is on a word outside the quoted path', async () => {
+            const helper_path = path.join(temp_dir, 'helper.do');
+            fs.writeFileSync(helper_path, '// Helper file');
+
+            // Directive is nested inside a star-style comment. Cursor is on
+            // "note" — a word that is NOT part of the directive's quoted path.
+            const my_content = '* note @lsp-do: "helper"';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                `file://${path.join(temp_dir, 'test.do')}`
+            );
+            init_tracker_from_source(context_tracker, my_content);
+
+            const note_char = my_content.indexOf('note') + 1;
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: note_char },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('should still navigate to directive target when cursor is on the quoted path', async () => {
+            const helper_path = path.join(temp_dir, 'helper.do');
+            fs.writeFileSync(helper_path, '// Helper file');
+
+            const my_content = '* note @lsp-do: "helper"';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                `file://${path.join(temp_dir, 'test.do')}`
+            );
+            init_tracker_from_source(context_tracker, my_content);
+
+            const helper_char = my_content.indexOf('helper') + 1;
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: helper_char },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).not.toBeNull();
+            expect(my_definition).not.toBeInstanceOf(Array);
+            const single = my_definition as { uri: string };
+            expect(single.uri).toContain('helper');
         });
     });
 

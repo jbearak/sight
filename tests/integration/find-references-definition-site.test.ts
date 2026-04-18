@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { ReferencesProvider } from '../../src/providers/references';
 import { DocumentStore } from '../../src/document-store';
+import { DependencyGraph } from '../../src/dependency-graph';
 import { join } from 'path';
 import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
@@ -22,6 +23,10 @@ describe('Find References - definition site & cross-file symbols', () => {
     beforeEach(() => {
         test_temp_dir = mkdtempSync(join(tmpdir(), 'find-refs-'));
         indexer = new WorkspaceIndexer();
+        // Mirror server-factory wiring: without a dep graph, find-references
+        // cannot scope its workspace scan to files that are actually related
+        // to the current file.
+        indexer.set_dependency_graph(new DependencyGraph());
         references_provider = new ReferencesProvider();
         document_store = new DocumentStore();
     });
@@ -203,6 +208,148 @@ describe('Find References - definition site & cross-file symbols', () => {
         // multi-line full program body).
         const the_main_ref = main_refs[0];
         expect(the_main_ref.range.start.line).toBe(the_main_ref.range.end.line);
+    });
+
+    it('excludes references from workspace files unrelated to the current file by dep-graph for programs', async () => {
+        // Current file has no parent/child relationship with `unrelated.do`,
+        // which just happens to define a same-named program.
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `program define shared_prog\n` +
+            `end\n` +
+            `shared_prog\n`;
+        writeFileSync(main_path, main_content);
+
+        const unrelated_path = join(test_temp_dir, 'unrelated.do');
+        const unrelated_content =
+            `program define shared_prog\n` +
+            `end\n` +
+            `shared_prog\n`;
+        writeFileSync(unrelated_path, unrelated_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const main_uri = URI.file(main_path).toString();
+        await document_store.open(main_uri, main_content, 1);
+        const document_state = document_store.get(main_uri)!;
+
+        const call_line = 2;
+        const name_char = main_content
+            .split('\n')[call_line]
+            .indexOf('shared_prog') + 3;
+
+        const locations = await references_provider.get_references(
+            document_state,
+            { line: call_line, character: name_char },
+            { includeDeclaration: true },
+            indexer,
+            document_state.context_tracker
+        );
+
+        const unrelated_uri = URI.file(unrelated_path).toString();
+        const leaks_unrelated = locations.some(loc => loc.uri === unrelated_uri);
+        expect(leaks_unrelated).toBe(false);
+
+        // Sanity: current-file refs are still present.
+        const has_main_ref = locations.some(loc => loc.uri === main_uri);
+        expect(has_main_ref).toBe(true);
+    });
+
+    it('sorts variable references with dep-graph-related files before unrelated ones', async () => {
+        // Three files: main.do (current), child.do (related via do call),
+        // zzz_unrelated.do (same-named variable, no dep-graph edges). With a
+        // plain URI sort, child.do (sub-folder) would alphabetize ahead of
+        // main, and zzz_unrelated would fall last by accident — we want the
+        // tier check to be what puts related files ahead regardless of URI.
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `gen wage = 1\n` +
+            `do "aaa_child.do"\n` +
+            `display wage\n`;
+        writeFileSync(main_path, main_content);
+
+        const child_path = join(test_temp_dir, 'aaa_child.do');
+        const child_content =
+            `* @lsp-done-by: "main.do"\n` +
+            `replace wage = wage + 1\n`;
+        writeFileSync(child_path, child_content);
+
+        const unrelated_path = join(test_temp_dir, 'aaa_unrelated.do');
+        const unrelated_content = `gen wage = 99\n`;
+        writeFileSync(unrelated_path, unrelated_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const main_uri = URI.file(main_path).toString();
+        await document_store.open(main_uri, main_content, 1);
+        const document_state = document_store.get(main_uri)!;
+
+        const ref_line = 2;
+        const wage_char = main_content
+            .split('\n')[ref_line]
+            .indexOf('wage') + 1;
+
+        const locations = await references_provider.get_references(
+            document_state,
+            { line: ref_line, character: wage_char },
+            { includeDeclaration: true },
+            indexer,
+            document_state.context_tracker
+        );
+
+        const child_uri = URI.file(child_path).toString();
+        const unrelated_uri = URI.file(unrelated_path).toString();
+
+        const ordered_uris = locations.map(loc => loc.uri);
+        const first_unrelated_idx = ordered_uris.indexOf(unrelated_uri);
+        const last_related_idx = Math.max(
+            ordered_uris.lastIndexOf(main_uri),
+            ordered_uris.lastIndexOf(child_uri)
+        );
+
+        expect(first_unrelated_idx).toBeGreaterThan(-1);
+        expect(last_related_idx).toBeGreaterThan(-1);
+        expect(last_related_idx).toBeLessThan(first_unrelated_idx);
+    });
+
+    it('still returns variable references from unrelated workspace files', async () => {
+        // Variables in Stata are dataset columns — cross-project name matches
+        // are useful. Other symbol kinds should be dep-graph scoped, but
+        // variables should remain workspace-wide.
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `gen wage = 1\n` +
+            `display wage\n`;
+        writeFileSync(main_path, main_content);
+
+        const unrelated_path = join(test_temp_dir, 'unrelated.do');
+        const unrelated_content =
+            `gen wage = 2\n` +
+            `replace wage = wage + 1\n`;
+        writeFileSync(unrelated_path, unrelated_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const main_uri = URI.file(main_path).toString();
+        await document_store.open(main_uri, main_content, 1);
+        const document_state = document_store.get(main_uri)!;
+
+        const ref_line = 1;
+        const wage_char = main_content
+            .split('\n')[ref_line]
+            .indexOf('wage') + 1;
+
+        const locations = await references_provider.get_references(
+            document_state,
+            { line: ref_line, character: wage_char },
+            { includeDeclaration: true },
+            indexer,
+            document_state.context_tracker
+        );
+
+        const unrelated_uri = URI.file(unrelated_path).toString();
+        const has_unrelated_wage = locations.some(loc => loc.uri === unrelated_uri);
+        expect(has_unrelated_wage).toBe(true);
     });
 
     it('excludes cross-file declarations when includeDeclaration is false', async () => {

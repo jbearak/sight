@@ -88,6 +88,40 @@ export class WorkspaceIndexer {
     }
 
     /**
+     * Return the set of URIs reachable from `uri` through the dependency
+     * graph — ancestors (files that `do`/`run`/`include` this one, transitively)
+     * and descendants (files this one calls, transitively). The input URI is
+     * included in the result.
+     *
+     * When no dependency graph has been configured the result is just the
+     * input URI. Used by find-references to scope workspace scans to files
+     * that share a runtime relationship with the current one (excluding
+     * unrelated modules that happen to reuse the same symbol name).
+     */
+    get_related_uris(uri: string): Set<string> {
+        const the_related = new Set<string>([uri]);
+        if (!this.dependency_graph) return the_related;
+
+        const the_stack: string[] = [uri];
+        while (the_stack.length > 0) {
+            const my_uri = the_stack.pop()!;
+            for (const my_edge of this.dependency_graph.get_parents(my_uri)) {
+                if (!the_related.has(my_edge.caller_uri)) {
+                    the_related.add(my_edge.caller_uri);
+                    the_stack.push(my_edge.caller_uri);
+                }
+            }
+            for (const my_callee of this.dependency_graph.get_callees(my_uri)) {
+                if (!the_related.has(my_callee)) {
+                    the_related.add(my_callee);
+                    the_stack.push(my_callee);
+                }
+            }
+        }
+        return the_related;
+    }
+
+    /**
      * Set a callback invoked when the dependency graph changes during
      * re-indexing, so the caller can cascade-invalidate scope caches.
      */

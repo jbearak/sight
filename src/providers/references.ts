@@ -209,11 +209,20 @@ export class ReferencesProvider {
                 symbol_type === 'local_macro' ? 'local' :
                 symbol_type === 'global_macro' ? 'global' :
                 symbol_type;
+            // Variables are dataset columns — we include cross-module
+            // definitions. All other symbol kinds are restricted to files
+            // reachable via the dependency graph; see collect_references for
+            // the full rationale.
+            const restrict_to_related = symbol_type !== 'variable';
+            const the_related = restrict_to_related
+                ? workspace_indexer.get_related_uris(document.uri)
+                : null;
             // Skip entries from the current document's URI: the on-disk
             // index can lag unsaved buffer edits, and document.symbols
             // already holds the authoritative fresh declaration.
             for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
                 if (my_def.sourceUri === document.uri) continue;
+                if (the_related && !the_related.has(my_def.sourceUri)) continue;
                 push({ uri: my_def.location.uri, range: my_def.location.range });
             }
         }
@@ -295,7 +304,8 @@ export class ReferencesProvider {
     private apply_include_declaration(
         locations: Location[],
         definitions: Location[],
-        include_declaration: boolean
+        include_declaration: boolean,
+        related_uris?: Set<string>
     ): Location[] {
         const is_declaration_match = (loc: Location, def: Location): boolean => {
             if (loc.uri !== def.uri) return false;
@@ -321,9 +331,9 @@ export class ReferencesProvider {
             }
         } else if (definitions.length > 0) {
             const filtered_locations = locations.filter(loc => !represents_declaration(loc));
-            return this.sort_locations(filtered_locations);
+            return this.sort_locations(filtered_locations, related_uris);
         }
-        return this.sort_locations(locations);
+        return this.sort_locations(locations, related_uris);
     }
 
     /**
@@ -341,9 +351,18 @@ export class ReferencesProvider {
 
     /**
      * Sort locations by URI, then line, then character.
+     *
+     * When `related_uris` is provided (the variable case, which scans the
+     * whole workspace), matches inside related files tier above matches in
+     * unrelated files so editors show the high-relevance hits first.
      */
-    private sort_locations(locations: Location[]): Location[] {
+    private sort_locations(locations: Location[], related_uris?: Set<string>): Location[] {
         return locations.sort((a, b) => {
+            if (related_uris) {
+                const a_related = related_uris.has(a.uri) ? 0 : 1;
+                const b_related = related_uris.has(b.uri) ? 0 : 1;
+                if (a_related !== b_related) return a_related - b_related;
+            }
             // First compare by URI
             if (a.uri < b.uri) return -1;
             if (a.uri > b.uri) return 1;
@@ -503,23 +522,40 @@ export class ReferencesProvider {
         // `` `name' `` in source, so a plain WORD shouldn't resolve to a macro.
         // Same-URI entries are ignored: the on-disk index can lag unsaved
         // buffer edits, and document.symbols above is the fresh view.
+        //
+        // Variables are dataset column names in Stata: a name match in an
+        // unrelated module is still a legitimate reference, so we accept
+        // workspace-wide matches. Programs/scalars/matrices are code-level
+        // symbols; a name match in an unrelated module (no `do`/`run`/`include`
+        // edge to the current file) is almost always coincidental, so we
+        // restrict to files related via the dependency graph.
         if (workspace_indexer) {
-            const has_cross_file = (
-                ws_type: 'variable' | 'program' | 'scalar' | 'matrix'
+            const the_related = workspace_indexer.get_related_uris(document.uri);
+            const has_cross_file_any = (
+                ws_type: 'variable'
             ): boolean =>
                 workspace_indexer
                     .find_symbol_definitions(word, ws_type)
                     .some(my_def => my_def.sourceUri !== document.uri);
-            if (has_cross_file('variable')) {
+            const has_cross_file_related = (
+                ws_type: 'program' | 'scalar' | 'matrix'
+            ): boolean =>
+                workspace_indexer
+                    .find_symbol_definitions(word, ws_type)
+                    .some(my_def =>
+                        my_def.sourceUri !== document.uri &&
+                        the_related.has(my_def.sourceUri)
+                    );
+            if (has_cross_file_any('variable')) {
                 return { name: word, type: 'variable', range };
             }
-            if (has_cross_file('program')) {
+            if (has_cross_file_related('program')) {
                 return { name: word, type: 'program', range };
             }
-            if (has_cross_file('scalar')) {
+            if (has_cross_file_related('scalar')) {
                 return { name: word, type: 'scalar', range };
             }
-            if (has_cross_file('matrix')) {
+            if (has_cross_file_related('matrix')) {
                 return { name: word, type: 'matrix', range };
             }
         }
@@ -599,16 +635,34 @@ export class ReferencesProvider {
             }
         }
 
+        // Search workspace-indexed files (Req 13.3).
+        //
+        // Variables are Stata dataset column names — name matches in files
+        // that don't share a runtime relationship with the current one are
+        // still useful (different analyses often touch the same columns), so
+        // we scan the full workspace. Every other symbol kind (programs,
+        // scalars, matrices, macros) is a code-level symbol where cross-module
+        // name collisions are almost always coincidental, so we restrict the
+        // scan to dep-graph-reachable files.
+        const restrict_to_related = symbol_type !== 'variable';
+        const the_related = workspace_indexer
+            ? workspace_indexer.get_related_uris(document.uri)
+            : new Set<string>([document.uri]);
+
         // Check cancellation before workspace scan (Req 5.3)
         if (cancellation_token?.isCancellationRequested) {
-            return this.apply_include_declaration(locations, definitions, include_declaration);
+            return this.apply_include_declaration(
+                locations,
+                definitions,
+                include_declaration,
+                restrict_to_related ? undefined : the_related
+            );
         }
 
-        // Search workspace-indexed files (Req 13.3)
         if (workspace_indexer) {
             const indexed_files = workspace_indexer.get_indexed_files();
             let file_count = 0;
-            
+
             for (const [uri, file_data] of indexed_files.entries()) {
                 // Periodic cancellation check during workspace scan (Req 13.3)
                 if (cancellation_token?.isCancellationRequested) {
@@ -616,7 +670,8 @@ export class ReferencesProvider {
                 }
 
                 if (uri === document.uri) continue;
-                
+                if (restrict_to_related && !the_related.has(uri)) continue;
+
                 const matches = this.scan_tokens_for_references(
                     file_data.tokens,
                     uri,
@@ -627,7 +682,7 @@ export class ReferencesProvider {
                 for (const my_match of matches) {
                     locations.push({ uri: my_match.uri, range: my_match.range });
                 }
-                
+
                 file_count++;
                 // Yield every 10 files to avoid blocking the event loop,
                 // then re-check cancellation after yielding (Req 13.3)
@@ -640,7 +695,12 @@ export class ReferencesProvider {
             }
         }
 
-        return this.apply_include_declaration(locations, definitions, include_declaration);
+        return this.apply_include_declaration(
+            locations,
+            definitions,
+            include_declaration,
+            restrict_to_related ? undefined : the_related
+        );
     }
 
     /**

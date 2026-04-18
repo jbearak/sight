@@ -73,9 +73,14 @@ describe('Feature: find-references, Property 7: Workspace Coverage', () => {
     }
 
     function create_mock_indexer(indexed_files: Map<string, IndexedFileData>) {
+        // These property tests validate that find-references reaches every
+        // indexed file, so the mock reports every indexed URI as being
+        // dependency-graph-related to the current document. Real production
+        // wiring filters unrelated files out (see the integration suite).
         return {
             get_indexed_files: () => indexed_files,
             find_symbol_definitions: () => [],
+            get_related_uris: () => new Set([...indexed_files.keys(), 'file:///workspace/current.do']),
         } as any;
     }
 

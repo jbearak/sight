@@ -931,23 +931,33 @@ export class DefinitionProvider {
 
     /**
      * Handle navigation for "do", "run", "include" commands and @lsp-* directives.
+     *
+     * The regexes match anywhere on the line (so directives nested inside
+     * comments still resolve), but we only navigate when the cursor actually
+     * sits on the quoted path — otherwise clicking an unrelated word on a line
+     * like `// note: @lsp-do: "helper"` would also jump to helper.do.
      */
     private get_include_definition(document: DocumentState, position: Position): Definition | null {
         const line_text = get_line_text(document, position.line);
 
         // Check for do/run/include commands
-        const include_match = line_text.match(/^\s*(do|run|include)\s+["']?([^"'\s]+)["']?/i);
+        const include_match = line_text.match(/^\s*(do|run|include)\s+(["']?)([^"'\s]+)\2/i);
         if (include_match) {
-            const file_path = include_match[2];
-            const resolved_path = this.resolve_file_path(document.uri, file_path);
-            if (resolved_path) {
-                return {
-                    uri: URI.file(resolved_path).toString(),
-                    range: {
-                        start: { line: 0, character: 0 },
-                        end: { line: 0, character: 0 },
-                    },
-                };
+            const file_path = include_match[3];
+            const path_start = include_match.index! +
+                include_match[0].length - file_path.length - (include_match[2] ? 1 : 0);
+            const path_end = path_start + file_path.length;
+            if (position.character >= path_start && position.character <= path_end) {
+                const resolved_path = this.resolve_file_path(document.uri, file_path);
+                if (resolved_path) {
+                    return {
+                        uri: URI.file(resolved_path).toString(),
+                        range: {
+                            start: { line: 0, character: 0 },
+                            end: { line: 0, character: 0 },
+                        },
+                    };
+                }
             }
         }
 
@@ -957,15 +967,22 @@ export class DefinitionProvider {
             const quoted_path = directive_match[2];
             const unquoted_path = directive_match[3];
             const file_path = quoted_path || unquoted_path;
-            const resolved_path = this.resolve_file_path(document.uri, file_path);
-            if (resolved_path) {
-                return {
-                    uri: URI.file(resolved_path).toString(),
-                    range: {
-                        start: { line: 0, character: 0 },
-                        end: { line: 0, character: 0 },
-                    },
-                };
+            const match_start = directive_match.index!;
+            const path_start = line_text.indexOf(file_path, match_start);
+            const path_end = path_start + file_path.length;
+            if (path_start >= 0 &&
+                position.character >= path_start &&
+                position.character <= path_end) {
+                const resolved_path = this.resolve_file_path(document.uri, file_path);
+                if (resolved_path) {
+                    return {
+                        uri: URI.file(resolved_path).toString(),
+                        range: {
+                            start: { line: 0, character: 0 },
+                            end: { line: 0, character: 0 },
+                        },
+                    };
+                }
             }
         }
 
