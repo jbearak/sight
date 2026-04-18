@@ -7,13 +7,22 @@
 
 ## Problem
 
-`src/providers/references.ts::classify_word_symbol` applies a deliberate
-asymmetry: code symbols (programs, scalars, matrices) are scoped via the
-dependency graph and forward-call filter, but variables are returned
-workspace-wide regardless of dependency-graph reachability. This choice is
-intentional and grounded in how Stata datasets work, but it is currently
-documented only in a single in-code comment that reviewers (human and AI)
-repeatedly miss — and consequently file as a bug.
+`src/providers/references.ts::collect_references` applies a deliberate
+three-tier scoping model across symbol kinds, but this design is currently
+captured only in in-code comments that reviewers (human and AI) repeatedly
+miss — and consequently file as a bug.
+
+The full model (from `collect_references` lines 734–754):
+
+| Symbol type | Scope for workspace scan |
+|---|---|
+| **Local macros** | Include-chain edges only (`get_related_uris(..., { include_only: true })`). Stata only propagates locals through `include`, never `do` or `run`. |
+| **Global macros, programs, scalars, matrices** | All dep-graph-reachable files (do/run/include edges). |
+| **Variables** | Entire workspace — no dep-graph restriction. |
+
+Variables are workspace-wide because Stata dataset columns are legitimately
+shared across unrelated analyses. Locals are narrower than globals/programs
+because Stata's scoping semantics propagate them only through `include`.
 
 The fix is documentation, not a behavior change.
 
@@ -38,16 +47,26 @@ scoping asymmetry so reviewers have a stable link to cite.
 
 ### Structure
 
-**Intro** (2 sentences max): this page documents a deliberate scoping
-asymmetry in Find References; it is not a usage guide.
+**Intro** (2 sentences max): this page documents a deliberate three-tier
+scoping model in Find References; it is not a usage guide.
 
-**The asymmetry** (short list):
+**The three-tier model** (table):
 
-- **Code symbols** (programs, scalars, matrices) — scoped via the dependency
-  graph and call-site filter. Same rule completion and hover apply: backward
-  directive parents are always in scope; forward-called files are in scope only
-  after their call line.
-- **Variables** — workspace-wide, regardless of dependency-graph reachability.
+| Symbol type | Scope |
+|---|---|
+| Local macros | Include-chain files only |
+| Global macros, programs, scalars, matrices | Dep-graph-reachable files (do/run/include edges) |
+| Variables | Entire workspace |
+
+**Why local macros are narrowest**: Stata only propagates local macros through
+`include`, never through `do` or `run`. A local with the same name in a
+`do`-called child is a separate, unrelated macro.
+
+**Why global macros and code symbols (programs, scalars, matrices) are
+dep-graph-scoped**: Same-named code symbols in unrelated branches of the
+dependency graph are typically coincidental, not shared semantics. Pooling
+them would produce misleading results — jumping between two unrelated
+`helper` programs that share a name by accident.
 
 **Why variables are workspace-wide**: Stata dataset columns are legitimately
 shared across unrelated analyses. Names like `id`, `year`, `analysis_sample`
@@ -55,13 +74,8 @@ frequently refer to the same underlying column across many unrelated `.do`
 files. A user asking "where is `analysis_sample` used?" typically wants all
 workspace sites, not just dependency-graph-reachable ones.
 
-**Why code symbols are NOT workspace-wide**: Same-named programs in unrelated
-branches of the dependency graph are typically coincidence, not shared
-semantics. Pooling their references would produce misleading results — jumping
-between two unrelated `helper` programs that happen to share a name.
-
-**Cross-reference**: `src/providers/references.ts::classify_word_symbol` is
-where the rule is implemented; see the comment in step 3 of that function.
+**Cross-reference**: `src/providers/references.ts::collect_references`
+(lines 734–754) is where the three-tier rule is implemented.
 
 **Tone**: descriptive, settled design. No "TODO" language, no future-work
 hints.
@@ -75,22 +89,32 @@ already live there; this belongs alongside them.
 
 **Draft content**:
 
-> **Find References — Scoping Asymmetry**: The references provider applies
-> dependency-graph scoping to code symbols (programs, scalars, matrices) but
-> treats variables as workspace-wide. Variables are intentionally exempt because
-> Stata dataset columns (e.g., `id`, `year`, `analysis_sample`) are legitimately
-> shared across unrelated analyses — a find-references query on a variable should
-> return all workspace hits, not just dependency-graph-reachable ones. Code
-> symbols use the same "visible at cursor" rule as completion and hover: backward
-> directive parents plus forward-called files whose call line is before the
-> cursor. See [docs/find-references.md](docs/find-references.md) for the full
-> rationale. Implementation: `src/providers/references.ts::classify_word_symbol`.
+> **Find References — Three-Tier Scoping**: The references provider uses
+> three distinct scoping tiers, intentionally different from each other:
+> (1) **local macros** — include-chain files only (Stata locals don't propagate
+> through `do`/`run`); (2) **global macros, programs, scalars, matrices** —
+> dep-graph-reachable files (all do/run/include edges); (3) **variables** —
+> entire workspace (dataset columns like `id`, `year`, `analysis_sample` are
+> legitimately shared across unrelated analyses). Reviewers: this is by design,
+> not a bug. See [docs/find-references.md](docs/find-references.md).
+> Implementation: `src/providers/references.ts::collect_references`.
 
 ## Artifact 3 — code comment pointers
 
-Two sites in `src/providers/references.ts`:
+Three sites in `src/providers/references.ts`:
 
-### Site 1 — primary path (scope-resolver present), around lines 594–596
+### Site 1 — `collect_references` workspace-scan block, around lines 734–752
+
+This block already has the best prose explanation of the three-tier model.
+Append a one-line doc pointer at the end of the existing comment block:
+
+```typescript
+// See docs/find-references.md for the rationale behind this three-tier model.
+const restrict_to_related = symbol_type !== 'variable';
+```
+
+### Site 2 — `classify_word_symbol` primary path (scope-resolver present),
+around lines 594–596
 
 Current:
 ```typescript
@@ -106,7 +130,8 @@ Updated (append one line):
 //    call-site filter here. See docs/find-references.md.
 ```
 
-### Site 2 — fallback path (scope-resolver absent), around lines 652–655
+### Site 3 — `classify_word_symbol` fallback path (scope-resolver absent),
+around lines 652–655
 
 Current (`has_cross_file_any('variable')` check with no comment):
 ```typescript
