@@ -40,6 +40,12 @@ import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_uri } from '../utils/workspace-roots';
 
+export {
+    get_visible_symbols_at,
+    get_visible_forward_call_sites,
+    collect_visible_uris,
+} from './visible-symbols';
+
 const DEFAULT_CONFIG: ScopeResolverConfig = {
     assume_call_site: 'end',
     max_backward_depth: 10,
