@@ -650,7 +650,7 @@ export class ReferencesProvider {
                 return { name: word, type: 'matrix', range };
             }
             // Variables remain workspace-wide on the fallback path too;
-            // see docs/find-references.md.
+            // See docs/find-references.md.
             if (has_cross_file_any('variable')) {
                 return { name: word, type: 'variable', range };
             }
