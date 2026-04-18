@@ -184,8 +184,50 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
         });
     });
 
-    describe('Property 4: WORD Token Does Not Resolve to Macro', () => {
-        it('WORD token with only macro (no variable) should return null', () => {
+    describe('Property 4: WORD Token Away From Macro Declaration Does Not Resolve', () => {
+        it('WORD token referenced away from a macro declaration should return null', () => {
+            // Stata macro references use `$name`/`${name}` or `` `name' `` — a
+            // plain WORD elsewhere must not resolve to a macro of the same name.
+            fc.assert(
+                fc.asyncProperty(
+                    arbitrary_non_reserved_identifier(),
+                    async (symbol_name) => {
+                        // Place the macro declaration on line 0 and the WORD
+                        // reference on line 1, so the cursor is outside the
+                        // declaration range.
+                        const word_token: Token = {
+                            type: 'WORD',
+                            value: symbol_name,
+                            range: {
+                                start: { line: 1, character: 0 },
+                                end: { line: 1, character: symbol_name.length },
+                            },
+                        };
+
+                        const local_macro_symbol = create_symbol(symbol_name);
+
+                        const content = `local ${symbol_name} = 1\n${symbol_name}`;
+                        const document = create_document_with_symbols(
+                            [word_token],
+                            {
+                                localMacros: new Map([[symbol_name, local_macro_symbol]]),
+                            },
+                            content
+                        );
+
+                        const position = { line: 1, character: 0 };
+
+                        const result = await definition_provider.get_definition(document, position);
+                        expect(result).toBeNull();
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+
+        it('WORD token on a macro declaration name should resolve to that macro', () => {
+            // When the cursor sits on the macro's declaration name (which
+            // tokenizes as WORD, not MACRO_REF_*), return the declaration.
             fc.assert(
                 fc.asyncProperty(
                     arbitrary_non_reserved_identifier(),
@@ -209,9 +251,12 @@ describe('Feature: variable-macro-definition-disambiguation', () => {
                         );
 
                         const position = { line: 0, character: 0 };
-                        
+
                         const result = await definition_provider.get_definition(document, position);
-                        expect(result).toBeNull();
+                        expect(result).toEqual({
+                            uri: local_macro_symbol.location.uri,
+                            range: local_macro_symbol.location.range,
+                        });
                     }
                 ),
                 { numRuns: 100 }

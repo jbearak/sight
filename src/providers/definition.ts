@@ -156,9 +156,9 @@ export class DefinitionProvider {
                         cancellation_token
                     );
                 }
-                
+
                 // WORD token: search variables, programs, scalars, matrices (NOT macros)
-                return await this.resolve_non_macro_symbols(
+                const non_macro_result = await this.resolve_non_macro_symbols(
                     word,
                     document,
                     workspace_symbols,
@@ -167,6 +167,13 @@ export class DefinitionProvider {
                     cross_file_config,
                     cancellation_token
                 );
+                if (non_macro_result) {
+                    return non_macro_result;
+                }
+                // Fallback: cursor sits on a macro's declaration name, which
+                // tokenizes as WORD rather than MACRO_REF_*. Return the
+                // macro's own location so clients receive a valid definition.
+                return this.resolve_word_as_macro_declaration(word, position, document);
             }
         }
 
@@ -505,7 +512,7 @@ export class DefinitionProvider {
         }
         
         // Otherwise, treat as WORD: resolve variables/programs/scalars/matrices (NOT macros)
-        return await this.resolve_non_macro_symbols(
+        const non_macro_result = await this.resolve_non_macro_symbols(
             word,
             document,
             workspace_symbols,
@@ -514,6 +521,39 @@ export class DefinitionProvider {
             cross_file_config,
             cancellation_token
         );
+        if (non_macro_result) {
+            return non_macro_result;
+        }
+        // Fallback: cursor sits on a macro's declaration name, which tokenizes
+        // as WORD rather than MACRO_REF_*. Return the macro's own location.
+        return this.resolve_word_as_macro_declaration(word, position, document);
+    }
+
+    /**
+     * Return the macro's own definition location when the cursor sits on a
+     * macro's declaration name (a WORD token, not `$name`/`` `name' ``).
+     * Returns null when the cursor is not within any macro declaration range.
+     */
+    private resolve_word_as_macro_declaration(
+        word: string,
+        position: Position,
+        document: DocumentState
+    ): Definition | null {
+        const global_macro = document.symbols.globalMacros.get(word);
+        if (global_macro && this.position_in_range(position, global_macro.location.range)) {
+            return {
+                uri: global_macro.location.uri,
+                range: global_macro.location.range,
+            };
+        }
+        const local_macro = document.symbols.localMacros.get(word);
+        if (local_macro && this.position_in_range(position, local_macro.location.range)) {
+            return {
+                uri: local_macro.location.uri,
+                range: local_macro.location.range,
+            };
+        }
+        return null;
     }
 
     /**

@@ -127,6 +127,90 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             expect(my_definition?.range.start.line).toBe(0);
         });
 
+        it('should return definition when cursor is on global macro declaration name', async () => {
+            const my_content = 'global data_path "data"';
+            const my_doc = create_test_document(my_content, {
+                globalMacros: new Map([
+                    [
+                        'data_path',
+                        {
+                            name: 'data_path',
+                            scope: 'global',
+                            sourceUri: 'file:///test.do',
+                            location: {
+                                uri: 'file:///test.do',
+                                range: {
+                                    start: { line: 0, character: 7 },
+                                    end: { line: 0, character: 16 },
+                                },
+                            },
+                            value: 'data',
+                        },
+                    ],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            // Cursor in the middle of `data_path` (the declaration name)
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 10 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).not.toBeNull();
+            expect(my_definition).toMatchObject({
+                uri: 'file:///test.do',
+                range: {
+                    start: { line: 0, character: 7 },
+                    end: { line: 0, character: 16 },
+                },
+            });
+        });
+
+        it('should return definition when cursor is on local macro declaration name', async () => {
+            const my_content = 'local my_var = 5';
+            const my_doc = create_test_document(my_content, {
+                localMacros: new Map([
+                    [
+                        'my_var',
+                        {
+                            name: 'my_var',
+                            scope: 'local',
+                            sourceUri: 'file:///test.do',
+                            location: {
+                                uri: 'file:///test.do',
+                                range: {
+                                    start: { line: 0, character: 6 },
+                                    end: { line: 0, character: 12 },
+                                },
+                            },
+                            value: '5',
+                        },
+                    ],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            // Cursor in the middle of `my_var` (the declaration name)
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 8 },
+                undefined,
+                context_tracker
+            );
+
+            expect(my_definition).not.toBeNull();
+            expect(my_definition).toMatchObject({
+                uri: 'file:///test.do',
+                range: {
+                    start: { line: 0, character: 6 },
+                    end: { line: 0, character: 12 },
+                },
+            });
+        });
+
         it('should resolve program definition in Stata context', async () => {
             const my_content = 'program my_prog\nend\nmy_prog';
             const my_doc = create_test_document(my_content, {
