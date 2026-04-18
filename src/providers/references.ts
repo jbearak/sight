@@ -17,6 +17,8 @@ import { LanguageContext, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
+import type { ScopeResolver } from '../scope-resolver';
+import type { ScopeResolverConfig } from '../types';
 
 export interface ReferenceSearchContext {
     symbol_name: string;
@@ -36,6 +38,12 @@ export interface IdentifiedSymbol {
 }
 
 export class ReferencesProvider {
+    private readonly scope_resolver?: ScopeResolver;
+
+    constructor(scope_resolver?: ScopeResolver) {
+        this.scope_resolver = scope_resolver;
+    }
+
     /**
      * Extract symbol name from local macro token value.
      * Strips backtick and quote from `name' format.
