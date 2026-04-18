@@ -456,6 +456,63 @@ describe('Find References - definition site & cross-file symbols', () => {
         expect(leaks_unrelated).toBe(false);
     });
 
+    it('finds child-file program refs linked only by @lsp-done-by (from parent)', async () => {
+        // Mirror of the previous test, but starting from the parent. The
+        // dependency graph has no static edge (macro-interpolated path),
+        // and the parent itself has no directive pointing at the child —
+        // only the child's header `@lsp-done-by` links back. Find
+        // References from the parent's program definition must still
+        // reach the child's call site (parent ← child traversal).
+        const parent_path = join(test_temp_dir, 'parent.do');
+        const parent_content =
+            `global stub "child.do"\n` +
+            `program define shared_name\n` +
+            `end\n` +
+            `do "$stub"\n`;
+        writeFileSync(parent_path, parent_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content =
+            `* @lsp-done-by: "parent.do"\n` +
+            `\n` +
+            `shared_name\n`;
+        writeFileSync(child_path, child_content);
+
+        const unrelated_path = join(test_temp_dir, 'unrelated.do');
+        const unrelated_content = `gen shared_name = 1\n`;
+        writeFileSync(unrelated_path, unrelated_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const parent_uri = URI.file(parent_path).toString();
+        await document_store.open(parent_uri, parent_content, 1);
+        const document_state = document_store.get(parent_uri)!;
+
+        const def_line = 1;
+        const name_char = parent_content
+            .split('\n')[def_line]
+            .indexOf('shared_name') + 3;
+
+        const locations = await references_provider.get_references(
+            document_state,
+            { line: def_line, character: name_char },
+            { includeDeclaration: true },
+            indexer,
+            document_state.context_tracker
+        );
+
+        const child_uri = URI.file(child_path).toString();
+        const unrelated_uri = URI.file(unrelated_path).toString();
+
+        // The child's call of `shared_name` must be included.
+        const has_child_ref = locations.some(loc => loc.uri === child_uri);
+        expect(has_child_ref).toBe(true);
+
+        // The unrelated file's `gen shared_name` must not leak in.
+        const leaks_unrelated = locations.some(loc => loc.uri === unrelated_uri);
+        expect(leaks_unrelated).toBe(false);
+    });
+
     it('prefers related-file program over a same-named workspace variable', async () => {
         // Reproduces the classifier ordering bug: an unrelated workspace
         // variable of the same name must not cause the cursor to be

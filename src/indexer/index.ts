@@ -88,20 +88,24 @@ export class WorkspaceIndexer {
     }
 
     /**
-     * Return the set of URIs reachable from `uri` through the dependency
-     * graph — ancestors (files that `do`/`run`/`include` this one, transitively)
-     * and descendants (files this one calls, transitively). The input URI is
-     * included in the result.
+     * Return the set of URIs reachable from `uri` through the
+     * dependency graph — ancestors (files that `do`/`run`/`include`
+     * this one, transitively) and descendants (files this one calls,
+     * transitively). The input URI is included in the result.
      *
      * Also follows backward header directives (`@lsp-done-by` /
-     * `@lsp-included-by`): the graph only records static `do`/`run`/`include`
-     * edges, so directive-only parent relationships (used when the parent's
-     * call path is dynamic) would otherwise be missed.
+     * `@lsp-included-by`) in both directions: the graph only records
+     * static `do`/`run`/`include` edges, so directive-only parent
+     * relationships (used when the parent's call path is dynamic)
+     * would otherwise be missed. The visited file's own directives
+     * supply the child → parent step, and a scan of other indexed
+     * entries supplies the parent ← child step.
      *
-     * When no dependency graph has been configured the result is just the
-     * input URI. Used by find-references to scope workspace scans to files
-     * that share a runtime relationship with the current one (excluding
-     * unrelated modules that happen to reuse the same symbol name).
+     * When no dependency graph has been configured the result is
+     * just the input URI. Used by find-references to scope workspace
+     * scans to files that share a runtime relationship with the
+     * current one (excluding unrelated modules that happen to reuse
+     * the same symbol name).
      */
     get_related_uris(uri: string): Set<string> {
         const the_related = new Set<string>([uri]);
@@ -133,6 +137,18 @@ export class WorkspaceIndexer {
                         the_related.add(my_parent_uri);
                         the_stack.push(my_parent_uri);
                     }
+                }
+            }
+            for (const [my_child_uri, my_child_entry] of this.symbol_index) {
+                if (the_related.has(my_child_uri)) continue;
+                for (const my_directive of my_child_entry.directives) {
+                    if (my_directive.type !== 'done-by' && my_directive.type !== 'included-by') {
+                        continue;
+                    }
+                    if (URI.file(my_directive.path).toString() !== my_uri) continue;
+                    the_related.add(my_child_uri);
+                    the_stack.push(my_child_uri);
+                    break;
                 }
             }
         }

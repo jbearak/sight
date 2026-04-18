@@ -968,10 +968,10 @@ export class DefinitionProvider {
             const unquoted_path = directive_match[3];
             const file_path = quoted_path || unquoted_path;
             const match_start = directive_match.index!;
-            const path_start = line_text.indexOf(file_path, match_start);
+            const path_start = match_start +
+                directive_match[0].length - file_path.length - (quoted_path ? 1 : 0);
             const path_end = path_start + file_path.length;
-            if (path_start >= 0 &&
-                position.character >= path_start &&
+            if (position.character >= path_start &&
                 position.character <= path_end) {
                 const resolved_path = this.resolve_file_path(document.uri, file_path);
                 if (resolved_path) {
