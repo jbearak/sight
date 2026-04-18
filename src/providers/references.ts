@@ -554,6 +554,11 @@ export class ReferencesProvider {
             // 2. Forward calls before the cursor. Nested call sites already
             //    carry the parent's call_line (set by ForwardScopeResolver),
             //    so the filter is correct transitively.
+            //
+            //    Three separate loops (not one nested loop) so kind priority
+            //    is preserved across sites: a program match in any visible
+            //    site wins over a scalar match in any other site, matching
+            //    the backward-chain ordering above.
             const the_visible_sites = resolved_scope.forward_call_symbols?.filter(
                 my_site => my_site.call_line < cursor_line
             ) ?? [];
