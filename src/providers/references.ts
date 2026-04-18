@@ -240,7 +240,7 @@ export class ReferencesProvider {
 
     /**
      * Find all references to the symbol at the given position.
-     * 
+     *
      * @param document - The document state
      * @param position - The cursor position
      * @param context - LSP reference context (includeDeclaration)
@@ -254,7 +254,8 @@ export class ReferencesProvider {
         context: ReferenceContext,
         workspace_indexer?: WorkspaceIndexer,
         context_tracker?: IContextTracker,
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        cross_file_config?: Partial<ScopeResolverConfig>
     ): Promise<Location[]> {
         // Check cancellation before starting (Req 5.3)
         if (cancellation_token?.isCancellationRequested) {
@@ -264,7 +265,7 @@ export class ReferencesProvider {
         // Check if we're in an embedded language context
         if (context_tracker) {
             const my_context = context_tracker.get_context_at_position(position);
-            
+
             // In embedded language context, only resolve macros
             if (my_context !== LanguageContext.STATA) {
                 return await this.get_macro_references_only(
@@ -272,17 +273,19 @@ export class ReferencesProvider {
                     position,
                     context,
                     workspace_indexer,
-                    cancellation_token
+                    cancellation_token,
+                    cross_file_config
                 );
             }
         }
 
         // Identify the symbol at cursor position
-        const identified_symbol = this.identify_symbol_at_position(
+        const identified_symbol = await this.identify_symbol_at_position(
             document,
             position,
             workspace_indexer,
-            cancellation_token
+            cancellation_token,
+            cross_file_config
         );
         if (!identified_symbol) {
             return [];
@@ -421,12 +424,13 @@ export class ReferencesProvider {
     /**
      * Identify the symbol at the cursor position and determine its type.
      */
-    private identify_symbol_at_position(
+    private async identify_symbol_at_position(
         document: DocumentState,
         position: Position,
         workspace_indexer?: WorkspaceIndexer,
-        cancellation_token?: CancellationToken
-    ): IdentifiedSymbol | null {
+        cancellation_token?: CancellationToken,
+        cross_file_config?: Partial<ScopeResolverConfig>
+    ): Promise<IdentifiedSymbol | null> {
         const word_info = this.get_word_at_position(document, position);
         if (!word_info) {
             return null;
@@ -475,7 +479,7 @@ export class ReferencesProvider {
                         case 'MACRO_REF_GLOBAL':
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
-                            return this.classify_word_symbol(word, range, document, workspace_indexer);
+                            return await this.classify_word_symbol(word, range, document, workspace_indexer, cross_file_config, cancellation_token);
                     }
                 }
             }
@@ -492,12 +496,14 @@ export class ReferencesProvider {
      * sites that tokenize as plain words (e.g., `global data_path`, where
      * `data_path` is a WORD, not a MACRO_REF_GLOBAL).
      */
-    private classify_word_symbol(
+    private async classify_word_symbol(
         word: string,
         range: Range,
         document: DocumentState,
-        workspace_indexer?: WorkspaceIndexer
-    ): IdentifiedSymbol | null {
+        workspace_indexer?: WorkspaceIndexer,
+        cross_file_config?: Partial<ScopeResolverConfig>,
+        cancellation_token?: CancellationToken
+    ): Promise<IdentifiedSymbol | null> {
         // Cursor sitting inside a macro's own declaration range must resolve
         // to the macro even when a non-macro symbol of the same name exists.
         // Stata allows cross-namespace name collisions (e.g., variable and
@@ -580,13 +586,15 @@ export class ReferencesProvider {
         position: Position,
         context: ReferenceContext,
         workspace_indexer?: WorkspaceIndexer,
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        cross_file_config?: Partial<ScopeResolverConfig>
     ): Promise<Location[]> {
-        const identified_symbol = this.identify_symbol_at_position(
+        const identified_symbol = await this.identify_symbol_at_position(
             document,
             position,
             workspace_indexer,
-            cancellation_token
+            cancellation_token,
+            cross_file_config
         );
         if (!identified_symbol || (identified_symbol.type !== 'local_macro' && identified_symbol.type !== 'global_macro')) {
             return [];
