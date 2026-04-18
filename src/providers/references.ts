@@ -593,7 +593,7 @@ export class ReferencesProvider {
 
             // 3. Variables remain workspace-wide: dataset columns are
             //    legitimately shared across unrelated modules, so no
-            //    call-site filter here.
+            //    call-site filter here. See docs/find-references.md.
             if (workspace_indexer) {
                 const has_cross_file_variable = workspace_indexer
                     .find_symbol_definitions(word, 'variable')
@@ -649,6 +649,8 @@ export class ReferencesProvider {
             if (has_cross_file_related('matrix')) {
                 return { name: word, type: 'matrix', range };
             }
+            // Variables remain workspace-wide on the fallback path too;
+            // see docs/find-references.md.
             if (has_cross_file_any('variable')) {
                 return { name: word, type: 'variable', range };
             }
@@ -745,6 +747,7 @@ export class ReferencesProvider {
         // through `include` chains, never through `do` or `run`. A local
         // with the same name in a `do`-called child is a different macro,
         // so the reachable set is restricted to include-only edges.
+        // See docs/find-references.md for the rationale behind this three-tier model.
         const restrict_to_related = symbol_type !== 'variable';
         const the_related = workspace_indexer
             ? workspace_indexer.get_related_uris(
