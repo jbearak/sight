@@ -172,7 +172,17 @@ async function build_binary(target: BuildTarget): Promise<void> {
         // --target specifies the platform/arch
         // The cache JSON is imported directly in server-factory.ts and bundled automatically
         await $`bun build ${PATHS.entry} --compile --target=${bun_target} --outfile=${output_path} --minify`;
-        
+
+        // Ad-hoc sign macOS binaries when building on macOS. On Apple Silicon
+        // (and with stricter provenance enforcement on recent macOS releases),
+        // the kernel rejects unsigned Mach-O binaries with SIGKILL / "load
+        // code signature error 4". Strip the malformed stub signature bun
+        // writes, then apply a fresh ad-hoc signature the loader accepts.
+        if (target.platform === 'darwin' && process.platform === 'darwin') {
+            await $`codesign --remove-signature ${output_path}`.quiet().nothrow();
+            await $`codesign --sign - --force ${output_path}`.quiet();
+        }
+
         console.log(`Binary created: ${output_path}`);
     } catch (error) {
         console.error(`Failed to build ${target.output_name}:`, error);
