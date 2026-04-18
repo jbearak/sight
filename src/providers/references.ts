@@ -209,7 +209,11 @@ export class ReferencesProvider {
                 symbol_type === 'local_macro' ? 'local' :
                 symbol_type === 'global_macro' ? 'global' :
                 symbol_type;
+            // Skip entries from the current document's URI: the on-disk
+            // index can lag unsaved buffer edits, and document.symbols
+            // already holds the authoritative fresh declaration.
             for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
+                if (my_def.sourceUri === document.uri) continue;
                 push({ uri: my_def.location.uri, range: my_def.location.range });
             }
         }
@@ -497,17 +501,25 @@ export class ReferencesProvider {
         // Fall back to cross-file non-macro symbols. Macros are intentionally
         // excluded here: macro references must appear as `$name`/`${name}` or
         // `` `name' `` in source, so a plain WORD shouldn't resolve to a macro.
+        // Same-URI entries are ignored: the on-disk index can lag unsaved
+        // buffer edits, and document.symbols above is the fresh view.
         if (workspace_indexer) {
-            if (workspace_indexer.find_symbol_definitions(word, 'variable').length > 0) {
+            const has_cross_file = (
+                ws_type: 'variable' | 'program' | 'scalar' | 'matrix'
+            ): boolean =>
+                workspace_indexer
+                    .find_symbol_definitions(word, ws_type)
+                    .some(my_def => my_def.sourceUri !== document.uri);
+            if (has_cross_file('variable')) {
                 return { name: word, type: 'variable', range };
             }
-            if (workspace_indexer.find_symbol_definitions(word, 'program').length > 0) {
+            if (has_cross_file('program')) {
                 return { name: word, type: 'program', range };
             }
-            if (workspace_indexer.find_symbol_definitions(word, 'scalar').length > 0) {
+            if (has_cross_file('scalar')) {
                 return { name: word, type: 'scalar', range };
             }
-            if (workspace_indexer.find_symbol_definitions(word, 'matrix').length > 0) {
+            if (has_cross_file('matrix')) {
                 return { name: word, type: 'matrix', range };
             }
         }
