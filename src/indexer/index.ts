@@ -108,64 +108,69 @@ export class WorkspaceIndexer {
      * the same symbol name).
      */
     get_related_uris(uri: string): Set<string> {
-        const the_related = new Set<string>([uri]);
-        if (!this.dependency_graph) return the_related;
+        const relatedUris = new Set<string>([uri]);
+        if (!this.dependency_graph) return relatedUris;
 
-        const the_parent_children = new Map<string, Set<string>>();
+        const parentToChildrenMap = new Map<string, Set<string>>();
         for (const [my_child_uri, my_child_entry] of this.symbol_index) {
             for (const my_directive of my_child_entry.directives) {
-                if (my_directive.type !== 'done-by' &&
-                    my_directive.type !== 'included-by') {
+                if (
+                    my_directive.type !== 'done-by' &&
+                    my_directive.type !== 'included-by'
+                ) {
                     continue;
                 }
                 const my_parent_uri = URI.file(my_directive.path).toString();
-                let the_children = the_parent_children.get(my_parent_uri);
-                if (!the_children) {
-                    the_children = new Set<string>();
-                    the_parent_children.set(my_parent_uri, the_children);
+                let childrenSet = parentToChildrenMap.get(my_parent_uri);
+                if (!childrenSet) {
+                    childrenSet = new Set<string>();
+                    parentToChildrenMap.set(my_parent_uri, childrenSet);
                 }
-                the_children.add(my_child_uri);
+                childrenSet.add(my_child_uri);
             }
         }
 
-        const the_stack: string[] = [uri];
-        while (the_stack.length > 0) {
-            const my_uri = the_stack.pop()!;
+        const workStack: string[] = [uri];
+        while (workStack.length > 0) {
+            const my_uri = workStack.pop()!;
             for (const my_edge of this.dependency_graph.get_parents(my_uri)) {
-                if (!the_related.has(my_edge.caller_uri)) {
-                    the_related.add(my_edge.caller_uri);
-                    the_stack.push(my_edge.caller_uri);
+                if (!relatedUris.has(my_edge.caller_uri)) {
+                    relatedUris.add(my_edge.caller_uri);
+                    workStack.push(my_edge.caller_uri);
                 }
             }
             for (const my_callee of this.dependency_graph.get_callees(my_uri)) {
-                if (!the_related.has(my_callee)) {
-                    the_related.add(my_callee);
-                    the_stack.push(my_callee);
+                if (!relatedUris.has(my_callee)) {
+                    relatedUris.add(my_callee);
+                    workStack.push(my_callee);
                 }
             }
             const my_entry = this.symbol_index.get(my_uri);
             if (my_entry) {
                 for (const my_directive of my_entry.directives) {
-                    if (my_directive.type !== 'done-by' && my_directive.type !== 'included-by') {
+                    if (
+                        my_directive.type !== 'done-by' &&
+                        my_directive.type !== 'included-by'
+                    ) {
                         continue;
                     }
                     const my_parent_uri = URI.file(my_directive.path).toString();
-                    if (!the_related.has(my_parent_uri)) {
-                        the_related.add(my_parent_uri);
-                        the_stack.push(my_parent_uri);
+                    if (!relatedUris.has(my_parent_uri)) {
+                        relatedUris.add(my_parent_uri);
+                        workStack.push(my_parent_uri);
                     }
                 }
             }
-            const the_children = the_parent_children.get(my_uri);
-            if (the_children) {
-                for (const my_child_uri of the_children) {
-                    if (the_related.has(my_child_uri)) continue;
-                    the_related.add(my_child_uri);
-                    the_stack.push(my_child_uri);
+            const childrenSet = parentToChildrenMap.get(my_uri);
+            if (childrenSet) {
+                for (const my_child_uri of childrenSet) {
+                    if (relatedUris.has(my_child_uri)) continue;
+                    relatedUris.add(my_child_uri);
+                    workStack.push(my_child_uri);
                 }
             }
         }
-        return the_related;
+        return relatedUris;
     }
 
     /**
