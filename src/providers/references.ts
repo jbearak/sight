@@ -18,6 +18,7 @@ import { get_line_text } from '../utils/line-utils';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
+import { build_scope_resolver_config } from '../scope-resolver';
 import type { ScopeResolverConfig } from '../types';
 
 export interface ReferenceSearchContext {
@@ -508,7 +509,7 @@ export class ReferencesProvider {
         // to the macro even when a non-macro symbol of the same name exists.
         // Stata allows cross-namespace name collisions (e.g., variable and
         // global macro both named `data_path`), so the declaration-range check
-        // runs first.
+        // runs first and stays sync against document.symbols.
         const global_macro = document.symbols.globalMacros.get(word);
         if (global_macro && this.position_in_range(range.start, global_macro.location.range)) {
             return { name: word, type: 'global_macro', range };
@@ -518,6 +519,79 @@ export class ReferencesProvider {
             return { name: word, type: 'local_macro', range };
         }
 
+        // Scope-resolver path: the classifier asks ScopeResolver what symbols
+        // are visible at the cursor. `resolved_scope.symbols` already merges
+        // the current file with every parent reachable via backward directives
+        // (done-by / included-by, auto or explicit). `forward_call_symbols`
+        // lists forward calls (do/run/include) with the line they were
+        // invoked on; a call is visible only when its call_line is strictly
+        // less than the cursor line.
+        if (this.scope_resolver) {
+            const resolve_config = build_scope_resolver_config(cross_file_config);
+            const resolved_scope = await this.scope_resolver.resolve(
+                document.uri,
+                document.content,
+                resolve_config,
+                cancellation_token
+            );
+            const cursor_line = range.start.line;
+
+            // 1. Backward chain + current file (always in scope).
+            //    Order matches the pre-fix code: programs → variables → scalars → matrices.
+            if (resolved_scope.symbols.programs.has(word)) {
+                return { name: word, type: 'program', range };
+            }
+            if (resolved_scope.symbols.variables.has(word)) {
+                return { name: word, type: 'variable', range };
+            }
+            if (resolved_scope.symbols.scalars.has(word)) {
+                return { name: word, type: 'scalar', range };
+            }
+            if (resolved_scope.symbols.matrices.has(word)) {
+                return { name: word, type: 'matrix', range };
+            }
+
+            // 2. Forward calls before the cursor. Nested call sites already
+            //    carry the parent's call_line (set by ForwardScopeResolver),
+            //    so the filter is correct transitively.
+            const the_visible_sites = resolved_scope.forward_call_symbols?.filter(
+                my_site => my_site.call_line < cursor_line
+            ) ?? [];
+            for (const my_site of the_visible_sites) {
+                if (my_site.symbols.programs.has(word)) {
+                    return { name: word, type: 'program', range };
+                }
+            }
+            for (const my_site of the_visible_sites) {
+                if (my_site.symbols.scalars.has(word)) {
+                    return { name: word, type: 'scalar', range };
+                }
+            }
+            for (const my_site of the_visible_sites) {
+                if (my_site.symbols.matrices.has(word)) {
+                    return { name: word, type: 'matrix', range };
+                }
+            }
+
+            // 3. Variables remain workspace-wide: dataset columns are
+            //    legitimately shared across unrelated modules, so no
+            //    call-site filter here.
+            if (workspace_indexer) {
+                const has_cross_file_variable = workspace_indexer
+                    .find_symbol_definitions(word, 'variable')
+                    .some(my_def => my_def.sourceUri !== document.uri);
+                if (has_cross_file_variable) {
+                    return { name: word, type: 'variable', range };
+                }
+            }
+
+            return null;
+        }
+
+        // Fallback path (test-only): production always wires scope_resolver,
+        // but unit/integration tests that construct ReferencesProvider with
+        // zero args land here. Preserve the pre-fix behavior so those tests
+        // don't regress.
         if (document.symbols.programs.has(word)) {
             return { name: word, type: 'program', range };
         }
@@ -531,18 +605,6 @@ export class ReferencesProvider {
             return { name: word, type: 'matrix', range };
         }
 
-        // Fall back to cross-file non-macro symbols. Macros are intentionally
-        // excluded here: macro references must appear as `$name`/`${name}` or
-        // `` `name' `` in source, so a plain WORD shouldn't resolve to a macro.
-        // Same-URI entries are ignored: the on-disk index can lag unsaved
-        // buffer edits, and document.symbols above is the fresh view.
-        //
-        // Ordering matters. Related-file code symbols (programs, scalars,
-        // matrices) are checked before workspace-wide variables: a name
-        // collision with a variable in an unrelated module must not outrank
-        // a real code-level definition reachable through the dependency
-        // graph. Variables remain a workspace-wide fallback because dataset
-        // columns are legitimately shared across unrelated analyses.
         if (workspace_indexer) {
             const the_related = workspace_indexer.get_related_uris(document.uri);
             const has_cross_file_any = (
