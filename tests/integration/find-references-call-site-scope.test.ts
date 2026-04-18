@@ -155,4 +155,49 @@ describe('Find References - call-site scope filtering (issue #127)', () => {
         const has_defs_ref = locations.some(loc => loc.uri === defs_uri);
         expect(has_defs_ref).toBe(true);
     });
+
+    it('classifies via backward directive — parent programs are always in scope in the child', async () => {
+        // main.do defines `shared_prog` then does child.do. child.do's
+        // header pins the backward link with @lsp-done-by. Regardless of
+        // the cursor line in child, parent's programs must be in scope
+        // (backward chain = always visible).
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `program define shared_prog\n` +
+            `end\n` +
+            `do "child.do"\n`;
+        writeFileSync(main_path, main_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content =
+            `* @lsp-done-by: "main.do"\n` +
+            `\n` +
+            `shared_prog\n`;
+        writeFileSync(child_path, child_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await pipeline.document_store.open(child_uri, child_content, 1);
+        const document_state = pipeline.document_store.get(child_uri)!;
+
+        // Cursor on `shared_prog` at line 2 in child.do.
+        const cursor_line = 2;
+        const cursor_char = child_content
+            .split('\n')[cursor_line]
+            .indexOf('shared_prog') + 3;
+
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: cursor_line, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker
+        );
+
+        // Parent's program definition should be pooled in (classifier returned program).
+        const main_uri = URI.file(main_path).toString();
+        const has_parent_def = locations.some(loc => loc.uri === main_uri);
+        expect(has_parent_def).toBe(true);
+    });
 });
