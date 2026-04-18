@@ -398,4 +398,112 @@ describe('Find References - definition site & cross-file symbols', () => {
         );
         expect(has_child_ref).toBe(true);
     });
+
+    it('finds parent-file program refs linked only by @lsp-done-by (no graph edge)', async () => {
+        // Parent calls the child through a macro-interpolated path, so the
+        // dependency graph records no static edge. The child's explicit
+        // `@lsp-done-by` is the only link — find-references must still scan
+        // the parent, and the cursor must classify as a program (not a
+        // variable, even though an unrelated file defines a same-named
+        // variable).
+        const parent_path = join(test_temp_dir, 'parent.do');
+        const parent_content =
+            `global stub "child.do"\n` +
+            `program define shared_name\n` +
+            `end\n` +
+            `do "$stub"\n`;
+        writeFileSync(parent_path, parent_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content =
+            `* @lsp-done-by: "parent.do"\n` +
+            `\n` +
+            `shared_name\n`;
+        writeFileSync(child_path, child_content);
+
+        const unrelated_path = join(test_temp_dir, 'unrelated.do');
+        const unrelated_content = `gen shared_name = 1\n`;
+        writeFileSync(unrelated_path, unrelated_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await document_store.open(child_uri, child_content, 1);
+        const document_state = document_store.get(child_uri)!;
+
+        const call_line = 2;
+        const name_char = child_content
+            .split('\n')[call_line]
+            .indexOf('shared_name') + 3;
+
+        const locations = await references_provider.get_references(
+            document_state,
+            { line: call_line, character: name_char },
+            { includeDeclaration: true },
+            indexer,
+            document_state.context_tracker
+        );
+
+        const parent_uri = URI.file(parent_path).toString();
+        const unrelated_uri = URI.file(unrelated_path).toString();
+
+        // The program definition in the parent must be included.
+        const has_parent_ref = locations.some(loc => loc.uri === parent_uri);
+        expect(has_parent_ref).toBe(true);
+
+        // The unrelated file's `gen shared_name` must not leak in.
+        const leaks_unrelated = locations.some(loc => loc.uri === unrelated_uri);
+        expect(leaks_unrelated).toBe(false);
+    });
+
+    it('prefers related-file program over a same-named workspace variable', async () => {
+        // Reproduces the classifier ordering bug: an unrelated workspace
+        // variable of the same name must not cause the cursor to be
+        // classified as a variable when the only related definition is a
+        // program in the parent file.
+        const parent_path = join(test_temp_dir, 'parent.do');
+        const parent_content =
+            `program define shared_name\n` +
+            `end\n` +
+            `do "child.do"\n`;
+        writeFileSync(parent_path, parent_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content = `shared_name\n`;
+        writeFileSync(child_path, child_content);
+
+        const unrelated_path = join(test_temp_dir, 'unrelated.do');
+        const unrelated_content = `gen shared_name = 1\n`;
+        writeFileSync(unrelated_path, unrelated_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await document_store.open(child_uri, child_content, 1);
+        const document_state = document_store.get(child_uri)!;
+
+        const call_line = 0;
+        const name_char = child_content
+            .split('\n')[call_line]
+            .indexOf('shared_name') + 3;
+
+        const locations = await references_provider.get_references(
+            document_state,
+            { line: call_line, character: name_char },
+            { includeDeclaration: true },
+            indexer,
+            document_state.context_tracker
+        );
+
+        const parent_uri = URI.file(parent_path).toString();
+        const unrelated_uri = URI.file(unrelated_path).toString();
+
+        // Classified as program → parent definition included.
+        const has_parent_program_ref = locations.some(loc => loc.uri === parent_uri);
+        expect(has_parent_program_ref).toBe(true);
+
+        // Classified as program → unrelated-file variable not included.
+        const leaks_unrelated = locations.some(loc => loc.uri === unrelated_uri);
+        expect(leaks_unrelated).toBe(false);
+    });
 });

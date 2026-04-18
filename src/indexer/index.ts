@@ -93,6 +93,11 @@ export class WorkspaceIndexer {
      * and descendants (files this one calls, transitively). The input URI is
      * included in the result.
      *
+     * Also follows backward header directives (`@lsp-done-by` /
+     * `@lsp-included-by`): the graph only records static `do`/`run`/`include`
+     * edges, so directive-only parent relationships (used when the parent's
+     * call path is dynamic) would otherwise be missed.
+     *
      * When no dependency graph has been configured the result is just the
      * input URI. Used by find-references to scope workspace scans to files
      * that share a runtime relationship with the current one (excluding
@@ -115,6 +120,19 @@ export class WorkspaceIndexer {
                 if (!the_related.has(my_callee)) {
                     the_related.add(my_callee);
                     the_stack.push(my_callee);
+                }
+            }
+            const my_entry = this.symbol_index.get(my_uri);
+            if (my_entry) {
+                for (const my_directive of my_entry.directives) {
+                    if (my_directive.type !== 'done-by' && my_directive.type !== 'included-by') {
+                        continue;
+                    }
+                    const my_parent_uri = URI.file(my_directive.path).toString();
+                    if (!the_related.has(my_parent_uri)) {
+                        the_related.add(my_parent_uri);
+                        the_stack.push(my_parent_uri);
+                    }
                 }
             }
         }

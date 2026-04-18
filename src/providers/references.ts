@@ -523,12 +523,12 @@ export class ReferencesProvider {
         // Same-URI entries are ignored: the on-disk index can lag unsaved
         // buffer edits, and document.symbols above is the fresh view.
         //
-        // Variables are dataset column names in Stata: a name match in an
-        // unrelated module is still a legitimate reference, so we accept
-        // workspace-wide matches. Programs/scalars/matrices are code-level
-        // symbols; a name match in an unrelated module (no `do`/`run`/`include`
-        // edge to the current file) is almost always coincidental, so we
-        // restrict to files related via the dependency graph.
+        // Ordering matters. Related-file code symbols (programs, scalars,
+        // matrices) are checked before workspace-wide variables: a name
+        // collision with a variable in an unrelated module must not outrank
+        // a real code-level definition reachable through the dependency
+        // graph. Variables remain a workspace-wide fallback because dataset
+        // columns are legitimately shared across unrelated analyses.
         if (workspace_indexer) {
             const the_related = workspace_indexer.get_related_uris(document.uri);
             const has_cross_file_any = (
@@ -546,9 +546,6 @@ export class ReferencesProvider {
                         my_def.sourceUri !== document.uri &&
                         the_related.has(my_def.sourceUri)
                     );
-            if (has_cross_file_any('variable')) {
-                return { name: word, type: 'variable', range };
-            }
             if (has_cross_file_related('program')) {
                 return { name: word, type: 'program', range };
             }
@@ -557,6 +554,9 @@ export class ReferencesProvider {
             }
             if (has_cross_file_related('matrix')) {
                 return { name: word, type: 'matrix', range };
+            }
+            if (has_cross_file_any('variable')) {
+                return { name: word, type: 'variable', range };
             }
         }
 
