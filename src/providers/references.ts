@@ -537,7 +537,10 @@ export class ReferencesProvider {
             const cursor_line = range.start.line;
 
             // 1. Backward chain + current file (always in scope).
-            //    Order matches the pre-fix code: programs → variables → scalars → matrices.
+            //    Order matches the pre-fix in-document ordering: programs →
+            //    variables → scalars → matrices. Variables here are
+            //    current-file or parent declarations; workspace-wide
+            //    variables fall through to step 3.
             if (resolved_scope.symbols.programs.has(word)) {
                 return { name: word, type: 'program', range };
             }
