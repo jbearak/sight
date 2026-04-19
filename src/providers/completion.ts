@@ -752,8 +752,11 @@ export class CompletionProvider {
     }
 
     /**
-     * Build merged symbol map from workspace and document symbols.
-     * This is the core operation that gets cached to avoid repetitive work.
+     * Build the Global-Mode in-scope symbol bag: workspace symbols merged with
+     * document symbols, then current-file-only overrides applied for locals,
+     * globals, and programs (later tasks will extend to scalars and matrices).
+     * Workspace symbols from other files are surfaced separately via
+     * `partition_symbols_for_completion` as out-of-scope entries.
      */
     private build_merged_map(
         workspace_symbols: SymbolTable,
@@ -780,6 +783,7 @@ export class CompletionProvider {
             ...merged,
             localMacros: new Map(document_symbols.localMacros),
             globalMacros: new Map(document_symbols.globalMacros),
+            programs: new Map(document_symbols.programs),
         };
     }
 
@@ -1076,7 +1080,7 @@ export class CompletionProvider {
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_command_completions(document, position, symbols_for_completion, resolved_scope);
+                    return this.get_command_completions(document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'option':
                     // Suppress option completions in embedded language contexts
@@ -1101,7 +1105,7 @@ export class CompletionProvider {
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_program_completions(document, position, symbols_for_completion, resolved_scope);
+                    return this.get_program_completions(document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'directive_path':
                     // File path completions for directives (e.g., @lsp-done-by:)
@@ -1145,10 +1149,11 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
+        out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const prefix = this.get_word_at_position(document, position);
-        
+
         // Return empty if no prefix typed (reduces noise on empty lines)
         if (prefix === '') {
             return [];
@@ -1208,6 +1213,33 @@ export class CompletionProvider {
                     });
                 }
             }
+        }
+
+        // Out-of-scope workspace programs (from other files with no resolved link)
+        for (const [name, program] of out_of_scope.programs) {
+            if (prefix !== '' && !name.toLowerCase().startsWith(prefix.toLowerCase())) {
+                continue;
+            }
+            if (seen_labels.has(name.toLowerCase())) continue;
+
+            const ranking_factors: CompletionRankingFactors = {
+                scope_depth: 0,
+                directive_type: 'out-of-scope',
+                symbol_type: 'user-program',
+                alphabetical_order: program.name,
+                parent_uri: program.sourceUri,
+            };
+
+            const source_path = this.get_relative_path(program.sourceUri);
+
+            the_completions.push({
+                label: program.name,
+                kind: CompletionItemKind.Function,
+                detail: `User-defined program (out of scope — from ${source_path})`,
+                documentation: `Defined at ${program.sourceUri}`,
+                sortText: compute_ranking_key(ranking_factors),
+            });
+            seen_labels.add(name.toLowerCase());
         }
 
         // Then add built-in commands (lower precedence)
@@ -1982,6 +2014,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
+        out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
@@ -1993,7 +2026,7 @@ export class CompletionProvider {
                 document.uri,
                 resolved_scope,
             );
-            
+
             const ranking_factors: CompletionRankingFactors = {
                 scope_depth: symbol_info.depth,
                 directive_type: symbol_info.directive_type,
@@ -2001,17 +2034,40 @@ export class CompletionProvider {
                 alphabetical_order: program.name,
                 parent_uri: program.sourceUri
             };
-            
+
             // Add source file annotation for cross-file symbols
             let detail = 'User-defined program';
             if (symbol_info.source_path) {
                 detail += ` (from ${symbol_info.source_path})`;
             }
-            
+
             the_completions.push({
                 label: program.name,
                 kind: CompletionItemKind.Function,
                 detail,
+                documentation: `Defined at ${program.sourceUri}`,
+                sortText: compute_ranking_key(ranking_factors),
+            });
+            seen_labels.add(name);
+        }
+
+        for (const [name, program] of out_of_scope.programs) {
+            if (seen_labels.has(name)) continue;
+
+            const ranking_factors: CompletionRankingFactors = {
+                scope_depth: 0,
+                directive_type: 'out-of-scope',
+                symbol_type: 'user-program',
+                alphabetical_order: program.name,
+                parent_uri: program.sourceUri,
+            };
+
+            const source_path = this.get_relative_path(program.sourceUri);
+
+            the_completions.push({
+                label: program.name,
+                kind: CompletionItemKind.Function,
+                detail: `User-defined program (out of scope — from ${source_path})`,
                 documentation: `Defined at ${program.sourceUri}`,
                 sortText: compute_ranking_key(ranking_factors),
             });

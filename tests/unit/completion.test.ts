@@ -1565,3 +1565,49 @@ describe('Out-of-scope global macro completion', () => {
     });
 });
 
+describe('Out-of-scope program completion', () => {
+    let command_db: CommandDatabase;
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should list workspace programs as out-of-scope when no directives link the file', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('my_', { programs: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.programs.set('my_helper', {
+            name: 'my_helper',
+            location: {
+                uri: 'file:///lib.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///lib.do',
+            signature: { args: [] },
+        } as any);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 3 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const helper = completions.find(c => c.label === 'my_helper');
+        expect(helper).toBeDefined();
+        expect(helper!.detail).toContain('out of scope');
+        expect(helper!.detail).toContain('lib.do');
+    });
+});
