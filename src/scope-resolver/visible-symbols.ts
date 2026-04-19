@@ -325,7 +325,11 @@ export function collect_visible_reference_uris(
     for (const my_entry of scope.chain) {
         let entry_visible_symbols = clone_symbol_table(my_entry.symbols);
 
-        for (const my_site of my_entry.forward_call_sites ?? []) {
+        const the_entry_sites =
+            my_entry.all_forward_call_sites
+            ?? my_entry.forward_call_sites
+            ?? [];
+        for (const my_site of the_entry_sites) {
             const symbol_visible_before_site = symbol_table_matches_active_reference(
                 entry_visible_symbols,
                 symbol_type,
@@ -338,10 +342,18 @@ export function collect_visible_reference_uris(
                 symbol_name,
                 active_symbol_identity,
             );
+            // A sibling called after the current file (call_line >
+            // call_site_line) can reference the current file's symbols
+            // because the current file has already executed by then.
+            const site_is_after_current_file_call =
+                active_symbol_identity === current_uri &&
+                my_site.call_line > my_entry.call_site_line;
             if (
                 can_reference_forward_site(symbol_type, my_site) &&
                 !site_redeclares_with_different_identity(my_site) &&
-                (symbol_visible_before_site || site_defines_active_symbol)
+                (symbol_visible_before_site ||
+                    site_defines_active_symbol ||
+                    site_is_after_current_file_call)
             ) {
                 the_result.set(my_site.callee_uri, {});
             }
@@ -351,12 +363,12 @@ export function collect_visible_reference_uris(
             );
         }
 
-        // `entry_visible_symbols` reflects the parent's state *before* it
-        // calls the current file. If the active symbol is declared in the
-        // current file, the parent's *post-call* state reaches back and sees
-        // it (subject to the directive's propagation rules — locals only
-        // cross `included-by`, not `done-by`). That post-call view never
-        // appears in the chain entry's symbols, so handle it explicitly.
+        // `entry_visible_symbols` now reflects the parent's full post-call
+        // state (previously it was only pre-child-call). The check below is
+        // unchanged: if the active symbol is declared in the current file,
+        // the parent's post-call state reaches back and sees it (subject to
+        // the directive's propagation rules — locals only cross `included-by`,
+        // not `done-by`).
         const chain_entry_references_active =
             symbol_table_matches_active_reference(
                 entry_visible_symbols,
