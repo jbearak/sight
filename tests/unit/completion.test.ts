@@ -1770,3 +1770,54 @@ describe('Out-of-scope scalar and matrix completion', () => {
         expect((item!.detail || '')).not.toContain('out of scope');
     });
 });
+
+describe('In-scope global keeps normal completion rank', () => {
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        const command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should not label a workspace global as out-of-scope when it is in the in-scope bag', async () => {
+        const uri = 'file:///test.do';
+        // Simulate an in-scope workspace global by placing it in the document's own symbol table
+        // (no separate scope_resolver needed — the filter uses in-scope membership, not provenance).
+        const doc_globals = new Map();
+        doc_globals.set('shared_cfg', {
+            name: 'shared_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///helper.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///helper.do',
+            containingScope: 'dofile',
+            definition_line: 0,
+        });
+        const doc = create_test_document('display $', { globalMacros: doc_globals });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.globalMacros.set('shared_cfg', doc_globals.get('shared_cfg') as any);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 9 },
+            '$',
+            undefined,
+            workspace_symbols
+        );
+
+        const shared = completions.find(c => c.label === 'shared_cfg');
+        expect(shared).toBeDefined();
+        expect((shared!.detail || '')).not.toContain('out of scope');
+    });
+});
