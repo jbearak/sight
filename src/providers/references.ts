@@ -228,20 +228,23 @@ export class ReferencesProvider {
             // workspace-wide (see docs/find-references.md). All other kinds are
             // restricted to files visible at the cursor: the current file,
             // backward directive parents, and forward-called files whose
-            // `do`/`include` sits above the cursor line. When `cursor_line` is
-            // undefined (test-only setups without a resolved scope) the URI
-            // filter is skipped so the test fixture still sees cross-file
-            // definitions.
-            const restrict_to_visible = symbol_type !== 'variable';
-            const the_visible_uris = restrict_to_visible && cursor_line !== undefined
-                ? collect_visible_uris(resolved_scope, cursor_line, document.uri)
-                : null;
+            // `do`/`include` sits above the cursor line. When `resolved_scope`
+            // or `cursor_line` is missing (test-only setups without a scope
+            // resolver wired), fall back to the pre-fix dep-graph-reachable
+            // set so the broader declaration-pooling behavior is preserved —
+            // matching collect_references's symmetric fallback below.
+            let the_allowed_uris: Set<string> | null = null;
+            if (symbol_type !== 'variable') {
+                the_allowed_uris = (resolved_scope !== undefined && cursor_line !== undefined)
+                    ? collect_visible_uris(resolved_scope, cursor_line, document.uri)
+                    : workspace_indexer.get_related_uris(document.uri);
+            }
             // Skip entries from the current document's URI: the on-disk
             // index can lag unsaved buffer edits, and document.symbols
             // already holds the authoritative fresh declaration.
             for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
                 if (my_def.sourceUri === document.uri) continue;
-                if (the_visible_uris && !the_visible_uris.has(my_def.sourceUri)) continue;
+                if (the_allowed_uris && !the_allowed_uris.has(my_def.sourceUri)) continue;
                 push({ uri: my_def.location.uri, range: my_def.location.range });
             }
         }
