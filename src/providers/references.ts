@@ -32,6 +32,21 @@ export interface ReferenceSearchContext {
     include_declaration: boolean;
 }
 
+/**
+ * Per the `ReferenceScanRange` contract in visible-symbols.ts, a URI with a
+ * `scan_through_line` cutoff includes matches whose `range.start.line <=
+ * scan_through_line`. Both declaration pooling (find_definitions) and token
+ * scanning (collect_references) must apply the same comparison, so they share
+ * this helper — keeping them aligned is the whole point of extracting it.
+ */
+export function line_within_scan_range(
+    line: number,
+    range: ReferenceScanRange,
+): boolean {
+    if (range.scan_through_line === undefined) return true;
+    return line <= range.scan_through_line;
+}
+
 export interface TokenMatch {
     uri: string;
     range: Range;
@@ -306,10 +321,7 @@ export class ReferencesProvider {
                 if (the_allowed_uris) {
                     const range = the_allowed_uris.get(my_def.sourceUri);
                     if (!range) continue;
-                    if (
-                        range.scan_through_line !== undefined
-                        && my_def.location.range.start.line >= range.scan_through_line
-                    ) {
+                    if (!line_within_scan_range(my_def.location.range.start.line, range)) {
                         continue;
                     }
                 }
@@ -332,10 +344,7 @@ export class ReferencesProvider {
                         if (the_allowed_uris) {
                             const range = the_allowed_uris.get(my_extra.location.uri);
                             if (!range) continue;
-                            if (
-                                range.scan_through_line !== undefined
-                                && my_extra.location.range.start.line >= range.scan_through_line
-                            ) {
+                            if (!line_within_scan_range(my_extra.location.range.start.line, range)) {
                                 continue;
                             }
                         }
@@ -940,12 +949,8 @@ export class ReferencesProvider {
                 cancellation_token
             );
             const doc_range = the_related.get(document.uri);
-            const doc_cutoff = doc_range?.scan_through_line;
             for (const my_match of matches) {
-                if (
-                    doc_cutoff !== undefined
-                    && my_match.range.start.line > doc_cutoff
-                ) {
+                if (doc_range && !line_within_scan_range(my_match.range.start.line, doc_range)) {
                     continue;
                 }
                 locations.push({ uri: my_match.uri, range: my_match.range });
@@ -983,12 +988,8 @@ export class ReferencesProvider {
                     cancellation_token
                 );
                 const range = the_related.get(uri);
-                const cutoff = range?.scan_through_line;
                 for (const my_match of matches) {
-                    if (
-                        cutoff !== undefined
-                        && my_match.range.start.line > cutoff
-                    ) {
+                    if (range && !line_within_scan_range(my_match.range.start.line, range)) {
                         continue;
                     }
                     locations.push({ uri: my_match.uri, range: my_match.range });
