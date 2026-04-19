@@ -117,6 +117,127 @@ describe('get_visible_symbols_at', () => {
     });
 });
 
+describe('get_visible_symbols_at — current-file shadowing window (call_line, cursor_line]', () => {
+    // A scope where the current file sits at chain[0] (matching the
+    // ScopeResolver's real-world construction) so the shadowing predicate sees
+    // current-file symbols via scope.chain[0].symbols.
+    const current_uri = 'file:///current.do';
+    const callee_uri = 'file:///callee.do';
+
+    const macro_at_lines = (name: string, uri: string, primary: number, extras: number[] = []): MacroSymbol => ({
+        name,
+        scope: 'local',
+        location: { uri, range: { start: { line: primary, character: 0 }, end: { line: primary, character: name.length } } },
+        sourceUri: uri,
+        additional_definitions: extras.length
+            ? extras.map(line => ({ line, character: 0 }))
+            : undefined,
+    });
+
+    const build_scope = (
+        current_symbol: MacroSymbol | undefined,
+        site: ForwardCallSite,
+    ): ResolvedScope => {
+        const current_symbols = current_symbol
+            ? {
+                ...create_empty_symbol_table(),
+                localMacros: new Map([[current_symbol.name, current_symbol]]),
+            }
+            : create_empty_symbol_table();
+        const current_chain_entry: ScopeChainEntry = {
+            uri: current_uri,
+            directive_type: 'included-by',
+            call_site_line: Number.MAX_SAFE_INTEGER,
+            symbols: current_symbols,
+            depth: 0,
+            directive_order: Number.MAX_SAFE_INTEGER,
+            sort_key: `current:${current_uri}`,
+        };
+        return {
+            chain: [current_chain_entry],
+            symbols: current_symbols,
+            out_of_scope_symbols: [],
+            diagnostics: [],
+            has_directives: false,
+            has_auto_parents: false,
+            forward_call_symbols: [site],
+        };
+    };
+
+    const callee_site = (call_line: number): ForwardCallSite => ({
+        callee_uri,
+        call_line,
+        symbols: {
+            ...create_empty_symbol_table(),
+            localMacros: new Map([['shared', macro_at_lines('shared', callee_uri, 0)]]),
+        },
+        effective_type: 'include',
+    });
+
+    test('def before call (line 0), call at 5, cursor at 10 → forward wins', () => {
+        const my_scope = build_scope(
+            macro_at_lines('shared', current_uri, 0),
+            callee_site(5),
+        );
+        const the_result = get_visible_symbols_at(my_scope, 10);
+        expect(the_result.localMacros.get('shared')?.sourceUri).toBe(callee_uri);
+    });
+
+    test('def before call AND redefinition in window (lines 0 + 7), call at 5, cursor at 10 → current wins', () => {
+        const my_scope = build_scope(
+            macro_at_lines('shared', current_uri, 0, [7]),
+            callee_site(5),
+        );
+        const the_result = get_visible_symbols_at(my_scope, 10);
+        expect(the_result.localMacros.get('shared')?.sourceUri).toBe(current_uri);
+    });
+
+    test('def at line 7 only, call at 5, cursor at 6 → forward wins (future def not yet visible)', () => {
+        const my_scope = build_scope(
+            macro_at_lines('shared', current_uri, 7),
+            callee_site(5),
+        );
+        const the_result = get_visible_symbols_at(my_scope, 6);
+        expect(the_result.localMacros.get('shared')?.sourceUri).toBe(callee_uri);
+    });
+
+    test('boundary: def === call_line → forward wins (strict >)', () => {
+        const my_scope = build_scope(
+            macro_at_lines('shared', current_uri, 5),
+            callee_site(5),
+        );
+        const the_result = get_visible_symbols_at(my_scope, 10);
+        expect(the_result.localMacros.get('shared')?.sourceUri).toBe(callee_uri);
+    });
+
+    test('boundary: def === cursor_line → current wins (non-strict <=)', () => {
+        const my_scope = build_scope(
+            macro_at_lines('shared', current_uri, 10),
+            callee_site(5),
+        );
+        const the_result = get_visible_symbols_at(my_scope, 10);
+        expect(the_result.localMacros.get('shared')?.sourceUri).toBe(current_uri);
+    });
+
+    test('primary before call, additional_definitions[0] in window → current wins', () => {
+        const my_scope = build_scope(
+            macro_at_lines('shared', current_uri, 0, [7]),
+            callee_site(5),
+        );
+        const the_result = get_visible_symbols_at(my_scope, 10);
+        expect(the_result.localMacros.get('shared')?.sourceUri).toBe(current_uri);
+    });
+
+    test('primary before call, additional_definitions[0] after cursor → forward wins', () => {
+        const my_scope = build_scope(
+            macro_at_lines('shared', current_uri, 0, [12]),
+            callee_site(5),
+        );
+        const the_result = get_visible_symbols_at(my_scope, 10);
+        expect(the_result.localMacros.get('shared')?.sourceUri).toBe(callee_uri);
+    });
+});
+
 describe('get_visible_forward_call_sites', () => {
     test('returns [] when scope is undefined', () => {
         expect(get_visible_forward_call_sites(undefined, 0)).toEqual([]);

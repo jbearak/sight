@@ -28,51 +28,60 @@ type AnySymbol =
     | VariableSymbol;
 
 /**
- * Latest line at which `symbol` is defined in its source file. For macros this
- * considers additional_definitions (subsequent same-name assignments); for
- * other symbols only the primary definition line is available.
+ * True iff `symbol` has any definition (primary or additional) whose line falls
+ * in the half-open window `(after_line, up_to_line]`. The window models "was
+ * this name redefined strictly after the forward call ran, and at-or-before the
+ * cursor we're resolving?" Primary lines come from `location.range.start.line`;
+ * additional lines come from `additional_definitions` (macros only).
  */
-function get_latest_definition_line(symbol: AnySymbol): number {
-    let the_line = symbol.location.range.start.line;
+function has_definition_in_window(
+    symbol: AnySymbol,
+    after_line: number,
+    up_to_line: number,
+): boolean {
+    const primary_line = symbol.location.range.start.line;
+    if (primary_line > after_line && primary_line <= up_to_line) {
+        return true;
+    }
     if ('additional_definitions' in symbol && symbol.additional_definitions) {
         for (const my_extra of symbol.additional_definitions) {
-            if (my_extra.line > the_line) {
-                the_line = my_extra.line;
+            if (my_extra.line > after_line && my_extra.line <= up_to_line) {
+                return true;
             }
         }
     }
-    return the_line;
+    return false;
 }
 
 /**
- * True when the current file has a same-name definition at a line at or before
- * `call_line` — i.e., the current file defines this name before/at the forward
- * call line, so the current file should win per Stata's last-assignment-wins
- * execution order. Definitions after the call line do NOT override the forward
- * call symbol.
+ * True when the current file has a same-name definition in `(call_line,
+ * cursor_line]` — i.e., strictly after the forward call executed and at-or-
+ * before the cursor. Per Stata's last-assignment-wins execution order, such a
+ * definition shadows the forward-call symbol. Definitions before the call are
+ * overwritten by the include; definitions after the cursor haven't run yet.
  */
-function current_file_overrides_forward_call<T extends AnySymbol>(
+function current_file_shadows_forward_site<T extends AnySymbol>(
     current_file_map: Map<string, T> | undefined,
     name: string,
     call_line: number,
+    cursor_line: number,
 ): boolean {
     if (!current_file_map) return false;
     const my_existing = current_file_map.get(name);
     if (!my_existing) return false;
-    return get_latest_definition_line(my_existing) <= call_line;
+    return has_definition_in_window(my_existing, call_line, cursor_line);
 }
 
 /**
- * Drop entries from `site_symbols` that are shadowed by an earlier current-file
- * definition. A name is dropped when `current_file_symbols` has a same-name
- * definition at a line at or before `call_line` (the line at which this forward
- * call executes). Exported so CompletionProvider can apply the same filter when
- * building its annotated forward-symbol overlay.
+ * Drop entries from `site_symbols` that are shadowed by a current-file
+ * definition in `(call_line, cursor_line]`. Exported so CompletionProvider can
+ * apply the same filter when building its annotated forward-symbol overlay.
  */
 export function filter_forward_site_symbols(
     site_symbols: SymbolTable,
     current_file_symbols: SymbolTable | undefined,
     call_line: number,
+    cursor_line: number,
 ): SymbolTable {
     if (!current_file_symbols) return site_symbols;
     const filter_map = <T extends AnySymbol>(
@@ -81,7 +90,12 @@ export function filter_forward_site_symbols(
     ): Map<string, T> => {
         const the_kept = new Map<string, T>();
         for (const [my_name, my_symbol] of the_site_map) {
-            if (!current_file_overrides_forward_call(the_current_map, my_name, call_line)) {
+            if (!current_file_shadows_forward_site(
+                the_current_map,
+                my_name,
+                call_line,
+                cursor_line,
+            )) {
                 the_kept.set(my_name, my_symbol);
             }
         }
@@ -101,9 +115,10 @@ export function filter_forward_site_symbols(
  * SymbolTable of every symbol in scope at `cursor_line`. Starts from
  * `resolved_scope.symbols` (parent chain + current file) and overlays each
  * forward-call site whose `call_line < cursor_line` with merge_symbol_tables
- * last-wins semantics — except that a current-file definition at a line at or
- * before a call's `call_line` is preserved, so earlier current-file definitions
- * shadow forward-call results (matches Stata's sequential execution semantics).
+ * last-wins semantics — except that a current-file definition in the window
+ * `(call_line, cursor_line]` is preserved, so current-file redefinitions that
+ * happen after the call but at-or-before the cursor shadow the forward-call
+ * result (matches Stata's sequential execution semantics).
  *
  * Returns an empty SymbolTable when `scope` is undefined.
  */
@@ -131,6 +146,7 @@ export function get_visible_symbols_at(
                 my_site.symbols,
                 current_file_symbols,
                 my_site.call_line,
+                cursor_line,
             );
             result = merge_symbol_tables(result, filtered);
         }

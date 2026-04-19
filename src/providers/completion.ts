@@ -916,9 +916,14 @@ export class CompletionProvider {
                     );
 
                 if (has_directives || has_auto_parents) {
-                    // With directives: use reachable scope chain (precision)
+                    // With directives: use reachable scope chain (precision).
+                    // get_visible_symbols_at already resolves forward calls
+                    // with correct precedence; re-merging visible_forward_overlay
+                    // would let forward symbols win a second time. Instead, copy
+                    // annotations only onto entries whose winner is the forward-
+                    // call version.
                     resolved_scope = temp_scope;
-                    symbols_for_completion = merge_symbol_tables(
+                    symbols_for_completion = this.copy_forward_annotations(
                         get_visible_symbols_at(temp_scope, position.line),
                         visible_forward_overlay,
                     );
@@ -2646,6 +2651,58 @@ export class CompletionProvider {
         );
     }
 
+    /**
+     * Apply annotations from `annotated_overlay` onto entries in `visible`
+     * whose winning `sourceUri` matches. `get_visible_symbols_at` already
+     * resolves forward-call precedence, so we must NOT re-merge the overlay on
+     * top — that would let forward-call symbols win a second time. Instead we
+     * keep the visible map as-is and only copy `scope_depth` / `directive_type`
+     * onto the entries where the forward-call version was the winner.
+     * Produces new wrapper objects; never mutates shared symbols.
+     */
+    private copy_forward_annotations(
+        visible: SymbolTable,
+        annotated_overlay: SymbolTable,
+    ): SymbolTable {
+        type AnnotatedLike = {
+            sourceUri?: string;
+            scope_depth?: number;
+            directive_type?: 'done-by' | 'included-by' | 'current';
+        };
+        const copy_kind = <T extends { sourceUri?: string }>(
+            visible_map: Map<string, T>,
+            overlay_map: Map<string, T>,
+        ): Map<string, T> => {
+            const the_result = new Map<string, T>();
+            for (const [my_name, my_symbol] of visible_map) {
+                const overlay_symbol = overlay_map.get(my_name) as T & AnnotatedLike | undefined;
+                if (
+                    overlay_symbol &&
+                    overlay_symbol.sourceUri === my_symbol.sourceUri &&
+                    (overlay_symbol.scope_depth !== undefined ||
+                        overlay_symbol.directive_type !== undefined)
+                ) {
+                    the_result.set(my_name, {
+                        ...my_symbol,
+                        scope_depth: overlay_symbol.scope_depth,
+                        directive_type: overlay_symbol.directive_type,
+                    } as T);
+                } else {
+                    the_result.set(my_name, my_symbol);
+                }
+            }
+            return the_result;
+        };
+        return {
+            programs: copy_kind(visible.programs, annotated_overlay.programs),
+            localMacros: copy_kind(visible.localMacros, annotated_overlay.localMacros),
+            globalMacros: copy_kind(visible.globalMacros, annotated_overlay.globalMacros),
+            variables: copy_kind(visible.variables, annotated_overlay.variables),
+            scalars: copy_kind(visible.scalars, annotated_overlay.scalars),
+            matrices: copy_kind(visible.matrices, annotated_overlay.matrices),
+        };
+    }
+
     private get_annotated_visible_forward_symbols(
         resolved_scope: ResolvedScope | undefined,
         cursor_line: number,
@@ -2666,6 +2723,7 @@ export class CompletionProvider {
                 my_call_site.symbols,
                 current_file_symbols,
                 my_call_site.call_line,
+                cursor_line,
             );
             const annotated_symbols: SymbolTable = {
                 programs: this.annotate_symbol_map(
