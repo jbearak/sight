@@ -18,8 +18,12 @@ import { get_line_text } from '../utils/line-utils';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
-import { build_scope_resolver_config } from '../scope-resolver';
-import type { ScopeResolverConfig } from '../types';
+import {
+    build_scope_resolver_config,
+    collect_visible_uris,
+    get_visible_forward_call_sites,
+} from '../scope-resolver';
+import type { ScopeResolverConfig, ResolvedScope } from '../types';
 
 export interface ReferenceSearchContext {
     symbol_name: string;
@@ -167,7 +171,9 @@ export class ReferencesProvider {
         document: DocumentState,
         symbol_name: string,
         symbol_type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix',
-        workspace_indexer?: WorkspaceIndexer
+        workspace_indexer?: WorkspaceIndexer,
+        resolved_scope?: ResolvedScope,
+        cursor_line?: number,
     ): Location[] {
         const locations: Location[] = [];
         const seen = new Set<string>();
@@ -218,20 +224,24 @@ export class ReferencesProvider {
                 symbol_type === 'local_macro' ? 'local' :
                 symbol_type === 'global_macro' ? 'global' :
                 symbol_type;
-            // Variables are dataset columns — we include cross-module
-            // definitions. All other symbol kinds are restricted to files
-            // reachable via the dependency graph; see collect_references for
-            // the full rationale.
-            const restrict_to_related = symbol_type !== 'variable';
-            const the_related = restrict_to_related
-                ? workspace_indexer.get_related_uris(document.uri)
+            // Variables are dataset columns — we pool cross-module declarations
+            // workspace-wide (see docs/find-references.md). All other kinds are
+            // restricted to files visible at the cursor: the current file,
+            // backward directive parents, and forward-called files whose
+            // `do`/`include` sits above the cursor line. When `cursor_line` is
+            // undefined (test-only setups without a resolved scope) the URI
+            // filter is skipped so the test fixture still sees cross-file
+            // definitions.
+            const restrict_to_visible = symbol_type !== 'variable';
+            const the_visible_uris = restrict_to_visible && cursor_line !== undefined
+                ? collect_visible_uris(resolved_scope, cursor_line, document.uri)
                 : null;
             // Skip entries from the current document's URI: the on-disk
             // index can lag unsaved buffer edits, and document.symbols
             // already holds the authoritative fresh declaration.
             for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
                 if (my_def.sourceUri === document.uri) continue;
-                if (the_related && !the_related.has(my_def.sourceUri)) continue;
+                if (the_visible_uris && !the_visible_uris.has(my_def.sourceUri)) continue;
                 push({ uri: my_def.location.uri, range: my_def.location.range });
             }
         }
@@ -292,6 +302,19 @@ export class ReferencesProvider {
             return [];
         }
 
+        // Resolve the scope once here (cached by ScopeResolver) so
+        // find_definitions can apply the call-site filter to declarations
+        // pooled from the workspace indexer. See issue #129.
+        const resolve_config = build_scope_resolver_config(cross_file_config);
+        const resolved_scope = this.scope_resolver
+            ? await this.scope_resolver.resolve(
+                document.uri,
+                document.content,
+                resolve_config,
+                cancellation_token
+            )
+            : undefined;
+
         return this.collect_references(
             document,
             identified_symbol.name,
@@ -299,7 +322,9 @@ export class ReferencesProvider {
             context.includeDeclaration,
             workspace_indexer,
             document.context_ranges,
-            cancellation_token
+            cancellation_token,
+            resolved_scope,
+            position.line,
         );
     }
 
@@ -682,6 +707,19 @@ export class ReferencesProvider {
             return [];
         }
 
+        // Resolve the scope once so find_definitions can apply the
+        // call-site filter to non-variable declarations pooled from the
+        // workspace indexer. See issue #129.
+        const resolve_config = build_scope_resolver_config(cross_file_config);
+        const resolved_scope = this.scope_resolver
+            ? await this.scope_resolver.resolve(
+                document.uri,
+                document.content,
+                resolve_config,
+                cancellation_token
+            )
+            : undefined;
+
         return this.collect_references(
             document,
             identified_symbol.name,
@@ -689,7 +727,9 @@ export class ReferencesProvider {
             context.includeDeclaration,
             workspace_indexer,
             undefined, // No context_ranges filtering for macros (they work across all contexts)
-            cancellation_token
+            cancellation_token,
+            resolved_scope,
+            position.line,
         );
     }
 
@@ -703,7 +743,9 @@ export class ReferencesProvider {
         include_declaration: boolean,
         workspace_indexer?: WorkspaceIndexer,
         context_ranges?: ContextRange[],
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        resolved_scope?: ResolvedScope,
+        cursor_line?: number,
     ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
             symbol_name,
@@ -716,7 +758,9 @@ export class ReferencesProvider {
             document,
             symbol_name,
             symbol_type,
-            workspace_indexer
+            workspace_indexer,
+            resolved_scope,
+            cursor_line,
         );
 
         // Search current document
@@ -741,20 +785,44 @@ export class ReferencesProvider {
         // we scan the full workspace. Every other symbol kind (programs,
         // scalars, matrices, macros) is a code-level symbol where cross-module
         // name collisions are almost always coincidental, so we restrict the
-        // scan to dep-graph-reachable files.
+        // scan to files visible at the cursor — backward chain + forward
+        // calls that sit above the cursor line. (Issue #129 aligns the scan
+        // path with the call-site filter already applied to find_definitions:
+        // a redeclaration in a not-yet-reached forward-called file must not
+        // surface as a cross-reference either.)
         //
         // Local macros are narrower still: Stata only propagates locals
         // through `include` chains, never through `do` or `run`. A local
         // with the same name in a `do`-called child is a different macro,
-        // so the reachable set is restricted to include-only edges.
+        // so the reachable set is restricted to include-only edges; here we
+        // keep that narrower backward path via `get_related_uris`, which
+        // understands `include_only`.
         // See docs/find-references.md for the rationale behind this three-tier model.
         const restrict_to_related = symbol_type !== 'variable';
-        const the_related = workspace_indexer
-            ? workspace_indexer.get_related_uris(
+        let the_related: Set<string>;
+        if (!workspace_indexer) {
+            the_related = new Set<string>([document.uri]);
+        } else if (symbol_type === 'local_macro') {
+            the_related = workspace_indexer.get_related_uris(
                 document.uri,
-                symbol_type === 'local_macro' ? { include_only: true } : undefined
-            )
-            : new Set<string>([document.uri]);
+                { include_only: true }
+            );
+        } else if (
+            restrict_to_related &&
+            resolved_scope !== undefined &&
+            cursor_line !== undefined
+        ) {
+            // Scope-resolver path (production): filter the scan to files
+            // visible at the cursor so redeclarations in not-yet-reached
+            // forward-called files don't leak into references. See issue
+            // #129.
+            the_related = collect_visible_uris(resolved_scope, cursor_line, document.uri);
+        } else {
+            // Fallback path (test-only setups without a scope_resolver, or
+            // variable lookups that fall through before this point): keep
+            // the pre-fix behavior so those setups don't regress.
+            the_related = workspace_indexer.get_related_uris(document.uri);
+        }
 
         // Check cancellation before workspace scan (Req 5.3)
         if (cancellation_token?.isCancellationRequested) {
