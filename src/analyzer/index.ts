@@ -501,7 +501,7 @@ export class SemanticAnalyzer {
     ): void {
         switch (node.type) {
             case 'program':
-                this.process_program(node, symbols, all_scopes);
+                this.process_program(node, symbols, all_scopes, node_index);
                 break;
 
             case 'macro_def':
@@ -535,21 +535,66 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * First-def-wins registration. Creates the primary entry on first call;
+     * on subsequent calls, appends to `additional_definitions`.
+     *
+     * Returns the canonical symbol (primary) — useful when callers need to
+     * mutate it further (e.g., attach c_locals to a program).
+     */
+    private add_or_append_definition<
+        T extends {
+            location: { uri: string; range: Range };
+            additional_definitions?: Array<{
+                index: number;
+                line: number;
+                location: { uri: string; range: Range };
+            }>;
+        }
+    >(
+        symbol_map: Map<string, T>,
+        name: string,
+        node_index: number,
+        range: Range,
+        create_primary: () => T
+    ): T {
+        const existing = symbol_map.get(name);
+        if (existing) {
+            if (!existing.additional_definitions) {
+                existing.additional_definitions = [];
+            }
+            existing.additional_definitions.push({
+                index: node_index,
+                line: range.start.line,
+                location: { uri: this.uri, range },
+            });
+            return existing;
+        }
+        const primary = create_primary();
+        symbol_map.set(name, primary);
+        return primary;
+    }
+
+    /**
      * Process a program definition.
      * Programs are case-sensitive.
      */
     private process_program(
         node: ProgramNode,
         symbols: SymbolTable,
-        all_scopes: ScopeInfo[]
+        all_scopes: ScopeInfo[],
+        node_index: number
     ): void {
-        const program_symbol: ProgramSymbol = {
-            name: node.name,
-            location: { uri: this.uri, range: node.range },
-            sourceUri: this.uri,
-        };
-
-        symbols.programs.set(node.name, program_symbol);
+        const program_symbol: ProgramSymbol = this.add_or_append_definition(
+            symbols.programs,
+            node.name,
+            node_index,
+            node.range,
+            (): ProgramSymbol => ({
+                name: node.name,
+                location: { uri: this.uri, range: node.range },
+                sourceUri: this.uri,
+            })
+        );
 
         // Create a new scope for the program body
         const program_scope: ScopeInfo = {
