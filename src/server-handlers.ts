@@ -320,31 +320,7 @@ export function create_completion_handler(
                 ? deps.workspace_indexer.get_version()
                 : 0;
             const config = await deps.get_document_settings(params.textDocument.uri);
-            
-            // Compute forward scope only when scope_resolver is NOT available (fallback path)
-            // When scope_resolver is available, it internally calls ForwardScopeResolver.resolve()
-            let forward_scope = undefined;
-            if (!deps.scope_resolver && deps.forward_scope_resolver && document_state.forward_calls.length > 0) {
-                // Apply per-request max_forward_depth from user config
-                const max_depth = config.cross_file?.max_forward_depth ?? 10;
-                forward_scope = await deps.forward_scope_resolver.resolve(
-                    document_state.uri,
-                    document_state.forward_calls,
-                    'include',
-                    {
-                        visited: new Map(),
-                        effective_call_type: 'include',
-                        depth: 0,
-                        diagnostics: [],
-                        working_directory: document_state.working_directory,
-                        call_chain: [],
-                    },
-                    undefined,
-                    token,
-                    { max_forward_depth: max_depth }
-                );
-            }
-            
+
             const graph_version = deps.dependency_graph
                 ? deps.dependency_graph.get_version()
                 : undefined;
