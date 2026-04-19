@@ -753,9 +753,11 @@ export class CompletionProvider {
 
     /**
      * Build the Global-Mode in-scope symbol bag: workspace symbols merged with
-     * document symbols, then current-file-only overrides applied for locals,
-     * globals, and programs (later tasks will extend to scalars and matrices).
-     * Workspace symbols from other files are surfaced separately via
+     * document symbols, then current-file-only overrides applied for all
+     * non-variable categories (locals, globals, programs, scalars, matrices).
+     * Workspace variables remain in the merged bag so they flow through the
+     * workspace-wide variable completion path. Workspace non-variable symbols
+     * from other files are surfaced separately via
      * `partition_symbols_for_completion` as out-of-scope entries.
      */
     private build_merged_map(
@@ -776,14 +778,18 @@ export class CompletionProvider {
 
         // Global-Mode rule: local macros are only visible from the current file.
         // Strip workspace localMacros; keep the document's own localMacros.
-        // Workspace globals are surfaced through the out-of-scope partition
-        // (callers receive them via `out_of_scope_symbols`), so they should
-        // not enter the in-scope bag silently.
+        // Workspace globals, programs, scalars, and matrices are surfaced
+        // through the out-of-scope partition (callers receive them via
+        // `out_of_scope_symbols`), so they should not enter the in-scope bag
+        // silently. Variables are intentionally left untouched so they remain
+        // workspace-wide.
         return {
             ...merged,
             localMacros: new Map(document_symbols.localMacros),
             globalMacros: new Map(document_symbols.globalMacros),
             programs: new Map(document_symbols.programs),
+            scalars: new Map(document_symbols.scalars),
+            matrices: new Map(document_symbols.matrices),
         };
     }
 
@@ -1098,7 +1104,7 @@ export class CompletionProvider {
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_variable_completions(document, position, symbols_for_completion, resolved_scope);
+                    return this.get_variable_completions(document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'program':
                     // Suppress program completions in embedded language contexts
@@ -1872,6 +1878,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
+        out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
@@ -2003,6 +2010,63 @@ export class CompletionProvider {
                 label: name,
                 kind: CompletionItemKind.Struct,
                 detail,
+                documentation: `Defined at ${matrix.sourceUri}`,
+                sortText: compute_ranking_key(ranking_factors),
+                textEdit: {
+                    range: replacement_range,
+                    newText: name,
+                },
+                filterText: name,
+            });
+            seen_labels.add(name);
+        }
+
+        // Out-of-scope pass: emit workspace scalars and matrices that are
+        // not already in-scope. Variables stay workspace-wide through the
+        // in-scope path and are intentionally skipped here.
+        for (const [name, scalar] of out_of_scope.scalars) {
+            if (seen_labels.has(name)) continue;
+
+            const ranking_factors: CompletionRankingFactors = {
+                scope_depth: 0,
+                directive_type: 'out-of-scope',
+                symbol_type: 'scalar',
+                alphabetical_order: name,
+                parent_uri: scalar.sourceUri,
+            };
+            const source_path = this.get_relative_path(scalar.sourceUri);
+
+            the_completions.push({
+                label: name,
+                kind: CompletionItemKind.Constant,
+                detail: `Scalar (out of scope — from ${source_path})`,
+                documentation: `Defined at ${scalar.sourceUri}`,
+                sortText: compute_ranking_key(ranking_factors),
+                textEdit: {
+                    range: replacement_range,
+                    newText: name,
+                },
+                filterText: name,
+            });
+            seen_labels.add(name);
+        }
+
+        for (const [name, matrix] of out_of_scope.matrices) {
+            if (seen_labels.has(name)) continue;
+
+            const ranking_factors: CompletionRankingFactors = {
+                scope_depth: 0,
+                directive_type: 'out-of-scope',
+                symbol_type: 'matrix',
+                alphabetical_order: name,
+                parent_uri: matrix.sourceUri,
+            };
+            const source_path = this.get_relative_path(matrix.sourceUri);
+
+            the_completions.push({
+                label: name,
+                kind: CompletionItemKind.Struct,
+                detail: `Matrix (out of scope — from ${source_path})`,
                 documentation: `Defined at ${matrix.sourceUri}`,
                 sortText: compute_ranking_key(ranking_factors),
                 textEdit: {

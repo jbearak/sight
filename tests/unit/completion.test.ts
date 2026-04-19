@@ -1651,3 +1651,122 @@ describe('Out-of-scope program completion', () => {
         expect(builtin).toBeDefined();
     });
 });
+
+describe('Out-of-scope scalar and matrix completion', () => {
+    let command_db: CommandDatabase;
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should list workspace scalars as out-of-scope when no directives link the file', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('display s', { scalars: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.scalars.set('s_alpha', {
+            name: 's_alpha',
+            location: {
+                uri: 'file:///lib.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///lib.do',
+        } as any);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 9 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const item = completions.find(c => c.label === 's_alpha');
+        expect(item).toBeDefined();
+        expect(item!.detail).toContain('out of scope');
+        expect(item!.detail).toContain('lib.do');
+    });
+
+    it('should list workspace matrices as out-of-scope when no directives link the file', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('display m', { matrices: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.matrices.set('m_beta', {
+            name: 'm_beta',
+            location: {
+                uri: 'file:///lib.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///lib.do',
+        } as any);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 9 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const item = completions.find(c => c.label === 'm_beta');
+        expect(item).toBeDefined();
+        expect(item!.detail).toContain('out of scope');
+        expect(item!.detail).toContain('lib.do');
+    });
+
+    it('should not list variables as out-of-scope — variables remain workspace-wide', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('summarize v', { variables: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.variables.set('v_shared', {
+            name: 'v_shared',
+            location: {
+                uri: 'file:///lib.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///lib.do',
+            source: 'dataset',
+        } as any);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 11 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const item = completions.find(c => c.label === 'v_shared');
+        expect(item).toBeDefined();
+        // Variables keep their normal detail (never the out-of-scope marker).
+        expect((item!.detail || '')).not.toContain('out of scope');
+    });
+});
