@@ -63,4 +63,75 @@ describe('Go-to-definition - redeclared same-identity symbols', () => {
             .sort((a, b) => a - b);
         expect(lines_in_file).toEqual([0, 2]);
     });
+
+    it('returns both program declarations when redeclared in the same file', async () => {
+        const file_path = join(test_temp_dir, 'a.do');
+        const content = [
+            'program define foo',     // line 0
+            '    di "first"',
+            'end',                    // line 2
+            'foo',                    // line 3 (call site)
+            'program define foo',     // line 4
+            '    di "second"',
+            'end',                    // line 6
+        ].join('\n');
+        writeFileSync(file_path, content);
+        await indexer.initialize([test_temp_dir]);
+
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        const document_state = document_store.get(uri)!;
+
+        // Cursor on `foo` call at line 3
+        const foo_char = content.split('\n')[3].indexOf('foo');
+        const result = await provider.get_definition(
+            document_state,
+            { line: 3, character: foo_char },
+            undefined,
+            undefined,
+            undefined,
+            indexer,
+            undefined,
+        );
+
+        const locations = Array.isArray(result) ? result : (result ? [result] : []);
+        const lines = locations
+            .filter(loc => loc.uri === uri)
+            .map(loc => loc.range.start.line)
+            .sort((a, b) => a - b);
+        expect(lines).toEqual([0, 4]);
+    });
+
+    it('returns both scalar declarations when redeclared', async () => {
+        const file_path = join(test_temp_dir, 'a.do');
+        const content = [
+            'scalar s = 1',        // line 0
+            'di s',                // line 1 (reference)
+            'scalar s = 2',        // line 2
+        ].join('\n');
+        writeFileSync(file_path, content);
+        await indexer.initialize([test_temp_dir]);
+
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        const document_state = document_store.get(uri)!;
+
+        const s_char = content.split('\n')[1].indexOf('s');
+        const result = await provider.get_definition(
+            document_state,
+            { line: 1, character: s_char },
+            undefined,
+            undefined,
+            undefined,
+            indexer,
+            undefined,
+        );
+
+        const locations = Array.isArray(result) ? result : (result ? [result] : []);
+        const lines = locations
+            .filter(loc => loc.uri === uri)
+            .map(loc => loc.range.start.line)
+            .sort((a, b) => a - b);
+        expect(lines).toEqual([0, 2]);
+    });
 });

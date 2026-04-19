@@ -366,26 +366,23 @@ export class DefinitionProvider {
 
             const program = visible.programs.get(word);
             if (program) {
-                return {
-                    uri: program.location.uri,
-                    range: program.location.range,
-                };
+                return this.locations_to_definition(
+                    this.symbol_to_locations(program)
+                );
             }
 
             const scalar = visible.scalars.get(word);
             if (scalar) {
-                return {
-                    uri: scalar.location.uri,
-                    range: scalar.location.range,
-                };
+                return this.locations_to_definition(
+                    this.symbol_to_locations(scalar)
+                );
             }
 
             const matrix = visible.matrices.get(word);
             if (matrix) {
-                return {
-                    uri: matrix.location.uri,
-                    range: matrix.location.range,
-                };
+                return this.locations_to_definition(
+                    this.symbol_to_locations(matrix)
+                );
             }
         }
 
@@ -400,26 +397,23 @@ export class DefinitionProvider {
 
         const program = document.symbols.programs.get(word);
         if (program) {
-            return {
-                uri: program.location.uri,
-                range: program.location.range,
-            };
+            return this.locations_to_definition(
+                this.symbol_to_locations(program)
+            );
         }
 
         const scalar = document.symbols.scalars?.get(word);
         if (scalar) {
-            return {
-                uri: scalar.location.uri,
-                range: scalar.location.range,
-            };
+            return this.locations_to_definition(
+                this.symbol_to_locations(scalar)
+            );
         }
 
         const matrix = document.symbols.matrices?.get(word);
         if (matrix) {
-            return {
-                uri: matrix.location.uri,
-                range: matrix.location.range,
-            };
+            return this.locations_to_definition(
+                this.symbol_to_locations(matrix)
+            );
         }
 
         // Check workspace indexer
@@ -457,26 +451,23 @@ export class DefinitionProvider {
 
             const program_ws = workspace_symbols.programs.get(word);
             if (program_ws) {
-                return {
-                    uri: program_ws.location.uri,
-                    range: program_ws.location.range,
-                };
+                return this.locations_to_definition(
+                    this.symbol_to_locations(program_ws)
+                );
             }
 
             const scalar_ws = workspace_symbols.scalars?.get(word);
             if (scalar_ws) {
-                return {
-                    uri: scalar_ws.location.uri,
-                    range: scalar_ws.location.range,
-                };
+                return this.locations_to_definition(
+                    this.symbol_to_locations(scalar_ws)
+                );
             }
 
             const matrix_ws = workspace_symbols.matrices?.get(word);
             if (matrix_ws) {
-                return {
-                    uri: matrix_ws.location.uri,
-                    range: matrix_ws.location.range,
-                };
+                return this.locations_to_definition(
+                    this.symbol_to_locations(matrix_ws)
+                );
             }
         }
 
@@ -596,6 +587,31 @@ export class DefinitionProvider {
             uri: def.location.uri,
             range: def.location.range,
         }));
+    }
+
+    /**
+     * Collect all definition locations for a non-macro symbol (program,
+     * scalar, matrix), including any additional redeclarations stored in
+     * `additional_definitions`.
+     */
+    private symbol_to_locations(symbol: {
+        location: { uri: string; range: Range };
+        additional_definitions?: Array<{
+            location: { uri: string; range: Range };
+        }>;
+    }): Location[] {
+        const out: Location[] = [
+            { uri: symbol.location.uri, range: symbol.location.range },
+        ];
+        if (symbol.additional_definitions) {
+            for (const my_extra of symbol.additional_definitions) {
+                out.push({
+                    uri: my_extra.location.uri,
+                    range: my_extra.location.range,
+                });
+            }
+        }
+        return out;
     }
 
     /**
