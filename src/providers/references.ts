@@ -20,7 +20,7 @@ import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
 import {
     build_scope_resolver_config,
-    collect_visible_uris,
+    collect_visible_reference_uris,
     get_visible_forward_call_sites,
 } from '../scope-resolver';
 import type { ScopeResolverConfig, ResolvedScope } from '../types';
@@ -236,8 +236,20 @@ export class ReferencesProvider {
             let the_allowed_uris: Set<string> | null = null;
             if (symbol_type !== 'variable') {
                 the_allowed_uris = (resolved_scope !== undefined && cursor_line !== undefined)
-                    ? collect_visible_uris(resolved_scope, cursor_line, document.uri)
-                    : workspace_indexer.get_related_uris(document.uri);
+                    ? collect_visible_reference_uris(
+                        resolved_scope,
+                        cursor_line,
+                        document.uri,
+                        symbol_type,
+                    )
+                    : (
+                        symbol_type === 'local_macro'
+                            ? workspace_indexer.get_related_uris(
+                                document.uri,
+                                { include_only: true }
+                            )
+                            : workspace_indexer.get_related_uris(document.uri)
+                    );
             }
             // Skip entries from the current document's URI: the on-disk
             // index can lag unsaved buffer edits, and document.symbols
@@ -801,11 +813,6 @@ export class ReferencesProvider {
         let the_related: Set<string>;
         if (!workspace_indexer) {
             the_related = new Set<string>([document.uri]);
-        } else if (symbol_type === 'local_macro') {
-            the_related = workspace_indexer.get_related_uris(
-                document.uri,
-                { include_only: true }
-            );
         } else if (
             restrict_to_related &&
             resolved_scope !== undefined &&
@@ -815,12 +822,22 @@ export class ReferencesProvider {
             // visible at the cursor so redeclarations in not-yet-reached
             // forward-called files don't leak into references. See issue
             // #129.
-            the_related = collect_visible_uris(resolved_scope, cursor_line, document.uri);
+            the_related = collect_visible_reference_uris(
+                resolved_scope,
+                cursor_line,
+                document.uri,
+                symbol_type,
+            );
         } else {
             // Fallback path (test-only setups without a scope_resolver, or
             // variable lookups that fall through before this point): keep
             // the pre-fix behavior so those setups don't regress.
-            the_related = workspace_indexer.get_related_uris(document.uri);
+            the_related = symbol_type === 'local_macro'
+                ? workspace_indexer.get_related_uris(
+                    document.uri,
+                    { include_only: true }
+                )
+                : workspace_indexer.get_related_uris(document.uri);
         }
 
         // Check cancellation before workspace scan (Req 5.3)

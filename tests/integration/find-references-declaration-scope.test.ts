@@ -111,6 +111,93 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
         expect(locations.some(loc => loc.uri === defs_uri)).toBe(true);
     });
 
+    it('includes a declaration inherited through a parent forward call', async () => {
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = `do "leaf.do"\ndo "child.do"\n`;
+        writeFileSync(main_path, main_content);
+
+        const leaf_path = join(test_temp_dir, 'leaf.do');
+        writeFileSync(leaf_path, `program define deep_prog\nend\n`);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content = `* @lsp-done-by: "main.do"\n\ndeep_prog\n`;
+        writeFileSync(child_path, child_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await pipeline.document_store.open(child_uri, child_content, 1);
+        const document_state = pipeline.document_store.get(child_uri)!;
+
+        const cursor_char = child_content.split('\n')[2].indexOf('deep_prog') + 3;
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: 2, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker,
+        );
+
+        const leaf_uri = URI.file(leaf_path).toString();
+        expect(locations.some(loc => loc.uri === leaf_uri)).toBe(true);
+    });
+
+    it('does not pool local macros through done-by', async () => {
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = `local shared 1\ndo "child.do"\n`;
+        writeFileSync(main_path, main_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content = `* @lsp-done-by: "main.do"\n\ndisplay \`shared'\n`;
+        writeFileSync(child_path, child_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await pipeline.document_store.open(child_uri, child_content, 1);
+        const document_state = pipeline.document_store.get(child_uri)!;
+
+        const cursor_char = child_content.split('\n')[2].indexOf('shared') + 2;
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: 2, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker,
+        );
+
+        const main_uri = URI.file(main_path).toString();
+        expect(locations.every(loc => loc.uri !== main_uri)).toBe(true);
+    });
+
+    it('pools local macros through included-by', async () => {
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = `local shared 1\ninclude "child.do"\n`;
+        writeFileSync(main_path, main_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content = `* @lsp-included-by: "main.do"\n\ndisplay \`shared'\n`;
+        writeFileSync(child_path, child_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await pipeline.document_store.open(child_uri, child_content, 1);
+        const document_state = pipeline.document_store.get(child_uri)!;
+
+        const cursor_char = child_content.split('\n')[2].indexOf('shared') + 2;
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: 2, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker,
+        );
+
+        const main_uri = URI.file(main_path).toString();
+        expect(locations.some(loc => loc.uri === main_uri && loc.range.start.line === 0)).toBe(true);
+    });
+
     it('pools variable declarations workspace-wide regardless of cursor position', async () => {
         const main_path = join(test_temp_dir, 'main.do');
         const main_content = `gen my_var = 1\nlist my_var\n`;

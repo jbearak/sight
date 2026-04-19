@@ -8,7 +8,12 @@
  * construct a scope object.
  */
 
-import type { ResolvedScope, ForwardCallSite, SymbolTable } from '../types';
+import type {
+    ResolvedScope,
+    ForwardCallSite,
+    ScopeChainEntry,
+    SymbolTable,
+} from '../types';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 
 /**
@@ -63,29 +68,69 @@ export function get_visible_forward_call_sites(
     );
 }
 
+type ReferenceScopedSymbolType =
+    | 'local_macro'
+    | 'global_macro'
+    | 'program'
+    | 'scalar'
+    | 'matrix';
+
+function should_include_entry_for_references(
+    entry: ScopeChainEntry,
+    symbol_type: ReferenceScopedSymbolType,
+): boolean {
+    if (symbol_type !== 'local_macro') {
+        return true;
+    }
+    return entry.directive_type === 'included-by';
+}
+
+function should_include_call_site_for_references(
+    site: ForwardCallSite,
+    symbol_type: ReferenceScopedSymbolType,
+): boolean {
+    if (symbol_type !== 'local_macro') {
+        return true;
+    }
+    return site.effective_type === 'include';
+}
+
 /**
- * URIs whose symbols contribute to scope at `cursor_line`:
- *   current_uri
- *   ∪ { entry.uri : entry ∈ scope.chain }
- *   ∪ { site.callee_uri : site ∈ get_visible_forward_call_sites(scope, cursor_line) }
+ * URIs that should participate in find-references for the given symbol kind.
+ * This includes backward-chain files, retained parent forward callees, and
+ * current-file visible forward callees, with local macros restricted to
+ * include-only edges.
  *
  * Returns a Set containing just `current_uri` when `scope` is undefined.
  */
-export function collect_visible_uris(
+export function collect_visible_reference_uris(
     scope: ResolvedScope | undefined,
     cursor_line: number,
     current_uri: string,
+    symbol_type: ReferenceScopedSymbolType,
 ): Set<string> {
-    const the_result = new Set<string>();
-    the_result.add(current_uri);
+    const the_result = new Set<string>([current_uri]);
     if (!scope) {
         return the_result;
     }
+
     for (const my_entry of scope.chain) {
-        the_result.add(my_entry.uri);
+        if (should_include_entry_for_references(my_entry, symbol_type)) {
+            the_result.add(my_entry.uri);
+        }
+
+        for (const my_site of my_entry.forward_call_sites ?? []) {
+            if (should_include_call_site_for_references(my_site, symbol_type)) {
+                the_result.add(my_site.callee_uri);
+            }
+        }
     }
+
     for (const my_site of get_visible_forward_call_sites(scope, cursor_line)) {
-        the_result.add(my_site.callee_uri);
+        if (should_include_call_site_for_references(my_site, symbol_type)) {
+            the_result.add(my_site.callee_uri);
+        }
     }
+
     return the_result;
 }

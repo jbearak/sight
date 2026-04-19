@@ -2,18 +2,26 @@ import { describe, test, expect } from 'bun:test';
 import {
     get_visible_symbols_at,
     get_visible_forward_call_sites,
-    collect_visible_uris,
+    collect_visible_reference_uris,
 } from '../../../src/scope-resolver/visible-symbols';
 import { create_empty_symbol_table } from '../../../src/analyzer';
 import type {
     ResolvedScope,
     ForwardCallSite,
     ProgramSymbol,
+    MacroSymbol,
     ScopeChainEntry,
 } from '../../../src/types';
 
 const make_program = (name: string, uri: string): ProgramSymbol => ({
     name,
+    location: { uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: name.length } } },
+    sourceUri: uri,
+});
+
+const make_local_macro = (name: string, uri: string): MacroSymbol => ({
+    name,
+    scope: 'local',
     location: { uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: name.length } } },
     sourceUri: uri,
 });
@@ -152,20 +160,31 @@ describe('get_visible_forward_call_sites', () => {
     });
 });
 
-describe('collect_visible_uris', () => {
+describe('collect_visible_reference_uris', () => {
     test('returns a Set containing just current_uri when scope is undefined', () => {
-        const the_result = collect_visible_uris(undefined, 0, 'file:///current.do');
+        const the_result = collect_visible_reference_uris(
+            undefined,
+            0,
+            'file:///current.do',
+            'program',
+        );
         expect(the_result.size).toBe(1);
         expect(the_result.has('file:///current.do')).toBe(true);
     });
 
-    test('includes every chain[*].uri regardless of cursor_line', () => {
+    test('includes chain URIs, retained parent forward callees, and current visible callees for non-local kinds', () => {
         const chain_entries: ScopeChainEntry[] = [
             {
                 uri: 'file:///parent1.do',
                 directive_type: 'done-by',
                 call_site_line: 0,
                 symbols: create_empty_symbol_table(),
+                forward_call_sites: [{
+                    callee_uri: 'file:///parent1-callee.do',
+                    call_line: 0,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'do',
+                }],
                 depth: 1,
                 directive_order: 0,
                 sort_key: 'a',
@@ -175,37 +194,117 @@ describe('collect_visible_uris', () => {
                 directive_type: 'included-by',
                 call_site_line: 0,
                 symbols: create_empty_symbol_table(),
+                forward_call_sites: [{
+                    callee_uri: 'file:///parent2-callee.do',
+                    call_line: 0,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'include',
+                }],
                 depth: 2,
                 directive_order: 1,
                 sort_key: 'b',
             },
         ];
-        const my_scope: ResolvedScope = { ...empty_scope, chain: chain_entries };
-        const the_result = collect_visible_uris(my_scope, 0, 'file:///current.do');
+        const my_scope: ResolvedScope = {
+            ...empty_scope,
+            chain: chain_entries,
+            forward_call_symbols: [
+                {
+                    callee_uri: 'file:///current-visible.do',
+                    call_line: 1,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'do',
+                },
+                {
+                    callee_uri: 'file:///current-hidden.do',
+                    call_line: 10,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'include',
+                },
+            ],
+        };
+        const the_result = collect_visible_reference_uris(
+            my_scope,
+            5,
+            'file:///current.do',
+            'program',
+        );
         expect(the_result.has('file:///current.do')).toBe(true);
         expect(the_result.has('file:///parent1.do')).toBe(true);
         expect(the_result.has('file:///parent2.do')).toBe(true);
+        expect(the_result.has('file:///parent1-callee.do')).toBe(true);
+        expect(the_result.has('file:///parent2-callee.do')).toBe(true);
+        expect(the_result.has('file:///current-visible.do')).toBe(true);
+        expect(the_result.has('file:///current-hidden.do')).toBe(false);
     });
 
-    test('includes callee_uri only for sites with call_line < cursor_line', () => {
-        const site_visible: ForwardCallSite = {
-            callee_uri: 'file:///visible.do',
+    test('keeps local macros include-only across backward and forward edges', () => {
+        const parent_visible_local = make_local_macro('shared', 'file:///parent-include.do');
+        const parent_hidden_local = make_local_macro('shared', 'file:///parent-do.do');
+        const visible_include_site: ForwardCallSite = {
+            callee_uri: 'file:///visible-include.do',
             call_line: 1,
-            symbols: create_empty_symbol_table(),
-            effective_type: 'do',
+            symbols: {
+                ...create_empty_symbol_table(),
+                localMacros: new Map([['shared', parent_visible_local]]),
+            },
+            effective_type: 'include',
         };
-        const site_hidden: ForwardCallSite = {
-            callee_uri: 'file:///hidden.do',
-            call_line: 10,
-            symbols: create_empty_symbol_table(),
+        const visible_do_site: ForwardCallSite = {
+            callee_uri: 'file:///visible-do.do',
+            call_line: 1,
+            symbols: {
+                ...create_empty_symbol_table(),
+                localMacros: new Map([['shared', parent_hidden_local]]),
+            },
             effective_type: 'do',
         };
         const my_scope: ResolvedScope = {
             ...empty_scope,
-            forward_call_symbols: [site_visible, site_hidden],
+            chain: [
+                {
+                    uri: 'file:///done-parent.do',
+                    directive_type: 'done-by',
+                    call_site_line: 0,
+                    symbols: create_empty_symbol_table(),
+                    forward_call_sites: [visible_do_site],
+                    depth: 1,
+                    directive_order: 0,
+                    sort_key: 'a',
+                },
+                {
+                    uri: 'file:///included-parent.do',
+                    directive_type: 'included-by',
+                    call_site_line: 0,
+                    symbols: create_empty_symbol_table(),
+                    forward_call_sites: [visible_include_site, visible_do_site],
+                    depth: 2,
+                    directive_order: 1,
+                    sort_key: 'b',
+                },
+            ],
+            forward_call_symbols: [
+                visible_include_site,
+                visible_do_site,
+                {
+                    callee_uri: 'file:///same-line.do',
+                    call_line: 5,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'include',
+                },
+            ],
         };
-        const the_result = collect_visible_uris(my_scope, 5, 'file:///current.do');
-        expect(the_result.has('file:///visible.do')).toBe(true);
-        expect(the_result.has('file:///hidden.do')).toBe(false);
+        const the_result = collect_visible_reference_uris(
+            my_scope,
+            5,
+            'file:///current.do',
+            'local_macro',
+        );
+        expect(the_result.has('file:///current.do')).toBe(true);
+        expect(the_result.has('file:///done-parent.do')).toBe(false);
+        expect(the_result.has('file:///included-parent.do')).toBe(true);
+        expect(the_result.has('file:///visible-include.do')).toBe(true);
+        expect(the_result.has('file:///visible-do.do')).toBe(false);
+        expect(the_result.has('file:///same-line.do')).toBe(false);
     });
 });

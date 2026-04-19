@@ -74,17 +74,18 @@ export function get_visible_forward_call_sites(
 ): ForwardCallSite[];
 
 /**
- * URIs whose symbols contribute to scope at `cursor_line`:
- *   current_uri
- *   ∪ { entry.uri : entry ∈ scope.chain }
- *   ∪ { site.callee_uri : site ∈ get_visible_forward_call_sites(scope, cursor_line) }
+ * URIs that should participate in find-references for the given symbol kind.
+ * Includes backward-chain files, retained parent forward callees, and
+ * current-file visible forward callees. Local macros remain include-only
+ * across both backward and forward edges.
  *
  * Returns `{ current_uri }` when `scope` is undefined.
  */
-export function collect_visible_uris(
+export function collect_visible_reference_uris(
     scope: ResolvedScope | undefined,
     cursor_line: number,
     current_uri: string,
+    symbol_type: 'local_macro' | 'global_macro' | 'program' | 'scalar' | 'matrix',
 ): Set<string>;
 ```
 
@@ -98,7 +99,7 @@ All existing sites use `call_site.call_line < cursor_line` (never `≤`). A symb
 
 ### `src/scope-resolver/visible-symbols.ts` (new)
 
-Contains the three helpers above. `get_visible_symbols_at` is implemented by copying the loop body of `ForwardScopeResolver.get_symbols_at_line`; `get_visible_forward_call_sites` is a one-line filter; `collect_visible_uris` walks `scope.chain` and visible forward sites.
+Contains the three helpers above. `get_visible_symbols_at` is implemented by copying the loop body of `ForwardScopeResolver.get_symbols_at_line`; `get_visible_forward_call_sites` is a one-line filter; `collect_visible_reference_uris` walks `scope.chain`, retained parent `forward_call_sites`, and current visible forward sites with an include-only branch for local macros.
 
 ### `src/scope-resolver/index.ts`
 
@@ -147,7 +148,7 @@ The rest of `resolve_non_macro_symbols` (document-symbols fallback at 377–408,
 
 **`classify_word_symbol`** (540–607): replace the inline `if (my_site.call_line >= cursor_line) continue;` loop with `for (const my_site of get_visible_forward_call_sites(resolved_scope, cursor_line))`. Semantics identical; cleanup only. The workspace-wide variable fallback at 594–604 is unchanged.
 
-**`find_definitions`** (166–240): accepts two new parameters — `resolved_scope: ResolvedScope | undefined` and `cursor_line: number` — threaded through from `get_references`. The workspace-indexer block at 216–237 replaces `get_related_uris` with `collect_visible_uris` for non-variable kinds:
+**`find_definitions`** (166–240): accepts two new parameters — `resolved_scope: ResolvedScope | undefined` and `cursor_line: number` — threaded through from `get_references`. The workspace-indexer block at 216–237 replaces `get_related_uris` with `collect_visible_reference_uris` for non-variable kinds:
 
 ```ts
 if (workspace_indexer) {
@@ -158,7 +159,8 @@ if (workspace_indexer) {
     // restricted to files visible at the cursor.
     const restrict_to_visible = symbol_type !== 'variable';
     const the_visible_uris = restrict_to_visible
-        ? collect_visible_uris(resolved_scope, cursor_line, document.uri)
+        ? collect_visible_reference_uris(
+            resolved_scope, cursor_line, document.uri, symbol_type)
         : null;
     for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
         if (my_def.sourceUri === document.uri) continue;
@@ -171,6 +173,7 @@ if (workspace_indexer) {
 Behavior after fix:
 
 - For programs / scalars / matrices / local-macro / global-macro, declarations in not-yet-reached forward-called files are dropped from `includeDeclaration`.
+- Files reachable only through a backward parent's earlier forward calls remain visible to find-references because each `ScopeChainEntry` retains its filtered `forward_call_sites`.
 - Variable declarations continue to pool workspace-wide, matching find-references' variable semantics. Not restricted by `the_visible_uris`.
 
 **`get_references`**: gains access to `cursor_line` via the existing `position.line` already in scope and threads it, along with the `resolved_scope` it already resolves for `classify_word_symbol`, into `find_definitions`.
@@ -225,10 +228,11 @@ Behavior after fix:
   - Undefined scope returns `[]`.
   - Preserves array order.
   - Strict `<` boundary.
-- `collect_visible_uris`:
+- `collect_visible_reference_uris`:
   - Contains `current_uri` even when `scope` is undefined.
-  - Includes every `chain[*].uri` regardless of cursor line.
-  - Includes `callee_uri` for sites with `call_line < cursor_line` only.
+  - For non-local kinds, includes every `chain[*].uri`, every retained parent `forward_call_sites[*].callee_uri`, and every current-file visible `callee_uri`.
+  - For `local_macro`, includes only `included-by` chain entries and only call sites with `effective_type === 'include'`.
+  - Keeps the strict `<` boundary for current-file forward calls.
 
 ### New property test — `tests/property/visible-symbols.prop.test.ts`
 
