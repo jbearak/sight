@@ -220,9 +220,11 @@ Completion requests are race-prone against document updates. The `server-handler
 distinct scoping tiers by design: (1) **local macros** — include-chain files
 only (Stata locals don't propagate through `do`/`run`); (2) **global macros,
 programs, scalars, matrices** — dep-graph-reachable files (all do/run/include
-edges); (3) **variables** — entire workspace (dataset columns like `id`,
-`year`, `analysis_sample` are legitimately shared across unrelated analyses).
-If this looks like a bug: it is not. See
+edges), further filtered to files visible at the cursor (backward-directive
+parents and forward-called files whose `do`/`include` sits on or above the
+cursor line); (3) **variables** — entire workspace (dataset columns like
+`id`, `year`, `analysis_sample` are legitimately shared across unrelated
+analyses). If this looks like a bug: it is not. See
 [docs/find-references.md](docs/find-references.md). Implementation:
 `src/providers/references.ts::collect_references`.
 
