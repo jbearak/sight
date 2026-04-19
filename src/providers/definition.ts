@@ -351,12 +351,20 @@ export class DefinitionProvider {
             );
         }
 
-        // Check workspace symbols
-        if (workspace_symbols) {
+        // Workspace-symbols fallback is only consulted when no
+        // workspace_indexer was supplied. Rule 2 (issue #135) says
+        // disjoint branches stay distinct, so when we DO have a
+        // dep-graph-aware indexer and it returned no reachable hits,
+        // we return null to let the undefined-global diagnostic stand
+        // rather than shadowing it with an arbitrary merge winner.
+        // Unit tests that pass workspace_symbols without an indexer
+        // still resolve via this branch, matching their pre-#135
+        // contract.
+        if (!workspace_indexer && workspace_symbols) {
             const global_macro_ws = workspace_symbols.globalMacros.get(word);
             if (global_macro_ws) {
                 return this.locations_to_definition(
-                    this.macro_symbol_to_locations(global_macro_ws)
+                    this.macro_symbol_to_locations(global_macro_ws),
                 );
             }
         }
@@ -605,7 +613,17 @@ export class DefinitionProvider {
             }
         }
 
-        // Check workspace symbols
+        // Variables keep a workspace-wide fallback (issue #135 Rule 3:
+        // dataset columns like `id`, `year` are legitimately shared
+        // across unrelated analyses). Programs, scalars, and matrices
+        // fall back to workspace_symbols ONLY when no workspace_indexer
+        // was supplied — Rule 2 says disjoint branches stay distinct,
+        // so when the indexer is available and returned no reachable
+        // hits, returning an arbitrary merge winner would shadow the
+        // undefined diagnostic without representing a same-identity
+        // target. Unit tests that pass workspace_symbols without an
+        // indexer still resolve via this branch, preserving their
+        // pre-#135 contract.
         if (workspace_symbols) {
             const variable_ws = workspace_symbols.variables.get(word);
             if (variable_ws) {
@@ -615,25 +633,27 @@ export class DefinitionProvider {
                 };
             }
 
-            const program_ws = workspace_symbols.programs.get(word);
-            if (program_ws) {
-                return this.locations_to_definition(
-                    this.symbol_to_locations(program_ws)
-                );
-            }
+            if (!workspace_indexer) {
+                const program_ws = workspace_symbols.programs.get(word);
+                if (program_ws) {
+                    return this.locations_to_definition(
+                        this.symbol_to_locations(program_ws),
+                    );
+                }
 
-            const scalar_ws = workspace_symbols.scalars?.get(word);
-            if (scalar_ws) {
-                return this.locations_to_definition(
-                    this.symbol_to_locations(scalar_ws)
-                );
-            }
+                const scalar_ws = workspace_symbols.scalars?.get(word);
+                if (scalar_ws) {
+                    return this.locations_to_definition(
+                        this.symbol_to_locations(scalar_ws),
+                    );
+                }
 
-            const matrix_ws = workspace_symbols.matrices?.get(word);
-            if (matrix_ws) {
-                return this.locations_to_definition(
-                    this.symbol_to_locations(matrix_ws)
-                );
+                const matrix_ws = workspace_symbols.matrices?.get(word);
+                if (matrix_ws) {
+                    return this.locations_to_definition(
+                        this.symbol_to_locations(matrix_ws),
+                    );
+                }
             }
         }
 
