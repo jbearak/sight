@@ -44,6 +44,7 @@ export {
     get_visible_symbols_at,
     get_visible_forward_call_sites,
     collect_visible_reference_uris,
+    filter_forward_site_symbols,
 } from './visible-symbols';
 
 const DEFAULT_CONFIG: ScopeResolverConfig = {

@@ -174,6 +174,71 @@ describe('hover/completion forward-call precedence', () => {
         expect(String(shared_prog?.documentation)).toContain('second.do');
     });
 
+    it('hover keeps current-file local redefined after forward include', async () => {
+        const child_path = join(test_temp_dir, 'child.do');
+        writeFileSync(child_path, 'local a 2\n');
+
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            'local a 1\n' +
+            'include "child.do"\n' +
+            'local a 3\n' +
+            'display `a\'\n';
+        writeFileSync(main_path, main_content);
+
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
+
+        const hover = await pipeline.hover_provider.get_hover(
+            document_state,
+            {
+                line: 3,
+                character: main_content.split('\n')[3].indexOf('`a') + 1,
+            },
+            undefined,
+            pipeline.scope_resolver,
+        );
+
+        expect(hover).toBeDefined();
+        const content = hover?.contents as { kind: string; value: string };
+        expect(content.value).toContain('Local Macro');
+        expect(content.value).toContain('`a`');
+        // Source should be the current file (main.do), not the forward callee.
+        expect(content.value).toContain('this file');
+        expect(content.value).not.toContain('child.do');
+    });
+
+    it('completion keeps current-file local redefined after forward include', async () => {
+        const child_path = join(test_temp_dir, 'child.do');
+        writeFileSync(child_path, 'local a "from_child"\n');
+
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            'local a "from_main_early"\n' +
+            'include "child.do"\n' +
+            'local a "from_main_late"\n' +
+            'display "`a\'"\n';
+        writeFileSync(main_path, main_content);
+
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
+
+        const completions = await pipeline.completion_provider.get_completions(
+            document_state,
+            { line: 3, character: main_content.split('\n')[3].indexOf('`a') + 1 },
+            undefined,
+            pipeline.scope_resolver,
+        );
+
+        const macro_a = completions.find(item => item.label === 'a');
+        expect(macro_a).toBeDefined();
+        // Documentation should reflect the current-file definition, not the
+        // forward callee's. (Docs embed the macro's expansion value.)
+        expect(String(macro_a?.documentation)).not.toContain('from_child');
+    });
+
     it('completion resolves a same-name global macro to the later visible forward callee', async () => {
         const first_path = join(test_temp_dir, 'first.do');
         writeFileSync(first_path, 'global SHARED "from_first"\n');

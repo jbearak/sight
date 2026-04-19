@@ -39,6 +39,7 @@ import { build_scope_resolver_config } from '../scope-resolver';
 import {
     get_visible_forward_call_sites,
     get_visible_symbols_at,
+    filter_forward_site_symbols,
 } from '../scope-resolver';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
@@ -2650,6 +2651,9 @@ export class CompletionProvider {
         cursor_line: number,
     ): SymbolTable {
         let the_result = create_empty_symbol_table();
+        const current_file_symbols = resolved_scope && resolved_scope.chain.length > 0
+            ? resolved_scope.chain[0].symbols
+            : undefined;
 
         for (const my_call_site of get_visible_forward_call_sites(
             resolved_scope,
@@ -2658,36 +2662,41 @@ export class CompletionProvider {
             const directive_type = map_effective_type_to_directive(
                 my_call_site.effective_type,
             );
+            const filtered_site_symbols = filter_forward_site_symbols(
+                my_call_site.symbols,
+                current_file_symbols,
+                my_call_site.call_line,
+            );
             const annotated_symbols: SymbolTable = {
                 programs: this.annotate_symbol_map(
-                    my_call_site.symbols.programs,
+                    filtered_site_symbols.programs,
                     1,
                     directive_type,
                 ),
                 localMacros: my_call_site.effective_type === 'include'
                     ? this.annotate_symbol_map(
-                        my_call_site.symbols.localMacros,
+                        filtered_site_symbols.localMacros,
                         1,
                         directive_type,
                     )
                     : new Map(),
                 globalMacros: this.annotate_symbol_map(
-                    my_call_site.symbols.globalMacros,
+                    filtered_site_symbols.globalMacros,
                     1,
                     directive_type,
                 ),
                 variables: this.annotate_symbol_map(
-                    my_call_site.symbols.variables,
+                    filtered_site_symbols.variables,
                     1,
                     directive_type,
                 ),
                 scalars: this.annotate_symbol_map(
-                    my_call_site.symbols.scalars,
+                    filtered_site_symbols.scalars,
                     1,
                     directive_type,
                 ),
                 matrices: this.annotate_symbol_map(
-                    my_call_site.symbols.matrices,
+                    filtered_site_symbols.matrices,
                     1,
                     directive_type,
                 ),
