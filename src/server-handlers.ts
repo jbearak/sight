@@ -409,7 +409,8 @@ export function create_hover_handler(
                 max_forward_depth: config.cross_file?.max_forward_depth,
             },
             token,
-            workspace_root
+            workspace_root,
+            deps.workspace_indexer || undefined,
         );
     };
 }

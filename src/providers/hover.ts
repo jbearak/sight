@@ -40,6 +40,7 @@ import {
 import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
+import type { WorkspaceIndexer } from '../indexer';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
@@ -109,7 +110,8 @@ export class HoverProvider {
         cross_file_config?: Partial<ScopeResolverConfig>,
 
         cancellation_token?: CancellationToken,
-        workspace_root?: string
+        workspace_root?: string,
+        workspace_indexer?: WorkspaceIndexer,
     ): Promise<Hover | null> {
         // Check cancellation before starting (Req 5.1)
         if (cancellation_token?.isCancellationRequested) {
@@ -172,11 +174,11 @@ export class HoverProvider {
         // In embedded language context, only check for macros (suppress other Stata-specific hover)
         if (my_context !== LanguageContext.STATA) {
             // Macros work in all contexts - check local and global macros only
-            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position);
+            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
             if (local_macro_content) {
                 return { contents: local_macro_content, range };
             }
-            const global_macro_content = this.get_global_macro_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position);
+            const global_macro_content = this.get_global_macro_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
             if (global_macro_content) {
                 return { contents: global_macro_content, range };
             }
@@ -190,7 +192,8 @@ export class HoverProvider {
             word,
             workspace_symbols,
             resolved_scope,
-            workspace_root
+            workspace_root,
+            workspace_indexer,
         );
 
         // If we have symbol matches, format and return them
@@ -400,7 +403,8 @@ export class HoverProvider {
         word: string,
         workspace_symbols?: SymbolTable,
         resolved_scope?: ResolvedScope,
-        workspace_root?: string
+        workspace_root?: string,
+        workspace_indexer?: WorkspaceIndexer,
     ): SymbolMatch[] {
         // Check for out-of-scope symbol matching the reference type
         const reference_type = this.get_reference_type_from_context(document, position, word);
@@ -418,7 +422,7 @@ export class HoverProvider {
 
         // 1. Check local macros - only if reference is local macro or bare identifier
         if (reference_type === 'local_macro' || reference_type === 'other') {
-            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position);
+            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
             if (local_macro_content) {
                 the_matches.push({ type: 'local_macro', content: local_macro_content });
             }
@@ -426,7 +430,7 @@ export class HoverProvider {
 
         // 2. Check global macros - only if reference is global macro or bare identifier
         if (reference_type === 'global_macro' || reference_type === 'other') {
-            const global_macro_content = this.get_global_macro_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position);
+            const global_macro_content = this.get_global_macro_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
             if (global_macro_content) {
                 the_matches.push({ type: 'global_macro', content: global_macro_content });
             }
@@ -439,19 +443,19 @@ export class HoverProvider {
         }
 
         // 3. Check programs (only for bare identifiers)
-        const program_content = this.get_program_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position);
+        const program_content = this.get_program_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
         if (program_content) {
             the_matches.push({ type: 'program', content: program_content });
         }
 
         // 4. Check scalars (only for bare identifiers)
-        const scalar_content = this.get_scalar_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position);
+        const scalar_content = this.get_scalar_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
         if (scalar_content) {
             the_matches.push({ type: 'scalar', content: scalar_content });
         }
 
         // 5. Check matrices (only for bare identifiers)
-        const matrix_content = this.get_matrix_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position);
+        const matrix_content = this.get_matrix_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
         if (matrix_content) {
             the_matches.push({ type: 'matrix', content: matrix_content });
         }
@@ -473,6 +477,79 @@ export class HoverProvider {
      *  - Mixed: "Redefined at lines 3 and in 2 other files — see all references"
      * Returns empty string when there are no additional definitions.
      */
+    /**
+     * Aggregate all known definitions of a symbol across the workspace
+     * (current file + every indexed file) into a single additional_definitions
+     * array, with the `primary` entry excluded (so the caller can append it to
+     * the primary hover card).
+     *
+     * NOTE — deliberately uncached. `find_symbol_definitions` iterates every
+     * entry in the indexer's symbol_index, which is O(F) per call. Hover fires
+     * per mouse rest, so this is measurable on very large workspaces. The cost
+     * pays for cross-file footer accuracy; revisit with an LRU keyed on
+     * (workspace_indexer.get_version(), name, type) only if profiling shows it
+     * hot. Do not speculate; measure first.
+     */
+    private collect_workspace_additional_definitions(
+        name: string,
+        symbol_type: 'program' | 'local' | 'global' | 'scalar' | 'matrix',
+        primary: { location?: { uri: string; range?: unknown }; additional_definitions?: Array<{ index: number; line: number; location: { uri: string; range: unknown } }> } | undefined,
+        workspace_indexer: WorkspaceIndexer | undefined,
+    ): Array<{ index: number; line: number; location: { uri: string; range: unknown } }> {
+        const the_accumulated: Array<{ index: number; line: number; location: { uri: string; range: unknown } }> = [];
+        // Start with the primary's own same-file additional_definitions.
+        if (primary?.additional_definitions) {
+            for (const my_extra of primary.additional_definitions) {
+                the_accumulated.push(my_extra);
+            }
+        }
+        if (!workspace_indexer) {
+            return the_accumulated;
+        }
+        // Then include every workspace-indexed definition (primary + extras) for
+        // files other than the current primary's file.
+        const primary_uri = primary?.location?.uri;
+        const the_seen_keys = new Set<string>();
+        // Prevent double-adding the current primary and its same-file extras.
+        if (primary_uri) {
+            // The primary's own location is always the hover card's "Source"
+            // header — never a footer entry.
+            const primary_range: any = primary?.location as any;
+            if (primary_range?.range) {
+                the_seen_keys.add(`${primary_uri}:${primary_range.range.start.line}`);
+            }
+            for (const my_extra of primary?.additional_definitions ?? []) {
+                the_seen_keys.add(`${my_extra.location.uri}:${my_extra.location.range && (my_extra.location.range as any).start ? (my_extra.location.range as any).start.line : my_extra.line}`);
+            }
+        }
+        const the_hits = workspace_indexer.find_symbol_definitions(name, symbol_type);
+        for (const my_hit of the_hits) {
+            const my_location = (my_hit as any).location as { uri: string; range: { start: { line: number } } } | undefined;
+            if (my_location) {
+                const my_key = `${my_location.uri}:${my_location.range?.start?.line ?? -1}`;
+                if (!the_seen_keys.has(my_key)) {
+                    the_seen_keys.add(my_key);
+                    the_accumulated.push({
+                        index: (my_hit as any).definition_index ?? 0,
+                        line: my_location.range?.start?.line ?? 0,
+                        location: { uri: my_location.uri, range: my_location.range },
+                    });
+                }
+            }
+            const the_extras = (my_hit as any).additional_definitions as Array<{ index: number; line: number; location: { uri: string; range: unknown } }> | undefined;
+            if (the_extras) {
+                for (const my_extra of the_extras) {
+                    const my_extra_key = `${my_extra.location.uri}:${(my_extra.location as any).range?.start?.line ?? my_extra.line}`;
+                    if (!the_seen_keys.has(my_extra_key)) {
+                        the_seen_keys.add(my_extra_key);
+                        the_accumulated.push(my_extra);
+                    }
+                }
+            }
+        }
+        return the_accumulated;
+    }
+
     private format_redefinition_footer(
         primary_uri: string | undefined,
         additional_definitions:
@@ -553,7 +630,8 @@ export class HoverProvider {
         word: string,
         resolved_scope?: ResolvedScope,
         workspace_root?: string,
-        position?: Position
+        position?: Position,
+        workspace_indexer?: WorkspaceIndexer,
     ): MarkupContent | null {
         // Check resolved scope first if available
         const local_macro_symbols = this.safe_visible_symbols(resolved_scope, position);
@@ -571,9 +649,12 @@ export class HoverProvider {
                         ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
                         : `\n\nExpansion: \`${local_macro.value}\``)
                     : '';
+                const the_combined_extras = this.collect_workspace_additional_definitions(
+                    word, 'local', local_macro, workspace_indexer,
+                );
                 const footer = this.format_redefinition_footer(
                     local_macro.location?.uri ?? local_macro.sourceUri,
-                    local_macro.additional_definitions,
+                    the_combined_extras,
                 );
                 return {
                     kind: MarkupKind.Markdown,
@@ -596,9 +677,12 @@ export class HoverProvider {
                     ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
                     : `\n\nExpansion: \`${local_macro.value}\``)
                 : '';
+            const the_combined_extras = this.collect_workspace_additional_definitions(
+                word, 'local', local_macro, workspace_indexer,
+            );
             const footer = this.format_redefinition_footer(
                 local_macro.location?.uri ?? local_macro.sourceUri,
-                local_macro.additional_definitions,
+                the_combined_extras,
             );
             return {
                 kind: MarkupKind.Markdown,
@@ -626,7 +710,8 @@ export class HoverProvider {
         workspace_symbols?: SymbolTable,
         resolved_scope?: ResolvedScope,
         workspace_root?: string,
-        position?: Position
+        position?: Position,
+        workspace_indexer?: WorkspaceIndexer,
     ): MarkupContent | null {
         // Check resolved scope first if available
         const global_macro_symbols = this.safe_visible_symbols(resolved_scope, position);
@@ -644,9 +729,12 @@ export class HoverProvider {
                         ? `\n\nExpansion:\n\`\`\`\n${global_macro.value}\n\`\`\``
                         : `\n\nExpansion: \`${global_macro.value}\``)
                     : '';
+                const the_combined_extras = this.collect_workspace_additional_definitions(
+                    word, 'global', global_macro, workspace_indexer,
+                );
                 const footer = this.format_redefinition_footer(
                     global_macro.location?.uri ?? global_macro.sourceUri,
-                    global_macro.additional_definitions,
+                    the_combined_extras,
                 );
                 return {
                     kind: MarkupKind.Markdown,
@@ -669,9 +757,12 @@ export class HoverProvider {
                     ? `\n\nExpansion:\n\`\`\`\n${global_macro.value}\n\`\`\``
                     : `\n\nExpansion: \`${global_macro.value}\``)
                 : '';
+            const the_combined_extras = this.collect_workspace_additional_definitions(
+                word, 'global', global_macro, workspace_indexer,
+            );
             const footer = this.format_redefinition_footer(
                 global_macro.location?.uri ?? global_macro.sourceUri,
-                global_macro.additional_definitions,
+                the_combined_extras,
             );
             return {
                 kind: MarkupKind.Markdown,
@@ -699,7 +790,8 @@ export class HoverProvider {
         workspace_symbols?: SymbolTable,
         resolved_scope?: ResolvedScope,
         workspace_root?: string,
-        position?: Position
+        position?: Position,
+        workspace_indexer?: WorkspaceIndexer,
     ): MarkupContent | null {
         // 1. Check resolved_scope first (highest precedence)
         const scalar_symbols = this.safe_visible_symbols(resolved_scope, position);
@@ -711,9 +803,12 @@ export class HoverProvider {
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
+                const the_combined_extras = this.collect_workspace_additional_definitions(
+                    word, 'scalar', scalar, workspace_indexer,
+                );
                 const footer = this.format_redefinition_footer(
                     scalar.location?.uri ?? scalar.sourceUri,
-                    scalar.additional_definitions,
+                    the_combined_extras,
                 );
                 return {
                     kind: MarkupKind.Markdown,
@@ -730,9 +825,12 @@ export class HoverProvider {
             const source_info = source_link
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
+            const the_combined_extras = this.collect_workspace_additional_definitions(
+                word, 'scalar', doc_scalar, workspace_indexer,
+            );
             const footer = this.format_redefinition_footer(
                 doc_scalar.location?.uri ?? doc_scalar.sourceUri,
-                doc_scalar.additional_definitions,
+                the_combined_extras,
             );
             return {
                 kind: MarkupKind.Markdown,
@@ -749,9 +847,12 @@ export class HoverProvider {
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
+                const the_combined_extras = this.collect_workspace_additional_definitions(
+                    word, 'scalar', ws_scalar, workspace_indexer,
+                );
                 const footer = this.format_redefinition_footer(
                     ws_scalar.location?.uri ?? ws_scalar.sourceUri,
-                    ws_scalar.additional_definitions,
+                    the_combined_extras,
                 );
                 return {
                     kind: MarkupKind.Markdown,
@@ -780,7 +881,8 @@ export class HoverProvider {
         workspace_symbols?: SymbolTable,
         resolved_scope?: ResolvedScope,
         workspace_root?: string,
-        position?: Position
+        position?: Position,
+        workspace_indexer?: WorkspaceIndexer,
     ): MarkupContent | null {
         // 1. Check resolved_scope first (highest precedence)
         const matrix_symbols = this.safe_visible_symbols(resolved_scope, position);
@@ -792,9 +894,12 @@ export class HoverProvider {
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
+                const the_combined_extras = this.collect_workspace_additional_definitions(
+                    word, 'matrix', matrix, workspace_indexer,
+                );
                 const footer = this.format_redefinition_footer(
                     matrix.location?.uri ?? matrix.sourceUri,
-                    matrix.additional_definitions,
+                    the_combined_extras,
                 );
                 return {
                     kind: MarkupKind.Markdown,
@@ -811,9 +916,12 @@ export class HoverProvider {
             const source_info = source_link
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
+            const the_combined_extras = this.collect_workspace_additional_definitions(
+                word, 'matrix', doc_matrix, workspace_indexer,
+            );
             const footer = this.format_redefinition_footer(
                 doc_matrix.location?.uri ?? doc_matrix.sourceUri,
-                doc_matrix.additional_definitions,
+                the_combined_extras,
             );
             return {
                 kind: MarkupKind.Markdown,
@@ -830,9 +938,12 @@ export class HoverProvider {
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
+                const the_combined_extras = this.collect_workspace_additional_definitions(
+                    word, 'matrix', ws_matrix, workspace_indexer,
+                );
                 const footer = this.format_redefinition_footer(
                     ws_matrix.location?.uri ?? ws_matrix.sourceUri,
-                    ws_matrix.additional_definitions,
+                    the_combined_extras,
                 );
                 return {
                     kind: MarkupKind.Markdown,
@@ -1340,7 +1451,8 @@ export class HoverProvider {
         workspace_symbols?: SymbolTable,
         resolved_scope?: ResolvedScope,
         workspace_root?: string,
-        position?: Position
+        position?: Position,
+        workspace_indexer?: WorkspaceIndexer,
     ): MarkupContent | null {
         // Check resolved scope first if available
         const program_symbols = this.safe_visible_symbols(resolved_scope, position);
@@ -1352,6 +1464,7 @@ export class HoverProvider {
                     program_symbols,
                     document.uri,
                     workspace_root,
+                    workspace_indexer,
                 );
             }
         }
@@ -1360,14 +1473,14 @@ export class HoverProvider {
         // Check document programs
         const program = document.symbols.programs.get(word);
         if (program) {
-            return this.get_hover_for_user_program(program.name, document.symbols, document.uri, workspace_root);
+            return this.get_hover_for_user_program(program.name, document.symbols, document.uri, workspace_root, workspace_indexer);
         }
 
         // Check workspace programs
         if (workspace_symbols) {
             const ws_program = workspace_symbols.programs.get(word);
             if (ws_program) {
-                return this.get_hover_for_user_program(ws_program.name, workspace_symbols, document.uri, workspace_root);
+                return this.get_hover_for_user_program(ws_program.name, workspace_symbols, document.uri, workspace_root, workspace_indexer);
             }
         }
 
@@ -1702,7 +1815,8 @@ export class HoverProvider {
         program_name: string,
         workspace_symbols?: SymbolTable,
         current_uri?: string,
-        workspace_root?: string
+        workspace_root?: string,
+        workspace_indexer?: WorkspaceIndexer,
     ): MarkupContent | null {
         // Check document programs first
         const program = workspace_symbols?.programs.get(program_name);
@@ -1711,9 +1825,12 @@ export class HoverProvider {
         }
 
         const source_link = this.format_source_link(program.sourceUri, current_uri || '', workspace_root);
+        const the_combined_extras = this.collect_workspace_additional_definitions(
+            program_name, 'program', program, workspace_indexer,
+        );
         const footer = this.format_redefinition_footer(
             program.location?.uri ?? program.sourceUri,
-            program.additional_definitions,
+            the_combined_extras,
         );
 
         // If program has a signature, format it

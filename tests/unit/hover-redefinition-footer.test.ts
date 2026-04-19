@@ -130,3 +130,95 @@ describe('Hover redefinition footer - same-file only', () => {
         expect(text).not.toContain('Redefined');
     });
 });
+
+import { join } from 'path';
+import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
+import { URI } from 'vscode-uri';
+import { WorkspaceIndexer } from '../../src/indexer';
+import { DependencyGraph } from '../../src/dependency-graph';
+
+describe('Hover redefinition footer - cross-file variants', () => {
+    it('shows "N other files" footer when all redefinitions are cross-file', async () => {
+        const test_temp_dir = mkdtempSync(join(tmpdir(), 'hover-cross-'));
+        try {
+            // Three files: a central lib.do, and two callers that each
+            // redeclare `global data`.
+            const lib_path = join(test_temp_dir, 'lib.do');
+            const lib_content = 'global data = "lib"\n';
+            writeFileSync(lib_path, lib_content);
+            const a_path = join(test_temp_dir, 'a.do');
+            writeFileSync(a_path, 'include "lib.do"\nglobal data = "a"\ndi "$data"\n');
+            const b_path = join(test_temp_dir, 'b.do');
+            writeFileSync(b_path, 'include "lib.do"\nglobal data = "b"\n');
+
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(new DependencyGraph());
+            await indexer.initialize([test_temp_dir]);
+
+            const document_store = new DocumentStore();
+            const lib_uri = URI.file(lib_path).toString();
+            await document_store.open(lib_uri, lib_content, 1);
+            const document_state = document_store.get(lib_uri)!;
+
+            const provider = new HoverProvider(new CommandDatabase());
+            const result = await provider.get_hover(
+                document_state,
+                { line: 0, character: 9 },  // on `data`
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                indexer,
+            );
+            const content = result?.contents as MarkupContent | null;
+            expect(content).not.toBeNull();
+            const text = content!.value;
+            expect(text).toMatch(/Redefined in \d+ other files?/);
+        } finally {
+            if (existsSync(test_temp_dir)) rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    it('shows mixed footer when redefinitions are in same file and other files', async () => {
+        const test_temp_dir = mkdtempSync(join(tmpdir(), 'hover-mixed-'));
+        try {
+            const lib_path = join(test_temp_dir, 'lib.do');
+            const lib_content = [
+                'global data = "lib1"',   // line 0 (primary)
+                'global data = "lib2"',   // line 1 (same-file redecl)
+            ].join('\n') + '\n';
+            writeFileSync(lib_path, lib_content);
+            const a_path = join(test_temp_dir, 'a.do');
+            writeFileSync(a_path, 'include "lib.do"\nglobal data = "a"\n');
+
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(new DependencyGraph());
+            await indexer.initialize([test_temp_dir]);
+
+            const document_store = new DocumentStore();
+            const lib_uri = URI.file(lib_path).toString();
+            await document_store.open(lib_uri, lib_content, 1);
+            const document_state = document_store.get(lib_uri)!;
+
+            const provider = new HoverProvider(new CommandDatabase());
+            const result = await provider.get_hover(
+                document_state,
+                { line: 0, character: 9 },  // on `data`
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                indexer,
+            );
+            const content = result?.contents as MarkupContent | null;
+            expect(content).not.toBeNull();
+            const text = content!.value;
+            expect(text).toMatch(/Redefined at lines 2 and in \d+ other files?/);
+        } finally {
+            if (existsSync(test_temp_dir)) rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+});
