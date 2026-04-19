@@ -2705,3 +2705,95 @@ git commit -m "Align regression tests with new identity model (issue #135)"
 3. **Type consistency:** `macro_symbol_to_locations`, `symbol_to_locations`,
    `locations_to_definition`, `dedupe_locations`, and
    `format_redefinition_footer` are used consistently across tasks.
+
+---
+
+## Plan Drift Log (Implementation Notes for Reviewers)
+
+This section records where the plan's prescribed code or tests diverged
+from what actually shipped. Each item explains *why* the drift was
+necessary so a reviewer can assess whether the change is faithful to the
+design intent.
+
+### Phase 4 — Task 13 (Phase 5 in commit history)
+
+- **Plan text referenced a non-existent helper** `get_upward_related_uris`
+  for upward reachability in the variable sort. The codebase already had
+  `workspace_indexer.get_related_uris(uri)`, which returns the full
+  bidirectional reachable set, and the variable tier already sorted
+  reachable-first (landed in commit `2fe11ab` long before #135). Task 13
+  shipped as a regression-guard-only commit (commit `582ee27`) —
+  `tests/integration/find-references-variables-sort.test.ts` — covering
+  both wiring variants (fallback path with no scope resolver, and the
+  production path with scope + forward scope resolvers).
+
+### Phase 6 — Task 14 (Hover footer, same-file)
+
+- **Test construction differs from the plan's sketch.** The plan's test
+  used `new HoverProvider()` (no args) and `new DocumentStore().open(...)`.
+  `HoverProvider` requires a `CommandDatabase`; the test passes
+  `new CommandDatabase()`. The `DocumentStore.open` contract used here
+  matches the plan.
+- **Parser requires `program define NAME`** (not bare `program NAME`) to
+  register a program symbol. The program-redeclaration test uses
+  `program define MyProg` with a non-empty body; bare `program MyProg ... end`
+  produced an empty `symbols.programs` map and a null hover. The test
+  comment records this requirement for future readers.
+- **`format_redefinition_footer` accepts `string | undefined` primary URI**
+  and tolerates extras whose `location` is missing. Some existing
+  `get_scalar_hover` / `get_matrix_hover` unit tests feed partial symbol
+  stubs without `.location` (see `tests/unit/providers/hover.test.ts`
+  cases titled "should find matrix from workspace_symbols when
+  resolved_scope has empty symbols" and "should prefer resolved_scope
+  scalar over workspace_symbols"). Rather than changing those tests, the
+  helper degrades gracefully and every call site falls back to
+  `symbol.location?.uri ?? symbol.sourceUri`. This preserves the
+  plan's intent (same-file vs cross-file attribution) without breaking
+  existing test stubs.
+
+### Phase 6 — Task 15 (Hover footer, cross-file + mixed)
+
+- **`get_hover` gained a new `workspace_indexer` parameter (8th arg).**
+  The plan's example test wired `indexer` positionally into an argument
+  slot that was actually `cross_file_config` in the current signature.
+  Rather than overload an existing slot, a new optional parameter was
+  added, threaded through `collect_all_symbol_matches` and every symbol
+  builder (`get_local_macro_hover`, `get_global_macro_hover`,
+  `get_program_hover` + `get_hover_for_user_program`, `get_scalar_hover`,
+  `get_matrix_hover`). `src/server-handlers.ts` was updated to pass
+  `deps.workspace_indexer` through to the provider.
+- **Cross-file extras aggregation is a new private helper**
+  `collect_workspace_additional_definitions(name, type, primary, indexer)`
+  on `HoverProvider`. It folds the primary's own `additional_definitions`
+  plus every indexed cross-file definition (each hit's primary location +
+  its own extras) into a single list, deduped by `(uri, line)`. The
+  helper is deliberately uncached — see the comment at the top of the
+  method for the performance rationale (workspace_indexer version-keyed
+  LRU is a future-work option if profiling shows hover latency).
+- **Test cursor position corrected:** the plan's "on `data`" comment at
+  `{ line: 0, character: 12 }` actually lands on the `=` of
+  `global data = "lib"`. The shipped test uses `{ line: 0, character: 9 }`,
+  which is on the `t` of `data`.
+
+### Phase 7 — Task 16 (Completion dedup)
+
+- **`CompletionProvider.get_completions` returns `CompletionItem[]`
+  directly**, not `{ items: CompletionItem[] }`. The plan's sketch used
+  `result.items.filter(...)`; the shipped test uses `result.filter(...)`.
+- Test passed on first run, per the plan's prediction. Shipped as
+  regression-guard only (no production code change).
+
+### Phase 9 — Task 18 (Final integration)
+
+- **No trailing "align regression tests" commit** was created. The plan's
+  Step 4 is conditional on test adjustments landing outside the per-task
+  commits; every test change in Phases 6–7 landed inside its own
+  feature commit, so no separate bundling commit was needed.
+
+### Unchanged from plan
+
+- The identity-consolidation commits for Phases 1–5 already landed before
+  this drift log was started; see the commit range
+  `ff4de77..582ee27` for the Task 1–13 history. Test names, file paths,
+  and commit-message convention (`... (issue #135)`) match the plan.
+
