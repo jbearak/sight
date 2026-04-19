@@ -304,7 +304,7 @@ describe('collect_visible_reference_uris', () => {
         expect(the_result.has('file:///current.do')).toBe(true);
     });
 
-    test('includes every URI that could reference the active symbol instance, regardless of call-site order', () => {
+    test('pools every same-name, same-kind URI in the reachable chain as one identity (issue #135)', () => {
         const parent1_prog = make_program('shared_prog', 'file:///parent1.do');
         const parent2_prog = make_program('shared_prog', 'file:///parent2.do');
         const parent1_callee_prog = make_program(
@@ -388,16 +388,17 @@ describe('collect_visible_reference_uris', () => {
             'program',
             'shared_prog',
         );
+        // Issue #135: same name + same kind in the reachable chain is one
+        // identity, so every reachable callee that defines `shared_prog`
+        // participates — including the forward callees in both parent chains
+        // and the current file's visible forward site. The backward parents
+        // themselves are excluded here only because the parent chain walk is
+        // precedence-aware (later/tighter same-depth parent wins); sibling
+        // forward callees pool freely.
         expect(the_result.has('file:///current.do')).toBe(true);
-        expect(the_result.has('file:///parent1.do')).toBe(false);
-        expect(the_result.has('file:///parent2.do')).toBe(false);
-        expect(the_result.has('file:///parent1-callee.do')).toBe(false);
-        expect(the_result.has('file:///parent2-callee.do')).toBe(false);
+        expect(the_result.has('file:///parent1-callee.do')).toBe(true);
+        expect(the_result.has('file:///parent2-callee.do')).toBe(true);
         expect(the_result.has('file:///current-visible.do')).toBe(true);
-        // `current-hidden.do` is called after the cursor line, but the active
-        // instance (contributed by `current-visible.do` at line 1) is still
-        // defined when it runs — so references there are references to the
-        // same definition and must participate in find-references.
         expect(the_result.has('file:///current-hidden.do')).toBe(true);
     });
 
@@ -451,7 +452,7 @@ describe('collect_visible_reference_uris', () => {
         expect(the_result.has('file:///later-parent.do')).toBe(true);
     });
 
-    test('excludes an earlier visible forward callee when a later winner masks it', () => {
+    test('pools earlier and later same-name forward callees as one identity (issue #135)', () => {
         const earlier_prog = make_program('shared_prog', 'file:///earlier.do');
         const later_prog = make_program('shared_prog', 'file:///later.do');
         const my_scope: ResolvedScope = {
@@ -484,8 +485,10 @@ describe('collect_visible_reference_uris', () => {
             'program',
             'shared_prog',
         );
+        // Issue #135: same name + same kind in the reachable chain is one
+        // identity, so both forward callees pool regardless of order.
         expect(the_result.has('file:///current.do')).toBe(true);
-        expect(the_result.has('file:///earlier.do')).toBe(false);
+        expect(the_result.has('file:///earlier.do')).toBe(true);
         expect(the_result.has('file:///later.do')).toBe(true);
     });
 
@@ -603,7 +606,7 @@ describe('collect_visible_reference_uris', () => {
         expect(the_result.has('file:///parent.do')).toBe(false);
     });
 
-    test('includes a post-site callee with scan_through_line when it redeclares same-name locally after inheriting the active symbol', () => {
+    test('pools post-site callee with full scan when it redeclares the same-name local (issue #135)', () => {
         const active_local = make_local_macro('fruit', 'file:///first.do');
         // The redeclaring site's symbol table shows a same-name local declared
         // in the callee file itself at line 1 (the `local fruit "orange"` line).
@@ -662,10 +665,11 @@ describe('collect_visible_reference_uris', () => {
             'local_macro',
             'fruit',
         );
-        // second.do INHERITS the active fruit via first.do's include, then
-        // redeclares it same-file at line 1. It is included with a line cutoff.
+        // Issue #135: same name + same kind in the reachable chain is one
+        // identity. Both pre- and post-redeclaration references belong to the
+        // pooled identity — no cutoff.
         expect(the_result.has('file:///second.do')).toBe(true);
-        expect(the_result.get('file:///second.do')?.scan_through_line).toBe(1);
+        expect(the_result.get('file:///second.do')?.scan_through_line).toBeUndefined();
     });
 
     test('chain entry all_forward_call_sites adds both pre-site and post-site callees when active is defined in pre-site', () => {
@@ -759,7 +763,7 @@ describe('collect_visible_reference_uris', () => {
         expect(the_result.has('file:///definer.do')).toBe(true);
     });
 
-    test('post-site redeclare without inheriting the active symbol is excluded (case 5 via redeclare branch)', () => {
+    test('pools a post-site callee that redeclares the same-name kind even without inheriting (issue #135)', () => {
         const other_prog = make_program('shared_prog', 'file:///redeclarer.do');
         const my_scope: ResolvedScope = {
             ...empty_scope,
@@ -800,10 +804,13 @@ describe('collect_visible_reference_uris', () => {
             'program',
             'shared_prog',
         );
-        expect(the_result.has('file:///redeclarer.do')).toBe(false);
+        // Issue #135: same name + same kind in the reachable chain = one
+        // identity. redeclarer.do pools even though the active symbol isn't
+        // inherited at the call site — dep-graph reachability is what gates.
+        expect(the_result.has('file:///redeclarer.do')).toBe(true);
     });
 
-    test('transitive redeclaration (redeclaration declared in a different file than the callee) falls back to exclusion', () => {
+    test('pools transitive redeclaration (redeclaration surfaced via another file) as one identity (issue #135)', () => {
         const active_prog = make_program('shared_prog', 'file:///first.do');
         // Shadow appears to come through second.do (its symbols carry the entry)
         // but is actually declared in third.do — a transitive surface.
@@ -861,7 +868,11 @@ describe('collect_visible_reference_uris', () => {
             'program',
             'shared_prog',
         );
-        expect(the_result.has('file:///second.do')).toBe(false);
+        // Issue #135: same name + same kind in the reachable chain = one
+        // identity. second.do pools regardless of where the redeclaration
+        // was originally declared — the dep-graph reachability filter is the
+        // only exclusion mechanism that remains.
+        expect(the_result.has('file:///second.do')).toBe(true);
     });
 
     test('returns Map, not Set', () => {

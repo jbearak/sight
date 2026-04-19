@@ -664,7 +664,7 @@ for (const my_mode of THE_MODES) {
             expect(locations.some(loc => loc.uri === consumer_uri)).toBe(true);
         });
 
-        it('scenario 7b: inheriting sibling with same-file redeclare yields pre-redeclare references only', async () => {
+        it('scenario 7b: inheriting sibling with same-name redeclare pools as one identity (issue #135)', async () => {
             const the_files: FixtureFile[] = [
                 {
                     name: 'caller.do',
@@ -733,11 +733,14 @@ for (const my_mode of THE_MODES) {
             const second_ref_lines =
                 in_second.map(loc => loc.range.start.line).sort();
 
+            // Issue #135: same name + same kind within the reachable chain
+            // is one identity. Both the pre-redeclare reference, the
+            // redeclaration itself (includeDeclaration=true surfaces both
+            // decl sites), and the post-redeclare reference all belong to
+            // the pooled identity.
             expect(second_ref_lines).toContain(pre_redeclare_line);
-            expect(second_ref_lines).not.toContain(post_redeclare_line);
-            // second.do's `local fruit orange` is a different identity, so it
-            // must NOT appear in the includeDeclaration output.
-            expect(second_ref_lines).not.toContain(redeclare_line);
+            expect(second_ref_lines).toContain(redeclare_line);
+            expect(second_ref_lines).toContain(post_redeclare_line);
         });
 
         it('scenario 7c: same-line RHS reference on redeclaration line is included', async () => {
@@ -812,13 +815,12 @@ for (const my_mode of THE_MODES) {
             const second_ref_lines =
                 in_second.map(loc => loc.range.start.line).sort();
 
-            // Pre-redeclare reference must be present.
+            // Issue #135: same name + same kind within the reachable chain
+            // is one identity. Pre-redeclare, same-line RHS, and
+            // post-redeclare references all belong to the pooled identity.
             expect(second_ref_lines).toContain(pre_redeclare_line);
-            // RHS `fruit' on the redeclaration line references pre-shadow
-            // value — must be included.
             expect(second_ref_lines).toContain(redeclare_line);
-            // Post-redeclare references the shadow symbol — must not appear.
-            expect(second_ref_lines).not.toContain(post_redeclare_line);
+            expect(second_ref_lines).toContain(post_redeclare_line);
         });
     });
 }

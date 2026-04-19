@@ -332,83 +332,46 @@ export function collect_visible_reference_uris(
         }
     };
 
-    // Five-case rule:
+    // Three-case rule (issue #135):
     // 1. Site defines the active symbol → include, full scan.
-    // 2. Site redeclares different identity AND symbol_visible_before_site AND
-    //    same-file redeclaration (site_symbol.location.uri ===
-    //    site.callee_uri) → include with scan_through_line cutoff.
-    // 3. Site redeclares different identity AND transitive (redeclaration
-    //    declared in a different file than the callee) → EXCLUDE (conservative).
-    // 4. (symbol_visible_before_site OR site_is_after_current_file_call) and
-    //    does not redeclare → include, full scan.
-    // 5. Neither defines nor inherits → EXCLUDE.
-    //
-    // For the redeclaration check (cases 2 and 3) we use only
-    // `symbol_visible_before_site` — the site_is_after_current_file_call
-    // predicate only promotes case 5→4 when there is NO redeclaration, because
-    // a redeclaration at line 0 would make the pre-redeclaration window empty
-    // and including the URI with scan_through_line=0 would surface the
-    // redeclaration token itself (wrong). Case 4 (no redeclaration) is safe
-    // to promote via this predicate.
+    // 2. Site redeclares the same name (same kind) → include, full scan.
+    //    Rule 1: same name + same kind within the reachable chain is the
+    //    same identity. Two in-chain redeclarations (e.g., a parent-file
+    //    local and an included-file local) pool into one identity, so both
+    //    pre- and post-redeclaration references belong to that identity.
+    //    Disjoint-branch exclusion is already provided by dep-graph
+    //    reachability filtering in references.ts, so the previous
+    //    "different identity" cutoff has been retired.
+    // 3. (symbol_visible_before_site OR site_is_after_current_file_call)
+    //    and does not redeclare → include, full scan.
+    // 4. Neither defines nor inherits → EXCLUDE.
     const classify_site = (
         site: ForwardCallSite,
         symbol_visible_before_site: boolean,
         site_defines_active_symbol: boolean,
         site_is_after_current_file_call: boolean,
     ): SiteInclusion => {
-        // Treat a post-current-file sibling as if the active symbol is visible
-        // before it — it runs after the current file so it inherits its symbols.
-        // Used in both the redeclaration check (cases 2/3) and the plain
-        // inheritance check (case 4). For the redeclaration branch, we apply
-        // this only when the resulting scan_through_line would be > 0 (line 0
-        // means no pre-redeclaration content exists to scan, which is
-        // semantically equivalent to exclusion).
         const effective_visible = symbol_visible_before_site ||
             site_is_after_current_file_call;
         // Case 1: site defines the active symbol.
         if (site_defines_active_symbol) {
             return { include: true };
         }
-        // Cases 2 / 3: site redeclares same name with a different identity.
+        // Case 2: site redeclares the same (name, kind). In-chain
+        // redeclarations pool as one identity (issue #135).
         const site_symbol = get_reference_symbol_from_table(
             site.symbols,
             symbol_type,
             symbol_name,
         );
-        const redeclares_different_identity =
-            !!site_symbol
-            && get_reference_symbol_identity(site_symbol) !== active_symbol_identity;
-        if (redeclares_different_identity) {
-            if (!effective_visible) {
-                // Case 5 via 2/3 entry: not visible, not defining → exclude.
-                return { include: false };
-            }
-            // Same-file redeclaration → position-aware cutoff (case 2).
-            if (site_symbol && site_symbol.location.uri === site.callee_uri) {
-                const cutoff_line = site_symbol.location.range.start.line;
-                // If the redeclaration is at line 0, there is no pre-
-                // redeclaration content to scan — semantically equivalent to
-                // exclusion. Only inherit the cutoff when there is at least one
-                // line before the redeclaration.
-                if (cutoff_line === 0) {
-                    return { include: false };
-                }
-                return {
-                    include: true,
-                    scan_through_line: cutoff_line,
-                };
-            }
-            // Transitive redeclaration: conservative whole-file exclusion
-            // (case 3).
-            return { include: false };
+        if (site_symbol) {
+            return { include: true };
         }
-        // Case 4: no redeclaration. Promote via site_is_after_current_file_call
-        // when the chain hasn't accumulated the active symbol yet (cycle-
-        // detection gap).
+        // Case 3: no redeclaration. Promote via effective_visible.
         if (effective_visible) {
             return { include: true };
         }
-        // Case 5: neither defines nor inherits.
+        // Case 4: neither defines nor inherits.
         return { include: false };
     };
 
