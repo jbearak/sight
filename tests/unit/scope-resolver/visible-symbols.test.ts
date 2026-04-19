@@ -130,7 +130,17 @@ describe('get_visible_symbols_at — current-file shadowing window (call_line, c
         location: { uri, range: { start: { line: primary, character: 0 }, end: { line: primary, character: name.length } } },
         sourceUri: uri,
         additional_definitions: extras.length
-            ? extras.map(line => ({ line, character: 0 }))
+            ? extras.map((line, index) => ({
+                index: index + 1,
+                line,
+                location: {
+                    uri,
+                    range: {
+                        start: { line, character: 0 },
+                        end: { line, character: name.length },
+                    },
+                },
+            }))
             : undefined,
     });
 

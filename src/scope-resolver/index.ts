@@ -28,7 +28,6 @@ import {
     ReverseDependencyIndex,
     CallEdgeDiff,
     ContentProvider,
-    DirectiveParseResult,
     WorkingDirectoryDirective,
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
@@ -1798,7 +1797,6 @@ export class ScopeResolver {
 
         // 2. Read file from content provider (Mtime failed or missing)
         let content: string;
-        let actual_fs_path = fs_path;
         let actual_uri = uri;
 
         try {
@@ -1834,7 +1832,6 @@ export class ScopeResolver {
                     }
 
                     content = await this.content_provider.read_file(fallback_uri);
-                    actual_fs_path = fallback_path;
                     actual_uri = fallback_uri;
                 } catch (fallback_error) {
                     // Both paths failed
