@@ -422,11 +422,19 @@ export class SemanticAnalyzer {
             case 'program':
                 this.config.declared_programs.set(name, { line });
                 if (symbols) {
-                    symbols.programs.set(name, {
+                    // node_index is not available in directive context;
+                    // use 0 as approximation (matches scalar/matrix case).
+                    this.add_or_append_definition(
+                        symbols.programs,
                         name,
-                        location: { uri: this.uri, range: my_range },
-                        sourceUri: this.uri,
-                    });
+                        0,
+                        my_range,
+                        () => ({
+                            name,
+                            location: { uri: this.uri, range: my_range },
+                            sourceUri: this.uri,
+                        })
+                    );
                 }
                 break;
         }

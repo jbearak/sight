@@ -226,63 +226,13 @@ export class DefinitionProvider {
                 cancellation_token
             );
 
-            const local_macro = resolved_scope.symbols.localMacros.get(word);
-            if (local_macro) {
-                // Collect primary + additional_definitions from the resolved
-                // scope symbol, then walk the chain and forward-include sites
-                // to surface cross-file redeclarations of the same identity.
-                const out: Location[] =
-                    this.macro_symbol_to_locations(local_macro);
-                for (const my_entry of resolved_scope.chain) {
-                    const my_chain_macro =
-                        my_entry.symbols.localMacros.get(word);
-                    if (my_chain_macro) {
-                        out.push(
-                            ...this.macro_symbol_to_locations(my_chain_macro)
-                        );
-                    }
-                }
-                for (const my_site of
-                        resolved_scope.forward_call_symbols ?? []) {
-                    if (my_site.effective_type !== 'include') continue;
-                    const my_forward_local =
-                        my_site.symbols.localMacros.get(word);
-                    if (my_forward_local) {
-                        out.push(
-                            ...this.macro_symbol_to_locations(my_forward_local)
-                        );
-                    }
-                }
-                out.push(
-                    ...this.collect_related_definition_locations(
-                        document.uri,
-                        word,
-                        'local',
-                        workspace_indexer,
-                        true
-                    )
-                );
-                return this.locations_to_definition(
-                    this.dedupe_locations(out)
-                );
-            }
-
-            // Check forward-call symbols brought in by `include` before the
-            // cursor. Without this, a local macro pulled in by a forward
-            // `include` falls through to the workspace indexer, which returns
-            // every like-named local in the workspace.
-            if (position && resolved_scope.forward_call_symbols) {
-                for (const my_call_site of resolved_scope.forward_call_symbols) {
-                    if (position.line <= my_call_site.call_line) continue;
-                    if (my_call_site.effective_type !== 'include') continue;
-                    const forward_local =
-                        my_call_site.symbols.localMacros.get(word);
-                    if (forward_local) {
-                        return this.locations_to_definition(
-                            this.macro_symbol_to_locations(forward_local)
-                        );
-                    }
-                }
+            const local_locs = this.collect_local_macro_scope_locations(
+                resolved_scope,
+                word,
+                position
+            );
+            if (local_locs.length > 0) {
+                return this.locations_to_definition(local_locs);
             }
         }
 
@@ -866,6 +816,48 @@ export class DefinitionProvider {
     }
 
     /**
+     * Collect local-macro definitions visible through the resolved scope at
+     * the cursor position. Unlike globals/programs, locals only propagate
+     * through backward include chains and forward includes that have already
+     * executed.
+     */
+    private collect_local_macro_scope_locations(
+        resolved_scope: ResolvedScope,
+        word: string,
+        position?: Position
+    ): Location[] {
+        const out: Location[] = [];
+        const local_macro = resolved_scope.symbols.localMacros.get(word);
+
+        if (local_macro) {
+            out.push(...this.macro_symbol_to_locations(local_macro));
+            for (const my_entry of resolved_scope.chain) {
+                const my_chain_macro =
+                    my_entry.symbols.localMacros.get(word);
+                if (my_chain_macro) {
+                    out.push(
+                        ...this.macro_symbol_to_locations(my_chain_macro)
+                    );
+                }
+            }
+        }
+
+        for (const my_site of resolved_scope.forward_call_symbols ?? []) {
+            if (position && position.line <= my_site.call_line) continue;
+            if (my_site.effective_type !== 'include') continue;
+            const my_forward_local =
+                my_site.symbols.localMacros.get(word);
+            if (my_forward_local) {
+                out.push(
+                    ...this.macro_symbol_to_locations(my_forward_local)
+                );
+            }
+        }
+
+        return this.dedupe_locations(out);
+    }
+
+    /**
      * Collect same-name definitions from the dep-graph-connected workspace
      * subset. This keeps go-to-definition aligned with the identity model
      * without pulling in disjoint branches.
@@ -1041,43 +1033,13 @@ export class DefinitionProvider {
                 cancellation_token
             );
 
-            // Check local macros — walk chain and forward-include sites
-            const local_macro = resolved_scope.symbols.localMacros.get(word);
-            if (local_macro) {
-                const out: Location[] =
-                    this.macro_symbol_to_locations(local_macro);
-                for (const my_entry of resolved_scope.chain) {
-                    const my_chain_macro =
-                        my_entry.symbols.localMacros.get(word);
-                    if (my_chain_macro) {
-                        out.push(
-                            ...this.macro_symbol_to_locations(my_chain_macro)
-                        );
-                    }
-                }
-                for (const my_site of
-                        resolved_scope.forward_call_symbols ?? []) {
-                    if (my_site.effective_type !== 'include') continue;
-                    const my_forward_local =
-                        my_site.symbols.localMacros.get(word);
-                    if (my_forward_local) {
-                        out.push(
-                            ...this.macro_symbol_to_locations(my_forward_local)
-                        );
-                    }
-                }
-                out.push(
-                    ...this.collect_related_definition_locations(
-                        document.uri,
-                        word,
-                        'local',
-                        workspace_indexer,
-                        true
-                    )
-                );
-                return this.locations_to_definition(
-                    this.dedupe_locations(out)
-                );
+            const local_locs = this.collect_local_macro_scope_locations(
+                resolved_scope,
+                word,
+                position
+            );
+            if (local_locs.length > 0) {
+                return this.locations_to_definition(local_locs);
             }
 
             // Check global macros — do/run/include all propagate globals

@@ -495,6 +495,7 @@ export class HoverProvider {
         symbol_type: 'program' | 'local' | 'global' | 'scalar' | 'matrix',
         primary: { location?: { uri: string; range?: unknown }; additional_definitions?: Array<{ index: number; line: number; location: { uri: string; range: unknown } }> } | undefined,
         workspace_indexer: WorkspaceIndexer | undefined,
+        current_uri: string,
     ): Array<{ index: number; line: number; location: { uri: string; range: unknown } }> {
         const the_accumulated: Array<{ index: number; line: number; location: { uri: string; range: unknown } }> = [];
         // Start with the primary's own same-file additional_definitions.
@@ -506,6 +507,15 @@ export class HoverProvider {
         if (!workspace_indexer) {
             return the_accumulated;
         }
+        const the_candidate_uris = typeof workspace_indexer.get_related_uris === 'function'
+            ? (
+                symbol_type === 'local'
+                    ? workspace_indexer.get_related_uris(current_uri, {
+                        include_only: true,
+                    })
+                    : workspace_indexer.get_related_uris(current_uri)
+            )
+            : null;
         // Then include every workspace-indexed definition (primary + extras) for
         // files other than the current primary's file.
         const primary_uri = primary?.location?.uri;
@@ -526,6 +536,9 @@ export class HoverProvider {
         for (const my_hit of the_hits) {
             const my_location = (my_hit as any).location as { uri: string; range: { start: { line: number } } } | undefined;
             if (my_location) {
+                if (the_candidate_uris && !the_candidate_uris.has(my_location.uri)) {
+                    continue;
+                }
                 if (primary_uri && my_location.uri === primary_uri) {
                     continue;
                 }
@@ -542,6 +555,9 @@ export class HoverProvider {
             const the_extras = (my_hit as any).additional_definitions as Array<{ index: number; line: number; location: { uri: string; range: unknown } }> | undefined;
             if (the_extras) {
                 for (const my_extra of the_extras) {
+                    if (the_candidate_uris && !the_candidate_uris.has(my_extra.location.uri)) {
+                        continue;
+                    }
                     if (primary_uri && my_extra.location.uri === primary_uri) {
                         continue;
                     }
@@ -657,7 +673,7 @@ export class HoverProvider {
                         : `\n\nExpansion: \`${local_macro.value}\``)
                     : '';
                 const the_combined_extras = this.collect_workspace_additional_definitions(
-                    word, 'local', local_macro, workspace_indexer,
+                    word, 'local', local_macro, workspace_indexer, document.uri,
                 );
                 const footer = this.format_redefinition_footer(
                     local_macro.location?.uri ?? local_macro.sourceUri,
@@ -685,7 +701,7 @@ export class HoverProvider {
                     : `\n\nExpansion: \`${local_macro.value}\``)
                 : '';
             const the_combined_extras = this.collect_workspace_additional_definitions(
-                word, 'local', local_macro, workspace_indexer,
+                word, 'local', local_macro, workspace_indexer, document.uri,
             );
             const footer = this.format_redefinition_footer(
                 local_macro.location?.uri ?? local_macro.sourceUri,
@@ -737,7 +753,7 @@ export class HoverProvider {
                         : `\n\nExpansion: \`${global_macro.value}\``)
                     : '';
                 const the_combined_extras = this.collect_workspace_additional_definitions(
-                    word, 'global', global_macro, workspace_indexer,
+                    word, 'global', global_macro, workspace_indexer, document.uri,
                 );
                 const footer = this.format_redefinition_footer(
                     global_macro.location?.uri ?? global_macro.sourceUri,
@@ -765,7 +781,7 @@ export class HoverProvider {
                     : `\n\nExpansion: \`${global_macro.value}\``)
                 : '';
             const the_combined_extras = this.collect_workspace_additional_definitions(
-                word, 'global', global_macro, workspace_indexer,
+                word, 'global', global_macro, workspace_indexer, document.uri,
             );
             const footer = this.format_redefinition_footer(
                 global_macro.location?.uri ?? global_macro.sourceUri,
@@ -811,7 +827,7 @@ export class HoverProvider {
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
                 const the_combined_extras = this.collect_workspace_additional_definitions(
-                    word, 'scalar', scalar, workspace_indexer,
+                    word, 'scalar', scalar, workspace_indexer, document.uri,
                 );
                 const footer = this.format_redefinition_footer(
                     scalar.location?.uri ?? scalar.sourceUri,
@@ -833,7 +849,7 @@ export class HoverProvider {
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
             const the_combined_extras = this.collect_workspace_additional_definitions(
-                word, 'scalar', doc_scalar, workspace_indexer,
+                word, 'scalar', doc_scalar, workspace_indexer, document.uri,
             );
             const footer = this.format_redefinition_footer(
                 doc_scalar.location?.uri ?? doc_scalar.sourceUri,
@@ -855,7 +871,7 @@ export class HoverProvider {
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
                 const the_combined_extras = this.collect_workspace_additional_definitions(
-                    word, 'scalar', ws_scalar, workspace_indexer,
+                    word, 'scalar', ws_scalar, workspace_indexer, document.uri,
                 );
                 const footer = this.format_redefinition_footer(
                     ws_scalar.location?.uri ?? ws_scalar.sourceUri,
@@ -902,7 +918,7 @@ export class HoverProvider {
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
                 const the_combined_extras = this.collect_workspace_additional_definitions(
-                    word, 'matrix', matrix, workspace_indexer,
+                    word, 'matrix', matrix, workspace_indexer, document.uri,
                 );
                 const footer = this.format_redefinition_footer(
                     matrix.location?.uri ?? matrix.sourceUri,
@@ -924,7 +940,7 @@ export class HoverProvider {
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
             const the_combined_extras = this.collect_workspace_additional_definitions(
-                word, 'matrix', doc_matrix, workspace_indexer,
+                word, 'matrix', doc_matrix, workspace_indexer, document.uri,
             );
             const footer = this.format_redefinition_footer(
                 doc_matrix.location?.uri ?? doc_matrix.sourceUri,
@@ -946,7 +962,7 @@ export class HoverProvider {
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
                 const the_combined_extras = this.collect_workspace_additional_definitions(
-                    word, 'matrix', ws_matrix, workspace_indexer,
+                    word, 'matrix', ws_matrix, workspace_indexer, document.uri,
                 );
                 const footer = this.format_redefinition_footer(
                     ws_matrix.location?.uri ?? ws_matrix.sourceUri,
@@ -1833,7 +1849,7 @@ export class HoverProvider {
 
         const source_link = this.format_source_link(program.sourceUri, current_uri || '', workspace_root);
         const the_combined_extras = this.collect_workspace_additional_definitions(
-            program_name, 'program', program, workspace_indexer,
+            program_name, 'program', program, workspace_indexer, current_uri || program.sourceUri,
         );
         const footer = this.format_redefinition_footer(
             program.location?.uri ?? program.sourceUri,

@@ -54,7 +54,9 @@ describe('Find-references - local macro do/run boundary (regression guard)', () 
         }
     });
 
-    it('does not pool local macros across do boundary', async () => {
+    async function expect_no_local_pooling_across_boundary(
+        call_type: 'do' | 'run'
+    ): Promise<void> {
         const child_path = join(test_temp_dir, 'child.do');
         const child_content = [
             'local fruit cherry',           // line 0 (child's local)
@@ -65,7 +67,7 @@ describe('Find-references - local macro do/run boundary (regression guard)', () 
         const parent_path = join(test_temp_dir, 'parent.do');
         const parent_content = [
             'local fruit apple',            // line 0 (parent's local)
-            'do "child.do"',                // line 1
+            `${call_type} "child.do"`,      // line 1
             'di "`fruit\'"',                // line 2 (parent's ref)
         ].join('\n');
         writeFileSync(parent_path, parent_content);
@@ -89,5 +91,14 @@ describe('Find-references - local macro do/run boundary (regression guard)', () 
         // Must NOT include the child's decl or ref.
         const child_hits = locations.filter(l => l.uri === child_uri);
         expect(child_hits.length).toBe(0);
-    });
+    }
+
+    for (const my_call_type of ['do', 'run'] as const) {
+        it(
+            `does not pool local macros across ${my_call_type} boundary`,
+            async () => {
+                await expect_no_local_pooling_across_boundary(my_call_type);
+            }
+        );
+    }
 });

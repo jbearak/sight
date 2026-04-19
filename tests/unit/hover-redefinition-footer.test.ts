@@ -193,6 +193,106 @@ describe('Hover redefinition footer - same-file only', () => {
 });
 
 describe('Hover redefinition footer - cross-file variants', () => {
+    it('excludes disjoint-branch same-name globals from the footer count', async () => {
+        const test_temp_dir = mkdtempSync(join(tmpdir(), 'hover-branch-global-'));
+        try {
+            const lib_path = join(test_temp_dir, 'lib.do');
+            const lib_content = 'global data = "lib"\n';
+            writeFileSync(lib_path, lib_content);
+
+            const related_path = join(test_temp_dir, 'related.do');
+            writeFileSync(
+                related_path,
+                'include "lib.do"\nglobal data = "related"\n',
+            );
+
+            const stray_path = join(test_temp_dir, 'stray.do');
+            writeFileSync(stray_path, 'global data = "stray"\n');
+
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(new DependencyGraph());
+            await indexer.initialize([test_temp_dir]);
+
+            const document_store = new DocumentStore();
+            const lib_uri = URI.file(lib_path).toString();
+            await document_store.open(lib_uri, lib_content, 1);
+            const document_state = document_store.get(lib_uri)!;
+
+            const provider = new HoverProvider(new CommandDatabase());
+            const result = await provider.get_hover(
+                document_state,
+                { line: 0, character: 9 },
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                indexer,
+            );
+            const content = result?.contents as MarkupContent | null;
+            expect(content).not.toBeNull();
+            const text = content!.value;
+            expect(text).toContain('Global Macro');
+            expect(text).toContain('Redefined in 1 other file');
+            expect(text).not.toContain('Redefined in 2 other files');
+        } finally {
+            if (existsSync(test_temp_dir)) rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    it('keeps local-macro footer pooling on include chains only, not do/run branches', async () => {
+        const test_temp_dir = mkdtempSync(join(tmpdir(), 'hover-branch-local-'));
+        try {
+            const lib_path = join(test_temp_dir, 'lib.do');
+            const lib_content = [
+                'local fruit = "lib"',
+                'di "`fruit\'"',
+            ].join('\n');
+            writeFileSync(lib_path, `${lib_content}\n`);
+
+            const included_path = join(test_temp_dir, 'included.do');
+            writeFileSync(
+                included_path,
+                'include "lib.do"\nlocal fruit = "included"\n',
+            );
+
+            const done_path = join(test_temp_dir, 'done.do');
+            writeFileSync(
+                done_path,
+                'do "lib.do"\nlocal fruit = "done"\n',
+            );
+
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(new DependencyGraph());
+            await indexer.initialize([test_temp_dir]);
+
+            const document_store = new DocumentStore();
+            const lib_uri = URI.file(lib_path).toString();
+            await document_store.open(lib_uri, `${lib_content}\n`, 1);
+            const document_state = document_store.get(lib_uri)!;
+
+            const provider = new HoverProvider(new CommandDatabase());
+            const result = await provider.get_hover(
+                document_state,
+                { line: 1, character: 6 },
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                indexer,
+            );
+            const content = result?.contents as MarkupContent | null;
+            expect(content).not.toBeNull();
+            const text = content!.value;
+            expect(text).toContain('Local Macro');
+            expect(text).toContain('Redefined in 1 other file');
+            expect(text).not.toContain('Redefined in 2 other files');
+        } finally {
+            if (existsSync(test_temp_dir)) rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
     it('shows "N other files" footer when all redefinitions are cross-file', async () => {
         const test_temp_dir = mkdtempSync(join(tmpdir(), 'hover-cross-'));
         try {

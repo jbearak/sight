@@ -11,7 +11,13 @@ describe('analyzer - program redeclarations in same file', () => {
     function analyze(source: string) {
         const { tokens } = lexer.tokenize(source);
         const { ast } = parser.parse(tokens);
-        return analyzer.analyze(ast, 'file:///a.do');
+        return analyzer.analyze(
+            ast,
+            'file:///a.do',
+            undefined,
+            undefined,
+            tokens
+        );
     }
 
     it('records first program define as primary, subsequent as additional_definitions', () => {
@@ -96,5 +102,27 @@ describe('analyzer - program redeclarations in same file', () => {
         expect(baz!.c_locals).toBeDefined();
         expect(baz!.c_locals).toContain('first_result');
         expect(baz!.c_locals).not.toContain('second_result');
+    });
+
+    it('keeps directive-declared program as primary across later declarations', () => {
+        const source = [
+            '// @lsp-program foo',
+            '// @lsp-program foo',
+            'program define foo',
+            '    syntax varlist, A(string)',
+            '    c_local generated = 1',
+            'end',
+        ].join('\n');
+
+        const symbols = analyze(source).symbols;
+
+        const foo = symbols.programs.get('foo');
+        expect(foo).toBeDefined();
+        expect(foo!.location.range.start.line).toBe(0);
+        expect(foo!.additional_definitions?.length).toBe(2);
+        expect(foo!.additional_definitions![0].line).toBe(1);
+        expect(foo!.additional_definitions![1].line).toBe(2);
+        expect(foo!.signature).toBeUndefined();
+        expect(foo!.c_locals).toBeUndefined();
     });
 });
