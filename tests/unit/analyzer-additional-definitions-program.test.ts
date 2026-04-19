@@ -54,4 +54,47 @@ describe('analyzer - program redeclarations in same file', () => {
         expect(bar!.additional_definitions![0].line).toBe(2);
         expect(bar!.additional_definitions![1].line).toBe(4);
     });
+
+    it('preserves first body\'s signature when redeclaration has different syntax', () => {
+        const source = [
+            'program define foo',
+            '    syntax varlist, A(string)',
+            'end',
+            'program define foo',
+            '    syntax varlist, B(string)',
+            'end',
+        ].join('\n');
+
+        const symbols = analyze(source).symbols;
+
+        const foo = symbols.programs.get('foo');
+        expect(foo).toBeDefined();
+        expect(foo!.additional_definitions?.length).toBe(1);
+        // First-def-wins: signature reflects first body's option A, not second body's option B
+        expect(foo!.signature).toBeDefined();
+        const option_names = foo!.signature!.options.map(o => o.name);
+        expect(option_names).toContain('A');
+        expect(option_names).not.toContain('B');
+    });
+
+    it('preserves first body\'s c_locals when redeclaration has different c_local', () => {
+        const source = [
+            'program define baz',
+            '    c_local first_result = 1',
+            'end',
+            'program define baz',
+            '    c_local second_result = 1',
+            'end',
+        ].join('\n');
+
+        const symbols = analyze(source).symbols;
+
+        const baz = symbols.programs.get('baz');
+        expect(baz).toBeDefined();
+        expect(baz!.additional_definitions?.length).toBe(1);
+        // First-def-wins: c_locals reflect first body only
+        expect(baz!.c_locals).toBeDefined();
+        expect(baz!.c_locals).toContain('first_result');
+        expect(baz!.c_locals).not.toContain('second_result');
+    });
 });

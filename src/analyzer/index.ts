@@ -584,6 +584,9 @@ export class SemanticAnalyzer {
         all_scopes: ScopeInfo[],
         node_index: number
     ): void {
+        // Detect whether this is the first definition before registering
+        const is_first_definition = !symbols.programs.has(node.name);
+
         const program_symbol: ProgramSymbol = this.add_or_append_definition(
             symbols.programs,
             node.name,
@@ -596,7 +599,8 @@ export class SemanticAnalyzer {
             })
         );
 
-        // Create a new scope for the program body
+        // Create a new scope for the program body — unconditional so that
+        // each redeclaration's body gets its own scope for per-body diagnostics.
         const program_scope: ScopeInfo = {
             type: 'program',
             range: node.range,
@@ -604,28 +608,36 @@ export class SemanticAnalyzer {
         };
         all_scopes.push(program_scope);
 
-        // Process program body with the new scope
+        // Process program body with the new scope — unconditional for the
+        // same reason: locals defined inside each body deserve diagnostic
+        // coverage regardless of which definition is "primary".
         this.build_symbols(node.body, symbols, program_scope, all_scopes);
 
-        // Extract c_local macro names from program body
-        const c_locals = this.extract_c_locals(node.body);
-        if (c_locals.length > 0) {
-            program_symbol.c_locals = c_locals;
-        }
+        // Guard body-metadata extractions on first definition only.
+        // These all mutate program_symbol.* and must follow first-def-wins
+        // semantics to match location / additional_definitions behaviour.
+        if (is_first_definition) {
+            // Extract c_local macro names from program body
+            const c_locals = this.extract_c_locals(node.body);
+            if (c_locals.length > 0) {
+                program_symbol.c_locals = c_locals;
+            }
 
-        // Extract and attach signature from program body FIRST
-        // This also registers implicit locals from all syntax commands
-        this.extract_and_attach_signature(node, program_symbol, program_scope, symbols);
+            // Extract and attach signature from program body FIRST
+            // This also registers implicit locals from all syntax commands
+            this.extract_and_attach_signature(node, program_symbol, program_scope, symbols);
 
-        // Extract macro-creating option patterns from program body
-        // Must happen AFTER signature extraction so we can filter by syntax parameters
-        const syntax_option_names = this.extract_syntax_option_names(node.body);
-        const { local_options, global_options } = this.extract_macro_creating_option_patterns(node.body, syntax_option_names);
-        if (local_options.length > 0) {
-            program_symbol.macro_creating_local_options = local_options;
-        }
-        if (global_options.length > 0) {
-            program_symbol.macro_creating_global_options = global_options;
+            // Extract macro-creating option patterns from program body
+            // Must happen AFTER signature extraction so we can filter by
+            // syntax parameters
+            const syntax_option_names = this.extract_syntax_option_names(node.body);
+            const { local_options, global_options } = this.extract_macro_creating_option_patterns(node.body, syntax_option_names);
+            if (local_options.length > 0) {
+                program_symbol.macro_creating_local_options = local_options;
+            }
+            if (global_options.length > 0) {
+                program_symbol.macro_creating_global_options = global_options;
+            }
         }
     }
 
