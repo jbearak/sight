@@ -292,17 +292,13 @@ export class DefinitionProvider {
         // Collect workspace-indexer cross-file definitions for the same
         // name regardless of whether the current file defines it too, so
         // that cross-file redeclarations are surfaced.
-        const cross_file_locs: Location[] = [];
-        if (workspace_indexer) {
-            const local_defs =
-                workspace_indexer.find_symbol_definitions(word, 'local');
-            for (const my_def of local_defs) {
-                // Skip entries that originate from the current document —
-                // the fresh in-memory symbol covers those.
-                if (my_def.sourceUri === document.uri) continue;
-                cross_file_locs.push(...this.symbol_to_locations(my_def));
-            }
-        }
+        const cross_file_locs = this.collect_workspace_definition_locations(
+            document.uri,
+            word,
+            'local',
+            workspace_indexer,
+            { include_only: true }
+        );
 
         if (local_macro) {
             const out: Location[] = this.macro_symbol_to_locations(local_macro);
@@ -385,15 +381,12 @@ export class DefinitionProvider {
         const global_macro = document.symbols.globalMacros.get(word);
 
         // Collect workspace-indexer cross-file definitions for the same name.
-        const cross_file_locs: Location[] = [];
-        if (workspace_indexer) {
-            const global_defs =
-                workspace_indexer.find_symbol_definitions(word, 'global');
-            for (const my_def of global_defs) {
-                if (my_def.sourceUri === document.uri) continue;
-                cross_file_locs.push(...this.symbol_to_locations(my_def));
-            }
-        }
+        const cross_file_locs = this.collect_workspace_definition_locations(
+            document.uri,
+            word,
+            'global',
+            workspace_indexer
+        );
 
         if (global_macro) {
             const out: Location[] =
@@ -583,40 +576,34 @@ export class DefinitionProvider {
         // Variables are intentionally left workspace-wide via as_locations.
         if (program) {
             const out: Location[] = this.symbol_to_locations(program);
-            if (workspace_indexer) {
-                const program_defs =
-                    workspace_indexer.find_symbol_definitions(word, 'program');
-                for (const my_def of program_defs) {
-                    if (my_def.sourceUri === document.uri) continue;
-                    out.push(...this.symbol_to_locations(my_def));
-                }
-            }
+            out.push(...this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'program',
+                workspace_indexer
+            ));
             return this.locations_to_definition(this.dedupe_locations(out));
         }
 
         if (scalar) {
             const out: Location[] = this.symbol_to_locations(scalar);
-            if (workspace_indexer) {
-                const scalar_defs =
-                    workspace_indexer.find_symbol_definitions(word, 'scalar');
-                for (const my_def of scalar_defs) {
-                    if (my_def.sourceUri === document.uri) continue;
-                    out.push(...this.symbol_to_locations(my_def));
-                }
-            }
+            out.push(...this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'scalar',
+                workspace_indexer
+            ));
             return this.locations_to_definition(this.dedupe_locations(out));
         }
 
         if (matrix) {
             const out: Location[] = this.symbol_to_locations(matrix);
-            if (workspace_indexer) {
-                const matrix_defs =
-                    workspace_indexer.find_symbol_definitions(word, 'matrix');
-                for (const my_def of matrix_defs) {
-                    if (my_def.sourceUri === document.uri) continue;
-                    out.push(...this.symbol_to_locations(my_def));
-                }
-            }
+            out.push(...this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'matrix',
+                workspace_indexer
+            ));
             return this.locations_to_definition(this.dedupe_locations(out));
         }
 
@@ -628,39 +615,42 @@ export class DefinitionProvider {
                 return this.as_locations(variable_defs);
             }
 
-            const program_defs =
-                workspace_indexer.find_symbol_definitions(word, 'program');
+            const program_defs = this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'program',
+                workspace_indexer,
+                { include_current_uri: true }
+            );
             if (program_defs.length > 0) {
-                const out: Location[] = [];
-                for (const my_def of program_defs) {
-                    out.push(...this.symbol_to_locations(my_def));
-                }
                 return this.locations_to_definition(
-                    this.dedupe_locations(out)
+                    this.dedupe_locations(program_defs)
                 );
             }
 
-            const scalar_defs =
-                workspace_indexer.find_symbol_definitions(word, 'scalar');
+            const scalar_defs = this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'scalar',
+                workspace_indexer,
+                { include_current_uri: true }
+            );
             if (scalar_defs.length > 0) {
-                const out: Location[] = [];
-                for (const my_def of scalar_defs) {
-                    out.push(...this.symbol_to_locations(my_def));
-                }
                 return this.locations_to_definition(
-                    this.dedupe_locations(out)
+                    this.dedupe_locations(scalar_defs)
                 );
             }
 
-            const matrix_defs =
-                workspace_indexer.find_symbol_definitions(word, 'matrix');
+            const matrix_defs = this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'matrix',
+                workspace_indexer,
+                { include_current_uri: true }
+            );
             if (matrix_defs.length > 0) {
-                const out: Location[] = [];
-                for (const my_def of matrix_defs) {
-                    out.push(...this.symbol_to_locations(my_def));
-                }
                 return this.locations_to_definition(
-                    this.dedupe_locations(out)
+                    this.dedupe_locations(matrix_defs)
                 );
             }
         }
@@ -906,6 +896,44 @@ export class DefinitionProvider {
     }
 
     /**
+     * Collect workspace-indexed definitions while respecting the reachable
+     * dep-graph subset when available. Used by fallback paths that do not
+     * have a ScopeResolver but still have a WorkspaceIndexer.
+     */
+    private collect_workspace_definition_locations(
+        document_uri: string,
+        word: string,
+        symbol_type: 'program' | 'local' | 'global' | 'scalar' | 'matrix',
+        workspace_indexer?: WorkspaceIndexer,
+        options?: {
+            include_only?: boolean;
+            include_current_uri?: boolean;
+        }
+    ): Location[] {
+        if (!workspace_indexer) return [];
+
+        const related_uris = workspace_indexer.get_related_uris(
+            document_uri,
+            options?.include_only ? { include_only: true } : undefined
+        );
+        const out: Location[] = [];
+        for (const my_def of workspace_indexer.find_symbol_definitions(
+            word,
+            symbol_type
+        )) {
+            if (
+                my_def.sourceUri === document_uri &&
+                !options?.include_current_uri
+            ) {
+                continue;
+            }
+            if (!related_uris.has(my_def.sourceUri)) continue;
+            out.push(...this.symbol_to_locations(my_def));
+        }
+        return out;
+    }
+
+    /**
      * Convert a list of locations to a LSP Definition return value.
      * Returns null for empty, a single Location for one, or Location[] for
      * multiple (prompts VS Code's chooser UI).
@@ -1095,22 +1123,19 @@ export class DefinitionProvider {
         const local_macro = document.symbols.localMacros.get(word);
 
         // Collect cross-file workspace-indexer definitions (both kinds)
-        const cross_local_locs: Location[] = [];
-        const cross_global_locs: Location[] = [];
-        if (workspace_indexer) {
-            const local_defs =
-                workspace_indexer.find_symbol_definitions(word, 'local');
-            for (const my_def of local_defs) {
-                if (my_def.sourceUri === document.uri) continue;
-                cross_local_locs.push(...this.symbol_to_locations(my_def));
-            }
-            const global_defs =
-                workspace_indexer.find_symbol_definitions(word, 'global');
-            for (const my_def of global_defs) {
-                if (my_def.sourceUri === document.uri) continue;
-                cross_global_locs.push(...this.symbol_to_locations(my_def));
-            }
-        }
+        const cross_local_locs = this.collect_workspace_definition_locations(
+            document.uri,
+            word,
+            'local',
+            workspace_indexer,
+            { include_only: true }
+        );
+        const cross_global_locs = this.collect_workspace_definition_locations(
+            document.uri,
+            word,
+            'global',
+            workspace_indexer
+        );
 
         if (local_macro) {
             const out: Location[] =

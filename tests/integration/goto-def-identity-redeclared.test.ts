@@ -180,6 +180,96 @@ describe('Go-to-definition - redeclared same-identity symbols', () => {
         expect(same_file).toContain(1);     // main file's `local helper`
         expect(cross_file).toContain(0);    // lib file's `local helper`
     });
+
+    it('fallback path keeps local macros restricted to include chains', async () => {
+        const lib_path = join(test_temp_dir, 'lib.do');
+        writeFileSync(lib_path, 'local helper = "lib"\n');
+
+        const child_path = join(test_temp_dir, 'child.do');
+        writeFileSync(child_path, 'local helper = "child"\n');
+
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = [
+            'include "lib.do"',
+            'do "child.do"',
+            'local helper = "main"',
+            'di "`helper\'"',
+        ].join('\n');
+        writeFileSync(main_path, main_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const lib_uri = URI.file(lib_path).toString();
+        const child_uri = URI.file(child_path).toString();
+        const main_uri = URI.file(main_path).toString();
+
+        await document_store.open(main_uri, main_content, 1);
+        const document_state = document_store.get(main_uri)!;
+
+        const helper_char = main_content.split('\n')[3].indexOf('helper');
+        const result = await provider.get_definition(
+            document_state,
+            { line: 3, character: helper_char },
+            undefined,
+            undefined,
+            undefined,
+            indexer,
+            undefined,
+        );
+
+        expect(Array.isArray(result)).toBe(true);
+        const locations = result as any[];
+        const uris = new Set(locations.map(loc => loc.uri));
+        expect(uris.has(main_uri)).toBe(true);
+        expect(uris.has(lib_uri)).toBe(true);
+        expect(uris.has(child_uri)).toBe(false);
+    });
+
+    it('fallback path excludes disjoint program redeclarations', async () => {
+        const shared_path = join(test_temp_dir, 'shared.do');
+        writeFileSync(
+            shared_path,
+            'program define helper_prog\n    di "shared"\nend\n'
+        );
+
+        const unrelated_path = join(test_temp_dir, 'unrelated.do');
+        writeFileSync(
+            unrelated_path,
+            'program define helper_prog\n    di "unrelated"\nend\n'
+        );
+
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = [
+            'do "shared.do"',
+            'helper_prog',
+        ].join('\n');
+        writeFileSync(main_path, main_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const shared_uri = URI.file(shared_path).toString();
+        const unrelated_uri = URI.file(unrelated_path).toString();
+        const main_uri = URI.file(main_path).toString();
+
+        await document_store.open(main_uri, main_content, 1);
+        const document_state = document_store.get(main_uri)!;
+
+        const helper_char = main_content.split('\n')[1].indexOf('helper_prog');
+        const result = await provider.get_definition(
+            document_state,
+            { line: 1, character: helper_char },
+            indexer.get_all_symbols(),
+            undefined,
+            undefined,
+            indexer,
+            undefined,
+        );
+
+        const locations = Array.isArray(result) ? result : (result ? [result] : []);
+        const uris = new Set(locations.map(loc => loc.uri));
+        expect(uris.has(shared_uri)).toBe(true);
+        expect(uris.has(unrelated_uri)).toBe(false);
+    });
 });
 
 describe('Go-to-definition - cross-file chain walking', () => {
