@@ -253,6 +253,15 @@ export class DefinitionProvider {
                         );
                     }
                 }
+                out.push(
+                    ...this.collect_related_definition_locations(
+                        document.uri,
+                        word,
+                        'local',
+                        workspace_indexer,
+                        true
+                    )
+                );
                 return this.locations_to_definition(
                     this.dedupe_locations(out)
                 );
@@ -358,6 +367,14 @@ export class DefinitionProvider {
                         );
                     }
                 }
+                out.push(
+                    ...this.collect_related_definition_locations(
+                        document.uri,
+                        word,
+                        'global',
+                        workspace_indexer
+                    )
+                );
                 return this.locations_to_definition(
                     this.dedupe_locations(out)
                 );
@@ -464,6 +481,14 @@ export class DefinitionProvider {
                         );
                     }
                 }
+                out.push(
+                    ...this.collect_related_definition_locations(
+                        document.uri,
+                        word,
+                        'program',
+                        workspace_indexer
+                    )
+                );
                 return this.locations_to_definition(
                     this.dedupe_locations(out)
                 );
@@ -491,6 +516,14 @@ export class DefinitionProvider {
                         );
                     }
                 }
+                out.push(
+                    ...this.collect_related_definition_locations(
+                        document.uri,
+                        word,
+                        'scalar',
+                        workspace_indexer
+                    )
+                );
                 return this.locations_to_definition(
                     this.dedupe_locations(out)
                 );
@@ -518,6 +551,14 @@ export class DefinitionProvider {
                         );
                     }
                 }
+                out.push(
+                    ...this.collect_related_definition_locations(
+                        document.uri,
+                        word,
+                        'matrix',
+                        workspace_indexer
+                    )
+                );
                 return this.locations_to_definition(
                     this.dedupe_locations(out)
                 );
@@ -835,6 +876,36 @@ export class DefinitionProvider {
     }
 
     /**
+     * Collect same-name definitions from the dep-graph-connected workspace
+     * subset. This keeps go-to-definition aligned with the identity model
+     * without pulling in disjoint branches.
+     */
+    private collect_related_definition_locations(
+        document_uri: string,
+        word: string,
+        symbol_type: 'program' | 'local' | 'global' | 'scalar' | 'matrix',
+        workspace_indexer?: WorkspaceIndexer,
+        include_only?: boolean
+    ): Location[] {
+        if (!workspace_indexer) return [];
+
+        const related_uris = workspace_indexer.get_related_uris(
+            document_uri,
+            include_only ? { include_only: true } : undefined
+        );
+        const out: Location[] = [];
+        for (const my_def of workspace_indexer.find_symbol_definitions(
+            word,
+            symbol_type
+        )) {
+            if (my_def.sourceUri === document_uri) continue;
+            if (!related_uris.has(my_def.sourceUri)) continue;
+            out.push(...this.symbol_to_locations(my_def));
+        }
+        return out;
+    }
+
+    /**
      * Convert a list of locations to a LSP Definition return value.
      * Returns null for empty, a single Location for one, or Location[] for
      * multiple (prompts VS Code's chooser UI).
@@ -967,6 +1038,15 @@ export class DefinitionProvider {
                         );
                     }
                 }
+                out.push(
+                    ...this.collect_related_definition_locations(
+                        document.uri,
+                        word,
+                        'local',
+                        workspace_indexer,
+                        true
+                    )
+                );
                 return this.locations_to_definition(
                     this.dedupe_locations(out)
                 );
@@ -996,6 +1076,14 @@ export class DefinitionProvider {
                         );
                     }
                 }
+                out.push(
+                    ...this.collect_related_definition_locations(
+                        document.uri,
+                        word,
+                        'global',
+                        workspace_indexer
+                    )
+                );
                 return this.locations_to_definition(
                     this.dedupe_locations(out)
                 );

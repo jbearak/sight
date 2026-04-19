@@ -7,15 +7,22 @@
  */
 
 import { describe, it, expect } from 'bun:test';
+import { join } from 'path';
+import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
+import { URI } from 'vscode-uri';
 import { HoverProvider } from '../../src/providers/hover';
 import { CommandDatabase } from '../../src/commands';
 import { DocumentStore } from '../../src/document-store';
+import { WorkspaceIndexer } from '../../src/indexer';
+import { DependencyGraph } from '../../src/dependency-graph';
 import type { MarkupContent } from 'vscode-languageserver';
 
 async function hover_at(
     source: string,
     line: number,
     character: number,
+    workspace_indexer?: WorkspaceIndexer,
 ): Promise<MarkupContent | null> {
     const document_store = new DocumentStore();
     const uri = 'file:///test.do';
@@ -25,11 +32,65 @@ async function hover_at(
     const result = await hover_provider.get_hover(
         document_state,
         { line, character },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        workspace_indexer,
     );
     return result?.contents as MarkupContent | null;
 }
 
 describe('Hover redefinition footer - same-file only', () => {
+    it('ignores stale same-file workspace index entries when the live buffer has shifted', async () => {
+        const source = [
+            '* leading comment shifts the live buffer',
+            'local fruit apple',
+            'di "`fruit\'"',
+        ].join('\n');
+
+        const stale_workspace_indexer = {
+            find_symbol_definitions: (name: string, symbol_type: string) => {
+                if (name !== 'fruit' || symbol_type !== 'local') {
+                    return [];
+                }
+
+                return [
+                    {
+                        definition_index: 0,
+                        location: {
+                            uri: 'file:///test.do',
+                            range: {
+                                start: { line: 0, character: 6 },
+                                end: { line: 0, character: 11 },
+                            },
+                        },
+                        additional_definitions: [
+                            {
+                                index: 1,
+                                line: 2,
+                                location: {
+                                    uri: 'file:///test.do',
+                                    range: {
+                                        start: { line: 2, character: 6 },
+                                        end: { line: 2, character: 11 },
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                ];
+            },
+        } as unknown as WorkspaceIndexer;
+
+        const content = await hover_at(source, 2, 6, stale_workspace_indexer);
+        expect(content).not.toBeNull();
+        const text = content!.value;
+        expect(text).toContain('Local Macro');
+        expect(text).not.toContain('Redefined');
+    });
+
     it('shows redefined-at footer for redeclared local macro', async () => {
         const source = [
             'local fruit apple',      // line 0 (primary)
@@ -61,7 +122,7 @@ describe('Hover redefinition footer - same-file only', () => {
         expect(content).not.toBeNull();
         const text = content!.value;
         expect(text).toContain('Global Macro');
-        expect(text).toContain('Redefined at lines 3');
+        expect(text).toContain('Redefined at line 3');
         expect(text).not.toContain('other files');
     });
 
@@ -84,7 +145,7 @@ describe('Hover redefinition footer - same-file only', () => {
         const text = content!.value;
         expect(text).toContain('Program');
         // Primary is line 1 (1-indexed); redeclaration is line 4 (1-indexed).
-        expect(text).toContain('Redefined at lines 4');
+        expect(text).toContain('Redefined at line 4');
         expect(text).not.toContain('other files');
     });
 
@@ -99,7 +160,7 @@ describe('Hover redefinition footer - same-file only', () => {
         expect(content).not.toBeNull();
         const text = content!.value;
         expect(text).toContain('Scalar');
-        expect(text).toContain('Redefined at lines 2');
+        expect(text).toContain('Redefined at line 2');
         expect(text).not.toContain('other files');
     });
 
@@ -114,7 +175,7 @@ describe('Hover redefinition footer - same-file only', () => {
         expect(content).not.toBeNull();
         const text = content!.value;
         expect(text).toContain('Matrix');
-        expect(text).toContain('Redefined at lines 2');
+        expect(text).toContain('Redefined at line 2');
         expect(text).not.toContain('other files');
     });
 
@@ -130,13 +191,6 @@ describe('Hover redefinition footer - same-file only', () => {
         expect(text).not.toContain('Redefined');
     });
 });
-
-import { join } from 'path';
-import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
-import { tmpdir } from 'os';
-import { URI } from 'vscode-uri';
-import { WorkspaceIndexer } from '../../src/indexer';
-import { DependencyGraph } from '../../src/dependency-graph';
 
 describe('Hover redefinition footer - cross-file variants', () => {
     it('shows "N other files" footer when all redefinitions are cross-file', async () => {
@@ -216,7 +270,7 @@ describe('Hover redefinition footer - cross-file variants', () => {
             const content = result?.contents as MarkupContent | null;
             expect(content).not.toBeNull();
             const text = content!.value;
-            expect(text).toMatch(/Redefined at lines 2 and in \d+ other files?/);
+            expect(text).toMatch(/Redefined at line 2 and in 1 other file/);
         } finally {
             if (existsSync(test_temp_dir)) rmSync(test_temp_dir, { recursive: true, force: true });
         }

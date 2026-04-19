@@ -526,6 +526,9 @@ export class HoverProvider {
         for (const my_hit of the_hits) {
             const my_location = (my_hit as any).location as { uri: string; range: { start: { line: number } } } | undefined;
             if (my_location) {
+                if (primary_uri && my_location.uri === primary_uri) {
+                    continue;
+                }
                 const my_key = `${my_location.uri}:${my_location.range?.start?.line ?? -1}`;
                 if (!the_seen_keys.has(my_key)) {
                     the_seen_keys.add(my_key);
@@ -539,6 +542,9 @@ export class HoverProvider {
             const the_extras = (my_hit as any).additional_definitions as Array<{ index: number; line: number; location: { uri: string; range: unknown } }> | undefined;
             if (the_extras) {
                 for (const my_extra of the_extras) {
+                    if (primary_uri && my_extra.location.uri === primary_uri) {
+                        continue;
+                    }
                     const my_extra_key = `${my_extra.location.uri}:${(my_extra.location as any).range?.start?.line ?? my_extra.line}`;
                     if (!the_seen_keys.has(my_extra_key)) {
                         the_seen_keys.add(my_extra_key);
@@ -579,13 +585,14 @@ export class HoverProvider {
         if (!has_same_file && !has_cross_file) {
             return '';
         }
+        const line_word = same_file_lines.length === 1 ? 'line' : 'lines';
         const file_word = the_other_file_uris.size === 1 ? 'other file' : 'other files';
 
         let body: string;
         if (has_same_file && has_cross_file) {
-            body = `Redefined at lines ${same_file_lines.join(', ')} and in ${the_other_file_uris.size} ${file_word}`;
+            body = `Redefined at ${line_word} ${same_file_lines.join(', ')} and in ${the_other_file_uris.size} ${file_word}`;
         } else if (has_same_file) {
-            body = `Redefined at lines ${same_file_lines.join(', ')}`;
+            body = `Redefined at ${line_word} ${same_file_lines.join(', ')}`;
         } else {
             body = `Redefined in ${the_other_file_uris.size} ${file_word}`;
         }

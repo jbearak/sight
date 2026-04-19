@@ -328,4 +328,56 @@ describe('Go-to-definition - cross-file chain walking', () => {
         // lib.do:0 is the lib file's `local helper`
         expect(lib_lines).toContain(0);
     });
+
+    // Test C: sibling callers in the dep graph. Earlier and later both reach
+    // the same child, so same-name program declarations pool into one
+    // identity across the connected component.
+    it('sibling callers: go-to-definition pools reachable program redeclarations across the dep graph', async () => {
+        const earlier_path = join(test_temp_dir, 'earlier.do');
+        const earlier_content = [
+            'program define shared_prog', // line 0
+            '    di "earlier"',
+            'end',                        // line 2
+            'do "child.do"',             // line 3
+            'shared_prog',                // line 4 — cursor here
+        ].join('\n');
+        writeFileSync(earlier_path, earlier_content);
+
+        const later_path = join(test_temp_dir, 'later.do');
+        const later_content = [
+            'program define shared_prog', // line 0
+            '    di "later"',
+            'end',                       // line 2
+            'do "child.do"',            // line 3
+        ].join('\n');
+        writeFileSync(later_path, later_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        writeFileSync(child_path, 'di "child"\n');
+
+        await indexer.initialize([test_temp_dir]);
+
+        const earlier_uri = URI.file(earlier_path).toString();
+        const later_uri = URI.file(later_path).toString();
+
+        await document_store.open(earlier_uri, earlier_content, 1);
+        const document_state = document_store.get(earlier_uri)!;
+
+        const shared_char = earlier_content.split('\n')[4].indexOf('shared_prog');
+        const result = await provider.get_definition(
+            document_state,
+            { line: 4, character: shared_char },
+            indexer.get_all_symbols(),
+            undefined,
+            scope_resolver,
+            indexer,
+            undefined,
+        );
+
+        expect(Array.isArray(result)).toBe(true);
+        const locations = result as any[];
+        const uris = new Set(locations.map(loc => loc.uri));
+        expect(uris.has(earlier_uri)).toBe(true);
+        expect(uris.has(later_uri)).toBe(true);
+    });
 });
