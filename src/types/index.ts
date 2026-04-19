@@ -124,18 +124,18 @@ export interface IndexerMetrics {
  * across files each get their own entry.
  */
 export type WorkspaceSymbolKind =
-    | 'program'
-    | 'global_macro'
-    | 'local_macro'
-    | 'variable'
-    | 'scalar'
-    | 'matrix';
+  | 'program'
+  | 'global_macro'
+  | 'local_macro'
+  | 'variable'
+  | 'scalar'
+  | 'matrix';
 
 export interface WorkspaceSymbolMatch {
-    name: string;              // raw name — no backtick/apostrophe decoration
-    kind: WorkspaceSymbolKind;
-    uri: string;
-    range: Range;
+  name: string;              // raw name — no backtick/apostrophe decoration
+  kind: WorkspaceSymbolKind;
+  uri: string;
+  range: Range;
 }
 
 /**
@@ -143,7 +143,7 @@ export interface WorkspaceSymbolMatch {
  * The real `WorkspaceIndexer` implements this; tests can supply a stub.
  */
 export interface WorkspaceSymbolSource {
-    find_all_symbol_definitions(query: string): WorkspaceSymbolMatch[];
+  find_all_symbol_definitions(query: string): WorkspaceSymbolMatch[];
 }
 
 export interface LexerError {
