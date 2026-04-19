@@ -1,9 +1,51 @@
 # Issue #129 — Unify "symbols visible at cursor position" across providers
 
-**Status:** design approved, implementation pending
-**Date:** 2026-04-18
+**Status:** implemented; semantics revised post-landing — see "2026-04-19 addendum" below
+**Date:** 2026-04-18 (original design); 2026-04-19 (addendum)
 **GitHub issue:** [#129](https://github.com/jbearak/sight/issues/129)
 **Scope:** full — fix the two latent bugs identified in #129's audit, consolidate the ≈8 duplicated filter sites behind shared pure helpers, and retire the legacy `forward_scope` provider parameter.
+
+## 2026-04-19 addendum — find-references no longer uses a cursor-line filter
+
+After #129 landed, a user report exposed a gap: find-references on a local macro declared in file A where A has an `include` relationship with file B (either A is `included-by` B, or A `include`s B) returned zero results. The declaration is in scope at the cursor, and the reference site is in the sibling file, but the sibling's URI was excluded by `collect_visible_reference_uris`'s `call_line < cursor_line` filter.
+
+The underlying misconception: the cursor line was being used for two distinct jobs — *picking* the active symbol instance (correct) and *filtering* reference sites (incorrect). Once the active instance is chosen, every file that could reference *that definition* is a legitimate hit, regardless of call-site order relative to the cursor.
+
+### Revised semantics (now in effect)
+
+`collect_visible_reference_uris`:
+
+- The cursor line resolves ambiguity among same-name instances via `get_visible_symbols_at`. That is its *only* role.
+- Every forward call from the current file is walked (not just those with `call_line < cursor_line`).
+- A forward-called file is included when the active instance is visible at its call (either already defined in the current file's pre-call state, or defined by the site itself), *and* the site does not redeclare the name with a different identity. Redeclaring sites are excluded because their in-file references become ambiguous — some may hit the active instance pre-redeclaration, others the shadow post-redeclaration.
+- Chain-entry URIs are added when the parent's post-call state sees the active instance. For `included-by`, that includes the case where the active symbol is declared in the current file itself and reaches back into the parent via include. The pre-fix `entry_visible_symbols` check only modeled the parent's pre-call state, missing this direction.
+
+### What changed in the shipped code vs. the original spec
+
+- The line in the forward-call loop is now `for (const my_site of scope.forward_call_symbols ?? [])` — no cursor-line filter. A separate guard drops sites that redeclare the name with a different identity.
+- The chain-entry check gained an `active_symbol_identity === current_uri` shortcut so parents that reach back into the current file via `included-by` (or `done-by` for non-locals) are added even when the parent's own symbol table does not yet list the symbol.
+
+### What the original spec got right and kept
+
+- The unification — one shared helper, import sites collapsed across `completion.ts`, `hover.ts`, `diagnostics.ts`, `definition.ts`, `references.ts`.
+- The `get_visible_symbols_at` / `get_visible_forward_call_sites` semantics — both still use strict `<` against `cursor_line`, because those functions answer "what is visible at the cursor," which is exactly the right question for *picking* a symbol.
+- `definition.ts::resolve_non_macro_symbols` — go-to-def still uses strict cursor-line visibility (a `do "defs.do"` after the cursor should not resolve the cursor's token).
+- Retirement of the `forward_scope` parameter plumbing.
+
+### What to update when reading the historical design below
+
+Two parts of the original design are superseded:
+
+1. **`find_definitions` behavior after fix** (in "Concrete changes / `src/providers/references.ts`") — the bullet *"declarations in not-yet-reached forward-called files are dropped from `includeDeclaration`"* no longer holds. The current rule is the identity-based one described above.
+2. **Test plan** — the unit test expectation *"Keeps the strict `<` boundary for current-file forward calls"* under `collect_visible_reference_uris`, and the integration-test scenario *"Program declared in not-yet-reached forward-called file: `find-references` does not include that location"* are both obsolete. The first has been flipped in `tests/unit/scope-resolver/visible-symbols.test.ts`; the second expectation in `tests/integration/find-references-declaration-scope.test.ts` still passes only because the test's forward-called file *redeclares* `shared_prog` (different identity), not because of the cursor-line filter.
+
+The `get_visible_symbols_at` / `get_visible_forward_call_sites` sections of the original design are unchanged and remain accurate.
+
+Primary commit: `2f56e0e` ("Find references to locals across include boundaries").
+
+---
+
+## Original design (2026-04-18)
 
 ## Problem
 
