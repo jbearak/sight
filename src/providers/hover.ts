@@ -46,6 +46,7 @@ import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
+import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
@@ -163,6 +164,13 @@ export class HoverProvider {
 
         // Suppress hover inside comments
         if (is_cursor_in_comment(document, position)) {
+            return null;
+        }
+
+        // Suppress hover inside string literals. Embedded macro references in
+        // compound strings are separate tokens (MACRO_REF_LOCAL / MACRO_REF_GLOBAL),
+        // so this only matches literal text.
+        if (is_cursor_in_string_literal(document, position)) {
             return null;
         }
 
