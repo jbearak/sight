@@ -1220,7 +1220,14 @@ export class CompletionProvider {
             if (prefix !== '' && !name.toLowerCase().startsWith(prefix.toLowerCase())) {
                 continue;
             }
+            // Skip if shadowed by an in-scope user program (same casing
+            // convention as the in-scope program loop's seen_labels.add above).
             if (seen_labels.has(name.toLowerCase())) continue;
+            // Do not shadow built-in commands: if a Stata built-in with the
+            // same name exists, the built-in wins over the out-of-scope
+            // workspace program. Mirror the lookup used by the built-in
+            // command loop below (command_db.lookup / search).
+            if (this.command_db.lookup(name)) continue;
 
             const ranking_factors: CompletionRankingFactors = {
                 scope_depth: 0,
@@ -1239,7 +1246,10 @@ export class CompletionProvider {
                 documentation: `Defined at ${program.sourceUri}`,
                 sortText: compute_ranking_key(ranking_factors),
             });
-            seen_labels.add(name.toLowerCase());
+            // Note: we intentionally do NOT add to seen_labels here. Doing so
+            // would cause an out-of-scope program to suppress a same-name
+            // built-in command in the next loop, which is the opposite of the
+            // intended precedence (built-in > out-of-scope).
         }
 
         // Then add built-in commands (lower precedence)

@@ -1610,4 +1610,44 @@ describe('Out-of-scope program completion', () => {
         expect(helper!.detail).toContain('out of scope');
         expect(helper!.detail).toContain('lib.do');
     });
+
+    it('should not shadow built-in commands when a workspace program shares a built-in name', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('sum', { programs: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.programs.set('summarize', {
+            name: 'summarize',
+            location: {
+                uri: 'file:///shadow.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///shadow.do',
+            signature: { args: [] },
+        } as any);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 3 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        // Built-in command must still appear.
+        const summarize_items = completions.filter(c => c.label === 'summarize');
+        expect(summarize_items.length).toBeGreaterThanOrEqual(1);
+        const builtin = summarize_items.find(
+            c => !(c.detail || '').includes('out of scope')
+        );
+        expect(builtin).toBeDefined();
+    });
 });
