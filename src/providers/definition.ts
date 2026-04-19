@@ -136,7 +136,8 @@ export class DefinitionProvider {
                     scope_resolver,
                     workspace_indexer,
                     cross_file_config,
-                    cancellation_token
+                    cancellation_token,
+                    position
                 );
             }
             
@@ -161,7 +162,8 @@ export class DefinitionProvider {
                         scope_resolver,
                         workspace_indexer,
                         cross_file_config,
-                        cancellation_token
+                        cancellation_token,
+                        position
                     );
                 }
 
@@ -211,7 +213,8 @@ export class DefinitionProvider {
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
         cross_file_config?: Partial<ScopeResolverConfig>,
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        position?: Position
     ): Promise<Definition | null> {
         // Try scope resolver first
         if (scope_resolver) {
@@ -229,6 +232,24 @@ export class DefinitionProvider {
                     uri: local_macro.location.uri,
                     range: local_macro.location.range,
                 };
+            }
+
+            // Check forward-call symbols brought in by `include` before the
+            // cursor. Without this, a local macro pulled in by a forward
+            // `include` falls through to the workspace indexer, which returns
+            // every like-named local in the workspace.
+            if (position && resolved_scope.forward_call_symbols) {
+                for (const my_call_site of resolved_scope.forward_call_symbols) {
+                    if (position.line <= my_call_site.call_line) continue;
+                    if (my_call_site.effective_type !== 'include') continue;
+                    const forward_local = my_call_site.symbols.localMacros.get(word);
+                    if (forward_local) {
+                        return {
+                            uri: forward_local.location.uri,
+                            range: forward_local.location.range,
+                        };
+                    }
+                }
             }
         }
 
@@ -504,7 +525,8 @@ export class DefinitionProvider {
                 scope_resolver,
                 workspace_indexer,
                 cross_file_config,
-                cancellation_token
+                cancellation_token,
+                position
             );
         }
         
