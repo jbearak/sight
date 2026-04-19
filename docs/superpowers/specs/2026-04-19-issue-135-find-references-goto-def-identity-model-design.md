@@ -2,7 +2,7 @@
 
 **Status:** design
 **Date:** 2026-04-19
-**GitHub issue:** TBD (this document is the basis for the issue body)
+**GitHub issue:** [#135](https://github.com/jbearak/sight/issues/135)
 **Scope:** Rearchitect how Sight assigns *identity* to redeclared symbols so that find-references and go-to-definition return a coherent, predictable set of results. Current behavior over-trims by splitting redeclarations into separate identities when they are, semantically, the same symbol.
 
 ## Problem
