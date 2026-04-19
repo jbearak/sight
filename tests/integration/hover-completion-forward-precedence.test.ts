@@ -239,6 +239,47 @@ describe('hover/completion forward-call precedence', () => {
         expect(String(macro_a?.documentation)).not.toContain('from_child');
     });
 
+    it('completion keeps current-file macro when directives route through get_visible_symbols_at', async () => {
+        // Exercises the has_directives branch in CompletionProvider.get_completions:
+        // get_visible_symbols_at already resolves forward-call precedence, so the
+        // completion provider must NOT re-overlay the annotated forward symbols
+        // on top (that would make forward-call values win a second time).
+        const parent_path = join(test_temp_dir, 'parent.do');
+        writeFileSync(parent_path, '* parent file\n');
+
+        const child_path = join(test_temp_dir, 'child.do');
+        writeFileSync(child_path, 'local a "from_child"\n');
+
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            '// @lsp-done-by: "parent.do"\n' +
+            'local a "from_main_early"\n' +
+            'include "child.do"\n' +
+            'local a "from_main_late"\n' +
+            'display "`a\'"\n';
+        writeFileSync(main_path, main_content);
+
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
+
+        const completions = await pipeline.completion_provider.get_completions(
+            document_state,
+            { line: 4, character: main_content.split('\n')[4].indexOf('`a') + 1 },
+            undefined,
+            pipeline.scope_resolver,
+        );
+
+        const macro_a = completions.find(item => item.label === 'a');
+        expect(macro_a).toBeDefined();
+        // Without the fix, the double-overlay lets the forward-call version
+        // win again and the doc shows "from_child". After the fix, the
+        // current file's definition wins; the completion item embeds the
+        // primary `local a` expansion (matching the sibling workspace test).
+        expect(String(macro_a?.documentation)).not.toContain('from_child');
+        expect(String(macro_a?.documentation)).toContain('from_main_early');
+    });
+
     it('completion resolves a same-name global macro to the later visible forward callee', async () => {
         const first_path = join(test_temp_dir, 'first.do');
         writeFileSync(first_path, 'global SHARED "from_first"\n');

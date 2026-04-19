@@ -466,6 +466,29 @@ export class HoverProvider {
     }
 
     /**
+     * Safely get visible symbols from a resolved scope, guarding against partial stubs.
+     * Returns resolved_scope.symbols when chain is missing/undefined or when position is falsy,
+     * otherwise delegates to get_visible_symbols_at for proper position filtering.
+     *
+     * @param resolved_scope - The resolved scope (may be a partial stub)
+     * @param position - Optional cursor position for forward call symbol filtering
+     */
+    private safe_visible_symbols(
+        resolved_scope: ResolvedScope | undefined,
+        position?: Position
+    ): SymbolTable | undefined {
+        if (!resolved_scope) {
+            return undefined;
+        }
+        // For partial stubs without chain, or when position is undefined, use symbols directly
+        if (!resolved_scope.chain || !position) {
+            return resolved_scope.symbols;
+        }
+        // Otherwise use position-aware filtering
+        return get_visible_symbols_at(resolved_scope, position.line);
+    }
+
+    /**
      * Get hover info for a local macro only.
      * Checks resolved scope, forward call symbols (with position filtering), and document symbols.
      *
@@ -483,10 +506,8 @@ export class HoverProvider {
         position?: Position
     ): MarkupContent | null {
         // Check resolved scope first if available
-        if (resolved_scope) {
-            const local_macro_symbols = position
-                ? get_visible_symbols_at(resolved_scope, position.line)
-                : resolved_scope.symbols;
+        const local_macro_symbols = this.safe_visible_symbols(resolved_scope, position);
+        if (local_macro_symbols) {
             const local_macro = local_macro_symbols.localMacros.get(word);
             if (local_macro) {
                 const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
@@ -550,10 +571,8 @@ export class HoverProvider {
         position?: Position
     ): MarkupContent | null {
         // Check resolved scope first if available
-        if (resolved_scope) {
-            const global_macro_symbols = position
-                ? get_visible_symbols_at(resolved_scope, position.line)
-                : resolved_scope.symbols;
+        const global_macro_symbols = this.safe_visible_symbols(resolved_scope, position);
+        if (global_macro_symbols) {
             const global_macro = global_macro_symbols.globalMacros.get(word);
             if (global_macro) {
                 const source_link = this.format_source_link(global_macro.sourceUri, document.uri, workspace_root);
@@ -617,10 +636,8 @@ export class HoverProvider {
         position?: Position
     ): MarkupContent | null {
         // 1. Check resolved_scope first (highest precedence)
-        if (resolved_scope) {
-            const scalar_symbols = position
-                ? get_visible_symbols_at(resolved_scope, position.line)
-                : resolved_scope.symbols;
+        const scalar_symbols = this.safe_visible_symbols(resolved_scope, position);
+        if (scalar_symbols) {
             const scalar = scalar_symbols.scalars.get(word);
             if (scalar) {
                 const source_link = this.format_source_link(scalar.sourceUri, document.uri, workspace_root);
@@ -688,10 +705,8 @@ export class HoverProvider {
         position?: Position
     ): MarkupContent | null {
         // 1. Check resolved_scope first (highest precedence)
-        if (resolved_scope) {
-            const matrix_symbols = position
-                ? get_visible_symbols_at(resolved_scope, position.line)
-                : resolved_scope.symbols;
+        const matrix_symbols = this.safe_visible_symbols(resolved_scope, position);
+        if (matrix_symbols) {
             const matrix = matrix_symbols.matrices.get(word);
             if (matrix) {
                 const source_link = this.format_source_link(matrix.sourceUri, document.uri, workspace_root);
@@ -1238,10 +1253,8 @@ export class HoverProvider {
         position?: Position
     ): MarkupContent | null {
         // Check resolved scope first if available
-        if (resolved_scope) {
-            const program_symbols = position
-                ? get_visible_symbols_at(resolved_scope, position.line)
-                : resolved_scope.symbols;
+        const program_symbols = this.safe_visible_symbols(resolved_scope, position);
+        if (program_symbols) {
             const program = program_symbols.programs.get(word);
             if (program) {
                 return this.get_hover_for_user_program(
@@ -1335,10 +1348,8 @@ export class HoverProvider {
         position?: Position
     ): MarkupContent | null {
         // 1. Check resolved_scope first (highest precedence)
-        if (resolved_scope) {
-            const variable_symbols = position
-                ? get_visible_symbols_at(resolved_scope, position.line)
-                : resolved_scope.symbols;
+        const variable_symbols = this.safe_visible_symbols(resolved_scope, position);
+        if (variable_symbols) {
             const variable = variable_symbols.variables.get(word);
             if (variable) {
                 return this.format_variable_hover(variable, document.uri, workspace_root);
