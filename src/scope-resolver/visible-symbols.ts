@@ -270,6 +270,30 @@ export function collect_visible_reference_uris(
         return the_result;
     }
 
+    // The cursor is only used to pick which definition the user clicked
+    // "through" (when the same name has multiple visible instances). Once
+    // that active instance is chosen, every file that could reference *that
+    // definition* is a legitimate find-references hit — regardless of whether
+    // its call site sits before or after the cursor in execution order. So
+    // the forward-call loops below walk every forward call, not just those
+    // before the cursor.
+    //
+    // A file that redeclares the same name with a different identity is
+    // excluded: its declaration introduces a separate instance, and its
+    // in-file references are ambiguous at best (some may hit the active
+    // instance pre-redeclaration, others the shadow post-redeclaration).
+    // Conservatively, we don't pool such files — this matches the narrow
+    // precedence rule the existing tests pin down.
+    const site_redeclares_with_different_identity = (site: ForwardCallSite): boolean => {
+        const site_symbol = get_reference_symbol_from_table(
+            site.symbols,
+            symbol_type,
+            symbol_name,
+        );
+        if (!site_symbol) return false;
+        return get_reference_symbol_identity(site_symbol) !== active_symbol_identity;
+    };
+
     for (const my_entry of scope.chain) {
         let entry_visible_symbols = clone_symbol_table(my_entry.symbols);
 
@@ -288,6 +312,7 @@ export function collect_visible_reference_uris(
             );
             if (
                 can_reference_forward_site(symbol_type, my_site) &&
+                !site_redeclares_with_different_identity(my_site) &&
                 (symbol_visible_before_site || site_defines_active_symbol)
             ) {
                 the_result.add(my_site.callee_uri);
@@ -298,21 +323,30 @@ export function collect_visible_reference_uris(
             );
         }
 
-        if (
-            can_reference_chain_entry(symbol_type, my_entry.directive_type) &&
+        // `entry_visible_symbols` reflects the parent's state *before* it
+        // calls the current file. If the active symbol is declared in the
+        // current file, the parent's *post-call* state reaches back and sees
+        // it (subject to the directive's propagation rules — locals only
+        // cross `included-by`, not `done-by`). That post-call view never
+        // appears in the chain entry's symbols, so handle it explicitly.
+        const chain_entry_references_active =
             symbol_table_matches_active_reference(
                 entry_visible_symbols,
                 symbol_type,
                 symbol_name,
                 active_symbol_identity,
-            )
+            ) ||
+            active_symbol_identity === current_uri;
+        if (
+            can_reference_chain_entry(symbol_type, my_entry.directive_type) &&
+            chain_entry_references_active
         ) {
             the_result.add(my_entry.uri);
         }
     }
 
     let current_visible_symbols = clone_symbol_table(scope.symbols);
-    for (const my_site of get_visible_forward_call_sites(scope, cursor_line)) {
+    for (const my_site of scope.forward_call_symbols ?? []) {
         const symbol_visible_before_site = symbol_table_matches_active_reference(
             current_visible_symbols,
             symbol_type,
@@ -327,6 +361,7 @@ export function collect_visible_reference_uris(
         );
         if (
             can_reference_forward_site(symbol_type, my_site) &&
+            !site_redeclares_with_different_identity(my_site) &&
             (symbol_visible_before_site || site_defines_active_symbol)
         ) {
             the_result.add(my_site.callee_uri);

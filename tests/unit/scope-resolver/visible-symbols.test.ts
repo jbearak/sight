@@ -173,7 +173,7 @@ describe('collect_visible_reference_uris', () => {
         expect(the_result.has('file:///current.do')).toBe(true);
     });
 
-    test('includes only URIs contributing the active visible symbol instance', () => {
+    test('includes every URI that could reference the active symbol instance, regardless of call-site order', () => {
         const parent1_prog = make_program('shared_prog', 'file:///parent1.do');
         const parent2_prog = make_program('shared_prog', 'file:///parent2.do');
         const parent1_callee_prog = make_program(
@@ -263,7 +263,11 @@ describe('collect_visible_reference_uris', () => {
         expect(the_result.has('file:///parent1-callee.do')).toBe(false);
         expect(the_result.has('file:///parent2-callee.do')).toBe(false);
         expect(the_result.has('file:///current-visible.do')).toBe(true);
-        expect(the_result.has('file:///current-hidden.do')).toBe(false);
+        // `current-hidden.do` is called after the cursor line, but the active
+        // instance (contributed by `current-visible.do` at line 1) is still
+        // defined when it runs — so references there are references to the
+        // same definition and must participate in find-references.
+        expect(the_result.has('file:///current-hidden.do')).toBe(true);
     });
 
     test('excludes an earlier same-depth backward parent when a later winner masks it', () => {
@@ -418,7 +422,11 @@ describe('collect_visible_reference_uris', () => {
         expect(the_result.has('file:///included-parent.do')).toBe(true);
         expect(the_result.has('file:///visible-include.do')).toBe(true);
         expect(the_result.has('file:///visible-do.do')).toBe(false);
-        expect(the_result.has('file:///same-line.do')).toBe(false);
+        // `same-line.do` is an `include` call at the cursor line itself; its
+        // inlined body still references the same active local, so it must
+        // participate. Call-site order relative to the cursor is irrelevant
+        // for find-references once the active instance is selected.
+        expect(the_result.has('file:///same-line.do')).toBe(true);
     });
 
     test('excludes a stripped included ancestor local after a downstream done-by boundary', () => {
