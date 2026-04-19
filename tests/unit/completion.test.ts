@@ -1187,6 +1187,44 @@ describe('Completion Provider', () => {
             expect(labels).toContain('FROM_OTHER');
             expect(labels).not.toContain('STALE_FROM_HERE');
         });
+
+        it('should not surface workspace local macros when no directives or auto-parents apply', async () => {
+            const uri = 'file:///test.do';
+            const doc = create_test_document('display `', { localMacros: new Map() });
+            doc.uri = uri;
+
+            const workspace_symbols: SymbolTable = {
+                programs: new Map(),
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                variables: new Map(),
+                scalars: new Map(),
+                matrices: new Map(),
+            };
+
+            workspace_symbols.localMacros.set('cwd', {
+                name: 'cwd',
+                scope: 'local',
+                location: {
+                    uri: 'file:///other.do',
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                },
+                sourceUri: 'file:///other.do',
+                containingScope: 'dofile',
+                definition_line: 0,
+            } as MacroSymbol);
+
+            const completions = await provider.get_completions(
+                doc,
+                { line: 0, character: 9 },
+                '`',
+                undefined,
+                workspace_symbols
+            );
+
+            const labels = completions.map(c => c.label);
+            expect(labels).not.toContain('cwd');
+        });
     });
 
     /**

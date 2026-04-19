@@ -766,9 +766,16 @@ export class CompletionProvider {
             document_uri,
             document_version
         );
-        
+
         // Merge with document symbols on top (fresh symbols win)
-        return merge_symbol_tables(filtered_workspace, document_symbols);
+        const merged = merge_symbol_tables(filtered_workspace, document_symbols);
+
+        // Global-Mode rule: local macros are only visible from the current file.
+        // Strip workspace localMacros; keep the document's own localMacros.
+        return {
+            ...merged,
+            localMacros: new Map(document_symbols.localMacros),
+        };
     }
 
     /**
