@@ -11,7 +11,7 @@ type:
 | Symbol type | Scope |
 |---|---|
 | **Local macros** | Include-chain files only |
-| **Global macros, programs, scalars, matrices** | Dep-graph-reachable files (do/run/include edges) |
+| **Global macros, programs, scalars, matrices** | Dep-graph-reachable files (do/run/include edges), further filtered to files visible at the cursor — backward-directive parents and forward-called files whose `do`/`include` appears on or above the cursor line |
 | **Variables** | Entire workspace |
 
 ## Rationale
@@ -21,11 +21,16 @@ type:
 `do`-called child is a separate, unrelated macro — pooling those references
 would be misleading.
 
-**Why global macros and code symbols are dep-graph-scoped:** Same-named
-programs, scalars, or matrices in unrelated branches of the dependency graph
-are typically coincidental, not shared semantics. Pooling them would produce
-misleading results — for example, jumping between two unrelated `helper`
-programs that happen to share a name.
+**Why global macros and code symbols are dep-graph-scoped *and* call-site
+filtered:** Same-named programs, scalars, or matrices in unrelated branches
+of the dependency graph are typically coincidental, not shared semantics.
+Pooling them would produce misleading results — for example, jumping
+between two unrelated `helper` programs that happen to share a name. Within
+the dep-graph-reachable set, files reached through forward `do` / `include`
+commands are further filtered to those whose call site precedes the cursor:
+a `do "child.do"` on line 10 doesn't bring `child.do`'s declarations into
+scope at line 5. See issue #129 for the unified "visible at cursor" rule
+that closes this drift across providers.
 
 **Why variables are workspace-wide:** Stata dataset columns are legitimately
 shared across unrelated analyses. Column names like `id`, `year`, or
