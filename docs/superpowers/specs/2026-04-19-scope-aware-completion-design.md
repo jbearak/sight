@@ -42,6 +42,8 @@ Variables (dataset columns like `id`, `year`) are the documented exception: they
 - **Resolved-Scope Mode** (file has directives or auto-discovered parents): the symbols returned by `get_visible_symbols_at(resolved_scope, position.line)`. That is, current file + scope-chain entries, call-site-filtered. No change to how this bag is computed today.
 - **Global Mode** (no directives, no auto-parents): current file only.
 
+For **local macros** specifically, scope is further narrowed by position within the current file: a local defined on a line strictly after the cursor is not in scope at the cursor. A Stata local is only visible on lines after its definition, so a completion offered from below the cursor would trigger an undefined-macro diagnostic if accepted. This position filter applies only to locals sourced from the current document; locals inherited from a parent file through an `include` chain are already call-site-filtered upstream by the scope resolver.
+
 On accept of an out-of-scope entry, only the name is inserted (plus the existing closing-delimiter rules for `\`'` / `$\{...\}`). No `additionalTextEdits`, no command callback. The undefined-symbol diagnostic that follows is the intended UX signal.
 
 ## Design

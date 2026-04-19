@@ -1822,6 +1822,68 @@ describe('In-scope global keeps normal completion rank', () => {
     });
 });
 
+describe('Local macro completion respects position within file', () => {
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        const command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should exclude local macros defined after the cursor line', async () => {
+        const uri = 'file:///demo.do';
+        const local_macros = new Map();
+        local_macros.set('fruit', {
+            name: 'fruit',
+            scope: 'local',
+            location: {
+                uri,
+                range: { start: { line: 0, character: 6 }, end: { line: 0, character: 11 } },
+            },
+            sourceUri: uri,
+            containingScope: 'dofile',
+            definition_line: 0,
+            definition_index: 0,
+            value: 'apple banana cherry',
+        });
+        local_macros.set('color', {
+            name: 'color',
+            scope: 'local',
+            location: {
+                uri,
+                range: { start: { line: 2, character: 6 }, end: { line: 2, character: 11 } },
+            },
+            sourceUri: uri,
+            containingScope: 'dofile',
+            definition_line: 2,
+            definition_index: 1,
+            value: 'red blue green',
+        });
+
+        // Document:
+        //   line 0: local fruit "apple banana cherry"
+        //   line 1: di "`           <-- cursor here
+        //   line 2: local color "red blue green"
+        const content = [
+            'local fruit "apple banana cherry"',
+            'di "`',
+            'local color "red blue green"',
+        ].join('\n');
+        const doc = create_test_document(content, { localMacros: local_macros });
+        doc.uri = uri;
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 1, character: 5 }, // cursor after the backtick on line 1
+            '`',
+        );
+
+        const labels = completions.map(c => c.label);
+        expect(labels).toContain('fruit');
+        expect(labels).not.toContain('color');
+    });
+});
+
 describe('partition_symbols_for_completion: resolved_scope out-of-scope filtering', () => {
     let provider: CompletionProvider;
 

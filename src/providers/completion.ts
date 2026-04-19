@@ -1733,6 +1733,18 @@ export class CompletionProvider {
                 continue;
             }
 
+            // For local macro completions, respect position within the current file.
+            // Stata locals are only visible on lines after their definition — a local defined
+            // below the cursor line cannot be referenced at the cursor. Only applies when the
+            // macro is defined in the current document; inherited locals from parent files
+            // (via include-chain) are already call-site-filtered by the scope resolver.
+            if (scope === 'local' && macro.sourceUri === document.uri) {
+                const def_line = macro.definition_line ?? macro.location?.range?.start?.line;
+                if (typeof def_line === 'number' && def_line > position.line) {
+                    continue;
+                }
+            }
+
             // For local macro completions, respect program scoping.
             // - If cursor is inside a program: include locals defined in that program + locals defined at file scope.
             // - If cursor is outside any program: exclude locals defined inside programs.
