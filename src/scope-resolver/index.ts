@@ -964,39 +964,39 @@ export class ScopeResolver {
         config: ScopeResolverConfig,
         visited: Set<string>,
         token?: CancellationToken
-    ): Promise<{ symbols: SymbolTable; diagnostics: DirectiveDiagnostic[]; call_sites: import('../types').ForwardCallSite[] }> {
-        // If no forward scope resolver is set, return empty results
+    ): Promise<{
+        symbols: SymbolTable;
+        diagnostics: DirectiveDiagnostic[];
+        call_sites: import('../types').ForwardCallSite[];
+        all_call_sites: import('../types').ForwardCallSite[];
+    }> {
         if (!this.forward_scope_resolver) {
             return {
                 symbols: create_empty_symbol_table(),
                 diagnostics: [],
                 call_sites: [],
+                all_call_sites: [],
             };
         }
 
-        // Filter forward calls to only those before the call site
-        const calls_before_site = this.forward_scope_resolver.filter_calls_before_line(
-            parent_forward_calls,
-            call_site_line
-        );
-
-        if (calls_before_site.length === 0) {
+        if (parent_forward_calls.length === 0) {
             return {
                 symbols: create_empty_symbol_table(),
                 diagnostics: [],
                 call_sites: [],
+                all_call_sites: [],
             };
         }
 
-        // Compute effective call type based on backward directive type
-        // If backward directive is done-by or run-by, all forward calls are treated as 'do'
-        // (locals don't pass through do/run boundaries)
-        // If backward directive is included-by, preserve original call types
+        // Compute effective call type based on backward directive type.
+        // If backward directive is done-by or run-by, all forward calls are
+        // treated as 'do' (locals don't pass through do/run boundaries).
+        // If backward directive is included-by, preserve original call types.
         const effective_call_type: EffectiveCallType =
             backward_directive_type === 'included-by' ? 'include' : 'do';
 
-        // Calculate remaining depth for forward resolution
-        // Use overall chain depth limit minus current backward depth
+        // Calculate remaining depth for forward resolution.
+        // Use overall chain depth limit minus current backward depth.
         const remaining_depth = config.max_chain_depth - depth;
         if (remaining_depth <= 0) {
             return {
@@ -1007,20 +1007,23 @@ export class ScopeResolver {
                     severity: 'warning',
                 }],
                 call_sites: [],
+                all_call_sites: [],
             };
         }
 
-        // Create a recursion stack from visited set for cycle detection
+        // Create a recursion stack from visited set for cycle detection.
         const recursion_stack = new Set<string>(visited);
 
-        // Resolve forward calls using ForwardScopeResolver
+        // Resolve the FULL forward-call list so find-references sees sibling
+        // post-site calls. Scope resolution still wants only the pre-site
+        // subset, which we derive from the output below.
         const the_diagnostics: DirectiveDiagnostic[] = [];
         const forward_result = await this.forward_scope_resolver.resolve(
             parent_uri,
-            calls_before_site,
+            parent_forward_calls,
             effective_call_type,
             {
-                visited: new Map(), // Fresh visited map for forward resolution
+                visited: new Map(),
                 effective_call_type,
                 depth: 0,
                 diagnostics: the_diagnostics,
@@ -1032,10 +1035,22 @@ export class ScopeResolver {
             { max_forward_depth: remaining_depth }
         );
 
+        // Derive pre-site subset + its merged symbol table for scope resolution.
+        const the_pre_site_sites = forward_result.call_sites
+            .filter(my_site => my_site.call_line < call_site_line);
+        let my_pre_site_symbols = create_empty_symbol_table();
+        for (const my_site of the_pre_site_sites) {
+            my_pre_site_symbols = merge_symbol_tables(
+                my_pre_site_symbols,
+                my_site.symbols
+            );
+        }
+
         return {
-            symbols: forward_result.symbols,
+            symbols: my_pre_site_symbols,
             diagnostics: the_diagnostics,
-            call_sites: forward_result.call_sites,
+            call_sites: the_pre_site_sites,
+            all_call_sites: forward_result.call_sites,
         };
     }
 
@@ -1549,6 +1564,9 @@ export class ScopeResolver {
                 symbols: my_merged_symbols,
                 forward_call_sites: forward_result.call_sites.length > 0
                     ? forward_result.call_sites
+                    : undefined,
+                all_forward_call_sites: forward_result.all_call_sites.length > 0
+                    ? forward_result.all_call_sites
                     : undefined,
                 depth,
                 directive_order: my_directive_order,
