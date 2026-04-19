@@ -305,21 +305,111 @@ export function collect_visible_reference_uris(
     // its call site sits before or after the cursor in execution order. So
     // the forward-call loops below walk every forward call, not just those
     // before the cursor.
+
+    interface SiteInclusion {
+        include: boolean;
+        scan_through_line?: number;
+    }
+
+    // Merge a new write into the result map.
+    // - Full-scan (scan_through_line undefined) always wins over any cutoff.
+    // - When both writes carry cutoffs, the smaller (tighter) one wins.
+    const add_uri_to_result = (uri: string, range: ReferenceScanRange): void => {
+        const existing = the_result.get(uri);
+        if (!existing) {
+            the_result.set(uri, range);
+            return;
+        }
+        if (existing.scan_through_line === undefined) {
+            return; // full scan already wins
+        }
+        if (range.scan_through_line === undefined) {
+            the_result.set(uri, {}); // widen to full scan
+            return;
+        }
+        if (range.scan_through_line < existing.scan_through_line) {
+            the_result.set(uri, range); // tighter cutoff wins
+        }
+    };
+
+    // Five-case rule:
+    // 1. Site defines the active symbol → include, full scan.
+    // 2. Site redeclares different identity AND symbol_visible_before_site AND
+    //    same-file redeclaration (site_symbol.location.uri ===
+    //    site.callee_uri) → include with scan_through_line cutoff.
+    // 3. Site redeclares different identity AND transitive (redeclaration
+    //    declared in a different file than the callee) → EXCLUDE (conservative).
+    // 4. (symbol_visible_before_site OR site_is_after_current_file_call) and
+    //    does not redeclare → include, full scan.
+    // 5. Neither defines nor inherits → EXCLUDE.
     //
-    // A file that redeclares the same name with a different identity is
-    // excluded: its declaration introduces a separate instance, and its
-    // in-file references are ambiguous at best (some may hit the active
-    // instance pre-redeclaration, others the shadow post-redeclaration).
-    // Conservatively, we don't pool such files — this matches the narrow
-    // precedence rule the existing tests pin down.
-    const site_redeclares_with_different_identity = (site: ForwardCallSite): boolean => {
+    // For the redeclaration check (cases 2 and 3) we use only
+    // `symbol_visible_before_site` — the site_is_after_current_file_call
+    // predicate only promotes case 5→4 when there is NO redeclaration, because
+    // a redeclaration at line 0 would make the pre-redeclaration window empty
+    // and including the URI with scan_through_line=0 would surface the
+    // redeclaration token itself (wrong). Case 4 (no redeclaration) is safe
+    // to promote via this predicate.
+    const classify_site = (
+        site: ForwardCallSite,
+        symbol_visible_before_site: boolean,
+        site_defines_active_symbol: boolean,
+        site_is_after_current_file_call: boolean,
+    ): SiteInclusion => {
+        // Treat a post-current-file sibling as if the active symbol is visible
+        // before it — it runs after the current file so it inherits its symbols.
+        // Used in both the redeclaration check (cases 2/3) and the plain
+        // inheritance check (case 4). For the redeclaration branch, we apply
+        // this only when the resulting scan_through_line would be > 0 (line 0
+        // means no pre-redeclaration content exists to scan, which is
+        // semantically equivalent to exclusion).
+        const effective_visible = symbol_visible_before_site ||
+            site_is_after_current_file_call;
+        // Case 1: site defines the active symbol.
+        if (site_defines_active_symbol) {
+            return { include: true };
+        }
+        // Cases 2 / 3: site redeclares same name with a different identity.
         const site_symbol = get_reference_symbol_from_table(
             site.symbols,
             symbol_type,
             symbol_name,
         );
-        if (!site_symbol) return false;
-        return get_reference_symbol_identity(site_symbol) !== active_symbol_identity;
+        const redeclares_different_identity =
+            !!site_symbol
+            && get_reference_symbol_identity(site_symbol) !== active_symbol_identity;
+        if (redeclares_different_identity) {
+            if (!effective_visible) {
+                // Case 5 via 2/3 entry: not visible, not defining → exclude.
+                return { include: false };
+            }
+            // Same-file redeclaration → position-aware cutoff (case 2).
+            if (site_symbol && site_symbol.location.uri === site.callee_uri) {
+                const the_cutoff_line = site_symbol.location.range.start.line;
+                // If the redeclaration is at line 0, there is no pre-
+                // redeclaration content to scan — semantically equivalent to
+                // exclusion. Only inherit the cutoff when there is at least one
+                // line before the redeclaration.
+                if (the_cutoff_line === 0) {
+                    return { include: false };
+                }
+                return {
+                    include: true,
+                    scan_through_line: the_cutoff_line,
+                };
+            }
+            // Transitive redeclaration: conservative whole-file exclusion
+            // (case 3).
+            return { include: false };
+        }
+        // Case 4: no redeclaration. Promote via site_is_after_current_file_call
+        // when the chain hasn't accumulated the active symbol yet (cycle-
+        // detection gap).
+        if (effective_visible) {
+            return { include: true };
+        }
+        // Case 5: neither defines nor inherits.
+        return { include: false };
     };
 
     for (const my_entry of scope.chain) {
@@ -349,17 +439,23 @@ export function collect_visible_reference_uris(
             // this case: ForwardScopeResolver's cycle detection excludes the
             // current file from the parent's forward-call resolution, so its
             // symbols never appear in entry_visible_symbols.
+            // This is a variant of case 4 — passed into classify_site so
+            // redeclaration handling (case 2) still applies correctly.
             const site_is_after_current_file_call =
                 active_symbol_identity === current_uri &&
                 my_site.call_line > my_entry.call_site_line;
-            if (
-                can_reference_forward_site(symbol_type, my_site) &&
-                !site_redeclares_with_different_identity(my_site) &&
-                (symbol_visible_before_site ||
-                    site_defines_active_symbol ||
-                    site_is_after_current_file_call)
-            ) {
-                the_result.set(my_site.callee_uri, {});
+            if (can_reference_forward_site(symbol_type, my_site)) {
+                const verdict = classify_site(
+                    my_site,
+                    symbol_visible_before_site,
+                    site_defines_active_symbol,
+                    site_is_after_current_file_call,
+                );
+                if (verdict.include) {
+                    add_uri_to_result(my_site.callee_uri, {
+                        scan_through_line: verdict.scan_through_line,
+                    });
+                }
             }
             entry_visible_symbols = merge_symbol_tables(
                 entry_visible_symbols,
@@ -385,7 +481,7 @@ export function collect_visible_reference_uris(
             can_reference_chain_entry(symbol_type, my_entry.directive_type) &&
             chain_entry_references_active
         ) {
-            the_result.set(my_entry.uri, {});
+            add_uri_to_result(my_entry.uri, {});
         }
     }
 
@@ -403,12 +499,18 @@ export function collect_visible_reference_uris(
             symbol_name,
             active_symbol_identity,
         );
-        if (
-            can_reference_forward_site(symbol_type, my_site) &&
-            !site_redeclares_with_different_identity(my_site) &&
-            (symbol_visible_before_site || site_defines_active_symbol)
-        ) {
-            the_result.set(my_site.callee_uri, {});
+        if (can_reference_forward_site(symbol_type, my_site)) {
+            const verdict = classify_site(
+                my_site,
+                symbol_visible_before_site,
+                site_defines_active_symbol,
+                false,
+            );
+            if (verdict.include) {
+                add_uri_to_result(my_site.callee_uri, {
+                    scan_through_line: verdict.scan_through_line,
+                });
+            }
         }
         current_visible_symbols = merge_symbol_tables(
             current_visible_symbols,

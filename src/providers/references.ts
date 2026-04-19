@@ -264,7 +264,16 @@ export class ReferencesProvider {
             // already holds the authoritative fresh declaration.
             for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
                 if (my_def.sourceUri === document.uri) continue;
-                if (the_allowed_uris && !the_allowed_uris.has(my_def.sourceUri)) continue;
+                if (the_allowed_uris) {
+                    const the_range = the_allowed_uris.get(my_def.sourceUri);
+                    if (!the_range) continue;
+                    if (
+                        the_range.scan_through_line !== undefined
+                        && my_def.location.range.start.line >= the_range.scan_through_line
+                    ) {
+                        continue;
+                    }
+                }
                 push({ uri: my_def.location.uri, range: my_def.location.range });
             }
         }
@@ -782,20 +791,6 @@ export class ReferencesProvider {
             cursor_line,
         );
 
-        // Search current document
-        if (document.tokens) {
-            const matches = this.scan_tokens_for_references(
-                document.tokens,
-                document.uri,
-                search_context,
-                context_ranges,
-                cancellation_token
-            );
-            for (const my_match of matches) {
-                locations.push({ uri: my_match.uri, range: my_match.range });
-            }
-        }
-
         // Search workspace-indexed files (Req 13.3).
         //
         // Variables are Stata dataset column names — name matches in files
@@ -852,6 +847,28 @@ export class ReferencesProvider {
             );
         }
 
+        // Search current document
+        if (document.tokens) {
+            const matches = this.scan_tokens_for_references(
+                document.tokens,
+                document.uri,
+                search_context,
+                context_ranges,
+                cancellation_token
+            );
+            const the_doc_range = the_related.get(document.uri);
+            const the_doc_cutoff = the_doc_range?.scan_through_line;
+            for (const my_match of matches) {
+                if (
+                    the_doc_cutoff !== undefined
+                    && my_match.range.start.line >= the_doc_cutoff
+                ) {
+                    continue;
+                }
+                locations.push({ uri: my_match.uri, range: my_match.range });
+            }
+        }
+
         // Check cancellation before workspace scan (Req 5.3)
         if (cancellation_token?.isCancellationRequested) {
             return this.apply_include_declaration(
@@ -882,7 +899,15 @@ export class ReferencesProvider {
                     file_data.context_ranges,
                     cancellation_token
                 );
+                const the_range = the_related.get(uri);
+                const the_cutoff = the_range?.scan_through_line;
                 for (const my_match of matches) {
+                    if (
+                        the_cutoff !== undefined
+                        && my_match.range.start.line >= the_cutoff
+                    ) {
+                        continue;
+                    }
                     locations.push({ uri: my_match.uri, range: my_match.range });
                 }
 
