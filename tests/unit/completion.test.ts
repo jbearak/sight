@@ -1821,3 +1821,138 @@ describe('In-scope global keeps normal completion rank', () => {
         expect((shared!.detail || '')).not.toContain('out of scope');
     });
 });
+
+describe('partition_symbols_for_completion: resolved_scope out-of-scope filtering', () => {
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        const command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should exclude call-site-filtered parent symbols from the workspace out-of-scope bucket', () => {
+        const doc = create_test_document('');
+        doc.uri = 'file:///child.do';
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        // Parent-defined global that lives in the workspace index but was
+        // filtered out of the resolved scope by call-site filtering.
+        workspace_symbols.globalMacros.set('foo_cfg', {
+            name: 'foo_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///parent.do',
+                range: { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } },
+            },
+            sourceUri: 'file:///parent.do',
+            containingScope: 'dofile',
+            definition_line: 5,
+        } as any);
+
+        const in_scope: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+
+        const resolved_scope = {
+            chain: [],
+            symbols: in_scope,
+            out_of_scope_symbols: [{
+                name: 'foo_cfg',
+                type: 'global' as const,
+                source_uri: 'file:///parent.do',
+                defined_line: 5,
+                call_site_line: 3,
+                reason: 'after_call_site' as const,
+            }],
+            diagnostics: [],
+            has_directives: false,
+            has_auto_parents: true,
+        };
+
+        // Call the private method via bracket access.
+        const result = (provider as any).partition_symbols_for_completion(
+            doc,
+            workspace_symbols,
+            in_scope,
+            resolved_scope,
+        ) as SymbolTable;
+
+        // The call-site-filtered global must NOT appear in the workspace
+        // out-of-scope bucket — it is already accounted for via
+        // resolved_scope.out_of_scope_symbols.
+        expect(result.globalMacros.has('foo_cfg')).toBe(false);
+    });
+
+    it('should still include out-of-scope workspace symbols not tracked by resolved_scope', () => {
+        const doc = create_test_document('');
+        doc.uri = 'file:///child.do';
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.globalMacros.set('unrelated_cfg', {
+            name: 'unrelated_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///unrelated.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///unrelated.do',
+            containingScope: 'dofile',
+            definition_line: 0,
+        } as any);
+
+        const in_scope: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+
+        const resolved_scope = {
+            chain: [],
+            symbols: in_scope,
+            out_of_scope_symbols: [{
+                name: 'foo_cfg',
+                type: 'global' as const,
+                source_uri: 'file:///parent.do',
+                defined_line: 5,
+                call_site_line: 3,
+                reason: 'after_call_site' as const,
+            }],
+            diagnostics: [],
+            has_directives: false,
+            has_auto_parents: true,
+        };
+
+        const result = (provider as any).partition_symbols_for_completion(
+            doc,
+            workspace_symbols,
+            in_scope,
+            resolved_scope,
+        ) as SymbolTable;
+
+        // unrelated_cfg is NOT in resolved_scope.out_of_scope_symbols, so it
+        // should still surface through the workspace out-of-scope bucket.
+        expect(result.globalMacros.has('unrelated_cfg')).toBe(true);
+    });
+});

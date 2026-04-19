@@ -846,7 +846,8 @@ export class CompletionProvider {
     private partition_symbols_for_completion(
         document: DocumentState,
         workspace_symbols: SymbolTable | undefined,
-        in_scope: SymbolTable
+        in_scope: SymbolTable,
+        resolved_scope?: ResolvedScope,
     ): SymbolTable {
         const empty: SymbolTable = {
             programs: new Map(),
@@ -860,26 +861,39 @@ export class CompletionProvider {
             return empty;
         }
 
+        // Symbols already recorded in resolved_scope.out_of_scope_symbols
+        // (e.g., call-site-filtered parent-file globals) should stay hidden —
+        // they are already surfaced through resolved_scope's own out-of-scope
+        // bucket and must not be promoted into the workspace out-of-scope view.
+        const filtered_by_call_site = new Set<string>();
+        if (resolved_scope) {
+            for (const oos of resolved_scope.out_of_scope_symbols) {
+                filtered_by_call_site.add(`${oos.type}:${oos.name}`);
+            }
+        }
+
         const keep_out_of_scope = <T extends { sourceUri: string }>(
             workspace_map: Map<string, T>,
             in_scope_map: Map<string, unknown>,
+            kind: 'program' | 'global' | 'scalar' | 'matrix',
         ): Map<string, T> => {
             const out = new Map<string, T>();
             for (const [name, symbol] of workspace_map) {
                 if (symbol.sourceUri === document.uri) continue;
                 if (in_scope_map.has(name)) continue;
+                if (filtered_by_call_site.has(`${kind}:${name}`)) continue;
                 out.set(name, symbol);
             }
             return out;
         };
 
         return {
-            programs: keep_out_of_scope(workspace_symbols.programs, in_scope.programs),
+            programs: keep_out_of_scope(workspace_symbols.programs, in_scope.programs, 'program'),
             localMacros: new Map(),
-            globalMacros: keep_out_of_scope(workspace_symbols.globalMacros, in_scope.globalMacros),
+            globalMacros: keep_out_of_scope(workspace_symbols.globalMacros, in_scope.globalMacros, 'global'),
             variables: new Map(),
-            scalars: keep_out_of_scope(workspace_symbols.scalars, in_scope.scalars),
-            matrices: keep_out_of_scope(workspace_symbols.matrices, in_scope.matrices),
+            scalars: keep_out_of_scope(workspace_symbols.scalars, in_scope.scalars, 'scalar'),
+            matrices: keep_out_of_scope(workspace_symbols.matrices, in_scope.matrices, 'matrix'),
         };
     }
 
@@ -1035,6 +1049,7 @@ export class CompletionProvider {
                 document,
                 workspace_symbols,
                 symbols_for_completion,
+                resolved_scope,
             );
 
             // === SYNC PHASE: Generate completions ===
