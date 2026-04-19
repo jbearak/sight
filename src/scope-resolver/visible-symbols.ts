@@ -45,10 +45,11 @@ function get_latest_definition_line(symbol: AnySymbol): number {
 }
 
 /**
- * True when the current file has a same-name definition at a line strictly
- * greater than `call_line` — i.e., the current file redefines this name after
- * the forward call, so the current file should win per Stata's
- * last-assignment-wins execution order.
+ * True when the current file has a same-name definition at a line at or before
+ * `call_line` — i.e., the current file defines this name before/at the forward
+ * call line, so the current file should win per Stata's last-assignment-wins
+ * execution order. Definitions after the call line do NOT override the forward
+ * call symbol.
  */
 function current_file_overrides_forward_call<T extends AnySymbol>(
     current_file_map: Map<string, T> | undefined,
@@ -58,15 +59,15 @@ function current_file_overrides_forward_call<T extends AnySymbol>(
     if (!current_file_map) return false;
     const my_existing = current_file_map.get(name);
     if (!my_existing) return false;
-    return get_latest_definition_line(my_existing) > call_line;
+    return get_latest_definition_line(my_existing) <= call_line;
 }
 
 /**
- * Drop entries from `site_symbols` that are shadowed by a later current-file
+ * Drop entries from `site_symbols` that are shadowed by an earlier current-file
  * definition. A name is dropped when `current_file_symbols` has a same-name
- * definition at a line strictly greater than `call_line` (the line at which
- * this forward call executes). Exported so CompletionProvider can apply the
- * same filter when building its annotated forward-symbol overlay.
+ * definition at a line at or before `call_line` (the line at which this forward
+ * call executes). Exported so CompletionProvider can apply the same filter when
+ * building its annotated forward-symbol overlay.
  */
 export function filter_forward_site_symbols(
     site_symbols: SymbolTable,
@@ -100,10 +101,9 @@ export function filter_forward_site_symbols(
  * SymbolTable of every symbol in scope at `cursor_line`. Starts from
  * `resolved_scope.symbols` (parent chain + current file) and overlays each
  * forward-call site whose `call_line < cursor_line` with merge_symbol_tables
- * last-wins semantics — except that a current-file definition at a line
- * greater than a call's `call_line` is preserved, so later current-file
- * redefinitions shadow earlier forward-call results (matches Stata's
- * sequential execution semantics).
+ * last-wins semantics — except that a current-file definition at a line at or
+ * before a call's `call_line` is preserved, so earlier current-file definitions
+ * shadow forward-call results (matches Stata's sequential execution semantics).
  *
  * Returns an empty SymbolTable when `scope` is undefined.
  */
@@ -122,7 +122,7 @@ export function get_visible_symbols_at(
         scalars: new Map(scope.symbols.scalars),
         matrices: new Map(scope.symbols.matrices),
     };
-    const current_file_symbols = scope.chain.length > 0
+    const current_file_symbols = scope.chain && scope.chain.length > 0
         ? scope.chain[0].symbols
         : undefined;
     for (const my_site of scope.forward_call_symbols ?? []) {

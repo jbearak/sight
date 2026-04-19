@@ -2721,8 +2721,13 @@ export class CompletionProvider {
         let directive_type: 'done-by' | 'included-by' | 'current' = 'current';
         let show_source = false;
 
-        const annotated_depth = (symbol as any).scope_depth;
-        const annotated_directive = (symbol as any).directive_type;
+        // Narrow type for annotated symbols with optional metadata
+        type AnnotatedSymbol = {
+            sourceUri: string;
+            scope_depth?: number;
+            directive_type?: 'current' | 'included-by' | 'done-by';
+        };
+        const annotated = symbol as AnnotatedSymbol;
 
         if (resolved_scope && symbol.sourceUri !== document_uri) {
             const symbol_info = this.get_symbol_depth(symbol.sourceUri, resolved_scope);
@@ -2732,18 +2737,18 @@ export class CompletionProvider {
         }
 
         if (
-            typeof annotated_depth === 'number' &&
+            typeof annotated.scope_depth === 'number' &&
             (depth === 0 || depth === 999 || !resolved_scope)
         ) {
-            depth = annotated_depth;
+            depth = annotated.scope_depth;
         }
 
         if (
-            annotated_directive === 'current' ||
-            annotated_directive === 'included-by' ||
-            annotated_directive === 'done-by'
+            annotated.directive_type === 'current' ||
+            annotated.directive_type === 'included-by' ||
+            annotated.directive_type === 'done-by'
         ) {
-            directive_type = annotated_directive;
+            directive_type = annotated.directive_type;
             show_source = symbol.sourceUri !== document_uri;
         }
 
