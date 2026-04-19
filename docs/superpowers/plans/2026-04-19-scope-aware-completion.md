@@ -1343,8 +1343,8 @@ describe('Scope-aware completion (integration): demo scenario', () => {
         ].join('\n'));
 
         const command_db = new CommandDatabase();
-        const indexer = new WorkspaceIndexer(command_db);
-        await indexer.scan_workspace(tmp_root);
+        const indexer = new WorkspaceIndexer();
+        await indexer.initialize([tmp_root]);
 
         const document_store = new DocumentStore();
         const main_uri = `file://${main_path}`;
@@ -1369,7 +1369,7 @@ describe('Scope-aware completion (integration): demo scenario', () => {
 });
 ```
 
-If `WorkspaceIndexer`'s scan method has a different name, replace `scan_workspace` with the correct one — the unit tests and `src/server-factory.ts` are the best references.
+If any import name or method signature has shifted since this plan was written, cross-reference `src/indexer/index.ts` (look for `initialize(workspace_folders)` and `get_all_symbols()`) and `src/server-factory.ts` (see how `WorkspaceIndexer` is wired in production).
 
 - [ ] **Step 3: Run the test and confirm it passes**
 
