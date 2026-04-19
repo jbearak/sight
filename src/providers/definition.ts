@@ -228,10 +228,9 @@ export class DefinitionProvider {
 
             const local_macro = resolved_scope.symbols.localMacros.get(word);
             if (local_macro) {
-                return {
-                    uri: local_macro.location.uri,
-                    range: local_macro.location.range,
-                };
+                return this.locations_to_definition(
+                    this.macro_symbol_to_locations(local_macro)
+                );
             }
 
             // Check forward-call symbols brought in by `include` before the
@@ -244,10 +243,9 @@ export class DefinitionProvider {
                     if (my_call_site.effective_type !== 'include') continue;
                     const forward_local = my_call_site.symbols.localMacros.get(word);
                     if (forward_local) {
-                        return {
-                            uri: forward_local.location.uri,
-                            range: forward_local.location.range,
-                        };
+                        return this.locations_to_definition(
+                            this.macro_symbol_to_locations(forward_local)
+                        );
                     }
                 }
             }
@@ -256,10 +254,9 @@ export class DefinitionProvider {
         // Check document symbols
         const local_macro = document.symbols.localMacros.get(word);
         if (local_macro) {
-            return {
-                uri: local_macro.location.uri,
-                range: local_macro.location.range,
-            };
+            return this.locations_to_definition(
+                this.macro_symbol_to_locations(local_macro)
+            );
         }
 
         // Check workspace indexer
@@ -297,20 +294,18 @@ export class DefinitionProvider {
 
             const global_macro = resolved_scope.symbols.globalMacros.get(word);
             if (global_macro) {
-                return {
-                    uri: global_macro.location.uri,
-                    range: global_macro.location.range,
-                };
+                return this.locations_to_definition(
+                    this.macro_symbol_to_locations(global_macro)
+                );
             }
         }
 
         // Check document symbols
         const global_macro = document.symbols.globalMacros.get(word);
         if (global_macro) {
-            return {
-                uri: global_macro.location.uri,
-                range: global_macro.location.range,
-            };
+            return this.locations_to_definition(
+                this.macro_symbol_to_locations(global_macro)
+            );
         }
 
         // Check workspace indexer
@@ -325,10 +320,9 @@ export class DefinitionProvider {
         if (workspace_symbols) {
             const global_macro_ws = workspace_symbols.globalMacros.get(word);
             if (global_macro_ws) {
-                return {
-                    uri: global_macro_ws.location.uri,
-                    range: global_macro_ws.location.range,
-                };
+                return this.locations_to_definition(
+                    this.macro_symbol_to_locations(global_macro_ws)
+                );
             }
         }
 
@@ -578,17 +572,15 @@ export class DefinitionProvider {
     ): Definition | null {
         const global_macro = document.symbols.globalMacros.get(word);
         if (global_macro && this.position_in_range(position, global_macro.location.range)) {
-            return {
-                uri: global_macro.location.uri,
-                range: global_macro.location.range,
-            };
+            return this.locations_to_definition(
+                this.macro_symbol_to_locations(global_macro)
+            );
         }
         const local_macro = document.symbols.localMacros.get(word);
         if (local_macro && this.position_in_range(position, local_macro.location.range)) {
-            return {
-                uri: local_macro.location.uri,
-                range: local_macro.location.range,
-            };
+            return this.locations_to_definition(
+                this.macro_symbol_to_locations(local_macro)
+            );
         }
         return null;
     }
@@ -604,6 +596,36 @@ export class DefinitionProvider {
             uri: def.location.uri,
             range: def.location.range,
         }));
+    }
+
+    /**
+     * Collect all definition locations for a MacroSymbol, including any
+     * additional redeclarations stored in `additional_definitions`.
+     */
+    private macro_symbol_to_locations(symbol: MacroSymbol): Location[] {
+        const out: Location[] = [
+            { uri: symbol.location.uri, range: symbol.location.range },
+        ];
+        if (symbol.additional_definitions) {
+            for (const my_extra of symbol.additional_definitions) {
+                out.push({
+                    uri: my_extra.location.uri,
+                    range: my_extra.location.range,
+                });
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Convert a list of locations to a LSP Definition return value.
+     * Returns null for empty, a single Location for one, or Location[] for
+     * multiple (prompts VS Code's chooser UI).
+     */
+    private locations_to_definition(locs: Location[]): Definition | null {
+        if (locs.length === 0) return null;
+        if (locs.length === 1) return locs[0];
+        return locs;
     }
     private position_in_range(position: Position, range: Range): boolean {
         if (position.line < range.start.line || position.line > range.end.line) {
@@ -706,19 +728,17 @@ export class DefinitionProvider {
             // Check local macros
             const local_macro = resolved_scope.symbols.localMacros.get(word);
             if (local_macro) {
-                return {
-                    uri: local_macro.location.uri,
-                    range: local_macro.location.range,
-                };
+                return this.locations_to_definition(
+                    this.macro_symbol_to_locations(local_macro)
+                );
             }
 
             // Check global macros
             const global_macro = resolved_scope.symbols.globalMacros.get(word);
             if (global_macro) {
-                return {
-                    uri: global_macro.location.uri,
-                    range: global_macro.location.range,
-                };
+                return this.locations_to_definition(
+                    this.macro_symbol_to_locations(global_macro)
+                );
             }
         }
 
@@ -726,19 +746,17 @@ export class DefinitionProvider {
         // 1. Check local macros
         const local_macro = document.symbols.localMacros.get(word);
         if (local_macro) {
-            return {
-                uri: local_macro.location.uri,
-                range: local_macro.location.range,
-            };
+            return this.locations_to_definition(
+                this.macro_symbol_to_locations(local_macro)
+            );
         }
 
         // 2. Check global macros
         const global_macro = document.symbols.globalMacros.get(word) || workspace_symbols?.globalMacros.get(word);
         if (global_macro) {
-            return {
-                uri: global_macro.location.uri,
-                range: global_macro.location.range,
-            };
+            return this.locations_to_definition(
+                this.macro_symbol_to_locations(global_macro)
+            );
         }
 
         // 3. Use workspace indexer for cross-file macro search
