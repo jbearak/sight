@@ -362,6 +362,7 @@ export interface ProgramSymbol {
   c_locals?: string[]; // Macro names created via c_local
   macro_creating_local_options?: string[]; // Local macro names created via options (e.g., c_local `local')
   macro_creating_global_options?: string[]; // Global macro names created via options (e.g., global `global')
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
 }
 
 export interface MacroSymbol {
@@ -583,6 +584,7 @@ export interface ScalarSymbol {
   location: { uri: string; range: Range };
   sourceUri: string;
   definition_line?: number;
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
 }
 
 export interface MatrixSymbol {
@@ -590,6 +592,7 @@ export interface MatrixSymbol {
   location: { uri: string; range: Range };
   sourceUri: string;
   definition_line?: number;
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
 }
 
 
