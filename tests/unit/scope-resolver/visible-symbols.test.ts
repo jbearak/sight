@@ -282,7 +282,7 @@ describe('get_visible_forward_call_sites', () => {
 });
 
 describe('collect_visible_reference_uris', () => {
-    test('returns a Set containing just current_uri when scope is undefined', () => {
+    test('returns a Map containing just current_uri when scope is undefined', () => {
         const the_result = collect_visible_reference_uris(
             undefined,
             0,

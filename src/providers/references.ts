@@ -265,11 +265,11 @@ export class ReferencesProvider {
             for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
                 if (my_def.sourceUri === document.uri) continue;
                 if (the_allowed_uris) {
-                    const the_range = the_allowed_uris.get(my_def.sourceUri);
-                    if (!the_range) continue;
+                    const range = the_allowed_uris.get(my_def.sourceUri);
+                    if (!range) continue;
                     if (
-                        the_range.scan_through_line !== undefined
-                        && my_def.location.range.start.line >= the_range.scan_through_line
+                        range.scan_through_line !== undefined
+                        && my_def.location.range.start.line >= range.scan_through_line
                     ) {
                         continue;
                     }
@@ -856,12 +856,12 @@ export class ReferencesProvider {
                 context_ranges,
                 cancellation_token
             );
-            const the_doc_range = the_related.get(document.uri);
-            const the_doc_cutoff = the_doc_range?.scan_through_line;
+            const doc_range = the_related.get(document.uri);
+            const doc_cutoff = doc_range?.scan_through_line;
             for (const my_match of matches) {
                 if (
-                    the_doc_cutoff !== undefined
-                    && my_match.range.start.line >= the_doc_cutoff
+                    doc_cutoff !== undefined
+                    && my_match.range.start.line >= doc_cutoff
                 ) {
                     continue;
                 }
@@ -899,12 +899,12 @@ export class ReferencesProvider {
                     file_data.context_ranges,
                     cancellation_token
                 );
-                const the_range = the_related.get(uri);
-                const the_cutoff = the_range?.scan_through_line;
+                const range = the_related.get(uri);
+                const cutoff = range?.scan_through_line;
                 for (const my_match of matches) {
                     if (
-                        the_cutoff !== undefined
-                        && my_match.range.start.line >= the_cutoff
+                        cutoff !== undefined
+                        && my_match.range.start.line >= cutoff
                     ) {
                         continue;
                     }

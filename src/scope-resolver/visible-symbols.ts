@@ -385,17 +385,17 @@ export function collect_visible_reference_uris(
             }
             // Same-file redeclaration → position-aware cutoff (case 2).
             if (site_symbol && site_symbol.location.uri === site.callee_uri) {
-                const the_cutoff_line = site_symbol.location.range.start.line;
+                const cutoff_line = site_symbol.location.range.start.line;
                 // If the redeclaration is at line 0, there is no pre-
                 // redeclaration content to scan — semantically equivalent to
                 // exclusion. Only inherit the cutoff when there is at least one
                 // line before the redeclaration.
-                if (the_cutoff_line === 0) {
+                if (cutoff_line === 0) {
                     return { include: false };
                 }
                 return {
                     include: true,
-                    scan_through_line: the_cutoff_line,
+                    scan_through_line: cutoff_line,
                 };
             }
             // Transitive redeclaration: conservative whole-file exclusion
