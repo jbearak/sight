@@ -118,6 +118,34 @@ export interface IndexerMetrics {
   avg_file_time_ms: number;
 }
 
+/**
+ * One concrete definition of a workspace symbol, tied to a specific file.
+ * Used by workspace-symbol search so multiple definitions of the same name
+ * across files each get their own entry.
+ */
+export type WorkspaceSymbolKind =
+    | 'program'
+    | 'global_macro'
+    | 'local_macro'
+    | 'variable'
+    | 'scalar'
+    | 'matrix';
+
+export interface WorkspaceSymbolMatch {
+    name: string;              // raw name — no backtick/apostrophe decoration
+    kind: WorkspaceSymbolKind;
+    uri: string;
+    range: Range;
+}
+
+/**
+ * Minimal interface a workspace-symbol search source must satisfy.
+ * The real `WorkspaceIndexer` implements this; tests can supply a stub.
+ */
+export interface WorkspaceSymbolSource {
+    find_all_symbol_definitions(query: string): WorkspaceSymbolMatch[];
+}
+
 export interface LexerError {
   message: string;
   range: Range;
