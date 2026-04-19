@@ -22,6 +22,7 @@ import {
     build_scope_resolver_config,
     collect_visible_reference_uris,
     get_visible_forward_call_sites,
+    type ReferenceScanRange,
 } from '../scope-resolver';
 import type { ScopeResolverConfig, ResolvedScope } from '../types';
 
@@ -236,24 +237,27 @@ export class ReferencesProvider {
             // fall back to the pre-fix dep-graph-reachable set so the broader
             // declaration-pooling behavior is preserved — matching
             // collect_references's symmetric fallback below.
-            let the_allowed_uris: Set<string> | null = null;
+            let the_allowed_uris: Map<string, ReferenceScanRange> | null = null;
             if (symbol_type !== 'variable') {
-                the_allowed_uris = (resolved_scope !== undefined && cursor_line !== undefined)
-                    ? collect_visible_reference_uris(
+                if (resolved_scope !== undefined && cursor_line !== undefined) {
+                    the_allowed_uris = collect_visible_reference_uris(
                         resolved_scope,
                         cursor_line,
                         document.uri,
                         symbol_type,
                         symbol_name,
-                    )
-                    : (
-                        symbol_type === 'local_macro'
-                            ? workspace_indexer.get_related_uris(
-                                document.uri,
-                                { include_only: true }
-                            )
-                            : workspace_indexer.get_related_uris(document.uri)
                     );
+                } else {
+                    const the_fallback_uris = symbol_type === 'local_macro'
+                        ? workspace_indexer.get_related_uris(
+                            document.uri,
+                            { include_only: true }
+                        )
+                        : workspace_indexer.get_related_uris(document.uri);
+                    the_allowed_uris = new Map(
+                        Array.from(the_fallback_uris).map((my_uri) => [my_uri, {}]),
+                    );
+                }
             }
             // Skip entries from the current document's URI: the on-disk
             // index can lag unsaved buffer edits, and document.symbols
@@ -814,9 +818,9 @@ export class ReferencesProvider {
         // understands `include_only`.
         // See docs/find-references.md for the rationale behind this three-tier model.
         const restrict_to_related = symbol_type !== 'variable';
-        let the_related: Set<string>;
+        let the_related: Map<string, ReferenceScanRange>;
         if (!workspace_indexer) {
-            the_related = new Set<string>([document.uri]);
+            the_related = new Map([[document.uri, {}]]);
         } else if (
             restrict_to_related &&
             resolved_scope !== undefined &&
@@ -837,12 +841,15 @@ export class ReferencesProvider {
             // Fallback path (test-only setups without a scope_resolver, or
             // variable lookups that fall through before this point): keep
             // the pre-fix behavior so those setups don't regress.
-            the_related = symbol_type === 'local_macro'
+            const the_fallback_set = symbol_type === 'local_macro'
                 ? workspace_indexer.get_related_uris(
                     document.uri,
                     { include_only: true }
                 )
                 : workspace_indexer.get_related_uris(document.uri);
+            the_related = new Map(
+                Array.from(the_fallback_set).map((my_uri) => [my_uri, {}]),
+            );
         }
 
         // Check cancellation before workspace scan (Req 5.3)
@@ -851,7 +858,7 @@ export class ReferencesProvider {
                 locations,
                 definitions,
                 include_declaration,
-                restrict_to_related ? undefined : the_related
+                restrict_to_related ? undefined : new Set(the_related.keys())
             );
         }
 
@@ -895,7 +902,7 @@ export class ReferencesProvider {
             locations,
             definitions,
             include_declaration,
-            restrict_to_related ? undefined : the_related
+            restrict_to_related ? undefined : new Set(the_related.keys())
         );
     }
 

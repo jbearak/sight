@@ -46,6 +46,7 @@ export {
     collect_visible_reference_uris,
     filter_forward_site_symbols,
 } from './visible-symbols';
+export type { ReferenceScanRange } from './visible-symbols';
 
 const DEFAULT_CONFIG: ScopeResolverConfig = {
     assume_call_site: 'end',

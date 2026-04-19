@@ -173,6 +173,18 @@ export function get_visible_forward_call_sites(
     );
 }
 
+/**
+ * Per-URI line cutoff for find-references.
+ *
+ * - `scan_through_line === undefined`: scan the entire file.
+ * - `scan_through_line === <number>`:  include only token matches whose
+ *   range.start.line <= scan_through_line (used when the URI redeclares the
+ *   active symbol at that line and we want pre-redeclaration references only).
+ */
+export interface ReferenceScanRange {
+    scan_through_line?: number;
+}
+
 type ReferenceScopedSymbolType =
     | 'local_macro'
     | 'global_macro'
@@ -264,7 +276,7 @@ function can_reference_forward_site(
  * the winning symbol without defining it locally, and respects stripped-local
  * behavior implicitly by consulting the merged visible symbol table.
  *
- * Returns a Set containing just `current_uri` when `scope` is undefined.
+ * Returns a Map containing just `current_uri` when `scope` is undefined.
  */
 export function collect_visible_reference_uris(
     scope: ResolvedScope | undefined,
@@ -272,8 +284,8 @@ export function collect_visible_reference_uris(
     current_uri: string,
     symbol_type: ReferenceScopedSymbolType,
     symbol_name: string,
-): Set<string> {
-    const the_result = new Set<string>([current_uri]);
+): Map<string, ReferenceScanRange> {
+    const the_result = new Map<string, ReferenceScanRange>([[current_uri, {}]]);
     if (!scope) {
         return the_result;
     }
@@ -331,7 +343,7 @@ export function collect_visible_reference_uris(
                 !site_redeclares_with_different_identity(my_site) &&
                 (symbol_visible_before_site || site_defines_active_symbol)
             ) {
-                the_result.add(my_site.callee_uri);
+                the_result.set(my_site.callee_uri, {});
             }
             entry_visible_symbols = merge_symbol_tables(
                 entry_visible_symbols,
@@ -357,7 +369,7 @@ export function collect_visible_reference_uris(
             can_reference_chain_entry(symbol_type, my_entry.directive_type) &&
             chain_entry_references_active
         ) {
-            the_result.add(my_entry.uri);
+            the_result.set(my_entry.uri, {});
         }
     }
 
@@ -380,7 +392,7 @@ export function collect_visible_reference_uris(
             !site_redeclares_with_different_identity(my_site) &&
             (symbol_visible_before_site || site_defines_active_symbol)
         ) {
-            the_result.add(my_site.callee_uri);
+            the_result.set(my_site.callee_uri, {});
         }
         current_visible_symbols = merge_symbol_tables(
             current_visible_symbols,

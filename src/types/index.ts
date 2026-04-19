@@ -599,6 +599,12 @@ export interface ScopeChainEntry {
   call_site_line: number;          // Line in parent where call occurs
   symbols: SymbolTable;            // Symbols from this file
   forward_call_sites?: ForwardCallSite[];  // Parent forward calls visible before the child call site
+  /**
+   * Parent's forward calls across the entire parent file, in line order.
+   * Used only by find-references (collect_visible_reference_uris) to detect
+   * sibling/post-site reachability. Never merged into `symbols`.
+   */
+  all_forward_call_sites?: ForwardCallSite[];
   depth: number;                   // Distance from current file (0 = current)
   // Order of the directive in the referencing file header.
   // Larger means it appeared later in the header ("lattermost" wins at same depth).
