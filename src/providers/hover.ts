@@ -466,6 +466,56 @@ export class HoverProvider {
     }
 
     /**
+     * Build a redefinition footer for a symbol with additional_definitions.
+     * Variants:
+     *  - Same-file only: "Redefined at lines 3, 5 — see all references"
+     *  - Cross-file only: "Redefined in 2 other files — see all references"
+     *  - Mixed: "Redefined at lines 3 and in 2 other files — see all references"
+     * Returns empty string when there are no additional definitions.
+     */
+    private format_redefinition_footer(
+        primary_uri: string | undefined,
+        additional_definitions:
+            | Array<{ line: number; location?: { uri: string } }>
+            | undefined,
+    ): string {
+        if (!additional_definitions || additional_definitions.length === 0) {
+            return '';
+        }
+        const same_file_lines: number[] = [];
+        const the_other_file_uris = new Set<string>();
+        for (const my_extra of additional_definitions) {
+            const my_uri = my_extra.location?.uri;
+            if (primary_uri && my_uri && my_uri === primary_uri) {
+                same_file_lines.push(my_extra.line + 1); // LSP is 0-indexed; hover is 1-indexed.
+            } else if (my_uri) {
+                the_other_file_uris.add(my_uri);
+            } else {
+                // Extra with no location — treat as same-file (line-only).
+                same_file_lines.push(my_extra.line + 1);
+            }
+        }
+        same_file_lines.sort((a, b) => a - b);
+
+        const has_same_file = same_file_lines.length > 0;
+        const has_cross_file = the_other_file_uris.size > 0;
+        if (!has_same_file && !has_cross_file) {
+            return '';
+        }
+        const file_word = the_other_file_uris.size === 1 ? 'other file' : 'other files';
+
+        let body: string;
+        if (has_same_file && has_cross_file) {
+            body = `Redefined at lines ${same_file_lines.join(', ')} and in ${the_other_file_uris.size} ${file_word}`;
+        } else if (has_same_file) {
+            body = `Redefined at lines ${same_file_lines.join(', ')}`;
+        } else {
+            body = `Redefined in ${the_other_file_uris.size} ${file_word}`;
+        }
+        return `\n\n${body} — see all references`;
+    }
+
+    /**
      * Safely get visible symbols from a resolved scope, guarding against partial stubs.
      * Returns resolved_scope.symbols when chain is missing/undefined or when position is falsy,
      * otherwise delegates to get_visible_symbols_at for proper position filtering.
@@ -521,9 +571,13 @@ export class HoverProvider {
                         ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
                         : `\n\nExpansion: \`${local_macro.value}\``)
                     : '';
+                const footer = this.format_redefinition_footer(
+                    local_macro.location?.uri ?? local_macro.sourceUri,
+                    local_macro.additional_definitions,
+                );
                 return {
                     kind: MarkupKind.Markdown,
-                    value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}`,
+                    value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
                 };
             }
         }
@@ -542,9 +596,13 @@ export class HoverProvider {
                     ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
                     : `\n\nExpansion: \`${local_macro.value}\``)
                 : '';
+            const footer = this.format_redefinition_footer(
+                local_macro.location?.uri ?? local_macro.sourceUri,
+                local_macro.additional_definitions,
+            );
             return {
                 kind: MarkupKind.Markdown,
-                value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}`,
+                value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
             };
         }
 
@@ -586,9 +644,13 @@ export class HoverProvider {
                         ? `\n\nExpansion:\n\`\`\`\n${global_macro.value}\n\`\`\``
                         : `\n\nExpansion: \`${global_macro.value}\``)
                     : '';
+                const footer = this.format_redefinition_footer(
+                    global_macro.location?.uri ?? global_macro.sourceUri,
+                    global_macro.additional_definitions,
+                );
                 return {
                     kind: MarkupKind.Markdown,
-                    value: `**Global Macro:** \`${word}\`${source_info}${expansion_text}`,
+                    value: `**Global Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
                 };
             }
         }
@@ -607,9 +669,13 @@ export class HoverProvider {
                     ? `\n\nExpansion:\n\`\`\`\n${global_macro.value}\n\`\`\``
                     : `\n\nExpansion: \`${global_macro.value}\``)
                 : '';
+            const footer = this.format_redefinition_footer(
+                global_macro.location?.uri ?? global_macro.sourceUri,
+                global_macro.additional_definitions,
+            );
             return {
                 kind: MarkupKind.Markdown,
-                value: `**Global Macro:** \`${word}\`${source_info}${expansion_text}`,
+                value: `**Global Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
             };
         }
 
@@ -645,9 +711,13 @@ export class HoverProvider {
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
+                const footer = this.format_redefinition_footer(
+                    scalar.location?.uri ?? scalar.sourceUri,
+                    scalar.additional_definitions,
+                );
                 return {
                     kind: MarkupKind.Markdown,
-                    value: `**Scalar:** \`${word}\`${source_info}`,
+                    value: `**Scalar:** \`${word}\`${source_info}${footer}`,
                 };
             }
         }
@@ -660,9 +730,13 @@ export class HoverProvider {
             const source_info = source_link
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
+            const footer = this.format_redefinition_footer(
+                doc_scalar.location?.uri ?? doc_scalar.sourceUri,
+                doc_scalar.additional_definitions,
+            );
             return {
                 kind: MarkupKind.Markdown,
-                value: `**Scalar:** \`${word}\`${source_info}`,
+                value: `**Scalar:** \`${word}\`${source_info}${footer}`,
             };
         }
 
@@ -675,9 +749,13 @@ export class HoverProvider {
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
+                const footer = this.format_redefinition_footer(
+                    ws_scalar.location?.uri ?? ws_scalar.sourceUri,
+                    ws_scalar.additional_definitions,
+                );
                 return {
                     kind: MarkupKind.Markdown,
-                    value: `**Scalar:** \`${word}\`${source_info}`,
+                    value: `**Scalar:** \`${word}\`${source_info}${footer}`,
                 };
             }
         }
@@ -714,9 +792,13 @@ export class HoverProvider {
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
+                const footer = this.format_redefinition_footer(
+                    matrix.location?.uri ?? matrix.sourceUri,
+                    matrix.additional_definitions,
+                );
                 return {
                     kind: MarkupKind.Markdown,
-                    value: `**Matrix:** \`${word}\`${source_info}`,
+                    value: `**Matrix:** \`${word}\`${source_info}${footer}`,
                 };
             }
         }
@@ -729,9 +811,13 @@ export class HoverProvider {
             const source_info = source_link
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
+            const footer = this.format_redefinition_footer(
+                doc_matrix.location?.uri ?? doc_matrix.sourceUri,
+                doc_matrix.additional_definitions,
+            );
             return {
                 kind: MarkupKind.Markdown,
-                value: `**Matrix:** \`${word}\`${source_info}`,
+                value: `**Matrix:** \`${word}\`${source_info}${footer}`,
             };
         }
 
@@ -744,9 +830,13 @@ export class HoverProvider {
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
+                const footer = this.format_redefinition_footer(
+                    ws_matrix.location?.uri ?? ws_matrix.sourceUri,
+                    ws_matrix.additional_definitions,
+                );
                 return {
                     kind: MarkupKind.Markdown,
-                    value: `**Matrix:** \`${word}\`${source_info}`,
+                    value: `**Matrix:** \`${word}\`${source_info}${footer}`,
                 };
             }
         }
@@ -1621,6 +1711,10 @@ export class HoverProvider {
         }
 
         const source_link = this.format_source_link(program.sourceUri, current_uri || '', workspace_root);
+        const footer = this.format_redefinition_footer(
+            program.location?.uri ?? program.sourceUri,
+            program.additional_definitions,
+        );
 
         // If program has a signature, format it
         if (program.signature) {
@@ -1628,7 +1722,7 @@ export class HoverProvider {
             const source_info = source_link ? `**Source:** ${source_link}` : `**Defined at:** \`${program.sourceUri}\``;
             return {
                 kind: MarkupKind.Markdown,
-                value: `**Program:** \`${program.name}\`\n\n${formatted_signature}\n\n${source_info}`,
+                value: `**Program:** \`${program.name}\`\n\n${formatted_signature}\n\n${source_info}${footer}`,
             };
         }
 
@@ -1636,7 +1730,7 @@ export class HoverProvider {
         const source_info = source_link ? `**Source:** ${source_link}` : `**Defined at:** \`${program.sourceUri}\``;
         return {
             kind: MarkupKind.Markdown,
-            value: `**Program:** \`${program.name}\`\n\n${source_info}`,
+            value: `**Program:** \`${program.name}\`\n\n${source_info}${footer}`,
         };
     }
 
