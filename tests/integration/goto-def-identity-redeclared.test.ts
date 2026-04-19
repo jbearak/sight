@@ -419,6 +419,79 @@ describe('Go-to-definition - cross-file chain walking', () => {
         expect(lib_lines).toContain(0);
     });
 
+    // Test D: variables follow the same pool rule as programs.
+    //
+    // Reproduces the fertility_surveys scenario: `cm_birth.do` references
+    // `ever_given_birth` and has two dep-graph parents —
+    //   (a) `synthetic.do` which directly `gen`s the variable (test harness);
+    //   (b) `bh_vars.do` whose own parent `survey.do` also forward-includes
+    //       `wm_vars.do`, which forward-calls `ever_given_birth.do` (the real
+    //       production chain that defines the variable).
+    // Go-to-def should return BOTH dep-graph-reachable declarations, not
+    // just the nearer synthetic parent.
+    it('sibling callers: go-to-definition pools reachable variable redeclarations across the dep graph', async () => {
+        // Production chain: ever_given_birth.do (defines var) is forward-
+        // called by wm_vars.do, which is included by survey.do. survey.do
+        // then includes bh_vars.do, which does cm_birth.do.
+        const var_def_path = join(test_temp_dir, 'ever_given_birth.do');
+        writeFileSync(var_def_path, 'gen ever_given_birth = .\n');
+
+        const wm_vars_path = join(test_temp_dir, 'wm_vars.do');
+        writeFileSync(wm_vars_path, 'do "ever_given_birth.do"\n');
+
+        const bh_vars_path = join(test_temp_dir, 'bh_vars.do');
+        writeFileSync(bh_vars_path, 'do "cm_birth.do"\n');
+
+        const survey_path = join(test_temp_dir, 'survey.do');
+        const survey_content = [
+            'include "wm_vars.do"',
+            'include "bh_vars.do"',
+        ].join('\n');
+        writeFileSync(survey_path, survey_content);
+
+        // Test harness chain: synthetic.do generates the variable locally
+        // and then runs cm_birth.do.
+        const synthetic_path = join(test_temp_dir, 'synthetic.do');
+        const synthetic_content = [
+            'gen ever_given_birth = 1',
+            'do "cm_birth.do"',
+        ].join('\n');
+        writeFileSync(synthetic_path, synthetic_content);
+
+        // Target file with the reference.
+        const cm_birth_path = join(test_temp_dir, 'cm_birth.do');
+        const cm_birth_content = [
+            'replace cm_birth = .a if ever_given_birth == 0',
+        ].join('\n');
+        writeFileSync(cm_birth_path, cm_birth_content);
+
+        await indexer.initialize([test_temp_dir]);
+
+        const cm_birth_uri = URI.file(cm_birth_path).toString();
+        const synthetic_uri = URI.file(synthetic_path).toString();
+        const var_def_uri = URI.file(var_def_path).toString();
+
+        await document_store.open(cm_birth_uri, cm_birth_content, 1);
+        const document_state = document_store.get(cm_birth_uri)!;
+
+        const egb_char = cm_birth_content.indexOf('ever_given_birth');
+        const result = await provider.get_definition(
+            document_state,
+            { line: 0, character: egb_char },
+            indexer.get_all_symbols(),
+            undefined,
+            scope_resolver,
+            indexer,
+            undefined,
+        );
+
+        const locations = Array.isArray(result) ? result : (result ? [result] : []);
+        const uris = new Set(locations.map(loc => loc.uri));
+        // Both dep-graph-reachable declarations should be included.
+        expect(uris.has(var_def_uri)).toBe(true);
+        expect(uris.has(synthetic_uri)).toBe(true);
+    });
+
     // Test C: sibling callers in the dep graph. Earlier and later both reach
     // the same child, so same-name program declarations pool into one
     // identity across the connected component.

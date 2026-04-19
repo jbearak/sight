@@ -399,13 +399,44 @@ export class DefinitionProvider {
             const visible = get_visible_symbols_at(resolved_scope, position.line);
 
             // Priority: variable → program → scalar → matrix (matches pre-fix order).
-            // Variables use workspace-wide identity; no chain-walking needed.
+            // Variables pool reachable redeclarations across the dep graph so
+            // go-to-def surfaces every chain-visible `gen` (issue #135 Rule 1).
+            // Without the chain walk the call would return only the merge
+            // winner — e.g., a test-harness parent that directly defines the
+            // variable would shadow the production chain's real definition.
             const variable = visible.variables.get(word);
             if (variable) {
-                return {
-                    uri: variable.location.uri,
-                    range: variable.location.range,
-                };
+                const out: Location[] = this.symbol_to_locations(variable);
+                for (const my_entry of resolved_scope.chain) {
+                    const my_chain_variable =
+                        my_entry.symbols.variables.get(word);
+                    if (my_chain_variable) {
+                        out.push(
+                            ...this.symbol_to_locations(my_chain_variable)
+                        );
+                    }
+                }
+                for (const my_site of
+                        resolved_scope.forward_call_symbols ?? []) {
+                    const my_forward_variable =
+                        my_site.symbols.variables.get(word);
+                    if (my_forward_variable) {
+                        out.push(
+                            ...this.symbol_to_locations(my_forward_variable)
+                        );
+                    }
+                }
+                out.push(
+                    ...this.collect_related_definition_locations(
+                        document.uri,
+                        word,
+                        'variable',
+                        workspace_indexer
+                    )
+                );
+                return this.locations_to_definition(
+                    this.dedupe_locations(out)
+                );
             }
 
             const program = visible.programs.get(word);
@@ -885,7 +916,13 @@ export class DefinitionProvider {
     private collect_related_definition_locations(
         document_uri: string,
         word: string,
-        symbol_type: 'program' | 'local' | 'global' | 'scalar' | 'matrix',
+        symbol_type:
+            | 'program'
+            | 'local'
+            | 'global'
+            | 'variable'
+            | 'scalar'
+            | 'matrix',
         workspace_indexer?: WorkspaceIndexer,
         include_only?: boolean
     ): Location[] {
@@ -915,7 +952,13 @@ export class DefinitionProvider {
     private collect_workspace_definition_locations(
         document_uri: string,
         word: string,
-        symbol_type: 'program' | 'local' | 'global' | 'scalar' | 'matrix',
+        symbol_type:
+            | 'program'
+            | 'local'
+            | 'global'
+            | 'variable'
+            | 'scalar'
+            | 'matrix',
         workspace_indexer?: WorkspaceIndexer,
         options?: {
             include_only?: boolean;
