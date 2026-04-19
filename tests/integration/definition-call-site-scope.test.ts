@@ -125,24 +125,29 @@ describe('Go-to-Definition - call-site scope filtering (issue #129)', () => {
     });
 
     it('prefers an in-scope variable definition over a workspace-wide fallback', async () => {
+        // The cursor sits in main.do, which has no local `gen my_var`. The
+        // only in-scope definition comes from defs.do via the forward
+        // `do "defs.do"` call, so this exercises the scope_resolver branch
+        // in resolve_non_macro_symbols (not the document.symbols
+        // short-circuit). unrelated.do also defines `my_var` but has no
+        // dep-graph edge to main.do, so it must not appear in the result.
         const main_path = join(test_temp_dir, 'main.do');
-        const main_content = `do "uses_var.do"\n`;
+        const main_content = `do "defs.do"\nlist my_var\n`;
         writeFileSync(main_path, main_content);
 
-        const uses_var_path = join(test_temp_dir, 'uses_var.do');
-        const uses_var_content = `gen my_var = 1\nlist my_var\n`;
-        writeFileSync(uses_var_path, uses_var_content);
+        const defs_path = join(test_temp_dir, 'defs.do');
+        writeFileSync(defs_path, `gen my_var = 1\n`);
 
         const unrelated_path = join(test_temp_dir, 'unrelated.do');
         writeFileSync(unrelated_path, `gen my_var = 99\n`);
 
         await pipeline.indexer.initialize([test_temp_dir]);
 
-        const uses_var_uri = URI.file(uses_var_path).toString();
-        await pipeline.document_store.open(uses_var_uri, uses_var_content, 1);
-        const document_state = pipeline.document_store.get(uses_var_uri)!;
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
 
-        const cursor_char = uses_var_content.split('\n')[1].indexOf('my_var') + 2;
+        const cursor_char = main_content.split('\n')[1].indexOf('my_var') + 2;
         const result = await pipeline.definition_provider.get_definition(
             document_state,
             { line: 1, character: cursor_char },
@@ -152,10 +157,13 @@ describe('Go-to-Definition - call-site scope filtering (issue #129)', () => {
             pipeline.indexer,
         );
 
+        // Should return the in-scope def from defs.do as a single Location
+        // (not a Location[] fan-out including unrelated.do).
+        const defs_uri = URI.file(defs_path).toString();
+        const unrelated_uri = URI.file(unrelated_path).toString();
         expect(result).not.toBeNull();
         const locations = Array.isArray(result) ? result : [result!];
-        expect(locations.some(loc => loc.uri === uses_var_uri && loc.range.start.line === 0)).toBe(true);
-        const unrelated_uri = URI.file(unrelated_path).toString();
+        expect(locations.some(loc => loc.uri === defs_uri && loc.range.start.line === 0)).toBe(true);
         expect(locations.every(loc => loc.uri !== unrelated_uri)).toBe(true);
     });
 
