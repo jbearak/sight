@@ -744,5 +744,86 @@ for (const my_mode of THE_MODES) {
             // must NOT appear in the includeDeclaration output.
             expect(second_ref_lines).not.toContain(redeclare_line);
         });
+
+        it('scenario 7c: same-line RHS reference on redeclaration line is included', async () => {
+            // A Stata pattern like `local fruit = "\`fruit'"` has a
+            // MACRO_REF_LOCAL token on the RHS on the same line as the
+            // redeclaration. That token references the pre-shadow value and
+            // must appear in find-references results for the pre-shadow symbol.
+            const the_files: FixtureFile[] = [
+                {
+                    name: 'caller.do',
+                    explicit:
+                        `include first.do\n` +
+                        `include second.do\n`,
+                    auto:
+                        `include first.do\n` +
+                        `include second.do\n`,
+                },
+                {
+                    name: 'first.do',
+                    explicit:
+                        `// @lsp-included-by: caller.do\n` +
+                        `local fruit apple\n`,
+                    auto:
+                        `local fruit apple\n`,
+                },
+                {
+                    name: 'second.do',
+                    explicit:
+                        `// @lsp-included-by: caller.do\n` +
+                        `display "\`fruit' one"\n` +
+                        `local fruit = "\`fruit' shadow"\n` +
+                        `display "\`fruit' two"\n`,
+                    auto:
+                        `display "\`fruit' one"\n` +
+                        `local fruit = "\`fruit' shadow"\n` +
+                        `display "\`fruit' two"\n`,
+                },
+            ];
+            write_fixture(test_temp_dir, my_mode, the_files);
+            await pipeline.indexer.initialize([test_temp_dir]);
+
+            const first_path = join(test_temp_dir, 'first.do');
+            const first_content =
+                the_files.find(f => f.name === 'first.do')![my_mode];
+            const first_uri = URI.file(first_path).toString();
+            await pipeline.document_store.open(first_uri, first_content, 1);
+            const document_state = pipeline.document_store.get(first_uri)!;
+
+            const decl_line = my_mode === 'explicit' ? 1 : 0;
+            const name_char = first_content
+                .split('\n')[decl_line]
+                .indexOf('fruit') + 1;
+
+            const locations = await pipeline.references_provider.get_references(
+                document_state,
+                { line: decl_line, character: name_char },
+                { includeDeclaration: true },
+                pipeline.indexer,
+                document_state.context_tracker,
+            );
+
+            const second_uri =
+                URI.file(join(test_temp_dir, 'second.do')).toString();
+            // Line offsets within second.do:
+            //   explicit: 0=directive, 1=pre-redeclare, 2=redeclare, 3=post
+            //   auto:                  0=pre-redeclare, 1=redeclare, 2=post
+            const pre_redeclare_line = my_mode === 'explicit' ? 1 : 0;
+            const redeclare_line = my_mode === 'explicit' ? 2 : 1;
+            const post_redeclare_line = my_mode === 'explicit' ? 3 : 2;
+
+            const in_second = locations.filter(loc => loc.uri === second_uri);
+            const second_ref_lines =
+                in_second.map(loc => loc.range.start.line).sort();
+
+            // Pre-redeclare reference must be present.
+            expect(second_ref_lines).toContain(pre_redeclare_line);
+            // RHS `fruit' on the redeclaration line references pre-shadow
+            // value — must be included.
+            expect(second_ref_lines).toContain(redeclare_line);
+            // Post-redeclare references the shadow symbol — must not appear.
+            expect(second_ref_lines).not.toContain(post_redeclare_line);
+        });
     });
 }

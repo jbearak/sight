@@ -861,7 +861,7 @@ export class ReferencesProvider {
             for (const my_match of matches) {
                 if (
                     doc_cutoff !== undefined
-                    && my_match.range.start.line >= doc_cutoff
+                    && my_match.range.start.line > doc_cutoff
                 ) {
                     continue;
                 }
@@ -904,7 +904,7 @@ export class ReferencesProvider {
                 for (const my_match of matches) {
                     if (
                         cutoff !== undefined
-                        && my_match.range.start.line >= cutoff
+                        && my_match.range.start.line > cutoff
                     ) {
                         continue;
                     }
