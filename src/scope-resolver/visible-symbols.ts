@@ -266,15 +266,15 @@ function can_reference_forward_site(
 }
 
 /**
- * URIs that should participate in find-references for the queried `(type,
- * name)`. The helper first resolves the active visible symbol instance at the
- * cursor via get_visible_symbols_at(), then keeps only related files whose
- * visible scope resolves that same name to the winning instance.
- *
- * This is precedence-aware, excludes masked same-name definitions from
- * otherwise-visible files, still includes sibling/parent contexts that can see
- * the winning symbol without defining it locally, and respects stripped-local
- * behavior implicitly by consulting the merged visible symbol table.
+ * URIs in the query file's immediate scope chain + forward calls that should
+ * participate in find-references for the queried `(type, name)`. Under Rule 1
+ * (issue #135), same name + same kind within the reachable chain pool into
+ * one identity — so both chain entries and forward-call sites are included
+ * whenever they contribute a same-name-same-kind symbol, regardless of which
+ * instance precedence would pick as the "winner". Callers union this result
+ * with the transitive dep-graph-reachable set (see
+ * `references.ts::collect_references` / `find_definitions`) to cover
+ * sibling-caller cases that aren't in the query file's immediate chain.
  *
  * Returns a Map containing just `current_uri` when `scope` is undefined.
  */
@@ -427,18 +427,21 @@ export function collect_visible_reference_uris(
         }
 
         // `entry_visible_symbols` now reflects the parent's full post-call
-        // state (previously it was only pre-child-call). The check below is
-        // unchanged: if the active symbol is declared in the current file,
-        // the parent's post-call state reaches back and sees it (subject to
-        // the directive's propagation rules — locals only cross `included-by`,
-        // not `done-by`).
-        const chain_entry_references_active =
-            symbol_table_matches_active_reference(
+        // state. Under Rule 1 (issue #135), same name + same kind within the
+        // reachable chain pool into one identity — so a chain entry with a
+        // same-name-same-kind symbol is always a legitimate contributor,
+        // regardless of which instance won precedence. This mirrors
+        // classify_site Case 2 for the forward-call branch. The previous
+        // precedence-based masking (entry's symbol identity must equal
+        // active_symbol_identity) has been retired.
+        const entry_has_same_kind_symbol =
+            get_reference_symbol_from_table(
                 entry_visible_symbols,
                 symbol_type,
                 symbol_name,
-                active_symbol_identity,
-            ) ||
+            ) !== undefined;
+        const chain_entry_references_active =
+            entry_has_same_kind_symbol ||
             active_symbol_identity === current_uri;
         if (
             can_reference_chain_entry(symbol_type, my_entry.directive_type) &&

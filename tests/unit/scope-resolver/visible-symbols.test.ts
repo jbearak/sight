@@ -389,20 +389,25 @@ describe('collect_visible_reference_uris', () => {
             'shared_prog',
         );
         // Issue #135: same name + same kind in the reachable chain is one
-        // identity, so every reachable callee that defines `shared_prog`
-        // participates — including the forward callees in both parent chains
-        // and the current file's visible forward site. The backward parents
-        // themselves are excluded here only because the parent chain walk is
-        // precedence-aware (later/tighter same-depth parent wins); sibling
-        // forward callees pool freely.
+        // identity, so every reachable file that defines or redeclares
+        // `shared_prog` participates — backward parents, their forward
+        // callees, and the current file's visible forward site. The
+        // backward-chain branch now pools alongside the forward-call branch
+        // (no more precedence-based masking).
         expect(the_result.has('file:///current.do')).toBe(true);
+        expect(the_result.has('file:///parent1.do')).toBe(true);
+        expect(the_result.has('file:///parent2.do')).toBe(true);
         expect(the_result.has('file:///parent1-callee.do')).toBe(true);
         expect(the_result.has('file:///parent2-callee.do')).toBe(true);
         expect(the_result.has('file:///current-visible.do')).toBe(true);
         expect(the_result.has('file:///current-hidden.do')).toBe(true);
     });
 
-    test('excludes an earlier same-depth backward parent when a later winner masks it', () => {
+    test('pools both same-depth backward parents under Rule 1 (issue #135)', () => {
+        // Under Rule 1, same name + same kind within the reachable chain
+        // pool into one identity — precedence tiebreaks no longer mask the
+        // earlier parent. This mirrors the forward-call sibling pooling
+        // already covered below.
         const earlier_prog = make_program('shared_prog', 'file:///earlier-parent.do');
         const later_prog = make_program('shared_prog', 'file:///later-parent.do');
         const my_scope: ResolvedScope = {
@@ -448,7 +453,7 @@ describe('collect_visible_reference_uris', () => {
             'shared_prog',
         );
         expect(the_result.has('file:///current.do')).toBe(true);
-        expect(the_result.has('file:///earlier-parent.do')).toBe(false);
+        expect(the_result.has('file:///earlier-parent.do')).toBe(true);
         expect(the_result.has('file:///later-parent.do')).toBe(true);
     });
 

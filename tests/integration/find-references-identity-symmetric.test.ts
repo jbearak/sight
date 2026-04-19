@@ -216,4 +216,124 @@ describe('Find-references - symmetric reachability', () => {
             .map(l => l.range.start.line);
         expect(parent_lines).toContain(1);
     });
+
+    /**
+     * Sibling-callers scenario (issue #135, Rule 1 across the reachable chain):
+     *
+     *   earlier.do:  program define shared_prog / end / do "child.do"
+     *   later.do:    program define shared_prog / end / do "child.do"
+     *   child.do:    shared_prog                    (the reference)
+     *
+     * No explicit directives. Auto-discovery produces the dep-graph:
+     *   earlier.do -> child.do   and   later.do -> child.do
+     *
+     * Under Rule 1, both parent declarations of `shared_prog` pool into a
+     * single identity (same name + same kind within the reachable chain).
+     * Rule 2 is not triggered: earlier.do and later.do are connected via
+     * child.do, so they live in the same branch of the dep graph.
+     *
+     * Query-position-invariance: find-references must return the same set of
+     * files regardless of which of the three files the cursor sits in.
+     */
+    describe('sibling-callers: both parents of a shared child define the same name', () => {
+        const build_workspace = async (): Promise<{
+            earlier_uri: string;
+            later_uri: string;
+            child_uri: string;
+            earlier_content: string;
+            later_content: string;
+            child_content: string;
+        }> => {
+            const earlier_content = [
+                'program define shared_prog',  // line 0
+                'end',                          // line 1
+                'do "child.do"',                // line 2
+            ].join('\n');
+            const later_content = [
+                'program define shared_prog',  // line 0
+                'end',                          // line 1
+                'do "child.do"',                // line 2
+            ].join('\n');
+            const child_content = 'shared_prog\n'; // line 0 ref
+
+            const earlier_path = join(test_temp_dir, 'earlier.do');
+            const later_path = join(test_temp_dir, 'later.do');
+            const child_path = join(test_temp_dir, 'child.do');
+            writeFileSync(earlier_path, earlier_content);
+            writeFileSync(later_path, later_content);
+            writeFileSync(child_path, child_content);
+
+            await indexer.initialize([test_temp_dir]);
+
+            return {
+                earlier_uri: URI.file(earlier_path).toString(),
+                later_uri: URI.file(later_path).toString(),
+                child_uri: URI.file(child_path).toString(),
+                earlier_content,
+                later_content,
+                child_content,
+            };
+        };
+
+        it('cursor in child.do: reaches both parent declarations', async () => {
+            const ws = await build_workspace();
+            await document_store.open(ws.child_uri, ws.child_content, 1);
+            const document_state = document_store.get(ws.child_uri)!;
+
+            const shared_char = ws.child_content.split('\n')[0].indexOf('shared_prog');
+            const locations = await provider.get_references(
+                document_state,
+                { line: 0, character: shared_char },
+                { includeDeclaration: true },
+                indexer,
+                document_state.context_tracker,
+            );
+
+            const uris = new Set(locations.map(l => l.uri));
+            expect(uris.has(ws.earlier_uri)).toBe(true);
+            expect(uris.has(ws.later_uri)).toBe(true);
+            expect(uris.has(ws.child_uri)).toBe(true);
+        });
+
+        it('cursor in later.do: reaches sibling caller earlier.do via the shared child', async () => {
+            const ws = await build_workspace();
+            await document_store.open(ws.later_uri, ws.later_content, 1);
+            const document_state = document_store.get(ws.later_uri)!;
+
+            // Cursor on the `shared_prog` name in `program define shared_prog`.
+            const shared_char = ws.later_content.split('\n')[0].indexOf('shared_prog');
+            const locations = await provider.get_references(
+                document_state,
+                { line: 0, character: shared_char },
+                { includeDeclaration: true },
+                indexer,
+                document_state.context_tracker,
+            );
+
+            const uris = new Set(locations.map(l => l.uri));
+            expect(uris.has(ws.earlier_uri)).toBe(true);
+            expect(uris.has(ws.later_uri)).toBe(true);
+            expect(uris.has(ws.child_uri)).toBe(true);
+        });
+
+        it('cursor in earlier.do: reaches sibling caller later.do via the shared child', async () => {
+            const ws = await build_workspace();
+            await document_store.open(ws.earlier_uri, ws.earlier_content, 1);
+            const document_state = document_store.get(ws.earlier_uri)!;
+
+            const shared_char = ws.earlier_content.split('\n')[0].indexOf('shared_prog');
+            const locations = await provider.get_references(
+                document_state,
+                { line: 0, character: shared_char },
+                { includeDeclaration: true },
+                indexer,
+                document_state.context_tracker,
+            );
+
+            const uris = new Set(locations.map(l => l.uri));
+            expect(uris.has(ws.earlier_uri)).toBe(true);
+            expect(uris.has(ws.later_uri)).toBe(true);
+            expect(uris.has(ws.child_uri)).toBe(true);
+        });
+    });
 });

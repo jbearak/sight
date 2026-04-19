@@ -145,7 +145,12 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
         expect(locations.some(loc => loc.uri === leaf_uri)).toBe(true);
     });
 
-    it('excludes a masked same-name backward parent from declarations and references', async () => {
+    it('pools same-name backward parents in the reachable chain (issue #135)', async () => {
+        // Under Rule 1, same name + same kind within the reachable chain
+        // pool into one identity regardless of precedence tiebreaks. Two
+        // @lsp-done-by parents both defining `shared_prog` therefore both
+        // contribute declarations — the earlier parent is no longer masked
+        // by the lattermost-wins precedence rule.
         const earlier_parent_path = join(test_temp_dir, 'earlier_parent.do');
         writeFileSync(earlier_parent_path, `program define shared_prog\nend\n`);
 
@@ -178,7 +183,7 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
         const later_parent_uri = URI.file(later_parent_path).toString();
 
         expect(locations.some(loc => loc.uri === later_parent_uri)).toBe(true);
-        expect(locations.every(loc => loc.uri !== earlier_parent_uri)).toBe(true);
+        expect(locations.some(loc => loc.uri === earlier_parent_uri)).toBe(true);
         expect(locations.some(loc => loc.uri === child_uri && loc.range.start.line === 3)).toBe(true);
     });
 

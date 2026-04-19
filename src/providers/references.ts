@@ -272,6 +272,20 @@ export class ReferencesProvider {
                         symbol_type,
                         symbol_name,
                     );
+                    // Union with the transitive dep-graph-reachable set so
+                    // sibling-caller declarations pool under Rule 1. Mirrors
+                    // collect_references's floor. See issue #135.
+                    const the_reachable_floor = symbol_type === 'local_macro'
+                        ? workspace_indexer.get_related_uris(
+                            document.uri,
+                            { include_only: true }
+                        )
+                        : workspace_indexer.get_related_uris(document.uri);
+                    for (const my_uri of the_reachable_floor) {
+                        if (!the_allowed_uris.has(my_uri)) {
+                            the_allowed_uris.set(my_uri, {});
+                        }
+                    }
                 } else {
                     const the_fallback_uris = symbol_type === 'local_macro'
                         ? workspace_indexer.get_related_uris(
@@ -867,10 +881,15 @@ export class ReferencesProvider {
             resolved_scope !== undefined &&
             cursor_line !== undefined
         ) {
-            // Scope-resolver path (production): filter the scan to files
-            // contributing the active visible symbol instance at the cursor so
-            // not-yet-reached or masked same-name definitions don't leak into
-            // references. See issue #129.
+            // Scope-resolver path (production): start from the scope-aware
+            // set (tracks scan_through_line cutoffs and forward-call
+            // visibility) then union with the dep-graph-reachable set so
+            // sibling-caller cases (two parents both doing a shared child)
+            // are reached transitively. The scope-aware walk only knows
+            // the query file's immediate chain + forward calls; it cannot
+            // walk callee -> caller -> sibling-callee on its own. Rule 2
+            // is preserved because get_related_uris only traverses the
+            // connected component of the dep graph.
             the_related = collect_visible_reference_uris(
                 resolved_scope,
                 cursor_line,
@@ -878,6 +897,17 @@ export class ReferencesProvider {
                 symbol_type,
                 symbol_name,
             );
+            const the_reachable_floor = symbol_type === 'local_macro'
+                ? workspace_indexer.get_related_uris(
+                    document.uri,
+                    { include_only: true }
+                )
+                : workspace_indexer.get_related_uris(document.uri);
+            for (const my_uri of the_reachable_floor) {
+                if (!the_related.has(my_uri)) {
+                    the_related.set(my_uri, {});
+                }
+            }
         } else {
             // Fallback path (test-only setups without a scope_resolver, or
             // variable lookups that fall through before this point): keep
