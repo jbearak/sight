@@ -939,20 +939,28 @@ export class ScopeResolver {
 
 
     /**
-     * Resolve forward calls in a parent file that occur before the call site.
-     * This allows symbols from scripts executed by the parent (before calling the child)
-     * to be visible in the child's scope.
+     * Resolve every forward call in a parent file (both pre- and
+     * post-child-call). Scope resolution consumes only the pre-site subset
+     * via the returned `symbols` and `call_sites` fields; find-references
+     * consumes the full list via `all_call_sites`. Running the forward
+     * resolver once on the full input and splitting the output preserves
+     * today's pre-site scope-merge semantics while exposing post-site
+     * siblings for the sibling-forward-calls walk.
      *
      * @param parent_uri - URI of the parent file
-     * @param parent_forward_calls - Forward calls extracted from the parent file
+     * @param parent_forward_calls - Forward calls extracted from the parent
+     *   file
      * @param call_site_line - The line where the child is called (0-indexed)
-     * @param backward_directive_type - The type of backward directive ('done-by' or 'included-by')
+     * @param backward_directive_type - The type of backward directive
+     *   ('done-by' or 'included-by')
      * @param working_directory - Working directory context for path resolution
      * @param depth - Current resolution depth
      * @param config - Scope resolver configuration
      * @param visited - Set of visited URIs for cycle detection
      * @param token - Cancellation token
-     * @returns Symbols from forward calls and any diagnostics
+     * @returns `symbols` and `call_sites` (pre-site only, feeds chain-entry
+     *   merging), `all_call_sites` (full list, feeds find-references), and
+     *   any diagnostics.
      */
     private async resolve_parent_forward_calls(
         parent_uri: string,
