@@ -589,11 +589,7 @@ export class ReferencesProvider {
             //    matrix.
             let best_forward_type: 'program' | 'scalar' | 'matrix' | null = null;
             let best_forward_priority = -1;
-            for (const my_site of resolved_scope.forward_call_symbols ?? []) {
-                if (my_site.call_line >= cursor_line) {
-                    continue;
-                }
-
+            for (const my_site of get_visible_forward_call_sites(resolved_scope, cursor_line)) {
                 let site_type: 'program' | 'scalar' | 'matrix' | null = null;
                 let site_priority = -1;
                 if (my_site.symbols.programs.has(word)) {
