@@ -41,7 +41,7 @@ import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
 import { build_scope_resolver_config } from '../scope-resolver';
-import { get_visible_forward_call_sites } from '../scope-resolver';
+import { get_visible_symbols_at } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
 
@@ -484,7 +484,10 @@ export class HoverProvider {
     ): MarkupContent | null {
         // Check resolved scope first if available
         if (resolved_scope) {
-            const local_macro = resolved_scope.symbols.localMacros.get(word);
+            const local_macro_symbols = position
+                ? get_visible_symbols_at(resolved_scope, position.line)
+                : resolved_scope.symbols;
+            const local_macro = local_macro_symbols.localMacros.get(word);
             if (local_macro) {
                 const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
                 const line_info = local_macro.definition_line !== undefined ? `, line ${local_macro.definition_line + 1}` : '';
@@ -501,34 +504,6 @@ export class HoverProvider {
                     kind: MarkupKind.Markdown,
                     value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}`,
                 };
-            }
-
-            // Check forward call symbols with position filtering
-            // Only include symbols where cursor line > call_line (visible AFTER call site)
-            if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
-                for (const my_call_site of the_visible_call_sites) {
-                    // For 'include' type, local macros are visible; for 'do' type, they are not
-                    if (my_call_site.effective_type === 'include') {
-                        const forward_local_macro = my_call_site.symbols.localMacros.get(word);
-                        if (forward_local_macro) {
-                            const source_link = this.format_source_link(forward_local_macro.sourceUri, document.uri, workspace_root);
-                            const line_info = forward_local_macro.definition_line !== undefined ? `, line ${forward_local_macro.definition_line + 1}` : '';
-                            const source_info = source_link
-                                ? `\n\nSource: ${source_link}${line_info}`
-                                : `\n\nDefined at: this file${line_info}`;
-                            const expansion_text = forward_local_macro.value
-                                ? (forward_local_macro.value.includes('\n')
-                                    ? `\n\nExpansion:\n\`\`\`\n${forward_local_macro.value}\n\`\`\``
-                                    : `\n\nExpansion: \`${forward_local_macro.value}\``)
-                                : '';
-                            return {
-                                kind: MarkupKind.Markdown,
-                                value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}`,
-                            };
-                        }
-                    }
-                }
             }
         }
 
@@ -576,7 +551,10 @@ export class HoverProvider {
     ): MarkupContent | null {
         // Check resolved scope first if available
         if (resolved_scope) {
-            const global_macro = resolved_scope.symbols.globalMacros.get(word);
+            const global_macro_symbols = position
+                ? get_visible_symbols_at(resolved_scope, position.line)
+                : resolved_scope.symbols;
+            const global_macro = global_macro_symbols.globalMacros.get(word);
             if (global_macro) {
                 const source_link = this.format_source_link(global_macro.sourceUri, document.uri, workspace_root);
                 const line_info = global_macro.definition_line !== undefined ? `, line ${global_macro.definition_line + 1}` : '';
@@ -593,31 +571,6 @@ export class HoverProvider {
                     kind: MarkupKind.Markdown,
                     value: `**Global Macro:** \`${word}\`${source_info}${expansion_text}`,
                 };
-            }
-
-            // Check forward call symbols with position filtering
-            // Global macros are visible from both 'do' and 'include' types
-            if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
-                for (const my_call_site of the_visible_call_sites) {
-                    const forward_global_macro = my_call_site.symbols.globalMacros.get(word);
-                    if (forward_global_macro) {
-                        const source_link = this.format_source_link(forward_global_macro.sourceUri, document.uri, workspace_root);
-                        const line_info = forward_global_macro.definition_line !== undefined ? `, line ${forward_global_macro.definition_line + 1}` : '';
-                        const source_info = source_link
-                            ? `\n\nSource: ${source_link}${line_info}`
-                            : `\n\nDefined at: this file${line_info}`;
-                        const expansion_text = forward_global_macro.value
-                            ? (forward_global_macro.value.includes('\n')
-                                ? `\n\nExpansion:\n\`\`\`\n${forward_global_macro.value}\n\`\`\``
-                                : `\n\nExpansion: \`${forward_global_macro.value}\``)
-                            : '';
-                        return {
-                            kind: MarkupKind.Markdown,
-                            value: `**Global Macro:** \`${word}\`${source_info}${expansion_text}`,
-                        };
-                    }
-                }
             }
         }
 
@@ -665,7 +618,10 @@ export class HoverProvider {
     ): MarkupContent | null {
         // 1. Check resolved_scope first (highest precedence)
         if (resolved_scope) {
-            const scalar = resolved_scope.symbols.scalars.get(word);
+            const scalar_symbols = position
+                ? get_visible_symbols_at(resolved_scope, position.line)
+                : resolved_scope.symbols;
+            const scalar = scalar_symbols.scalars.get(word);
             if (scalar) {
                 const source_link = this.format_source_link(scalar.sourceUri, document.uri, workspace_root);
                 const line_info = scalar.definition_line !== undefined ? `, line ${scalar.definition_line + 1}` : '';
@@ -676,25 +632,6 @@ export class HoverProvider {
                     kind: MarkupKind.Markdown,
                     value: `**Scalar:** \`${word}\`${source_info}`,
                 };
-            }
-
-            // Check forward call symbols with position filtering
-            if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
-                for (const my_call_site of the_visible_call_sites) {
-                    const forward_scalar = my_call_site.symbols.scalars.get(word);
-                    if (forward_scalar) {
-                        const source_link = this.format_source_link(forward_scalar.sourceUri, document.uri, workspace_root);
-                        const line_info = forward_scalar.definition_line !== undefined ? `, line ${forward_scalar.definition_line + 1}` : '';
-                        const source_info = source_link
-                            ? `\n\nSource: ${source_link}${line_info}`
-                            : `\n\nDefined at: this file${line_info}`;
-                        return {
-                            kind: MarkupKind.Markdown,
-                            value: `**Scalar:** \`${word}\`${source_info}`,
-                        };
-                    }
-                }
             }
         }
 
@@ -752,7 +689,10 @@ export class HoverProvider {
     ): MarkupContent | null {
         // 1. Check resolved_scope first (highest precedence)
         if (resolved_scope) {
-            const matrix = resolved_scope.symbols.matrices.get(word);
+            const matrix_symbols = position
+                ? get_visible_symbols_at(resolved_scope, position.line)
+                : resolved_scope.symbols;
+            const matrix = matrix_symbols.matrices.get(word);
             if (matrix) {
                 const source_link = this.format_source_link(matrix.sourceUri, document.uri, workspace_root);
                 const line_info = matrix.definition_line !== undefined ? `, line ${matrix.definition_line + 1}` : '';
@@ -763,25 +703,6 @@ export class HoverProvider {
                     kind: MarkupKind.Markdown,
                     value: `**Matrix:** \`${word}\`${source_info}`,
                 };
-            }
-
-            // Check forward call symbols with position filtering
-            if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
-                for (const my_call_site of the_visible_call_sites) {
-                    const forward_matrix = my_call_site.symbols.matrices.get(word);
-                    if (forward_matrix) {
-                        const source_link = this.format_source_link(forward_matrix.sourceUri, document.uri, workspace_root);
-                        const line_info = forward_matrix.definition_line !== undefined ? `, line ${forward_matrix.definition_line + 1}` : '';
-                        const source_info = source_link
-                            ? `\n\nSource: ${source_link}${line_info}`
-                            : `\n\nDefined at: this file${line_info}`;
-                        return {
-                            kind: MarkupKind.Markdown,
-                            value: `**Matrix:** \`${word}\`${source_info}`,
-                        };
-                    }
-                }
             }
         }
 
@@ -1318,21 +1239,17 @@ export class HoverProvider {
     ): MarkupContent | null {
         // Check resolved scope first if available
         if (resolved_scope) {
-            const program = resolved_scope.symbols.programs.get(word);
+            const program_symbols = position
+                ? get_visible_symbols_at(resolved_scope, position.line)
+                : resolved_scope.symbols;
+            const program = program_symbols.programs.get(word);
             if (program) {
-                return this.get_hover_for_user_program(program.name, resolved_scope.symbols, document.uri, workspace_root);
-            }
-
-            // Check forward call symbols with position filtering
-            // Programs are visible from both 'do' and 'include' types
-            if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
-                for (const my_call_site of the_visible_call_sites) {
-                    const forward_program = my_call_site.symbols.programs.get(word);
-                    if (forward_program) {
-                        return this.get_hover_for_user_program(forward_program.name, my_call_site.symbols, document.uri, workspace_root);
-                    }
-                }
+                return this.get_hover_for_user_program(
+                    program.name,
+                    program_symbols,
+                    document.uri,
+                    workspace_root,
+                );
             }
         }
 
@@ -1419,21 +1336,12 @@ export class HoverProvider {
     ): MarkupContent | null {
         // 1. Check resolved_scope first (highest precedence)
         if (resolved_scope) {
-            const variable = resolved_scope.symbols.variables.get(word);
+            const variable_symbols = position
+                ? get_visible_symbols_at(resolved_scope, position.line)
+                : resolved_scope.symbols;
+            const variable = variable_symbols.variables.get(word);
             if (variable) {
                 return this.format_variable_hover(variable, document.uri, workspace_root);
-            }
-
-            // Check forward call symbols with position filtering
-            // Variables are visible from both 'do' and 'include' types
-            if (position && resolved_scope.forward_call_symbols) {
-                const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position.line);
-                for (const my_call_site of the_visible_call_sites) {
-                    const forward_variable = my_call_site.symbols.variables.get(word);
-                    if (forward_variable) {
-                        return this.format_variable_hover(forward_variable, document.uri, workspace_root);
-                    }
-                }
             }
         }
 

@@ -142,6 +142,80 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
         expect(locations.some(loc => loc.uri === leaf_uri)).toBe(true);
     });
 
+    it('excludes a masked same-name backward parent from declarations and references', async () => {
+        const earlier_parent_path = join(test_temp_dir, 'earlier_parent.do');
+        writeFileSync(earlier_parent_path, `program define shared_prog\nend\n`);
+
+        const later_parent_path = join(test_temp_dir, 'later_parent.do');
+        writeFileSync(later_parent_path, `program define shared_prog\nend\n`);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content =
+            `* @lsp-done-by: "earlier_parent.do"\n` +
+            `* @lsp-done-by: "later_parent.do"\n\n` +
+            `shared_prog\n`;
+        writeFileSync(child_path, child_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await pipeline.document_store.open(child_uri, child_content, 1);
+        const document_state = pipeline.document_store.get(child_uri)!;
+
+        const cursor_char = child_content.split('\n')[3].indexOf('shared_prog') + 3;
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: 3, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker,
+        );
+
+        const earlier_parent_uri = URI.file(earlier_parent_path).toString();
+        const later_parent_uri = URI.file(later_parent_path).toString();
+
+        expect(locations.some(loc => loc.uri === later_parent_uri)).toBe(true);
+        expect(locations.every(loc => loc.uri !== earlier_parent_uri)).toBe(true);
+        expect(locations.some(loc => loc.uri === child_uri && loc.range.start.line === 3)).toBe(true);
+    });
+
+    it('excludes a masked same-name visible forward callee from declarations and references', async () => {
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `do "earlier.do"\n` +
+            `do "later.do"\n` +
+            `shared_prog\n`;
+        writeFileSync(main_path, main_content);
+
+        const earlier_path = join(test_temp_dir, 'earlier.do');
+        writeFileSync(earlier_path, `program define shared_prog\nend\n`);
+
+        const later_path = join(test_temp_dir, 'later.do');
+        writeFileSync(later_path, `program define shared_prog\nend\n`);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const main_uri = URI.file(main_path).toString();
+        await pipeline.document_store.open(main_uri, main_content, 1);
+        const document_state = pipeline.document_store.get(main_uri)!;
+
+        const cursor_char = main_content.split('\n')[2].indexOf('shared_prog') + 3;
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: 2, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker,
+        );
+
+        const earlier_uri = URI.file(earlier_path).toString();
+        const later_uri = URI.file(later_path).toString();
+
+        expect(locations.some(loc => loc.uri === later_uri)).toBe(true);
+        expect(locations.every(loc => loc.uri !== earlier_uri)).toBe(true);
+        expect(locations.some(loc => loc.uri === main_uri && loc.range.start.line === 2)).toBe(true);
+    });
+
     it('does not pool local macros through done-by', async () => {
         const main_path = join(test_temp_dir, 'main.do');
         const main_content = `local shared 1\ndo "child.do"\n`;
@@ -196,6 +270,43 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
 
         const main_uri = URI.file(main_path).toString();
         expect(locations.some(loc => loc.uri === main_uri && loc.range.start.line === 0)).toBe(true);
+    });
+
+    it('does not leak a local macro from an included ancestor across a downstream done-by boundary', async () => {
+        const grand_path = join(test_temp_dir, 'grand.do');
+        const grand_content = `local shared 1\ninclude "parent.do"\n`;
+        writeFileSync(grand_path, grand_content);
+
+        const parent_path = join(test_temp_dir, 'parent.do');
+        const parent_content =
+            `* @lsp-included-by: "grand.do"\n` +
+            `do "child.do"\n`;
+        writeFileSync(parent_path, parent_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content =
+            `* @lsp-done-by: "parent.do"\n\n` +
+            `display \`shared'\n`;
+        writeFileSync(child_path, child_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await pipeline.document_store.open(child_uri, child_content, 1);
+        const document_state = pipeline.document_store.get(child_uri)!;
+
+        const cursor_char = child_content.split('\n')[2].indexOf('shared') + 2;
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: 2, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker,
+        );
+
+        const grand_uri = URI.file(grand_path).toString();
+        expect(locations.every(loc => loc.uri !== grand_uri)).toBe(true);
+        expect(locations.some(loc => loc.uri === child_uri && loc.range.start.line === 2)).toBe(true);
     });
 
     it('pools variable declarations workspace-wide regardless of cursor position', async () => {

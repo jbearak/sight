@@ -11,15 +11,16 @@ type:
 | Symbol type | Scope |
 |---|---|
 | **Local macros** | Include-chain files only |
-| **Global macros, programs, scalars, matrices** | Dep-graph-reachable files (do/run/include edges), further filtered to files visible at the cursor — backward-directive parents and forward-called files whose `do`/`include` appears on or above the cursor line |
+| **Global macros, programs, scalars, matrices** | Dep-graph-reachable, cursor-visible files, with same-name conflicts resolved by effective scope precedence so only files contributing the active visible symbol instance at the cursor participate |
 | **Variables** | Entire workspace |
 
 ## Rationale
 
 **Why local macros are narrowest:** Stata only propagates local macros through
 `include`, never through `do` or `run`. A local macro with the same name in a
-`do`-called child is a separate, unrelated macro — pooling those references
-would be misleading.
+`do`-called child is a separate, unrelated macro, and locals stripped by a
+downstream `done-by` boundary stay out of scope even if an older ancestor was
+reached through `included-by`.
 
 **Why global macros and code symbols are dep-graph-scoped *and* call-site
 filtered:** Same-named programs, scalars, or matrices in unrelated branches
@@ -30,7 +31,10 @@ the dep-graph-reachable set, files reached through forward `do` / `include`
 commands are further filtered to those whose call site precedes the cursor:
 a `do "child.do"` on line 10 doesn't bring `child.do`'s declarations into
 scope at line 5. See issue #129 for the unified "visible at cursor" rule
-that closes this drift across providers.
+that closes this drift across providers. Among those cursor-visible candidates,
+Sight follows effective scope precedence and pools declarations/references only
+from files contributing the active visible symbol instance at the cursor. That
+is why masked same-name definitions in otherwise-visible files are excluded.
 
 **Why variables are workspace-wide:** Stata dataset columns are legitimately
 shared across unrelated analyses. Column names like `id`, `year`, or

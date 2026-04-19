@@ -226,13 +226,16 @@ export class ReferencesProvider {
                 symbol_type;
             // Variables are dataset columns — we pool cross-module declarations
             // workspace-wide (see docs/find-references.md). All other kinds are
-            // restricted to files visible at the cursor: the current file,
-            // backward directive parents, and forward-called files whose
-            // `do`/`include` sits above the cursor line. When `resolved_scope`
-            // or `cursor_line` is missing (test-only setups without a scope
-            // resolver wired), fall back to the pre-fix dep-graph-reachable
-            // set so the broader declaration-pooling behavior is preserved —
-            // matching collect_references's symmetric fallback below.
+            // restricted to dep-graph-reachable candidates that are visible at
+            // the cursor, with same-name conflicts resolved by effective scope
+            // precedence. In production we therefore pool declarations only
+            // from files contributing the active visible symbol instance at the
+            // cursor; masked redeclarations in otherwise-visible files are
+            // intentionally excluded. When `resolved_scope` or `cursor_line`
+            // is missing (test-only setups without a scope resolver wired),
+            // fall back to the pre-fix dep-graph-reachable set so the broader
+            // declaration-pooling behavior is preserved — matching
+            // collect_references's symmetric fallback below.
             let the_allowed_uris: Set<string> | null = null;
             if (symbol_type !== 'variable') {
                 the_allowed_uris = (resolved_scope !== undefined && cursor_line !== undefined)
@@ -241,6 +244,7 @@ export class ReferencesProvider {
                         cursor_line,
                         document.uri,
                         symbol_type,
+                        symbol_name,
                     )
                     : (
                         symbol_type === 'local_macro'
@@ -796,11 +800,11 @@ export class ReferencesProvider {
         // we scan the full workspace. Every other symbol kind (programs,
         // scalars, matrices, macros) is a code-level symbol where cross-module
         // name collisions are almost always coincidental, so we restrict the
-        // scan to files visible at the cursor — backward chain + forward
-        // calls that sit above the cursor line. (Issue #129 aligns the scan
-        // path with the call-site filter already applied to find_definitions:
-        // a redeclaration in a not-yet-reached forward-called file must not
-        // surface as a cross-reference either.)
+        // scan to dep-graph-reachable files that are visible at the cursor,
+        // then narrow further to the active visible symbol instance selected
+        // by precedence. (Issue #129 aligns the scan path with the
+        // declaration-pooling rules: a masked redeclaration in an
+        // otherwise-visible file must not surface as a cross-reference.)
         //
         // Local macros are narrower still: Stata only propagates locals
         // through `include` chains, never through `do` or `run`. A local
@@ -819,14 +823,15 @@ export class ReferencesProvider {
             cursor_line !== undefined
         ) {
             // Scope-resolver path (production): filter the scan to files
-            // visible at the cursor so redeclarations in not-yet-reached
-            // forward-called files don't leak into references. See issue
-            // #129.
+            // contributing the active visible symbol instance at the cursor so
+            // not-yet-reached or masked same-name definitions don't leak into
+            // references. See issue #129.
             the_related = collect_visible_reference_uris(
                 resolved_scope,
                 cursor_line,
                 document.uri,
                 symbol_type,
+                symbol_name,
             );
         } else {
             // Fallback path (test-only setups without a scope_resolver, or
