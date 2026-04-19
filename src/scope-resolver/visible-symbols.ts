@@ -342,6 +342,17 @@ export function collect_visible_reference_uris(
     //    Disjoint-branch exclusion is already provided by dep-graph
     //    reachability filtering in references.ts, so the previous
     //    "different identity" cutoff has been retired.
+    //
+    // Note on `SiteInclusion.scan_through_line`: every branch below
+    // currently returns `{ include }` with no cutoff, so all downstream
+    // code that reads `scan_through_line` (this function's
+    // `add_uri_to_result`, and references.ts's `find_definitions` /
+    // `collect_references`) is dormant in practice. The field is kept
+    // because Rule 1's pooling behaviour could legitimately be narrowed
+    // in a future issue (e.g., per-call-site cutoffs for very large
+    // dep graphs); restoring a partial cutoff would only require
+    // `classify_site` to emit one. Do not remove the plumbing without
+    // that future use in view.
     // 3. (symbol_visible_before_site OR site_is_after_current_file_call)
     //    and does not redeclare → include, full scan.
     // 4. Neither defines nor inherits → EXCLUDE.

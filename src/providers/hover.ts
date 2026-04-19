@@ -18,6 +18,7 @@ import {
     MarkupContent,
     MarkupKind,
     Position,
+    Range,
     CancellationToken,
 } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
@@ -48,6 +49,43 @@ import { is_cursor_in_comment } from '../utils/comment-utils';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
+
+/**
+ * One entry in a symbol's `additional_definitions` array.
+ *
+ * Analyzer invariant (enforced by `add_or_append_definition` and the ad-hoc
+ * macro paths in `src/analyzer/index.ts`): `line === location.range.start.line`.
+ * Indexer-sourced entries honor the same invariant; test stubs may omit
+ * `location.range`, so callers still fall back to `.line`.
+ */
+interface AdditionalDefinitionEntry {
+    index: number;
+    line: number;
+    location: { uri: string; range: Range };
+}
+
+/**
+ * Minimum shape the primary-hit argument to
+ * `collect_workspace_additional_definitions` needs to satisfy. Widened to
+ * optional `location` because some hover unit tests pass partial symbol stubs
+ * that omit `.location` entirely.
+ */
+interface SymbolWithAdditionalDefinitions {
+    location?: { uri: string; range?: Range };
+    additional_definitions?: AdditionalDefinitionEntry[];
+}
+
+function has_definition_index(hit: object): hit is { definition_index: number } {
+    return typeof (hit as { definition_index?: unknown }).definition_index === 'number';
+}
+
+function has_additional_definitions(
+    hit: object,
+): hit is { additional_definitions: AdditionalDefinitionEntry[] } {
+    const candidate = (hit as { additional_definitions?: unknown })
+        .additional_definitions;
+    return Array.isArray(candidate);
+}
 
 /**
  * Represents a matched symbol for hover display.
@@ -493,11 +531,11 @@ export class HoverProvider {
     private collect_workspace_additional_definitions(
         name: string,
         symbol_type: 'program' | 'local' | 'global' | 'scalar' | 'matrix',
-        primary: { location?: { uri: string; range?: unknown }; additional_definitions?: Array<{ index: number; line: number; location: { uri: string; range: unknown } }> } | undefined,
+        primary: SymbolWithAdditionalDefinitions | undefined,
         workspace_indexer: WorkspaceIndexer | undefined,
         current_uri: string,
-    ): Array<{ index: number; line: number; location: { uri: string; range: unknown } }> {
-        const the_accumulated: Array<{ index: number; line: number; location: { uri: string; range: unknown } }> = [];
+    ): AdditionalDefinitionEntry[] {
+        const the_accumulated: AdditionalDefinitionEntry[] = [];
         // Start with the primary's own same-file additional_definitions.
         if (primary?.additional_definitions) {
             for (const my_extra of primary.additional_definitions) {
@@ -507,6 +545,8 @@ export class HoverProvider {
         if (!workspace_indexer) {
             return the_accumulated;
         }
+        // `get_related_uris` is a method on the real WorkspaceIndexer but may
+        // be absent on test stubs; treat that as "no reachability gate".
         const the_candidate_uris = typeof workspace_indexer.get_related_uris === 'function'
             ? (
                 symbol_type === 'local'
@@ -524,17 +564,25 @@ export class HoverProvider {
         if (primary_uri) {
             // The primary's own location is always the hover card's "Source"
             // header — never a footer entry.
-            const primary_range: any = primary?.location as any;
-            if (primary_range?.range) {
-                the_seen_keys.add(`${primary_uri}:${primary_range.range.start.line}`);
+            const primary_range = primary?.location?.range;
+            if (primary_range) {
+                the_seen_keys.add(`${primary_uri}:${primary_range.start.line}`);
             }
+            // Post-M-4, analyzer guarantees every extra's `.line` matches
+            // `.location.range.start.line`; this keying reflects that
+            // invariant and falls back to `.line` only if a test stub
+            // supplies an extra without a populated range.
             for (const my_extra of primary?.additional_definitions ?? []) {
-                the_seen_keys.add(`${my_extra.location.uri}:${my_extra.location.range && (my_extra.location.range as any).start ? (my_extra.location.range as any).start.line : my_extra.line}`);
+                const my_extra_line =
+                    my_extra.location?.range?.start?.line ?? my_extra.line;
+                the_seen_keys.add(`${my_extra.location.uri}:${my_extra_line}`);
             }
         }
         const the_hits = workspace_indexer.find_symbol_definitions(name, symbol_type);
         for (const my_hit of the_hits) {
-            const my_location = (my_hit as any).location as { uri: string; range: { start: { line: number } } } | undefined;
+            const my_location = my_hit.location as
+                | { uri: string; range: Range }
+                | undefined;
             if (my_location) {
                 if (the_candidate_uris && !the_candidate_uris.has(my_location.uri)) {
                     continue;
@@ -546,13 +594,18 @@ export class HoverProvider {
                 if (!the_seen_keys.has(my_key)) {
                     the_seen_keys.add(my_key);
                     the_accumulated.push({
-                        index: (my_hit as any).definition_index ?? 0,
+                        index: has_definition_index(my_hit)
+                            ? my_hit.definition_index
+                            : 0,
                         line: my_location.range?.start?.line ?? 0,
                         location: { uri: my_location.uri, range: my_location.range },
                     });
                 }
             }
-            const the_extras = (my_hit as any).additional_definitions as Array<{ index: number; line: number; location: { uri: string; range: unknown } }> | undefined;
+            const the_extras: AdditionalDefinitionEntry[] | undefined =
+                has_additional_definitions(my_hit)
+                    ? my_hit.additional_definitions
+                    : undefined;
             if (the_extras) {
                 for (const my_extra of the_extras) {
                     if (the_candidate_uris && !the_candidate_uris.has(my_extra.location.uri)) {
@@ -561,7 +614,9 @@ export class HoverProvider {
                     if (primary_uri && my_extra.location.uri === primary_uri) {
                         continue;
                     }
-                    const my_extra_key = `${my_extra.location.uri}:${(my_extra.location as any).range?.start?.line ?? my_extra.line}`;
+                    const my_extra_line =
+                        my_extra.location?.range?.start?.line ?? my_extra.line;
+                    const my_extra_key = `${my_extra.location.uri}:${my_extra_line}`;
                     if (!the_seen_keys.has(my_extra_key)) {
                         the_seen_keys.add(my_extra_key);
                         the_accumulated.push(my_extra);

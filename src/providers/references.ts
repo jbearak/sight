@@ -322,8 +322,15 @@ export class ReferencesProvider {
                     && my_def.additional_definitions
                 ) {
                     for (const my_extra of my_def.additional_definitions) {
+                        // Gate by the extra's own URI, not the primary's
+                        // `sourceUri`. The analyzer currently guarantees they
+                        // match (all entries are pushed with `this.uri`), but
+                        // gating on the extra's URI keeps this branch correct
+                        // if that invariant is ever relaxed — e.g., a future
+                        // indexer path surfaces a cross-file redeclaration as
+                        // an `additional_definitions` entry.
                         if (the_allowed_uris) {
-                            const range = the_allowed_uris.get(my_def.sourceUri);
+                            const range = the_allowed_uris.get(my_extra.location.uri);
                             if (!range) continue;
                             if (
                                 range.scan_through_line !== undefined
