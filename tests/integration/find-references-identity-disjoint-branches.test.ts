@@ -56,9 +56,10 @@ describe('Find-references - disjoint branches (Rule 2 regression guard)', () => 
         // Two unrelated "analyses" that each define a program named `helper`.
         // No do/run/include edges between them — disjoint branches.
         const analysis_a_path = join(test_temp_dir, 'analysis_a.do');
+        const a_content = 'program define helper\n    di "A"\nend\nhelper\n';
         writeFileSync(
             analysis_a_path,
-            'program define helper\n    di "A"\nend\nhelper\n',
+            a_content,
         );
 
         const analysis_b_path = join(test_temp_dir, 'analysis_b.do');
@@ -70,7 +71,6 @@ describe('Find-references - disjoint branches (Rule 2 regression guard)', () => 
         await indexer.initialize([test_temp_dir]);
         const a_uri = URI.file(analysis_a_path).toString();
         const b_uri = URI.file(analysis_b_path).toString();
-        const a_content = 'program define helper\n    di "A"\nend\nhelper\n';
         await document_store.open(a_uri, a_content, 1);
         const document_state = document_store.get(a_uri)!;
 

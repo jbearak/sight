@@ -644,12 +644,25 @@ export class ReferencesProvider {
         // global macro both named `data_path`), so the declaration-range check
         // runs first and stays sync against document.symbols.
         const global_macro = document.symbols.globalMacros.get(word);
-        if (global_macro && this.position_in_range(range.start, global_macro.location.range)) {
+        if (
+            global_macro
+            && this.position_hits_symbol_definition(range.start, global_macro)
+        ) {
             return { name: word, type: 'global_macro', range };
         }
         const local_macro = document.symbols.localMacros.get(word);
-        if (local_macro && this.position_in_range(range.start, local_macro.location.range)) {
+        if (
+            local_macro
+            && this.position_hits_symbol_definition(range.start, local_macro)
+        ) {
             return { name: word, type: 'local_macro', range };
+        }
+        const program = document.symbols.programs.get(word);
+        if (
+            program
+            && this.position_hits_symbol_definition(range.start, program)
+        ) {
+            return { name: word, type: 'program', range };
         }
 
         // Scope-resolver path: the classifier asks ScopeResolver what symbols
@@ -1029,5 +1042,25 @@ export class ReferencesProvider {
             return false;
         }
         return true;
+    }
+
+    private position_hits_symbol_definition(
+        position: Position,
+        symbol: {
+            location: { range: Range };
+            additional_definitions?: Array<{
+                location: { range: Range };
+            }>;
+        }
+    ): boolean {
+        if (this.position_in_range(position, symbol.location.range)) {
+            return true;
+        }
+        for (const my_extra of symbol.additional_definitions ?? []) {
+            if (this.position_in_range(position, my_extra.location.range)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

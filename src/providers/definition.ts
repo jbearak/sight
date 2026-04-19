@@ -145,6 +145,7 @@ export class DefinitionProvider {
                 return await this.resolve_global_macro_only(
                     word,
                     document,
+                    position,
                     workspace_symbols,
                     scope_resolver,
                     workspace_indexer,
@@ -271,6 +272,7 @@ export class DefinitionProvider {
     private async resolve_global_macro_only(
         word: string,
         document: DocumentState,
+        position: Position,
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
@@ -287,7 +289,11 @@ export class DefinitionProvider {
                 cancellation_token
             );
 
-            const global_macro = resolved_scope.symbols.globalMacros.get(word);
+            const visible = get_visible_symbols_at(
+                resolved_scope,
+                position.line
+            );
+            const global_macro = visible.globalMacros.get(word);
             if (global_macro) {
                 // Walk chain and forward call sites (do/run/include all
                 // propagate globals) to collect cross-file redeclarations.
@@ -737,6 +743,7 @@ export class DefinitionProvider {
             return await this.resolve_global_macro_only(
                 word,
                 document,
+                position,
                 workspace_symbols,
                 scope_resolver,
                 workspace_indexer,
@@ -779,13 +786,19 @@ export class DefinitionProvider {
         document: DocumentState
     ): Definition | null {
         const global_macro = document.symbols.globalMacros.get(word);
-        if (global_macro && this.position_in_range(position, global_macro.location.range)) {
+        if (
+            global_macro
+            && this.position_hits_symbol_definition(position, global_macro)
+        ) {
             return this.locations_to_definition(
                 this.macro_symbol_to_locations(global_macro)
             );
         }
         const local_macro = document.symbols.localMacros.get(word);
-        if (local_macro && this.position_in_range(position, local_macro.location.range)) {
+        if (
+            local_macro
+            && this.position_hits_symbol_definition(position, local_macro)
+        ) {
             return this.locations_to_definition(
                 this.macro_symbol_to_locations(local_macro)
             );
@@ -820,6 +833,43 @@ export class DefinitionProvider {
             uri: def.location.uri,
             range: def.location.range,
         }));
+    }
+
+    private get_earliest_definition_line(locs: Location[]): number | undefined {
+        if (locs.length === 0) {
+            return undefined;
+        }
+        let earliest_line = locs[0].range.start.line;
+        for (const my_loc of locs) {
+            if (my_loc.range.start.line < earliest_line) {
+                earliest_line = my_loc.range.start.line;
+            }
+        }
+        return earliest_line;
+    }
+
+    private is_positional_macro_name(word: string): boolean {
+        return /^\d+$/.test(word);
+    }
+
+    private position_hits_symbol_definition(
+        position: Position,
+        symbol: {
+            location: { range: Range };
+            additional_definitions?: Array<{
+                location: { range: Range };
+            }>;
+        }
+    ): boolean {
+        if (this.position_in_range(position, symbol.location.range)) {
+            return true;
+        }
+        for (const my_extra of symbol.additional_definitions ?? []) {
+            if (this.position_in_range(position, my_extra.location.range)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -878,19 +928,26 @@ export class DefinitionProvider {
         position?: Position
     ): Location[] {
         const out: Location[] = [];
-        const local_macro = resolved_scope.symbols.localMacros.get(word);
-
-        if (local_macro) {
-            out.push(...this.macro_symbol_to_locations(local_macro));
-            for (const my_entry of resolved_scope.chain) {
-                const my_chain_macro =
-                    my_entry.symbols.localMacros.get(word);
-                if (my_chain_macro) {
-                    out.push(
-                        ...this.macro_symbol_to_locations(my_chain_macro)
-                    );
-                }
+        const should_include_candidate = (macro_symbol: MacroSymbol): boolean => {
+            if (!position || this.is_positional_macro_name(word)) {
+                return true;
             }
+            const my_locations = this.macro_symbol_to_locations(macro_symbol);
+            const my_earliest_line =
+                this.get_earliest_definition_line(my_locations);
+            return my_earliest_line === undefined
+                || my_earliest_line <= position.line;
+        };
+        const push_candidate = (macro_symbol: MacroSymbol | undefined): void => {
+            if (!macro_symbol || !should_include_candidate(macro_symbol)) {
+                return;
+            }
+            out.push(...this.macro_symbol_to_locations(macro_symbol));
+        };
+
+        push_candidate(resolved_scope.symbols.localMacros.get(word));
+        for (const my_entry of resolved_scope.chain) {
+            push_candidate(my_entry.symbols.localMacros.get(word));
         }
 
         for (const my_site of resolved_scope.forward_call_symbols ?? []) {
@@ -1178,7 +1235,11 @@ export class DefinitionProvider {
         // 2. Check global macros
         const global_macro =
             document.symbols.globalMacros.get(word) ||
-            workspace_symbols?.globalMacros.get(word);
+            (
+                (!workspace_indexer || cross_global_locs.length > 0)
+                    ? workspace_symbols?.globalMacros.get(word)
+                    : undefined
+            );
         if (global_macro) {
             const out: Location[] =
                 this.macro_symbol_to_locations(global_macro);

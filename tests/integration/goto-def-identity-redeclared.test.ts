@@ -10,6 +10,24 @@ import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { URI } from 'vscode-uri';
 
+type NormalizedDefinitionLocation = {
+    uri: string;
+    range: { start: { line: number } };
+};
+
+function normalize_locations(
+    result: Awaited<ReturnType<DefinitionProvider['get_definition']>>
+): NormalizedDefinitionLocation[] {
+    if (!result) {
+        return [];
+    }
+    const the_locations = Array.isArray(result) ? result : [result];
+    return the_locations.map((my_loc) => ({
+        uri: my_loc.uri,
+        range: { start: { line: my_loc.range.start.line } },
+    }));
+}
+
 describe('Go-to-definition - redeclared same-identity symbols', () => {
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
@@ -218,7 +236,7 @@ describe('Go-to-definition - redeclared same-identity symbols', () => {
         );
 
         expect(Array.isArray(result)).toBe(true);
-        const locations = result as any[];
+        const locations = normalize_locations(result);
         const uris = new Set(locations.map(loc => loc.uri));
         expect(uris.has(main_uri)).toBe(true);
         expect(uris.has(lib_uri)).toBe(true);
@@ -538,7 +556,7 @@ describe('Go-to-definition - cross-file chain walking', () => {
         );
 
         expect(Array.isArray(result)).toBe(true);
-        const locations = result as any[];
+        const locations = normalize_locations(result);
         const uris = new Set(locations.map(loc => loc.uri));
         expect(uris.has(earlier_uri)).toBe(true);
         expect(uris.has(later_uri)).toBe(true);

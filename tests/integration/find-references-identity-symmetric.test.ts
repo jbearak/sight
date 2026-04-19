@@ -46,8 +46,8 @@ describe('Find-references - symmetric reachability', () => {
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
+        try { scope_resolver?.dispose(); } catch (_err) { /* ignore disposal error */ }
+        try { forward_scope_resolver?.dispose(); } catch (_err) { /* ignore disposal error */ }
         if (existsSync(test_temp_dir)) {
             rmSync(test_temp_dir, { recursive: true, force: true });
         }

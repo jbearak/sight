@@ -329,7 +329,7 @@ describe('Hover redefinition footer - cross-file variants', () => {
             const content = result?.contents as MarkupContent | null;
             expect(content).not.toBeNull();
             const text = content!.value;
-            expect(text).toMatch(/Redefined in \d+ other files?/);
+            expect(text).toContain('Redefined in 2 other files');
         } finally {
             if (existsSync(test_temp_dir)) rmSync(test_temp_dir, { recursive: true, force: true });
         }

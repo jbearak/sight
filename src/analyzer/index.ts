@@ -1368,7 +1368,7 @@ export class SemanticAnalyzer {
                 name: scalar_name,
                 location: { uri: this.uri, range: node.varlist![0].range },
                 sourceUri: this.uri,
-                definition_line: node.range.start.line,
+                definition_line: node.varlist![0].range.start.line,
             })
         );
     }
@@ -1413,7 +1413,7 @@ export class SemanticAnalyzer {
                 name: matrix_name,
                 location: { uri: this.uri, range: name_range },
                 sourceUri: this.uri,
-                definition_line: node.range.start.line,
+                definition_line: name_range.start.line,
             })
         );
     }

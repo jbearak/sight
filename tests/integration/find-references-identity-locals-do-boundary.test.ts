@@ -47,8 +47,8 @@ describe('Find-references - local macro do/run boundary (regression guard)', () 
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
+        try { scope_resolver?.dispose(); } catch { /* cleanup */ }
+        try { forward_scope_resolver?.dispose(); } catch { /* cleanup */ }
         if (existsSync(test_temp_dir)) {
             rmSync(test_temp_dir, { recursive: true, force: true });
         }

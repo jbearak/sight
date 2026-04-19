@@ -265,6 +265,21 @@ function can_reference_forward_site(
     return site.effective_type === 'include';
 }
 
+function current_file_promotion_allowed(
+    symbol_type: ReferenceScopedSymbolType,
+    active_symbol_identity: string | undefined,
+    current_uri: string,
+    include_only_ancestry: boolean,
+): boolean {
+    if (active_symbol_identity !== current_uri) {
+        return false;
+    }
+    if (symbol_type !== 'local_macro') {
+        return true;
+    }
+    return include_only_ancestry;
+}
+
 /**
  * URIs in the query file's immediate scope chain + forward calls that should
  * participate in find-references for the queried `(type, name)`. Under Rule 1
@@ -386,7 +401,11 @@ export function collect_visible_reference_uris(
         return { include: false };
     };
 
+    let include_only_ancestry: boolean = true;
     for (const my_entry of scope.chain) {
+        const entry_has_include_only_ancestry: boolean =
+            include_only_ancestry
+            && my_entry.directive_type === 'included-by';
         let entry_visible_symbols = clone_symbol_table(my_entry.symbols);
 
         const the_entry_sites =
@@ -416,7 +435,12 @@ export function collect_visible_reference_uris(
             // This is a variant of case 4 — passed into classify_site so
             // redeclaration handling (case 2) still applies correctly.
             const site_is_after_current_file_call =
-                active_symbol_identity === current_uri &&
+                current_file_promotion_allowed(
+                    symbol_type,
+                    active_symbol_identity,
+                    current_uri,
+                    entry_has_include_only_ancestry,
+                ) &&
                 my_site.call_line > my_entry.call_site_line;
             if (can_reference_forward_site(symbol_type, my_site)) {
                 const verdict = classify_site(
@@ -453,13 +477,19 @@ export function collect_visible_reference_uris(
             ) !== undefined;
         const chain_entry_references_active =
             entry_has_same_kind_symbol ||
-            active_symbol_identity === current_uri;
+            current_file_promotion_allowed(
+                symbol_type,
+                active_symbol_identity,
+                current_uri,
+                entry_has_include_only_ancestry,
+            );
         if (
             can_reference_chain_entry(symbol_type, my_entry.directive_type) &&
             chain_entry_references_active
         ) {
             add_uri_to_result(my_entry.uri, {});
         }
+        include_only_ancestry = entry_has_include_only_ancestry;
     }
 
     let current_visible_symbols = clone_symbol_table(scope.symbols);

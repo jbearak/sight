@@ -51,8 +51,8 @@ describe('Go-to-definition - local macro do/run boundary', () => {
     });
 
     afterEach(() => {
-        try { pipeline?.scope_resolver?.dispose(); } catch {}
-        try { pipeline?.forward_scope_resolver?.dispose(); } catch {}
+        try { pipeline?.scope_resolver?.dispose(); } catch (_err) { /* ignore cleanup error */ }
+        try { pipeline?.forward_scope_resolver?.dispose(); } catch (_err) { /* ignore cleanup error */ }
         if (existsSync(test_temp_dir)) {
             rmSync(test_temp_dir, { recursive: true, force: true });
         }

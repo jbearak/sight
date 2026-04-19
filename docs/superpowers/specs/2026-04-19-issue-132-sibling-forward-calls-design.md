@@ -18,7 +18,7 @@ That pre-filter is correct for scope-resolution merging (it determines what symb
 
 Concrete example from the issue:
 
-```
+```stata
 caller.do:
   include callee.do        ← line 0
   include other.do         ← line 1
@@ -103,7 +103,7 @@ Callers that only need URI membership keep using `.has(uri)` (Map supports it). 
 For any site (chain-entry forward call or current-file forward call) under consideration in `collect_visible_reference_uris`:
 
 1. **Defines active.** If the site defines the active symbol (identity match on this site's symbol table entry) → include `site.callee_uri` with `{ scan_through_line: undefined }`.
-2. **Inherits then redeclares.** If the site redeclares the same name with a different identity **and** the symbol was visible in the accumulated pre-site state (`symbol_visible_before_site` is true) **and** the redeclaration is same-file (site's symbol entry has `location.uri === site.callee_uri`) → include `site.callee_uri` with `{ scan_through_line: redeclaration_line }`, where `redeclaration_line = site.symbols.<kind>.get(name)!.location.range.start.line`. Pre-redeclaration references in the callee are unambiguously to the active symbol; references on the redeclaration line itself (e.g., `local fruit = "\`fruit'"`) are also to the pre-shadow value because the Stata scan only matches `MACRO_REF_LOCAL` / `MACRO_REF_GLOBAL` / `WORD` tokens, not declaration tokens.
+2. **Inherits then redeclares.** If the site redeclares the same name with a different identity **and** the symbol was visible in the accumulated pre-site state (`symbol_visible_before_site` is true) **and** the redeclaration is same-file (site's symbol entry has `location.uri === site.callee_uri`) → include `site.callee_uri` with `{ scan_through_line: redeclaration_line }`, where `redeclaration_line = site.symbols.<kind>.get(name)!.location.range.start.line`. Pre-redeclaration references in the callee are unambiguously to the active symbol; references on the redeclaration line itself (e.g., ``local fruit = "`fruit'"``) are also to the pre-shadow value because the Stata scan only matches `MACRO_REF_LOCAL` / `MACRO_REF_GLOBAL` / `WORD` tokens, not declaration tokens.
 3. **Transitive redeclaration.** If the site redeclares with a different identity **and** the redeclaration is not same-file (the shadowing symbol was declared elsewhere and surfaces via this site) → fall back to today's conservative whole-file exclusion. Do not add the URI. Refining transitive cases is out of scope here.
 4. **Inherits only.** If `symbol_visible_before_site` is true and the site does not redeclare → include `site.callee_uri` with `{ scan_through_line: undefined }`.
 5. **Neither defines nor inherits.** Do not add.
@@ -222,7 +222,7 @@ Both modes must produce identical reference results. The pipeline wiring (`Docum
 **Scenario 7a — Whole-file exclusion when redeclaring sibling does not inherit.** `current.do`: `do "earlier.do"` then `do "later.do"`. Both files independently define `program shared_prog` (different identities). Cursor on a reference to `shared_prog` in `current.do` (active = `later.do`). `earlier.do` does not inherit `later.do`'s symbol; its pre-redeclaration references cannot target the active symbol. Expect `earlier.do` NOT in the result.
 
 **Scenario 7b — Position-aware filtering when redeclaring sibling inherits then redeclares.** `caller.do`: `include first.do` then `include second.do`. `first.do` defines `local fruit "apple"`. `second.do` body:
-```
+```stata
 display "`fruit' one"
 local fruit "orange"
 display "`fruit' two"
@@ -274,7 +274,7 @@ Single PR, sequenced per-commit. Every commit must pass `bun run test` and `bun 
 
 - **Performance.** `resolve_parent_forward_calls` resolves strictly more calls per invocation (post-site siblings too). Memoization in `ForwardScopeResolver` and `ScopeResolver`'s `file_parse_cache` bounds the marginal cost to one parse + resolve per newly-visited callee. No measured perf concern expected; no benchmark planned.
 - **Transitive-redeclare edge.** Case 3 in the refined rule (transitive shadowing through a non-same-file redeclaration) preserves today's conservative exclusion. A future issue may refine this further; it is out of scope here.
-- **Same-line redeclare subtlety.** The `scan_through_line` comparison uses `<=` (match included when line ≤ cutoff). A reference on the redeclaration line itself (e.g., the RHS of `local fruit = "\`fruit'"`) is correctly included: Stata's last-assignment semantics mean the RHS sees the pre-shadow value, and the token scanner does not match declaration tokens on the LHS.
+- **Same-line redeclare subtlety.** The `scan_through_line` comparison uses `<=` (match included when line ≤ cutoff). A reference on the redeclaration line itself (e.g., the RHS of ``local fruit = "`fruit'"``) is correctly included: Stata's last-assignment semantics mean the RHS sees the pre-shadow value, and the token scanner does not match declaration tokens on the LHS.
 - **Auto/explicit parity.** The doubled integration tests lock the invariant explicitly. Future changes to auto backward discovery must preserve this parity or the sibling-forward-calls test will catch the regression.
 
 ## Related

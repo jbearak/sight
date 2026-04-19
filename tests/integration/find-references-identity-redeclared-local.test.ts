@@ -105,8 +105,9 @@ describe('Find-references - redeclared local (same file)', () => {
             .map(loc => loc.range.start.line)
             .sort((a, b) => a - b);
 
-        expect(ref_lines).toContain(1);
-        expect(ref_lines).toContain(3);
+        expect(ref_lines).toEqual([1, 3]);
+        expect(ref_lines).not.toContain(0);
+        expect(ref_lines).not.toContain(2);
     });
 });
 
@@ -136,8 +137,8 @@ describe('Find-references - in-chain identity (cross-file, ScopeResolver wired)'
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
+        try { scope_resolver?.dispose(); } catch (_err) { /* ignore disposal error */ }
+        try { forward_scope_resolver?.dispose(); } catch (_err) { /* ignore disposal error */ }
         if (existsSync(test_temp_dir)) {
             rmSync(test_temp_dir, { recursive: true, force: true });
         }

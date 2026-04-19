@@ -42,7 +42,16 @@ We adopt two related rules:
 
 ### Rule 1 — Same-identity for redeclarations within the reachable chain
 
-Two declarations of the same name, same kind, within the scope chain that is reachable from the cursor's file are **the same symbol**. This applies whether the redeclarations sit in the same file, in sibling branches of an `if/else`, in a parent and a do-called child, or anywhere else in the reachable chain.
+Rule 1 says two declarations of the same name, same kind, within the scope
+chain that is reachable from the cursor's file are **the same symbol**. This
+applies whether the redeclarations sit in the same file, in sibling branches of
+an `if/else`, or anywhere else in the reachable chain, **except for local
+macros across parent/`do`-called child boundaries**.
+
+For local macros, Rule 1 only unifies the include chain, not `do`/`run`
+boundaries. See Rule 3 and the three-tier scoping summary: local macros =
+include-chain only; globals/programs/scalars/matrices = full
+`do`/`run`/`include` dep graph; variables = workspace-wide identity.
 
 **What "reachable chain" means differs by symbol kind**, matching Stata's scoping rules exactly:
 
