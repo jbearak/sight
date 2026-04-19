@@ -1419,3 +1419,46 @@ describe('Completion Provider', () => {
     });
 });
 
+describe('Out-of-scope ranking', () => {
+    it('should rank out-of-scope items below in-scope items for the same symbol type', () => {
+        const { compute_ranking_key } = require('../../src/providers/completion');
+        const in_scope_key = compute_ranking_key({
+            scope_depth: 0,
+            directive_type: 'current',
+            symbol_type: 'global-macro',
+            alphabetical_order: 'zzz',
+            parent_uri: 'file:///a.do',
+        });
+        const out_of_scope_key = compute_ranking_key({
+            scope_depth: 0,
+            directive_type: 'out-of-scope',
+            symbol_type: 'global-macro',
+            alphabetical_order: 'aaa',
+            parent_uri: 'file:///b.do',
+        });
+        expect(in_scope_key < out_of_scope_key).toBe(true);
+    });
+
+    it('should keep in-scope symbol-type tiering above out-of-scope entries of other categories', () => {
+        const { compute_ranking_key } = require('../../src/providers/completion');
+        const in_scope_local = compute_ranking_key({
+            scope_depth: 0,
+            directive_type: 'current',
+            symbol_type: 'local-macro',
+            alphabetical_order: 'x',
+            parent_uri: 'file:///a.do',
+        });
+        const out_of_scope_program = compute_ranking_key({
+            scope_depth: 0,
+            directive_type: 'out-of-scope',
+            symbol_type: 'user-program',
+            alphabetical_order: 'x',
+            parent_uri: 'file:///b.do',
+        });
+        // Programs (priority 0) still sort before locals (10), but both compare
+        // the existing scope+directive prefix first; an out-of-scope program
+        // must sort AFTER an in-scope local of the same name.
+        expect(in_scope_local < out_of_scope_program).toBe(true);
+    });
+});
+

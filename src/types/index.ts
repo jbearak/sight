@@ -742,7 +742,7 @@ export interface CallEdgeDiff {
 // Completion Ranking Types
 export interface CompletionRankingFactors {
   scope_depth: number;
-  directive_type: 'done-by' | 'included-by' | 'current';
+  directive_type: 'done-by' | 'included-by' | 'current' | 'out-of-scope';
   symbol_type: 'builtin' | 'user-program' | 'program-argument' | 'local-macro' | 'global-macro' | 'variable' | 'scalar' | 'matrix';
   alphabetical_order: string;
   parent_uri?: string;

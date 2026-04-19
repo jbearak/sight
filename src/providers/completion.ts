@@ -68,13 +68,14 @@ function map_effective_type_to_directive(effective_type: 'include' | 'do'): 'inc
  * Lower values indicate higher priority.
  */
 export function compute_ranking_key(factors: CompletionRankingFactors): string {
-    // Priority order (lexicographic): scope_depth (0-9), directive_type (0-2), symbol_type (00-63), parent_uri, alphabetical.
+    // Priority order (lexicographic): scope_depth (0-9), directive_type (0-3), symbol_type (00-63), parent_uri, alphabetical.
     // NOTE: Avoid NUL (\0) padding in sortText. Some clients/editors can behave oddly with NULs.
     const scope_priority = Math.min(factors.scope_depth, 9);
 
     const directive_priority =
         factors.directive_type === 'current' ? 0 :
-        factors.directive_type === 'included-by' ? 1 : 2;
+        factors.directive_type === 'included-by' ? 1 :
+        factors.directive_type === 'done-by' ? 2 : 3;
 
     let symbol_priority: number;
     if (factors.symbol_type === 'user-program') {
