@@ -504,11 +504,13 @@ for (const my_mode of THE_MODES) {
                         `// @lsp-done-by: current.do\n` +
                         `program define shared_prog\n` +
                         `  di "later"\n` +
-                        `end\n`,
+                        `end\n` +
+                        `shared_prog\n`,
                     auto:
                         `program define shared_prog\n` +
                         `  di "later"\n` +
-                        `end\n`,
+                        `end\n` +
+                        `shared_prog\n`,
                 },
             ];
             write_fixture(test_temp_dir, my_mode, the_files);
@@ -539,7 +541,10 @@ for (const my_mode of THE_MODES) {
 
             const earlier_uri =
                 URI.file(join(test_temp_dir, 'earlier.do')).toString();
+            const later_uri =
+                URI.file(join(test_temp_dir, 'later.do')).toString();
             expect(locations.some(loc => loc.uri === earlier_uri)).toBe(false);
+            expect(locations.some(loc => loc.uri === later_uri)).toBe(true);
         });
 
         it('scenario 8: includeDeclaration=true returns declaration plus sibling references without duplicates', async () => {

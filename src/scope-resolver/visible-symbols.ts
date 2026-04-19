@@ -342,9 +342,13 @@ export function collect_visible_reference_uris(
                 symbol_name,
                 active_symbol_identity,
             );
-            // A sibling called after the current file (call_line >
-            // call_site_line) can reference the current file's symbols
-            // because the current file has already executed by then.
+            // A sibling called after the current file (call_line > call_site_line)
+            // can reference the current file's symbols because the current file has
+            // already executed by then. The other two branches
+            // (symbol_visible_before_site, site_defines_active_symbol) cannot cover
+            // this case: ForwardScopeResolver's cycle detection excludes the
+            // current file from the parent's forward-call resolution, so its
+            // symbols never appear in entry_visible_symbols.
             const site_is_after_current_file_call =
                 active_symbol_identity === current_uri &&
                 my_site.call_line > my_entry.call_site_line;
