@@ -190,17 +190,32 @@ export class ReferencesProvider {
         switch (symbol_type) {
             case 'local_macro': {
                 const local_macro = symbols.localMacros.get(symbol_name);
-                if (local_macro) push({ uri: local_macro.location.uri, range: local_macro.location.range });
+                if (local_macro) {
+                    push({ uri: local_macro.location.uri, range: local_macro.location.range });
+                    for (const my_extra of local_macro.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
             case 'global_macro': {
                 const global_macro = symbols.globalMacros.get(symbol_name);
-                if (global_macro) push({ uri: global_macro.location.uri, range: global_macro.location.range });
+                if (global_macro) {
+                    push({ uri: global_macro.location.uri, range: global_macro.location.range });
+                    for (const my_extra of global_macro.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
             case 'program': {
                 const program = symbols.programs.get(symbol_name);
-                if (program) push({ uri: program.location.uri, range: program.location.range });
+                if (program) {
+                    push({ uri: program.location.uri, range: program.location.range });
+                    for (const my_extra of program.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
             case 'variable': {
@@ -210,12 +225,22 @@ export class ReferencesProvider {
             }
             case 'scalar': {
                 const scalar = symbols.scalars.get(symbol_name);
-                if (scalar) push({ uri: scalar.location.uri, range: scalar.location.range });
+                if (scalar) {
+                    push({ uri: scalar.location.uri, range: scalar.location.range });
+                    for (const my_extra of scalar.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
             case 'matrix': {
                 const matrix = symbols.matrices.get(symbol_name);
-                if (matrix) push({ uri: matrix.location.uri, range: matrix.location.range });
+                if (matrix) {
+                    push({ uri: matrix.location.uri, range: matrix.location.range });
+                    for (const my_extra of matrix.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
         }
@@ -275,6 +300,27 @@ export class ReferencesProvider {
                     }
                 }
                 push({ uri: my_def.location.uri, range: my_def.location.range });
+                // Issue #135: pool same-name redeclarations tracked in
+                // additional_definitions. Variables are excluded because
+                // variable symbols don't carry this field.
+                if (
+                    'additional_definitions' in my_def
+                    && my_def.additional_definitions
+                ) {
+                    for (const my_extra of my_def.additional_definitions) {
+                        if (the_allowed_uris) {
+                            const range = the_allowed_uris.get(my_def.sourceUri);
+                            if (!range) continue;
+                            if (
+                                range.scan_through_line !== undefined
+                                && my_extra.location.range.start.line >= range.scan_through_line
+                            ) {
+                                continue;
+                            }
+                        }
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
             }
         }
 
