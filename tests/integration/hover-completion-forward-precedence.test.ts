@@ -43,8 +43,16 @@ describe('hover/completion forward-call precedence', () => {
     });
 
     afterEach(() => {
-        try { pipeline?.scope_resolver?.dispose(); } catch {}
-        try { pipeline?.forward_scope_resolver?.dispose(); } catch {}
+        try {
+            pipeline?.scope_resolver?.dispose();
+        } catch {
+            // ignore errors during teardown
+        }
+        try {
+            pipeline?.forward_scope_resolver?.dispose();
+        } catch {
+            // ignore errors during teardown
+        }
         if (existsSync(test_temp_dir)) {
             rmSync(test_temp_dir, { recursive: true, force: true });
         }

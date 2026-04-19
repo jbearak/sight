@@ -1084,7 +1084,13 @@ export class CompletionProvider {
             return [];
         }
         
-        const cache_context = 'command';
+        // Include cursor line in cache context because the caller passes
+        // `symbols` that were computed via get_visible_symbols_at(...,
+        // position.line) and a visible_forward_overlay scoped to the same
+        // line. Without the line in the key, completions from one cursor
+        // position could be served for another position on the same document
+        // version, producing stale/mis-scoped results.
+        const cache_context = `command:${position.line}`;
         const document_version = document.version || 0;
 
         // Check cache first
