@@ -1462,3 +1462,106 @@ describe('Out-of-scope ranking', () => {
     });
 });
 
+describe('Out-of-scope global macro completion', () => {
+    let command_db: CommandDatabase;
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should list workspace globals as out-of-scope when no directives link the file', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('display $f', { globalMacros: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.globalMacros.set('foo_cfg', {
+            name: 'foo_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///helper.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///helper.do',
+            containingScope: 'dofile',
+            definition_line: 0,
+        } as any);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 10 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const foo = completions.find(c => c.label === 'foo_cfg');
+        expect(foo).toBeDefined();
+        expect(foo!.detail).toContain('out of scope');
+        expect(foo!.detail).toContain('helper.do');
+    });
+
+    it('should still emit in-scope document globals alongside out-of-scope workspace globals', async () => {
+        const uri = 'file:///test.do';
+        const local_globals = new Map();
+        local_globals.set('here_cfg', {
+            name: 'here_cfg',
+            scope: 'global',
+            location: {
+                uri,
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: uri,
+            containingScope: 'dofile',
+            definition_line: 0,
+        });
+        const doc = create_test_document('display $', { globalMacros: local_globals });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.globalMacros.set('there_cfg', {
+            name: 'there_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///other.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///other.do',
+            containingScope: 'dofile',
+            definition_line: 0,
+        } as any);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 9 },
+            '$',
+            undefined,
+            workspace_symbols
+        );
+        const here = completions.find(c => c.label === 'here_cfg');
+        const there = completions.find(c => c.label === 'there_cfg');
+        expect(here).toBeDefined();
+        expect(there).toBeDefined();
+        expect((here!.detail || '')).not.toContain('out of scope');
+        expect((there!.detail || '')).toContain('out of scope');
+        // Out-of-scope sorts after in-scope.
+        expect(here!.sortText! < there!.sortText!).toBe(true);
+    });
+});
+

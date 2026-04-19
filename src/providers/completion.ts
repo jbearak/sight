@@ -773,9 +773,13 @@ export class CompletionProvider {
 
         // Global-Mode rule: local macros are only visible from the current file.
         // Strip workspace localMacros; keep the document's own localMacros.
+        // Workspace globals are surfaced through the out-of-scope partition
+        // (callers receive them via `out_of_scope_symbols`), so they should
+        // not enter the in-scope bag silently.
         return {
             ...merged,
             localMacros: new Map(document_symbols.localMacros),
+            globalMacros: new Map(document_symbols.globalMacros),
         };
     }
 
@@ -816,6 +820,57 @@ export class CompletionProvider {
         });
         
         return merged_symbols;
+    }
+
+    /**
+     * Build an `out_of_scope` view of workspace symbols for completion.
+     *
+     * Includes workspace globals, programs, scalars, and matrices that are:
+     *   - not already present (by name) in the `in_scope` bag for the same kind, and
+     *   - not defined in the current document.
+     *
+     * `localMacros` and `variables` are always returned as empty maps:
+     *   - Local macros are file-scoped and never show up as out-of-scope.
+     *   - Variables stay workspace-wide via the existing in-scope path.
+     */
+    private partition_symbols_for_completion(
+        document: DocumentState,
+        workspace_symbols: SymbolTable | undefined,
+        in_scope: SymbolTable
+    ): SymbolTable {
+        const empty: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        if (!workspace_symbols) {
+            return empty;
+        }
+
+        const keep_out_of_scope = <T extends { sourceUri: string }>(
+            workspace_map: Map<string, T>,
+            in_scope_map: Map<string, unknown>,
+        ): Map<string, T> => {
+            const out = new Map<string, T>();
+            for (const [name, symbol] of workspace_map) {
+                if (symbol.sourceUri === document.uri) continue;
+                if (in_scope_map.has(name)) continue;
+                out.set(name, symbol);
+            }
+            return out;
+        };
+
+        return {
+            programs: keep_out_of_scope(workspace_symbols.programs, in_scope.programs),
+            localMacros: new Map(),
+            globalMacros: keep_out_of_scope(workspace_symbols.globalMacros, in_scope.globalMacros),
+            variables: new Map(),
+            scalars: keep_out_of_scope(workspace_symbols.scalars, in_scope.scalars),
+            matrices: keep_out_of_scope(workspace_symbols.matrices, in_scope.matrices),
+        };
     }
 
     /**
@@ -966,6 +1021,12 @@ export class CompletionProvider {
                 );
             }
 
+            const out_of_scope_symbols = this.partition_symbols_for_completion(
+                document,
+                workspace_symbols,
+                symbols_for_completion,
+            );
+
             // === SYNC PHASE: Generate completions ===
             const the_completions: CompletionItem[] = [];
 
@@ -995,6 +1056,7 @@ export class CompletionProvider {
                         document,
                         position,
                         symbols_for_completion,
+                        out_of_scope_symbols,
                         resolved_scope
                     );
                     the_completions.push(...macro_completions);
@@ -1025,7 +1087,7 @@ export class CompletionProvider {
 
                 case 'macro':
                     // Always provide macro completions (macros work in all contexts)
-                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, resolved_scope);
+                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'variable':
                     // Suppress variable completions in embedded language contexts
@@ -1531,6 +1593,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
+        out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         // Use context.form to determine scope and delimiter behavior
@@ -1712,6 +1775,48 @@ export class CompletionProvider {
                         newText: new_text,
                     },
                 });
+            }
+        }
+
+        // Out-of-scope pass: emit workspace globals that aren't part of the
+        // in-scope bag, labelled so the user sees that accepting them will
+        // trigger an undefined-symbol diagnostic. Skip entirely for locals —
+        // local macros are file-scoped and never offered workspace-wide.
+        const scope_is_local = context.scope === 'local';
+        if (!scope_is_local) {
+            const out_map = out_of_scope.globalMacros;
+            for (const [name, macro] of out_map) {
+                const name_lower = name.toLowerCase();
+                if (!(prefix === '' || name_lower.startsWith(prefix_lower))) {
+                    continue;
+                }
+                if (seen_labels.has(name)) {
+                    continue;
+                }
+
+                const ranking_factors: CompletionRankingFactors = {
+                    scope_depth: 0,
+                    directive_type: 'out-of-scope',
+                    symbol_type: 'global-macro',
+                    alphabetical_order: name,
+                    parent_uri: macro.sourceUri,
+                };
+
+                const source_path = this.get_relative_path(macro.sourceUri);
+                const new_text = name + (needs_closing_delimiter ? closing_char : '');
+
+                the_completions.push({
+                    label: name,
+                    kind: CompletionItemKind.Variable,
+                    detail: `global macro (out of scope — from ${source_path})`,
+                    documentation: macro.value ? `Value: ${macro.value}` : undefined,
+                    sortText: compute_ranking_key(ranking_factors),
+                    textEdit: {
+                        range: replacement_range,
+                        newText: new_text,
+                    },
+                });
+                seen_labels.add(name);
             }
         }
 
