@@ -2,13 +2,25 @@ import { init_tracker_from_source } from '../test-context-helper';
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { DocumentState } from '../../src/document-store';
-import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ForwardResolvedScope } from '../../src/types';
+import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope } from '../../src/types';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { ContextTracker } from '../../src/context-tracker';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
 import { create_empty_symbol_table } from '../../src/analyzer';
+import { ScopeResolver } from '../../src/scope-resolver';
+
+/**
+ * Wire a stub ScopeResolver whose .resolve() returns the provided
+ * ResolvedScope. Used to exercise forward-call symbol filtering and
+ * directive-diagnostic emission without standing up a full resolver.
+ */
+function make_stub_scope_resolver(resolved_scope: ResolvedScope): ScopeResolver {
+    const the_stub = new ScopeResolver();
+    (the_stub as any).resolve = async () => resolved_scope;
+    return the_stub;
+}
 
 // Mock connection for testing
 function create_mock_connection() {
@@ -795,17 +807,21 @@ display \`result'
     describe('forward-scope diagnostics', () => {
         it('should include forward-scope diagnostics for missing file', async () => {
             const document = create_document_state('do "missing.do"\n');
-            const forward_scope: ForwardResolvedScope = {
+            const resolved_scope: ResolvedScope = {
+                chain: [],
                 symbols: create_empty_symbol_table(),
-                call_sites: [],
+                out_of_scope_symbols: [],
                 diagnostics: [{
                     message: 'Cannot read file: missing.do',
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 15 } },
                     severity: 'warning',
                 }],
+                has_directives: false,
+                has_auto_parents: false,
             };
-            const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, undefined, undefined, forward_scope);
-            
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+            const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, stub_resolver);
+
             const missing_file_diag = the_diagnostics.find(d => d.message.includes('Cannot read file'));
             expect(missing_file_diag).toBeDefined();
             // Default severity for missing_file is Information when not configured
@@ -814,17 +830,21 @@ display \`result'
 
         it('should include forward-scope diagnostics for max depth exceeded', async () => {
             const document = create_document_state('do "deep.do"\n');
-            const forward_scope: ForwardResolvedScope = {
+            const resolved_scope: ResolvedScope = {
+                chain: [],
                 symbols: create_empty_symbol_table(),
-                call_sites: [],
+                out_of_scope_symbols: [],
                 diagnostics: [{
                     message: 'Maximum forward depth (10) exceeded',
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 12 } },
                     severity: 'warning',
                 }],
+                has_directives: false,
+                has_auto_parents: false,
             };
-            const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, undefined, undefined, forward_scope);
-            
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+            const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, stub_resolver);
+
             const max_depth_diag = the_diagnostics.find(d => d.message.includes('Maximum forward depth'));
             expect(max_depth_diag).toBeDefined();
             expect(max_depth_diag?.severity).toBe(DiagnosticSeverity.Warning);
@@ -832,17 +852,21 @@ display \`result'
 
         it('should include forward-scope diagnostics for circular dependency', async () => {
             const document = create_document_state('do "cycle.do"\n');
-            const forward_scope: ForwardResolvedScope = {
+            const resolved_scope: ResolvedScope = {
+                chain: [],
                 symbols: create_empty_symbol_table(),
-                call_sites: [],
+                out_of_scope_symbols: [],
                 diagnostics: [{
                     message: 'Circular dependency detected: cycle.do',
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 13 } },
                     severity: 'warning',
                 }],
+                has_directives: false,
+                has_auto_parents: false,
             };
-            const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, undefined, undefined, forward_scope);
-            
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+            const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, stub_resolver);
+
             const cycle_diag = the_diagnostics.find(d => d.message.includes('Circular dependency'));
             expect(cycle_diag).toBeDefined();
             expect(cycle_diag?.severity).toBe(DiagnosticSeverity.Warning);
@@ -850,16 +874,20 @@ display \`result'
 
         it('should respect missing_file config for forward-scope diagnostics', async () => {
             const document = create_document_state('do "missing.do"\n');
-            const forward_scope: ForwardResolvedScope = {
+            const resolved_scope: ResolvedScope = {
+                chain: [],
                 symbols: create_empty_symbol_table(),
-                call_sites: [],
+                out_of_scope_symbols: [],
                 diagnostics: [{
                     message: 'Cannot read file: missing.do',
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 15 } },
                     severity: 'warning',
                 }],
+                has_directives: false,
+                has_auto_parents: false,
             };
-            
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+
             // Test with missing_file: 'off'
             const off_config = {
                 ...DEFAULT_CONFIG,
@@ -869,7 +897,7 @@ display \`result'
                     },
                 },
             };
-            const off_diagnostics = await provider.get_diagnostics(document, off_config, undefined, undefined, undefined, forward_scope);
+            const off_diagnostics = await provider.get_diagnostics(document, off_config, undefined, stub_resolver);
             const off_missing = off_diagnostics.find(d => d.message.includes('Cannot read file'));
             expect(off_missing).toBeUndefined();
         });

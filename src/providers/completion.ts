@@ -29,8 +29,6 @@ import {
     ProgramSignature,
     ProgramNode,
     ProgramSymbol,
-    ForwardResolvedScope,
-    ForwardCallSite,
     ScopeResolverConfig,
 } from '../types';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
@@ -38,7 +36,12 @@ import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
 import { ScopeResolver } from '../scope-resolver';
 import { build_scope_resolver_config } from '../scope-resolver';
-import { merge_symbol_tables } from '../analyzer';
+import {
+    get_visible_forward_call_sites,
+    get_visible_symbols_at,
+    filter_forward_site_symbols,
+} from '../scope-resolver';
+import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
@@ -51,29 +54,6 @@ import {
     MacroCompletionContext
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
-
-/**
- * Get visible forward call symbols at a given position.
- * Symbols from forward calls are only visible AFTER the call site line.
- *
- * @param resolved_scope - The resolved scope containing forward_call_symbols
- * @param position - The cursor position
- * @returns Array of ForwardCallSite objects that are visible at the position
- */
-function get_visible_forward_call_sites(
-    resolved_scope: ResolvedScope | undefined,
-    position: Position
-): ForwardCallSite[] {
-    if (!resolved_scope?.forward_call_symbols) {
-        return [];
-    }
-
-    // Filter to only include call sites where cursor is AFTER the call line
-    // Symbols become visible after the call site line (cursor_line > call_line)
-    return resolved_scope.forward_call_symbols.filter(
-        call_site => position.line > call_site.call_line
-    );
-}
 
 /**
  * Map ForwardCallSite.effective_type to directive_type for ranking.
@@ -850,7 +830,6 @@ export class CompletionProvider {
      * @param scope_resolver - Optional scope resolver for cross-file awareness
      * @param workspace_symbols - Optional workspace-wide symbol table
      * @param cross_file_config - Optional cross-file config for scope resolution
-     * @param forward_scope - Optional forward-resolved scope for forward calls
      * @param workspace_version - Optional workspace version for cache validation
      * @param cancellation_token - Optional cancellation token
      * @returns Array of completion items
@@ -862,7 +841,6 @@ export class CompletionProvider {
         scope_resolver?: ScopeResolver,
         workspace_symbols?: SymbolTable,
         cross_file_config?: Partial<ScopeResolverConfig>,
-        forward_scope?: ForwardResolvedScope,
         workspace_version?: number,
         cancellation_token?: CancellationToken,
         graph_version?: number
@@ -931,19 +909,41 @@ export class CompletionProvider {
                 );
                 const has_directives = temp_scope.has_directives;
                 const has_auto_parents = temp_scope.has_auto_parents;
+                const visible_forward_overlay =
+                    this.get_annotated_visible_forward_symbols(
+                        temp_scope,
+                        position.line,
+                    );
 
                 if (has_directives || has_auto_parents) {
-                    // With directives: use reachable scope chain (precision)
+                    // With directives: use reachable scope chain (precision).
+                    // get_visible_symbols_at already resolves forward calls
+                    // with correct precedence; re-merging visible_forward_overlay
+                    // would let forward symbols win a second time. Instead, copy
+                    // annotations only onto entries whose winner is the forward-
+                    // call version.
                     resolved_scope = temp_scope;
-                    symbols_for_completion = temp_scope.symbols;
+                    symbols_for_completion = this.copy_forward_annotations(
+                        get_visible_symbols_at(temp_scope, position.line),
+                        visible_forward_overlay,
+                    );
                 } else if (workspace_symbols) {
                     // No directives: use cached merged symbols (workspace + document)
-                    symbols_for_completion = this.get_merged_symbols(
+                    const merged_workspace_symbols = this.get_merged_symbols(
                         workspace_symbols,
                         document.symbols,
                         document.uri,
                         document.version || 0,
-                        workspace_version || 0
+                        workspace_version || 0,
+                    );
+                    symbols_for_completion = merge_symbol_tables(
+                        merged_workspace_symbols,
+                        visible_forward_overlay,
+                    );
+                } else {
+                    symbols_for_completion = merge_symbol_tables(
+                        document.symbols,
+                        visible_forward_overlay,
                     );
                 }
             } else if (workspace_symbols) {
@@ -987,8 +987,7 @@ export class CompletionProvider {
                         document,
                         position,
                         symbols_for_completion,
-                        resolved_scope,
-                        forward_scope
+                        resolved_scope
                     );
                     the_completions.push(...macro_completions);
                     return the_completions;
@@ -1007,7 +1006,7 @@ export class CompletionProvider {
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_command_completions(document, position, symbols_for_completion, resolved_scope, forward_scope);
+                    return this.get_command_completions(document, position, symbols_for_completion, resolved_scope);
 
                 case 'option':
                     // Suppress option completions in embedded language contexts
@@ -1018,21 +1017,21 @@ export class CompletionProvider {
 
                 case 'macro':
                     // Always provide macro completions (macros work in all contexts)
-                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, resolved_scope, forward_scope);
+                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, resolved_scope);
 
                 case 'variable':
                     // Suppress variable completions in embedded language contexts
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_variable_completions(document, position, symbols_for_completion, resolved_scope, forward_scope);
+                    return this.get_variable_completions(document, position, symbols_for_completion, resolved_scope);
 
                 case 'program':
                     // Suppress program completions in embedded language contexts
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_program_completions(document, position, symbols_for_completion, resolved_scope, forward_scope);
+                    return this.get_program_completions(document, position, symbols_for_completion, resolved_scope);
 
                 case 'directive_path':
                     // File path completions for directives (e.g., @lsp-done-by:)
@@ -1076,8 +1075,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
-        resolved_scope?: ResolvedScope,
-        forward_scope?: ForwardResolvedScope
+        resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const prefix = this.get_word_at_position(document, position);
         
@@ -1086,7 +1084,13 @@ export class CompletionProvider {
             return [];
         }
         
-        const cache_context = 'command';
+        // Include cursor line in cache context because the caller passes
+        // `symbols` that were computed via get_visible_symbols_at(...,
+        // position.line) and a visible_forward_overlay scoped to the same
+        // line. Without the line in the key, completions from one cursor
+        // position could be served for another position on the same document
+        // version, producing stale/mis-scoped results.
+        const cache_context = `command:${position.line}`;
         const document_version = document.version || 0;
 
         // Check cache first
@@ -1105,19 +1109,15 @@ export class CompletionProvider {
             for (const [name, program] of symbols.programs) {
                 if (prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) {
                     seen_labels.add(name.toLowerCase());
-                    
-                    // Determine scope proximity for ranking
-                    let depth = 0;
-                    let directive_type: 'done-by' | 'included-by' | 'current' = 'current';
-                    if (resolved_scope && program.sourceUri !== document.uri) {
-                        const symbol_info = this.get_symbol_depth(program.sourceUri, resolved_scope);
-                        depth = symbol_info.depth;
-                        directive_type = symbol_info.directive_type;
-                    }
+                    const symbol_info = this.get_completion_symbol_provenance(
+                        program,
+                        document.uri,
+                        resolved_scope,
+                    );
                     
                     const ranking_factors: CompletionRankingFactors = {
-                        scope_depth: depth,
-                        directive_type,
+                        scope_depth: symbol_info.depth,
+                        directive_type: symbol_info.directive_type,
                         symbol_type: 'user-program',
                         alphabetical_order: program.name,
                         parent_uri: program.sourceUri
@@ -1125,9 +1125,8 @@ export class CompletionProvider {
                     
                     // Add source file annotation for cross-file symbols
                     let detail = 'User-defined program';
-                    if (resolved_scope && program.sourceUri !== document.uri) {
-                        const source_path = this.get_relative_path(program.sourceUri);
-                        detail += ` (from ${source_path})`;
+                    if (symbol_info.source_path) {
+                        detail += ` (from ${symbol_info.source_path})`;
                     }
                     
                     the_completions.push({
@@ -1137,74 +1136,6 @@ export class CompletionProvider {
                         documentation: `Defined at ${program.sourceUri}`,
                         sortText: compute_ranking_key(ranking_factors),
                     });
-                }
-            }
-        }
-
-        // Add forward scope symbols (from forward_scope parameter - legacy path)
-        if (forward_scope) {
-            const cursor_line = position.line;
-            for (const call_site of forward_scope.call_sites) {
-                if (call_site.call_line < cursor_line) {
-                    for (const [name, program] of call_site.symbols.programs) {
-                        if ((prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) && 
-                            !seen_labels.has(name.toLowerCase())) {
-                            seen_labels.add(name.toLowerCase());
-                            
-                            const ranking_factors: CompletionRankingFactors = {
-                                scope_depth: 1,
-                                directive_type: map_effective_type_to_directive(call_site.effective_type),
-                                symbol_type: 'user-program',
-                                alphabetical_order: program.name,
-                                parent_uri: program.sourceUri
-                            };
-                            
-                            const source_path = this.get_relative_path(program.sourceUri);
-                            const detail = `User-defined program (from ${source_path})`;
-                            
-                            the_completions.push({
-                                label: program.name,
-                                kind: CompletionItemKind.Function,
-                                detail,
-                                documentation: `Defined at ${program.sourceUri}`,
-                                sortText: compute_ranking_key(ranking_factors),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add forward call symbols from resolved_scope (position-aware filtering)
-        // This handles symbols from current file's forward call directives
-        // Programs are visible from both 'do' and 'include' types
-        if (resolved_scope?.forward_call_symbols) {
-            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position);
-            for (const my_call_site of the_visible_call_sites) {
-                for (const [name, program] of my_call_site.symbols.programs) {
-                    if ((prefix === '' || name.toLowerCase().startsWith(prefix.toLowerCase())) && 
-                        !seen_labels.has(name.toLowerCase())) {
-                        seen_labels.add(name.toLowerCase());
-                        
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(my_call_site.effective_type),
-                            symbol_type: 'user-program',
-                            alphabetical_order: program.name,
-                            parent_uri: program.sourceUri
-                        };
-                        
-                        const source_path = this.get_relative_path(program.sourceUri);
-                        const detail = `User-defined program (from ${source_path})`;
-                        
-                        the_completions.push({
-                            label: program.name,
-                            kind: CompletionItemKind.Function,
-                            detail,
-                            documentation: `Defined at ${program.sourceUri}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                        });
-                    }
                 }
             }
         }
@@ -1585,7 +1516,6 @@ export class CompletionProvider {
      * @param document - The document state
      * @param position - The cursor position for prefix extraction
      * @param resolved_scope - Optional resolved scope for cross-file symbols
-     * @param forward_scope - Optional forward-resolved scope for forward calls
      * @returns Array of completion items filtered by prefix and sorted alphabetically
      */
     private get_macro_completions(
@@ -1593,8 +1523,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
-        resolved_scope?: ResolvedScope,
-        forward_scope?: ForwardResolvedScope
+        resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         // Use context.form to determine scope and delimiter behavior
         const scope = context.scope;
@@ -1696,29 +1625,15 @@ export class CompletionProvider {
             }
 
             // Determine scope proximity for ranking
-            let depth = 0;
-            let directive_type: 'done-by' | 'included-by' | 'current' = 'current';
-
-            // If a resolved scope is provided, use the scope chain.
-            if (resolved_scope && macro.sourceUri !== document.uri) {
-                const symbol_info = this.get_symbol_depth(macro.sourceUri, resolved_scope);
-                depth = symbol_info.depth;
-                directive_type = symbol_info.directive_type;
-            } else {
-                // Fallback for tests / pre-annotated symbols.
-                const annotated_depth = (macro as any).scope_depth;
-                const annotated_directive = (macro as any).directive_type;
-                if (typeof annotated_depth === 'number') {
-                    depth = annotated_depth;
-                }
-                if (annotated_directive === 'current' || annotated_directive === 'included-by' || annotated_directive === 'done-by') {
-                    directive_type = annotated_directive;
-                }
-            }
+            const symbol_info = this.get_completion_symbol_provenance(
+                macro,
+                document.uri,
+                resolved_scope,
+            );
 
             const ranking_factors: CompletionRankingFactors = {
-                scope_depth: depth,
-                directive_type,
+                scope_depth: symbol_info.depth,
+                directive_type: symbol_info.directive_type,
                 symbol_type: scope === 'local' ? 'local-macro' : 'global-macro',
                 alphabetical_order: name,
                 parent_uri: macro.sourceUri,
@@ -1726,9 +1641,8 @@ export class CompletionProvider {
 
             // Add source file annotation for cross-file symbols
             let detail = `${scope} macro`;
-            if (resolved_scope && macro.sourceUri !== document.uri) {
-                const source_path = this.get_relative_path(macro.sourceUri);
-                detail += ` (from ${source_path})`;
+            if (symbol_info.source_path) {
+                detail += ` (from ${symbol_info.source_path})`;
             }
 
             // Compute newText with optional closing delimiter
@@ -1746,111 +1660,6 @@ export class CompletionProvider {
                 },
             });
             seen_labels.add(name);
-        }
-
-        // Add forward scope symbols (from forward_scope parameter - legacy path)
-        if (forward_scope) {
-            const cursor_line = position.line;
-            for (const call_site of forward_scope.call_sites) {
-                if (call_site.call_line < cursor_line) {
-                    const forward_macros = scope === 'local' ? call_site.symbols.localMacros : call_site.symbols.globalMacros;
-                    
-                    for (const [name, macro] of forward_macros) {
-                        // Case-insensitive prefix match
-                        if (!(prefix === '' || name.toLowerCase().startsWith(prefix_lower))) {
-                            continue;
-                        }
-
-                        // Skip if already added
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: scope === 'local' ? 'local-macro' : 'global-macro',
-                            alphabetical_order: name,
-                            parent_uri: macro.sourceUri,
-                        };
-
-                        const source_path = this.get_relative_path(macro.sourceUri);
-                        const detail = `${scope} macro (from ${source_path})`;
-
-                        // Compute newText with optional closing delimiter
-                        const new_text = name + (needs_closing_delimiter ? closing_char : '');
-
-                        the_completions.push({
-                            label: name,
-                            kind: CompletionItemKind.Variable,
-                            detail,
-                            documentation: macro.value ? `Value: ${macro.value}` : undefined,
-                            sortText: compute_ranking_key(ranking_factors),
-                            textEdit: {
-                                range: replacement_range,
-                                newText: new_text,
-                            },
-                        });
-                        seen_labels.add(name);
-                    }
-                }
-            }
-        }
-
-        // Add forward call symbols from resolved_scope (position-aware filtering)
-        // This handles symbols from current file's forward call directives
-        if (resolved_scope?.forward_call_symbols) {
-            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position);
-            for (const my_call_site of the_visible_call_sites) {
-                // For local macros, only include from 'include' type (not 'do')
-                // For global macros, include from both 'do' and 'include' types
-                if (scope === 'local' && my_call_site.effective_type !== 'include') {
-                    continue;
-                }
-
-                const forward_macros = scope === 'local' 
-                    ? my_call_site.symbols.localMacros 
-                    : my_call_site.symbols.globalMacros;
-                
-                for (const [name, macro] of forward_macros) {
-                    // Case-insensitive prefix match
-                    if (!(prefix === '' || name.toLowerCase().startsWith(prefix_lower))) {
-                        continue;
-                    }
-
-                    // Skip if already added
-                    if (seen_labels.has(name)) {
-                        continue;
-                    }
-
-                    const ranking_factors: CompletionRankingFactors = {
-                        scope_depth: 1,
-                        directive_type: map_effective_type_to_directive(my_call_site.effective_type),
-                        symbol_type: scope === 'local' ? 'local-macro' : 'global-macro',
-                        alphabetical_order: name,
-                        parent_uri: macro.sourceUri,
-                    };
-
-                    const source_path = this.get_relative_path(macro.sourceUri);
-                    const detail = `${scope} macro (from ${source_path})`;
-
-                    // Compute newText with optional closing delimiter
-                    const new_text = name + (needs_closing_delimiter ? closing_char : '');
-
-                    the_completions.push({
-                        label: name,
-                        kind: CompletionItemKind.Variable,
-                        detail,
-                        documentation: macro.value ? `Value: ${macro.value}` : undefined,
-                        sortText: compute_ranking_key(ranking_factors),
-                        textEdit: {
-                            range: replacement_range,
-                            newText: new_text,
-                        },
-                    });
-                    seen_labels.add(name);
-                }
-            }
         }
 
         // Add program arguments if we're inside a program body and looking for local macros.
@@ -1908,8 +1717,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
-        resolved_scope?: ResolvedScope,
-        forward_scope?: ForwardResolvedScope
+        resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
         const seen_labels = new Set<string>();
@@ -1942,18 +1750,15 @@ export class CompletionProvider {
 
         // Variables
         for (const [name, variable] of symbols.variables) {
-            // Determine scope proximity for ranking
-            let depth = 0;
-            let directive_type: 'done-by' | 'included-by' | 'current' = 'current';
-            if (resolved_scope && variable.sourceUri !== document.uri) {
-                const symbol_info = this.get_symbol_depth(variable.sourceUri, resolved_scope);
-                depth = symbol_info.depth;
-                directive_type = symbol_info.directive_type;
-            }
+            const symbol_info = this.get_completion_symbol_provenance(
+                variable,
+                document.uri,
+                resolved_scope,
+            );
 
             const ranking_factors: CompletionRankingFactors = {
-                scope_depth: depth,
-                directive_type,
+                scope_depth: symbol_info.depth,
+                directive_type: symbol_info.directive_type,
                 symbol_type: 'variable',
                 alphabetical_order: name,
                 parent_uri: variable.sourceUri
@@ -1961,9 +1766,8 @@ export class CompletionProvider {
 
             // Add source file annotation for cross-file symbols
             let detail = variable.type ? `${variable.type} variable` : 'Variable';
-            if (resolved_scope && variable.sourceUri !== document.uri) {
-                const source_path = this.get_relative_path(variable.sourceUri);
-                detail += ` (from ${source_path})`;
+            if (symbol_info.source_path) {
+                detail += ` (from ${symbol_info.source_path})`;
             }
 
             the_completions.push({
@@ -1984,26 +1788,23 @@ export class CompletionProvider {
         // Scalars
         const scalars: Map<string, any> = (symbols as any).scalars instanceof Map ? (symbols as any).scalars : new Map();
         for (const [name, scalar] of scalars) {
-            let depth = 0;
-            let directive_type: 'done-by' | 'included-by' | 'current' = 'current';
-            if (resolved_scope && scalar.sourceUri !== document.uri) {
-                const symbol_info = this.get_symbol_depth(scalar.sourceUri, resolved_scope);
-                depth = symbol_info.depth;
-                directive_type = symbol_info.directive_type;
-            }
+            const symbol_info = this.get_completion_symbol_provenance(
+                scalar,
+                document.uri,
+                resolved_scope,
+            );
 
             const ranking_factors: CompletionRankingFactors = {
-                scope_depth: depth,
-                directive_type,
+                scope_depth: symbol_info.depth,
+                directive_type: symbol_info.directive_type,
                 symbol_type: 'scalar',
                 alphabetical_order: name,
                 parent_uri: scalar.sourceUri
             };
 
             let detail = 'Scalar';
-            if (resolved_scope && scalar.sourceUri !== document.uri) {
-                const source_path = this.get_relative_path(scalar.sourceUri);
-                detail += ` (from ${source_path})`;
+            if (symbol_info.source_path) {
+                detail += ` (from ${symbol_info.source_path})`;
             }
 
             the_completions.push({
@@ -2024,26 +1825,23 @@ export class CompletionProvider {
         // Matrices
         const matrices: Map<string, any> = (symbols as any).matrices instanceof Map ? (symbols as any).matrices : new Map();
         for (const [name, matrix] of matrices) {
-            let depth = 0;
-            let directive_type: 'done-by' | 'included-by' | 'current' = 'current';
-            if (resolved_scope && matrix.sourceUri !== document.uri) {
-                const symbol_info = this.get_symbol_depth(matrix.sourceUri, resolved_scope);
-                depth = symbol_info.depth;
-                directive_type = symbol_info.directive_type;
-            }
+            const symbol_info = this.get_completion_symbol_provenance(
+                matrix,
+                document.uri,
+                resolved_scope,
+            );
 
             const ranking_factors: CompletionRankingFactors = {
-                scope_depth: depth,
-                directive_type,
+                scope_depth: symbol_info.depth,
+                directive_type: symbol_info.directive_type,
                 symbol_type: 'matrix',
                 alphabetical_order: name,
                 parent_uri: matrix.sourceUri
             };
 
             let detail = 'Matrix';
-            if (resolved_scope && matrix.sourceUri !== document.uri) {
-                const source_path = this.get_relative_path(matrix.sourceUri);
-                detail += ` (from ${source_path})`;
+            if (symbol_info.source_path) {
+                detail += ` (from ${symbol_info.source_path})`;
             }
 
             the_completions.push({
@@ -2061,216 +1859,6 @@ export class CompletionProvider {
             seen_labels.add(name);
         }
 
-        // Add forward scope symbols
-        if (forward_scope) {
-            const cursor_line = position.line;
-            for (const call_site of forward_scope.call_sites) {
-                if (call_site.call_line < cursor_line) {
-                    // Variables
-                    for (const [name, variable] of call_site.symbols.variables) {
-                        // Skip if already added
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: 'variable',
-                            alphabetical_order: name,
-                            parent_uri: variable.sourceUri
-                        };
-
-                        const source_path = this.get_relative_path(variable.sourceUri);
-                        const detail = variable.type ? `${variable.type} variable (from ${source_path})` : `Variable (from ${source_path})`;
-
-                        the_completions.push({
-                            label: name,
-                            kind: CompletionItemKind.Field,
-                            detail,
-                            documentation: variable.label || `Created via ${variable.source}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                            textEdit: {
-                                range: replacement_range,
-                                newText: name,
-                            },
-                            filterText: name,
-                        });
-                        seen_labels.add(name);
-                    }
-
-                    // Scalars
-                    for (const [name, scalar] of call_site.symbols.scalars) {
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: 'scalar',
-                            alphabetical_order: name,
-                            parent_uri: scalar.sourceUri
-                        };
-
-                        const source_path = this.get_relative_path(scalar.sourceUri);
-                        const detail = `Scalar (from ${source_path})`;
-
-                        the_completions.push({
-                            label: name,
-                            kind: CompletionItemKind.Constant,
-                            detail,
-                            documentation: `Defined at ${scalar.sourceUri}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                            textEdit: {
-                                range: replacement_range,
-                                newText: name,
-                            },
-                            filterText: name,
-                        });
-                        seen_labels.add(name);
-                    }
-
-                    // Matrices
-                    for (const [name, matrix] of call_site.symbols.matrices) {
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: 'matrix',
-                            alphabetical_order: name,
-                            parent_uri: matrix.sourceUri
-                        };
-
-                        const source_path = this.get_relative_path(matrix.sourceUri);
-                        const detail = `Matrix (from ${source_path})`;
-
-                        the_completions.push({
-                            label: name,
-                            kind: CompletionItemKind.Struct,
-                            detail,
-                            documentation: `Defined at ${matrix.sourceUri}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                            textEdit: {
-                                range: replacement_range,
-                                newText: name,
-                            },
-                            filterText: name,
-                        });
-                        seen_labels.add(name);
-                    }
-                }
-            }
-        }
-
-        // Add forward call symbols from resolved_scope (position-aware filtering)
-        // This handles symbols from current file's forward call directives
-        // Variables, scalars, and matrices are visible from both 'do' and 'include' types
-        if (resolved_scope?.forward_call_symbols) {
-            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position);
-            for (const my_call_site of the_visible_call_sites) {
-                // Variables
-                for (const [name, variable] of my_call_site.symbols.variables) {
-                    // Skip if already added
-                    if (seen_labels.has(name)) {
-                        continue;
-                    }
-
-                    const ranking_factors: CompletionRankingFactors = {
-                        scope_depth: 1,
-                        directive_type: map_effective_type_to_directive(my_call_site.effective_type),
-                        symbol_type: 'variable',
-                        alphabetical_order: name,
-                        parent_uri: variable.sourceUri
-                    };
-
-                    const source_path = this.get_relative_path(variable.sourceUri);
-                    const detail = variable.type ? `${variable.type} variable (from ${source_path})` : `Variable (from ${source_path})`;
-
-                    the_completions.push({
-                        label: name,
-                        kind: CompletionItemKind.Field,
-                        detail,
-                        documentation: variable.label || `Created via ${variable.source}`,
-                        sortText: compute_ranking_key(ranking_factors),
-                        textEdit: {
-                            range: replacement_range,
-                            newText: name,
-                        },
-                        filterText: name,
-                    });
-                    seen_labels.add(name);
-                }
-
-                // Scalars
-                for (const [name, scalar] of my_call_site.symbols.scalars) {
-                    if (seen_labels.has(name)) {
-                        continue;
-                    }
-
-                    const ranking_factors: CompletionRankingFactors = {
-                        scope_depth: 1,
-                        directive_type: map_effective_type_to_directive(my_call_site.effective_type),
-                        symbol_type: 'scalar',
-                        alphabetical_order: name,
-                        parent_uri: scalar.sourceUri
-                    };
-
-                    const source_path = this.get_relative_path(scalar.sourceUri);
-                    const detail = `Scalar (from ${source_path})`;
-
-                    the_completions.push({
-                        label: name,
-                        kind: CompletionItemKind.Constant,
-                        detail,
-                        documentation: `Defined at ${scalar.sourceUri}`,
-                        sortText: compute_ranking_key(ranking_factors),
-                        textEdit: {
-                            range: replacement_range,
-                            newText: name,
-                        },
-                        filterText: name,
-                    });
-                    seen_labels.add(name);
-                }
-
-                // Matrices
-                for (const [name, matrix] of my_call_site.symbols.matrices) {
-                    if (seen_labels.has(name)) {
-                        continue;
-                    }
-
-                    const ranking_factors: CompletionRankingFactors = {
-                        scope_depth: 1,
-                        directive_type: map_effective_type_to_directive(my_call_site.effective_type),
-                        symbol_type: 'matrix',
-                        alphabetical_order: name,
-                        parent_uri: matrix.sourceUri
-                    };
-
-                    const source_path = this.get_relative_path(matrix.sourceUri);
-                    const detail = `Matrix (from ${source_path})`;
-
-                    the_completions.push({
-                        label: name,
-                        kind: CompletionItemKind.Struct,
-                        detail,
-                        documentation: `Defined at ${matrix.sourceUri}`,
-                        sortText: compute_ranking_key(ranking_factors),
-                        textEdit: {
-                            range: replacement_range,
-                            newText: name,
-                        },
-                        filterText: name,
-                    });
-                    seen_labels.add(name);
-                }
-            }
-        }
-
         return the_completions;
     }
 
@@ -2281,25 +1869,21 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
-        resolved_scope?: ResolvedScope,
-        forward_scope?: ForwardResolvedScope
+        resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
         const seen_labels = new Set<string>();
 
         for (const [name, program] of symbols.programs) {
-            // Determine scope proximity for ranking
-            let depth = 0;
-            let directive_type: 'done-by' | 'included-by' | 'current' = 'current';
-            if (resolved_scope && program.sourceUri !== document.uri) {
-                const symbol_info = this.get_symbol_depth(program.sourceUri, resolved_scope);
-                depth = symbol_info.depth;
-                directive_type = symbol_info.directive_type;
-            }
+            const symbol_info = this.get_completion_symbol_provenance(
+                program,
+                document.uri,
+                resolved_scope,
+            );
             
             const ranking_factors: CompletionRankingFactors = {
-                scope_depth: depth,
-                directive_type,
+                scope_depth: symbol_info.depth,
+                directive_type: symbol_info.directive_type,
                 symbol_type: 'user-program',
                 alphabetical_order: program.name,
                 parent_uri: program.sourceUri
@@ -2307,9 +1891,8 @@ export class CompletionProvider {
             
             // Add source file annotation for cross-file symbols
             let detail = 'User-defined program';
-            if (resolved_scope && program.sourceUri !== document.uri) {
-                const source_path = this.get_relative_path(program.sourceUri);
-                detail += ` (from ${source_path})`;
+            if (symbol_info.source_path) {
+                detail += ` (from ${symbol_info.source_path})`;
             }
             
             the_completions.push({
@@ -2320,76 +1903,6 @@ export class CompletionProvider {
                 sortText: compute_ranking_key(ranking_factors),
             });
             seen_labels.add(name);
-        }
-
-        // Add forward scope symbols (from forward_scope parameter - legacy path)
-        if (forward_scope) {
-            const cursor_line = position.line;
-            for (const call_site of forward_scope.call_sites) {
-                if (call_site.call_line < cursor_line) {
-                    for (const [name, program] of call_site.symbols.programs) {
-                        // Skip if already added
-                        if (seen_labels.has(name)) {
-                            continue;
-                        }
-
-                        const ranking_factors: CompletionRankingFactors = {
-                            scope_depth: 1,
-                            directive_type: map_effective_type_to_directive(call_site.effective_type),
-                            symbol_type: 'user-program',
-                            alphabetical_order: program.name,
-                            parent_uri: program.sourceUri
-                        };
-
-                        const source_path = this.get_relative_path(program.sourceUri);
-                        const detail = `User-defined program (from ${source_path})`;
-
-                        the_completions.push({
-                            label: program.name,
-                            kind: CompletionItemKind.Function,
-                            detail,
-                            documentation: `Defined at ${program.sourceUri}`,
-                            sortText: compute_ranking_key(ranking_factors),
-                        });
-                        seen_labels.add(name);
-                    }
-                }
-            }
-        }
-
-        // Add forward call symbols from resolved_scope (position-aware filtering)
-        // This handles symbols from current file's forward call directives
-        // Programs are visible from both 'do' and 'include' types
-        if (resolved_scope?.forward_call_symbols) {
-            const the_visible_call_sites = get_visible_forward_call_sites(resolved_scope, position);
-            for (const my_call_site of the_visible_call_sites) {
-                for (const [name, program] of my_call_site.symbols.programs) {
-                    // Skip if already added
-                    if (seen_labels.has(name)) {
-                        continue;
-                    }
-
-                    const ranking_factors: CompletionRankingFactors = {
-                        scope_depth: 1,
-                        directive_type: map_effective_type_to_directive(my_call_site.effective_type),
-                        symbol_type: 'user-program',
-                        alphabetical_order: program.name,
-                        parent_uri: program.sourceUri
-                    };
-
-                    const source_path = this.get_relative_path(program.sourceUri);
-                    const detail = `User-defined program (from ${source_path})`;
-
-                    the_completions.push({
-                        label: program.name,
-                        kind: CompletionItemKind.Function,
-                        detail,
-                        documentation: `Defined at ${program.sourceUri}`,
-                        sortText: compute_ranking_key(ranking_factors),
-                    });
-                    seen_labels.add(name);
-                }
-            }
         }
 
         return the_completions;
@@ -3124,6 +2637,191 @@ export class CompletionProvider {
         return {
             kind: 'markdown',
             value: my_doc,
+        };
+    }
+
+    private annotate_symbol_map<T extends object>(
+        symbols: Map<string, T>,
+        scope_depth: number,
+        directive_type: 'done-by' | 'included-by' | 'current',
+    ): Map<string, T> {
+        return new Map(
+            Array.from(symbols.entries()).map(([name, symbol]) => [
+                name,
+                {
+                    ...symbol,
+                    scope_depth,
+                    directive_type,
+                } as T,
+            ]),
+        );
+    }
+
+    /**
+     * Apply annotations from `annotated_overlay` onto entries in `visible`
+     * whose winning `sourceUri` matches. `get_visible_symbols_at` already
+     * resolves forward-call precedence, so we must NOT re-merge the overlay on
+     * top — that would let forward-call symbols win a second time. Instead we
+     * keep the visible map as-is and only copy `scope_depth` / `directive_type`
+     * onto the entries where the forward-call version was the winner.
+     * Produces new wrapper objects; never mutates shared symbols.
+     */
+    private copy_forward_annotations(
+        visible: SymbolTable,
+        annotated_overlay: SymbolTable,
+    ): SymbolTable {
+        type AnnotatedLike = {
+            sourceUri?: string;
+            scope_depth?: number;
+            directive_type?: 'done-by' | 'included-by' | 'current';
+        };
+        const copy_kind = <T extends { sourceUri?: string }>(
+            visible_map: Map<string, T>,
+            overlay_map: Map<string, T>,
+        ): Map<string, T> => {
+            const the_result = new Map<string, T>();
+            for (const [my_name, my_symbol] of visible_map) {
+                const overlay_symbol = overlay_map.get(my_name) as T & AnnotatedLike | undefined;
+                if (
+                    overlay_symbol &&
+                    overlay_symbol.sourceUri === my_symbol.sourceUri &&
+                    (overlay_symbol.scope_depth !== undefined ||
+                        overlay_symbol.directive_type !== undefined)
+                ) {
+                    the_result.set(my_name, {
+                        ...my_symbol,
+                        scope_depth: overlay_symbol.scope_depth,
+                        directive_type: overlay_symbol.directive_type,
+                    } as T);
+                } else {
+                    the_result.set(my_name, my_symbol);
+                }
+            }
+            return the_result;
+        };
+        return {
+            programs: copy_kind(visible.programs, annotated_overlay.programs),
+            localMacros: copy_kind(visible.localMacros, annotated_overlay.localMacros),
+            globalMacros: copy_kind(visible.globalMacros, annotated_overlay.globalMacros),
+            variables: copy_kind(visible.variables, annotated_overlay.variables),
+            scalars: copy_kind(visible.scalars, annotated_overlay.scalars),
+            matrices: copy_kind(visible.matrices, annotated_overlay.matrices),
+        };
+    }
+
+    private get_annotated_visible_forward_symbols(
+        resolved_scope: ResolvedScope | undefined,
+        cursor_line: number,
+    ): SymbolTable {
+        let the_result = create_empty_symbol_table();
+        const current_file_symbols = resolved_scope && resolved_scope.chain.length > 0
+            ? resolved_scope.chain[0].symbols
+            : undefined;
+
+        for (const my_call_site of get_visible_forward_call_sites(
+            resolved_scope,
+            cursor_line,
+        )) {
+            const directive_type = map_effective_type_to_directive(
+                my_call_site.effective_type,
+            );
+            const filtered_site_symbols = filter_forward_site_symbols(
+                my_call_site.symbols,
+                current_file_symbols,
+                my_call_site.call_line,
+                cursor_line,
+            );
+            const annotated_symbols: SymbolTable = {
+                programs: this.annotate_symbol_map(
+                    filtered_site_symbols.programs,
+                    1,
+                    directive_type,
+                ),
+                localMacros: my_call_site.effective_type === 'include'
+                    ? this.annotate_symbol_map(
+                        filtered_site_symbols.localMacros,
+                        1,
+                        directive_type,
+                    )
+                    : new Map(),
+                globalMacros: this.annotate_symbol_map(
+                    filtered_site_symbols.globalMacros,
+                    1,
+                    directive_type,
+                ),
+                variables: this.annotate_symbol_map(
+                    filtered_site_symbols.variables,
+                    1,
+                    directive_type,
+                ),
+                scalars: this.annotate_symbol_map(
+                    filtered_site_symbols.scalars,
+                    1,
+                    directive_type,
+                ),
+                matrices: this.annotate_symbol_map(
+                    filtered_site_symbols.matrices,
+                    1,
+                    directive_type,
+                ),
+            };
+
+            the_result = merge_symbol_tables(the_result, annotated_symbols);
+        }
+
+        return the_result;
+    }
+
+    private get_completion_symbol_provenance(
+        symbol: { sourceUri: string },
+        document_uri: string,
+        resolved_scope?: ResolvedScope,
+    ): {
+        depth: number;
+        directive_type: 'done-by' | 'included-by' | 'current';
+        source_path?: string;
+    } {
+        let depth = 0;
+        let directive_type: 'done-by' | 'included-by' | 'current' = 'current';
+        let show_source = false;
+
+        // Narrow type for annotated symbols with optional metadata
+        type AnnotatedSymbol = {
+            sourceUri: string;
+            scope_depth?: number;
+            directive_type?: 'current' | 'included-by' | 'done-by';
+        };
+        const annotated = symbol as AnnotatedSymbol;
+
+        if (resolved_scope && symbol.sourceUri !== document_uri) {
+            const symbol_info = this.get_symbol_depth(symbol.sourceUri, resolved_scope);
+            depth = symbol_info.depth;
+            directive_type = symbol_info.directive_type;
+            show_source = true;
+        }
+
+        if (
+            typeof annotated.scope_depth === 'number' &&
+            (depth === 0 || depth === 999 || !resolved_scope)
+        ) {
+            depth = annotated.scope_depth;
+        }
+
+        if (
+            annotated.directive_type === 'current' ||
+            annotated.directive_type === 'included-by' ||
+            annotated.directive_type === 'done-by'
+        ) {
+            directive_type = annotated.directive_type;
+            show_source = symbol.sourceUri !== document_uri;
+        }
+
+        return {
+            depth,
+            directive_type,
+            source_path: show_source && symbol.sourceUri !== document_uri
+                ? this.get_relative_path(symbol.sourceUri)
+                : undefined,
         };
     }
 

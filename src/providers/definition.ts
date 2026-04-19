@@ -41,7 +41,7 @@ type MacroDefNodeLike = {
     range: { start: Position; end: Position };
 };
 import { IContextTracker } from '../context-tracker/types';
-import { ScopeResolver, build_scope_resolver_config } from '../scope-resolver';
+import { ScopeResolver, build_scope_resolver_config, get_visible_symbols_at } from '../scope-resolver';
 import { WorkspaceIndexer } from '../indexer';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -136,7 +136,8 @@ export class DefinitionProvider {
                     scope_resolver,
                     workspace_indexer,
                     cross_file_config,
-                    cancellation_token
+                    cancellation_token,
+                    position
                 );
             }
             
@@ -161,7 +162,8 @@ export class DefinitionProvider {
                         scope_resolver,
                         workspace_indexer,
                         cross_file_config,
-                        cancellation_token
+                        cancellation_token,
+                        position
                     );
                 }
 
@@ -178,6 +180,7 @@ export class DefinitionProvider {
                 return await this.resolve_non_macro_symbols(
                     word,
                     document,
+                    position,
                     workspace_symbols,
                     scope_resolver,
                     workspace_indexer,
@@ -210,7 +213,8 @@ export class DefinitionProvider {
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
         cross_file_config?: Partial<ScopeResolverConfig>,
-        cancellation_token?: CancellationToken
+        cancellation_token?: CancellationToken,
+        position?: Position
     ): Promise<Definition | null> {
         // Try scope resolver first
         if (scope_resolver) {
@@ -228,6 +232,24 @@ export class DefinitionProvider {
                     uri: local_macro.location.uri,
                     range: local_macro.location.range,
                 };
+            }
+
+            // Check forward-call symbols brought in by `include` before the
+            // cursor. Without this, a local macro pulled in by a forward
+            // `include` falls through to the workspace indexer, which returns
+            // every like-named local in the workspace.
+            if (position && resolved_scope.forward_call_symbols) {
+                for (const my_call_site of resolved_scope.forward_call_symbols) {
+                    if (position.line <= my_call_site.call_line) continue;
+                    if (my_call_site.effective_type !== 'include') continue;
+                    const forward_local = my_call_site.symbols.localMacros.get(word);
+                    if (forward_local) {
+                        return {
+                            uri: forward_local.location.uri,
+                            range: forward_local.location.range,
+                        };
+                    }
+                }
             }
         }
 
@@ -321,6 +343,7 @@ export class DefinitionProvider {
     private async resolve_non_macro_symbols(
         word: string,
         document: DocumentState,
+        position: Position,
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         workspace_indexer?: WorkspaceIndexer,
@@ -336,18 +359,18 @@ export class DefinitionProvider {
                 resolve_config,
                 cancellation_token
             );
+            const visible = get_visible_symbols_at(resolved_scope, position.line);
 
-            // Check variables first (highest priority for WORD tokens)
-            const variable = resolved_scope.symbols.variables.get(word);
+            // Priority: variable → program → scalar → matrix (matches pre-fix order).
+            const variable = visible.variables.get(word);
             if (variable) {
                 return {
                     uri: variable.location.uri,
                     range: variable.location.range,
                 };
             }
-            
-            // Check programs
-            const program = resolved_scope.symbols.programs.get(word);
+
+            const program = visible.programs.get(word);
             if (program) {
                 return {
                     uri: program.location.uri,
@@ -355,8 +378,7 @@ export class DefinitionProvider {
                 };
             }
 
-            // Check scalars
-            const scalar = resolved_scope.symbols.scalars.get(word);
+            const scalar = visible.scalars.get(word);
             if (scalar) {
                 return {
                     uri: scalar.location.uri,
@@ -364,8 +386,7 @@ export class DefinitionProvider {
                 };
             }
 
-            // Check matrices
-            const matrix = resolved_scope.symbols.matrices.get(word);
+            const matrix = visible.matrices.get(word);
             if (matrix) {
                 return {
                     uri: matrix.location.uri,
@@ -504,7 +525,8 @@ export class DefinitionProvider {
                 scope_resolver,
                 workspace_indexer,
                 cross_file_config,
-                cancellation_token
+                cancellation_token,
+                position
             );
         }
         
@@ -535,6 +557,7 @@ export class DefinitionProvider {
         return await this.resolve_non_macro_symbols(
             word,
             document,
+            position,
             workspace_symbols,
             scope_resolver,
             workspace_indexer,

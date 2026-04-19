@@ -337,6 +337,51 @@ describe('Find References - call-site scope filtering (issue #127)', () => {
         expect(before_has_leaf).toBe(false);
     });
 
+    it('scans references visible only through a backward parent forward call', async () => {
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content =
+            `do "defs.do"\n` +
+            `do "helper.do"\n` +
+            `do "child.do"\n`;
+        writeFileSync(main_path, main_content);
+
+        const defs_path = join(test_temp_dir, 'defs.do');
+        writeFileSync(defs_path, `program define deep_prog\nend\n`);
+
+        const helper_path = join(test_temp_dir, 'helper.do');
+        const helper_content =
+            `capture noisily deep_prog\n` +
+            `deep_prog\n`;
+        writeFileSync(helper_path, helper_content);
+
+        const child_path = join(test_temp_dir, 'child.do');
+        const child_content = `* @lsp-done-by: "main.do"\n\ndeep_prog\n`;
+        writeFileSync(child_path, child_content);
+
+        await pipeline.indexer.initialize([test_temp_dir]);
+
+        const child_uri = URI.file(child_path).toString();
+        await pipeline.document_store.open(child_uri, child_content, 1);
+        const document_state = pipeline.document_store.get(child_uri)!;
+
+        const cursor_char = child_content
+            .split('\n')[2]
+            .indexOf('deep_prog') + 3;
+
+        const locations = await pipeline.references_provider.get_references(
+            document_state,
+            { line: 2, character: cursor_char },
+            { includeDeclaration: true },
+            pipeline.indexer,
+            document_state.context_tracker
+        );
+
+        const defs_uri = URI.file(defs_path).toString();
+        const helper_uri = URI.file(helper_path).toString();
+        expect(locations.some(loc => loc.uri === defs_uri)).toBe(true);
+        expect(locations.some(loc => loc.uri === helper_uri && loc.range.start.line === 1)).toBe(true);
+    });
+
     it('keeps pre-fix behavior when ReferencesProvider is constructed without a scope_resolver', async () => {
         // The fallback path is intended only for test-only setups that
         // construct `new ReferencesProvider()`. Production always wires a

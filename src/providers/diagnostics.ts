@@ -10,10 +10,9 @@ import {
     StataLSPConfig,
     SymbolTable,
     ResolvedScope,
-    DirectiveDiagnostic,
-    ForwardResolvedScope
+    DirectiveDiagnostic
 } from '../types';
-import { ScopeResolver, build_scope_resolver_config } from '../scope-resolver';
+import { ScopeResolver, build_scope_resolver_config, get_visible_forward_call_sites } from '../scope-resolver';
 import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
@@ -101,8 +100,7 @@ export class DiagnosticsProvider {
         config: StataLSPConfig,
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
-        cancellation_token?: CancellationToken,
-        forward_scope?: ForwardResolvedScope
+        cancellation_token?: CancellationToken
     ): Promise<{ diagnostics: Diagnostic[]; pending: boolean }> {
         // Version gating: only publish if this is the latest version
         const current_published = this.published_versions.get(document.uri);
@@ -123,7 +121,7 @@ export class DiagnosticsProvider {
         const is_pending = this.debounce_manager?.is_pending(document.uri) ?? false;
 
         // Collect all diagnostics (reuse cached results from DocumentStore)
-        const the_diagnostics = await this.get_diagnostics(document, config, workspace_symbols, scope_resolver, cancellation_token, forward_scope);
+        const the_diagnostics = await this.get_diagnostics(document, config, workspace_symbols, scope_resolver, cancellation_token);
 
         // Publish diagnostics
         this.connection.sendDiagnostics({
@@ -147,8 +145,7 @@ export class DiagnosticsProvider {
         config: StataLSPConfig,
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
-        cancellation_token?: CancellationToken,
-        forward_scope?: ForwardResolvedScope
+        cancellation_token?: CancellationToken
     ): Promise<Diagnostic[]> {
         // Generate config hash for cache key
         const config_hash = this.compute_config_hash(config);
@@ -296,25 +293,24 @@ export class DiagnosticsProvider {
                 }
             }
             
-            // Check if this is an undefined symbol that's defined in forward-call symbols
-            // Use resolved_scope.forward_call_symbols as primary source, fall back to forward_scope.call_sites
-            const forward_call_sites = resolved_scope?.forward_call_symbols ?? forward_scope?.call_sites;
-            if (forward_call_sites && 
+            // Check if this is an undefined symbol that's defined in a forward-called
+            // file visible at this diagnostic's line. Uses the shared helper.
+            if (resolved_scope &&
                 (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO ||
                  my_diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE)) {
                 const symbol_name = this.extract_symbol_name_from_diagnostic(my_diagnostic);
                 if (symbol_name) {
                     const diag_line = my_diagnostic.range.start.line;
                     let found_in_forward_call = false;
-                    for (const call_site of forward_call_sites) {
-                        if (call_site.call_line < diag_line &&
-                            this.is_symbol_in_forward_call(symbol_name, call_site.symbols, my_diagnostic.code, call_site.effective_type)) {
+                    for (const call_site of get_visible_forward_call_sites(resolved_scope, diag_line)) {
+                        if (this.is_symbol_in_forward_call(
+                                symbol_name, call_site.symbols, my_diagnostic.code, call_site.effective_type)) {
                             found_in_forward_call = true;
                             break;
                         }
                     }
                     if (found_in_forward_call) {
-                        continue; // Skip - symbol is defined in forward-called file before this line
+                        continue;
                     }
                 }
             }
@@ -355,16 +351,6 @@ export class DiagnosticsProvider {
         if (resolved_scope) {
             for (const my_directive_diag of resolved_scope.diagnostics) {
                 const converted = this.convert_directive_diagnostic(my_directive_diag, config);
-                if (converted) {
-                    the_diagnostics.push(converted);
-                }
-            }
-        }
-
-        // Add forward-scope diagnostics (missing file, max depth, cycle)
-        if (forward_scope) {
-            for (const my_forward_diag of forward_scope.diagnostics) {
-                const converted = this.convert_directive_diagnostic(my_forward_diag, config);
                 if (converted) {
                     the_diagnostics.push(converted);
                 }

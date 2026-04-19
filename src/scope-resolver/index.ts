@@ -40,6 +40,13 @@ import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_uri } from '../utils/workspace-roots';
 
+export {
+    get_visible_symbols_at,
+    get_visible_forward_call_sites,
+    collect_visible_reference_uris,
+    filter_forward_site_symbols,
+} from './visible-symbols';
+
 const DEFAULT_CONFIG: ScopeResolverConfig = {
     assume_call_site: 'end',
     max_backward_depth: 10,
@@ -956,10 +963,14 @@ export class ScopeResolver {
         config: ScopeResolverConfig,
         visited: Set<string>,
         token?: CancellationToken
-    ): Promise<{ symbols: SymbolTable; diagnostics: DirectiveDiagnostic[] }> {
+    ): Promise<{ symbols: SymbolTable; diagnostics: DirectiveDiagnostic[]; call_sites: import('../types').ForwardCallSite[] }> {
         // If no forward scope resolver is set, return empty results
         if (!this.forward_scope_resolver) {
-            return { symbols: create_empty_symbol_table(), diagnostics: [] };
+            return {
+                symbols: create_empty_symbol_table(),
+                diagnostics: [],
+                call_sites: [],
+            };
         }
 
         // Filter forward calls to only those before the call site
@@ -969,7 +980,11 @@ export class ScopeResolver {
         );
 
         if (calls_before_site.length === 0) {
-            return { symbols: create_empty_symbol_table(), diagnostics: [] };
+            return {
+                symbols: create_empty_symbol_table(),
+                diagnostics: [],
+                call_sites: [],
+            };
         }
 
         // Compute effective call type based on backward directive type
@@ -990,6 +1005,7 @@ export class ScopeResolver {
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
                     severity: 'warning',
                 }],
+                call_sites: [],
             };
         }
 
@@ -1018,6 +1034,7 @@ export class ScopeResolver {
         return {
             symbols: forward_result.symbols,
             diagnostics: the_diagnostics,
+            call_sites: forward_result.call_sites,
         };
     }
 
@@ -1529,6 +1546,9 @@ export class ScopeResolver {
                 directive_type: my_directive.type,
                 call_site_line: my_call_site_line,
                 symbols: my_merged_symbols,
+                forward_call_sites: forward_result.call_sites.length > 0
+                    ? forward_result.call_sites
+                    : undefined,
                 depth,
                 directive_order: my_directive_order,
                 sort_key: my_sort_key,

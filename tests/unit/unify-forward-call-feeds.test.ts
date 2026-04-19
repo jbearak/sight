@@ -15,7 +15,7 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer, create_empty_symbol_table } from '../../src/analyzer';
 import { ContextTracker } from '../../src/context-tracker';
-import { DocumentState, StataDiagnosticCode, ForwardCallSite, StataLSPConfig, ForwardResolvedScope } from '../../src/types';
+import { DocumentState, StataDiagnosticCode, StataLSPConfig, ResolvedScope } from '../../src/types';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -39,6 +39,17 @@ const DEFAULT_CONFIG: StataLSPConfig = {
 
 function create_mock_connection() {
     return { sendDiagnostics: () => {} };
+}
+
+/**
+ * Wire a stub ScopeResolver whose .resolve() returns the provided
+ * ResolvedScope. Used to feed canned forward_call_symbols to
+ * DiagnosticsProvider without standing up a full resolver.
+ */
+function make_stub_scope_resolver(resolved_scope: ResolvedScope): ScopeResolver {
+    const the_stub = new ScopeResolver();
+    (the_stub as any).resolve = async () => resolved_scope;
+    return the_stub;
 }
 
 function create_document_state(content: string, uri: string): DocumentState {
@@ -106,8 +117,8 @@ describe('unify-forward-call-feeds refactoring', () => {
         fs.rmSync(temp_dir, { recursive: true, force: true });
     });
 
-    describe('scope_resolver null (fallback path)', () => {
-        test('forward_scope is used when scope_resolver is null', async () => {
+    describe('scope_resolver carries forward_call_symbols', () => {
+        test('stub resolver providing forward_call_symbols suppresses undefined warnings', async () => {
             const callee_path = path.join(temp_dir, 'callee.do');
             fs.writeFileSync(callee_path, 'global child_var = "test"\n');
 
@@ -118,10 +129,15 @@ describe('unify-forward-call-feeds refactoring', () => {
             const caller_uri = URI.file(caller_path).toString();
             const doc_state = create_document_state(caller_content, caller_uri);
 
-            // Create forward_scope with the symbol
-            const forward_scope: ForwardResolvedScope = {
+            // Build a ResolvedScope carrying forward_call_symbols.
+            const resolved_scope: ResolvedScope = {
+                chain: [],
                 symbols: create_empty_symbol_table(),
-                call_sites: [{
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+                forward_call_symbols: [{
                     callee_uri: URI.file(callee_path).toString(),
                     call_line: 0,
                     symbols: {
@@ -134,21 +150,20 @@ describe('unify-forward-call-feeds refactoring', () => {
                     },
                     effective_type: 'do',
                 }],
-                diagnostics: [],
             };
 
-            // Get diagnostics with forward_scope but NO scope_resolver
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+
             const diagnostics = await provider.get_diagnostics(
                 doc_state,
                 DEFAULT_CONFIG,
                 undefined, // workspace_symbols
-                undefined, // scope_resolver is null
-                undefined, // cancellation_token
-                forward_scope
+                stub_resolver
             );
 
-            // Should NOT have undefined macro warning since forward_scope provides the symbol
-            const undefined_warnings = diagnostics.filter(d => 
+            // Should NOT have undefined macro warning since the stub resolver
+            // provides the symbol via resolved_scope.forward_call_symbols.
+            const undefined_warnings = diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                 d.message.includes('child_var')
             );
@@ -173,14 +188,13 @@ describe('unify-forward-call-feeds refactoring', () => {
             const forward_scope_resolver = new ForwardScopeResolver(scope_resolver);
             scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
 
-            // Get diagnostics with scope_resolver (no forward_scope parameter)
+            // Get diagnostics with scope_resolver — the scope resolver provides
+            // forward_call_symbols on the ResolvedScope it returns.
             const diagnostics = await provider.get_diagnostics(
                 doc_state,
                 DEFAULT_CONFIG,
                 undefined, // workspace_symbols
-                scope_resolver,
-                undefined, // cancellation_token
-                undefined  // forward_scope is undefined - should use resolved_scope.forward_call_symbols
+                scope_resolver
             );
 
             // The scope_resolver will resolve forward calls and provide symbols
@@ -206,10 +220,15 @@ describe('unify-forward-call-feeds refactoring', () => {
             const caller_uri = URI.file(caller_path).toString();
             const doc_state = create_document_state(caller_content, caller_uri);
 
-            // Create forward_scope with duplicate entries (simulating both directive and command)
-            const forward_scope: ForwardResolvedScope = {
+            // ResolvedScope with duplicate entries (simulating both directive and command).
+            const resolved_scope: ResolvedScope = {
+                chain: [],
                 symbols: create_empty_symbol_table(),
-                call_sites: [
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+                forward_call_symbols: [
                     // From @lsp-do directive
                     {
                         callee_uri: URI.file(callee_path).toString(),
@@ -239,20 +258,19 @@ describe('unify-forward-call-feeds refactoring', () => {
                         effective_type: 'do',
                     },
                 ],
-                diagnostics: [],
             };
+
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
 
             const diagnostics = await provider.get_diagnostics(
                 doc_state,
                 DEFAULT_CONFIG,
                 undefined,
-                undefined,
-                undefined,
-                forward_scope
+                stub_resolver
             );
 
             // Should handle duplicates gracefully - no undefined macro warning
-            const undefined_warnings = diagnostics.filter(d => 
+            const undefined_warnings = diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                 d.message.includes('child_var')
             );
@@ -271,10 +289,15 @@ describe('unify-forward-call-feeds refactoring', () => {
             const caller_uri = URI.file(caller_path).toString();
             const doc_state = create_document_state(caller_content, caller_uri);
 
-            // Create forward_scope simulating do then include
-            const forward_scope: ForwardResolvedScope = {
+            // ResolvedScope simulating do then include.
+            const resolved_scope: ResolvedScope = {
+                chain: [],
                 symbols: create_empty_symbol_table(),
-                call_sites: [
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+                forward_call_symbols: [
                     // From do command (excludes locals)
                     {
                         callee_uri: URI.file(callee_path).toString(),
@@ -309,20 +332,19 @@ describe('unify-forward-call-feeds refactoring', () => {
                         effective_type: 'include',
                     },
                 ],
-                diagnostics: [],
             };
+
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
 
             const diagnostics = await provider.get_diagnostics(
                 doc_state,
                 DEFAULT_CONFIG,
                 undefined,
-                undefined,
-                undefined,
-                forward_scope
+                stub_resolver
             );
 
             // Both local_var and global_var should be found (no undefined warnings)
-            const undefined_warnings = diagnostics.filter(d => 
+            const undefined_warnings = diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
             expect(undefined_warnings).toHaveLength(0);

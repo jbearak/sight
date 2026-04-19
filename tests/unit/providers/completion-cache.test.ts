@@ -68,7 +68,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 mock_workspace_symbols,
                 undefined,
-                undefined,
                 workspace_version
             );
 
@@ -82,7 +81,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 undefined,
                 mock_workspace_symbols,
-                undefined,
                 undefined,
                 workspace_version
             );
@@ -104,7 +102,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 mock_workspace_symbols,
                 undefined,
-                undefined,
                 workspace_version
             );
 
@@ -114,7 +111,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 undefined,
                 mock_workspace_symbols,
-                undefined,
                 undefined,
                 workspace_version
             );
@@ -137,7 +133,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 mock_workspace_symbols,
                 undefined,
-                undefined,
                 workspace_version
             );
 
@@ -151,7 +146,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 undefined,
                 mock_workspace_symbols,
-                undefined,
                 undefined,
                 workspace_version
             );
@@ -174,7 +168,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 mock_workspace_symbols,
                 undefined,
-                undefined,
                 1
             );
 
@@ -187,7 +180,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 undefined,
                 mock_workspace_symbols,
-                undefined,
                 undefined,
                 2
             );
@@ -214,7 +206,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 mock_workspace_symbols,
                 undefined,
-                undefined,
                 workspace_version
             );
 
@@ -233,7 +224,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 mock_workspace_symbols,
                 undefined,
-                undefined,
                 workspace_version
             );
 
@@ -246,7 +236,6 @@ describe('CompletionProvider Cache', () => {
                 undefined,
                 undefined,
                 mock_workspace_symbols,
-                undefined,
                 undefined,
                 workspace_version
             );
@@ -276,7 +265,6 @@ describe('CompletionProvider Cache', () => {
                 '`',  // Trigger local macro completion
                 undefined,
                 conflicting_workspace,
-                undefined,
                 undefined,
                 workspace_version
             );
