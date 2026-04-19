@@ -151,6 +151,11 @@ A parent's forward calls include the edge that invoked the current file (e.g., c
 
 Auto backward discovery synthesizes `done-by` / `included-by` directives from `DependencyGraph.get_parents()` when a child file has no explicit directives. The synthesized directives feed into the same `follow_directives` → `resolve_parent_forward_calls` path used by explicit directives. Because this design's changes live entirely inside that path, both modes produce identical chain entries (modulo the directive source in diagnostics), and therefore identical find-references results. The test plan locks this invariant down explicitly.
 
+This parity now depends on the Issue #134 resolver fix: effective auto parents
+must be synthesized recursively at every backward-resolution level, not just at
+the root `resolve()` call. With that fix in place, the transitive scenarios
+below can use the same topology in both modes.
+
 ## Concrete changes
 
 ### `src/types/index.ts`

@@ -209,6 +209,66 @@ export class ScopeResolver {
     }
 
     /**
+     * Determine the effective backward directives for a file at any recursion
+     * level. Explicit directives on the file take precedence over auto
+     * discovery, matching the root-level opt-out semantics.
+     */
+    private get_effective_backward_directives(
+        file_uri: string,
+        parsed_directives: Directive[],
+        config: ScopeResolverConfig
+    ): {
+        directives: Directive[];
+        used_auto_parents: boolean;
+    } {
+        const backward_mode = config.backward_dependencies ?? 'auto';
+        if (backward_mode === 'explicit' || parsed_directives.length > 0) {
+            return {
+                directives: parsed_directives,
+                used_auto_parents: false,
+            };
+        }
+
+        if (!this.dependency_graph) {
+            return {
+                directives: [],
+                used_auto_parents: false,
+            };
+        }
+
+        const the_auto_edges = this.dependency_graph.get_parents(file_uri);
+        if (the_auto_edges.length === 0) {
+            return {
+                directives: [],
+                used_auto_parents: false,
+            };
+        }
+
+        const the_synthesized_directives = the_auto_edges.map(
+            (my_edge) => ({
+                type: (my_edge.call_type === 'include'
+                    ? 'included-by'
+                    : 'done-by') as 'done-by' | 'included-by',
+                path: URI.parse(my_edge.caller_uri).fsPath,
+                raw_path: URI.parse(my_edge.caller_uri).fsPath,
+                call_site: {
+                    type: 'line' as const,
+                    value: my_edge.call_site_line + 1,
+                },
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 0 },
+                },
+            })
+        );
+
+        return {
+            directives: the_synthesized_directives,
+            used_auto_parents: true,
+        };
+    }
+
+    /**
      * Create a metrics object with nested counters and backward-compatible getters.
      */
     private create_metrics(): ScopeCacheMetrics {
@@ -724,41 +784,14 @@ export class ScopeResolver {
         // Create request cache for this resolution chain
         const request_cache: RequestCache = new Map();
 
-        // Auto backward dependency discovery:
-        // If auto mode is enabled and file has no explicit directives,
-        // query the dependency graph for auto-discovered parents.
-        let has_auto_parents = false;
-        let effective_directives = my_directives;
-
-        const backward_mode = my_config.backward_dependencies ?? 'auto';
-        if (backward_mode !== 'explicit' &&
-            my_directives.length === 0 &&
-            this.dependency_graph) {
-            const the_auto_edges =
-                this.dependency_graph.get_parents(file_uri);
-            if (the_auto_edges.length > 0) {
-                has_auto_parents = true;
-                // Synthesize Directive[] from auto-discovered edges
-                effective_directives = the_auto_edges.map(
-                    (my_edge) => ({
-                        type: (my_edge.call_type === 'include'
-                            ? 'included-by'
-                            : 'done-by') as 'done-by' | 'included-by',
-                        path: URI.parse(my_edge.caller_uri).fsPath,
-                        raw_path: URI.parse(my_edge.caller_uri).fsPath,
-                        call_site: {
-                            type: 'line' as const,
-                            // Directive convention: 1-indexed
-                            value: my_edge.call_site_line + 1,
-                        },
-                        range: {
-                            start: { line: 0, character: 0 },
-                            end: { line: 0, character: 0 },
-                        },
-                    })
-                );
-            }
-        }
+        const {
+            directives: effective_directives,
+            used_auto_parents: has_auto_parents,
+        } = this.get_effective_backward_directives(
+            file_uri,
+            my_directives,
+            my_config
+        );
 
         // Follow directive chain
         const normalized_directives = this.normalize_directives(
@@ -1161,13 +1194,21 @@ export class ScopeResolver {
                 return resolved_path;
             }
 
+            const {
+                directives: effective_parent_directives,
+            } = this.get_effective_backward_directives(
+                my_parent_uri,
+                my_parent_result.directives,
+                config
+            );
+
             // Otherwise, recursively search deeper ancestors
-            if (my_parent_result.directives.length > 0) {
+            if (effective_parent_directives.length > 0) {
                 // Mark as visited before recursing
                 visited.add(my_parent_uri);
 
                 const my_deeper_wd = await this.discover_working_directory(
-                    my_parent_result.directives,
+                    effective_parent_directives,
                     visited,
                     depth + 1,
                     config,
@@ -1490,8 +1531,15 @@ export class ScopeResolver {
             // Mark as visited and recurse FIRST to get working directory from deeper ancestors
             // This ensures we have the correct working directory before resolving forward calls
             visited.add(my_parent_uri);
-            const normalized_parent_directives = this.normalize_directives(
+            const {
+                directives: effective_parent_directives,
+            } = this.get_effective_backward_directives(
+                my_parent_uri,
                 my_parent_result.directives,
+                config
+            );
+            const normalized_parent_directives = this.normalize_directives(
+                effective_parent_directives,
                 diagnostics
             );
             // Record chain length before recursion to strip locals from ancestor entries if needed

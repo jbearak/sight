@@ -17,6 +17,8 @@ import { URI } from 'vscode-uri';
 import { DocumentStore } from '../../src/document-store';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
+import { DependencyGraph } from '../../src/dependency-graph';
+import { WorkspaceIndexer } from '../../src/indexer';
 
 /**
  * Helper to normalize paths and remove trailing slashes for comparison.
@@ -282,6 +284,92 @@ local result \`root_var' \`middle_var'
             const normalized_wd = normalize_path(document_state!.working_directory!);
             const expected_wd = normalize_path(path.join(test_dir, 'scripts'));
             expect(normalized_wd).toBe(expected_wd);
+        });
+    });
+
+    describe('Auto backward discovery', () => {
+        it('should inherit working directory through multi-level auto parents', async () => {
+            const root_content = `// @lsp-working-directory: "."
+global root_var = 1
+do "middle.do"
+`;
+            write_file('project/root.do', root_content);
+
+            const middle_content = `global middle_var = 2
+do "leaf.do"
+`;
+            write_file('project/middle.do', middle_content);
+
+            const leaf_content = `local leaf_var = 3
+`;
+            const leaf_path = write_file('project/leaf.do', leaf_content);
+            const leaf_uri = URI.file(leaf_path).toString();
+
+            const graph = new DependencyGraph();
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(graph);
+            await indexer.initialize([test_dir]);
+            scope_resolver.set_dependency_graph(graph);
+
+            await document_store.open(leaf_uri, leaf_content, 1);
+            const document_state = document_store.get(leaf_uri);
+
+            expect(document_state).toBeDefined();
+            expect(document_state!.working_directory).toBeDefined();
+
+            const normalized_wd = normalize_path(
+                document_state!.working_directory!
+            );
+            const expected_wd = normalize_path(path.join(test_dir, 'project'));
+            expect(normalized_wd).toBe(expected_wd);
+        });
+
+        it('should resolve parent forward calls using auto-inherited working directory', async () => {
+            const data_file_content = `global data_loaded = 1
+`;
+            write_file('project/data/load.do', data_file_content);
+
+            const root_content = `// @lsp-working-directory: "."
+global root_var = 1
+do "middle.do"
+`;
+            write_file('project/root.do', root_content);
+
+            const middle_content = `do "data/load"
+global middle_var = 2
+do "leaf.do"
+`;
+            write_file('project/middle.do', middle_content);
+
+            const leaf_content = `local leaf_var = 3
+`;
+            const leaf_path = write_file('project/leaf.do', leaf_content);
+            const leaf_uri = URI.file(leaf_path).toString();
+
+            const graph = new DependencyGraph();
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(graph);
+            await indexer.initialize([test_dir]);
+            scope_resolver.set_dependency_graph(graph);
+
+            await document_store.open(leaf_uri, leaf_content, 1);
+            const document_state = document_store.get(leaf_uri);
+
+            expect(document_state).toBeDefined();
+            expect(document_state!.working_directory).toBeDefined();
+
+            const normalized_wd = normalize_path(
+                document_state!.working_directory!
+            );
+            const expected_wd = normalize_path(path.join(test_dir, 'project'));
+            expect(normalized_wd).toBe(expected_wd);
+
+            const resolved_scope = await scope_resolver.resolve(
+                leaf_uri,
+                leaf_content
+            );
+            expect(resolved_scope.symbols.globalMacros.has('data_loaded'))
+                .toBe(true);
         });
     });
 

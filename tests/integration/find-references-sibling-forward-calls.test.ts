@@ -267,11 +267,8 @@ for (const my_mode of THE_MODES) {
         });
 
         it('scenario 4: local referenced by sibling uncle via grandparent include chain (transitive)', async () => {
-            // In explicit mode: grandparent → parent → child, uncle is a
-            // sibling of parent at grandparent level.
-            // In auto mode: auto-discovery only reaches 1 parent level, so
-            // uncle must be a sibling of child at parent level. grandparent
-            // still exists in the workspace but is not the scope boundary.
+            // In both modes: grandparent → parent → child, and uncle is a
+            // sibling of parent at the grandparent level.
             const the_files: FixtureFile[] = [
                 {
                     name: 'grandparent.do',
@@ -279,7 +276,8 @@ for (const my_mode of THE_MODES) {
                         `include parent.do\n` +
                         `include uncle.do\n`,
                     auto:
-                        `include parent.do\n`,
+                        `include parent.do\n` +
+                        `include uncle.do\n`,
                 },
                 {
                     name: 'parent.do',
@@ -287,8 +285,7 @@ for (const my_mode of THE_MODES) {
                         `// @lsp-included-by: grandparent.do\n` +
                         `include child.do\n`,
                     auto:
-                        `include child.do\n` +
-                        `include uncle.do\n`,
+                        `include child.do\n`,
                 },
                 {
                     name: 'child.do',
@@ -402,10 +399,8 @@ for (const my_mode of THE_MODES) {
         });
 
         it('scenario 6: program propagates through done-by boundary to sibling uncle (transitive)', async () => {
-            // In explicit mode: grandparent → parent → child, uncle is a
-            // sibling of parent at grandparent level (done-by boundaries).
-            // In auto mode: auto-discovery reaches only 1 parent level, so
-            // uncle is a direct sibling of child at parent level.
+            // In both modes: grandparent → parent → child, and uncle is a
+            // sibling of parent at the grandparent level.
             const the_files: FixtureFile[] = [
                 {
                     name: 'grandparent.do',
@@ -413,7 +408,8 @@ for (const my_mode of THE_MODES) {
                         `do "parent.do"\n` +
                         `do "uncle.do"\n`,
                     auto:
-                        `do "parent.do"\n`,
+                        `do "parent.do"\n` +
+                        `do "uncle.do"\n`,
                 },
                 {
                     name: 'parent.do',
@@ -421,8 +417,7 @@ for (const my_mode of THE_MODES) {
                         `// @lsp-done-by: grandparent.do\n` +
                         `do "child.do"\n`,
                     auto:
-                        `do "child.do"\n` +
-                        `do "uncle.do"\n`,
+                        `do "child.do"\n`,
                 },
                 {
                     name: 'child.do',
