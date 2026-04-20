@@ -55,6 +55,10 @@ describe('Scope-aware completion (integration): demo scenario', () => {
             1,
             indexer.get_all_symbols()
         );
+        // Defensive sync point: ensure any pending document-parse/index work
+        // is complete before we ask the provider for completions, so the test
+        // never races an in-flight `didChange`-like update.
+        await document_store.wait_for_update(main_uri);
         const doc = document_store.get(main_uri)!;
 
         const provider = new CompletionProvider(command_db);

@@ -20,12 +20,28 @@ export function is_cursor_in_string_literal(document: DocumentState, position: P
 
 function is_cursor_in_string_literal_from_tokens(tokens: Token[], position: Position): boolean {
     for (const my_token of tokens) {
+        // Tokens are in source order, so once a token starts strictly after
+        // the cursor, no later token can contain the cursor either.
+        if (is_range_start_after_position(my_token.range.start, position)) {
+            return false;
+        }
         if (my_token.type !== 'STRING') {
             continue;
         }
         if (is_position_in_range(position, my_token.range)) {
             return true;
         }
+    }
+    return false;
+}
+
+function is_range_start_after_position(
+    range_start: { line: number; character: number },
+    position: Position
+): boolean {
+    if (range_start.line > position.line) return true;
+    if (range_start.line === position.line && range_start.character > position.character) {
+        return true;
     }
     return false;
 }

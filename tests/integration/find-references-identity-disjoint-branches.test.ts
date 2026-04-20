@@ -45,8 +45,18 @@ describe('Find-references - disjoint branches (Rule 2 regression guard)', () => 
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
+        try {
+            scope_resolver?.dispose();
+        } catch (err) {
+            // Disposal failures here are non-fatal for the test itself;
+            // surface them at debug level so CI still captures context.
+            console.debug('scope_resolver.dispose() failed in afterEach:', err);
+        }
+        try {
+            forward_scope_resolver?.dispose();
+        } catch (err) {
+            console.debug('forward_scope_resolver.dispose() failed in afterEach:', err);
+        }
         if (existsSync(test_temp_dir)) {
             rmSync(test_temp_dir, { recursive: true, force: true });
         }
@@ -87,5 +97,11 @@ describe('Find-references - disjoint branches (Rule 2 regression guard)', () => 
         // Must NOT include analysis_b.do.
         const b_hits = locations.filter(l => l.uri === b_uri);
         expect(b_hits.length).toBe(0);
+
+        // Regression guard: ensure the provider actually returned hits for the
+        // cursor's own file. Without this, the `b_hits` assertion above would
+        // vacuously pass if `get_references` returned an empty array.
+        const a_hits = locations.filter(l => l.uri === a_uri);
+        expect(a_hits.length).toBeGreaterThan(0);
     });
 });

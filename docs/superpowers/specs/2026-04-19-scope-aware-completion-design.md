@@ -6,7 +6,7 @@
 
 ## Problem
 
-Opening `examples/demo/demo_completions.do` — a file with no cross-file directives and no auto-discovered parents — and typing `di "\`c` returns completion items for local macros defined in unrelated workspace files (e.g., `custom_arg`, `cwd`, `country_name` from `tests/fixtures/...`). Accepting any of them would insert an out-of-scope reference and the LSP would immediately emit an undefined-macro diagnostic.
+Opening `examples/demo/demo_completions.do` — a file with no cross-file directives and no auto-discovered parents — and typing ``di "`c`` returns completion items for local macros defined in unrelated workspace files (e.g., ``` ``custom_arg'`` ```, ``` ``cwd'`` ```, ``` ``country_name'`` ``` from `tests/fixtures/...`). Accepting any of them would insert an out-of-scope reference and the LSP would immediately emit an undefined-macro diagnostic.
 
 Two defects are tangled together:
 
@@ -44,7 +44,7 @@ Variables (dataset columns like `id`, `year`) are the documented exception: they
 
 For **local macros** specifically, scope is further narrowed by position within the current file: a local defined on a line strictly after the cursor is not in scope at the cursor. A Stata local is only visible on lines after its definition, so a completion offered from below the cursor would trigger an undefined-macro diagnostic if accepted. This position filter applies only to locals sourced from the current document; locals inherited from a parent file through an `include` chain are already call-site-filtered upstream by the scope resolver.
 
-On accept of an out-of-scope entry, only the name is inserted (plus the existing closing-delimiter rules for `\`'` / `$\{...\}`). No `additionalTextEdits`, no command callback. The undefined-symbol diagnostic that follows is the intended UX signal.
+On accept of an out-of-scope entry, only the name is inserted (plus the existing closing-delimiter rules for `` `' `` / `${...}`). No `additionalTextEdits`, no command callback. The undefined-symbol diagnostic that follows is the intended UX signal.
 
 ## Design
 
@@ -99,11 +99,11 @@ Each producer:
 
 ### Ranking
 
-`CompletionRankingFactors.directive_type` gains an `'out-of-scope'` value. `compute_ranking_key` places this value strictly after every existing directive-type bucket within the same symbol-type tier. Effect:
+`CompletionRankingFactors.directive_type` gains an `'out-of-scope'` value. `compute_ranking_key` composes `sortText` in this lexicographic order: `scope_depth` (primary key), `directive_type` (secondary), `symbol_type` (tertiary), then `parent_uri` and alphabetical `name` as final tie-breakers. The `'out-of-scope'` bucket is placed strictly after every existing `directive_type` bucket (i.e., after `'current'`, `'included-by'`, and `'done-by'`) within a given `scope_depth`. Effect:
 
-- An in-scope global always sorts before an out-of-scope global.
-- Symbol-type tiering is the primary key, so an out-of-scope program never outranks an in-scope entry *of a different category* (an in-scope macro stays above an out-of-scope program). Within a category, out-of-scope is last.
-- Scope depth, parent URI, and alphabetical order continue to apply as secondary keys within the out-of-scope bucket — two out-of-scope globals from the same file sort alphabetically; across files, the existing `parent_uri` tie-break applies.
+- An in-scope global always sorts before an out-of-scope global — the `directive_type` secondary key (0 vs 3) separates them before `symbol_type` is consulted.
+- An out-of-scope program never outranks an in-scope entry *of a different category* at the same `scope_depth` either, again because `directive_type` is the higher-order key: an in-scope local-macro (directive_type = 0) beats an out-of-scope program (directive_type = 3) even though the program's `symbol_type` bucket would otherwise precede the local's. Out-of-scope is last only within the `directive_type` position of a given `scope_depth`; `symbol_type` still orders entries inside the same bucket.
+- `parent_uri` and alphabetical order continue to apply as later tie-breakers within the out-of-scope bucket — two out-of-scope globals from the same file sort alphabetically; across files, the existing `parent_uri` tie-break applies.
 
 ### Variable completion
 

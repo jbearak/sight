@@ -13,7 +13,7 @@ resolved by marking the entry out-of-scope rather than hiding it.
 
 | Symbol type | Scope at cursor | Out-of-scope treatment |
 |---|---|---|
-| **Local macros** | Current file only, further narrowed to lines strictly before the cursor line | Hidden — workspace locals and same-file locals below the cursor are never shown |
+| **Local macros** | Current file only, further narrowed to `definition_line <= cursor.line` (same-file locals defined on or before the cursor are visible; only definitions on later lines are excluded) | Hidden — workspace locals and same-file locals defined below the cursor are never shown |
 | **Global macros, programs, scalars, matrices** | Current file + scope-chain entries (call-site-filtered) | Shown, ranked last, with `detail = "<kind> (out of scope — from <relative path>)"` |
 | **Variables** | Entire workspace | No out-of-scope treatment — variables keep their normal detail |
 
@@ -36,12 +36,14 @@ load-bearing.
 Workspace locals from other files are never offered in completion —
 Stata locals do not propagate through `do` or `run`, and `include`
 inheritance is already resolved upstream by `ScopeResolver`. Within the
-current file, a local defined on a line strictly after the cursor is
-excluded, because a Stata local is only visible on lines after its
-definition. Locals inherited from a parent file via an `include` chain
-are in scope when the scope resolver places them there; no additional
-position filter runs in the provider, because the parent's call-site
-filter has already happened upstream.
+current file, the position filter keeps any local whose
+`definition_line <= cursor.line`; only locals defined on lines strictly
+after the cursor are excluded, because a Stata local is not yet bound on
+lines at or before its definition but becomes visible once execution
+passes the definition line. Locals inherited from a parent file via an
+`include` chain are in scope when the scope resolver places them there;
+no additional position filter runs in the provider, because the parent's
+call-site filter has already happened upstream.
 
 ### Rule 3 — Workspace non-variable symbols surface as out-of-scope
 
@@ -62,7 +64,7 @@ completion. Out-of-scope programs are filtered against the command
 database before emission (skipped if a built-in with the same name
 exists) and never claim a `seen_labels` slot. Precedence:
 
-```
+```text
 in-scope user program > built-in command > out-of-scope user program
 ```
 
@@ -78,13 +80,17 @@ workspace-wide model matches find-references' variable handling.
 ## Ranking
 
 `compute_ranking_key` composes a lexicographic `sortText` from
-`(scope_depth, directive_type, symbol_type, parent_uri, name)`. The
-`directive_type` bucket maps `'current'` → 0, `'included-by'` → 1,
-`'done-by'` → 2, `'out-of-scope'` → 3 — so out-of-scope entries always
-sort after every in-scope entry within the same symbol-type tier.
-Symbol-type tiering is a higher-order key, so an in-scope local-macro
-still sorts above an out-of-scope program even though programs rank
-lower than locals in the symbol-type ordering.
+`(scope_depth, directive_type, symbol_type, parent_uri, name)`, in that
+order — `scope_depth` is the primary key, `directive_type` the
+secondary, `symbol_type` the tertiary, with `parent_uri` and `name`
+breaking remaining ties. The `directive_type` bucket maps `'current'` →
+0, `'included-by'` → 1, `'done-by'` → 2, `'out-of-scope'` → 3 — so
+out-of-scope entries rank last within a given `scope_depth` because of
+the `directive_type` bucket, not because of symbol-type tiering. This is
+why an in-scope local-macro (directive_type = 0) still sorts above an
+out-of-scope program (directive_type = 3) even though the program's
+`symbol_type` bucket (user-program, priority 0) would otherwise precede
+the local's (local-macro, priority 10) within the same `directive_type`.
 
 ## Mode dependency
 

@@ -4,6 +4,7 @@
 **Date:** 2026-04-19
 **GitHub issue:** [#132](https://github.com/jbearak/sight/issues/132)
 **Scope:** fix the sibling-forward-call gap in `collect_visible_reference_uris` (issue #132 proper) and, while the data model is open, refine the identity-redeclares guard from whole-file exclusion to position-aware filtering for the narrow case where a redeclaring callee inherits the active symbol before its own redeclaration.
+**Blocking dependency:** the transitive-chain scenarios in this spec (see Scenarios 4–6) depend on Issue [#134](https://github.com/jbearak/sight/issues/134) — effective auto parents must be synthesized recursively at every backward-resolution level of `resolve()`, not just at the root call. Until #134 lands, the `'auto'` side of those scenarios must stay marked conditional (see *Auto vs. explicit parity* below).
 
 ## Problem
 
@@ -151,10 +152,7 @@ A parent's forward calls include the edge that invoked the current file (e.g., c
 
 Auto backward discovery synthesizes `done-by` / `included-by` directives from `DependencyGraph.get_parents()` when a child file has no explicit directives. The synthesized directives feed into the same `follow_directives` → `resolve_parent_forward_calls` path used by explicit directives. Because this design's changes live entirely inside that path, both modes produce identical chain entries (modulo the directive source in diagnostics), and therefore identical find-references results. The test plan locks this invariant down explicitly.
 
-This parity now depends on the Issue #134 resolver fix: effective auto parents
-must be synthesized recursively at every backward-resolution level, not just at
-the root `resolve()` call. With that fix in place, the transitive scenarios
-below can use the same topology in both modes.
+This parity is **blocked** on Issue [#134](https://github.com/jbearak/sight/issues/134): effective auto parents must be synthesized recursively at every backward-resolution level inside `ScopeResolver.resolve()`, not just at the root `resolve()` call. Until #134 lands, the transitive scenarios below (Scenarios 4–6) are conditional on the `'auto'` side — the `'explicit'` side runs today, and the `'auto'` side is expected to fail until `resolve()`'s recursive synthesis is in place. Once #134 is resolved, both modes use the same topology and both sides of those scenarios must pass.
 
 ## Concrete changes
 

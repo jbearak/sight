@@ -12,7 +12,7 @@ import {
 } from '../../src/providers/completion';
 import { CommandDatabase } from '../../src/commands';
 import { DocumentState } from '../../src/document-store';
-import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol } from '../../src/types';
+import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol, ScalarSymbol, MatrixSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
 import { LanguageContext } from '../../src/context-tracker/types';
 
@@ -1494,7 +1494,7 @@ describe('Out-of-scope global macro completion', () => {
             sourceUri: 'file:///helper.do',
             containingScope: 'dofile',
             definition_line: 0,
-        } as any);
+        } satisfies MacroSymbol);
 
         const completions = await provider.get_completions(
             doc,
@@ -1545,7 +1545,7 @@ describe('Out-of-scope global macro completion', () => {
             sourceUri: 'file:///other.do',
             containingScope: 'dofile',
             definition_line: 0,
-        } as any);
+        } satisfies MacroSymbol);
 
         const completions = await provider.get_completions(
             doc,
@@ -1594,8 +1594,7 @@ describe('Out-of-scope program completion', () => {
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
             },
             sourceUri: 'file:///lib.do',
-            signature: { args: [] },
-        } as any);
+        } satisfies ProgramSymbol);
 
         const completions = await provider.get_completions(
             doc,
@@ -1631,8 +1630,7 @@ describe('Out-of-scope program completion', () => {
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
             },
             sourceUri: 'file:///shadow.do',
-            signature: { args: [] },
-        } as any);
+        } satisfies ProgramSymbol);
 
         const completions = await provider.get_completions(
             doc,
@@ -1681,7 +1679,7 @@ describe('Out-of-scope scalar and matrix completion', () => {
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
             },
             sourceUri: 'file:///lib.do',
-        } as any);
+        } satisfies ScalarSymbol);
 
         const completions = await provider.get_completions(
             doc,
@@ -1717,7 +1715,7 @@ describe('Out-of-scope scalar and matrix completion', () => {
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
             },
             sourceUri: 'file:///lib.do',
-        } as any);
+        } satisfies MatrixSymbol);
 
         const completions = await provider.get_completions(
             doc,
@@ -1753,8 +1751,10 @@ describe('Out-of-scope scalar and matrix completion', () => {
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
             },
             sourceUri: 'file:///lib.do',
-            source: 'dataset',
-        } as any);
+            // Dataset columns are synthesized; `inferred` is the closest valid
+            // `VariableSymbol.source` value for "not tied to a gen/egen/etc.".
+            source: 'inferred',
+        } satisfies VariableSymbol);
 
         const completions = await provider.get_completions(
             doc,
@@ -1783,7 +1783,7 @@ describe('In-scope global keeps normal completion rank', () => {
         const uri = 'file:///test.do';
         // Simulate an in-scope workspace global by placing it in the document's own symbol table
         // (no separate scope_resolver needed — the filter uses in-scope membership, not provenance).
-        const doc_globals = new Map();
+        const doc_globals = new Map<string, MacroSymbol>();
         doc_globals.set('shared_cfg', {
             name: 'shared_cfg',
             scope: 'global',
@@ -1806,7 +1806,7 @@ describe('In-scope global keeps normal completion rank', () => {
             scalars: new Map(),
             matrices: new Map(),
         };
-        workspace_symbols.globalMacros.set('shared_cfg', doc_globals.get('shared_cfg') as any);
+        workspace_symbols.globalMacros.set('shared_cfg', doc_globals.get('shared_cfg')!);
 
         const completions = await provider.get_completions(
             doc,
@@ -1916,7 +1916,7 @@ describe('partition_symbols_for_completion: resolved_scope out-of-scope filterin
             sourceUri: 'file:///parent.do',
             containingScope: 'dofile',
             definition_line: 5,
-        } as any);
+        } satisfies MacroSymbol);
 
         const in_scope: SymbolTable = {
             programs: new Map(),
@@ -1979,7 +1979,7 @@ describe('partition_symbols_for_completion: resolved_scope out-of-scope filterin
             sourceUri: 'file:///unrelated.do',
             containingScope: 'dofile',
             definition_line: 0,
-        } as any);
+        } satisfies MacroSymbol);
 
         const in_scope: SymbolTable = {
             programs: new Map(),
