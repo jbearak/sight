@@ -11,7 +11,12 @@ import {
 } from 'vscode-languageserver';
 import { Position, Range } from 'vscode-languageserver-textdocument';
 import { DocumentState } from '../document-store';
-import { SymbolTable, StataNode, EmbeddedLanguageBlockNode } from '../types';
+import {
+    StataNode,
+    EmbeddedLanguageBlockNode,
+    WorkspaceSymbolMatch,
+    WorkspaceSymbolSource,
+} from '../types';
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { extract_sections, RawSection } from './section-detector';
 import * as path from 'path';
@@ -654,157 +659,134 @@ export class SymbolProvider {
     /**
      * Get workspace symbols matching a query.
      *
+     * Returns one SymbolInformation per (name, file, type) triple via the
+     * `WorkspaceSymbolSource`. Open-document symbols come from fresh in-memory
+     * tables so unsaved edits appear immediately.
+     *
      * @param query - The search query
-     * @param all_documents - All open documents (for local symbols if desired)
-     * @param workspace_symbols - Merged symbols from the workspace indexer
+     * @param all_documents - All open documents (fresh in-memory symbols)
+     * @param workspace_source - Workspace-wide symbol search source
      * @returns Array of SymbolInformation
      */
     get_workspace_symbols(
         query: string,
         all_documents: DocumentState[],
-        workspace_symbols?: SymbolTable
+        workspace_source?: WorkspaceSymbolSource
     ): SymbolInformation[] {
         const symbols: SymbolInformation[] = [];
         const lower_query = query.toLowerCase();
 
-        // Build set of open document URIs to skip workspace entries that would be stale
+        // Build set of open document URIs so the overlay owns those URIs
         const the_open_document_uris = new Set(
             all_documents.map((my_document) => my_document.uri)
         );
 
-        // 1. Check workspace-wide symbols (skip entries from open documents)
-        if (workspace_symbols) {
-            // Check programs
-            for (const [name, program] of workspace_symbols.programs) {
-                if (the_open_document_uris.has(program.sourceUri)) continue;
-                if (program.name.toLowerCase().includes(lower_query)) {
-                    symbols.push({
-                        name: program.name,
-                        kind: SymbolKind.Function,
-                        location: {
-                            uri: program.sourceUri,
-                            range: program.location.range,
-                        },
-                        containerName: 'Program',
-                    });
-                }
-            }
-
-            // Check global macros
-            for (const [name, macro] of workspace_symbols.globalMacros) {
-                if (the_open_document_uris.has(macro.sourceUri)) continue;
-                if (name.toLowerCase().includes(lower_query)) {
-                    symbols.push({
-                        name: `${name}`,
-                        kind: SymbolKind.Variable,
-                        location: {
-                            uri: macro.sourceUri,
-                            range: macro.location.range,
-                        },
-                        containerName: 'Global Macro',
-                    });
-                }
-            }
-
-            // Check local macros
-            for (const [name, macro] of workspace_symbols.localMacros) {
-                if (the_open_document_uris.has(macro.sourceUri)) continue;
-                if (name.toLowerCase().includes(lower_query)) {
-                    symbols.push({
-                        name: `\`${name}'`,
-                        kind: SymbolKind.Variable,
-                        location: {
-                            uri: macro.sourceUri,
-                            range: macro.location.range,
-                        },
-                        containerName: 'Local Macro',
-                    });
-                }
-            }
-
-            // Check variables
-            for (const [name, variable] of workspace_symbols.variables) {
-                if (the_open_document_uris.has(variable.sourceUri)) continue;
-                if (name.toLowerCase().includes(lower_query)) {
-                    symbols.push({
-                        name: name,
-                        kind: SymbolKind.Field,
-                        location: {
-                            uri: variable.sourceUri,
-                            range: variable.location.range,
-                        },
-                        containerName: 'Variable',
-                    });
-                }
-            }
-
-            // Check scalars
-            for (const [name, scalar] of workspace_symbols.scalars) {
-                if (the_open_document_uris.has(scalar.sourceUri)) continue;
-                if (name.toLowerCase().includes(lower_query)) {
-                    symbols.push({
-                        name: name,
-                        kind: SymbolKind.Variable,
-                        location: {
-                            uri: scalar.sourceUri,
-                            range: scalar.location.range,
-                        },
-                        containerName: 'Scalar',
-                    });
-                }
-            }
-
-            // Check matrices
-            for (const [name, matrix] of workspace_symbols.matrices) {
-                if (the_open_document_uris.has(matrix.sourceUri)) continue;
-                if (name.toLowerCase().includes(lower_query)) {
-                    symbols.push({
-                        name: name,
-                        kind: SymbolKind.Variable,
-                        location: {
-                            uri: matrix.sourceUri,
-                            range: matrix.location.range,
-                        },
-                        containerName: 'Matrix',
-                    });
-                }
+        // 1. Pull workspace-wide matches from the source, skipping any whose
+        //    URI is covered by an open document (overlay owns those).
+        if (workspace_source) {
+            const the_matches = workspace_source.find_all_symbol_definitions(query);
+            for (const my_match of the_matches) {
+                if (the_open_document_uris.has(my_match.uri)) continue;
+                symbols.push(this.match_to_symbol_information(my_match));
             }
         }
 
-        // 2. Check currently open documents for local symbols (macros, variables)
-        // that match, and embedded language blocks
+        // 2. Overlay fresh symbols from open documents across all six symbol
+        //    types plus embedded-language blocks.
         for (const document of all_documents) {
-            // Check local macros
-            for (const [name, macro] of document.symbols.localMacros) {
-                if (name.toLowerCase().includes(lower_query)) {
+            const my_basename = path.basename(document.uri);
+
+            // Programs
+            for (const [my_name, my_program] of document.symbols.programs) {
+                if (my_program.name.toLowerCase().includes(lower_query)) {
                     symbols.push({
-                        name: `\`${name}'`,
+                        name: my_program.name,
+                        kind: SymbolKind.Function,
+                        location: {
+                            uri: my_program.sourceUri,
+                            range: my_program.location.range,
+                        },
+                        containerName: `Program in ${my_basename}`,
+                    });
+                }
+            }
+
+            // Global macros
+            for (const [my_name, my_macro] of document.symbols.globalMacros) {
+                if (my_name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: my_name,
                         kind: SymbolKind.Variable,
                         location: {
-                            uri: macro.sourceUri,
-                            range: macro.location.range,
+                            uri: my_macro.sourceUri,
+                            range: my_macro.location.range,
                         },
-                        containerName: `Local Macro in ${path.basename(document.uri)}`,
+                        containerName: `Global Macro in ${my_basename}`,
                     });
                 }
             }
 
-            // Check variables
-            for (const [name, variable] of document.symbols.variables) {
-                if (name.toLowerCase().includes(lower_query)) {
+            // Local macros
+            for (const [my_name, my_macro] of document.symbols.localMacros) {
+                if (my_name.toLowerCase().includes(lower_query)) {
                     symbols.push({
-                        name: name,
+                        name: `\`${my_name}'`,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: my_macro.sourceUri,
+                            range: my_macro.location.range,
+                        },
+                        containerName: `Local Macro in ${my_basename}`,
+                    });
+                }
+            }
+
+            // Variables
+            for (const [my_name, my_variable] of document.symbols.variables) {
+                if (my_name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: my_name,
                         kind: SymbolKind.Field,
                         location: {
-                            uri: variable.sourceUri,
-                            range: variable.location.range,
+                            uri: my_variable.sourceUri,
+                            range: my_variable.location.range,
                         },
-                        containerName: `Variable in ${path.basename(document.uri)}`,
+                        containerName: `Variable in ${my_basename}`,
                     });
                 }
             }
 
-            // Check embedded language blocks
+            // Scalars
+            for (const [my_name, my_scalar] of document.symbols.scalars) {
+                if (my_name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: my_name,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: my_scalar.sourceUri,
+                            range: my_scalar.location.range,
+                        },
+                        containerName: `Scalar in ${my_basename}`,
+                    });
+                }
+            }
+
+            // Matrices
+            for (const [my_name, my_matrix] of document.symbols.matrices) {
+                if (my_name.toLowerCase().includes(lower_query)) {
+                    symbols.push({
+                        name: my_name,
+                        kind: SymbolKind.Variable,
+                        location: {
+                            uri: my_matrix.sourceUri,
+                            range: my_matrix.location.range,
+                        },
+                        containerName: `Matrix in ${my_basename}`,
+                    });
+                }
+            }
+
+            // Embedded language blocks
             if (document.ast) {
                 const the_embedded_blocks = this.extract_embedded_blocks(
                     document.ast.nodes
@@ -822,9 +804,7 @@ export class SymbolProvider {
                                 uri: document.uri,
                                 range: my_block.range,
                             },
-                            containerName: `Embedded Language in ${path.basename(
-                                document.uri
-                            )}`,
+                            containerName: `Embedded Language in ${my_basename}`,
                         });
                     }
                 }
@@ -832,5 +812,60 @@ export class SymbolProvider {
         }
 
         return symbols;
+    }
+
+    /**
+     * Convert a WorkspaceSymbolMatch to a SymbolInformation entry.
+     *
+     * Note: containerName values here are WITHOUT the `in <basename>` suffix —
+     * that suffix is reserved for the open-document overlay entries.
+     */
+    private match_to_symbol_information(
+        match: WorkspaceSymbolMatch
+    ): SymbolInformation {
+        switch (match.kind) {
+            case 'program':
+                return {
+                    name: match.name,
+                    kind: SymbolKind.Function,
+                    location: { uri: match.uri, range: match.range },
+                    containerName: 'Program',
+                };
+            case 'global_macro':
+                return {
+                    name: match.name,
+                    kind: SymbolKind.Variable,
+                    location: { uri: match.uri, range: match.range },
+                    containerName: 'Global Macro',
+                };
+            case 'local_macro':
+                return {
+                    name: `\`${match.name}'`,
+                    kind: SymbolKind.Variable,
+                    location: { uri: match.uri, range: match.range },
+                    containerName: 'Local Macro',
+                };
+            case 'variable':
+                return {
+                    name: match.name,
+                    kind: SymbolKind.Field,
+                    location: { uri: match.uri, range: match.range },
+                    containerName: 'Variable',
+                };
+            case 'scalar':
+                return {
+                    name: match.name,
+                    kind: SymbolKind.Variable,
+                    location: { uri: match.uri, range: match.range },
+                    containerName: 'Scalar',
+                };
+            case 'matrix':
+                return {
+                    name: match.name,
+                    kind: SymbolKind.Variable,
+                    location: { uri: match.uri, range: match.range },
+                    containerName: 'Matrix',
+                };
+        }
     }
 }

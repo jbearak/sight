@@ -524,14 +524,11 @@ export function create_workspace_symbol_handler(
         if (!deps.symbol_provider) {
             return [];
         }
-        const workspace_symbols = deps.workspace_indexer
-            ? deps.workspace_indexer.get_all_symbols()
-            : undefined;
         const all_documents = deps.document_store.getAll();
         return deps.symbol_provider.get_workspace_symbols(
             params.query,
             all_documents,
-            workspace_symbols
+            deps.workspace_indexer ?? undefined
         );
     };
 }
