@@ -214,6 +214,54 @@ describe('HoverProvider - Context-Aware Behavior', () => {
         });
     });
 
+    describe('String Literal Context Hover', () => {
+        it('should suppress hover on literal text inside a double-quoted string', async () => {
+            // `di "fruit: `fruit'"` — hovering on the literal word "fruit"
+            // inside the quotes should not trigger symbol lookup even when a
+            // local macro named `fruit` exists.
+            const my_content = 'local fruit = "apple"\ndi "fruit: `fruit\'"';
+            const my_doc = create_test_document(my_content, {
+                localMacros: new Map([
+                    ['fruit', {
+                        name: 'fruit',
+                        sourceUri: 'file:///test.do',
+                        value: 'apple',
+                        type: 'local',
+                    }],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            // Literal "fruit" begins at character 4 on line 1 (inside `"fruit: `)
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 1, character: 6 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should still hover on a macro reference embedded in a string', async () => {
+            const my_content = 'local fruit = "apple"\ndi "fruit: `fruit\'"';
+            const my_doc = create_test_document(my_content, {
+                localMacros: new Map([
+                    ['fruit', {
+                        name: 'fruit',
+                        sourceUri: 'file:///test.do',
+                        value: 'apple',
+                        type: 'local',
+                    }],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            // `fruit' begins at character 12 on line 1; the macro name starts at 13
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 1, character: 15 });
+
+            expect(my_hover).not.toBeNull();
+            if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).toContain('Local Macro');
+            }
+        });
+    });
+
     describe('Embedded Language Context Hover', () => {
         it('should suppress command hover in Mata context', async () => {
             const my_content = `mata

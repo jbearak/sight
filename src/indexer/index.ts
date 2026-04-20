@@ -20,6 +20,7 @@ import {
     Token,
     ContextRange,
     ForwardCall,
+    WorkspaceSymbolMatch,
 } from '../types';
 import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
 import { StataLexer } from '../lexer';
@@ -774,6 +775,89 @@ export class WorkspaceIndexer {
         }
 
         return definitions;
+    }
+
+    /**
+     * Find every indexed symbol whose name contains `query` (case-insensitive)
+     * as a substring, returning one `WorkspaceSymbolMatch` per (file, symbol-type,
+     * name) triple.
+     *
+     * Contrast with `find_symbol_definitions`, which performs exact-name lookup
+     * and returns the raw symbol objects. This method is the backing source for
+     * the `workspace/symbol` (Cmd-T / "Go to Symbol in Workspace") provider, so
+     * it returns lightweight match records (name, kind, uri, range) and emits
+     * one entry per file+type rather than merging across files.
+     */
+    find_all_symbol_definitions(query: string): WorkspaceSymbolMatch[] {
+        const the_matches: WorkspaceSymbolMatch[] = [];
+        const my_query_lower = query.toLowerCase();
+
+        for (const [file_uri, entry] of this.symbol_index.entries()) {
+            const my_symbols = entry.symbols;
+
+            for (const [name, symbol] of my_symbols.programs) {
+                if (name.toLowerCase().includes(my_query_lower)) {
+                    the_matches.push({
+                        name,
+                        kind: 'program',
+                        uri: file_uri,
+                        range: symbol.location.range,
+                    });
+                }
+            }
+            for (const [name, symbol] of my_symbols.globalMacros) {
+                if (name.toLowerCase().includes(my_query_lower)) {
+                    the_matches.push({
+                        name,
+                        kind: 'global_macro',
+                        uri: file_uri,
+                        range: symbol.location.range,
+                    });
+                }
+            }
+            for (const [name, symbol] of my_symbols.localMacros) {
+                if (name.toLowerCase().includes(my_query_lower)) {
+                    the_matches.push({
+                        name,
+                        kind: 'local_macro',
+                        uri: file_uri,
+                        range: symbol.location.range,
+                    });
+                }
+            }
+            for (const [name, symbol] of my_symbols.variables) {
+                if (name.toLowerCase().includes(my_query_lower)) {
+                    the_matches.push({
+                        name,
+                        kind: 'variable',
+                        uri: file_uri,
+                        range: symbol.location.range,
+                    });
+                }
+            }
+            for (const [name, symbol] of my_symbols.scalars) {
+                if (name.toLowerCase().includes(my_query_lower)) {
+                    the_matches.push({
+                        name,
+                        kind: 'scalar',
+                        uri: file_uri,
+                        range: symbol.location.range,
+                    });
+                }
+            }
+            for (const [name, symbol] of my_symbols.matrices) {
+                if (name.toLowerCase().includes(my_query_lower)) {
+                    the_matches.push({
+                        name,
+                        kind: 'matrix',
+                        uri: file_uri,
+                        range: symbol.location.range,
+                    });
+                }
+            }
+        }
+
+        return the_matches;
     }
 
     /**

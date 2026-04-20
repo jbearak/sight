@@ -457,8 +457,20 @@ describe('Cross-File Awareness Integration', () => {
         });
     });
 
-    describe('go-to-definition returns multiple definitions', () => {
-        it('should return multiple global macro definitions across the workspace', async () => {
+    describe('go-to-definition respects Rule 2 (disjoint branches stay distinct)', () => {
+        // Issue #135: same-name globals in files unreachable through the
+        // dep graph have *different* identity. Go-to-definition returns
+        // nothing so the user sees the accompanying "undefined global"
+        // diagnostic — the correct signal to either add a
+        // `do`/`run`/`include` edge, declare `@lsp-global`, or otherwise
+        // bring the definition into scope. (Workspace Symbol search
+        // remains the discovery tool for "find any `DUP` in the tree".)
+        //
+        // The positive counterpart — go-to-def pools reachable
+        // redeclarations into one identity — is covered in
+        // `tests/integration/goto-def-identity-redeclared.test.ts`
+        // with a DependencyGraph-wired indexer.
+        it('returns null for globals defined only in unrelated files', async () => {
             const file1_path = join(test_temp_dir, 'a.do');
             const file2_path = join(test_temp_dir, 'b.do');
             const use_path = join(test_temp_dir, 'use.do');
@@ -479,16 +491,10 @@ describe('Cross-File Awareness Integration', () => {
                 indexer.get_all_symbols(),
                 undefined,
                 scope_resolver,
-                indexer
+                indexer,
             );
 
-            expect(Array.isArray(definition)).toBe(true);
-            const locations = definition as any[];
-            expect(locations.length).toBe(2);
-
-            const uris = locations.map((l) => l.uri);
-            expect(uris.some((u) => u.includes('a.do'))).toBe(true);
-            expect(uris.some((u) => u.includes('b.do'))).toBe(true);
+            expect(definition).toBeNull();
         });
     });
 });

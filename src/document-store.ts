@@ -570,9 +570,9 @@ export class DocumentStore {
           directive_result.working_directory,
           uri
         );
-      } else if (directive_result.directives.length > 0 && this.scope_resolver) {
-        // File has backward directives but no own working directory
-        // Try to inherit from parent files via ScopeResolver
+      } else if (this.scope_resolver) {
+        // File has no own working directory. Try to inherit one from parent
+        // files via ScopeResolver, including auto-discovered parents.
         try {
           const scope_result = await this.scope_resolver.resolve(uri, content);
           if (scope_result.inherited_working_directory) {

@@ -381,35 +381,60 @@ export class SemanticAnalyzer {
             case 'scalar':
                 this.config.declared_scalars.set(name, { line });
                 if (symbols) {
-                    symbols.scalars.set(name, {
+                    // node_index is not available in directive context;
+                    // use 0 as approximation (directive declarations are
+                    // rare and not the primary definition site).
+                    this.add_or_append_definition(
+                        symbols.scalars,
                         name,
-                        location: { uri: this.uri, range: my_range },
-                        sourceUri: this.uri,
-                        definition_line: line,
-                    });
+                        0,
+                        my_range,
+                        () => ({
+                            name,
+                            location: { uri: this.uri, range: my_range },
+                            sourceUri: this.uri,
+                            definition_line: line,
+                        })
+                    );
                 }
                 break;
-                
+
             case 'matrix':
                 this.config.declared_matrices.set(name, { line });
                 if (symbols) {
-                    symbols.matrices.set(name, {
+                    // node_index is not available in directive context;
+                    // use 0 as approximation (see scalar case above).
+                    this.add_or_append_definition(
+                        symbols.matrices,
                         name,
-                        location: { uri: this.uri, range: my_range },
-                        sourceUri: this.uri,
-                        definition_line: line,
-                    });
+                        0,
+                        my_range,
+                        () => ({
+                            name,
+                            location: { uri: this.uri, range: my_range },
+                            sourceUri: this.uri,
+                            definition_line: line,
+                        })
+                    );
                 }
                 break;
                 
             case 'program':
                 this.config.declared_programs.set(name, { line });
                 if (symbols) {
-                    symbols.programs.set(name, {
+                    // node_index is not available in directive context;
+                    // use 0 as approximation (matches scalar/matrix case).
+                    this.add_or_append_definition(
+                        symbols.programs,
                         name,
-                        location: { uri: this.uri, range: my_range },
-                        sourceUri: this.uri,
-                    });
+                        0,
+                        my_range,
+                        () => ({
+                            name,
+                            location: { uri: this.uri, range: my_range },
+                            sourceUri: this.uri,
+                        })
+                    );
                 }
                 break;
         }
@@ -501,7 +526,7 @@ export class SemanticAnalyzer {
     ): void {
         switch (node.type) {
             case 'program':
-                this.process_program(node, symbols, all_scopes);
+                this.process_program(node, symbols, all_scopes, node_index);
                 break;
 
             case 'macro_def':
@@ -535,23 +560,72 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * First-def-wins registration. Creates the primary entry on first call;
+     * on subsequent calls, appends to `additional_definitions`.
+     *
+     * Returns the canonical symbol (primary) — useful when callers need to
+     * mutate it further (e.g., attach c_locals to a program).
+     */
+    private add_or_append_definition<
+        T extends {
+            location: { uri: string; range: Range };
+            additional_definitions?: Array<{
+                index: number;
+                line: number;
+                location: { uri: string; range: Range };
+            }>;
+        }
+    >(
+        symbol_map: Map<string, T>,
+        name: string,
+        node_index: number,
+        range: Range,
+        create_primary: () => T
+    ): T {
+        const existing = symbol_map.get(name);
+        if (existing) {
+            if (!existing.additional_definitions) {
+                existing.additional_definitions = [];
+            }
+            existing.additional_definitions.push({
+                index: node_index,
+                line: range.start.line,
+                location: { uri: this.uri, range },
+            });
+            return existing;
+        }
+        const primary = create_primary();
+        symbol_map.set(name, primary);
+        return primary;
+    }
+
+    /**
      * Process a program definition.
      * Programs are case-sensitive.
      */
     private process_program(
         node: ProgramNode,
         symbols: SymbolTable,
-        all_scopes: ScopeInfo[]
+        all_scopes: ScopeInfo[],
+        node_index: number
     ): void {
-        const program_symbol: ProgramSymbol = {
-            name: node.name,
-            location: { uri: this.uri, range: node.range },
-            sourceUri: this.uri,
-        };
+        // Detect whether this is the first definition before registering
+        const is_first_definition = !symbols.programs.has(node.name);
 
-        symbols.programs.set(node.name, program_symbol);
+        const program_symbol: ProgramSymbol = this.add_or_append_definition(
+            symbols.programs,
+            node.name,
+            node_index,
+            node.range,
+            (): ProgramSymbol => ({
+                name: node.name,
+                location: { uri: this.uri, range: node.range },
+                sourceUri: this.uri,
+            })
+        );
 
-        // Create a new scope for the program body
+        // Create a new scope for the program body — unconditional so that
+        // each redeclaration's body gets its own scope for per-body diagnostics.
         const program_scope: ScopeInfo = {
             type: 'program',
             range: node.range,
@@ -559,28 +633,51 @@ export class SemanticAnalyzer {
         };
         all_scopes.push(program_scope);
 
-        // Process program body with the new scope
+        // Process program body with the new scope — unconditional for the
+        // same reason: locals defined inside each body deserve diagnostic
+        // coverage regardless of which definition is "primary".
         this.build_symbols(node.body, symbols, program_scope, all_scopes);
 
-        // Extract c_local macro names from program body
-        const c_locals = this.extract_c_locals(node.body);
-        if (c_locals.length > 0) {
-            program_symbol.c_locals = c_locals;
-        }
+        // Guard body-metadata extractions on first definition only.
+        // These all mutate program_symbol.* and must follow first-def-wins
+        // semantics to match location / additional_definitions behaviour.
+        //
+        // Known limitation (outside issue #135 scope): the first-def-wins
+        // gate below also gates `extract_and_attach_signature`, which is
+        // the only code path that registers implicit locals from `syntax`
+        // into `program_scope`. For redeclared programs with *different*
+        // signatures, body #2's implicit locals are therefore not
+        // registered, and a reference to `` `B' `` in body #2 where the
+        // second body declared `syntax varlist, B(string)` will emit a
+        // false-positive "undefined local macro" diagnostic. The pattern
+        // (two `program define NAME` blocks in one file with divergent
+        // signatures) is rare in practice — dropping and redefining a
+        // program usually uses `program drop NAME` first. If this bites,
+        // the fix is to split signature extraction into "register implicit
+        // locals" (per body) and "attach signature to program_symbol"
+        // (first-def-wins only).
+        if (is_first_definition) {
+            // Extract c_local macro names from program body
+            const c_locals = this.extract_c_locals(node.body);
+            if (c_locals.length > 0) {
+                program_symbol.c_locals = c_locals;
+            }
 
-        // Extract and attach signature from program body FIRST
-        // This also registers implicit locals from all syntax commands
-        this.extract_and_attach_signature(node, program_symbol, program_scope, symbols);
+            // Extract and attach signature from program body FIRST
+            // This also registers implicit locals from all syntax commands
+            this.extract_and_attach_signature(node, program_symbol, program_scope, symbols);
 
-        // Extract macro-creating option patterns from program body
-        // Must happen AFTER signature extraction so we can filter by syntax parameters
-        const syntax_option_names = this.extract_syntax_option_names(node.body);
-        const { local_options, global_options } = this.extract_macro_creating_option_patterns(node.body, syntax_option_names);
-        if (local_options.length > 0) {
-            program_symbol.macro_creating_local_options = local_options;
-        }
-        if (global_options.length > 0) {
-            program_symbol.macro_creating_global_options = global_options;
+            // Extract macro-creating option patterns from program body
+            // Must happen AFTER signature extraction so we can filter by
+            // syntax parameters
+            const syntax_option_names = this.extract_syntax_option_names(node.body);
+            const { local_options, global_options } = this.extract_macro_creating_option_patterns(node.body, syntax_option_names);
+            if (local_options.length > 0) {
+                program_symbol.macro_creating_local_options = local_options;
+            }
+            if (global_options.length > 0) {
+                program_symbol.macro_creating_global_options = global_options;
+            }
         }
     }
 
@@ -1196,9 +1293,9 @@ export class SemanticAnalyzer {
         } else if (cmd_name === 'confirm') {
             this.extract_confirm_variable(node, symbols);
         } else if (cmd_name === 'scalar') {
-            this.extract_scalar_symbol(node, symbols);
+            this.extract_scalar_symbol(node, symbols, node_index);
         } else if (cmd_name === 'matrix') {
-            this.extract_matrix_symbol(node, symbols);
+            this.extract_matrix_symbol(node, symbols, node_index);
         } else if (cmd_name === 'tempvar' || cmd_name === 'tempfile' || cmd_name === 'tempname') {
             // tempvar/tempfile/tempname create LOCAL MACROs
             this.extract_tempvar_macro(node, symbols, current_scope, node_index);
@@ -1254,19 +1351,26 @@ export class SemanticAnalyzer {
      */
     private extract_scalar_symbol(
         node: CommandNode,
-        symbols: SymbolTable
+        symbols: SymbolTable,
+        node_index: number
     ): void {
         if (!node.varlist || node.varlist.length === 0) {
             return;
         }
 
         const scalar_name = node.varlist[0].name;
-        symbols.scalars.set(scalar_name, {
-            name: scalar_name,
-            location: { uri: this.uri, range: node.varlist[0].range },
-            sourceUri: this.uri,
-            definition_line: node.range.start.line,
-        });
+        this.add_or_append_definition(
+            symbols.scalars,
+            scalar_name,
+            node_index,
+            node.varlist[0].range,
+            () => ({
+                name: scalar_name,
+                location: { uri: this.uri, range: node.varlist![0].range },
+                sourceUri: this.uri,
+                definition_line: node.varlist![0].range.start.line,
+            })
+        );
     }
 
     /**
@@ -1277,7 +1381,8 @@ export class SemanticAnalyzer {
      */
     private extract_matrix_symbol(
         node: CommandNode,
-        symbols: SymbolTable
+        symbols: SymbolTable,
+        node_index: number
     ): void {
         if (!node.varlist || node.varlist.length === 0) {
             return;
@@ -1299,12 +1404,18 @@ export class SemanticAnalyzer {
             ? node.varlist[1].range
             : node.varlist[0].range;
 
-        symbols.matrices.set(matrix_name, {
-            name: matrix_name,
-            location: { uri: this.uri, range: name_range },
-            sourceUri: this.uri,
-            definition_line: node.range.start.line,
-        });
+        this.add_or_append_definition(
+            symbols.matrices,
+            matrix_name,
+            node_index,
+            name_range,
+            () => ({
+                name: matrix_name,
+                location: { uri: this.uri, range: name_range },
+                sourceUri: this.uri,
+                definition_line: name_range.start.line,
+            })
+        );
     }
 
     /**
@@ -1614,7 +1725,7 @@ export class SemanticAnalyzer {
                 }
                 existing_macro.additional_definitions.push({
                     index: node_index,
-                    line: node.range.start.line,
+                    line: var_node.range.start.line,
                     location: { uri: this.uri, range: var_node.range }
                 });
             } else {
@@ -1660,7 +1771,7 @@ export class SemanticAnalyzer {
                 }
                 existing_macro.additional_definitions.push({
                     index: node_index,
-                    line: node.range.start.line,
+                    line: node.varlist[0].range.start.line,
                     location: { uri: this.uri, range: node.varlist[0].range }
                 });
             } else {
@@ -1709,7 +1820,7 @@ export class SemanticAnalyzer {
                     }
                     existing_macro.additional_definitions.push({
                         index: node_index,
-                        line: node.range.start.line,
+                        line: my_var_node.range.start.line,
                         location: { uri: this.uri, range: my_var_node.range }
                     });
                 } else {
@@ -1779,7 +1890,7 @@ export class SemanticAnalyzer {
                 }
                 existing_macro.additional_definitions.push({
                     index: node_index,
-                    line: node.range.start.line,
+                    line: my_var_node.range.start.line,
                     location: { uri: this.uri, range: my_var_node.range }
                 });
             } else {
@@ -1844,7 +1955,7 @@ export class SemanticAnalyzer {
             }
             existing_macro.additional_definitions.push({
                 index: node_index,
-                line: node.range.start.line,
+                line: macro_node.range.start.line,
                 location: { uri: this.uri, range: macro_node.range }
             });
         } else {
@@ -1968,10 +2079,12 @@ export class SemanticAnalyzer {
                     if (!existing_macro.additional_definitions) {
                         existing_macro.additional_definitions = [];
                     }
+                    const my_local_option_range =
+                        option.argument_range ?? node.range;
                     existing_macro.additional_definitions.push({
                         index: node_index,
-                        line: node.range.start.line,
-                        location: { uri: this.uri, range: option.argument_range ?? node.range }
+                        line: my_local_option_range.start.line,
+                        location: { uri: this.uri, range: my_local_option_range }
                     });
                 } else {
                     // Create new macro with first definition
@@ -1997,10 +2110,12 @@ export class SemanticAnalyzer {
                     if (!existing_macro.additional_definitions) {
                         existing_macro.additional_definitions = [];
                     }
+                    const my_global_option_range =
+                        option.argument_range ?? node.range;
                     existing_macro.additional_definitions.push({
                         index: node_index,
-                        line: node.range.start.line,
-                        location: { uri: this.uri, range: option.argument_range ?? node.range }
+                        line: my_global_option_range.start.line,
+                        location: { uri: this.uri, range: my_global_option_range }
                     });
                 } else {
                     // Create new macro with first definition

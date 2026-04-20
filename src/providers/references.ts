@@ -22,6 +22,7 @@ import {
     build_scope_resolver_config,
     collect_visible_reference_uris,
     get_visible_forward_call_sites,
+    type ReferenceScanRange,
 } from '../scope-resolver';
 import type { ScopeResolverConfig, ResolvedScope } from '../types';
 
@@ -29,6 +30,21 @@ export interface ReferenceSearchContext {
     symbol_name: string;
     symbol_type: 'local_macro' | 'global_macro' | 'program' | 'variable' | 'scalar' | 'matrix';
     include_declaration: boolean;
+}
+
+/**
+ * Per the `ReferenceScanRange` contract in visible-symbols.ts, a URI with a
+ * `scan_through_line` cutoff includes matches whose `range.start.line <=
+ * scan_through_line`. Both declaration pooling (find_definitions) and token
+ * scanning (collect_references) must apply the same comparison, so they share
+ * this helper — keeping them aligned is the whole point of extracting it.
+ */
+export function line_within_scan_range(
+    line: number,
+    range: ReferenceScanRange,
+): boolean {
+    if (range.scan_through_line === undefined) return true;
+    return line <= range.scan_through_line;
 }
 
 export interface TokenMatch {
@@ -189,17 +205,32 @@ export class ReferencesProvider {
         switch (symbol_type) {
             case 'local_macro': {
                 const local_macro = symbols.localMacros.get(symbol_name);
-                if (local_macro) push({ uri: local_macro.location.uri, range: local_macro.location.range });
+                if (local_macro) {
+                    push({ uri: local_macro.location.uri, range: local_macro.location.range });
+                    for (const my_extra of local_macro.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
             case 'global_macro': {
                 const global_macro = symbols.globalMacros.get(symbol_name);
-                if (global_macro) push({ uri: global_macro.location.uri, range: global_macro.location.range });
+                if (global_macro) {
+                    push({ uri: global_macro.location.uri, range: global_macro.location.range });
+                    for (const my_extra of global_macro.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
             case 'program': {
                 const program = symbols.programs.get(symbol_name);
-                if (program) push({ uri: program.location.uri, range: program.location.range });
+                if (program) {
+                    push({ uri: program.location.uri, range: program.location.range });
+                    for (const my_extra of program.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
             case 'variable': {
@@ -209,12 +240,22 @@ export class ReferencesProvider {
             }
             case 'scalar': {
                 const scalar = symbols.scalars.get(symbol_name);
-                if (scalar) push({ uri: scalar.location.uri, range: scalar.location.range });
+                if (scalar) {
+                    push({ uri: scalar.location.uri, range: scalar.location.range });
+                    for (const my_extra of scalar.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
             case 'matrix': {
                 const matrix = symbols.matrices.get(symbol_name);
-                if (matrix) push({ uri: matrix.location.uri, range: matrix.location.range });
+                if (matrix) {
+                    push({ uri: matrix.location.uri, range: matrix.location.range });
+                    for (const my_extra of matrix.additional_definitions ?? []) {
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
                 break;
             }
         }
@@ -236,32 +277,80 @@ export class ReferencesProvider {
             // fall back to the pre-fix dep-graph-reachable set so the broader
             // declaration-pooling behavior is preserved — matching
             // collect_references's symmetric fallback below.
-            let the_allowed_uris: Set<string> | null = null;
+            let the_allowed_uris: Map<string, ReferenceScanRange> | null = null;
             if (symbol_type !== 'variable') {
-                the_allowed_uris = (resolved_scope !== undefined && cursor_line !== undefined)
-                    ? collect_visible_reference_uris(
+                if (resolved_scope !== undefined && cursor_line !== undefined) {
+                    the_allowed_uris = collect_visible_reference_uris(
                         resolved_scope,
                         cursor_line,
                         document.uri,
                         symbol_type,
                         symbol_name,
-                    )
-                    : (
-                        symbol_type === 'local_macro'
-                            ? workspace_indexer.get_related_uris(
-                                document.uri,
-                                { include_only: true }
-                            )
-                            : workspace_indexer.get_related_uris(document.uri)
                     );
+                    // Union with the transitive dep-graph-reachable set so
+                    // sibling-caller declarations pool under Rule 1. Mirrors
+                    // collect_references's floor. See issue #135.
+                    const the_reachable_floor = symbol_type === 'local_macro'
+                        ? workspace_indexer.get_related_uris(
+                            document.uri,
+                            { include_only: true }
+                        )
+                        : workspace_indexer.get_related_uris(document.uri);
+                    for (const my_uri of the_reachable_floor) {
+                        if (!the_allowed_uris.has(my_uri)) {
+                            the_allowed_uris.set(my_uri, {});
+                        }
+                    }
+                } else {
+                    const the_fallback_uris = symbol_type === 'local_macro'
+                        ? workspace_indexer.get_related_uris(
+                            document.uri,
+                            { include_only: true }
+                        )
+                        : workspace_indexer.get_related_uris(document.uri);
+                    the_allowed_uris = new Map(
+                        Array.from(the_fallback_uris).map((my_uri) => [my_uri, {}]),
+                    );
+                }
             }
             // Skip entries from the current document's URI: the on-disk
             // index can lag unsaved buffer edits, and document.symbols
             // already holds the authoritative fresh declaration.
             for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
                 if (my_def.sourceUri === document.uri) continue;
-                if (the_allowed_uris && !the_allowed_uris.has(my_def.sourceUri)) continue;
+                if (the_allowed_uris) {
+                    const range = the_allowed_uris.get(my_def.sourceUri);
+                    if (!range) continue;
+                    if (!line_within_scan_range(my_def.location.range.start.line, range)) {
+                        continue;
+                    }
+                }
                 push({ uri: my_def.location.uri, range: my_def.location.range });
+                // Issue #135: pool same-name redeclarations tracked in
+                // additional_definitions. Variables are excluded because
+                // variable symbols don't carry this field.
+                if (
+                    'additional_definitions' in my_def
+                    && my_def.additional_definitions
+                ) {
+                    for (const my_extra of my_def.additional_definitions) {
+                        // Gate by the extra's own URI, not the primary's
+                        // `sourceUri`. The analyzer currently guarantees they
+                        // match (all entries are pushed with `this.uri`), but
+                        // gating on the extra's URI keeps this branch correct
+                        // if that invariant is ever relaxed — e.g., a future
+                        // indexer path surfaces a cross-file redeclaration as
+                        // an `additional_definitions` entry.
+                        if (the_allowed_uris) {
+                            const range = the_allowed_uris.get(my_extra.location.uri);
+                            if (!range) continue;
+                            if (!line_within_scan_range(my_extra.location.range.start.line, range)) {
+                                continue;
+                            }
+                        }
+                        push({ uri: my_extra.location.uri, range: my_extra.location.range });
+                    }
+                }
             }
         }
 
@@ -555,12 +644,25 @@ export class ReferencesProvider {
         // global macro both named `data_path`), so the declaration-range check
         // runs first and stays sync against document.symbols.
         const global_macro = document.symbols.globalMacros.get(word);
-        if (global_macro && this.position_in_range(range.start, global_macro.location.range)) {
+        if (
+            global_macro
+            && this.position_hits_symbol_definition(range.start, global_macro)
+        ) {
             return { name: word, type: 'global_macro', range };
         }
         const local_macro = document.symbols.localMacros.get(word);
-        if (local_macro && this.position_in_range(range.start, local_macro.location.range)) {
+        if (
+            local_macro
+            && this.position_hits_symbol_definition(range.start, local_macro)
+        ) {
             return { name: word, type: 'local_macro', range };
+        }
+        const program = document.symbols.programs.get(word);
+        if (
+            program
+            && this.position_hits_symbol_definition(range.start, program)
+        ) {
+            return { name: word, type: 'program', range };
         }
 
         // Scope-resolver path: the classifier asks ScopeResolver what symbols
@@ -778,20 +880,6 @@ export class ReferencesProvider {
             cursor_line,
         );
 
-        // Search current document
-        if (document.tokens) {
-            const matches = this.scan_tokens_for_references(
-                document.tokens,
-                document.uri,
-                search_context,
-                context_ranges,
-                cancellation_token
-            );
-            for (const my_match of matches) {
-                locations.push({ uri: my_match.uri, range: my_match.range });
-            }
-        }
-
         // Search workspace-indexed files (Req 13.3).
         //
         // Variables are Stata dataset column names — name matches in files
@@ -814,18 +902,23 @@ export class ReferencesProvider {
         // understands `include_only`.
         // See docs/find-references.md for the rationale behind this three-tier model.
         const restrict_to_related = symbol_type !== 'variable';
-        let the_related: Set<string>;
+        let the_related: Map<string, ReferenceScanRange>;
         if (!workspace_indexer) {
-            the_related = new Set<string>([document.uri]);
+            the_related = new Map([[document.uri, {}]]);
         } else if (
             restrict_to_related &&
             resolved_scope !== undefined &&
             cursor_line !== undefined
         ) {
-            // Scope-resolver path (production): filter the scan to files
-            // contributing the active visible symbol instance at the cursor so
-            // not-yet-reached or masked same-name definitions don't leak into
-            // references. See issue #129.
+            // Scope-resolver path (production): start from the scope-aware
+            // set (tracks scan_through_line cutoffs and forward-call
+            // visibility) then union with the dep-graph-reachable set so
+            // sibling-caller cases (two parents both doing a shared child)
+            // are reached transitively. The scope-aware walk only knows
+            // the query file's immediate chain + forward calls; it cannot
+            // walk callee -> caller -> sibling-callee on its own. Rule 2
+            // is preserved because get_related_uris only traverses the
+            // connected component of the dep graph.
             the_related = collect_visible_reference_uris(
                 resolved_scope,
                 cursor_line,
@@ -833,16 +926,48 @@ export class ReferencesProvider {
                 symbol_type,
                 symbol_name,
             );
-        } else {
-            // Fallback path (test-only setups without a scope_resolver, or
-            // variable lookups that fall through before this point): keep
-            // the pre-fix behavior so those setups don't regress.
-            the_related = symbol_type === 'local_macro'
+            const the_reachable_floor = symbol_type === 'local_macro'
                 ? workspace_indexer.get_related_uris(
                     document.uri,
                     { include_only: true }
                 )
                 : workspace_indexer.get_related_uris(document.uri);
+            for (const my_uri of the_reachable_floor) {
+                if (!the_related.has(my_uri)) {
+                    the_related.set(my_uri, {});
+                }
+            }
+        } else {
+            // Fallback path (test-only setups without a scope_resolver, or
+            // variable lookups that fall through before this point): keep
+            // the pre-fix behavior so those setups don't regress.
+            const the_fallback_set = symbol_type === 'local_macro'
+                ? workspace_indexer.get_related_uris(
+                    document.uri,
+                    { include_only: true }
+                )
+                : workspace_indexer.get_related_uris(document.uri);
+            the_related = new Map(
+                Array.from(the_fallback_set).map((my_uri) => [my_uri, {}]),
+            );
+        }
+
+        // Search current document
+        if (document.tokens) {
+            const matches = this.scan_tokens_for_references(
+                document.tokens,
+                document.uri,
+                search_context,
+                context_ranges,
+                cancellation_token
+            );
+            const doc_range = the_related.get(document.uri);
+            for (const my_match of matches) {
+                if (doc_range && !line_within_scan_range(my_match.range.start.line, doc_range)) {
+                    continue;
+                }
+                locations.push({ uri: my_match.uri, range: my_match.range });
+            }
         }
 
         // Check cancellation before workspace scan (Req 5.3)
@@ -851,7 +976,7 @@ export class ReferencesProvider {
                 locations,
                 definitions,
                 include_declaration,
-                restrict_to_related ? undefined : the_related
+                restrict_to_related ? undefined : new Set(the_related.keys())
             );
         }
 
@@ -875,7 +1000,11 @@ export class ReferencesProvider {
                     file_data.context_ranges,
                     cancellation_token
                 );
+                const range = the_related.get(uri);
                 for (const my_match of matches) {
+                    if (range && !line_within_scan_range(my_match.range.start.line, range)) {
+                        continue;
+                    }
                     locations.push({ uri: my_match.uri, range: my_match.range });
                 }
 
@@ -895,7 +1024,7 @@ export class ReferencesProvider {
             locations,
             definitions,
             include_declaration,
-            restrict_to_related ? undefined : the_related
+            restrict_to_related ? undefined : new Set(the_related.keys())
         );
     }
 
@@ -913,5 +1042,25 @@ export class ReferencesProvider {
             return false;
         }
         return true;
+    }
+
+    private position_hits_symbol_definition(
+        position: Position,
+        symbol: {
+            location: { range: Range };
+            additional_definitions?: Array<{
+                location: { range: Range };
+            }>;
+        }
+    ): boolean {
+        if (this.position_in_range(position, symbol.location.range)) {
+            return true;
+        }
+        for (const my_extra of symbol.additional_definitions ?? []) {
+            if (this.position_in_range(position, my_extra.location.range)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

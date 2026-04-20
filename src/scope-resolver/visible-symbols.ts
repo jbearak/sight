@@ -173,6 +173,18 @@ export function get_visible_forward_call_sites(
     );
 }
 
+/**
+ * Per-URI line cutoff for find-references.
+ *
+ * - `scan_through_line === undefined`: scan the entire file.
+ * - `scan_through_line === <number>`:  include only token matches whose
+ *   range.start.line <= scan_through_line (used when the URI redeclares the
+ *   active symbol at that line and we want pre-redeclaration references only).
+ */
+export interface ReferenceScanRange {
+    scan_through_line?: number;
+}
+
 type ReferenceScopedSymbolType =
     | 'local_macro'
     | 'global_macro'
@@ -253,18 +265,33 @@ function can_reference_forward_site(
     return site.effective_type === 'include';
 }
 
+function current_file_promotion_allowed(
+    symbol_type: ReferenceScopedSymbolType,
+    active_symbol_identity: string | undefined,
+    current_uri: string,
+    include_only_ancestry: boolean,
+): boolean {
+    if (active_symbol_identity !== current_uri) {
+        return false;
+    }
+    if (symbol_type !== 'local_macro') {
+        return true;
+    }
+    return include_only_ancestry;
+}
+
 /**
- * URIs that should participate in find-references for the queried `(type,
- * name)`. The helper first resolves the active visible symbol instance at the
- * cursor via get_visible_symbols_at(), then keeps only related files whose
- * visible scope resolves that same name to the winning instance.
+ * URIs in the query file's immediate scope chain + forward calls that should
+ * participate in find-references for the queried `(type, name)`. Under Rule 1
+ * (issue #135), same name + same kind within the reachable chain pool into
+ * one identity — so both chain entries and forward-call sites are included
+ * whenever they contribute a same-name-same-kind symbol, regardless of which
+ * instance precedence would pick as the "winner". Callers union this result
+ * with the transitive dep-graph-reachable set (see
+ * `references.ts::collect_references` / `find_definitions`) to cover
+ * sibling-caller cases that aren't in the query file's immediate chain.
  *
- * This is precedence-aware, excludes masked same-name definitions from
- * otherwise-visible files, still includes sibling/parent contexts that can see
- * the winning symbol without defining it locally, and respects stripped-local
- * behavior implicitly by consulting the merged visible symbol table.
- *
- * Returns a Set containing just `current_uri` when `scope` is undefined.
+ * Returns a Map containing just `current_uri` when `scope` is undefined.
  */
 export function collect_visible_reference_uris(
     scope: ResolvedScope | undefined,
@@ -272,8 +299,8 @@ export function collect_visible_reference_uris(
     current_uri: string,
     symbol_type: ReferenceScopedSymbolType,
     symbol_name: string,
-): Set<string> {
-    const the_result = new Set<string>([current_uri]);
+): Map<string, ReferenceScanRange> {
+    const the_result = new Map<string, ReferenceScanRange>([[current_uri, {}]]);
     if (!scope) {
         return the_result;
     }
@@ -293,27 +320,99 @@ export function collect_visible_reference_uris(
     // its call site sits before or after the cursor in execution order. So
     // the forward-call loops below walk every forward call, not just those
     // before the cursor.
+
+    interface SiteInclusion {
+        include: boolean;
+        scan_through_line?: number;
+    }
+
+    // Merge a new write into the result map.
+    // - Full-scan (scan_through_line undefined) always wins over any cutoff.
+    // - When both writes carry cutoffs, the smaller (tighter) one wins.
+    const add_uri_to_result = (uri: string, range: ReferenceScanRange): void => {
+        const existing = the_result.get(uri);
+        if (!existing) {
+            the_result.set(uri, range);
+            return;
+        }
+        if (existing.scan_through_line === undefined) {
+            return; // full scan already wins
+        }
+        if (range.scan_through_line === undefined) {
+            the_result.set(uri, {}); // widen to full scan
+            return;
+        }
+        if (range.scan_through_line < existing.scan_through_line) {
+            the_result.set(uri, range); // tighter cutoff wins
+        }
+    };
+
+    // Three-case rule (issue #135):
+    // 1. Site defines the active symbol → include, full scan.
+    // 2. Site redeclares the same name (same kind) → include, full scan.
+    //    Rule 1: same name + same kind within the reachable chain is the
+    //    same identity. Two in-chain redeclarations (e.g., a parent-file
+    //    local and an included-file local) pool into one identity, so both
+    //    pre- and post-redeclaration references belong to that identity.
+    //    Disjoint-branch exclusion is already provided by dep-graph
+    //    reachability filtering in references.ts, so the previous
+    //    "different identity" cutoff has been retired.
     //
-    // A file that redeclares the same name with a different identity is
-    // excluded: its declaration introduces a separate instance, and its
-    // in-file references are ambiguous at best (some may hit the active
-    // instance pre-redeclaration, others the shadow post-redeclaration).
-    // Conservatively, we don't pool such files — this matches the narrow
-    // precedence rule the existing tests pin down.
-    const site_redeclares_with_different_identity = (site: ForwardCallSite): boolean => {
+    // Note on `SiteInclusion.scan_through_line`: every branch below
+    // currently returns `{ include }` with no cutoff, so all downstream
+    // code that reads `scan_through_line` (this function's
+    // `add_uri_to_result`, and references.ts's `find_definitions` /
+    // `collect_references`) is dormant in practice. The field is kept
+    // because Rule 1's pooling behaviour could legitimately be narrowed
+    // in a future issue (e.g., per-call-site cutoffs for very large
+    // dep graphs); restoring a partial cutoff would only require
+    // `classify_site` to emit one. Do not remove the plumbing without
+    // that future use in view.
+    // 3. (symbol_visible_before_site OR site_is_after_current_file_call)
+    //    and does not redeclare → include, full scan.
+    // 4. Neither defines nor inherits → EXCLUDE.
+    const classify_site = (
+        site: ForwardCallSite,
+        symbol_visible_before_site: boolean,
+        site_defines_active_symbol: boolean,
+        site_is_after_current_file_call: boolean,
+    ): SiteInclusion => {
+        const effective_visible = symbol_visible_before_site ||
+            site_is_after_current_file_call;
+        // Case 1: site defines the active symbol.
+        if (site_defines_active_symbol) {
+            return { include: true };
+        }
+        // Case 2: site redeclares the same (name, kind). In-chain
+        // redeclarations pool as one identity (issue #135).
         const site_symbol = get_reference_symbol_from_table(
             site.symbols,
             symbol_type,
             symbol_name,
         );
-        if (!site_symbol) return false;
-        return get_reference_symbol_identity(site_symbol) !== active_symbol_identity;
+        if (site_symbol) {
+            return { include: true };
+        }
+        // Case 3: no redeclaration. Promote via effective_visible.
+        if (effective_visible) {
+            return { include: true };
+        }
+        // Case 4: neither defines nor inherits.
+        return { include: false };
     };
 
+    let include_only_ancestry: boolean = true;
     for (const my_entry of scope.chain) {
+        const entry_has_include_only_ancestry: boolean =
+            include_only_ancestry
+            && my_entry.directive_type === 'included-by';
         let entry_visible_symbols = clone_symbol_table(my_entry.symbols);
 
-        for (const my_site of my_entry.forward_call_sites ?? []) {
+        const the_entry_sites =
+            my_entry.all_forward_call_sites
+            ?? my_entry.forward_call_sites
+            ?? [];
+        for (const my_site of the_entry_sites) {
             const symbol_visible_before_site = symbol_table_matches_active_reference(
                 entry_visible_symbols,
                 symbol_type,
@@ -326,12 +425,35 @@ export function collect_visible_reference_uris(
                 symbol_name,
                 active_symbol_identity,
             );
-            if (
-                can_reference_forward_site(symbol_type, my_site) &&
-                !site_redeclares_with_different_identity(my_site) &&
-                (symbol_visible_before_site || site_defines_active_symbol)
-            ) {
-                the_result.add(my_site.callee_uri);
+            // A sibling called after the current file (call_line > call_site_line)
+            // can reference the current file's symbols because the current file has
+            // already executed by then. The other two branches
+            // (symbol_visible_before_site, site_defines_active_symbol) cannot cover
+            // this case: ForwardScopeResolver's cycle detection excludes the
+            // current file from the parent's forward-call resolution, so its
+            // symbols never appear in entry_visible_symbols.
+            // This is a variant of case 4 — passed into classify_site so
+            // redeclaration handling (case 2) still applies correctly.
+            const site_is_after_current_file_call =
+                current_file_promotion_allowed(
+                    symbol_type,
+                    active_symbol_identity,
+                    current_uri,
+                    entry_has_include_only_ancestry,
+                ) &&
+                my_site.call_line > my_entry.call_site_line;
+            if (can_reference_forward_site(symbol_type, my_site)) {
+                const verdict = classify_site(
+                    my_site,
+                    symbol_visible_before_site,
+                    site_defines_active_symbol,
+                    site_is_after_current_file_call,
+                );
+                if (verdict.include) {
+                    add_uri_to_result(my_site.callee_uri, {
+                        scan_through_line: verdict.scan_through_line,
+                    });
+                }
             }
             entry_visible_symbols = merge_symbol_tables(
                 entry_visible_symbols,
@@ -339,26 +461,35 @@ export function collect_visible_reference_uris(
             );
         }
 
-        // `entry_visible_symbols` reflects the parent's state *before* it
-        // calls the current file. If the active symbol is declared in the
-        // current file, the parent's *post-call* state reaches back and sees
-        // it (subject to the directive's propagation rules — locals only
-        // cross `included-by`, not `done-by`). That post-call view never
-        // appears in the chain entry's symbols, so handle it explicitly.
-        const chain_entry_references_active =
-            symbol_table_matches_active_reference(
+        // `entry_visible_symbols` now reflects the parent's full post-call
+        // state. Under Rule 1 (issue #135), same name + same kind within the
+        // reachable chain pool into one identity — so a chain entry with a
+        // same-name-same-kind symbol is always a legitimate contributor,
+        // regardless of which instance won precedence. This mirrors
+        // classify_site Case 2 for the forward-call branch. The previous
+        // precedence-based masking (entry's symbol identity must equal
+        // active_symbol_identity) has been retired.
+        const entry_has_same_kind_symbol =
+            get_reference_symbol_from_table(
                 entry_visible_symbols,
                 symbol_type,
                 symbol_name,
+            ) !== undefined;
+        const chain_entry_references_active =
+            entry_has_same_kind_symbol ||
+            current_file_promotion_allowed(
+                symbol_type,
                 active_symbol_identity,
-            ) ||
-            active_symbol_identity === current_uri;
+                current_uri,
+                entry_has_include_only_ancestry,
+            );
         if (
             can_reference_chain_entry(symbol_type, my_entry.directive_type) &&
             chain_entry_references_active
         ) {
-            the_result.add(my_entry.uri);
+            add_uri_to_result(my_entry.uri, {});
         }
+        include_only_ancestry = entry_has_include_only_ancestry;
     }
 
     let current_visible_symbols = clone_symbol_table(scope.symbols);
@@ -375,12 +506,18 @@ export function collect_visible_reference_uris(
             symbol_name,
             active_symbol_identity,
         );
-        if (
-            can_reference_forward_site(symbol_type, my_site) &&
-            !site_redeclares_with_different_identity(my_site) &&
-            (symbol_visible_before_site || site_defines_active_symbol)
-        ) {
-            the_result.add(my_site.callee_uri);
+        if (can_reference_forward_site(symbol_type, my_site)) {
+            const verdict = classify_site(
+                my_site,
+                symbol_visible_before_site,
+                site_defines_active_symbol,
+                false,
+            );
+            if (verdict.include) {
+                add_uri_to_result(my_site.callee_uri, {
+                    scan_through_line: verdict.scan_through_line,
+                });
+            }
         }
         current_visible_symbols = merge_symbol_tables(
             current_visible_symbols,

@@ -181,6 +181,39 @@ VS Code settings take precedence over `.sight.json` when both are present.
 }
 ```
 
+## Tuning autocomplete behavior
+
+These are standard VS Code controls, not Sight settings — but they're the most common knobs
+people reach for when Sight's autocomplete feels too aggressive. The first three are `editor.*`
+settings in `settings.json`.
+
+- `editor.acceptSuggestionOnCommitCharacter` (default `true`) — when on, typing a "commit
+  character" like `.`, `(`, or `:` *both* accepts the highlighted suggestion *and* inserts the
+  character. Set to `false` if you'd rather those characters insert literally and only explicit
+  keys (Tab / Enter) accept.
+- `editor.acceptSuggestionOnEnter` (default `"on"`) — `"on"` accepts on Enter, `"off"` makes
+  Enter always insert a newline, `"smart"` only accepts when the suggestion would change the
+  code.
+- `editor.quickSuggestionsDelay` (default `10` ms) — raise this (e.g., `500`) to delay the popup
+  so it doesn't appear mid-keystroke. Or set `editor.quickSuggestions` to `"off"` entirely and
+  use Ctrl+Space to trigger suggestions on demand.
+
+**Stopping Tab from accepting suggestions** is a keybinding change, not a setting — VS Code
+doesn't ship an `editor.acceptSuggestionOnTab` toggle. To unbind Tab from accepting (so it goes
+back to inserting indentation even when the suggestion widget is open), add this to
+`keybindings.json`:
+
+```json
+{
+  "key": "tab",
+  "command": "-acceptSelectedSuggestion",
+  "when": "suggestWidgetVisible && textInputFocus && !editorReadonly"
+}
+```
+
+The leading `-` removes Tab from that command specifically. Enter still accepts unless you also
+set `editor.acceptSuggestionOnEnter` to `"off"`.
+
 ## See Also
 
 Additional settings are documented alongside their features:

@@ -1,5 +1,6 @@
 * Main analysis file
 * Demonstrates cross-file navigation
+* @lsp-cd .
 
 clear all
 
@@ -19,10 +20,10 @@ program define calculate_weights
     gen weight = pop_weight * design_weight
 end
 
-* Run sub-analyses
-do "demo_subprocess.do"
-do "demo_tables.do"
-
-* Create final dataset
+* Create analytic dataset
 gen analysis_sample = 1
 label variable analysis_sample "Included in main analysis"
+
+* Run analyses
+do "02_analysis.do"
+do "03_tables.do"

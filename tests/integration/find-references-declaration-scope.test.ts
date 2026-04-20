@@ -55,7 +55,7 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
         }
     });
 
-    it('excludes a program declared in a not-yet-reached forward-called file', async () => {
+    it('pools same-name program declarations across forward-called files in the reachable chain (issue #135)', async () => {
         const main_path = join(test_temp_dir, 'main.do');
         const main_content = `program define shared_prog\nend\nshared_prog\ndo "branch_b.do"\n`;
         writeFileSync(main_path, main_content);
@@ -78,9 +78,12 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
             document_state.context_tracker,
         );
 
+        // Issue #135: same name + same kind in the dep-graph-reachable chain
+        // is one identity, regardless of call-site order. branch_b.do is
+        // reachable via `do "branch_b.do"`, so its declaration pools.
         const branch_b_uri = URI.file(join(test_temp_dir, 'branch_b.do')).toString();
-        expect(locations.every(loc => loc.uri !== branch_b_uri)).toBe(true);
-        // Sanity: main's own declaration must be included.
+        expect(locations.some(loc => loc.uri === branch_b_uri)).toBe(true);
+        // main's own declaration must still be included.
         expect(locations.some(loc => loc.uri === main_uri && loc.range.start.line === 0)).toBe(true);
     });
 
@@ -142,7 +145,12 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
         expect(locations.some(loc => loc.uri === leaf_uri)).toBe(true);
     });
 
-    it('excludes a masked same-name backward parent from declarations and references', async () => {
+    it('pools same-name backward parents in the reachable chain (issue #135)', async () => {
+        // Under Rule 1, same name + same kind within the reachable chain
+        // pool into one identity regardless of precedence tiebreaks. Two
+        // @lsp-done-by parents both defining `shared_prog` therefore both
+        // contribute declarations — the earlier parent is no longer masked
+        // by the lattermost-wins precedence rule.
         const earlier_parent_path = join(test_temp_dir, 'earlier_parent.do');
         writeFileSync(earlier_parent_path, `program define shared_prog\nend\n`);
 
@@ -175,11 +183,11 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
         const later_parent_uri = URI.file(later_parent_path).toString();
 
         expect(locations.some(loc => loc.uri === later_parent_uri)).toBe(true);
-        expect(locations.every(loc => loc.uri !== earlier_parent_uri)).toBe(true);
+        expect(locations.some(loc => loc.uri === earlier_parent_uri)).toBe(true);
         expect(locations.some(loc => loc.uri === child_uri && loc.range.start.line === 3)).toBe(true);
     });
 
-    it('excludes a masked same-name visible forward callee from declarations and references', async () => {
+    it('pools same-name program declarations from masked forward callees in the reachable chain (issue #135)', async () => {
         const main_path = join(test_temp_dir, 'main.do');
         const main_content =
             `do "earlier.do"\n` +
@@ -208,11 +216,14 @@ describe('find-references — declaration call-site scope (issue #129)', () => {
             document_state.context_tracker,
         );
 
+        // Issue #135: same name + same kind in the reachable chain is one
+        // identity. The earlier and later callees are both dep-graph-
+        // reachable siblings, so both declarations pool with main's call.
         const earlier_uri = URI.file(earlier_path).toString();
         const later_uri = URI.file(later_path).toString();
 
         expect(locations.some(loc => loc.uri === later_uri)).toBe(true);
-        expect(locations.every(loc => loc.uri !== earlier_uri)).toBe(true);
+        expect(locations.some(loc => loc.uri === earlier_uri)).toBe(true);
         expect(locations.some(loc => loc.uri === main_uri && loc.range.start.line === 2)).toBe(true);
     });
 

@@ -409,7 +409,8 @@ export function create_hover_handler(
                 max_forward_depth: config.cross_file?.max_forward_depth,
             },
             token,
-            workspace_root
+            workspace_root,
+            deps.workspace_indexer || undefined,
         );
     };
 }
@@ -523,14 +524,11 @@ export function create_workspace_symbol_handler(
         if (!deps.symbol_provider) {
             return [];
         }
-        const workspace_symbols = deps.workspace_indexer
-            ? deps.workspace_indexer.get_all_symbols()
-            : undefined;
         const all_documents = deps.document_store.getAll();
         return deps.symbol_provider.get_workspace_symbols(
             params.query,
             all_documents,
-            workspace_symbols
+            deps.workspace_indexer ?? undefined
         );
     };
 }

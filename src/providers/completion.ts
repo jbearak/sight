@@ -68,13 +68,14 @@ function map_effective_type_to_directive(effective_type: 'include' | 'do'): 'inc
  * Lower values indicate higher priority.
  */
 export function compute_ranking_key(factors: CompletionRankingFactors): string {
-    // Priority order (lexicographic): scope_depth (0-9), directive_type (0-2), symbol_type (00-63), parent_uri, alphabetical.
+    // Priority order (lexicographic): scope_depth (0-9), directive_type (0-3), symbol_type (00-63), parent_uri, alphabetical.
     // NOTE: Avoid NUL (\0) padding in sortText. Some clients/editors can behave oddly with NULs.
     const scope_priority = Math.min(factors.scope_depth, 9);
 
     const directive_priority =
         factors.directive_type === 'current' ? 0 :
-        factors.directive_type === 'included-by' ? 1 : 2;
+        factors.directive_type === 'included-by' ? 1 :
+        factors.directive_type === 'done-by' ? 2 : 3;
 
     let symbol_priority: number;
     if (factors.symbol_type === 'user-program') {
@@ -751,8 +752,13 @@ export class CompletionProvider {
     }
 
     /**
-     * Build merged symbol map from workspace and document symbols.
-     * This is the core operation that gets cached to avoid repetitive work.
+     * Build the Global-Mode in-scope symbol bag: workspace symbols merged with
+     * document symbols, then current-file-only overrides applied for all
+     * non-variable categories (locals, globals, programs, scalars, matrices).
+     * Workspace variables remain in the merged bag so they flow through the
+     * workspace-wide variable completion path. Workspace non-variable symbols
+     * from other files are surfaced separately via
+     * `partition_symbols_for_completion` as out-of-scope entries.
      */
     private build_merged_map(
         workspace_symbols: SymbolTable,
@@ -766,9 +772,25 @@ export class CompletionProvider {
             document_uri,
             document_version
         );
-        
+
         // Merge with document symbols on top (fresh symbols win)
-        return merge_symbol_tables(filtered_workspace, document_symbols);
+        const merged = merge_symbol_tables(filtered_workspace, document_symbols);
+
+        // Global-Mode rule: local macros are only visible from the current file.
+        // Strip workspace localMacros; keep the document's own localMacros.
+        // Workspace globals, programs, scalars, and matrices are surfaced
+        // through the out-of-scope partition (callers receive them via
+        // `out_of_scope_symbols`), so they should not enter the in-scope bag
+        // silently. Variables are intentionally left untouched so they remain
+        // workspace-wide.
+        return {
+            ...merged,
+            localMacros: new Map(document_symbols.localMacros),
+            globalMacros: new Map(document_symbols.globalMacros),
+            programs: new Map(document_symbols.programs),
+            scalars: new Map(document_symbols.scalars),
+            matrices: new Map(document_symbols.matrices),
+        };
     }
 
     /**
@@ -808,6 +830,71 @@ export class CompletionProvider {
         });
         
         return merged_symbols;
+    }
+
+    /**
+     * Build an `out_of_scope` view of workspace symbols for completion.
+     *
+     * Includes workspace globals, programs, scalars, and matrices that are:
+     *   - not already present (by name) in the `in_scope` bag for the same kind, and
+     *   - not defined in the current document.
+     *
+     * `localMacros` and `variables` are always returned as empty maps:
+     *   - Local macros are file-scoped and never show up as out-of-scope.
+     *   - Variables stay workspace-wide via the existing in-scope path.
+     */
+    private partition_symbols_for_completion(
+        document: DocumentState,
+        workspace_symbols: SymbolTable | undefined,
+        in_scope: SymbolTable,
+        resolved_scope?: ResolvedScope,
+    ): SymbolTable {
+        const empty: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        if (!workspace_symbols) {
+            return empty;
+        }
+
+        // Symbols already recorded in resolved_scope.out_of_scope_symbols
+        // (e.g., call-site-filtered parent-file globals) should stay hidden —
+        // they are already surfaced through resolved_scope's own out-of-scope
+        // bucket and must not be promoted into the workspace out-of-scope view.
+        const filtered_by_call_site = new Set<string>();
+        if (resolved_scope) {
+            for (const oos of resolved_scope.out_of_scope_symbols) {
+                filtered_by_call_site.add(`${oos.type}:${oos.name}`);
+            }
+        }
+
+        const keep_out_of_scope = <T extends { sourceUri: string }>(
+            workspace_map: Map<string, T>,
+            in_scope_map: Map<string, unknown>,
+            kind: 'program' | 'global' | 'scalar' | 'matrix',
+        ): Map<string, T> => {
+            const out = new Map<string, T>();
+            for (const [name, symbol] of workspace_map) {
+                if (symbol.sourceUri === document.uri) continue;
+                if (in_scope_map.has(name)) continue;
+                if (filtered_by_call_site.has(`${kind}:${name}`)) continue;
+                out.set(name, symbol);
+            }
+            return out;
+        };
+
+        return {
+            programs: keep_out_of_scope(workspace_symbols.programs, in_scope.programs, 'program'),
+            localMacros: new Map(),
+            globalMacros: keep_out_of_scope(workspace_symbols.globalMacros, in_scope.globalMacros, 'global'),
+            variables: new Map(),
+            scalars: keep_out_of_scope(workspace_symbols.scalars, in_scope.scalars, 'scalar'),
+            matrices: keep_out_of_scope(workspace_symbols.matrices, in_scope.matrices, 'matrix'),
+        };
     }
 
     /**
@@ -958,6 +1045,13 @@ export class CompletionProvider {
                 );
             }
 
+            const out_of_scope_symbols = this.partition_symbols_for_completion(
+                document,
+                workspace_symbols,
+                symbols_for_completion,
+                resolved_scope,
+            );
+
             // === SYNC PHASE: Generate completions ===
             const the_completions: CompletionItem[] = [];
 
@@ -987,6 +1081,7 @@ export class CompletionProvider {
                         document,
                         position,
                         symbols_for_completion,
+                        out_of_scope_symbols,
                         resolved_scope
                     );
                     the_completions.push(...macro_completions);
@@ -1006,7 +1101,7 @@ export class CompletionProvider {
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_command_completions(document, position, symbols_for_completion, resolved_scope);
+                    return this.get_command_completions(document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'option':
                     // Suppress option completions in embedded language contexts
@@ -1017,21 +1112,21 @@ export class CompletionProvider {
 
                 case 'macro':
                     // Always provide macro completions (macros work in all contexts)
-                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, resolved_scope);
+                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'variable':
                     // Suppress variable completions in embedded language contexts
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_variable_completions(document, position, symbols_for_completion, resolved_scope);
+                    return this.get_variable_completions(document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'program':
                     // Suppress program completions in embedded language contexts
                     if (my_current_context !== LanguageContext.STATA) {
                         return [];
                     }
-                    return this.get_program_completions(document, position, symbols_for_completion, resolved_scope);
+                    return this.get_program_completions(document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'directive_path':
                     // File path completions for directives (e.g., @lsp-done-by:)
@@ -1075,10 +1170,11 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
+        out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const prefix = this.get_word_at_position(document, position);
-        
+
         // Return empty if no prefix typed (reduces noise on empty lines)
         if (prefix === '') {
             return [];
@@ -1138,6 +1234,43 @@ export class CompletionProvider {
                     });
                 }
             }
+        }
+
+        // Out-of-scope workspace programs (from other files with no resolved link)
+        for (const [name, program] of out_of_scope.programs) {
+            if (prefix !== '' && !name.toLowerCase().startsWith(prefix.toLowerCase())) {
+                continue;
+            }
+            // Skip if shadowed by an in-scope user program (same casing
+            // convention as the in-scope program loop's seen_labels.add above).
+            if (seen_labels.has(name.toLowerCase())) continue;
+            // Do not shadow built-in commands: if a Stata built-in with the
+            // same name exists, the built-in wins over the out-of-scope
+            // workspace program. Mirror the lookup used by the built-in
+            // command loop below (command_db.lookup / search).
+            if (this.command_db.lookup(name)) continue;
+
+            const ranking_factors: CompletionRankingFactors = {
+                scope_depth: 0,
+                directive_type: 'out-of-scope',
+                symbol_type: 'user-program',
+                alphabetical_order: program.name,
+                parent_uri: program.sourceUri,
+            };
+
+            const source_path = this.get_relative_path(program.sourceUri);
+
+            the_completions.push({
+                label: program.name,
+                kind: CompletionItemKind.Function,
+                detail: `User-defined program (out of scope — from ${source_path})`,
+                documentation: `Defined at ${program.sourceUri}`,
+                sortText: compute_ranking_key(ranking_factors),
+            });
+            // Note: we intentionally do NOT add to seen_labels here. Doing so
+            // would cause an out-of-scope program to suppress a same-name
+            // built-in command in the next loop, which is the opposite of the
+            // intended precedence (built-in > out-of-scope).
         }
 
         // Then add built-in commands (lower precedence)
@@ -1523,6 +1656,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
+        out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         // Use context.form to determine scope and delimiter behavior
@@ -1597,6 +1731,18 @@ export class CompletionProvider {
             const name_lower = lowercase_index.get(name) || name.toLowerCase();
             if (!(prefix === '' || name_lower.startsWith(prefix_lower))) {
                 continue;
+            }
+
+            // For local macro completions, respect position within the current file.
+            // Stata locals are only visible on lines after their definition — a local defined
+            // below the cursor line cannot be referenced at the cursor. Only applies when the
+            // macro is defined in the current document; inherited locals from parent files
+            // (via include-chain) are already call-site-filtered by the scope resolver.
+            if (scope === 'local' && macro.sourceUri === document.uri) {
+                const def_line = macro.definition_line ?? macro.location?.range?.start?.line;
+                if (typeof def_line === 'number' && def_line > position.line) {
+                    continue;
+                }
             }
 
             // For local macro completions, respect program scoping.
@@ -1707,6 +1853,48 @@ export class CompletionProvider {
             }
         }
 
+        // Out-of-scope pass: emit workspace globals that aren't part of the
+        // in-scope bag, labelled so the user sees that accepting them will
+        // trigger an undefined-symbol diagnostic. Skip entirely for locals —
+        // local macros are file-scoped and never offered workspace-wide.
+        const scope_is_local = context.scope === 'local';
+        if (!scope_is_local) {
+            const out_map = out_of_scope.globalMacros;
+            for (const [name, macro] of out_map) {
+                const name_lower = name.toLowerCase();
+                if (!(prefix === '' || name_lower.startsWith(prefix_lower))) {
+                    continue;
+                }
+                if (seen_labels.has(name)) {
+                    continue;
+                }
+
+                const ranking_factors: CompletionRankingFactors = {
+                    scope_depth: 0,
+                    directive_type: 'out-of-scope',
+                    symbol_type: 'global-macro',
+                    alphabetical_order: name,
+                    parent_uri: macro.sourceUri,
+                };
+
+                const source_path = this.get_relative_path(macro.sourceUri);
+                const new_text = name + (needs_closing_delimiter ? closing_char : '');
+
+                the_completions.push({
+                    label: name,
+                    kind: CompletionItemKind.Variable,
+                    detail: `global macro (out of scope — from ${source_path})`,
+                    documentation: macro.value ? `Value: ${macro.value}` : undefined,
+                    sortText: compute_ranking_key(ranking_factors),
+                    textEdit: {
+                        range: replacement_range,
+                        newText: new_text,
+                    },
+                });
+                seen_labels.add(name);
+            }
+        }
+
         return the_completions;
     }
 
@@ -1717,6 +1905,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
+        out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
@@ -1859,6 +2048,63 @@ export class CompletionProvider {
             seen_labels.add(name);
         }
 
+        // Out-of-scope pass: emit workspace scalars and matrices that are
+        // not already in-scope. Variables stay workspace-wide through the
+        // in-scope path and are intentionally skipped here.
+        for (const [name, scalar] of out_of_scope.scalars) {
+            if (seen_labels.has(name)) continue;
+
+            const ranking_factors: CompletionRankingFactors = {
+                scope_depth: 0,
+                directive_type: 'out-of-scope',
+                symbol_type: 'scalar',
+                alphabetical_order: name,
+                parent_uri: scalar.sourceUri,
+            };
+            const source_path = this.get_relative_path(scalar.sourceUri);
+
+            the_completions.push({
+                label: name,
+                kind: CompletionItemKind.Constant,
+                detail: `Scalar (out of scope — from ${source_path})`,
+                documentation: `Defined at ${scalar.sourceUri}`,
+                sortText: compute_ranking_key(ranking_factors),
+                textEdit: {
+                    range: replacement_range,
+                    newText: name,
+                },
+                filterText: name,
+            });
+            seen_labels.add(name);
+        }
+
+        for (const [name, matrix] of out_of_scope.matrices) {
+            if (seen_labels.has(name)) continue;
+
+            const ranking_factors: CompletionRankingFactors = {
+                scope_depth: 0,
+                directive_type: 'out-of-scope',
+                symbol_type: 'matrix',
+                alphabetical_order: name,
+                parent_uri: matrix.sourceUri,
+            };
+            const source_path = this.get_relative_path(matrix.sourceUri);
+
+            the_completions.push({
+                label: name,
+                kind: CompletionItemKind.Struct,
+                detail: `Matrix (out of scope — from ${source_path})`,
+                documentation: `Defined at ${matrix.sourceUri}`,
+                sortText: compute_ranking_key(ranking_factors),
+                textEdit: {
+                    range: replacement_range,
+                    newText: name,
+                },
+                filterText: name,
+            });
+            seen_labels.add(name);
+        }
+
         return the_completions;
     }
 
@@ -1869,6 +2115,7 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
+        out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope
     ): CompletionItem[] {
         const the_completions: CompletionItem[] = [];
@@ -1880,7 +2127,7 @@ export class CompletionProvider {
                 document.uri,
                 resolved_scope,
             );
-            
+
             const ranking_factors: CompletionRankingFactors = {
                 scope_depth: symbol_info.depth,
                 directive_type: symbol_info.directive_type,
@@ -1888,17 +2135,40 @@ export class CompletionProvider {
                 alphabetical_order: program.name,
                 parent_uri: program.sourceUri
             };
-            
+
             // Add source file annotation for cross-file symbols
             let detail = 'User-defined program';
             if (symbol_info.source_path) {
                 detail += ` (from ${symbol_info.source_path})`;
             }
-            
+
             the_completions.push({
                 label: program.name,
                 kind: CompletionItemKind.Function,
                 detail,
+                documentation: `Defined at ${program.sourceUri}`,
+                sortText: compute_ranking_key(ranking_factors),
+            });
+            seen_labels.add(name);
+        }
+
+        for (const [name, program] of out_of_scope.programs) {
+            if (seen_labels.has(name)) continue;
+
+            const ranking_factors: CompletionRankingFactors = {
+                scope_depth: 0,
+                directive_type: 'out-of-scope',
+                symbol_type: 'user-program',
+                alphabetical_order: program.name,
+                parent_uri: program.sourceUri,
+            };
+
+            const source_path = this.get_relative_path(program.sourceUri);
+
+            the_completions.push({
+                label: program.name,
+                kind: CompletionItemKind.Function,
+                detail: `User-defined program (out of scope — from ${source_path})`,
                 documentation: `Defined at ${program.sourceUri}`,
                 sortText: compute_ranking_key(ranking_factors),
             });

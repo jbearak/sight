@@ -359,6 +359,179 @@ describe('Auto Backward Resolution', () => {
         });
     });
 
+    describe('multi-level chains', () => {
+        it('should inherit local macros through include -> include chains', async () => {
+            write_file(tmp_dir, 'grandparent.do', [
+                'local grandparent_local "grand"',
+                'include parent.do',
+            ].join('\n'));
+
+            write_file(tmp_dir, 'parent.do', [
+                'local parent_local "parent"',
+                'include child.do',
+            ].join('\n'));
+
+            const child_path = write_file(tmp_dir, 'child.do', [
+                'display `grandparent_local\'',
+                'display `parent_local\'',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const graph = new DependencyGraph();
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(graph);
+            await indexer.initialize([tmp_dir]);
+
+            const resolver = create_scope_resolver();
+            resolver.set_dependency_graph(graph);
+            const forward_resolver = new ForwardScopeResolver(resolver);
+            resolver.set_forward_scope_resolver(forward_resolver);
+
+            const scope = await resolver.resolve(
+                child_uri,
+                child_content,
+                { backward_dependencies: 'auto' }
+            );
+
+            expect(scope.has_auto_parents).toBe(true);
+            expect(scope.symbols.localMacros.has('grandparent_local'))
+                .toBe(true);
+            expect(scope.symbols.localMacros.has('parent_local'))
+                .toBe(true);
+        });
+
+        it('should inherit non-local symbols through do -> do chains', async () => {
+            write_file(tmp_dir, 'grandparent.do', [
+                'global grandparent_global "grand"',
+                'do parent.do',
+            ].join('\n'));
+
+            write_file(tmp_dir, 'parent.do', [
+                'global parent_global "parent"',
+                'do child.do',
+            ].join('\n'));
+
+            const child_path = write_file(tmp_dir, 'child.do', [
+                'display $grandparent_global',
+                'display $parent_global',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const graph = new DependencyGraph();
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(graph);
+            await indexer.initialize([tmp_dir]);
+
+            const resolver = create_scope_resolver();
+            resolver.set_dependency_graph(graph);
+            const forward_resolver = new ForwardScopeResolver(resolver);
+            resolver.set_forward_scope_resolver(forward_resolver);
+
+            const scope = await resolver.resolve(
+                child_uri,
+                child_content,
+                { backward_dependencies: 'auto' }
+            );
+
+            expect(scope.has_auto_parents).toBe(true);
+            expect(scope.symbols.globalMacros.has('grandparent_global'))
+                .toBe(true);
+            expect(scope.symbols.globalMacros.has('parent_global'))
+                .toBe(true);
+        });
+
+        it('should keep per-file explicit opt-out semantics in recursive auto mode', async () => {
+            write_file(tmp_dir, 'auto_root.do', [
+                'global from_auto "auto"',
+                'do parent.do',
+            ].join('\n'));
+
+            write_file(tmp_dir, 'explicit_root.do', [
+                'global from_explicit "explicit"',
+            ].join('\n'));
+
+            write_file(tmp_dir, 'parent.do', [
+                '// @lsp-done-by: "explicit_root.do"',
+                'global from_parent "parent"',
+                'do child.do',
+            ].join('\n'));
+
+            const child_path = write_file(tmp_dir, 'child.do', [
+                'display $from_parent',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const graph = new DependencyGraph();
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(graph);
+            await indexer.initialize([tmp_dir]);
+
+            const resolver = create_scope_resolver();
+            resolver.set_dependency_graph(graph);
+            const forward_resolver = new ForwardScopeResolver(resolver);
+            resolver.set_forward_scope_resolver(forward_resolver);
+
+            const scope = await resolver.resolve(
+                child_uri,
+                child_content,
+                { backward_dependencies: 'auto' }
+            );
+
+            expect(scope.symbols.globalMacros.has('from_parent')).toBe(true);
+            expect(scope.symbols.globalMacros.has('from_explicit')).toBe(true);
+            expect(scope.symbols.globalMacros.has('from_auto')).toBe(false);
+        });
+
+        it('should apply max_backward_depth to recursive auto parents', async () => {
+            write_file(tmp_dir, 'grandparent.do', [
+                'global grandparent_global "grand"',
+                'do parent.do',
+            ].join('\n'));
+
+            write_file(tmp_dir, 'parent.do', [
+                'global parent_global "parent"',
+                'do child.do',
+            ].join('\n'));
+
+            const child_path = write_file(tmp_dir, 'child.do', [
+                'display $parent_global',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const graph = new DependencyGraph();
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(graph);
+            await indexer.initialize([tmp_dir]);
+
+            const resolver = create_scope_resolver();
+            resolver.set_dependency_graph(graph);
+            const forward_resolver = new ForwardScopeResolver(resolver);
+            resolver.set_forward_scope_resolver(forward_resolver);
+
+            const scope = await resolver.resolve(
+                child_uri,
+                child_content,
+                {
+                    backward_dependencies: 'auto',
+                    max_backward_depth: 1,
+                }
+            );
+
+            expect(scope.symbols.globalMacros.has('parent_global')).toBe(true);
+            expect(scope.symbols.globalMacros.has('grandparent_global'))
+                .toBe(false);
+            expect(scope.diagnostics.some(
+                my_diagnostic => my_diagnostic.message.includes(
+                    'Maximum backward directive depth (1) exceeded'
+                )
+            )).toBe(true);
+        });
+    });
+
     describe('diagnostic deferral', () => {
         it('should not set has_auto_parents when scan is incomplete and no parents found yet', async () => {
             const child_path = write_file(tmp_dir, 'child.do', [

@@ -15,8 +15,7 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onTerminalProfile:sight.stataTerminal"
+    "onStartupFinished"
   ],
   "main": "./dist/extension",
   "contributes": {

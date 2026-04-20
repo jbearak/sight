@@ -12,7 +12,7 @@ import {
 } from '../../src/providers/completion';
 import { CommandDatabase } from '../../src/commands';
 import { DocumentState } from '../../src/document-store';
-import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol } from '../../src/types';
+import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol, ScalarSymbol, MatrixSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
 import { LanguageContext } from '../../src/context-tracker/types';
 
@@ -1187,6 +1187,44 @@ describe('Completion Provider', () => {
             expect(labels).toContain('FROM_OTHER');
             expect(labels).not.toContain('STALE_FROM_HERE');
         });
+
+        it('should not surface workspace local macros when no directives or auto-parents apply', async () => {
+            const uri = 'file:///test.do';
+            const doc = create_test_document('display `', { localMacros: new Map() });
+            doc.uri = uri;
+
+            const workspace_symbols: SymbolTable = {
+                programs: new Map(),
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                variables: new Map(),
+                scalars: new Map(),
+                matrices: new Map(),
+            };
+
+            workspace_symbols.localMacros.set('cwd', {
+                name: 'cwd',
+                scope: 'local',
+                location: {
+                    uri: 'file:///other.do',
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                },
+                sourceUri: 'file:///other.do',
+                containingScope: 'dofile',
+                definition_line: 0,
+            } as MacroSymbol);
+
+            const completions = await provider.get_completions(
+                doc,
+                { line: 0, character: 9 },
+                '`',
+                undefined,
+                workspace_symbols
+            );
+
+            const labels = completions.map(c => c.label);
+            expect(labels).not.toContain('cwd');
+        });
     });
 
     /**
@@ -1381,3 +1419,602 @@ describe('Completion Provider', () => {
     });
 });
 
+describe('Out-of-scope ranking', () => {
+    it('should rank out-of-scope items below in-scope items for the same symbol type', () => {
+        const { compute_ranking_key } = require('../../src/providers/completion');
+        const in_scope_key = compute_ranking_key({
+            scope_depth: 0,
+            directive_type: 'current',
+            symbol_type: 'global-macro',
+            alphabetical_order: 'zzz',
+            parent_uri: 'file:///a.do',
+        });
+        const out_of_scope_key = compute_ranking_key({
+            scope_depth: 0,
+            directive_type: 'out-of-scope',
+            symbol_type: 'global-macro',
+            alphabetical_order: 'aaa',
+            parent_uri: 'file:///b.do',
+        });
+        expect(in_scope_key < out_of_scope_key).toBe(true);
+    });
+
+    it('should keep in-scope symbol-type tiering above out-of-scope entries of other categories', () => {
+        const { compute_ranking_key } = require('../../src/providers/completion');
+        const in_scope_local = compute_ranking_key({
+            scope_depth: 0,
+            directive_type: 'current',
+            symbol_type: 'local-macro',
+            alphabetical_order: 'x',
+            parent_uri: 'file:///a.do',
+        });
+        const out_of_scope_program = compute_ranking_key({
+            scope_depth: 0,
+            directive_type: 'out-of-scope',
+            symbol_type: 'user-program',
+            alphabetical_order: 'x',
+            parent_uri: 'file:///b.do',
+        });
+        // Programs (priority 0) still sort before locals (10), but both compare
+        // the existing scope+directive prefix first; an out-of-scope program
+        // must sort AFTER an in-scope local of the same name.
+        expect(in_scope_local < out_of_scope_program).toBe(true);
+    });
+});
+
+describe('Out-of-scope global macro completion', () => {
+    let command_db: CommandDatabase;
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should list workspace globals as out-of-scope when no directives link the file', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('display $f', { globalMacros: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.globalMacros.set('foo_cfg', {
+            name: 'foo_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///helper.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///helper.do',
+            containingScope: 'dofile',
+            definition_line: 0,
+        } satisfies MacroSymbol);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 10 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const foo = completions.find(c => c.label === 'foo_cfg');
+        expect(foo).toBeDefined();
+        expect(foo!.detail).toContain('out of scope');
+        expect(foo!.detail).toContain('helper.do');
+    });
+
+    it('should still emit in-scope document globals alongside out-of-scope workspace globals', async () => {
+        const uri = 'file:///test.do';
+        const local_globals = new Map();
+        local_globals.set('here_cfg', {
+            name: 'here_cfg',
+            scope: 'global',
+            location: {
+                uri,
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: uri,
+            containingScope: 'dofile',
+            definition_line: 0,
+        });
+        const doc = create_test_document('display $', { globalMacros: local_globals });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.globalMacros.set('there_cfg', {
+            name: 'there_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///other.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///other.do',
+            containingScope: 'dofile',
+            definition_line: 0,
+        } satisfies MacroSymbol);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 9 },
+            '$',
+            undefined,
+            workspace_symbols
+        );
+        const here = completions.find(c => c.label === 'here_cfg');
+        const there = completions.find(c => c.label === 'there_cfg');
+        expect(here).toBeDefined();
+        expect(there).toBeDefined();
+        expect((here!.detail || '')).not.toContain('out of scope');
+        expect((there!.detail || '')).toContain('out of scope');
+        // Out-of-scope sorts after in-scope.
+        expect(here!.sortText! < there!.sortText!).toBe(true);
+    });
+});
+
+describe('Out-of-scope program completion', () => {
+    let command_db: CommandDatabase;
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should list workspace programs as out-of-scope when no directives link the file', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('my_', { programs: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.programs.set('my_helper', {
+            name: 'my_helper',
+            location: {
+                uri: 'file:///lib.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///lib.do',
+        } satisfies ProgramSymbol);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 3 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const helper = completions.find(c => c.label === 'my_helper');
+        expect(helper).toBeDefined();
+        expect(helper!.detail).toContain('out of scope');
+        expect(helper!.detail).toContain('lib.do');
+    });
+
+    it('should not shadow built-in commands when a workspace program shares a built-in name', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('sum', { programs: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.programs.set('summarize', {
+            name: 'summarize',
+            location: {
+                uri: 'file:///shadow.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///shadow.do',
+        } satisfies ProgramSymbol);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 3 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        // Built-in command must still appear.
+        const summarize_items = completions.filter(c => c.label === 'summarize');
+        expect(summarize_items.length).toBeGreaterThanOrEqual(1);
+        const builtin = summarize_items.find(
+            c => !(c.detail || '').includes('out of scope')
+        );
+        expect(builtin).toBeDefined();
+    });
+});
+
+describe('Out-of-scope scalar and matrix completion', () => {
+    let command_db: CommandDatabase;
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should list workspace scalars as out-of-scope when no directives link the file', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('display s', { scalars: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.scalars.set('s_alpha', {
+            name: 's_alpha',
+            location: {
+                uri: 'file:///lib.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///lib.do',
+        } satisfies ScalarSymbol);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 9 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const item = completions.find(c => c.label === 's_alpha');
+        expect(item).toBeDefined();
+        expect(item!.detail).toContain('out of scope');
+        expect(item!.detail).toContain('lib.do');
+    });
+
+    it('should list workspace matrices as out-of-scope when no directives link the file', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('display m', { matrices: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.matrices.set('m_beta', {
+            name: 'm_beta',
+            location: {
+                uri: 'file:///lib.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///lib.do',
+        } satisfies MatrixSymbol);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 9 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const item = completions.find(c => c.label === 'm_beta');
+        expect(item).toBeDefined();
+        expect(item!.detail).toContain('out of scope');
+        expect(item!.detail).toContain('lib.do');
+    });
+
+    it('should not list variables as out-of-scope — variables remain workspace-wide', async () => {
+        const uri = 'file:///test.do';
+        const doc = create_test_document('summarize v', { variables: new Map() });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.variables.set('v_shared', {
+            name: 'v_shared',
+            location: {
+                uri: 'file:///lib.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///lib.do',
+            // Dataset columns are synthesized; `inferred` is the closest valid
+            // `VariableSymbol.source` value for "not tied to a gen/egen/etc.".
+            source: 'inferred',
+        } satisfies VariableSymbol);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 11 },
+            undefined,
+            undefined,
+            workspace_symbols
+        );
+
+        const item = completions.find(c => c.label === 'v_shared');
+        expect(item).toBeDefined();
+        // Variables keep their normal detail (never the out-of-scope marker).
+        expect((item!.detail || '')).not.toContain('out of scope');
+    });
+});
+
+describe('In-scope global keeps normal completion rank', () => {
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        const command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should not label a workspace global as out-of-scope when it is in the in-scope bag', async () => {
+        const uri = 'file:///test.do';
+        // Simulate an in-scope workspace global by placing it in the document's own symbol table
+        // (no separate scope_resolver needed — the filter uses in-scope membership, not provenance).
+        const doc_globals = new Map<string, MacroSymbol>();
+        doc_globals.set('shared_cfg', {
+            name: 'shared_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///helper.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///helper.do',
+            containingScope: 'dofile',
+            definition_line: 0,
+        });
+        const doc = create_test_document('display $', { globalMacros: doc_globals });
+        doc.uri = uri;
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.globalMacros.set('shared_cfg', doc_globals.get('shared_cfg')!);
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 0, character: 9 },
+            '$',
+            undefined,
+            workspace_symbols
+        );
+
+        const shared = completions.find(c => c.label === 'shared_cfg');
+        expect(shared).toBeDefined();
+        expect((shared!.detail || '')).not.toContain('out of scope');
+    });
+});
+
+describe('Local macro completion respects position within file', () => {
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        const command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should exclude local macros defined after the cursor line', async () => {
+        const uri = 'file:///demo.do';
+        const local_macros = new Map();
+        local_macros.set('fruit', {
+            name: 'fruit',
+            scope: 'local',
+            location: {
+                uri,
+                range: { start: { line: 0, character: 6 }, end: { line: 0, character: 11 } },
+            },
+            sourceUri: uri,
+            containingScope: 'dofile',
+            definition_line: 0,
+            definition_index: 0,
+            value: 'apple banana cherry',
+        });
+        local_macros.set('color', {
+            name: 'color',
+            scope: 'local',
+            location: {
+                uri,
+                range: { start: { line: 2, character: 6 }, end: { line: 2, character: 11 } },
+            },
+            sourceUri: uri,
+            containingScope: 'dofile',
+            definition_line: 2,
+            definition_index: 1,
+            value: 'red blue green',
+        });
+
+        // Document:
+        //   line 0: local fruit "apple banana cherry"
+        //   line 1: di "`           <-- cursor here
+        //   line 2: local color "red blue green"
+        const content = [
+            'local fruit "apple banana cherry"',
+            'di "`',
+            'local color "red blue green"',
+        ].join('\n');
+        const doc = create_test_document(content, { localMacros: local_macros });
+        doc.uri = uri;
+
+        const completions = await provider.get_completions(
+            doc,
+            { line: 1, character: 5 }, // cursor after the backtick on line 1
+            '`',
+        );
+
+        const labels = completions.map(c => c.label);
+        expect(labels).toContain('fruit');
+        expect(labels).not.toContain('color');
+    });
+});
+
+describe('partition_symbols_for_completion: resolved_scope out-of-scope filtering', () => {
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        const command_db = create_test_command_db();
+        provider = new CompletionProvider(command_db, { snippet_support: true });
+    });
+
+    it('should exclude call-site-filtered parent symbols from the workspace out-of-scope bucket', () => {
+        const doc = create_test_document('');
+        doc.uri = 'file:///child.do';
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        // Parent-defined global that lives in the workspace index but was
+        // filtered out of the resolved scope by call-site filtering.
+        workspace_symbols.globalMacros.set('foo_cfg', {
+            name: 'foo_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///parent.do',
+                range: { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } },
+            },
+            sourceUri: 'file:///parent.do',
+            containingScope: 'dofile',
+            definition_line: 5,
+        } satisfies MacroSymbol);
+
+        const in_scope: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+
+        const resolved_scope = {
+            chain: [],
+            symbols: in_scope,
+            out_of_scope_symbols: [{
+                name: 'foo_cfg',
+                type: 'global' as const,
+                source_uri: 'file:///parent.do',
+                defined_line: 5,
+                call_site_line: 3,
+                reason: 'after_call_site' as const,
+            }],
+            diagnostics: [],
+            has_directives: false,
+            has_auto_parents: true,
+        };
+
+        // Call the private method via bracket access.
+        const result = (provider as any).partition_symbols_for_completion(
+            doc,
+            workspace_symbols,
+            in_scope,
+            resolved_scope,
+        ) as SymbolTable;
+
+        // The call-site-filtered global must NOT appear in the workspace
+        // out-of-scope bucket — it is already accounted for via
+        // resolved_scope.out_of_scope_symbols.
+        expect(result.globalMacros.has('foo_cfg')).toBe(false);
+    });
+
+    it('should still include out-of-scope workspace symbols not tracked by resolved_scope', () => {
+        const doc = create_test_document('');
+        doc.uri = 'file:///child.do';
+
+        const workspace_symbols: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+        workspace_symbols.globalMacros.set('unrelated_cfg', {
+            name: 'unrelated_cfg',
+            scope: 'global',
+            location: {
+                uri: 'file:///unrelated.do',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+            sourceUri: 'file:///unrelated.do',
+            containingScope: 'dofile',
+            definition_line: 0,
+        } satisfies MacroSymbol);
+
+        const in_scope: SymbolTable = {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
+        };
+
+        const resolved_scope = {
+            chain: [],
+            symbols: in_scope,
+            out_of_scope_symbols: [{
+                name: 'foo_cfg',
+                type: 'global' as const,
+                source_uri: 'file:///parent.do',
+                defined_line: 5,
+                call_site_line: 3,
+                reason: 'after_call_site' as const,
+            }],
+            diagnostics: [],
+            has_directives: false,
+            has_auto_parents: true,
+        };
+
+        const result = (provider as any).partition_symbols_for_completion(
+            doc,
+            workspace_symbols,
+            in_scope,
+            resolved_scope,
+        ) as SymbolTable;
+
+        // unrelated_cfg is NOT in resolved_scope.out_of_scope_symbols, so it
+        // should still surface through the workspace out-of-scope bucket.
+        expect(result.globalMacros.has('unrelated_cfg')).toBe(true);
+    });
+});

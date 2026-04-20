@@ -28,7 +28,6 @@ import {
     ReverseDependencyIndex,
     CallEdgeDiff,
     ContentProvider,
-    DirectiveParseResult,
     WorkingDirectoryDirective,
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
@@ -46,6 +45,7 @@ export {
     collect_visible_reference_uris,
     filter_forward_site_symbols,
 } from './visible-symbols';
+export type { ReferenceScanRange } from './visible-symbols';
 
 const DEFAULT_CONFIG: ScopeResolverConfig = {
     assume_call_site: 'end',
@@ -206,6 +206,66 @@ export class ScopeResolver {
      */
     set_dependency_graph(graph: import('../dependency-graph').DependencyGraph): void {
         this.dependency_graph = graph;
+    }
+
+    /**
+     * Determine the effective backward directives for a file at any recursion
+     * level. Explicit directives on the file take precedence over auto
+     * discovery, matching the root-level opt-out semantics.
+     */
+    private get_effective_backward_directives(
+        file_uri: string,
+        parsed_directives: Directive[],
+        config: ScopeResolverConfig
+    ): {
+        directives: Directive[];
+        used_auto_parents: boolean;
+    } {
+        const backward_mode = config.backward_dependencies ?? 'auto';
+        if (backward_mode === 'explicit' || parsed_directives.length > 0) {
+            return {
+                directives: parsed_directives,
+                used_auto_parents: false,
+            };
+        }
+
+        if (!this.dependency_graph) {
+            return {
+                directives: [],
+                used_auto_parents: false,
+            };
+        }
+
+        const the_auto_edges = this.dependency_graph.get_parents(file_uri);
+        if (the_auto_edges.length === 0) {
+            return {
+                directives: [],
+                used_auto_parents: false,
+            };
+        }
+
+        const the_synthesized_directives = the_auto_edges.map(
+            (my_edge) => ({
+                type: (my_edge.call_type === 'include'
+                    ? 'included-by'
+                    : 'done-by') as 'done-by' | 'included-by',
+                path: URI.parse(my_edge.caller_uri).fsPath,
+                raw_path: URI.parse(my_edge.caller_uri).fsPath,
+                call_site: {
+                    type: 'line' as const,
+                    value: my_edge.call_site_line + 1,
+                },
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 0 },
+                },
+            })
+        );
+
+        return {
+            directives: the_synthesized_directives,
+            used_auto_parents: true,
+        };
     }
 
     /**
@@ -724,41 +784,14 @@ export class ScopeResolver {
         // Create request cache for this resolution chain
         const request_cache: RequestCache = new Map();
 
-        // Auto backward dependency discovery:
-        // If auto mode is enabled and file has no explicit directives,
-        // query the dependency graph for auto-discovered parents.
-        let has_auto_parents = false;
-        let effective_directives = my_directives;
-
-        const backward_mode = my_config.backward_dependencies ?? 'auto';
-        if (backward_mode !== 'explicit' &&
-            my_directives.length === 0 &&
-            this.dependency_graph) {
-            const the_auto_edges =
-                this.dependency_graph.get_parents(file_uri);
-            if (the_auto_edges.length > 0) {
-                has_auto_parents = true;
-                // Synthesize Directive[] from auto-discovered edges
-                effective_directives = the_auto_edges.map(
-                    (my_edge) => ({
-                        type: (my_edge.call_type === 'include'
-                            ? 'included-by'
-                            : 'done-by') as 'done-by' | 'included-by',
-                        path: URI.parse(my_edge.caller_uri).fsPath,
-                        raw_path: URI.parse(my_edge.caller_uri).fsPath,
-                        call_site: {
-                            type: 'line' as const,
-                            // Directive convention: 1-indexed
-                            value: my_edge.call_site_line + 1,
-                        },
-                        range: {
-                            start: { line: 0, character: 0 },
-                            end: { line: 0, character: 0 },
-                        },
-                    })
-                );
-            }
-        }
+        const {
+            directives: effective_directives,
+            used_auto_parents: has_auto_parents,
+        } = this.get_effective_backward_directives(
+            file_uri,
+            my_directives,
+            my_config
+        );
 
         // Follow directive chain
         const normalized_directives = this.normalize_directives(
@@ -938,20 +971,28 @@ export class ScopeResolver {
 
 
     /**
-     * Resolve forward calls in a parent file that occur before the call site.
-     * This allows symbols from scripts executed by the parent (before calling the child)
-     * to be visible in the child's scope.
+     * Resolve every forward call in a parent file (both pre- and
+     * post-child-call). Scope resolution consumes only the pre-site subset
+     * via the returned `symbols` and `call_sites` fields; find-references
+     * consumes the full list via `all_call_sites`. Running the forward
+     * resolver once on the full input and splitting the output preserves
+     * today's pre-site scope-merge semantics while exposing post-site
+     * siblings for the sibling-forward-calls walk.
      *
      * @param parent_uri - URI of the parent file
-     * @param parent_forward_calls - Forward calls extracted from the parent file
+     * @param parent_forward_calls - Forward calls extracted from the parent
+     *   file
      * @param call_site_line - The line where the child is called (0-indexed)
-     * @param backward_directive_type - The type of backward directive ('done-by' or 'included-by')
+     * @param backward_directive_type - The type of backward directive
+     *   ('done-by' or 'included-by')
      * @param working_directory - Working directory context for path resolution
      * @param depth - Current resolution depth
      * @param config - Scope resolver configuration
      * @param visited - Set of visited URIs for cycle detection
      * @param token - Cancellation token
-     * @returns Symbols from forward calls and any diagnostics
+     * @returns `symbols` and `call_sites` (pre-site only, feeds chain-entry
+     *   merging), `all_call_sites` (full list, feeds find-references), and
+     *   any diagnostics.
      */
     private async resolve_parent_forward_calls(
         parent_uri: string,
@@ -963,39 +1004,39 @@ export class ScopeResolver {
         config: ScopeResolverConfig,
         visited: Set<string>,
         token?: CancellationToken
-    ): Promise<{ symbols: SymbolTable; diagnostics: DirectiveDiagnostic[]; call_sites: import('../types').ForwardCallSite[] }> {
-        // If no forward scope resolver is set, return empty results
+    ): Promise<{
+        symbols: SymbolTable;
+        diagnostics: DirectiveDiagnostic[];
+        call_sites: import('../types').ForwardCallSite[];
+        all_call_sites: import('../types').ForwardCallSite[];
+    }> {
         if (!this.forward_scope_resolver) {
             return {
                 symbols: create_empty_symbol_table(),
                 diagnostics: [],
                 call_sites: [],
+                all_call_sites: [],
             };
         }
 
-        // Filter forward calls to only those before the call site
-        const calls_before_site = this.forward_scope_resolver.filter_calls_before_line(
-            parent_forward_calls,
-            call_site_line
-        );
-
-        if (calls_before_site.length === 0) {
+        if (parent_forward_calls.length === 0) {
             return {
                 symbols: create_empty_symbol_table(),
                 diagnostics: [],
                 call_sites: [],
+                all_call_sites: [],
             };
         }
 
-        // Compute effective call type based on backward directive type
-        // If backward directive is done-by or run-by, all forward calls are treated as 'do'
-        // (locals don't pass through do/run boundaries)
-        // If backward directive is included-by, preserve original call types
+        // Compute effective call type based on backward directive type.
+        // If backward directive is done-by or run-by, all forward calls are
+        // treated as 'do' (locals don't pass through do/run boundaries).
+        // If backward directive is included-by, preserve original call types.
         const effective_call_type: EffectiveCallType =
             backward_directive_type === 'included-by' ? 'include' : 'do';
 
-        // Calculate remaining depth for forward resolution
-        // Use overall chain depth limit minus current backward depth
+        // Calculate remaining depth for forward resolution.
+        // Use overall chain depth limit minus current backward depth.
         const remaining_depth = config.max_chain_depth - depth;
         if (remaining_depth <= 0) {
             return {
@@ -1006,20 +1047,23 @@ export class ScopeResolver {
                     severity: 'warning',
                 }],
                 call_sites: [],
+                all_call_sites: [],
             };
         }
 
-        // Create a recursion stack from visited set for cycle detection
+        // Create a recursion stack from visited set for cycle detection.
         const recursion_stack = new Set<string>(visited);
 
-        // Resolve forward calls using ForwardScopeResolver
+        // Resolve the FULL forward-call list so find-references sees sibling
+        // post-site calls. Scope resolution still wants only the pre-site
+        // subset, which we derive from the output below.
         const the_diagnostics: DirectiveDiagnostic[] = [];
         const forward_result = await this.forward_scope_resolver.resolve(
             parent_uri,
-            calls_before_site,
+            parent_forward_calls,
             effective_call_type,
             {
-                visited: new Map(), // Fresh visited map for forward resolution
+                visited: new Map(),
                 effective_call_type,
                 depth: 0,
                 diagnostics: the_diagnostics,
@@ -1031,10 +1075,22 @@ export class ScopeResolver {
             { max_forward_depth: remaining_depth }
         );
 
+        // Derive pre-site subset + its merged symbol table for scope resolution.
+        const the_pre_site_sites = forward_result.call_sites
+            .filter(my_site => my_site.call_line < call_site_line);
+        let my_pre_site_symbols = create_empty_symbol_table();
+        for (const my_site of the_pre_site_sites) {
+            my_pre_site_symbols = merge_symbol_tables(
+                my_pre_site_symbols,
+                my_site.symbols
+            );
+        }
+
         return {
-            symbols: forward_result.symbols,
+            symbols: my_pre_site_symbols,
             diagnostics: the_diagnostics,
-            call_sites: forward_result.call_sites,
+            call_sites: the_pre_site_sites,
+            all_call_sites: forward_result.call_sites,
         };
     }
 
@@ -1138,13 +1194,21 @@ export class ScopeResolver {
                 return resolved_path;
             }
 
+            const {
+                directives: effective_parent_directives,
+            } = this.get_effective_backward_directives(
+                my_parent_uri,
+                my_parent_result.directives,
+                config
+            );
+
             // Otherwise, recursively search deeper ancestors
-            if (my_parent_result.directives.length > 0) {
+            if (effective_parent_directives.length > 0) {
                 // Mark as visited before recursing
                 visited.add(my_parent_uri);
 
                 const my_deeper_wd = await this.discover_working_directory(
-                    my_parent_result.directives,
+                    effective_parent_directives,
                     visited,
                     depth + 1,
                     config,
@@ -1467,8 +1531,15 @@ export class ScopeResolver {
             // Mark as visited and recurse FIRST to get working directory from deeper ancestors
             // This ensures we have the correct working directory before resolving forward calls
             visited.add(my_parent_uri);
-            const normalized_parent_directives = this.normalize_directives(
+            const {
+                directives: effective_parent_directives,
+            } = this.get_effective_backward_directives(
+                my_parent_uri,
                 my_parent_result.directives,
+                config
+            );
+            const normalized_parent_directives = this.normalize_directives(
+                effective_parent_directives,
                 diagnostics
             );
             // Record chain length before recursion to strip locals from ancestor entries if needed
@@ -1548,6 +1619,9 @@ export class ScopeResolver {
                 symbols: my_merged_symbols,
                 forward_call_sites: forward_result.call_sites.length > 0
                     ? forward_result.call_sites
+                    : undefined,
+                all_forward_call_sites: forward_result.all_call_sites.length > 0
+                    ? forward_result.all_call_sites
                     : undefined,
                 depth,
                 directive_order: my_directive_order,
@@ -1771,7 +1845,6 @@ export class ScopeResolver {
 
         // 2. Read file from content provider (Mtime failed or missing)
         let content: string;
-        let actual_fs_path = fs_path;
         let actual_uri = uri;
 
         try {
@@ -1807,7 +1880,6 @@ export class ScopeResolver {
                     }
 
                     content = await this.content_provider.read_file(fallback_uri);
-                    actual_fs_path = fallback_path;
                     actual_uri = fallback_uri;
                 } catch (fallback_error) {
                     // Both paths failed

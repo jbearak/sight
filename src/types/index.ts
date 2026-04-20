@@ -118,6 +118,34 @@ export interface IndexerMetrics {
   avg_file_time_ms: number;
 }
 
+/**
+ * One concrete definition of a workspace symbol, tied to a specific file.
+ * Used by workspace-symbol search so multiple definitions of the same name
+ * across files each get their own entry.
+ */
+export type WorkspaceSymbolKind =
+  | 'program'
+  | 'global_macro'
+  | 'local_macro'
+  | 'variable'
+  | 'scalar'
+  | 'matrix';
+
+export interface WorkspaceSymbolMatch {
+  name: string;              // raw name — no backtick/apostrophe decoration
+  kind: WorkspaceSymbolKind;
+  uri: string;
+  range: Range;
+}
+
+/**
+ * Minimal interface a workspace-symbol search source must satisfy.
+ * The real `WorkspaceIndexer` implements this; tests can supply a stub.
+ */
+export interface WorkspaceSymbolSource {
+  find_all_symbol_definitions(query: string): WorkspaceSymbolMatch[];
+}
+
 export interface LexerError {
   message: string;
   range: Range;
@@ -362,6 +390,7 @@ export interface ProgramSymbol {
   c_locals?: string[]; // Macro names created via c_local
   macro_creating_local_options?: string[]; // Local macro names created via options (e.g., c_local `local')
   macro_creating_global_options?: string[]; // Global macro names created via options (e.g., global `global')
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
 }
 
 export interface MacroSymbol {
@@ -583,6 +612,7 @@ export interface ScalarSymbol {
   location: { uri: string; range: Range };
   sourceUri: string;
   definition_line?: number;
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
 }
 
 export interface MatrixSymbol {
@@ -590,6 +620,7 @@ export interface MatrixSymbol {
   location: { uri: string; range: Range };
   sourceUri: string;
   definition_line?: number;
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
 }
 
 
@@ -599,6 +630,12 @@ export interface ScopeChainEntry {
   call_site_line: number;          // Line in parent where call occurs
   symbols: SymbolTable;            // Symbols from this file
   forward_call_sites?: ForwardCallSite[];  // Parent forward calls visible before the child call site
+  /**
+   * Parent's forward calls across the entire parent file, in line order.
+   * Used only by find-references (collect_visible_reference_uris) to detect
+   * sibling/post-site reachability. Never merged into `symbols`.
+   */
+  all_forward_call_sites?: ForwardCallSite[];
   depth: number;                   // Distance from current file (0 = current)
   // Order of the directive in the referencing file header.
   // Larger means it appeared later in the header ("lattermost" wins at same depth).
@@ -733,7 +770,7 @@ export interface CallEdgeDiff {
 // Completion Ranking Types
 export interface CompletionRankingFactors {
   scope_depth: number;
-  directive_type: 'done-by' | 'included-by' | 'current';
+  directive_type: 'done-by' | 'included-by' | 'current' | 'out-of-scope';
   symbol_type: 'builtin' | 'user-program' | 'program-argument' | 'local-macro' | 'global-macro' | 'variable' | 'scalar' | 'matrix';
   alphabetical_order: string;
   parent_uri?: string;

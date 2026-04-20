@@ -12,7 +12,11 @@ import { describe, it, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { SymbolProvider } from '../../src/providers/symbols';
 import { SymbolKind } from 'vscode-languageserver';
-import { SymbolTable } from '../../src/types';
+import {
+    WorkspaceSymbolKind,
+    WorkspaceSymbolMatch,
+    WorkspaceSymbolSource,
+} from '../../src/types';
 import { arbitrary_identifier } from './generators/primitives';
 
 describe('Workspace Symbol Completeness Property Tests', () => {
@@ -23,7 +27,11 @@ describe('Workspace Symbol Completeness Property Tests', () => {
     });
 
     /**
-     * Helper to create a symbol table with generated symbols.
+     * Helper to create a WorkspaceSymbolSource stub from generated symbols.
+     *
+     * Implements the same case-insensitive substring-match semantics as the
+     * real WorkspaceIndexer so property tests exercise the provider against a
+     * faithful stand-in.
      */
     function create_symbol_table(symbols: {
         programs?: Array<{ name: string }>;
@@ -32,78 +40,42 @@ describe('Workspace Symbol Completeness Property Tests', () => {
         variables?: Array<{ name: string }>;
         scalars?: Array<{ name: string }>;
         matrices?: Array<{ name: string }>;
-    }): SymbolTable {
+    }): WorkspaceSymbolSource {
         const my_range = {
             start: { line: 0, character: 0 },
             end: { line: 0, character: 10 },
         };
         const my_uri = 'file:///workspace/test.do';
 
+        const the_matches: WorkspaceSymbolMatch[] = [];
+        const push_all = (
+            the_entries: Array<{ name: string }> | undefined,
+            my_kind: WorkspaceSymbolKind
+        ) => {
+            for (const my_entry of the_entries || []) {
+                the_matches.push({
+                    name: my_entry.name,
+                    kind: my_kind,
+                    uri: my_uri,
+                    range: my_range,
+                });
+            }
+        };
+
+        push_all(symbols.programs, 'program');
+        push_all(symbols.globalMacros, 'global_macro');
+        push_all(symbols.localMacros, 'local_macro');
+        push_all(symbols.variables, 'variable');
+        push_all(symbols.scalars, 'scalar');
+        push_all(symbols.matrices, 'matrix');
+
         return {
-            programs: new Map(
-                (symbols.programs || []).map((p) => [
-                    p.name,
-                    {
-                        name: p.name,
-                        sourceUri: my_uri,
-                        location: { uri: my_uri, range: my_range },
-                    },
-                ])
-            ),
-            globalMacros: new Map(
-                (symbols.globalMacros || []).map((m) => [
-                    m.name,
-                    {
-                        name: m.name,
-                        sourceUri: my_uri,
-                        scope: 'global' as const,
-                        value: 'test',
-                        location: { uri: my_uri, range: my_range },
-                    },
-                ])
-            ),
-            localMacros: new Map(
-                (symbols.localMacros || []).map((m) => [
-                    m.name,
-                    {
-                        name: m.name,
-                        sourceUri: my_uri,
-                        scope: 'local' as const,
-                        value: 'test',
-                        location: { uri: my_uri, range: my_range },
-                    },
-                ])
-            ),
-            variables: new Map(
-                (symbols.variables || []).map((v) => [
-                    v.name,
-                    {
-                        name: v.name,
-                        sourceUri: my_uri,
-                        location: { uri: my_uri, range: my_range },
-                    },
-                ])
-            ),
-            scalars: new Map(
-                (symbols.scalars || []).map((s) => [
-                    s.name,
-                    {
-                        name: s.name,
-                        sourceUri: my_uri,
-                        location: { uri: my_uri, range: my_range },
-                    },
-                ])
-            ),
-            matrices: new Map(
-                (symbols.matrices || []).map((m) => [
-                    m.name,
-                    {
-                        name: m.name,
-                        sourceUri: my_uri,
-                        location: { uri: my_uri, range: my_range },
-                    },
-                ])
-            ),
+            find_all_symbol_definitions(query: string): WorkspaceSymbolMatch[] {
+                const my_lower_query = query.toLowerCase();
+                return the_matches.filter((my_match) =>
+                    my_match.name.toLowerCase().includes(my_lower_query)
+                );
+            },
         };
     }
 

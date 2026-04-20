@@ -1,5 +1,4 @@
-* Sub-analysis called from main
-* @lsp-done-by: "demo_main.do"
+* Analysis called from orchestrator
 
 * Use globals defined in parent
 local input_file "$data_path/survey.dta"

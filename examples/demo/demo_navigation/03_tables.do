@@ -1,5 +1,4 @@
-* Table generation
-* @lsp-done-by: "demo_main.do"
+* Table generation called from orchestrator
 
 * Use configuration from parent
 save "$output_path/results.dta", replace
