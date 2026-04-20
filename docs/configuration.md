@@ -71,8 +71,7 @@ global file_global value
 
 ## Tuning autocomplete behavior
 
-These are standard VS Code controls, not Sight settings — but they're the most common knobs
-If autocomplete feels too aggressive, there are a few VS Code to adjust.
+If autocomplete feels too aggressive, there are a few knobs to adjust.
 
 - **When the completions menu appears.** By default it pops up almost instantly as you type.
   You can delay it, or turn automatic popups off entirely and trigger the menu manually with
