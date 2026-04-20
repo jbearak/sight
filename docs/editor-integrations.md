@@ -3,7 +3,7 @@
 Sight's language server supports any editor with an LSP client. This page covers generic LSP setup and AI agent configurations.
 
 For editor-specific guides:
-- **VS Code / forks**: Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jbearak.sight), [OpenVSX](https://open-vsx.org/extension/jbearak/sight), or from a [VSIX](https://github.com/jbearak/sight/releases)
+- **VS Code / forks**: Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jbearak.sight), from the [OpenVSX Registry](https://open-vsx.org/extension/jbearak/sight), or from the [GitHub releases page](https://github.com/jbearak/sight/releases)
 - **Neovim**: See [Neovim Setup](neovim-setup.md)
 - **Zed**: See [jbearak/zed-stata](https://github.com/jbearak/zed-stata)
 
@@ -21,9 +21,40 @@ See [Standalone Installation](standalone-installation.md) for installation optio
 
 ## Agent Integration
 
+Each tool below requires `sight-language-server` to be installed
+globally and available on your `PATH`. The VS Code extension bundles
+its own copy of the server that is only accessible to VS Code — it
+does not make the binary available to other tools. Install it
+separately using bun or npm:
+
+```bash
+# bun
+bun install -g github:jbearak/sight
+
+# npm
+npm install -g github:jbearak/sight
+```
+
+See [Standalone Installation](standalone-installation.md) for
+additional install options.
+
+### Claude Code
+
+Install the `sight-lsp` plugin from the
+[`jbearak/claude-plugins`](https://github.com/jbearak/claude-plugins)
+marketplace:
+
+```text
+/plugin marketplace add jbearak/claude-plugins
+/plugin install sight-lsp@jbearak
+```
+
+The plugin configures Claude Code to launch Sight for Stata files
+(`.do`, `.ado`, `.doh`, `.mata`).
+
 ### Kiro CLI
 
-Create `.kiro/settings/lsp.json` in your project:
+Create `lsp.json` in your project root:
 
 ```json
 {
