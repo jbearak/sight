@@ -21,6 +21,23 @@ See [Standalone Installation](standalone-installation.md) for installation optio
 
 ## Agent Integration
 
+Each tool below requires `sight-language-server` to be installed
+globally and available on your `PATH`. The VS Code extension bundles
+its own copy of the server that is only accessible to VS Code — it
+does not make the binary available to other tools. Install it
+separately using bun or npm:
+
+```bash
+# bun
+bun install -g github:jbearak/sight
+
+# npm
+npm install -g github:jbearak/sight
+```
+
+See [Standalone Installation](standalone-installation.md) for
+additional install options.
+
 ### Claude Code
 
 Install the `sight-lsp` plugin from the
@@ -34,18 +51,6 @@ marketplace:
 
 The plugin configures Claude Code to launch Sight for Stata files
 (`.do`, `.ado`, `.doh`, `.mata`).
-
-You still need the `sight-language-server` binary installed on your
-machine. See [Standalone Installation](standalone-installation.md) for
-install options, or install directly from GitHub:
-
-```bash
-# bun
-bun install -g github:jbearak/sight
-
-# npm
-npm install -g github:jbearak/sight
-```
 
 ### Kiro CLI
 
