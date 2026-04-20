@@ -184,24 +184,42 @@ VS Code settings take precedence over `.sight.json` when both are present.
 ## Tuning autocomplete behavior
 
 These are standard VS Code controls, not Sight settings — but they're the most common knobs
-people reach for when Sight's autocomplete feels too aggressive. The first three are `editor.*`
-settings in `settings.json`.
+If autocomplete feels too aggressive, there are a few VS Code to adjust.
 
-- `editor.acceptSuggestionOnCommitCharacter` (default `true`) — when on, typing a "commit
-  character" like `.`, `(`, or `:` *both* accepts the highlighted suggestion *and* inserts the
-  character. Set to `false` if you'd rather those characters insert literally and only explicit
-  keys (Tab / Enter) accept.
-- `editor.acceptSuggestionOnEnter` (default `"on"`) — `"on"` accepts on Enter, `"off"` makes
-  Enter always insert a newline, `"smart"` only accepts when the suggestion would change the
-  code.
-- `editor.quickSuggestionsDelay` (default `10` ms) — raise this (e.g., `500`) to delay the popup
-  so it doesn't appear mid-keystroke. Or set `editor.quickSuggestions` to `"off"` entirely and
-  use Ctrl+Space to trigger suggestions on demand.
+- **When the completions menu appears.** By default it pops up almost instantly as you type.
+  You can delay it, or turn automatic popups off entirely and trigger the menu manually with
+  Ctrl+Space.
+- **How completions get accepted.** By default both Enter and Tab accept the highlighted
+  suggestion when the menu is open. You can turn off Enter (so Enter always inserts a newline),
+  turn off Tab (so Tab always indents), or both.
 
-**Stopping Tab from accepting suggestions** is a keybinding change, not a setting — VS Code
-doesn't ship an `editor.acceptSuggestionOnTab` toggle. To unbind Tab from accepting (so it goes
-back to inserting indentation even when the suggestion widget is open), add this to
-`keybindings.json`:
+### Changing settings
+
+The first three knobs below are `editor.*` settings. Open the VS Code Settings UI either with
+the keyboard (Cmd+, on macOS, Ctrl+, on Windows/Linux) or through the menu (Code → Settings →
+Settings on macOS, File → Preferences → Settings on Windows/Linux). Paste the setting ID into
+the search box at the top, then change the value inline.
+
+| Setting | Default | What it does / how to change |
+| --- | --- | --- |
+| `editor.acceptSuggestionOnEnter` | `"on"` | `"on"` accepts on Enter; `"off"` makes Enter always insert a newline; `"smart"` only accepts when the suggestion would change the code. Set to `"off"` if you want Enter to always start a new line, even with the menu open. |
+| `editor.quickSuggestionsDelay` | `10` ms | Raise this (e.g., `500`) to delay the popup so it doesn't appear mid-keystroke. Or set `editor.quickSuggestions` to `"off"` entirely and use Ctrl+Space to trigger suggestions on demand. |
+| `editor.acceptSuggestionOnCommitCharacter` | `true` | Typing a "commit character" like `.`, `(`, or `:` *both* accepts the highlighted suggestion *and* inserts the character. Set to `false` if you'd rather those characters insert literally and only explicit keys (Tab / Enter) accept. |
+
+
+### Stopping Tab from accepting suggestions
+
+VS Code doesn't ship an `editor.acceptSuggestionOnTab` toggle — unbinding Tab is a keyboard
+shortcut change rather than a setting. Open the Keyboard Shortcuts editor either with the
+keyboard (Cmd+K Cmd+S on macOS, Ctrl+K Ctrl+S on Windows/Linux) or through the menu (Code →
+Settings → Keyboard Shortcuts on macOS, File → Preferences → Keyboard Shortcuts on
+Windows/Linux). Search for `acceptSelectedSuggestion` — the entry bound to Tab is the one you
+want. Right-click it and choose **Remove Keybinding**. Tab will now indent even when the
+completions menu is open, while Enter still accepts (unless you also changed
+`editor.acceptSuggestionOnEnter`).
+
+If you'd rather edit the JSON directly, open `keybindings.json` (from the Keyboard Shortcuts
+editor, click the "Open Keyboard Shortcuts (JSON)" icon in the top right) and add:
 
 ```json
 {
@@ -211,8 +229,7 @@ back to inserting indentation even when the suggestion widget is open), add this
 }
 ```
 
-The leading `-` removes Tab from that command specifically. Enter still accepts unless you also
-set `editor.acceptSuggestionOnEnter` to `"off"`.
+The leading `-` removes Tab from that command specifically.
 
 ## See Also
 
