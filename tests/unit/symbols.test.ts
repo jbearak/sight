@@ -1507,10 +1507,10 @@ describe('Workspace Symbol Search — multi-definition', () => {
             'file:///ws/mics/c.do',
             'file:///ws/nsfg/a.do',
         ]);
-        for (const sym of my_symbols) {
-            expect(sym.name).toBe('cm_birth');
-            expect(sym.containerName).toBe('Variable');
-            expect(sym.kind).toBe(SymbolKind.Field);
+        for (const my_symbol of my_symbols) {
+            expect(my_symbol.name).toBe('cm_birth');
+            expect(my_symbol.containerName).toBe('Variable');
+            expect(my_symbol.kind).toBe(SymbolKind.Field);
         }
     });
 
@@ -1531,7 +1531,7 @@ describe('Workspace Symbol Search — multi-definition', () => {
             },
         ]);
 
-        const the_fresh_document: any = {
+        const the_fresh_document = {
             uri: the_open_uri,
             ast: null,
             symbols: {
@@ -1557,7 +1557,7 @@ describe('Workspace Symbol Search — multi-definition', () => {
                 scalars: new Map(),
                 matrices: new Map(),
             },
-        };
+        } as unknown as DocumentState;
 
         const my_symbols = symbol_provider.get_workspace_symbols(
             'cm_birth',
@@ -1578,30 +1578,84 @@ describe('Workspace Symbol Search — multi-definition', () => {
         const the_open_uri = 'file:///ws/open.do';
         const the_source = build_source([]);
 
-        const the_fresh_document: any = {
+        const the_fresh_document = {
             uri: the_open_uri,
             ast: null,
             symbols: {
                 programs: new Map([
-                    ['my_prog', { name: 'my_prog', sourceUri: the_open_uri, location: { uri: the_open_uri, range: { start: { line: 1, character: 0 }, end: { line: 1, character: 7 } } } }],
+                    [
+                        'my_prog',
+                        {
+                            name: 'my_prog',
+                            sourceUri: the_open_uri,
+                            location: {
+                                uri: the_open_uri,
+                                range: {
+                                    start: { line: 1, character: 0 },
+                                    end: { line: 1, character: 7 },
+                                },
+                            },
+                        },
+                    ],
                 ]),
                 localMacros: new Map(),
                 globalMacros: new Map([
-                    ['my_glob', { name: 'my_glob', sourceUri: the_open_uri, scope: 'global', value: '', location: { uri: the_open_uri, range: { start: { line: 2, character: 0 }, end: { line: 2, character: 7 } } } }],
+                    [
+                        'my_glob',
+                        {
+                            name: 'my_glob',
+                            sourceUri: the_open_uri,
+                            scope: 'global',
+                            value: '',
+                            location: {
+                                uri: the_open_uri,
+                                range: {
+                                    start: { line: 2, character: 0 },
+                                    end: { line: 2, character: 7 },
+                                },
+                            },
+                        },
+                    ],
                 ]),
                 variables: new Map(),
                 scalars: new Map([
-                    ['my_scalar', { name: 'my_scalar', sourceUri: the_open_uri, location: { uri: the_open_uri, range: { start: { line: 3, character: 0 }, end: { line: 3, character: 9 } } } }],
+                    [
+                        'my_scalar',
+                        {
+                            name: 'my_scalar',
+                            sourceUri: the_open_uri,
+                            location: {
+                                uri: the_open_uri,
+                                range: {
+                                    start: { line: 3, character: 0 },
+                                    end: { line: 3, character: 9 },
+                                },
+                            },
+                        },
+                    ],
                 ]),
                 matrices: new Map([
-                    ['my_mat', { name: 'my_mat', sourceUri: the_open_uri, location: { uri: the_open_uri, range: { start: { line: 4, character: 0 }, end: { line: 4, character: 6 } } } }],
+                    [
+                        'my_mat',
+                        {
+                            name: 'my_mat',
+                            sourceUri: the_open_uri,
+                            location: {
+                                uri: the_open_uri,
+                                range: {
+                                    start: { line: 4, character: 0 },
+                                    end: { line: 4, character: 6 },
+                                },
+                            },
+                        },
+                    ],
                 ]),
             },
-        };
+        } as unknown as DocumentState;
 
         const the_queries = ['my_prog', 'my_glob', 'my_scalar', 'my_mat'];
-        for (const q of the_queries) {
-            const my_symbols = symbol_provider.get_workspace_symbols(q, [the_fresh_document], the_source);
+        for (const my_query of the_queries) {
+            const my_symbols = symbol_provider.get_workspace_symbols(my_query, [the_fresh_document], the_source);
             expect(my_symbols.some(s => s.location.uri === the_open_uri)).toBe(true);
         }
     });
