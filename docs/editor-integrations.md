@@ -23,7 +23,7 @@ See [Standalone Installation](standalone-installation.md) for installation optio
 
 ### Kiro CLI
 
-Create `.kiro/settings/lsp.json` in your project:
+Create `lsp.json` in your project root:
 
 ```json
 {
