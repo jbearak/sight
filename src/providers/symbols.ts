@@ -697,7 +697,7 @@ export class SymbolProvider {
             const my_basename = path.basename(document.uri);
 
             // Programs
-            for (const [my_name, my_program] of document.symbols.programs) {
+            for (const my_program of document.symbols.programs.values()) {
                 if (my_program.name.toLowerCase().includes(lower_query)) {
                     symbols.push({
                         name: my_program.name,
