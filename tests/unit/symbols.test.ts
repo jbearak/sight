@@ -20,8 +20,25 @@ import {
     StataAST,
     EmbeddedLanguageBlockNode,
 } from '../../src/types';
+import type {
+    WorkspaceSymbolMatch,
+    WorkspaceSymbolSource,
+} from '../../src/types';
 import { SymbolKind, DocumentSymbol } from 'vscode-languageserver';
 import { Position, Range } from 'vscode-languageserver-textdocument';
+
+/**
+ * Build a WorkspaceSymbolSource stub from a fixed list of matches.
+ * Simulates workspace-indexer substring search (case-insensitive).
+ */
+function build_source(matches: WorkspaceSymbolMatch[]): WorkspaceSymbolSource {
+    return {
+        find_all_symbol_definitions: (query: string) => {
+            const lower = query.toLowerCase();
+            return matches.filter(m => m.name.toLowerCase().includes(lower));
+        },
+    };
+}
 
 /**
  * Helper to create a minimal document state for testing.
@@ -1340,45 +1357,24 @@ describe('Workspace Index Symbol Types', () => {
         symbol_provider = new SymbolProvider();
     });
 
-    /**
-     * Helper to create a workspace symbol table for testing.
-     */
-    function create_workspace_symbols(symbols?: Partial<SymbolTable>): SymbolTable {
-        return {
-            programs: symbols?.programs || new Map(),
-            localMacros: symbols?.localMacros || new Map(),
-            globalMacros: symbols?.globalMacros || new Map(),
-            variables: symbols?.variables || new Map(),
-            scalars: symbols?.scalars || new Map(),
-            matrices: symbols?.matrices || new Map(),
-        };
-    }
-
     describe('Variables from Workspace Index', () => {
         it('should include variables from workspace_symbols in results', () => {
-            const my_workspace_symbols = create_workspace_symbols({
-                variables: new Map([
-                    [
-                        'myvar',
-                        {
-                            name: 'myvar',
-                            sourceUri: 'file:///workspace/data.do',
-                            location: {
-                                uri: 'file:///workspace/data.do',
-                                range: {
-                                    start: { line: 5, character: 0 },
-                                    end: { line: 5, character: 10 },
-                                },
-                            },
-                        },
-                    ],
-                ]),
-            });
+            const the_source = build_source([
+                {
+                    name: 'myvar',
+                    kind: 'variable',
+                    uri: 'file:///workspace/data.do',
+                    range: {
+                        start: { line: 5, character: 0 },
+                        end: { line: 5, character: 10 },
+                    },
+                },
+            ]);
 
             const my_symbols = symbol_provider.get_workspace_symbols(
                 'myvar',
                 [],
-                my_workspace_symbols
+                the_source
             );
 
             expect(my_symbols.length).toBe(1);
@@ -1391,29 +1387,22 @@ describe('Workspace Index Symbol Types', () => {
 
     describe('Scalars from Workspace Index', () => {
         it('should include scalars from workspace_symbols in results', () => {
-            const my_workspace_symbols = create_workspace_symbols({
-                scalars: new Map([
-                    [
-                        'my_scalar',
-                        {
-                            name: 'my_scalar',
-                            sourceUri: 'file:///workspace/analysis.do',
-                            location: {
-                                uri: 'file:///workspace/analysis.do',
-                                range: {
-                                    start: { line: 10, character: 0 },
-                                    end: { line: 10, character: 20 },
-                                },
-                            },
-                        },
-                    ],
-                ]),
-            });
+            const the_source = build_source([
+                {
+                    name: 'my_scalar',
+                    kind: 'scalar',
+                    uri: 'file:///workspace/analysis.do',
+                    range: {
+                        start: { line: 10, character: 0 },
+                        end: { line: 10, character: 20 },
+                    },
+                },
+            ]);
 
             const my_symbols = symbol_provider.get_workspace_symbols(
                 'scalar',
                 [],
-                my_workspace_symbols
+                the_source
             );
 
             expect(my_symbols.length).toBe(1);
@@ -1426,29 +1415,22 @@ describe('Workspace Index Symbol Types', () => {
 
     describe('Matrices from Workspace Index', () => {
         it('should include matrices from workspace_symbols in results', () => {
-            const my_workspace_symbols = create_workspace_symbols({
-                matrices: new Map([
-                    [
-                        'coef_matrix',
-                        {
-                            name: 'coef_matrix',
-                            sourceUri: 'file:///workspace/regression.do',
-                            location: {
-                                uri: 'file:///workspace/regression.do',
-                                range: {
-                                    start: { line: 15, character: 0 },
-                                    end: { line: 15, character: 25 },
-                                },
-                            },
-                        },
-                    ],
-                ]),
-            });
+            const the_source = build_source([
+                {
+                    name: 'coef_matrix',
+                    kind: 'matrix',
+                    uri: 'file:///workspace/regression.do',
+                    range: {
+                        start: { line: 15, character: 0 },
+                        end: { line: 15, character: 25 },
+                    },
+                },
+            ]);
 
             const my_symbols = symbol_provider.get_workspace_symbols(
                 'matrix',
                 [],
-                my_workspace_symbols
+                the_source
             );
 
             expect(my_symbols.length).toBe(1);
@@ -1461,31 +1443,22 @@ describe('Workspace Index Symbol Types', () => {
 
     describe('Local Macros from Workspace Index', () => {
         it('should include local macros from workspace_symbols in results', () => {
-            const my_workspace_symbols = create_workspace_symbols({
-                localMacros: new Map([
-                    [
-                        'varlist',
-                        {
-                            name: 'varlist',
-                            sourceUri: 'file:///workspace/utils.do',
-                            scope: 'local',
-                            value: 'x y z',
-                            location: {
-                                uri: 'file:///workspace/utils.do',
-                                range: {
-                                    start: { line: 3, character: 0 },
-                                    end: { line: 3, character: 18 },
-                                },
-                            },
-                        },
-                    ],
-                ]),
-            });
+            const the_source = build_source([
+                {
+                    name: 'varlist',
+                    kind: 'local_macro',
+                    uri: 'file:///workspace/utils.do',
+                    range: {
+                        start: { line: 3, character: 0 },
+                        end: { line: 3, character: 18 },
+                    },
+                },
+            ]);
 
             const my_symbols = symbol_provider.get_workspace_symbols(
                 'varlist',
                 [],
-                my_workspace_symbols
+                the_source
             );
 
             expect(my_symbols.length).toBe(1);
@@ -1494,5 +1467,142 @@ describe('Workspace Index Symbol Types', () => {
             expect(my_symbols[0].containerName).toBe('Local Macro');
             expect(my_symbols[0].location.uri).toBe('file:///workspace/utils.do');
         });
+    });
+});
+
+describe('Workspace Symbol Search — multi-definition', () => {
+    let symbol_provider: SymbolProvider;
+
+    beforeEach(() => {
+        symbol_provider = new SymbolProvider();
+    });
+
+    it('returns one SymbolInformation per file when a variable is defined in many files', () => {
+        const the_source = build_source([
+            {
+                name: 'cm_birth',
+                kind: 'variable',
+                uri: 'file:///ws/nsfg/a.do',
+                range: { start: { line: 1, character: 0 }, end: { line: 1, character: 8 } },
+            },
+            {
+                name: 'cm_birth',
+                kind: 'variable',
+                uri: 'file:///ws/dhs/b.do',
+                range: { start: { line: 2, character: 0 }, end: { line: 2, character: 8 } },
+            },
+            {
+                name: 'cm_birth',
+                kind: 'variable',
+                uri: 'file:///ws/mics/c.do',
+                range: { start: { line: 3, character: 0 }, end: { line: 3, character: 8 } },
+            },
+        ]);
+
+        const my_symbols = symbol_provider.get_workspace_symbols('cm_birth', [], the_source);
+
+        const the_uris = my_symbols.map(s => s.location.uri).sort();
+        expect(the_uris).toEqual([
+            'file:///ws/dhs/b.do',
+            'file:///ws/mics/c.do',
+            'file:///ws/nsfg/a.do',
+        ]);
+        for (const sym of my_symbols) {
+            expect(sym.name).toBe('cm_birth');
+            expect(sym.containerName).toBe('Variable');
+            expect(sym.kind).toBe(SymbolKind.Field);
+        }
+    });
+
+    it('suppresses source entries for URIs that are open documents, and overlays fresh symbols', () => {
+        const the_open_uri = 'file:///ws/open.do';
+        const the_source = build_source([
+            {
+                name: 'cm_birth',
+                kind: 'variable',
+                uri: the_open_uri,
+                range: { start: { line: 99, character: 0 }, end: { line: 99, character: 8 } },
+            },
+            {
+                name: 'cm_birth',
+                kind: 'variable',
+                uri: 'file:///ws/dhs/b.do',
+                range: { start: { line: 2, character: 0 }, end: { line: 2, character: 8 } },
+            },
+        ]);
+
+        const the_fresh_document: any = {
+            uri: the_open_uri,
+            ast: null,
+            symbols: {
+                programs: new Map(),
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                variables: new Map([
+                    [
+                        'cm_birth',
+                        {
+                            name: 'cm_birth',
+                            sourceUri: the_open_uri,
+                            location: {
+                                uri: the_open_uri,
+                                range: {
+                                    start: { line: 5, character: 0 },
+                                    end: { line: 5, character: 8 },
+                                },
+                            },
+                        },
+                    ],
+                ]),
+                scalars: new Map(),
+                matrices: new Map(),
+            },
+        };
+
+        const my_symbols = symbol_provider.get_workspace_symbols(
+            'cm_birth',
+            [the_fresh_document],
+            the_source
+        );
+
+        const the_open_entries = my_symbols.filter(s => s.location.uri === the_open_uri);
+        expect(the_open_entries.length).toBe(1);
+        expect(the_open_entries[0].location.range.start.line).toBe(5);
+
+        const the_other_entries = my_symbols.filter(s => s.location.uri !== the_open_uri);
+        expect(the_other_entries.length).toBe(1);
+        expect(the_other_entries[0].location.uri).toBe('file:///ws/dhs/b.do');
+    });
+
+    it('overlays open-document programs, globals, scalars, and matrices (not just locals and variables)', () => {
+        const the_open_uri = 'file:///ws/open.do';
+        const the_source = build_source([]);
+
+        const the_fresh_document: any = {
+            uri: the_open_uri,
+            ast: null,
+            symbols: {
+                programs: new Map([
+                    ['my_prog', { name: 'my_prog', sourceUri: the_open_uri, location: { uri: the_open_uri, range: { start: { line: 1, character: 0 }, end: { line: 1, character: 7 } } } }],
+                ]),
+                localMacros: new Map(),
+                globalMacros: new Map([
+                    ['my_glob', { name: 'my_glob', sourceUri: the_open_uri, scope: 'global', value: '', location: { uri: the_open_uri, range: { start: { line: 2, character: 0 }, end: { line: 2, character: 7 } } } }],
+                ]),
+                variables: new Map(),
+                scalars: new Map([
+                    ['my_scalar', { name: 'my_scalar', sourceUri: the_open_uri, location: { uri: the_open_uri, range: { start: { line: 3, character: 0 }, end: { line: 3, character: 9 } } } }],
+                ]),
+                matrices: new Map([
+                    ['my_mat', { name: 'my_mat', sourceUri: the_open_uri, location: { uri: the_open_uri, range: { start: { line: 4, character: 0 }, end: { line: 4, character: 6 } } } }],
+                ]),
+            },
+        };
+
+        const the_queries = ['my_prog', 'my_glob', 'my_scalar', 'my_mat'];
+        for (const q of the_queries) {
+            const my_symbols = symbol_provider.get_workspace_symbols(q, [the_fresh_document], the_source);
+            expect(my_symbols.some(s => s.location.uri === the_open_uri)).toBe(true);
+        }
     });
 });
