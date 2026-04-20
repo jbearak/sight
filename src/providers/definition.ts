@@ -230,7 +230,8 @@ export class DefinitionProvider {
             const local_locs = this.collect_local_macro_scope_locations(
                 resolved_scope,
                 word,
-                position
+                position,
+                document.uri
             );
             if (local_locs.length > 0) {
                 return this.locations_to_definition(local_locs);
@@ -925,7 +926,8 @@ export class DefinitionProvider {
     private collect_local_macro_scope_locations(
         resolved_scope: ResolvedScope,
         word: string,
-        position?: Position
+        position?: Position,
+        document_uri?: string
     ): Location[] {
         const out: Location[] = [];
         const should_include_candidate = (macro_symbol: MacroSymbol): boolean => {
@@ -933,8 +935,12 @@ export class DefinitionProvider {
                 return true;
             }
             const my_locations = this.macro_symbol_to_locations(macro_symbol);
+            const same_file_locs = document_uri
+                ? my_locations.filter(l => l.uri === document_uri)
+                : my_locations;
+            if (same_file_locs.length === 0) return true;
             const my_earliest_line =
-                this.get_earliest_definition_line(my_locations);
+                this.get_earliest_definition_line(same_file_locs);
             return my_earliest_line === undefined
                 || my_earliest_line <= position.line;
         };
@@ -1156,7 +1162,8 @@ export class DefinitionProvider {
             const local_locs = this.collect_local_macro_scope_locations(
                 resolved_scope,
                 word,
-                position
+                position,
+                document.uri
             );
             if (local_locs.length > 0) {
                 return this.locations_to_definition(local_locs);
