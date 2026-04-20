@@ -2,7 +2,9 @@
 
 The extension provides commands to send Stata code directly from VS Code to Stata for execution. It supports three execution targets: the Stata GUI application (macOS and Windows), an integrated Stata terminal inside VS Code, and arbitrary terminal sessions.
 
-> **Implementation Note:** On macOS, GUI mode uses AppleScript to communicate with the Stata application. On Windows, it uses the [send-to-stata](https://github.com/jbearak/send-to-stata) utility, which is not bundled with the extension. On first use, you'll be prompted to download it.
+> **GUI vs. CLI:** "GUI" (graphical user interface) mode means sending code to the standalone Stata application — the windowed program you launch from the dock or Start menu. "CLI" (command-line interface) mode means sending code to Stata running inside a terminal (`stata-mp`, `stata-se`, etc.).
+
+> **Implementation Note:** On macOS, GUI mode uses AppleScript to communicate with the Stata application. On Windows, it uses [send-to-stata](https://github.com/jbearak/send-to-stata), a small utility I wrote for this extension. It's downloaded on first use rather than bundled: it's a native binary (so bundling would mean shipping x86 and ARM64 builds to every user, including Mac users who need neither), and it evolves independently of the extension.
 
 ## Execution Targets
 
