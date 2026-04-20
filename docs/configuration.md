@@ -2,6 +2,25 @@
 
 The extension supports the following configuration options. All settings are prefixed with `sight.` and can be configured in VS Code's Settings UI or in your `settings.json` file.
 
+## Contents
+
+- [Diagnostics](#diagnostics)
+  - [Forward Reference Detection](#forward-reference-detection)
+- [Indexing](#indexing)
+- [ADO Paths](#ado-paths)
+- [Comments](#comments)
+- [Project Configuration File](#project-configuration-file)
+- [Example Configurations](#example-configurations)
+  - [Disable All Diagnostics](#disable-all-diagnostics)
+  - [Treat Undefined Macros as Errors](#treat-undefined-macros-as-errors)
+  - [Disable Indentation Diagnostics](#disable-indentation-diagnostics)
+  - [Add Custom ADO Paths](#add-custom-ado-paths)
+  - [Minimal Diagnostics (Errors Only)](#minimal-diagnostics-errors-only)
+- [Tuning autocomplete behavior](#tuning-autocomplete-behavior)
+  - [Changing settings](#changing-settings)
+  - [Stopping Tab from accepting suggestions](#stopping-tab-from-accepting-suggestions)
+- [See Also](#see-also)
+
 ## Diagnostics
 
 Control how the LSP reports errors, warnings, and other diagnostics.
