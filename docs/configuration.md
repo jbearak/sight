@@ -6,19 +6,13 @@ The extension supports the following configuration options. All settings are pre
 
 - [Diagnostics](#diagnostics)
   - [Forward Reference Detection](#forward-reference-detection)
+- [Tuning autocomplete behavior](#tuning-autocomplete-behavior)
+  - [Changing settings](#changing-settings)
+  - [Stopping Tab from accepting suggestions](#stopping-tab-from-accepting-suggestions)
 - [Indexing](#indexing)
 - [ADO Paths](#ado-paths)
 - [Comments](#comments)
 - [Project Configuration File](#project-configuration-file)
-- [Example Configurations](#example-configurations)
-  - [Disable All Diagnostics](#disable-all-diagnostics)
-  - [Treat Undefined Macros as Errors](#treat-undefined-macros-as-errors)
-  - [Disable Indentation Diagnostics](#disable-indentation-diagnostics)
-  - [Add Custom ADO Paths](#add-custom-ado-paths)
-  - [Minimal Diagnostics (Errors Only)](#minimal-diagnostics-errors-only)
-- [Tuning autocomplete behavior](#tuning-autocomplete-behavior)
-  - [Changing settings](#changing-settings)
-  - [Stopping Tab from accepting suggestions](#stopping-tab-from-accepting-suggestions)
 - [See Also](#see-also)
 
 ## Diagnostics
@@ -75,6 +69,56 @@ global file_global value
 
 **Macro-creating options**: The analyzer recognizes `local()` and `global()` options on built-in commands (`levelsof`, `glevelsof`) and user-defined programs (via `c_local `option'` and `global `option'` patterns matching syntax declarations).
 
+## Tuning autocomplete behavior
+
+These are standard VS Code controls, not Sight settings — but they're the most common knobs
+If autocomplete feels too aggressive, there are a few VS Code to adjust.
+
+- **When the completions menu appears.** By default it pops up almost instantly as you type.
+  You can delay it, or turn automatic popups off entirely and trigger the menu manually with
+  Ctrl+Space.
+- **How completions get accepted.** By default both Enter and Tab accept the highlighted
+  suggestion when the menu is open. You can turn off Enter (so Enter always inserts a newline),
+  turn off Tab (so Tab always indents), or both.
+
+### Changing settings
+
+The first three knobs below are `editor.*` settings. Open the VS Code Settings UI either with
+the keyboard (Cmd+, on macOS, Ctrl+, on Windows/Linux) or through the menu (Code → Settings →
+Settings on macOS, File → Preferences → Settings on Windows/Linux). Paste the setting ID into
+the search box at the top, then change the value inline.
+
+| Setting | Default | What it does / how to change |
+| --- | --- | --- |
+| `editor.acceptSuggestionOnEnter` | `"on"` | `"on"` accepts on Enter; `"off"` makes Enter always insert a newline; `"smart"` only accepts when the suggestion would change the code. Set to `"off"` if you want Enter to always start a new line, even with the menu open. |
+| `editor.quickSuggestionsDelay` | `10` ms | Raise this (e.g., `500`) to delay the popup so it doesn't appear mid-keystroke. Or set `editor.quickSuggestions` to `"off"` entirely and use Ctrl+Space to trigger suggestions on demand. |
+| `editor.acceptSuggestionOnCommitCharacter` | `true` | Typing a "commit character" like `.`, `(`, or `:` *both* accepts the highlighted suggestion *and* inserts the character. Set to `false` if you'd rather those characters insert literally and only explicit keys (Tab / Enter) accept. |
+
+
+### Stopping Tab from accepting suggestions
+
+VS Code doesn't ship an `editor.acceptSuggestionOnTab` toggle — unbinding Tab is a keyboard
+shortcut change rather than a setting. Open the Keyboard Shortcuts editor either with the
+keyboard (Cmd+K Cmd+S on macOS, Ctrl+K Ctrl+S on Windows/Linux) or through the menu (Code →
+Settings → Keyboard Shortcuts on macOS, File → Preferences → Keyboard Shortcuts on
+Windows/Linux). Search for `acceptSelectedSuggestion` — the entry bound to Tab is the one you
+want. Right-click it and choose **Remove Keybinding**. Tab will now indent even when the
+completions menu is open, while Enter still accepts (unless you also changed
+`editor.acceptSuggestionOnEnter`).
+
+If you'd rather edit the JSON directly, open `keybindings.json` (from the Keyboard Shortcuts
+editor, click the "Open Keyboard Shortcuts (JSON)" icon in the top right) and add:
+
+```json
+{
+  "key": "tab",
+  "command": "-acceptSelectedSuggestion",
+  "when": "suggestWidgetVisible && textInputFocus && !editorReadonly"
+}
+```
+
+The leading `-` removes Tab from that command specifically.
+
 ## Indexing
 
 Configure workspace indexing behavior for cross-file features.
@@ -91,6 +135,17 @@ Configure additional search paths for ADO files.
 | Setting          | Type  | Default | Description                              |
 | ---------------- | ----- | ------- | ---------------------------------------- |
 | `sight.adoPaths` | array | `[]`    | Additional paths to search for ADO files |
+
+Example:
+
+```json
+{
+  "sight.adoPaths": [
+    "/path/to/custom/ado",
+    "/another/ado/directory"
+  ]
+}
+```
 
 ## Comments
 
@@ -152,103 +207,6 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias: `"info"` for `"information"`)
 
 VS Code settings take precedence over `.sight.json` when both are present.
-
-## Example Configurations
-
-### Disable All Diagnostics
-
-```json
-{
-  "sight.diagnostics.enabled": false
-}
-```
-
-### Treat Undefined Macros as Errors
-
-```json
-{
-  "sight.diagnostics.severity.undefinedMacro": "error"
-}
-```
-
-### Disable Indentation Diagnostics
-
-```json
-{
-  "sight.diagnostics.indentation": false
-}
-```
-
-### Add Custom ADO Paths
-
-```json
-{
-  "sight.adoPaths": [
-    "/path/to/custom/ado",
-    "/another/ado/directory"
-  ]
-}
-```
-
-### Minimal Diagnostics (Errors Only)
-
-```json
-{
-  "sight.diagnostics.severity.undefinedMacro": "error",
-  "sight.diagnostics.severity.undefinedVariable": "off",
-  "sight.diagnostics.severity.styleWarnings": "off"
-}
-```
-
-## Tuning autocomplete behavior
-
-These are standard VS Code controls, not Sight settings — but they're the most common knobs
-If autocomplete feels too aggressive, there are a few VS Code to adjust.
-
-- **When the completions menu appears.** By default it pops up almost instantly as you type.
-  You can delay it, or turn automatic popups off entirely and trigger the menu manually with
-  Ctrl+Space.
-- **How completions get accepted.** By default both Enter and Tab accept the highlighted
-  suggestion when the menu is open. You can turn off Enter (so Enter always inserts a newline),
-  turn off Tab (so Tab always indents), or both.
-
-### Changing settings
-
-The first three knobs below are `editor.*` settings. Open the VS Code Settings UI either with
-the keyboard (Cmd+, on macOS, Ctrl+, on Windows/Linux) or through the menu (Code → Settings →
-Settings on macOS, File → Preferences → Settings on Windows/Linux). Paste the setting ID into
-the search box at the top, then change the value inline.
-
-| Setting | Default | What it does / how to change |
-| --- | --- | --- |
-| `editor.acceptSuggestionOnEnter` | `"on"` | `"on"` accepts on Enter; `"off"` makes Enter always insert a newline; `"smart"` only accepts when the suggestion would change the code. Set to `"off"` if you want Enter to always start a new line, even with the menu open. |
-| `editor.quickSuggestionsDelay` | `10` ms | Raise this (e.g., `500`) to delay the popup so it doesn't appear mid-keystroke. Or set `editor.quickSuggestions` to `"off"` entirely and use Ctrl+Space to trigger suggestions on demand. |
-| `editor.acceptSuggestionOnCommitCharacter` | `true` | Typing a "commit character" like `.`, `(`, or `:` *both* accepts the highlighted suggestion *and* inserts the character. Set to `false` if you'd rather those characters insert literally and only explicit keys (Tab / Enter) accept. |
-
-
-### Stopping Tab from accepting suggestions
-
-VS Code doesn't ship an `editor.acceptSuggestionOnTab` toggle — unbinding Tab is a keyboard
-shortcut change rather than a setting. Open the Keyboard Shortcuts editor either with the
-keyboard (Cmd+K Cmd+S on macOS, Ctrl+K Ctrl+S on Windows/Linux) or through the menu (Code →
-Settings → Keyboard Shortcuts on macOS, File → Preferences → Keyboard Shortcuts on
-Windows/Linux). Search for `acceptSelectedSuggestion` — the entry bound to Tab is the one you
-want. Right-click it and choose **Remove Keybinding**. Tab will now indent even when the
-completions menu is open, while Enter still accepts (unless you also changed
-`editor.acceptSuggestionOnEnter`).
-
-If you'd rather edit the JSON directly, open `keybindings.json` (from the Keyboard Shortcuts
-editor, click the "Open Keyboard Shortcuts (JSON)" icon in the top right) and add:
-
-```json
-{
-  "key": "tab",
-  "command": "-acceptSelectedSuggestion",
-  "when": "suggestWidgetVisible && textInputFocus && !editorReadonly"
-}
-```
-
-The leading `-` removes Tab from that command specifically.
 
 ## See Also
 
