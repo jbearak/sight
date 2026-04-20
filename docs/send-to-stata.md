@@ -1,10 +1,10 @@
 # Send to Stata
 
-The extension provides commands to send Stata code directly from VS Code to Stata for execution. It supports three execution targets: the Stata GUI application (macOS and Windows), an integrated Stata terminal inside VS Code, and arbitrary terminal sessions.
+The extension provides commands to send Stata code directly from VS Code to Stata for execution. It supports three execution targets: the Stata GUI application (macOS and Windows), an integrated Stata terminal inside VS Code, and the active VS Code terminal.
 
 > **GUI vs. CLI:** "GUI" (graphical user interface) mode means sending code to the standalone Stata application — the windowed program you launch from the dock or Start menu. "CLI" (command-line interface) mode means sending code to Stata running inside a terminal (`stata-mp`, `stata-se`, etc.).
 
-> **Implementation Note:** On macOS, GUI mode uses AppleScript to communicate with the Stata application. On Windows, it uses [send-to-stata](https://github.com/jbearak/send-to-stata), a small utility I wrote for this extension. It's downloaded on first use rather than bundled: it's a native binary (so bundling would mean shipping x86 and ARM64 builds to every user, including Mac users who need neither), and while the extension is under active development, the helper is essentially done and unlikely to change, so re-bundling it with every extension release would be wasteful.
+> **Implementation Note:** On macOS, GUI mode uses AppleScript to communicate with the Stata application. On Windows, it uses [send-to-stata](https://github.com/jbearak/send-to-stata), a small utility I wrote for this extension. The Windows helper is downloaded on first use rather than bundled because it is a native binary, and bundling it would mean shipping extra platform-specific builds with every extension release.
 
 ## Execution Targets
 
@@ -24,7 +24,7 @@ The `sight.sendToStata.target` setting controls where the main send commands (`C
 | **integrated** | Always uses the integrated VS Code Stata terminal. On native Windows (where Stata has no interactive CLI), falls back to the GUI with a warning. |
 | **external** | Always uses the external Stata GUI application. macOS and Windows only; not available in remote sessions or on Linux. |
 
-When the integrated terminal is selected (directly or via auto-detection), the extension will automatically open a Stata terminal if one isn't already running. If multiple Stata terminals are open, commands are sent to the most recently activated one.
+When the integrated terminal is selected (directly or via auto-detection), the extension automatically opens a Stata terminal if one is not already running. If multiple Stata terminals are open, commands are sent to the most recently activated one.
 
 ### Stata Terminal Profile
 
@@ -64,7 +64,7 @@ The extension adds a "Stata" terminal profile to VS Code's terminal dropdown (no
 
 ## Cursor Advancement
 
-By default, the cursor advances to the next line when it sends a single statement (not a selection or entire file) to Stata.
+By default, the cursor advances to the next line when the extension sends a single statement, rather than a selection or entire file, to Stata.
 
 **Configuration**: `sight.sendToStata.advanceCursorOnSend` (default: `true`)
 
@@ -92,8 +92,8 @@ When set to "none", manual CD commands appear in the toolbar menu for quick dire
 
 The extension intelligently detects complete Stata statements:
 - Handles multi-line statements with `///` continuation markers
-- When cursor is on a continuation line, includes the entire statement from beginning
-- When cursor is on a line with `///`, includes all continuation lines
+- When the cursor is on a continuation line, includes the entire statement from the beginning
+- When the cursor is on a line ending with `///`, includes all continuation lines
 
 ## Editor Toolbar
 
