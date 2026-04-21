@@ -338,18 +338,34 @@ export class ForwardScopeResolver {
                     return { symbols: accumulated_symbols, call_sites: the_call_sites, diagnostics: my_context.diagnostics };
                 }
 
-                // Add nested call sites with adjusted call lines. Clear
-                // `excluded_locals` on nested sites: the direct-child site
-                // above already carries the chain's effective end state,
-                // and leaving per-file excluded_locals here would cause
-                // diagnostics to blame whichever deeper site happens to
-                // come last in array order rather than the callee whose
-                // local actually shadows earlier ones.
+                // Add nested call sites with adjusted call lines. Filter
+                // `excluded_locals` on each nested site rather than stripping
+                // it: if the direct-child site already carries its own
+                // entry for a name (its effective end-state walk claims
+                // it), the nested site must drop that name to avoid
+                // double-blaming. But if the direct-child is `include`
+                // (no excluded_locals) — or simply doesn't claim the
+                // name — the nested site's entry is the only carrier for
+                // the deeper `do` boundary and must be kept.
                 for (const nested_site of nested_result.call_sites) {
+                    let filtered_excluded: Map<string, MacroSymbol> | undefined;
+                    if (nested_site.excluded_locals) {
+                        if (excluded_locals) {
+                            const the_filtered = new Map<string, MacroSymbol>();
+                            for (const [my_name, my_symbol] of nested_site.excluded_locals) {
+                                if (!excluded_locals.has(my_name)) {
+                                    the_filtered.set(my_name, my_symbol);
+                                }
+                            }
+                            filtered_excluded = the_filtered.size > 0 ? the_filtered : undefined;
+                        } else {
+                            filtered_excluded = nested_site.excluded_locals;
+                        }
+                    }
                     the_call_sites.push({
                         ...nested_site,
                         call_line: my_call.call_site_line, // Visibility starts at parent call
-                        excluded_locals: undefined,
+                        excluded_locals: filtered_excluded,
                     });
                 }
 
@@ -526,9 +542,29 @@ export class ForwardScopeResolver {
             const the_events: WalkEvent[] = [];
             for (const [my_name, my_symbol] of callee_result.symbols.localMacros) {
                 if (my_symbol.containingScope !== 'dofile') continue;
-                const my_line = my_symbol.definition_line
+                // Emit one event per definition: the primary plus each entry
+                // in `additional_definitions`. `SemanticAnalyzer` implements
+                // first-def-wins, so every later `local X` in the same file
+                // is stashed under the primary's `additional_definitions`.
+                // Without this, a `local X` that follows an `include` (which
+                // itself bound X to something else) would be invisible to the
+                // effective-end-state walk and the wrong callee would be
+                // blamed. `sourceUri` matches across every definition of the
+                // same local in the same file, so attributing the symbol
+                // payload back to the primary remains correct.
+                const primary_line = my_symbol.definition_line
                     ?? my_symbol.location.range.start.line;
-                the_events.push({ line: my_line, kind: 'local', name: my_name, symbol: my_symbol });
+                the_events.push({ line: primary_line, kind: 'local', name: my_name, symbol: my_symbol });
+                if (my_symbol.additional_definitions) {
+                    for (const my_extra of my_symbol.additional_definitions) {
+                        the_events.push({
+                            line: my_extra.line,
+                            kind: 'local',
+                            name: my_name,
+                            symbol: my_symbol,
+                        });
+                    }
+                }
             }
             for (const my_call of callee_result.forward_calls) {
                 if (!my_call.is_static || !my_call.path) continue;

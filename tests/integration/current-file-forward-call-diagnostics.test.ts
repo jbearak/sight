@@ -374,6 +374,100 @@ di \`veggie'`;
             );
         });
 
+        it('should blame the callee that redefines the local after an include (Bug A regression)', async () => {
+            // Bug A: in child.do, the sequence is
+            //   local veggie carrot      (primary definition)
+            //   include "defs.do"        (defs sets veggie=beet)
+            //   local veggie spinach     (redefinition — additional_definitions entry)
+            // In execution order, child's line-2 redefinition wins.
+            // Correct attribution for the OUT_OF_SCOPE_SYMBOL rewrite: child.do.
+            const defs_path = join(test_temp_dir, 'bug_a_defs.do');
+            const defs_content = 'local veggie beet';
+            writeFileSync(defs_path, defs_content);
+
+            const child_path = join(test_temp_dir, 'bug_a_child.do');
+            const child_content = `local veggie carrot
+include "bug_a_defs.do"
+local veggie spinach`;
+            writeFileSync(child_path, child_content);
+
+            const main_path = join(test_temp_dir, 'bug_a_main.do');
+            const main_content = `do "bug_a_child.do"
+di \`veggie'`;
+            writeFileSync(main_path, main_content);
+
+            const main_uri = URI.file(main_path).toString();
+            await document_store.open(main_uri, main_content, 1);
+            const document_state = document_store.get(main_uri)!;
+
+            const diagnostics = await diagnostics_provider.get_diagnostics(
+                document_state,
+                config,
+                undefined,
+                scope_resolver
+            );
+
+            const informative = diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('veggie')
+            );
+            expect(informative).toBeDefined();
+            expect(informative!.message).toContain('bug_a_child.do');
+            expect(informative!.message).not.toContain('bug_a_defs.do');
+            expect(informative!.message).toContain(
+                'local macros are not inherited via do/run'
+            );
+        });
+
+        it('should emit OUT_OF_SCOPE_SYMBOL for do nested under include chain (Bug B regression)', async () => {
+            // Bug B: main includes child, which does grandchild. The
+            // direct-child site (include) has no excluded_locals, so the
+            // deeper `do`-boundary beneath it was losing its only carrier.
+            // Expected: OUT_OF_SCOPE_SYMBOL rewrite blaming grandchild.do
+            // ("locals are not inherited via do/run"). Not generic undefined.
+            const grandchild_path = join(test_temp_dir, 'bug_b_grandchild.do');
+            const grandchild_content = 'local veggie beet';
+            writeFileSync(grandchild_path, grandchild_content);
+
+            const child_path = join(test_temp_dir, 'bug_b_child.do');
+            const child_content = 'do "bug_b_grandchild.do"';
+            writeFileSync(child_path, child_content);
+
+            const main_path = join(test_temp_dir, 'bug_b_main.do');
+            const main_content = `include "bug_b_child.do"
+di \`veggie'`;
+            writeFileSync(main_path, main_content);
+
+            const main_uri = URI.file(main_path).toString();
+            await document_store.open(main_uri, main_content, 1);
+            const document_state = document_store.get(main_uri)!;
+
+            const diagnostics = await diagnostics_provider.get_diagnostics(
+                document_state,
+                config,
+                undefined,
+                scope_resolver
+            );
+
+            const line1_diags = diagnostics.filter(d => d.range.start.line === 1);
+            const informative = line1_diags.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('veggie')
+            );
+            expect(informative).toBeDefined();
+            expect(informative!.message).toContain('bug_b_grandchild.do');
+            expect(informative!.message).toContain(
+                'local macros are not inherited via do/run'
+            );
+
+            // The generic "Undefined local macro" should be suppressed in favor
+            // of the informative rewrite.
+            const plain_undefined = line1_diags.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(plain_undefined.length).toBe(0);
+        });
+
         it('should NOT suggest switching to include when callee local is program-scoped', async () => {
             // Program-scoped locals in the callee are not visible to the
             // caller even with `include`, so the "use include" message would

@@ -825,10 +825,15 @@ export interface ForwardCallSite {
   // across do/run). Reflects last-definition-wins in execution order:
   // own `local` statements interleaved with any nested `include`s, so
   // diagnostics blame the callee whose local actually shadows earlier
-  // ones. Only populated on direct-child sites (those created for calls
-  // made from the file being resolved). Nested-site entries flattened
-  // from a deeper resolve() strip this field to avoid double-counting.
-  // Absent / empty map when no locals were excluded.
+  // ones. Populated on direct-child sites (those created for calls made
+  // from the file being resolved) whose `effective_type` is 'do'.
+  // Nested-site entries flattened from a deeper resolve() are handed off
+  // with a filtered copy: names already claimed by the enclosing
+  // direct-child site's `excluded_locals` are dropped to avoid
+  // double-counting, but any remaining entries are preserved so that
+  // deeper `do`-boundaries under an `include`-called direct-child still
+  // carry their blame target. Absent / empty map when no locals remain
+  // after filtering.
   excluded_locals?: Map<string, MacroSymbol>;
 }
 
