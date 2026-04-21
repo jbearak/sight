@@ -331,9 +331,13 @@ export class DiagnosticsProvider {
                                 reference_scope
                             )) {
                             // Forward-call symbol precedence is last visible site wins.
-                            // Keep the latest excluded boundary so the diagnostic points
-                            // at the callee whose local currently shadows earlier ones.
-                            excluded_callee_uri = call_site.callee_uri;
+                            // Blame the callee whose local is the effective
+                            // end-of-execution winner for this site's chain
+                            // (see ForwardScopeResolver.compute_effective_end_state_locals).
+                            // Fall back to the direct-child's URI if the
+                            // symbol's sourceUri is missing.
+                            const effective = call_site.excluded_locals?.get(symbol_name);
+                            excluded_callee_uri = effective?.sourceUri ?? call_site.callee_uri;
                         }
                     }
                     if (found_in_forward_call) {
@@ -944,6 +948,17 @@ export class DiagnosticsProvider {
      * Check whether the current document defines the referenced symbol itself.
      * Used to preserve same-file forward-reference diagnostics when a matching
      * name also exists in an excluded forward-called file.
+     *
+     * NOTE: program-scoped locals in the current file are intentionally treated
+     * as "same-file" here. A narrower formulation that excluded them was tried
+     * and reverted on 2026-04-21 (commits b852e1c, 3ac1904, 12dc34c, 1e38388)
+     * because the callee-aware "use include" rewrite then fires at top-level
+     * references even when the only local with that name lives inside a
+     * different program body — which is actively misleading. The remaining
+     * design question of emitting a distinct, accurate message for
+     * scope-isolated same-file locals is tracked in
+     * https://github.com/jbearak/sight/issues/145. Do not re-narrow this
+     * guard without resolving that issue.
      */
     private is_symbol_defined_in_current_document(
         symbol_name: string,

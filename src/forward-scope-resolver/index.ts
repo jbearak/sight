@@ -277,17 +277,29 @@ export class ForwardScopeResolver {
             }
 
             // Record call site. For 'do'/'run' we preserve the callee's
-            // *top-level* local macros separately so diagnostics can explain
-            // why a local that "looks" inherited isn't actually visible.
-            // Program-scoped locals (`containingScope === 'program'`) aren't
-            // caller-visible even under `include`, so including them here
-            // would emit a misleading "use include" suggestion.
+            // *effective* top-level local macros at end-of-execution so
+            // diagnostics can explain why a local that "looks" inherited
+            // isn't actually visible. "Effective end state" means we walk
+            // the callee in execution order, layering in locals from any
+            // nested `include`s the callee makes, so that the callee whose
+            // local would actually shadow earlier ones (last-definition-
+            // wins) is blamed — not whichever happens to come last in the
+            // flattened forward_call_symbols array. Program-scoped locals
+            // (`containingScope === 'program'`) aren't caller-visible even
+            // under `include`, so they're excluded from the walk.
             let excluded_locals: Map<string, MacroSymbol> | undefined;
             if (my_effective_type === 'do') {
-                for (const [my_name, my_symbol] of callee_result.symbols.localMacros) {
-                    if (my_symbol.containingScope !== 'dofile') continue;
-                    if (!excluded_locals) excluded_locals = new Map();
-                    excluded_locals.set(my_name, my_symbol);
+                const effective_end_state = await this.compute_effective_end_state_locals(
+                    callee_uri,
+                    resolved_path,
+                    callee_result.working_directory ?? my_context.working_directory,
+                    new Set(my_stack),
+                    my_context.depth + 1,
+                    resolved_config,
+                    token,
+                );
+                if (effective_end_state.size > 0) {
+                    excluded_locals = effective_end_state;
                 }
             }
             the_call_sites.push({
@@ -326,11 +338,18 @@ export class ForwardScopeResolver {
                     return { symbols: accumulated_symbols, call_sites: the_call_sites, diagnostics: my_context.diagnostics };
                 }
 
-                // Add nested call sites with adjusted call lines
+                // Add nested call sites with adjusted call lines. Clear
+                // `excluded_locals` on nested sites: the direct-child site
+                // above already carries the chain's effective end state,
+                // and leaving per-file excluded_locals here would cause
+                // diagnostics to blame whichever deeper site happens to
+                // come last in array order rather than the callee whose
+                // local actually shadows earlier ones.
                 for (const nested_site of nested_result.call_sites) {
                     the_call_sites.push({
                         ...nested_site,
                         call_line: my_call.call_site_line, // Visibility starts at parent call
+                        excluded_locals: undefined,
                     });
                 }
 
@@ -460,6 +479,96 @@ export class ForwardScopeResolver {
         }
 
         return result;
+    }
+
+    /**
+     * Walk a callee's top-level local definitions and nested `include` calls
+     * in source order to compute the effective end-of-file local-macro state
+     * — i.e., which callee's local would actually shadow the earlier ones.
+     *
+     * - Own `local X` statements overwrite prior bindings.
+     * - An `include` event merges the nested callee's effective end state
+     *   (recursively computed) into the walk.
+     * - `do`/`run` events contribute nothing: those callees run in a fresh
+     *   scope whose locals don't propagate into the caller.
+     *
+     * Used to populate `ForwardCallSite.excluded_locals` for `do`-called
+     * sites so OUT_OF_SCOPE_SYMBOL diagnostics point at the callee whose
+     * local actually wins, not whichever site happens to be last in the
+     * flattened call_sites array.
+     */
+    private async compute_effective_end_state_locals(
+        callee_uri: string,
+        callee_fs_path: string,
+        working_directory: string | undefined,
+        stack: Set<string>,
+        depth: number,
+        resolved_config: ForwardScopeConfig,
+        token?: CancellationToken,
+    ): Promise<Map<string, MacroSymbol>> {
+        if (token?.isCancellationRequested) return new Map();
+        if (stack.has(callee_uri)) return new Map();
+        if (depth >= resolved_config.max_forward_depth) return new Map();
+
+        const callee_result = await this.get_callee_scope(
+            callee_fs_path,
+            callee_uri,
+            working_directory,
+        );
+        if ('error' in callee_result) return new Map();
+
+        stack.add(callee_uri);
+        try {
+            type WalkEvent =
+                | { line: number; kind: 'local'; name: string; symbol: MacroSymbol }
+                | { line: number; kind: 'call'; call: ForwardCall };
+
+            const the_events: WalkEvent[] = [];
+            for (const [my_name, my_symbol] of callee_result.symbols.localMacros) {
+                if (my_symbol.containingScope !== 'dofile') continue;
+                const my_line = my_symbol.definition_line
+                    ?? my_symbol.location.range.start.line;
+                the_events.push({ line: my_line, kind: 'local', name: my_name, symbol: my_symbol });
+            }
+            for (const my_call of callee_result.forward_calls) {
+                if (!my_call.is_static || !my_call.path) continue;
+                if (my_call.type !== 'include') continue;
+                the_events.push({ line: my_call.call_site_line, kind: 'call', call: my_call });
+            }
+            the_events.sort((a, b) => a.line - b.line);
+
+            const the_effective = new Map<string, MacroSymbol>();
+            const nested_working_dir = callee_result.working_directory ?? working_directory;
+            for (const my_event of the_events) {
+                if (token?.isCancellationRequested) break;
+                if (my_event.kind === 'local') {
+                    the_effective.set(my_event.name, my_event.symbol);
+                } else {
+                    const nested_resolved = this.resolve_call_path(
+                        my_event.call.raw_path,
+                        my_event.call.path,
+                        callee_uri,
+                        nested_working_dir,
+                    );
+                    const nested_uri = URI.file(nested_resolved).toString();
+                    const nested_effective = await this.compute_effective_end_state_locals(
+                        nested_uri,
+                        nested_resolved,
+                        nested_working_dir,
+                        stack,
+                        depth + 1,
+                        resolved_config,
+                        token,
+                    );
+                    for (const [my_name, my_symbol] of nested_effective) {
+                        the_effective.set(my_name, my_symbol);
+                    }
+                }
+            }
+            return the_effective;
+        } finally {
+            stack.delete(callee_uri);
+        }
     }
 
     /**

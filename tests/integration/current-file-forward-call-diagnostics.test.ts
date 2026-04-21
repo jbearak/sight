@@ -292,6 +292,88 @@ di \`veggie'`;
             );
         });
 
+        it('should blame the child when the child defines the local AFTER an include that also defines it', async () => {
+            // Execution-order precedence: in child.do, the `include` runs
+            // first (defs.do sets veggie=beet), then child.do's own
+            // `local veggie` overrides it. The effective local at end of
+            // child.do is child's own, so the message should name child.do.
+            const defs_path = join(test_temp_dir, 'defs_after.do');
+            const defs_content = 'local veggie beet';
+            writeFileSync(defs_path, defs_content);
+
+            const child_path = join(test_temp_dir, 'child_after.do');
+            const child_content = `include "defs_after.do"
+local veggie carrot`;
+            writeFileSync(child_path, child_content);
+
+            const main_path = join(test_temp_dir, 'main_child_wins.do');
+            const main_content = `do "child_after.do"
+di \`veggie'`;
+            writeFileSync(main_path, main_content);
+
+            const main_uri = URI.file(main_path).toString();
+            await document_store.open(main_uri, main_content, 1);
+            const document_state = document_store.get(main_uri)!;
+
+            const diagnostics = await diagnostics_provider.get_diagnostics(
+                document_state,
+                config,
+                undefined,
+                scope_resolver
+            );
+
+            const informative = diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('veggie')
+            );
+            expect(informative).toBeDefined();
+            expect(informative!.message).toContain('child_after.do');
+            expect(informative!.message).not.toContain('defs_after.do');
+            expect(informative!.message).toContain(
+                'local macros are not inherited via do/run'
+            );
+        });
+
+        it('should blame the last sibling do-called child that defines the local', async () => {
+            // Two sibling do-calls each defining the same local. The last
+            // one in execution order should be blamed.
+            const child_a_path = join(test_temp_dir, 'sibling_a.do');
+            const child_a_content = 'local veggie carrot';
+            writeFileSync(child_a_path, child_a_content);
+
+            const child_b_path = join(test_temp_dir, 'sibling_b.do');
+            const child_b_content = 'local veggie beet';
+            writeFileSync(child_b_path, child_b_content);
+
+            const main_path = join(test_temp_dir, 'main_siblings.do');
+            const main_content = `do "sibling_a.do"
+do "sibling_b.do"
+di \`veggie'`;
+            writeFileSync(main_path, main_content);
+
+            const main_uri = URI.file(main_path).toString();
+            await document_store.open(main_uri, main_content, 1);
+            const document_state = document_store.get(main_uri)!;
+
+            const diagnostics = await diagnostics_provider.get_diagnostics(
+                document_state,
+                config,
+                undefined,
+                scope_resolver
+            );
+
+            const informative = diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('veggie')
+            );
+            expect(informative).toBeDefined();
+            expect(informative!.message).toContain('sibling_b.do');
+            expect(informative!.message).not.toContain('sibling_a.do');
+            expect(informative!.message).toContain(
+                'local macros are not inherited via do/run'
+            );
+        });
+
         it('should NOT suggest switching to include when callee local is program-scoped', async () => {
             // Program-scoped locals in the callee are not visible to the
             // caller even with `include`, so the "use include" message would

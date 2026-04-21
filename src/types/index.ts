@@ -820,10 +820,15 @@ export interface ForwardCallSite {
   call_line: number;        // 0-indexed line in caller
   symbols: SymbolTable;
   effective_type: EffectiveCallType;
-  // Local macros defined in the callee that were dropped because
-  // `effective_type` is 'do' (locals don't propagate across do/run).
-  // Preserved so diagnostics can explain why an inherited-looking macro
-  // isn't visible. Absent / empty map when no locals were excluded.
+  // Effective end-of-execution top-level local macros of the callee that
+  // were dropped because `effective_type` is 'do' (locals don't propagate
+  // across do/run). Reflects last-definition-wins in execution order:
+  // own `local` statements interleaved with any nested `include`s, so
+  // diagnostics blame the callee whose local actually shadows earlier
+  // ones. Only populated on direct-child sites (those created for calls
+  // made from the file being resolved). Nested-site entries flattened
+  // from a deeper resolve() strip this field to avoid double-counting.
+  // Absent / empty map when no locals were excluded.
   excluded_locals?: Map<string, MacroSymbol>;
 }
 
