@@ -259,8 +259,12 @@ export class DiagnosticsProvider {
                         }
                     }
                     
-                    // Check if symbol is out-of-scope (defined after call site or excluded by inheritance)
-                    // Only match out-of-scope symbols of the same type as the reference
+                    // Check if symbol is out-of-scope (defined after call site or
+                    // excluded by inheritance). This path rewrites an existing
+                    // undefined-symbol diagnostic; it is not an independent
+                    // diagnostic source.
+                    // Only match out-of-scope symbols of the same type as the
+                    // reference.
                     const reference_scope = this.extract_macro_scope_from_diagnostic(my_diagnostic);
                     const out_of_scope = resolved_scope.out_of_scope_symbols.find(
                         s => s.name === symbol_name && this.out_of_scope_type_matches_reference(s.type, reference_scope)
@@ -335,8 +339,12 @@ export class DiagnosticsProvider {
                                     document.uri,
                                     reference_scope
                                 )) {
-                                // Preserve the analyzer's same-file forward-reference
-                                // diagnostic instead of replacing it with cross-file advice.
+                                // Preserve the analyzer's same-file
+                                // forward-reference diagnostic instead of
+                                // replacing it with cross-file advice. This
+                                // intentionally keeps same-file forward
+                                // references gated by the base undefined-symbol
+                                // severity settings.
                                 const converted = this.convert_semantic_diagnostic(
                                     my_diagnostic,
                                     config,
@@ -962,9 +970,10 @@ export class DiagnosticsProvider {
      * defined in a file reached via `do`/`run` (locals don't propagate across
      * those boundaries — only `include` inherits locals).
      *
-     * Returning true signals the caller to emit an informative
-     * OUT_OF_SCOPE_SYMBOL diagnostic instead of the generic "Undefined local
-     * macro" message.
+     * Returning true signals the caller to rewrite the existing undefined
+     * local-macro diagnostic into a more informative OUT_OF_SCOPE_SYMBOL
+     * diagnostic. This rewrite still depends on the base undefined-symbol
+     * diagnostic path being enabled.
      */
     private is_symbol_excluded_by_forward_call(
         symbol_name: string,

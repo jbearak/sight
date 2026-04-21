@@ -30,6 +30,11 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | `sight.diagnostics.severity.cStyleLogicalInControlFlow` | enum | `"information"` | Severity for C-style logical operators (`&&`, `\|\|`) in if/else if control flow statements. These work but are stylistically discouraged. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.indentation`                | boolean | `false`         | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
 
+Cross-file "out of scope" diagnostics are not emitted independently. They are
+more specific rewrites of undefined macro/variable diagnostics after cross-file
+scope resolution. If the underlying undefined diagnostic is disabled, the
+corresponding out-of-scope diagnostic is also suppressed.
+
 <a name="why-indentation-diagnostics-disabled"></a>
 > **Why Indentation Diagnostics Are Disabled by Default**
 >
@@ -199,7 +204,7 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 | `crossFile.maxChainDepth`               | number               | `20`            | Maximum combined depth for forward + backward resolution                |
 | `crossFile.maxCalleeRevalidations`      | number               | `10`            | Maximum number of open callee documents to revalidate per caller change |
 | `crossFile.assumeCallSite`              | `"end"` \| `"start"` | `"end"`         | Where to assume call site when not specified and inference fails        |
-| `crossFile.diagnostics.outOfScope`      | severity             | `"information"` | Severity for out-of-scope symbol diagnostics                            |
+| `crossFile.diagnostics.outOfScope`      | severity             | `"information"` | Severity used when rewriting undefined-symbol diagnostics as out-of-scope cross-file diagnostics; if the base undefined-macro/variable diagnostic is off, nothing is emitted |
 | `crossFile.diagnostics.missingFile`     | severity             | `"warning"`     | Severity for missing directive file diagnostics                         |
 | `crossFile.diagnostics.callSiteIdentification` | severity      | `"information"` | Severity for call site identification diagnostics                       |
 

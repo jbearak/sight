@@ -592,7 +592,7 @@ Cross-file resolution is configured via `.sight.json` in your workspace root.
 | `crossFile.maxChainDepth`                     | number   | `20`            | Maximum combined depth for forward + backward resolution |
 | `crossFile.maxCalleeRevalidations`            | number   | `10`            | Maximum open callee documents to revalidate per change |
 | `crossFile.assumeCallSite`                    | string   | `"end"`         | Where to assume call site when inference fails (`"end"` or `"start"`) |
-| `crossFile.diagnostics.outOfScope`            | severity | `"information"` | Severity for out-of-scope symbol diagnostics           |
+| `crossFile.diagnostics.outOfScope`            | severity | `"information"` | Severity used when rewriting undefined-symbol diagnostics as out-of-scope cross-file diagnostics; if the base undefined-macro/variable diagnostic is off, nothing is emitted |
 | `crossFile.diagnostics.missingFile`           | severity | `"warning"`     | Severity for missing directive file diagnostics        |
 | `crossFile.diagnostics.callSiteIdentification`| severity | `"information"` | Severity for call site identification diagnostics      |
 
