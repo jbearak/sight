@@ -38,6 +38,7 @@ import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from
 import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_uri } from '../utils/workspace-roots';
+import { build_do_include_pattern } from '../utils/stata-call-patterns';
 
 export {
     get_visible_symbols_at,
@@ -55,10 +56,11 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
 };
 
 // Pattern to match do/include/run commands with optional prefix commands.
-// Keywords must be lowercase (Stata is case-sensitive).
-// Hoisted to module scope so the RegExp is compiled once; neither pattern uses
-// the `g` flag, so there is no `lastIndex` state to reset between calls.
-const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?)\s+)*\s*(do|include|run)\s+/;
+// Prefix alternatives live in utils/stata-call-patterns so this pattern and the
+// path-capturing variant in directive-parser stay in lockstep. Built once at
+// module load; neither pattern uses the `g` flag, so there is no `lastIndex`
+// state to reset between calls.
+const DO_INCLUDE_PATTERN = build_do_include_pattern('');
 
 // Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comment lines.
 const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+/;

@@ -23,6 +23,7 @@ import {
     compute_line_offsets,
     DocumentLike,
 } from '../utils/line-utils';
+import { build_do_include_pattern } from '../utils/stata-call-patterns';
 
 // Accept both spec form with colon (@lsp-done-by:) and legacy form without colon.
 // Accept both quoted and unquoted paths.
@@ -43,9 +44,9 @@ const PARAM_MATCH = /match="([^"]+)"/;
 const DECLARATION_DIRECTIVE_PATTERN = /@lsp-(local|global|scalar|matrix|program)(?:\s+(.*))?$/;
 
 // Shared pattern to match do/include/run statements with optional prefix commands.
-// Keywords must be lowercase (Stata is case-sensitive).
-// Common prefixes: quietly/qui, capture/cap, noisily/noi, version.
-const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?)\s+)*\s*(do|include|run)\s+(?:"([^"]+)"|([^\s,]+))/;
+// Prefix alternatives live in utils/stata-call-patterns so this pattern and the
+// prefix-only variant in scope-resolver stay in lockstep.
+const DO_INCLUDE_PATTERN = build_do_include_pattern('(?:"([^"]+)"|([^\\s,]+))');
 
 // Shared pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments.
 const CALL_DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/;
