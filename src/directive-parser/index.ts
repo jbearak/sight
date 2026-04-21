@@ -42,6 +42,18 @@ const PARAM_MATCH = /match="([^"]+)"/;
 // Captures: [1] = directive type, [2] = rest of line after directive keyword
 const DECLARATION_DIRECTIVE_PATTERN = /@lsp-(local|global|scalar|matrix|program)(?:\s+(.*))?$/;
 
+// Shared pattern to match do/include/run statements with optional prefix commands.
+// Keywords must be lowercase (Stata is case-sensitive).
+// Common prefixes: quietly/qui, capture/cap, noisily/noi, version, timer.
+//
+// The `timer` branch is written so each whitespace run is consumed by a single
+// `\s+`; the outer `\s+` that follows this group always supplies the separator
+// before the next token. This avoids nested-quantifier ReDoS (CodeQL js/redos).
+const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer(?:\s+(?:on|off|clear|list))?(?:\s+\d+)?)\s+)*\s*(do|include|run)\s+(?:"([^"]+)"|([^\s,]+))/;
+
+// Shared pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments.
+const CALL_DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/;
+
 function looks_like_unquoted_path_token(token: string): boolean {
     // Heuristic for valid unquoted paths:
     // - Reject things that look like parameters (line=..., match="...")
@@ -553,14 +565,6 @@ export class DirectiveParser {
         const doc: DocumentLike = { content: parent_content, line_offsets: compute_line_offsets(parent_content) };
         const line_count = get_line_count(doc);
 
-        // Pattern to match do/include/run statements with optional prefix commands
-        // Keywords must be lowercase (Stata is case-sensitive)
-        // Common prefixes: quietly/qui, capture/cap, noisily/noi, version, timer
-        const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer\s+(?:on|off|clear|list)?\s*\d*)\s+)*\s*(do|include|run)\s+(?:"([^"]+)"|([^\s,]+))/;
-
-        // Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments
-        const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/;
-
         // Normalize child filename for comparison (remove .do suffix if present)
         // File extension check is case-insensitive
         const child_basename = path.basename(child_filename);
@@ -598,7 +602,7 @@ export class DirectiveParser {
 
             // Also check for @lsp-do, @lsp-run, @lsp-include directives in comment lines
             if (my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) {
-                const directive_match = my_trimmed.match(DIRECTIVE_PATTERN);
+                const directive_match = my_trimmed.match(CALL_DIRECTIVE_PATTERN);
                 if (directive_match) {
                     const my_quoted_path = directive_match[2];
                     const my_unquoted_path = directive_match[3];
@@ -635,14 +639,6 @@ export class DirectiveParser {
     ): { line: number; call_type: 'do' | 'run' | 'include' } | undefined {
         const doc: DocumentLike = { content: parent_content, line_offsets: compute_line_offsets(parent_content) };
         const line_count = get_line_count(doc);
-
-        // Pattern to match do/include/run statements with optional prefix commands
-        // Keywords must be lowercase (Stata is case-sensitive)
-        // Common prefixes: quietly/qui, capture/cap, noisily/noi, version, timer
-        const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer\s+(?:on|off|clear|list)?\s*\d*)\s+)*\s*(do|include|run)\s+(?:"([^"]+)"|([^\s,]+))/;
-
-        // Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments
-        const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/;
 
         // Normalize child filename for comparison (remove .do suffix if present)
         // File extension check is case-insensitive
@@ -682,7 +678,7 @@ export class DirectiveParser {
 
             // Also check for @lsp-do, @lsp-run, @lsp-include directives in comment lines
             if (my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) {
-                const directive_match = my_trimmed.match(DIRECTIVE_PATTERN);
+                const directive_match = my_trimmed.match(CALL_DIRECTIVE_PATTERN);
                 if (directive_match) {
                     const my_call_type = directive_match[1] as 'do' | 'run' | 'include';
                     const my_quoted_path = directive_match[2];
@@ -736,14 +732,6 @@ export class DirectiveParser {
         const line_count = get_line_count(doc);
         const the_call_sites: Array<{ line: number; call_type: 'do' | 'run' | 'include' }> = [];
 
-        // Pattern to match do/include/run statements with optional prefix commands
-        // Keywords must be lowercase (Stata is case-sensitive)
-        // Common prefixes: quietly/qui, capture/cap, noisily/noi, version, timer
-        const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer\s+(?:on|off|clear|list)?\s*\d*)\s+)*\s*(do|include|run)\s+(?:"([^"]+)"|([^\s,]+))/;
-
-        // Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments
-        const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/;
-
         // Normalize child filename for comparison (remove .do suffix if present)
         // File extension check is case-insensitive
         const child_basename = path.basename(child_filename);
@@ -782,7 +770,7 @@ export class DirectiveParser {
 
             // Also check for @lsp-do, @lsp-run, @lsp-include directives in comment lines
             if (my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) {
-                const directive_match = my_trimmed.match(DIRECTIVE_PATTERN);
+                const directive_match = my_trimmed.match(CALL_DIRECTIVE_PATTERN);
                 if (directive_match) {
                     const my_call_type = directive_match[1] as 'do' | 'run' | 'include';
                     const my_quoted_path = directive_match[2];

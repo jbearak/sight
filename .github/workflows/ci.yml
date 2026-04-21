@@ -10,6 +10,16 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Restrict the default GITHUB_TOKEN to the minimum scopes every job needs:
+#   - contents: read -> actions/checkout + build/test steps
+#   - pull-requests: read -> dorny/paths-filter in the `changes` job
+# No job in this workflow pushes commits, uploads artifacts, comments on PRs,
+# or publishes packages; those responsibilities live in the release/update
+# workflows, which declare their own permissions.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   changes:
     name: Detect changed paths

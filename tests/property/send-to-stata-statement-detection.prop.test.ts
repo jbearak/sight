@@ -443,8 +443,12 @@ describe('Feature: send-to-stata - Working Directory Handling', () => {
             directory = workspace_root ?? path.dirname(file_path);
         }
         
-        // Escape quotes in path for Stata
-        const escaped_dir = directory.replace(/"/g, '\\"');
+        // Escape backslashes first, then quotes, so paths with literal `\` or `"`
+        // are not mis-parsed by Stata (and to keep CodeQL's incomplete-sanitization
+        // check happy for this test-local reimplementation).
+        const escaped_dir = directory
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"');
         return `cd "${escaped_dir}"\n${content}`;
     }
 

@@ -15,7 +15,13 @@ function make_document_and_position(content_with_cursor_marker: string): { docum
     const marker_index = content_with_cursor_marker.indexOf('|');
     expect(marker_index).toBeGreaterThanOrEqual(0);
 
-    const content = content_with_cursor_marker.replace('|', '');
+    // Remove only the marker at the found index (any later '|' characters are
+    // real content and must be preserved). Using slice avoids the ambiguity of
+    // String.prototype.replace with a string argument and silences CodeQL's
+    // js/incomplete-sanitization check.
+    const content =
+        content_with_cursor_marker.slice(0, marker_index) +
+        content_with_cursor_marker.slice(marker_index + 1);
 
     const before_marker = content_with_cursor_marker.substring(0, marker_index);
     const line = before_marker.split('\n').length - 1;

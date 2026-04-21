@@ -37,7 +37,12 @@ function transform_content_with_cd(
         directory = workspace_directory ?? file_directory;
     }
     
-    const escaped_dir = directory.replace(/"/g, '\\"');
+    // Escape backslashes first, then quotes, so paths with literal `\` or `"`
+    // are not mis-parsed (and to satisfy CodeQL's incomplete-sanitization check
+    // on this test-local reimplementation of the content transform).
+    const escaped_dir = directory
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"');
     return `cd "${escaped_dir}"\n${content}`;
 }
 
