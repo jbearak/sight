@@ -207,6 +207,46 @@ di \`veggie'`;
             expect(plain_undefined.length).toBe(0);
         });
 
+        it('should NOT suggest switching to include when callee local is program-scoped', async () => {
+            // Program-scoped locals in the callee are not visible to the
+            // caller even with `include`, so the "use include" message would
+            // mislead. The generic "Undefined local macro" is correct here.
+            const child_path = join(test_temp_dir, 'helper_prog_local.do');
+            const child_content = `program define myprog
+    local veggie potato
+    di "\`veggie'"
+end`;
+            writeFileSync(child_path, child_content);
+
+            const parent_path = join(test_temp_dir, 'main_prog_local.do');
+            const parent_content = `do helper_prog_local.do
+di \`veggie'`;
+            writeFileSync(parent_path, parent_content);
+
+            const parent_uri = URI.file(parent_path).toString();
+            await document_store.open(parent_uri, parent_content, 1);
+            const document_state = document_store.get(parent_uri)!;
+
+            const diagnostics = await diagnostics_provider.get_diagnostics(
+                document_state,
+                config,
+                undefined,
+                scope_resolver
+            );
+
+            const line1_diags = diagnostics.filter(d => d.range.start.line === 1);
+            const misleading = line1_diags.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+            );
+            expect(misleading).toBeUndefined();
+
+            // The generic undefined-local-macro warning is still the correct
+            // diagnostic and should remain present.
+            expect(line1_diags.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            )).toBe(true);
+        });
+
         it('should NOT warn about undefined global macro AFTER @lsp-do', async () => {
             const helper_path = join(test_temp_dir, 'helper_do_global.do');
             const helper_content = 'global DO_GLOBAL "value"';

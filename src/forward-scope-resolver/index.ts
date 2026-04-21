@@ -275,13 +275,20 @@ export class ForwardScopeResolver {
                 );
             }
 
-            // Record call site. For 'do'/'run' we preserve the callee's local
-            // macros separately so diagnostics can explain why a local that
-            // "looks" inherited isn't actually visible.
-            const excluded_locals = my_effective_type === 'do' &&
-                callee_result.symbols.localMacros.size > 0
-                ? new Map(callee_result.symbols.localMacros)
-                : undefined;
+            // Record call site. For 'do'/'run' we preserve the callee's
+            // *top-level* local macros separately so diagnostics can explain
+            // why a local that "looks" inherited isn't actually visible.
+            // Program-scoped locals (`containingScope === 'program'`) aren't
+            // caller-visible even under `include`, so including them here
+            // would emit a misleading "use include" suggestion.
+            let excluded_locals: Map<string, import('../types').MacroSymbol> | undefined;
+            if (my_effective_type === 'do') {
+                for (const [my_name, my_symbol] of callee_result.symbols.localMacros) {
+                    if (my_symbol.containingScope !== 'dofile') continue;
+                    if (!excluded_locals) excluded_locals = new Map();
+                    excluded_locals.set(my_name, my_symbol);
+                }
+            }
             the_call_sites.push({
                 callee_uri,
                 call_line: my_call.call_site_line,
