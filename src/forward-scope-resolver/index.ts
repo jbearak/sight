@@ -18,6 +18,7 @@ import {
     ForwardResolvedScope,
     DuplicateCallDecision,
     DirectiveDiagnostic,
+    MacroSymbol,
 } from '../types';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { ScopeResolver } from '../scope-resolver';
@@ -281,7 +282,7 @@ export class ForwardScopeResolver {
             // Program-scoped locals (`containingScope === 'program'`) aren't
             // caller-visible even under `include`, so including them here
             // would emit a misleading "use include" suggestion.
-            let excluded_locals: Map<string, import('../types').MacroSymbol> | undefined;
+            let excluded_locals: Map<string, MacroSymbol> | undefined;
             if (my_effective_type === 'do') {
                 for (const [my_name, my_symbol] of callee_result.symbols.localMacros) {
                     if (my_symbol.containingScope !== 'dofile') continue;

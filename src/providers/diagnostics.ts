@@ -324,6 +324,9 @@ export class DiagnosticsProvider {
                         continue;
                     }
                     if (excluded_callee_uri) {
+                        if (config.diagnostics.severity.undefinedMacro === 'off') {
+                            continue;
+                        }
                         const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
                         if (out_of_scope_severity === 'off') {
                             continue;
