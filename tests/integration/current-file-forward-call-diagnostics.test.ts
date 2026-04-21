@@ -149,9 +149,62 @@ display \`do_local'`;
                 scope_resolver
             );
 
-            // Should have undefined macro warning on line 1 (do doesn't inherit locals)
+            // Should have an undefined-macro-shaped warning on line 1. The
+            // diagnostics provider now upgrades this to the informative
+            // OUT_OF_SCOPE_SYMBOL variant that names the callee, but either
+            // code is a legitimate "not inherited via do" report.
             const line1_diags = diagnostics.filter(d => d.range.start.line === 1);
-            expect(line1_diags.some(d => d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toBe(true);
+            expect(line1_diags.some(d =>
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO ||
+                (d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
+                    d.message.includes('local macros are not inherited via do/run'))
+            )).toBe(true);
+        });
+
+        it('should emit informative diagnostic when local macro is defined in a do-called file', async () => {
+            // Mirror of the child.do "local macros are not inherited via do/run" message,
+            // but emitted in the parent file where the forward do call happens.
+            const child_path = join(test_temp_dir, 'demo_child.do');
+            const child_content = `di "hello"
+local veggie potato`;
+            writeFileSync(child_path, child_content);
+
+            const parent_path = join(test_temp_dir, 'demo_parent.do');
+            const parent_content = `local fruit apple
+do demo_child.do
+di \`veggie'`;
+            writeFileSync(parent_path, parent_content);
+
+            const parent_uri = URI.file(parent_path).toString();
+            await document_store.open(parent_uri, parent_content, 1);
+            const document_state = document_store.get(parent_uri)!;
+
+            const diagnostics = await diagnostics_provider.get_diagnostics(
+                document_state,
+                config,
+                undefined,
+                scope_resolver
+            );
+
+            // Line 2: `di \`veggie'` — veggie is defined in demo_child.do but
+            // not inherited via do.
+            const line2_diags = diagnostics.filter(d => d.range.start.line === 2);
+            const informative = line2_diags.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+            );
+            expect(informative).toBeDefined();
+            expect(informative!.message).toContain('veggie');
+            expect(informative!.message).toContain('demo_child.do');
+            expect(informative!.message).toContain(
+                'local macros are not inherited via do/run'
+            );
+
+            // The plain "Undefined local macro" diagnostic should be replaced,
+            // not duplicated alongside the informative one.
+            const plain_undefined = line2_diags.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(plain_undefined.length).toBe(0);
         });
 
         it('should NOT warn about undefined global macro AFTER @lsp-do', async () => {

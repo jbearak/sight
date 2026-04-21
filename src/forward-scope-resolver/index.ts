@@ -275,12 +275,19 @@ export class ForwardScopeResolver {
                 );
             }
 
-            // Record call site
+            // Record call site. For 'do'/'run' we preserve the callee's local
+            // macros separately so diagnostics can explain why a local that
+            // "looks" inherited isn't actually visible.
+            const excluded_locals = my_effective_type === 'do' &&
+                callee_result.symbols.localMacros.size > 0
+                ? new Map(callee_result.symbols.localMacros)
+                : undefined;
             the_call_sites.push({
                 callee_uri,
                 call_line: my_call.call_site_line,
                 symbols: inherited_symbols,
                 effective_type: my_effective_type,
+                excluded_locals,
             });
 
             // Accumulate symbols

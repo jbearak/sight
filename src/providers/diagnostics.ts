@@ -302,14 +302,40 @@ export class DiagnosticsProvider {
                 if (symbol_name) {
                     const diag_line = my_diagnostic.range.start.line;
                     let found_in_forward_call = false;
+                    let excluded_callee_uri: string | undefined;
+                    const reference_scope = this.extract_macro_scope_from_diagnostic(my_diagnostic);
                     for (const call_site of get_visible_forward_call_sites(resolved_scope, diag_line)) {
                         if (this.is_symbol_in_forward_call(
                                 symbol_name, call_site.symbols, my_diagnostic.code, call_site.effective_type)) {
                             found_in_forward_call = true;
                             break;
                         }
+                        if (excluded_callee_uri === undefined &&
+                            this.is_symbol_excluded_by_forward_call(
+                                symbol_name,
+                                call_site,
+                                my_diagnostic.code,
+                                reference_scope
+                            )) {
+                            excluded_callee_uri = call_site.callee_uri;
+                        }
                     }
                     if (found_in_forward_call) {
+                        continue;
+                    }
+                    if (excluded_callee_uri) {
+                        const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
+                        if (out_of_scope_severity === 'off') {
+                            continue;
+                        }
+                        const source_file = excluded_callee_uri.split('/').pop() || excluded_callee_uri;
+                        the_diagnostics.push({
+                            range: my_diagnostic.range,
+                            message: `'${symbol_name}' is defined in ${source_file} but local macros are not inherited via do/run (use include or @lsp-include)`,
+                            severity: this.cross_file_severity_to_lsp(out_of_scope_severity),
+                            source: 'sight',
+                            code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
+                        });
                         continue;
                     }
                 }
@@ -868,10 +894,39 @@ export class DiagnosticsProvider {
     }
 
     /**
+     * Check if an undefined-symbol reference would have been resolved by a
+     * forward-called file, except that the call's effective type excludes this
+     * kind of symbol. Currently only one such case exists: a local macro
+     * defined in a file reached via `do`/`run` (locals don't propagate across
+     * those boundaries — only `include` inherits locals).
+     *
+     * Returning true signals the caller to emit an informative
+     * OUT_OF_SCOPE_SYMBOL diagnostic instead of the generic "Undefined local
+     * macro" message.
+     */
+    private is_symbol_excluded_by_forward_call(
+        symbol_name: string,
+        call_site: import('../types').ForwardCallSite,
+        diagnostic_code: number,
+        reference_scope: 'local' | 'global' | null | undefined,
+    ): boolean {
+        if (diagnostic_code !== StataDiagnosticCode.UNDEFINED_MACRO) {
+            return false;
+        }
+        if (reference_scope === 'global') {
+            return false;
+        }
+        if (call_site.effective_type !== 'do') {
+            return false;
+        }
+        return call_site.excluded_locals?.has(symbol_name) ?? false;
+    }
+
+    /**
      * Check if a symbol is defined in forward call symbols (from current file's forward calls).
      * Unlike is_symbol_defined_in_scope, this does NOT filter by sourceUri because
      * forward calls from the current file should suppress warnings after the call site.
-     * 
+     *
      * For local macros, only 'include' calls contribute locals; 'do'/'run' calls do not.
      */
     private is_symbol_in_forward_call(
