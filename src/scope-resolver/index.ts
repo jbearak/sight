@@ -61,7 +61,7 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
 // the next token. This avoids nested-quantifier ReDoS (CodeQL js/redos).
 // Hoisted to module scope so the RegExp is compiled once; neither pattern uses
 // the `g` flag, so there is no `lastIndex` state to reset between calls.
-const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer(?:\s+(?:on|off|clear|list))?(?:\s+\d+)?)\s+)*\s*(do|include|run)\s+/;
+const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer\s+(?:(?:on|off|clear|list)(?:\s+\d+)?|\d+))\s+)*\s*(do|include|run)\s+/;
 
 // Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comment lines.
 const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+/;

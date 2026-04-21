@@ -49,7 +49,7 @@ const DECLARATION_DIRECTIVE_PATTERN = /@lsp-(local|global|scalar|matrix|program)
 // The `timer` branch is written so each whitespace run is consumed by a single
 // `\s+`; the outer `\s+` that follows this group always supplies the separator
 // before the next token. This avoids nested-quantifier ReDoS (CodeQL js/redos).
-const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer(?:\s+(?:on|off|clear|list))?(?:\s+\d+)?)\s+)*\s*(do|include|run)\s+(?:"([^"]+)"|([^\s,]+))/;
+const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer\s+(?:(?:on|off|clear|list)(?:\s+\d+)?|\d+))\s+)*\s*(do|include|run)\s+(?:"([^"]+)"|([^\s,]+))/;
 
 // Shared pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments.
 const CALL_DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/;
