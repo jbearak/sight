@@ -54,6 +54,18 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
     max_chain_depth: 20,
 };
 
+// Pattern to match do/include/run commands with optional prefix commands.
+// Keywords must be lowercase (Stata is case-sensitive).
+// The `timer` branch is written so each whitespace run is consumed by a single
+// `\s+`; the outer `\s+` that follows this group supplies the separator before
+// the next token. This avoids nested-quantifier ReDoS (CodeQL js/redos).
+// Hoisted to module scope so the RegExp is compiled once; neither pattern uses
+// the `g` flag, so there is no `lastIndex` state to reset between calls.
+const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer(?:\s+(?:on|off|clear|list))?(?:\s+\d+)?)\s+)*\s*(do|include|run)\s+/;
+
+// Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comment lines.
+const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+/;
+
 /**
  * Build a Partial<ScopeResolverConfig> with undefined values filtered out.
  * This prevents undefined values from overriding defaults when spread-merged
@@ -404,17 +416,7 @@ export class ScopeResolver {
     private validate_call_statement(line_content: string): 'do' | 'run' | 'include' | undefined {
         const my_trimmed = line_content.trim();
 
-        // Pattern to match do/include/run commands with optional prefix commands.
-        // Keywords must be lowercase (Stata is case-sensitive).
-        // The `timer` branch is written so each whitespace run is consumed by a single
-        // `\s+`; the outer `\s+` that follows this group supplies the separator before
-        // the next token. This avoids nested-quantifier ReDoS (CodeQL js/redos).
-        const DO_INCLUDE_PATTERN = /^\s*(?:(?:qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?|timer(?:\s+(?:on|off|clear|list))?(?:\s+\d+)?)\s+)*\s*(do|include|run)\s+/;
-
-        // Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments
-        const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+/;
-
-        // Check for command pattern
+        // Check for command pattern (uses module-level DO_INCLUDE_PATTERN)
         const command_match = my_trimmed.match(DO_INCLUDE_PATTERN);
         if (command_match) {
             return command_match[1] as 'do' | 'run' | 'include';
