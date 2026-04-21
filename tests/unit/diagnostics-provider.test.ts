@@ -927,7 +927,7 @@ display \`result'
                     excluded_locals: new Map([
                         ['veggie', {
                             name: 'veggie',
-                            type: 'local',
+                            scope: 'local',
                             location: {
                                 uri: 'file:///child.do',
                                 range: {
@@ -1206,7 +1206,7 @@ display \`result'
             expect(out_of_scope_diag?.message).toContain('after the call site');
         });
 
-        it('should emit forward-call out-of-scope diagnostics when undefinedMacro is off', async () => {
+        it('should suppress forward-call out-of-scope diagnostic when undefinedMacro is off', async () => {
             const content = [
                 'do "child.do"',
                 "display `veggie'",
@@ -1228,7 +1228,7 @@ display \`result'
                     excluded_locals: new Map([
                         ['veggie', {
                             name: 'veggie',
-                            type: 'local',
+                            scope: 'local',
                             location: {
                                 uri: 'file:///child.do',
                                 range: {
@@ -1270,12 +1270,67 @@ display \`result'
                 d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
                     && d.message.includes('veggie')
             );
-            expect(out_of_scope_diag).toBeDefined();
-            expect(out_of_scope_diag?.message).toContain('local macros are not inherited via do/run');
+            expect(out_of_scope_diag).toBeUndefined();
 
             const undefined_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
                     && d.message.includes('`veggie\'')
+            );
+            expect(undefined_diag).toBeUndefined();
+        });
+
+        it('should suppress backward-path out-of-scope diagnostic when undefinedMacro is off', async () => {
+            const content = `display \`country_name'`;
+            const document = create_real_document_state(content);
+
+            const resolved_scope = {
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [{
+                    name: 'country_name',
+                    type: 'local' as const,
+                    source_uri: 'file:///parent.do',
+                    defined_line: 10,
+                    call_site_line: -1,
+                    reason: 'inheritance_excludes_locals' as const,
+                }],
+                diagnostics: [],
+                has_directives: true,
+                has_auto_parents: false,
+            };
+
+            const mock_scope_resolver = {
+                resolve: async () => resolved_scope,
+            };
+            const config = {
+                ...DEFAULT_CONFIG,
+                diagnostics: {
+                    ...DEFAULT_CONFIG.diagnostics,
+                    severity: {
+                        ...DEFAULT_CONFIG.diagnostics.severity,
+                        undefinedMacro: 'off' as const,
+                    },
+                },
+                cross_file: {
+                    diagnostics: {
+                        out_of_scope: 'warning' as const,
+                    },
+                },
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                config,
+                undefined,
+                mock_scope_resolver as any
+            );
+
+            const out_of_scope_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+            );
+            expect(out_of_scope_diag).toBeUndefined();
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
             expect(undefined_diag).toBeUndefined();
         });

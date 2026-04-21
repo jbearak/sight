@@ -270,6 +270,16 @@ export class DiagnosticsProvider {
                         s => s.name === symbol_name && this.out_of_scope_type_matches_reference(s.type, reference_scope)
                     );
                     if (out_of_scope) {
+                        // Suppress the rewrite when the base undefined-symbol
+                        // diagnostic is disabled. OUT_OF_SCOPE_SYMBOL is a
+                        // rewrite, not an independent source, so turning off
+                        // the base should also silence the rewrite.
+                        const base_severity = my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                            ? config.diagnostics.severity.undefinedMacro
+                            : config.diagnostics.severity.undefinedVariable;
+                        if (base_severity === 'off') {
+                            continue;
+                        }
                         // Check config severity for out-of-scope
                         const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
                         if (out_of_scope_severity === 'off') {
@@ -330,6 +340,15 @@ export class DiagnosticsProvider {
                         continue;
                     }
                     if (excluded_callee_uri) {
+                        // Suppress the rewrite when the base undefined-symbol
+                        // diagnostic is disabled. See comment in the backward
+                        // path above.
+                        const base_severity = my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                            ? config.diagnostics.severity.undefinedMacro
+                            : config.diagnostics.severity.undefinedVariable;
+                        if (base_severity === 'off') {
+                            continue;
+                        }
                         const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
                         if (out_of_scope_severity !== 'off') {
                             if (this.is_symbol_defined_in_current_document(

@@ -149,16 +149,25 @@ display \`do_local'`;
                 scope_resolver
             );
 
-            // Should have an undefined-macro-shaped warning on line 1. The
-            // diagnostics provider now upgrades this to the informative
-            // OUT_OF_SCOPE_SYMBOL variant that names the callee, but either
-            // code is a legitimate "not inherited via do" report.
+            // Should have the callee-aware OUT_OF_SCOPE_SYMBOL rewrite on
+            // line 1 — the analyzer's generic "Undefined local macro" should
+            // be replaced with a message that names the callee file and
+            // explains that locals don't cross do/run boundaries.
             const line1_diags = diagnostics.filter(d => d.range.start.line === 1);
-            expect(line1_diags.some(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO ||
-                (d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
-                    d.message.includes('local macros are not inherited via do/run'))
-            )).toBe(true);
+            const informative = line1_diags.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+            );
+            expect(informative).toBeDefined();
+            expect(informative!.message).toContain('do_local');
+            expect(informative!.message).toContain('helper_do_local.do');
+            expect(informative!.message).toContain(
+                'local macros are not inherited via do/run'
+            );
+
+            const plain_undefined = line1_diags.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(plain_undefined.length).toBe(0);
         });
 
         it('should emit informative diagnostic when local macro is defined in a do-called file', async () => {
