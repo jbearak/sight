@@ -904,6 +904,65 @@ display \`result'
     });
 
     describe('out-of-scope diagnostic messages', () => {
+        it('should preserve same-file forward references when a prior do call excludes matching locals', async () => {
+            const content = [
+                'do "child.do"',
+                "display `veggie'",
+                'local veggie carrot',
+            ].join('\n');
+            const document = create_real_document_state(content);
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///child.do',
+                    call_line: 0,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'do',
+                    excluded_locals: new Map([
+                        ['veggie', {
+                            name: 'veggie',
+                            type: 'local',
+                            location: {
+                                uri: 'file:///child.do',
+                                range: {
+                                    start: { line: 0, character: 0 },
+                                    end: { line: 0, character: 12 },
+                                },
+                            },
+                            sourceUri: 'file:///child.do',
+                            definition_line: 0,
+                        }],
+                    ]),
+                }],
+            };
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                stub_resolver
+            );
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes('`veggie\'')
+            );
+            expect(undefined_diag).toBeDefined();
+
+            const out_of_scope_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('veggie')
+            );
+            expect(out_of_scope_diag).toBeUndefined();
+        });
+
         it('should show inheritance message for locals excluded by done-by', async () => {
             // When a local macro is defined in parent but excluded due to done-by inheritance,
             // the message should explain that locals aren't inherited via do/run
@@ -1145,6 +1204,80 @@ display \`result'
             );
             expect(out_of_scope_diag).toBeDefined();
             expect(out_of_scope_diag?.message).toContain('after the call site');
+        });
+
+        it('should emit forward-call out-of-scope diagnostics when undefinedMacro is off', async () => {
+            const content = [
+                'do "child.do"',
+                "display `veggie'",
+            ].join('\n');
+            const document = create_real_document_state(content);
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///child.do',
+                    call_line: 0,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'do',
+                    excluded_locals: new Map([
+                        ['veggie', {
+                            name: 'veggie',
+                            type: 'local',
+                            location: {
+                                uri: 'file:///child.do',
+                                range: {
+                                    start: { line: 0, character: 0 },
+                                    end: { line: 0, character: 12 },
+                                },
+                            },
+                            sourceUri: 'file:///child.do',
+                            definition_line: 0,
+                        }],
+                    ]),
+                }],
+            };
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+            const config = {
+                ...DEFAULT_CONFIG,
+                diagnostics: {
+                    ...DEFAULT_CONFIG.diagnostics,
+                    severity: {
+                        ...DEFAULT_CONFIG.diagnostics.severity,
+                        undefinedMacro: 'off' as const,
+                    },
+                },
+                cross_file: {
+                    diagnostics: {
+                        out_of_scope: 'warning' as const,
+                    },
+                },
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                config,
+                undefined,
+                stub_resolver
+            );
+
+            const out_of_scope_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('veggie')
+            );
+            expect(out_of_scope_diag).toBeDefined();
+            expect(out_of_scope_diag?.message).toContain('local macros are not inherited via do/run');
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes('`veggie\'')
+            );
+            expect(undefined_diag).toBeUndefined();
         });
     });
 });

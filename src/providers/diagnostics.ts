@@ -324,11 +324,27 @@ export class DiagnosticsProvider {
                         continue;
                     }
                     if (excluded_callee_uri) {
-                        if (config.diagnostics.severity.undefinedMacro === 'off') {
-                            continue;
-                        }
                         const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
                         if (out_of_scope_severity === 'off') {
+                            continue;
+                        }
+                        if (this.is_symbol_defined_in_current_document(
+                                symbol_name,
+                                document.symbols,
+                                my_diagnostic.code,
+                                document.uri,
+                                reference_scope
+                            )) {
+                            // Preserve the analyzer's same-file forward-reference
+                            // diagnostic instead of replacing it with cross-file advice.
+                            const converted = this.convert_semantic_diagnostic(
+                                my_diagnostic,
+                                config,
+                                document
+                            );
+                            if (converted) {
+                                the_diagnostics.push(converted);
+                            }
                             continue;
                         }
                         const source_file = excluded_callee_uri.split('/').pop() || excluded_callee_uri;
@@ -893,6 +909,48 @@ export class DiagnosticsProvider {
             
             return false;
         }
+        return false;
+    }
+
+    /**
+     * Check whether the current document defines the referenced symbol itself.
+     * Used to preserve same-file forward-reference diagnostics when a matching
+     * name also exists in an excluded forward-called file.
+     */
+    private is_symbol_defined_in_current_document(
+        symbol_name: string,
+        symbols: SymbolTable,
+        diagnostic_code: number,
+        current_document_uri: string,
+        reference_scope?: 'local' | 'global' | null
+    ): boolean {
+        const is_from_current_document = (
+            symbol: { sourceUri?: string; location?: { uri: string } } | undefined
+        ): boolean => {
+            if (!symbol) {
+                return false;
+            }
+            return symbol.sourceUri === current_document_uri
+                || symbol.location?.uri === current_document_uri;
+        };
+
+        if (diagnostic_code === StataDiagnosticCode.UNDEFINED_MACRO) {
+            if (reference_scope === 'local') {
+                return is_from_current_document(symbols.localMacros.get(symbol_name));
+            }
+            if (reference_scope === 'global') {
+                return is_from_current_document(symbols.globalMacros.get(symbol_name));
+            }
+            return is_from_current_document(symbols.localMacros.get(symbol_name))
+                || is_from_current_document(symbols.globalMacros.get(symbol_name));
+        }
+
+        if (diagnostic_code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+            return is_from_current_document(symbols.variables.get(symbol_name))
+                || is_from_current_document(symbols.scalars?.get(symbol_name))
+                || is_from_current_document(symbols.matrices?.get(symbol_name));
+        }
+
         return false;
     }
 
