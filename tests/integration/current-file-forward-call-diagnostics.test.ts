@@ -207,6 +207,82 @@ di \`veggie'`;
             expect(plain_undefined.length).toBe(0);
         });
 
+        it('should preserve undefined macro warning when out-of-scope rewrite is disabled', async () => {
+            const child_path = join(test_temp_dir, 'rewrite_off_child.do');
+            const child_content = 'local veggie potato';
+            writeFileSync(child_path, child_content);
+
+            const parent_path = join(test_temp_dir, 'rewrite_off_parent.do');
+            const parent_content = `do rewrite_off_child.do
+di \`veggie'`;
+            writeFileSync(parent_path, parent_content);
+
+            const parent_uri = URI.file(parent_path).toString();
+            await document_store.open(parent_uri, parent_content, 1);
+            const document_state = document_store.get(parent_uri)!;
+
+            const diagnostics = await diagnostics_provider.get_diagnostics(
+                document_state,
+                {
+                    ...config,
+                    cross_file: {
+                        ...config.cross_file,
+                        diagnostics: {
+                            out_of_scope: 'off',
+                        },
+                    },
+                },
+                undefined,
+                scope_resolver
+            );
+
+            const line1_diags = diagnostics.filter(d => d.range.start.line === 1);
+            expect(line1_diags.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            )).toBe(true);
+            expect(line1_diags.some(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+            )).toBe(false);
+        });
+
+        it('should report the highest-precedence excluded forward callee for shadowed locals', async () => {
+            const defs_path = join(test_temp_dir, 'defs.do');
+            const defs_content = 'local veggie beet';
+            writeFileSync(defs_path, defs_content);
+
+            const child_path = join(test_temp_dir, 'child.do');
+            const child_content = `local veggie carrot
+include "defs.do"`;
+            writeFileSync(child_path, child_content);
+
+            const main_path = join(test_temp_dir, 'main_shadowed_local.do');
+            const main_content = `do "child.do"
+di \`veggie'`;
+            writeFileSync(main_path, main_content);
+
+            const main_uri = URI.file(main_path).toString();
+            await document_store.open(main_uri, main_content, 1);
+            const document_state = document_store.get(main_uri)!;
+
+            const diagnostics = await diagnostics_provider.get_diagnostics(
+                document_state,
+                config,
+                undefined,
+                scope_resolver
+            );
+
+            const informative = diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('veggie')
+            );
+            expect(informative).toBeDefined();
+            expect(informative!.message).toContain('defs.do');
+            expect(informative!.message).not.toContain('child.do');
+            expect(informative!.message).toContain(
+                'local macros are not inherited via do/run'
+            );
+        });
+
         it('should NOT suggest switching to include when callee local is program-scoped', async () => {
             // Program-scoped locals in the callee are not visible to the
             // caller even with `include`, so the "use include" message would

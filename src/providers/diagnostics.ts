@@ -310,13 +310,15 @@ export class DiagnosticsProvider {
                             found_in_forward_call = true;
                             break;
                         }
-                        if (excluded_callee_uri === undefined &&
-                            this.is_symbol_excluded_by_forward_call(
+                        if (this.is_symbol_excluded_by_forward_call(
                                 symbol_name,
                                 call_site,
                                 my_diagnostic.code,
                                 reference_scope
                             )) {
+                            // Forward-call symbol precedence is last visible site wins.
+                            // Keep the latest excluded boundary so the diagnostic points
+                            // at the callee whose local currently shadows earlier ones.
                             excluded_callee_uri = call_site.callee_uri;
                         }
                     }
@@ -325,37 +327,36 @@ export class DiagnosticsProvider {
                     }
                     if (excluded_callee_uri) {
                         const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
-                        if (out_of_scope_severity === 'off') {
-                            continue;
-                        }
-                        if (this.is_symbol_defined_in_current_document(
-                                symbol_name,
-                                document.symbols,
-                                my_diagnostic.code,
-                                document.uri,
-                                reference_scope
-                            )) {
-                            // Preserve the analyzer's same-file forward-reference
-                            // diagnostic instead of replacing it with cross-file advice.
-                            const converted = this.convert_semantic_diagnostic(
-                                my_diagnostic,
-                                config,
-                                document
-                            );
-                            if (converted) {
-                                the_diagnostics.push(converted);
+                        if (out_of_scope_severity !== 'off') {
+                            if (this.is_symbol_defined_in_current_document(
+                                    symbol_name,
+                                    document.symbols,
+                                    my_diagnostic.code,
+                                    document.uri,
+                                    reference_scope
+                                )) {
+                                // Preserve the analyzer's same-file forward-reference
+                                // diagnostic instead of replacing it with cross-file advice.
+                                const converted = this.convert_semantic_diagnostic(
+                                    my_diagnostic,
+                                    config,
+                                    document
+                                );
+                                if (converted) {
+                                    the_diagnostics.push(converted);
+                                }
+                                continue;
                             }
+                            const source_file = excluded_callee_uri.split('/').pop() || excluded_callee_uri;
+                            the_diagnostics.push({
+                                range: my_diagnostic.range,
+                                message: `'${symbol_name}' is defined in ${source_file} but local macros are not inherited via do/run (use include or @lsp-include)`,
+                                severity: this.cross_file_severity_to_lsp(out_of_scope_severity),
+                                source: 'sight',
+                                code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
+                            });
                             continue;
                         }
-                        const source_file = excluded_callee_uri.split('/').pop() || excluded_callee_uri;
-                        the_diagnostics.push({
-                            range: my_diagnostic.range,
-                            message: `'${symbol_name}' is defined in ${source_file} but local macros are not inherited via do/run (use include or @lsp-include)`,
-                            severity: this.cross_file_severity_to_lsp(out_of_scope_severity),
-                            source: 'sight',
-                            code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
-                        });
-                        continue;
                     }
                 }
             }
