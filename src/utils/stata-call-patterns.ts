@@ -19,14 +19,26 @@ export const CALL_PREFIX_ALTERNATIVES =
     /qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?/.source;
 
 /**
- * Build a regex that matches a `do`/`run`/`include` call line with optional
- * prefix commands. The returned regex captures the call keyword as group 1;
- * additional capture groups in `path_suffix` are appended as groups 2+.
- *
- * Pass `path_suffix = ''` for a prefix-only check; pass a suffix like
- * `(?:"([^"]+)"|([^\\s,]+))` to also capture the called path.
+ * Mode for {@link build_do_include_pattern}:
+ *  - `'prefix'`: prefix-only check (no path suffix appended).
+ *  - `'capture'`: also capture the called path (quoted in group 2, unquoted in group 3).
  */
-export function build_do_include_pattern(path_suffix: string): RegExp {
+export type DoIncludePatternMode = 'prefix' | 'capture';
+
+// Safe, fixed suffix that captures a quoted or unquoted path. Kept as an
+// internal constant so no external regex source can reach `new RegExp`.
+const PATH_CAPTURE_SUFFIX = '(?:"([^"]+)"|([^\\s,]+))';
+
+/**
+ * Build a regex that matches a `do`/`run`/`include` call line with optional
+ * prefix commands. The returned regex captures the call keyword as group 1.
+ *
+ * The regex is assembled exclusively from fixed, internally generated strings
+ * (selected via {@link DoIncludePatternMode}) and {@link CALL_PREFIX_ALTERNATIVES};
+ * no external regex source is ever interpolated.
+ */
+export function build_do_include_pattern(mode: DoIncludePatternMode): RegExp {
+    const path_suffix = mode === 'capture' ? PATH_CAPTURE_SUFFIX : '';
     return new RegExp(
         `^\\s*(?:(?:${CALL_PREFIX_ALTERNATIVES})\\s+)*\\s*(do|include|run)\\s+${path_suffix}`,
     );

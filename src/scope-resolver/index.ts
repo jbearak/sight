@@ -60,7 +60,7 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
 // path-capturing variant in directive-parser stay in lockstep. Built once at
 // module load; neither pattern uses the `g` flag, so there is no `lastIndex`
 // state to reset between calls.
-const DO_INCLUDE_PATTERN = build_do_include_pattern('');
+const DO_INCLUDE_PATTERN = build_do_include_pattern('prefix');
 
 // Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comment lines.
 const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+/;

@@ -46,7 +46,7 @@ const DECLARATION_DIRECTIVE_PATTERN = /@lsp-(local|global|scalar|matrix|program)
 // Shared pattern to match do/include/run statements with optional prefix commands.
 // Prefix alternatives live in utils/stata-call-patterns so this pattern and the
 // prefix-only variant in scope-resolver stay in lockstep.
-const DO_INCLUDE_PATTERN = build_do_include_pattern('(?:"([^"]+)"|([^\\s,]+))');
+const DO_INCLUDE_PATTERN = build_do_include_pattern('capture');
 
 // Shared pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments.
 const CALL_DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/;
