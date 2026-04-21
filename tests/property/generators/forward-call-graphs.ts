@@ -38,6 +38,7 @@ export interface ForwardCallGraph {
 }
 
 interface GraphConfig {
+    min_files: number;
     max_files: number;
     max_events_per_file: number;
     define_probability: number;
@@ -47,6 +48,7 @@ interface GraphConfig {
 }
 
 const DEFAULT_CONFIG: GraphConfig = {
+    min_files: 1,
     max_files: 4,
     max_events_per_file: 6,
     define_probability: 0.5,
@@ -65,7 +67,7 @@ export function arbitrary_forward_call_graph(
 ): fc.Arbitrary<ForwardCallGraph> {
     const my_config: GraphConfig = { ...DEFAULT_CONFIG, ...overrides };
 
-    return fc.integer({ min: 1, max: my_config.max_files }).chain(file_count => {
+    return fc.integer({ min: my_config.min_files, max: my_config.max_files }).chain(file_count => {
         const file_arbs: fc.Arbitrary<FileSpec>[] = [];
         for (let i = 0; i < file_count; i++) {
             file_arbs.push(arbitrary_file_spec(i, file_count, my_config));

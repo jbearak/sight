@@ -205,6 +205,79 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties', () => {
     });
 });
 
+// Deeper graphs stress the recursive resolve + dedup + filter paths that
+// the default 1-4-file generator under-exercises. Chain depth scales with
+// the DAG size (file i can only call j > i), so pinning the minimum file
+// count above 3 forces chains of length 3-6.
+describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, depth 3-6)', () => {
+    const deep_graph = () =>
+        arbitrary_forward_call_graph({
+            min_files: 4,
+            max_files: 7,
+            max_events_per_file: 5,
+        });
+
+    test('1. Visibility soundness (deep): visible locals emit no warning', async () => {
+        await fc.assert(
+            fc.asyncProperty(deep_graph(), async graph => {
+                const oracle = new StataExecutionOracle(graph);
+                if (!oracle.is_visible_at()) return;
+                const h = create_harness();
+                try {
+                    const outcome = await diagnose_reference(h, graph);
+                    expect(outcome.has_undefined_macro).toBe(false);
+                    expect(outcome.out_of_scope_count).toBe(0);
+                } finally {
+                    destroy_harness(h);
+                }
+            }),
+            { numRuns: 200 },
+        );
+    });
+
+    test('2. Rewrite attribution (deep): blocked references name the blame file', async () => {
+        await fc.assert(
+            fc.asyncProperty(deep_graph(), async graph => {
+                const oracle = new StataExecutionOracle(graph);
+                if (oracle.is_visible_at()) return;
+                const blame = oracle.blame_target_for();
+                if (blame === null) return;
+                if (oracle.is_defined_in_root()) return;
+                const h = create_harness();
+                try {
+                    const outcome = await diagnose_reference(h, graph);
+                    expect(outcome.out_of_scope_count).toBe(1);
+                    expect(outcome.has_undefined_macro).toBe(false);
+                    const expected_file = oracle.get_file_name(blame);
+                    expect(outcome.out_of_scope_messages[0]).toContain(expected_file);
+                } finally {
+                    destroy_harness(h);
+                }
+            }),
+            { numRuns: 200 },
+        );
+    });
+
+    test('3. Generic-warning completeness (deep): unreachable names emit UNDEFINED only', async () => {
+        await fc.assert(
+            fc.asyncProperty(deep_graph(), async graph => {
+                const oracle = new StataExecutionOracle(graph);
+                if (oracle.is_visible_at()) return;
+                if (oracle.blame_target_for() !== null) return;
+                const h = create_harness();
+                try {
+                    const outcome = await diagnose_reference(h, graph);
+                    expect(outcome.has_undefined_macro).toBe(true);
+                    expect(outcome.out_of_scope_count).toBe(0);
+                } finally {
+                    destroy_harness(h);
+                }
+            }),
+            { numRuns: 200 },
+        );
+    });
+});
+
 describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from code review', () => {
     let h: Harness;
 
