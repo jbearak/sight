@@ -142,7 +142,9 @@ describe('Config Mapping Type Safety Property Tests', () => {
 
         expect(my_result.cross_file).toBeDefined();
         expect(my_result.cross_file!.diagnostics).toBeDefined();
-        expect(my_result.cross_file!.diagnostics!.out_of_scope).toBeUndefined();
+        const my_diagnostics = my_result.cross_file!.diagnostics as
+            Record<string, unknown>;
+        expect(my_diagnostics.out_of_scope).toBeUndefined();
         expect(my_result.cross_file!.diagnostics!.missing_file).toBe('error');
     });
 

@@ -1,4 +1,4 @@
-import { Diagnostic, DiagnosticSeverity, Connection, Position, CancellationToken } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity, Connection, Position, CancellationToken, Range } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
 import { LanguageContext, ContextDiagnostic, ContextErrorCode } from '../context-tracker/types';
 import {
@@ -26,11 +26,12 @@ import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
 type SemanticDiagnostic = {
     message: string;
-    range: any;
-    code: number;
+    range: Range;
+    code: StataDiagnosticCode;
     severity: 'error' | 'warning' | 'information' | 'hint';
-    base_code?: number;
+    base_code?: StataDiagnosticCode;
 };
+type ReferenceKind = 'local' | 'global' | 'variable' | null;
 type OutOfScopeRewriteMatch = {
     symbol_kind: OutOfScopeSymbolKind;
     reason: OutOfScopeMessageReason;
@@ -272,7 +273,8 @@ export class DiagnosticsProvider {
                         symbol_name,
                         resolved_scope.symbols,
                         my_diagnostic.code,
-                        document.uri
+                        document.uri,
+                        reference_kind
                     )) {
                     continue;
                 }
@@ -299,7 +301,9 @@ export class DiagnosticsProvider {
                             symbol_name,
                             call_site.symbols,
                             my_diagnostic.code,
-                            call_site.effective_type
+                            call_site.effective_type,
+                            document.uri,
+                            reference_kind
                         )) {
                         found_in_forward_call = true;
                         break;
@@ -363,7 +367,9 @@ export class DiagnosticsProvider {
                             symbol_name,
                             call_site.symbols,
                             my_diagnostic.code,
-                            call_site.effective_type
+                            call_site.effective_type,
+                            document.uri,
+                            reference_kind
                         )) {
                         found_in_forward_call = true;
                         break;
@@ -372,7 +378,8 @@ export class DiagnosticsProvider {
                             symbol_name,
                             call_site,
                             my_diagnostic.code,
-                            reference_kind
+                            reference_kind,
+                            document.uri
                         )) {
                         const effective = call_site.excluded_locals?.get(
                             symbol_name
@@ -425,7 +432,6 @@ export class DiagnosticsProvider {
                     continue;
                 }
             }
-            
             const converted = this.convert_semantic_diagnostic(my_diagnostic, config, document);
             if (converted) {
                 the_diagnostics.push(converted);
@@ -546,8 +552,9 @@ export class DiagnosticsProvider {
         const semantic_diags: SemanticDiagnostic[] = [];
         for (const diag of document.diagnostics) {
             if (diag.code && typeof diag.code === 'number') {
-                const code = diag.code as number;
-                if (code >= 2001 && code <= 2002) {
+                const code = diag.code as StataDiagnosticCode;
+                if (code === StataDiagnosticCode.UNDEFINED_MACRO
+                    || code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
                     // This is a semantic error code
                     const severity_map: Record<DiagnosticSeverity, 'error' | 'warning' | 'information' | 'hint'> = {
                         [DiagnosticSeverity.Error]: 'error',
@@ -636,7 +643,7 @@ export class DiagnosticsProvider {
     }
 
     private get_undefined_symbol_severity_setting(
-        diagnostic_code: number | undefined,
+        diagnostic_code: StataDiagnosticCode | undefined,
         config: StataLSPConfig
     ): 'error' | 'warning' | 'information' | 'hint' | 'off' | null {
         if (diagnostic_code === StataDiagnosticCode.UNDEFINED_MACRO) {
@@ -678,7 +685,7 @@ export class DiagnosticsProvider {
      */
     private should_suppress_undefined_symbol(
         document: DocumentState,
-        diagnostic_range: any
+        diagnostic_range: Range
     ): boolean {
         const diagnostic_line = diagnostic_range.start.line;
         const line_count = get_line_count(document);
@@ -1020,7 +1027,7 @@ export class DiagnosticsProvider {
      * - Quoted format: 'name' (single quotes)
      */
     private extract_symbol_name_from_diagnostic(
-        diagnostic: { message: string; code: number }
+        diagnostic: { message: string; code: StataDiagnosticCode }
     ): string | null {
         if (diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
             const variable_match = diagnostic.message.match(
@@ -1041,10 +1048,12 @@ export class DiagnosticsProvider {
             return local_macro_match[1];
         }
 
-        // Try global macro format: $name
-        const global_macro_match = diagnostic.message.match(/\$([a-zA-Z_][a-zA-Z0-9_]*)/);
+        // Try global macro format: $name or ${name}
+        const global_macro_match = diagnostic.message.match(
+            /\$(?:\{([a-zA-Z_][a-zA-Z0-9_]*)\}|([a-zA-Z_][a-zA-Z0-9_]*))/
+        );
         if (global_macro_match) {
-            return global_macro_match[1];
+            return global_macro_match[1] ?? global_macro_match[2];
         }
 
         // Fall back to quoted format: 'name'
@@ -1060,41 +1069,31 @@ export class DiagnosticsProvider {
     private is_symbol_defined_in_scope(
         symbol_name: string,
         symbols: SymbolTable,
-        diagnostic_code: number,
-        current_document_uri: string
+        diagnostic_code: StataDiagnosticCode,
+        current_document_uri: string,
+        reference_kind: ReferenceKind
     ): boolean {
+        const is_external_symbol = (
+            symbol: { sourceUri?: string } | undefined
+        ): boolean => {
+            return !!symbol?.sourceUri && symbol.sourceUri !== current_document_uri;
+        };
         if (diagnostic_code === StataDiagnosticCode.UNDEFINED_MACRO) {
-            // Check local macros
-            const local_macro = symbols.localMacros.get(symbol_name);
-            if (local_macro && local_macro.sourceUri && local_macro.sourceUri !== current_document_uri) {
-                return true;
+            if (reference_kind === 'local') {
+                return is_external_symbol(symbols.localMacros.get(symbol_name));
             }
-            
-            // Check global macros
-            const global_macro = symbols.globalMacros.get(symbol_name);
-            if (global_macro && global_macro.sourceUri && global_macro.sourceUri !== current_document_uri) {
-                return true;
+            if (reference_kind === 'global') {
+                return is_external_symbol(symbols.globalMacros.get(symbol_name));
             }
             
             return false;
-        } else if (diagnostic_code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
-            // Check variables, scalars, and matrices (all can be referenced as variables)
-            const variable = symbols.variables.get(symbol_name);
-            if (variable && variable.sourceUri && variable.sourceUri !== current_document_uri) {
-                return true;
+        }
+
+        if (diagnostic_code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+            if (reference_kind !== 'variable') {
+                return false;
             }
-            
-            const scalar = symbols.scalars?.get(symbol_name);
-            if (scalar && scalar.sourceUri && scalar.sourceUri !== current_document_uri) {
-                return true;
-            }
-            
-            const matrix = symbols.matrices?.get(symbol_name);
-            if (matrix && matrix.sourceUri && matrix.sourceUri !== current_document_uri) {
-                return true;
-            }
-            
-            return false;
+            return is_external_symbol(symbols.variables.get(symbol_name));
         }
         return false;
     }
@@ -1118,9 +1117,9 @@ export class DiagnosticsProvider {
     private is_symbol_defined_in_current_document(
         symbol_name: string,
         symbols: SymbolTable,
-        diagnostic_code: number,
+        diagnostic_code: StataDiagnosticCode,
         current_document_uri: string,
-        reference_kind?: 'local' | 'global' | 'variable' | null
+        reference_kind?: ReferenceKind
     ): boolean {
         const is_from_current_document = (
             symbol: { sourceUri?: string; location?: { uri: string } } | undefined
@@ -1167,19 +1166,22 @@ export class DiagnosticsProvider {
     private is_symbol_excluded_by_forward_call(
         symbol_name: string,
         call_site: import('../types').ForwardCallSite,
-        diagnostic_code: number,
-        reference_kind: 'local' | 'global' | 'variable' | null | undefined,
+        diagnostic_code: StataDiagnosticCode,
+        reference_kind: ReferenceKind | undefined,
+        current_document_uri: string,
     ): boolean {
         if (diagnostic_code !== StataDiagnosticCode.UNDEFINED_MACRO) {
             return false;
         }
-        if (reference_kind === 'global') {
+        if (reference_kind !== 'local') {
             return false;
         }
         if (call_site.effective_type !== 'do') {
             return false;
         }
-        return call_site.excluded_locals?.has(symbol_name) ?? false;
+        const excluded_local = call_site.excluded_locals?.get(symbol_name);
+        return !!excluded_local?.sourceUri
+            && excluded_local.sourceUri !== current_document_uri;
     }
 
     /**
@@ -1192,36 +1194,33 @@ export class DiagnosticsProvider {
     private is_symbol_in_forward_call(
         symbol_name: string,
         symbols: SymbolTable,
-        diagnostic_code: number,
-        effective_type: 'do' | 'include'
+        diagnostic_code: StataDiagnosticCode,
+        effective_type: 'do' | 'include',
+        current_document_uri: string,
+        reference_kind: ReferenceKind
     ): boolean {
+        const is_external_symbol = (
+            symbol: { sourceUri?: string } | undefined
+        ): boolean => {
+            return !!symbol?.sourceUri && symbol.sourceUri !== current_document_uri;
+        };
         if (diagnostic_code === StataDiagnosticCode.UNDEFINED_MACRO) {
-            // Local macros only visible from 'include' calls
-            if (effective_type === 'include' && symbols.localMacros.has(symbol_name)) {
-                return true;
+            if (reference_kind === 'local') {
+                return effective_type === 'include'
+                    && is_external_symbol(symbols.localMacros.get(symbol_name));
             }
-            
-            // Check global macros (visible from both do and include)
-            if (symbols.globalMacros.has(symbol_name)) {
-                return true;
-            }
-            
-            return false;
-        } else if (diagnostic_code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
-            // Check variables, scalars, and matrices (all can be referenced as variables)
-            if (symbols.variables.has(symbol_name)) {
-                return true;
-            }
-            
-            if (symbols.scalars?.has(symbol_name)) {
-                return true;
-            }
-            
-            if (symbols.matrices?.has(symbol_name)) {
-                return true;
+            if (reference_kind === 'global') {
+                return is_external_symbol(symbols.globalMacros.get(symbol_name));
             }
             
             return false;
+        }
+
+        if (diagnostic_code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+            if (reference_kind !== 'variable') {
+                return false;
+            }
+            return is_external_symbol(symbols.variables.get(symbol_name));
         }
         return false;
     }
@@ -1349,8 +1348,8 @@ export class DiagnosticsProvider {
      *          null if neither can be determined
      */
     private classify_reference_kind(
-        diagnostic: { message: string; code: number }
-    ): 'local' | 'global' | 'variable' | null {
+        diagnostic: { message: string; code: StataDiagnosticCode }
+    ): ReferenceKind {
         if (diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
             return 'variable';
         }

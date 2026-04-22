@@ -922,6 +922,15 @@ display \`result'
             expect(symbol_name).toBeNull();
         });
 
+        it('should extract braced global macro names from undefined macro diagnostics', () => {
+            const symbol_name = (provider as any).extract_symbol_name_from_diagnostic({
+                message: 'Undefined global macro: ${foo}',
+                code: StataDiagnosticCode.UNDEFINED_MACRO,
+            });
+
+            expect(symbol_name).toBe('foo');
+        });
+
         it('should classify reference kinds for local, global, variable, and unknown diagnostics', () => {
             expect((provider as any).classify_reference_kind({
                 message: "Undefined local macro: `foo'",
@@ -930,6 +939,11 @@ display \`result'
 
             expect((provider as any).classify_reference_kind({
                 message: 'Undefined global macro: $foo',
+                code: StataDiagnosticCode.UNDEFINED_MACRO,
+            })).toBe('global');
+
+            expect((provider as any).classify_reference_kind({
+                message: 'Undefined global macro: ${foo}',
                 code: StataDiagnosticCode.UNDEFINED_MACRO,
             })).toBe('global');
 
@@ -983,9 +997,181 @@ display \`result'
                 null
             )).toBe(false);
         });
+
+        it('should not treat null reference kinds as excluded forward-call local matches', () => {
+            const call_site = {
+                callee_uri: 'file:///child.do',
+                call_line: 0,
+                symbols: create_empty_symbol_table(),
+                effective_type: 'do',
+                excluded_locals: new Map([
+                    ['veggie', {
+                        name: 'veggie',
+                        scope: 'local',
+                        location: {
+                            uri: 'file:///child.do',
+                            range: {
+                                start: { line: 0, character: 0 },
+                                end: { line: 0, character: 6 },
+                            },
+                        },
+                        sourceUri: 'file:///child.do',
+                    }],
+                ]),
+            };
+
+            expect((provider as any).is_symbol_excluded_by_forward_call(
+                'veggie',
+                call_site,
+                StataDiagnosticCode.UNDEFINED_MACRO,
+                null,
+                'file:///test.do',
+            )).toBe(false);
+        });
     });
 
     describe('out-of-scope diagnostic messages', () => {
+        it('should not suppress undefined local macros when resolved scope only has a global of the same name', async () => {
+            const content = "display `veggie'";
+            const document = create_real_document_state(content);
+            const resolved_symbols = create_empty_symbol_table();
+            resolved_symbols.globalMacros.set('veggie', {
+                name: 'veggie',
+                scope: 'global',
+                location: {
+                    uri: 'file:///parent.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 10 },
+                    },
+                },
+                sourceUri: 'file:///parent.do',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: resolved_symbols,
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+            };
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                stub_resolver
+            );
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes('veggie')
+            );
+            expect(undefined_diag).toBeDefined();
+        });
+
+        it('should not suppress undefined local macros when a forward include only provides a global of the same name', async () => {
+            const content = [
+                'include "child.do"',
+                "display `veggie'",
+            ].join('\n');
+            const document = create_real_document_state(content);
+            const forward_symbols = create_empty_symbol_table();
+            forward_symbols.globalMacros.set('veggie', {
+                name: 'veggie',
+                scope: 'global',
+                location: {
+                    uri: 'file:///child.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 10 },
+                    },
+                },
+                sourceUri: 'file:///child.do',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///child.do',
+                    call_line: 0,
+                    symbols: forward_symbols,
+                    effective_type: 'include',
+                }],
+            };
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                stub_resolver
+            );
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes('veggie')
+            );
+            expect(undefined_diag).toBeDefined();
+        });
+
+        it('should not suppress undefined variables when resolved scope only has a scalar of the same name', async () => {
+            const document = create_document_state('summarize age');
+            document.diagnostics = [{
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 13 },
+                },
+                message: 'Potentially undefined variable: age',
+                severity: DiagnosticSeverity.Warning,
+                code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+                source: 'sight',
+            }];
+            document.symbols = create_empty_symbol_table();
+
+            const resolved_symbols = create_empty_symbol_table();
+            resolved_symbols.scalars.set('age', {
+                name: 'age',
+                location: {
+                    uri: 'file:///parent.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 3 },
+                    },
+                },
+                sourceUri: 'file:///parent.do',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: resolved_symbols,
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+            };
+            const stub_resolver = make_stub_scope_resolver(resolved_scope);
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                stub_resolver
+            );
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE
+                    && d.message.includes('age')
+            );
+            expect(undefined_diag).toBeDefined();
+        });
         it('should inherit macro rewrite severity from undefinedMacro', () => {
             const the_cases = [
                 { severity: 'error' as const, expected: DiagnosticSeverity.Error },
@@ -1619,11 +1805,6 @@ display \`result'
                     severity: {
                         ...DEFAULT_CONFIG.diagnostics.severity,
                         undefinedMacro: 'off' as const,
-                    },
-                },
-                cross_file: {
-                    diagnostics: {
-                        out_of_scope: 'warning' as const,
                     },
                 },
             };
