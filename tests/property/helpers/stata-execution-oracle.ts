@@ -2,8 +2,6 @@
  * Stata execution oracle for forward-call graphs.
  *
  * Ground truth for `tests/property/forward-call-out-of-scope-oracle.prop.test.ts`.
- * Derived from Stata runtime semantics, not from `ForwardScopeResolver`'s
- * algorithm — so a resolver bug cannot silently propagate into the oracle.
  *
  * Semantics modelled:
  *
@@ -11,15 +9,14 @@
  *    `do`/`run` and keeps the caller's scope on `include`. Reports whether
  *    the referenced name is bound when the reference event fires.
  *
- *  - `blame_target_for()` — counterfactual "all-include" Stata: promote
- *    every `do`/`run` boundary reachable from the root to `include`,
- *    execute the flattened chain in source order, and return the file
- *    index whose `local X` most recently bound the referenced name before
- *    the reference event fires. The resolver's flattening, dedup, and
- *    excluded-locals filtering are *not* mirrored: the oracle re-runs
- *    each callee as the simulator encounters it (stopping only on the
- *    current recursion path to avoid infinite loops), and the final
- *    binding of the referenced name is the blame file.
+ *  - `blame_target_for()` — single-boundary counterfactual: for each
+ *    root-level `do`/`run` call that precedes the reference, promote ONLY
+ *    that one boundary to `include` and ask whether the referenced local
+ *    would then be bound. Internal `do`/`run` boundaries stay opaque —
+ *    `include` is the only edge the walk descends. Returns the file whose
+ *    `local X` is the last (in source order, across visible sites) include-
+ *    reachable binding, or `null` when no single-boundary promotion would
+ *    expose the name.
  */
 import { ForwardCallGraph } from '../generators/forward-call-graphs';
 
@@ -32,15 +29,29 @@ export class StataExecutionOracle {
     }
 
     blame_target_for(): number | null {
-        // Counterfactual: promote every do/run to include and re-execute
-        // the reachable chain from the root. Every `local X` overwrites
-        // prior bindings (last-def-wins). The result is the file that
-        // last bound `reference_name` before the reference event fires.
-        const the_scope = new Map<string, number>();
-        const reached = this.walk_counterfactual(0, the_scope, new Set<number>());
-        if (!reached) return null;
-        const my_winner = the_scope.get(this.graph.reference_name);
-        return my_winner ?? null;
+        // Iterate root-level events in source order until the reference.
+        // For each do/run call before the reference, compute the include-
+        // only end-state of the callee. The last such call whose end-state
+        // binds `reference_name` wins (matches the diagnostic provider's
+        // last-visible-site precedence).
+        const my_root = this.graph.files[0];
+        let blame: number | null = null;
+        for (let i = 0; i < my_root.events.length; i++) {
+            if (i === this.graph.reference_event_index) break;
+            const my_event = my_root.events[i];
+            if (my_event.kind !== 'do_call' && my_event.kind !== 'run_call') {
+                continue;
+            }
+            const end_state = this.compute_include_only_end_state(
+                my_event.target,
+                new Set<number>(),
+            );
+            const my_winner = end_state.get(this.graph.reference_name);
+            if (my_winner !== undefined) {
+                blame = my_winner;
+            }
+        }
+        return blame;
     }
 
     get_file_name(file_index: number): string {
@@ -113,49 +124,38 @@ export class StataExecutionOracle {
     }
 
     /**
-     * Counterfactual walk: every `include`/`do`/`run` expands inline into
-     * a single shared scope. Walks the root forward-order until the
-     * reference event fires. Returns `true` once the reference is
-     * reached; returns `false` if the walk exhausts without finding it.
+     * Include-only end-state: walk the callee in source order, overwriting
+     * bindings as `local X` statements fire, and merging include-reachable
+     * end-states from nested `include` calls. `do`/`run` events are
+     * skipped — they would run in a fresh scope and leave nothing behind.
      *
-     * Cycle protection is per-call-path (`current_path`) rather than a
-     * global visited set, matching real Stata's re-execution on each
-     * call and preserving the last-def-wins ordering that two separate
-     * visits to the same file can introduce.
+     * Cycle protection is per-path (current_path) so mutual includes
+     * terminate.
      */
-    private walk_counterfactual(
+    private compute_include_only_end_state(
         file_index: number,
-        scope: Map<string, number>,
         current_path: Set<number>,
-    ): boolean {
-        if (current_path.has(file_index)) return false;
+    ): Map<string, number> {
+        if (current_path.has(file_index)) return new Map();
         current_path.add(file_index);
         try {
+            const the_scope = new Map<string, number>();
             const my_file = this.graph.files[file_index];
-            for (let i = 0; i < my_file.events.length; i++) {
-                const my_event = my_file.events[i];
-                if (
-                    file_index === 0 &&
-                    i === this.graph.reference_event_index
-                ) {
-                    return true;
-                }
+            for (const my_event of my_file.events) {
                 if (my_event.kind === 'define_local') {
-                    scope.set(my_event.name, file_index);
-                } else if (
-                    my_event.kind === 'include_call' ||
-                    my_event.kind === 'do_call' ||
-                    my_event.kind === 'run_call'
-                ) {
-                    const reached = this.walk_counterfactual(
+                    the_scope.set(my_event.name, file_index);
+                } else if (my_event.kind === 'include_call') {
+                    const my_nested = this.compute_include_only_end_state(
                         my_event.target,
-                        scope,
                         current_path,
                     );
-                    if (reached) return true;
+                    for (const [my_name, my_owner] of my_nested) {
+                        the_scope.set(my_name, my_owner);
+                    }
                 }
+                // do_call / run_call: skipped.
             }
-            return false;
+            return the_scope;
         } finally {
             current_path.delete(file_index);
         }
