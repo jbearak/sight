@@ -161,7 +161,7 @@ display \`do_local'`;
             expect(informative!.message).toContain('do_local');
             expect(informative!.message).toContain('helper_do_local.do');
             expect(informative!.message).toContain(
-                'local macros are not inherited via do/run'
+                'local macros are not inherited via do or run'
             );
 
             const plain_undefined = line1_diags.filter(
@@ -205,7 +205,7 @@ di \`veggie'`;
             expect(informative!.message).toContain('veggie');
             expect(informative!.message).toContain('demo_child.do');
             expect(informative!.message).toContain(
-                'local macros are not inherited via do/run'
+                'local macros are not inherited via do or run'
             );
 
             // The plain "Undefined local macro" diagnostic should be replaced,
@@ -289,7 +289,7 @@ di \`veggie'`;
             expect(informative!.message).toContain('defs.do');
             expect(informative!.message).not.toContain('child.do');
             expect(informative!.message).toContain(
-                'local macros are not inherited via do/run'
+                'local macros are not inherited via do or run'
             );
         });
 
@@ -331,7 +331,7 @@ di \`veggie'`;
             expect(informative!.message).toContain('child_after.do');
             expect(informative!.message).not.toContain('defs_after.do');
             expect(informative!.message).toContain(
-                'local macros are not inherited via do/run'
+                'local macros are not inherited via do or run'
             );
         });
 
@@ -371,7 +371,7 @@ di \`veggie'`;
             expect(informative!.message).toContain('sibling_b.do');
             expect(informative!.message).not.toContain('sibling_a.do');
             expect(informative!.message).toContain(
-                'local macros are not inherited via do/run'
+                'local macros are not inherited via do or run'
             );
         });
 
@@ -416,7 +416,7 @@ di \`veggie'`;
             expect(informative!.message).toContain('bug_a_child.do');
             expect(informative!.message).not.toContain('bug_a_defs.do');
             expect(informative!.message).toContain(
-                'local macros are not inherited via do/run'
+                'local macros are not inherited via do or run'
             );
         });
 

@@ -1507,7 +1507,9 @@ display \`result'
                 d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
             );
             expect(out_of_scope_diag).toBeDefined();
-            expect(out_of_scope_diag?.message).toContain('local macros are not inherited via do/run');
+            expect(out_of_scope_diag?.message).toContain(
+                'local macros are not inherited via do or run'
+            );
             expect(out_of_scope_diag?.message).toContain('country_name');
             expect(out_of_scope_diag?.message).not.toContain('after the call site');
         });

@@ -48,8 +48,8 @@ export function format_out_of_scope_message(
         case 'inheritance_excludes_locals':
             return (
                 `${display_name} is defined in ${reason.source_file} but ` +
-                'local macros are not inherited via do/run ' +
-                '(use include or @lsp-included-by)'
+                'local macros are not inherited via do or run ' +
+                '(use include instead)'
             );
         case 'same_file_forward':
             return (
