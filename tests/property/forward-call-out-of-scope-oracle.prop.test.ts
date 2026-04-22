@@ -645,4 +645,51 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         expect(info_rewrite!.message).toBe(warn_rewrite!.message);
         expect(info_rewrite!.severity).not.toBe(warn_rewrite!.severity);
     });
+
+    // Retained boundary_only contract: when root does A then does B,
+    // and A internally does B, and A + B each define the same local
+    // differently, the LSP must emit a rewrite naming B (the second
+    // root-level do's callee) under last-visible-site precedence. An
+    // earlier attempt at the plan proposed removing the boundary_only
+    // DuplicateCallDecision variant entirely. A TDD counterexample on
+    // this scenario showed that removal drops B's blame claim — the
+    // first visit's site carries A's include-only end-state (A
+    // overrides B's binding with its own late `local X`), and the
+    // second root-level `do B` gets skipped by plain dedup. Only the
+    // boundary_only path carries B's distinct blame. This fixture is
+    // the pin.
+    test('boundary_only contract: second root-level do names its own callee', async () => {
+        fs.writeFileSync(
+            path.join(h.temp_dir, 'child_b.do'),
+            'local veggie b_binding',
+        );
+        fs.writeFileSync(
+            path.join(h.temp_dir, 'child_a.do'),
+            ['local veggie a_binding', 'do "child_b.do"'].join('\n'),
+        );
+        const root_content = [
+            'do "child_a.do"',
+            'do "child_b.do"',
+            'di `veggie\'',
+        ].join('\n');
+        const root_path = path.join(h.temp_dir, 'main.do');
+        fs.writeFileSync(root_path, root_content);
+        const root_uri = URI.file(root_path).toString();
+        await h.document_store.open(root_uri, root_content, 1);
+        const doc = h.document_store.get(root_uri)!;
+        const diags = await h.diagnostics_provider.get_diagnostics(
+            doc,
+            MIN_CONFIG,
+            undefined,
+            h.scope_resolver,
+        );
+        const informative = diags.find(
+            d =>
+                d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
+                d.message.includes('veggie'),
+        );
+        expect(informative).toBeDefined();
+        expect(informative!.message).toContain('child_b.do');
+        expect(informative!.message).not.toContain('child_a.do');
+    });
 });
