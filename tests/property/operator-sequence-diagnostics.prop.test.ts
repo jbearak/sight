@@ -203,7 +203,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -400,7 +399,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -598,7 +596,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -728,7 +725,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                             max_forward_depth: 10,
                             max_chain_depth: 20,
                             diagnostics: {
-                                out_of_scope: 'warning',
                                 missing_file: 'warning',
                                 max_depth: 'warning',
                             },
@@ -849,7 +845,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -1063,7 +1058,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                             max_forward_depth: 10,
                             max_chain_depth: 20,
                             diagnostics: {
-                                out_of_scope: 'warning',
                                 missing_file: 'warning',
                                 max_depth: 'warning',
                             },
@@ -1190,7 +1184,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -1328,7 +1321,6 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -1465,7 +1457,6 @@ describe('Embedded Context Suppression Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -1588,7 +1579,6 @@ describe('Embedded Context Suppression Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -1701,7 +1691,6 @@ describe('Embedded Context Suppression Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -1843,7 +1832,6 @@ describe('Directive Suppression Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -1971,7 +1959,6 @@ describe('Directive Suppression Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -2077,7 +2064,6 @@ describe('Directive Suppression Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -2181,7 +2167,6 @@ describe('Directive Suppression Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -2304,7 +2289,6 @@ describe('C-Style Logical Control Flow Property Tests', () => {
                 max_forward_depth: 10,
                 max_chain_depth: 20,
                 diagnostics: {
-                    out_of_scope: 'warning',
                     missing_file: 'warning',
                     max_depth: 'warning',
                 },
@@ -2510,7 +2494,6 @@ describe('C-Style Logical Control Flow Property Tests', () => {
                             max_forward_depth: 10,
                             max_chain_depth: 20,
                             diagnostics: {
-                                out_of_scope: 'warning',
                                 missing_file: 'warning',
                                 max_depth: 'warning',
                             },

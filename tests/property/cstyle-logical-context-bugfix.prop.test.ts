@@ -64,7 +64,6 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
             max_forward_depth: 10,
             max_chain_depth: 20,
             diagnostics: {
-                out_of_scope: 'warning',
                 missing_file: 'warning',
                 max_depth: 'warning',
             },

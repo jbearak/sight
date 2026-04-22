@@ -51,7 +51,6 @@ describe('Diagnostic Suppression Property Tests', () => {
                 max_indexed_files: 1000,
                 assume_call_site: 'end',
                 diagnostics: {
-                    out_of_scope: 'information',
                     missing_file: 'warning',
                 },
             },
@@ -336,38 +335,27 @@ describe('Diagnostic Suppression Property Tests', () => {
     });
 
     /**
-     * Property: crossFile.diagnostics.outOfScope = 'off' suppresses out-of-scope diagnostics
+     * Property: suppression comments also suppress OUT_OF_SCOPE_SYMBOL rewrites
      */
-    it('should suppress out-of-scope diagnostics when crossFile.diagnostics.outOfScope is off', async () => {
+    it('should suppress OUT_OF_SCOPE_SYMBOL rewrites with suppression comments', async () => {
         await fc.assert(
             fc.asyncProperty(
                 arbitrary_non_reserved_identifier(),
-                async (macro_name: string) => {
-                    const content = `// @lsp-done-by "parent.do" line=5\nlocal result \`${macro_name}'`;
+                fc.constantFrom('@lsp-ignore', '@lsp-ignore-next'),
+                async (macro_name: string, suppress_type: string) => {
+                    const content = suppress_type === '@lsp-ignore'
+                        ? `display \`${macro_name}' // @lsp-ignore\nlocal ${macro_name} value`
+                        : `// @lsp-ignore-next\ndisplay \`${macro_name}'\nlocal ${macro_name} value`;
                     const my_document = create_document_state(content);
-                    
-                    // Set outOfScope to 'off'
-                    const my_suppress_config = {
-                        ...my_config,
-                        cross_file: {
-                            ...my_config.cross_file,
-                            diagnostics: {
-                                ...my_config.cross_file.diagnostics,
-                                out_of_scope: 'off' as const,
-                            },
-                        },
-                    };
-                    
                     const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
                         my_document,
-                        my_suppress_config
+                        my_config
                     );
-                    
-                    // Should not have any out-of-scope diagnostics
+
+                    // Should not have any out-of-scope rewrites
                     const out_of_scope_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.OUT_OF_SCOPE
+                        d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
                     );
-                    
                     return out_of_scope_diags.length === 0;
                 }
             ),
@@ -383,7 +371,7 @@ describe('Diagnostic Suppression Property Tests', () => {
             fc.asyncProperty(
                 fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z0-9_-]+$/.test(s)),
                 async (filename: string) => {
-                    const content = `// @lsp-done-by "${filename}.do"`;
+                    const content = `// @lsp-done-by "${filename}.do"\nlocal result \`missing_macro'`;
                     const my_document = create_document_state(content);
                     
                     // Set missingFile to 'off'
@@ -416,23 +404,30 @@ describe('Diagnostic Suppression Property Tests', () => {
     });
 
     /**
-     * Property: Multiple 'off' settings work together for cross-file diagnostics
+     * Property: Multiple 'off' settings work together
      */
-    it('should suppress relevant cross-file diagnostics when multiple crossFile settings are off', async () => {
+    it('should suppress missing-file diagnostics alongside disabled undefined macros', async () => {
         await fc.assert(
             fc.asyncProperty(
                 fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-zA-Z0-9_-]+$/.test(s)),
                 async (filename: string) => {
-                    const content = `// @lsp-done-by "${filename}.do"`;
+                    const content = `// @lsp-done-by "${filename}.do"\nlocal result \`missing_macro'`;
                     const my_document = create_document_state(content);
-                    
-                    // Set crossFile diagnostics to 'off'
+
+                    // Disable both the base undefined-macro diagnostic and
+                    // the missing-file cross-file diagnostic.
                     const my_suppress_all_config = {
                         ...my_config,
+                        diagnostics: {
+                            ...my_config.diagnostics,
+                            severity: {
+                                ...my_config.diagnostics.severity,
+                                undefinedMacro: 'off' as const,
+                            },
+                        },
                         cross_file: {
                             ...my_config.cross_file,
                             diagnostics: {
-                                out_of_scope: 'off' as const,
                                 missing_file: 'off' as const,
                             },
                         },
@@ -443,12 +438,12 @@ describe('Diagnostic Suppression Property Tests', () => {
                         my_suppress_all_config
                     );
                     
-                    // Should not have cross-file related diagnostics
+                    // Should not have either undefined-macro or missing-file diagnostics
                     const cross_file_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.OUT_OF_SCOPE ||
+                        d => d.code === StataDiagnosticCode.UNDEFINED_MACRO ||
+                             d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL ||
                              d.code === StataDiagnosticCode.MISSING_FILE
                     );
-                    
                     return cross_file_diags.length === 0;
                 }
             ),

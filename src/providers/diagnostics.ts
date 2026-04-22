@@ -357,23 +357,11 @@ export class DiagnosticsProvider {
                 }
 
                 const diag_line = my_diagnostic.range.start.line;
-                let found_in_forward_call = false;
                 let forward_match: OutOfScopeRewriteMatch | null = null;
                 for (const call_site of get_visible_forward_call_sites(
                     resolved_scope,
                     diag_line
                 )) {
-                    if (this.is_symbol_in_forward_call(
-                            symbol_name,
-                            call_site.symbols,
-                            my_diagnostic.code,
-                            call_site.effective_type,
-                            document.uri,
-                            reference_kind
-                        )) {
-                        found_in_forward_call = true;
-                        break;
-                    }
                     if (this.is_symbol_excluded_by_forward_call(
                             symbol_name,
                             call_site,
@@ -396,9 +384,6 @@ export class DiagnosticsProvider {
                             },
                         };
                     }
-                }
-                if (found_in_forward_call) {
-                    continue;
                 }
                 if (forward_match) {
                     if (this.is_symbol_defined_in_current_document(

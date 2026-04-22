@@ -62,7 +62,6 @@ describe('Comprehensive Integration Tests', () => {
                 max_indexed_files: 1000,
                 assume_call_site: 'end',
                 diagnostics: {
-                    out_of_scope: 'info',
                     missing_file: 'warning',
                 },
             },
@@ -108,7 +107,6 @@ gen new_var = undefined_var`;
                 cross_file: {
                     ...config.cross_file,
                     diagnostics: {
-                        out_of_scope: 'off' as const,
                         missing_file: 'off' as const,
                     },
                 },
@@ -120,7 +118,7 @@ gen new_var = undefined_var`;
             const cross_file_diags = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO ||
                      d.code === StataDiagnosticCode.UNDEFINED_VARIABLE ||
-                     d.code === StataDiagnosticCode.OUT_OF_SCOPE ||
+                     d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL ||
                      d.code === StataDiagnosticCode.MISSING_FILE
             );
             
@@ -146,7 +144,6 @@ local result \`undefined_macro'`;
                 cross_file: {
                     ...config.cross_file,
                     diagnostics: {
-                        out_of_scope: 'info' as const,
                         missing_file: 'off' as const,
                     },
                 },
