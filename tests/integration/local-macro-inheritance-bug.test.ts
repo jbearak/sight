@@ -85,7 +85,7 @@ describe('Local Macro Inheritance Bug', () => {
         );
         expect(macro_diagnostics.length).toBe(1);
         expect(macro_diagnostics[0].message).toContain(
-            'local macros are not inherited via `do` or `run`'
+            'local macros are not inherited via do or run'
         );
         expect(macro_diagnostics[0].message).not.toContain('after the call site');
     });

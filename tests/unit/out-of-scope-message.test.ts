@@ -19,7 +19,7 @@ describe('format_out_of_scope_message', () => {
                 source_file: 'parent.do',
             })
         ).toBe(
-            "`foo' is defined in parent.do but local macros are not inherited via `do` or `run` (write `include` instead)"
+            "`foo' is defined in parent.do but local macros are not inherited via do or run (use include instead)"
         );
     });
 

@@ -113,7 +113,7 @@ describe('Out-of-Scope Diagnostic Message Bug - Exact Scenario', () => {
         
         expect(country_name_diagnostic).toBeDefined();
         expect(country_name_diagnostic!.message).toContain(
-            'local macros are not inherited via `do` or `run`'
+            'local macros are not inherited via do or run'
         );
         expect(country_name_diagnostic!.message).not.toContain('after the call site');
     });
@@ -188,7 +188,7 @@ describe('Out-of-Scope Diagnostic Message Bug - Exact Scenario', () => {
         
         for (const diagnostic of survey_local_diagnostics) {
             expect(diagnostic.message).toContain(
-                'local macros are not inherited via `do` or `run`'
+                'local macros are not inherited via do or run'
             );
             expect(diagnostic.message).not.toContain('after the call site');
         }

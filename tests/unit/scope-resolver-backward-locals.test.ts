@@ -85,7 +85,7 @@ describe('Backward directive locals inheritance', () => {
         const out_of_scope = gp_local_diag.find(d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL);
         if (out_of_scope) {
             expect(out_of_scope.message).toContain(
-                'local macros are not inherited via `do` or `run`'
+                'local macros are not inherited via do or run'
             );
         }
     });
