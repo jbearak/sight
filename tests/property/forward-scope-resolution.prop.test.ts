@@ -180,13 +180,48 @@ global callee_global = 2
 
     // Property 30: Duplicate Do/Run Call Optimization
     describe('Property 30: Duplicate Do/Run Call Optimization', () => {
-        test('should_process_call returns skip for duplicate do', () => {
+        test('should_process_call returns boundary_only for duplicate do', () => {
+            // Historical note: the resolver used to return `skip` here as a
+            // pure performance optimization, but that dropped the second
+            // direct do/run call's blame claim — the rewrite at the outer
+            // iteration never saw the later boundary even though
+            // counterfactually promoting it would rebind names. Codex's
+            // audit (2026-04) flagged the resulting disagreement with the
+            // oracle; the current contract is `boundary_only`, which
+            // skips symbol merge and nested recursion but still emits an
+            // excluded_locals claim.
             const visited = new Map<string, 'do' | 'include'>();
             visited.set('file:///callee.do', 'do');
 
             const decision = forward_resolver.should_process_call(
                 'file:///callee.do',
                 'do',
+                visited
+            );
+
+            expect(decision.action).toBe('boundary_only');
+        });
+
+        test('should_process_call returns boundary_only for duplicate run', () => {
+            const visited = new Map<string, 'do' | 'include'>();
+            visited.set('file:///callee.do', 'do');
+
+            const decision = forward_resolver.should_process_call(
+                'file:///callee.do',
+                'run',
+                visited
+            );
+
+            expect(decision.action).toBe('boundary_only');
+        });
+
+        test('should_process_call still returns skip for duplicate include', () => {
+            const visited = new Map<string, 'do' | 'include'>();
+            visited.set('file:///callee.do', 'include');
+
+            const decision = forward_resolver.should_process_call(
+                'file:///callee.do',
+                'include',
                 visited
             );
 

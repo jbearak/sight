@@ -61,6 +61,19 @@ export {
   arbitrary_document_with_mixed_symbols,
 } from './documents';
 
+// Forward-call graph generators (used by oracle-backed property tests)
+export {
+  arbitrary_forward_call_graph,
+  render_file,
+  MACRO_NAME_POOL,
+} from './forward-call-graphs';
+export type {
+  ForwardCallGraph,
+  FileSpec,
+  FileEvent,
+  MacroName,
+} from './forward-call-graphs';
+
 // Section generators
 export {
   arbitrary_section_name,

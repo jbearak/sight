@@ -820,6 +820,18 @@ export interface ForwardCallSite {
   call_line: number;        // 0-indexed line in caller
   symbols: SymbolTable;
   effective_type: EffectiveCallType;
+  // Effective end-of-execution top-level local macros of the callee,
+  // computed as the include-only end state of the callee's sub-chain.
+  // Populated ONLY on direct-child `do`/`run` sites (calls made from the
+  // file being resolved whose original type is `do`/`run`). A blame entry
+  // represents "if this one call were promoted to `include`, the
+  // referenced local would be bound here" — so the diagnostic can point
+  // at the file whose `local` statement actually wins under that one-line
+  // fix. Nested sites flattened from a deeper `resolve()` always arrive
+  // with `excluded_locals: undefined`; their blame would correspond to a
+  // different boundary promotion than the one the outer diagnostic's
+  // message suggests.
+  excluded_locals?: Map<string, MacroSymbol>;
 }
 
 export interface ForwardResolvedScope {
@@ -841,4 +853,16 @@ export interface ContentProvider {
 export type DuplicateCallDecision =
   | { action: 'skip' }
   | { action: 'process' }
-  | { action: 'add_locals_only' };
+  | { action: 'add_locals_only' }
+  // Previously-visited callee is being invoked again via `do`/`run`.
+  // Symbol accumulation is unchanged (do/run don't propagate locals), but
+  // this is still a distinct root-level boundary: the second `do`/`run`
+  // can be promoted to `include` independently of the first, and that
+  // promotion may expose a different file's `local X` than the first
+  // visit's callee would. Emit a barrier-only site so the diagnostic
+  // rewrite can blame the second boundary under last-visible-site
+  // precedence. Note: `resolve()` gates the meaningful handling of this
+  // variant to `depth === 0`; nested-depth occurrences are short-
+  // circuited because the flattening loop strips `excluded_locals` on
+  // bubbled-up nested sites.
+  | { action: 'boundary_only' };

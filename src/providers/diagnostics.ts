@@ -259,13 +259,27 @@ export class DiagnosticsProvider {
                         }
                     }
                     
-                    // Check if symbol is out-of-scope (defined after call site or excluded by inheritance)
-                    // Only match out-of-scope symbols of the same type as the reference
+                    // Check if symbol is out-of-scope (defined after call site or
+                    // excluded by inheritance). This path rewrites an existing
+                    // undefined-symbol diagnostic; it is not an independent
+                    // diagnostic source.
+                    // Only match out-of-scope symbols of the same type as the
+                    // reference.
                     const reference_scope = this.extract_macro_scope_from_diagnostic(my_diagnostic);
                     const out_of_scope = resolved_scope.out_of_scope_symbols.find(
                         s => s.name === symbol_name && this.out_of_scope_type_matches_reference(s.type, reference_scope)
                     );
                     if (out_of_scope) {
+                        // Suppress the rewrite when the base undefined-symbol
+                        // diagnostic is disabled. OUT_OF_SCOPE_SYMBOL is a
+                        // rewrite, not an independent source, so turning off
+                        // the base should also silence the rewrite.
+                        const base_severity = my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                            ? config.diagnostics.severity.undefinedMacro
+                            : config.diagnostics.severity.undefinedVariable;
+                        if (base_severity === 'off') {
+                            continue;
+                        }
                         // Check config severity for out-of-scope
                         const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
                         if (out_of_scope_severity === 'off') {
@@ -302,15 +316,78 @@ export class DiagnosticsProvider {
                 if (symbol_name) {
                     const diag_line = my_diagnostic.range.start.line;
                     let found_in_forward_call = false;
+                    let excluded_callee_uri: string | undefined;
+                    const reference_scope = this.extract_macro_scope_from_diagnostic(my_diagnostic);
                     for (const call_site of get_visible_forward_call_sites(resolved_scope, diag_line)) {
                         if (this.is_symbol_in_forward_call(
                                 symbol_name, call_site.symbols, my_diagnostic.code, call_site.effective_type)) {
                             found_in_forward_call = true;
                             break;
                         }
+                        if (this.is_symbol_excluded_by_forward_call(
+                                symbol_name,
+                                call_site,
+                                my_diagnostic.code,
+                                reference_scope
+                            )) {
+                            // Forward-call symbol precedence is last visible site wins.
+                            // Blame the callee whose local is the effective
+                            // end-of-execution winner for this site's chain
+                            // (see ForwardScopeResolver.compute_effective_end_state_locals).
+                            // Fall back to the direct-child's URI if the
+                            // symbol's sourceUri is missing.
+                            const effective = call_site.excluded_locals?.get(symbol_name);
+                            excluded_callee_uri = effective?.sourceUri ?? call_site.callee_uri;
+                        }
                     }
                     if (found_in_forward_call) {
                         continue;
+                    }
+                    if (excluded_callee_uri) {
+                        // Suppress the rewrite when the base undefined-symbol
+                        // diagnostic is disabled. See comment in the backward
+                        // path above.
+                        const base_severity = my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                            ? config.diagnostics.severity.undefinedMacro
+                            : config.diagnostics.severity.undefinedVariable;
+                        if (base_severity === 'off') {
+                            continue;
+                        }
+                        const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
+                        if (out_of_scope_severity !== 'off') {
+                            if (this.is_symbol_defined_in_current_document(
+                                    symbol_name,
+                                    document.symbols,
+                                    my_diagnostic.code,
+                                    document.uri,
+                                    reference_scope
+                                )) {
+                                // Preserve the analyzer's same-file
+                                // forward-reference diagnostic instead of
+                                // replacing it with cross-file advice. This
+                                // intentionally keeps same-file forward
+                                // references gated by the base undefined-symbol
+                                // severity settings.
+                                const converted = this.convert_semantic_diagnostic(
+                                    my_diagnostic,
+                                    config,
+                                    document
+                                );
+                                if (converted) {
+                                    the_diagnostics.push(converted);
+                                }
+                                continue;
+                            }
+                            const source_file = excluded_callee_uri.split('/').pop() || excluded_callee_uri;
+                            the_diagnostics.push({
+                                range: my_diagnostic.range,
+                                message: `'${symbol_name}' is defined in ${source_file} but local macros are not inherited via do/run (use include or @lsp-include)`,
+                                severity: this.cross_file_severity_to_lsp(out_of_scope_severity),
+                                source: 'sight',
+                                code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
+                            });
+                            continue;
+                        }
                     }
                 }
             }
@@ -868,10 +945,93 @@ export class DiagnosticsProvider {
     }
 
     /**
+     * Check whether the current document defines the referenced symbol itself.
+     * Used to preserve same-file forward-reference diagnostics when a matching
+     * name also exists in an excluded forward-called file.
+     *
+     * NOTE: program-scoped locals in the current file are intentionally treated
+     * as "same-file" here. A narrower formulation that excluded them was tried
+     * and reverted on 2026-04-21 (commits b852e1c, 3ac1904, 12dc34c, 1e38388)
+     * because the callee-aware "use include" rewrite then fires at top-level
+     * references even when the only local with that name lives inside a
+     * different program body — which is actively misleading. The remaining
+     * design question of emitting a distinct, accurate message for
+     * scope-isolated same-file locals is tracked in
+     * https://github.com/jbearak/sight/issues/145. Do not re-narrow this
+     * guard without resolving that issue.
+     */
+    private is_symbol_defined_in_current_document(
+        symbol_name: string,
+        symbols: SymbolTable,
+        diagnostic_code: number,
+        current_document_uri: string,
+        reference_scope?: 'local' | 'global' | null
+    ): boolean {
+        const is_from_current_document = (
+            symbol: { sourceUri?: string; location?: { uri: string } } | undefined
+        ): boolean => {
+            if (!symbol) {
+                return false;
+            }
+            return symbol.sourceUri === current_document_uri
+                || symbol.location?.uri === current_document_uri;
+        };
+
+        if (diagnostic_code === StataDiagnosticCode.UNDEFINED_MACRO) {
+            if (reference_scope === 'local') {
+                return is_from_current_document(symbols.localMacros.get(symbol_name));
+            }
+            if (reference_scope === 'global') {
+                return is_from_current_document(symbols.globalMacros.get(symbol_name));
+            }
+            return is_from_current_document(symbols.localMacros.get(symbol_name))
+                || is_from_current_document(symbols.globalMacros.get(symbol_name));
+        }
+
+        if (diagnostic_code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+            return is_from_current_document(symbols.variables.get(symbol_name))
+                || is_from_current_document(symbols.scalars?.get(symbol_name))
+                || is_from_current_document(symbols.matrices?.get(symbol_name));
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if an undefined-symbol reference would have been resolved by a
+     * forward-called file, except that the call's effective type excludes this
+     * kind of symbol. Currently only one such case exists: a local macro
+     * defined in a file reached via `do`/`run` (locals don't propagate across
+     * those boundaries — only `include` inherits locals).
+     *
+     * Returning true signals the caller to rewrite the existing undefined
+     * local-macro diagnostic into a more informative OUT_OF_SCOPE_SYMBOL
+     * diagnostic. This rewrite still depends on the base undefined-symbol
+     * diagnostic path being enabled.
+     */
+    private is_symbol_excluded_by_forward_call(
+        symbol_name: string,
+        call_site: import('../types').ForwardCallSite,
+        diagnostic_code: number,
+        reference_scope: 'local' | 'global' | null | undefined,
+    ): boolean {
+        if (diagnostic_code !== StataDiagnosticCode.UNDEFINED_MACRO) {
+            return false;
+        }
+        if (reference_scope === 'global') {
+            return false;
+        }
+        if (call_site.effective_type !== 'do') {
+            return false;
+        }
+        return call_site.excluded_locals?.has(symbol_name) ?? false;
+    }
+
+    /**
      * Check if a symbol is defined in forward call symbols (from current file's forward calls).
      * Unlike is_symbol_defined_in_scope, this does NOT filter by sourceUri because
      * forward calls from the current file should suppress warnings after the call site.
-     * 
+     *
      * For local macros, only 'include' calls contribute locals; 'do'/'run' calls do not.
      */
     private is_symbol_in_forward_call(
