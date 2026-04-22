@@ -424,12 +424,17 @@ order, accounting for cross-file relationships and call sites.
    file
 2. **Cross-file call sites**: Only symbols defined on or before the call site
    in the parent file are considered available
-3. **Out-of-scope warnings**: References to symbols defined after the call site
-   generate warnings
+3. **Out-of-scope rewrites**: When a referenced symbol exists but is
+   unreachable, the generic undefined-symbol diagnostic is replaced with a
+   more specific `OUT_OF_SCOPE_SYMBOL` message
 
 **Out-of-scope symbol handling:**
-- Symbols defined after the call site are flagged as "out-of-scope"
-- These symbols appear in completions but generate warnings when used
+- Symbols defined after the call site remain available for completions and
+  hover, but diagnostics rewrite the base undefined-symbol warning into a more
+  specific out-of-scope message
+- Same-file later definitions use `used before it is defined (line N)`
+- `do`/`run` chains that would only expose a local under `include` report that
+  locals are not inherited via `do`/`run`
 - Use `line=` or `match=` parameters to specify exact call sites when
   automatic detection is incorrect
 
@@ -592,7 +597,6 @@ Cross-file resolution is configured via `.sight.json` in your workspace root.
 | `crossFile.maxChainDepth`                     | number   | `20`            | Maximum combined depth for forward + backward resolution |
 | `crossFile.maxCalleeRevalidations`            | number   | `10`            | Maximum open callee documents to revalidate per change |
 | `crossFile.assumeCallSite`                    | string   | `"end"`         | Where to assume call site when inference fails (`"end"` or `"start"`) |
-| `crossFile.diagnostics.outOfScope`            | severity | `"information"` | Severity used when rewriting undefined-symbol diagnostics as out-of-scope cross-file diagnostics; if the base undefined-macro/variable diagnostic is off, nothing is emitted |
 | `crossFile.diagnostics.missingFile`           | severity | `"warning"`     | Severity for missing directive file diagnostics        |
 | `crossFile.diagnostics.callSiteIdentification`| severity | `"information"` | Severity for call site identification diagnostics      |
 

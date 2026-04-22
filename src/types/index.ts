@@ -707,7 +707,6 @@ export interface CrossFileConfig {
   max_chain_depth: number;         // Overall limit for combined resolution
   max_callee_revalidations?: number;  // Maximum callees to revalidate per caller change (default: 10)
   diagnostics: {
-    out_of_scope: 'error' | 'warning' | 'information' | 'off';
     missing_file: 'error' | 'warning' | 'information' | 'off';
     max_depth: 'error' | 'warning' | 'information' | 'off';
     // Severity for call site identification diagnostics

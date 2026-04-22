@@ -63,10 +63,10 @@ export class StataExecutionOracle {
 
     /**
      * True when the referenced name is defined anywhere in the root file
-     * — even after the reference line. The LSP preserves the analyzer's
-     * UNDEFINED_MACRO diagnostic for in-root forward references instead
-     * of rewriting to OUT_OF_SCOPE_SYMBOL; see `src/providers/diagnostics.ts`
-     * around line 358 and issue #145.
+     * — even after the reference line. Those cases now use the same-file
+     * OUT_OF_SCOPE_SYMBOL rewrite (`used before it is defined`) rather than
+     * the forward-call blame rewrite, so oracle properties that are specific
+     * to forward-call attribution filter them out with this helper.
      */
     is_defined_in_root(): boolean {
         const my_root = this.graph.files[0];

@@ -13,9 +13,11 @@
  *   2. Rewrite attribution — if the reference is blocked by some
  *      do/run boundary but would have been bound under include, the LSP
  *      must emit exactly one OUT_OF_SCOPE_SYMBOL naming the file whose
- *      local is the effective (last-def-wins) definition.
+ *      local is the effective (last-def-wins) definition, unless a
+ *      same-file later definition wins with the same-file rewrite.
  *   3. Generic-warning completeness — if no ancestor defines the name at
- *      all, fall back to UNDEFINED_MACRO (no rewrite).
+ *      all and the root file does not define it later either, fall back
+ *      to UNDEFINED_MACRO (no rewrite).
  *
  * A `regression: pinned scenarios from code review` block below locks
  * the specific bugs this feature's history has hit, so the next Codex
@@ -166,11 +168,10 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties', () => {
                 const blame = oracle.blame_target_for();
                 fc.pre(blame !== null);
                 // When the name is also defined somewhere in root — even
-                // *after* the reference — the LSP intentionally preserves
-                // the analyzer's UNDEFINED_MACRO (same-file forward
-                // reference) rather than rewriting. The rewrite-attribution
-                // property doesn't apply in that case; see issue #145 and
-                // the in-root-forward-reference regression fixture below.
+                // *after* the reference — the same-file OUT_OF_SCOPE_SYMBOL
+                // rewrite wins over forward-call blame. This property is
+                // only about forward-call attribution, so filter those
+                // cases out.
                 fc.pre(!oracle.is_defined_in_root());
                 const h = create_harness();
                 try {
@@ -195,6 +196,7 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties', () => {
                 const oracle = new StataExecutionOracle(graph);
                 fc.pre(!oracle.is_visible_at());
                 fc.pre(oracle.blame_target_for() === null);
+                fc.pre(!oracle.is_defined_in_root());
                 const h = create_harness();
                 try {
                     const outcome = await diagnose_reference(h, graph);
@@ -268,6 +270,7 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, d
                 const oracle = new StataExecutionOracle(graph);
                 fc.pre(!oracle.is_visible_at());
                 fc.pre(oracle.blame_target_for() === null);
+                fc.pre(!oracle.is_defined_in_root());
                 const h = create_harness();
                 try {
                     const outcome = await diagnose_reference(h, graph);
@@ -484,45 +487,11 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         const informative = diags.find(
             d =>
                 d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
-                d.message.includes("'x'"),
+                d.message.includes("`x'"),
         );
         expect(informative).toBeDefined();
         expect(informative!.message).toContain('defs1.do');
         expect(informative!.message).not.toContain('grandchild.do');
-    });
-
-    // Commit 62c5703: preserve undefined macro fallback when
-    // cross_file.diagnostics.out_of_scope = off.
-    test('62c5703: out_of_scope=off keeps plain UNDEFINED_MACRO', async () => {
-        fs.writeFileSync(path.join(h.temp_dir, 'child.do'), 'local veggie beet');
-        const root_content = ['do "child.do"', 'di `veggie\''].join('\n');
-        const root_path = path.join(h.temp_dir, 'main.do');
-        fs.writeFileSync(root_path, root_content);
-        const root_uri = URI.file(root_path).toString();
-        await h.document_store.open(root_uri, root_content, 1);
-        const doc = h.document_store.get(root_uri)!;
-        const rewrite_off: StataLSPConfig = {
-            ...MIN_CONFIG,
-            cross_file: {
-                ...MIN_CONFIG.cross_file,
-                diagnostics: {
-                    out_of_scope: 'off',
-                },
-            },
-        } as unknown as StataLSPConfig;
-        const diags = await h.diagnostics_provider.get_diagnostics(
-            doc,
-            rewrite_off,
-            undefined,
-            h.scope_resolver,
-        );
-        const ref_line = diags.filter(d => d.range.start.line === 1);
-        expect(
-            ref_line.some(d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL),
-        ).toBe(false);
-        expect(
-            ref_line.some(d => d.code === StataDiagnosticCode.UNDEFINED_MACRO),
-        ).toBe(true);
     });
 
     // Codex Gap 5 (run-vs-do asymmetry): `run` should behave like `do` for
@@ -599,11 +568,10 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         expect(informative!.message).toContain('cycle_a.do');
     });
 
-    // Codex Gap 5 (out_of_scope severity passthrough): lowering
-    // cross_file.diagnostics.out_of_scope from warning to information
-    // must preserve the rewrite presence and message; only severity
-    // changes.
-    test('codex gap 5 (severity): out_of_scope severity change preserves presence and text', async () => {
+    // Codex Gap 5 (base severity passthrough): lowering undefinedMacro
+    // from warning to information must preserve the rewrite presence and
+    // message; only severity changes.
+    test('codex gap 5 (severity): base severity change preserves presence and text', async () => {
         fs.writeFileSync(path.join(h.temp_dir, 'severity_child.do'), 'local veggie beet');
         const root_content = ['do "severity_child.do"', 'di `veggie\''].join('\n');
         const root_path = path.join(h.temp_dir, 'main.do');
@@ -613,16 +581,22 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         const doc = h.document_store.get(root_uri)!;
         const warning_config: StataLSPConfig = {
             ...MIN_CONFIG,
-            cross_file: {
-                ...MIN_CONFIG.cross_file,
-                diagnostics: { out_of_scope: 'warning' },
+            diagnostics: {
+                ...MIN_CONFIG.diagnostics,
+                severity: {
+                    ...MIN_CONFIG.diagnostics.severity,
+                    undefinedMacro: 'warning',
+                },
             },
         } as unknown as StataLSPConfig;
         const info_config: StataLSPConfig = {
             ...MIN_CONFIG,
-            cross_file: {
-                ...MIN_CONFIG.cross_file,
-                diagnostics: { out_of_scope: 'information' },
+            diagnostics: {
+                ...MIN_CONFIG.diagnostics,
+                severity: {
+                    ...MIN_CONFIG.diagnostics.severity,
+                    undefinedMacro: 'information',
+                },
             },
         } as unknown as StataLSPConfig;
         const warn_diags = await h.diagnostics_provider.get_diagnostics(
@@ -650,15 +624,10 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         expect(info_rewrite!.severity).not.toBe(warn_rewrite!.severity);
     });
 
-    // In-root forward reference carve-out (issue #145): when the
-    // referenced local is also defined somewhere in root — even *after*
-    // the reference line — the LSP preserves the analyzer's
-    // UNDEFINED_MACRO (same-file forward reference) and suppresses the
-    // OUT_OF_SCOPE_SYMBOL rewrite, even if a forward-called file also
-    // defines the name. Property 2 filters this case out via
-    // `oracle.is_defined_in_root()`; this fixture pins the rule
-    // explicitly.
-    test('in-root forward reference: UNDEFINED_MACRO preserved, no rewrite', async () => {
+    // When the root file defines the same local later, the same-file
+    // rewrite wins over forward-call blame and uses the shared
+    // `used before it is defined` message.
+    test('in-root forward reference: same-file rewrite wins over forward-call blame', async () => {
         fs.writeFileSync(path.join(h.temp_dir, 'in_root_child.do'), 'local veggie child');
         const root_content = [
             'do "in_root_child.do"',
@@ -687,8 +656,11 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                 d.message.includes('veggie'),
         );
-        expect(rewrite).toBeUndefined();
-        expect(generic).toBeDefined();
+        expect(rewrite).toBeDefined();
+        expect(rewrite!.message).toBe(
+            "`veggie' is used before it is defined (line 3)",
+        );
+        expect(generic).toBeUndefined();
     });
 
     // Retained boundary_only contract: when root does A then does B,

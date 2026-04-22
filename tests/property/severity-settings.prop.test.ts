@@ -51,7 +51,6 @@ describe('Severity Settings Property Tests', () => {
                 max_indexed_files: 1000,
                 assume_call_site: 'end',
                 diagnostics: {
-                    out_of_scope: 'info',
                     missing_file: 'warning',
                     max_depth: 'information',
                 },

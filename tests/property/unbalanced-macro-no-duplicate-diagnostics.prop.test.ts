@@ -65,7 +65,6 @@ describe('Unbalanced Macro No Duplicate Diagnostics Property Tests', () => {
         max_chain_depth: 20,
         diagnostics: {
           undefined_symbol: 'warning',
-          out_of_scope: 'warning',
           missing_file: 'warning',
           max_depth: 'warning',
         },

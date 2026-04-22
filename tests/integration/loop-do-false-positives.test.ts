@@ -36,7 +36,6 @@ const DEFAULT_CONFIG = {
         max_forward_depth: 10,
         diagnostics: {
             undefined_symbol: 'warning' as const,
-            out_of_scope: 'info' as const,
             missing_file: 'warning' as const,
         },
     },
