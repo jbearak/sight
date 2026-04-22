@@ -141,7 +141,7 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties', () => {
         await fc.assert(
             fc.asyncProperty(arbitrary_forward_call_graph(), async graph => {
                 const oracle = new StataExecutionOracle(graph);
-                if (!oracle.is_visible_at()) return;
+                fc.pre(oracle.is_visible_at());
                 const h = create_harness();
                 try {
                     const outcome = await diagnose_reference(h, graph);
@@ -159,15 +159,16 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties', () => {
         await fc.assert(
             fc.asyncProperty(arbitrary_forward_call_graph(), async graph => {
                 const oracle = new StataExecutionOracle(graph);
-                if (oracle.is_visible_at()) return;
+                fc.pre(!oracle.is_visible_at());
                 const blame = oracle.blame_target_for();
-                if (blame === null) return;
+                fc.pre(blame !== null);
                 // When the name is also defined somewhere in root — even
                 // *after* the reference — the LSP intentionally preserves
                 // the analyzer's UNDEFINED_MACRO (same-file forward
                 // reference) rather than rewriting. The rewrite-attribution
-                // property doesn't apply in that case; see issue #145.
-                if (oracle.is_defined_in_root()) return;
+                // property doesn't apply in that case; see issue #145 and
+                // the in-root-forward-reference regression fixture below.
+                fc.pre(!oracle.is_defined_in_root());
                 const h = create_harness();
                 try {
                     const outcome = await diagnose_reference(h, graph);
@@ -175,7 +176,7 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties', () => {
                     // suppressed in favor of the informative message.
                     expect(outcome.out_of_scope_count).toBe(1);
                     expect(outcome.has_undefined_macro).toBe(false);
-                    const expected_file = oracle.get_file_name(blame);
+                    const expected_file = oracle.get_file_name(blame!);
                     expect(outcome.out_of_scope_messages[0]).toContain(expected_file);
                 } finally {
                     destroy_harness(h);
@@ -189,8 +190,8 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties', () => {
         await fc.assert(
             fc.asyncProperty(arbitrary_forward_call_graph(), async graph => {
                 const oracle = new StataExecutionOracle(graph);
-                if (oracle.is_visible_at()) return;
-                if (oracle.blame_target_for() !== null) return;
+                fc.pre(!oracle.is_visible_at());
+                fc.pre(oracle.blame_target_for() === null);
                 const h = create_harness();
                 try {
                     const outcome = await diagnose_reference(h, graph);
@@ -221,7 +222,7 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, d
         await fc.assert(
             fc.asyncProperty(deep_graph(), async graph => {
                 const oracle = new StataExecutionOracle(graph);
-                if (!oracle.is_visible_at()) return;
+                fc.pre(oracle.is_visible_at());
                 const h = create_harness();
                 try {
                     const outcome = await diagnose_reference(h, graph);
@@ -239,16 +240,16 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, d
         await fc.assert(
             fc.asyncProperty(deep_graph(), async graph => {
                 const oracle = new StataExecutionOracle(graph);
-                if (oracle.is_visible_at()) return;
+                fc.pre(!oracle.is_visible_at());
                 const blame = oracle.blame_target_for();
-                if (blame === null) return;
-                if (oracle.is_defined_in_root()) return;
+                fc.pre(blame !== null);
+                fc.pre(!oracle.is_defined_in_root());
                 const h = create_harness();
                 try {
                     const outcome = await diagnose_reference(h, graph);
                     expect(outcome.out_of_scope_count).toBe(1);
                     expect(outcome.has_undefined_macro).toBe(false);
-                    const expected_file = oracle.get_file_name(blame);
+                    const expected_file = oracle.get_file_name(blame!);
                     expect(outcome.out_of_scope_messages[0]).toContain(expected_file);
                 } finally {
                     destroy_harness(h);
@@ -262,8 +263,8 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, d
         await fc.assert(
             fc.asyncProperty(deep_graph(), async graph => {
                 const oracle = new StataExecutionOracle(graph);
-                if (oracle.is_visible_at()) return;
-                if (oracle.blame_target_for() !== null) return;
+                fc.pre(!oracle.is_visible_at());
+                fc.pre(oracle.blame_target_for() === null);
                 const h = create_harness();
                 try {
                     const outcome = await diagnose_reference(h, graph);
@@ -644,6 +645,47 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         // Message unchanged; only severity differs.
         expect(info_rewrite!.message).toBe(warn_rewrite!.message);
         expect(info_rewrite!.severity).not.toBe(warn_rewrite!.severity);
+    });
+
+    // In-root forward reference carve-out (issue #145): when the
+    // referenced local is also defined somewhere in root — even *after*
+    // the reference line — the LSP preserves the analyzer's
+    // UNDEFINED_MACRO (same-file forward reference) and suppresses the
+    // OUT_OF_SCOPE_SYMBOL rewrite, even if a forward-called file also
+    // defines the name. Property 2 filters this case out via
+    // `oracle.is_defined_in_root()`; this fixture pins the rule
+    // explicitly.
+    test('in-root forward reference: UNDEFINED_MACRO preserved, no rewrite', async () => {
+        fs.writeFileSync(path.join(h.temp_dir, 'in_root_child.do'), 'local veggie child');
+        const root_content = [
+            'do "in_root_child.do"',
+            'di `veggie\'',
+            'local veggie root',
+        ].join('\n');
+        const root_path = path.join(h.temp_dir, 'main.do');
+        fs.writeFileSync(root_path, root_content);
+        const root_uri = URI.file(root_path).toString();
+        await h.document_store.open(root_uri, root_content, 1);
+        const doc = h.document_store.get(root_uri)!;
+        const diags = await h.diagnostics_provider.get_diagnostics(
+            doc,
+            MIN_CONFIG,
+            undefined,
+            h.scope_resolver,
+        );
+        const ref_line_diags = diags.filter(d => d.range.start.line === 1);
+        const rewrite = ref_line_diags.find(
+            d =>
+                d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
+                d.message.includes('veggie'),
+        );
+        const generic = ref_line_diags.find(
+            d =>
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                d.message.includes('veggie'),
+        );
+        expect(rewrite).toBeUndefined();
+        expect(generic).toBeDefined();
     });
 
     // Retained boundary_only contract: when root does A then does B,

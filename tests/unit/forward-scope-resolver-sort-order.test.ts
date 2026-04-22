@@ -109,8 +109,9 @@ describe('compute_effective_end_state_locals sort order', () => {
             undefined,
         );
         expect(result.size).toBe(1);
-        const winner: MacroSymbol = result.get('veggie');
-        expect(winner.sourceUri).toBe(callee_uri);
+        const winner = result.get('veggie');
+        expect(winner).toBeDefined();
+        expect(winner!.sourceUri).toBe(callee_uri);
     });
 
     test('same-line local-then-include: include (later character) wins', async () => {
@@ -151,7 +152,8 @@ describe('compute_effective_end_state_locals sort order', () => {
             undefined,
         );
         expect(result.size).toBe(1);
-        const winner: MacroSymbol = result.get('veggie');
-        expect(winner.sourceUri).toBe(defs_uri);
+        const winner = result.get('veggie');
+        expect(winner).toBeDefined();
+        expect(winner!.sourceUri).toBe(defs_uri);
     });
 });

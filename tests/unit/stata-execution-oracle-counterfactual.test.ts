@@ -17,13 +17,21 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { StataExecutionOracle } from '../property/helpers/stata-execution-oracle';
-import { ForwardCallGraph } from '../property/generators/forward-call-graphs';
+import {
+    ForwardCallGraph,
+    FileEvent,
+    MacroName,
+} from '../property/generators/forward-call-graphs';
 
-function graph(files: { name: string; events: any[] }[], reference_event_index: number, reference_name: string): ForwardCallGraph {
+function graph(
+    files: { name: string; events: FileEvent[] }[],
+    reference_event_index: number,
+    reference_name: MacroName,
+): ForwardCallGraph {
     return {
         files: files.map(f => ({ filename: f.name, events: f.events })),
         reference_event_index,
-        reference_name: reference_name as any,
+        reference_name,
     };
 }
 
