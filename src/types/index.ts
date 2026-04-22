@@ -820,20 +820,17 @@ export interface ForwardCallSite {
   call_line: number;        // 0-indexed line in caller
   symbols: SymbolTable;
   effective_type: EffectiveCallType;
-  // Effective end-of-execution top-level local macros of the callee that
-  // were dropped because `effective_type` is 'do' (locals don't propagate
-  // across do/run). Reflects last-definition-wins in execution order:
-  // own `local` statements interleaved with any nested `include`s, so
-  // diagnostics blame the callee whose local actually shadows earlier
-  // ones. Populated on direct-child sites (those created for calls made
-  // from the file being resolved) whose `effective_type` is 'do'.
-  // Nested-site entries flattened from a deeper resolve() are handed off
-  // with a filtered copy: names already claimed by the enclosing
-  // direct-child site's `excluded_locals` are dropped to avoid
-  // double-counting, but any remaining entries are preserved so that
-  // deeper `do`-boundaries under an `include`-called direct-child still
-  // carry their blame target. Absent / empty map when no locals remain
-  // after filtering.
+  // Effective end-of-execution top-level local macros of the callee,
+  // computed as the include-only end state of the callee's sub-chain.
+  // Populated ONLY on direct-child `do`/`run` sites (calls made from the
+  // file being resolved whose original type is `do`/`run`). A blame entry
+  // represents "if this one call were promoted to `include`, the
+  // referenced local would be bound here" — so the diagnostic can point
+  // at the file whose `local` statement actually wins under that one-line
+  // fix. Nested sites flattened from a deeper `resolve()` always arrive
+  // with `excluded_locals: undefined`; their blame would correspond to a
+  // different boundary promotion than the one the outer diagnostic's
+  // message suggests.
   excluded_locals?: Map<string, MacroSymbol>;
 }
 
@@ -858,9 +855,11 @@ export type DuplicateCallDecision =
   | { action: 'process' }
   | { action: 'add_locals_only' }
   // Previously-visited callee is being invoked again via `do`/`run`.
-  // Its symbols are already accumulated (no new locals for caller,
-  // since locals don't cross do/run), but this is still a distinct
-  // blocking boundary: if promoted counterfactually it would make a
-  // different sub-chain visible at the reference. Emit an
-  // excluded_locals claim without re-merging symbols or recursing.
+  // Symbol accumulation is unchanged (do/run don't propagate locals), but
+  // this is still a distinct root-level boundary: the second `do`/`run`
+  // can be promoted to `include` independently of the first, and that
+  // promotion may expose a different file's `local X` than the first
+  // visit's callee would. Emit a barrier-only site so the diagnostic
+  // rewrite can blame the second boundary under last-visible-site
+  // precedence.
   | { action: 'boundary_only' };
