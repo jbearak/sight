@@ -6,9 +6,23 @@
  * `include`/`do`/`run` calls. File 0 is always the root — it contains the
  * reference event the oracle and property tests reason about. Non-root
  * callees can only target files with a strictly greater index, giving a
- * DAG with bounded depth (at most `file_count - 1`). The existing resolver
- * and the oracle both handle cycles, so the generator leaves that space
- * to regression fixtures rather than random inputs.
+ * DAG with bounded depth (at most `file_count - 1`). Revisits (same file
+ * reached via two DAG paths) DO occur and exercise the resolver's
+ * `should_process_call` / `boundary_only` dedup path.
+ *
+ * Scenarios not randomized here, kept as pinned regressions in the
+ * `regression: pinned scenarios from code review` block:
+ *   - Cycles (mutual include) — cycle-safety is unit-tested in
+ *     `tests/unit/forward-scope-resolver-effective-end-state.test.ts`
+ *     and pinned in the property test file.
+ *   - Same-line multi-statement rendering (`#delimit ;`) — requires
+ *     analyzer support for include-under-semicolon that is not yet in
+ *     place; sort-by-(line, character) is unit-tested in
+ *     `tests/unit/forward-scope-resolver-sort-order.test.ts` with
+ *     stubbed events.
+ *   - `@lsp-do` / `@lsp-run` / `@lsp-include` directive rendering —
+ *     parser treats them the same as the bare commands after parsing;
+ *     covered by directive-specific integration tests.
  */
 import * as fc from 'fast-check';
 

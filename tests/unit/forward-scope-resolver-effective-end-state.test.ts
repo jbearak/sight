@@ -88,17 +88,39 @@ describe('ForwardScopeResolver.compute_effective_end_state_locals', () => {
         expect(my_veggie.sourceUri).toContain('defs_local_then_include.do');
     });
 
-    test('nested `do` contributes nothing to the result (locals do not propagate)', async () => {
+    test('nested `do` contributes its locals counterfactually (promote-all model)', async () => {
+        // The helper computes the counterfactual end-state under "every
+        // do/run along this sub-chain is promoted to include". Real-Stata
+        // execution still blocks `do`, but the blame rewrite is a hint
+        // about what the user would see if the whole sub-chain were
+        // include'd — so nested `do` must contribute its locals here.
         const nested_path = path.join(temp_dir, 'nested_do_target.do');
         fs.writeFileSync(nested_path, 'local veggie beet');
         const my_path = path.join(temp_dir, 'nested_do.do');
         fs.writeFileSync(my_path, ['do "nested_do_target.do"', 'local fruit apple'].join('\n'));
         const result = await walk(my_path);
-        // fruit is the callee's own local; veggie is behind a `do` and
-        // must not appear.
-        expect(result.size).toBe(1);
         expect(result.has('fruit')).toBe(true);
-        expect(result.has('veggie')).toBe(false);
+        expect(result.has('veggie')).toBe(true);
+        // Last-def-wins across the chain: fruit from callee, veggie from
+        // the nested do target.
+        expect(result.get('veggie')!.sourceUri).toContain('nested_do_target.do');
+        expect(result.get('fruit')!.sourceUri).toContain('nested_do.do');
+    });
+
+    test('nested `do` that redefines an earlier include local: include wins when it comes after', async () => {
+        // Under the counterfactual-all-promote model, sub-chain local
+        // definitions overwrite earlier ones in source order. Here the
+        // `do` appears BEFORE the later own-local, so the own-local wins.
+        const nested_path = path.join(temp_dir, 'nested_do_redef.do');
+        fs.writeFileSync(nested_path, 'local shared beet');
+        const my_path = path.join(temp_dir, 'nested_do_overridden.do');
+        fs.writeFileSync(
+            my_path,
+            ['do "nested_do_redef.do"', 'local shared carrot'].join('\n'),
+        );
+        const result = await walk(my_path);
+        expect(result.size).toBe(1);
+        expect(result.get('shared')!.sourceUri).toContain('nested_do_overridden.do');
     });
 
     test('cycle terminates and returns empty without throwing', async () => {
@@ -111,8 +133,13 @@ describe('ForwardScopeResolver.compute_effective_end_state_locals', () => {
         expect(result.size).toBe(0);
     });
 
-    test('depth bound: exceeding max_forward_depth returns empty without throwing', async () => {
-        const my_path = path.join(temp_dir, 'depth_limited.do');
+    test('depth boundary: at max_forward_depth still surfaces own top-level locals', async () => {
+        // Callers invoke this helper with `my_context.depth + 1`, so a direct
+        // `do` child of the file at `depth == max - 1` arrives here at
+        // `depth == max`. It would be processed by the outer resolver, so the
+        // helper must also surface the callee's own locals for the
+        // diagnostic rewrite to name the blame file.
+        const my_path = path.join(temp_dir, 'at_max.do');
         fs.writeFileSync(my_path, 'local veggie beet');
         const callee_uri = URI.file(my_path).toString();
         const result = await (forward_resolver as any).compute_effective_end_state_locals(
@@ -120,8 +147,51 @@ describe('ForwardScopeResolver.compute_effective_end_state_locals', () => {
             my_path,
             undefined,
             new Set<string>(),
-            // depth starts at 10 — at-or-above max_forward_depth, should bail.
             10,
+            { max_forward_depth: 10 },
+            undefined,
+        );
+        expect(result.size).toBe(1);
+        expect(result.has('veggie')).toBe(true);
+    });
+
+    test('depth boundary: at max refuses to descend into own includes', async () => {
+        // The helper stops recursing once the next hop would exceed
+        // `max_forward_depth`, so nested-include locals from beyond the
+        // boundary should be absent even though own locals are present.
+        const nested_path = path.join(temp_dir, 'nested_defs_at_boundary.do');
+        fs.writeFileSync(nested_path, 'local nested_veggie beet');
+        const my_path = path.join(temp_dir, 'at_max_with_nested_include.do');
+        fs.writeFileSync(
+            my_path,
+            ['local own_veggie beet', 'include "nested_defs_at_boundary.do"'].join('\n'),
+        );
+        const callee_uri = URI.file(my_path).toString();
+        const result = await (forward_resolver as any).compute_effective_end_state_locals(
+            callee_uri,
+            my_path,
+            undefined,
+            new Set<string>(),
+            10,
+            { max_forward_depth: 10 },
+            undefined,
+        );
+        expect(result.has('own_veggie')).toBe(true);
+        expect(result.has('nested_veggie')).toBe(false);
+    });
+
+    test('depth beyond max: returns empty without throwing', async () => {
+        // Past the boundary, we don't process the file at all — any symbols
+        // claimed here would misattribute blame past the configured depth.
+        const my_path = path.join(temp_dir, 'past_max.do');
+        fs.writeFileSync(my_path, 'local veggie beet');
+        const callee_uri = URI.file(my_path).toString();
+        const result = await (forward_resolver as any).compute_effective_end_state_locals(
+            callee_uri,
+            my_path,
+            undefined,
+            new Set<string>(),
+            11,
             { max_forward_depth: 10 },
             undefined,
         );

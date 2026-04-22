@@ -2,33 +2,26 @@
  * Stata execution oracle for forward-call graphs.
  *
  * Ground truth for `tests/property/forward-call-out-of-scope-oracle.prop.test.ts`.
- * Implemented independently from `ForwardScopeResolver` — it uses simpler,
- * structurally different data flow (a linear flattened list of call sites
- * + last-match-wins resolution) so that regressions in the resolver don't
- * silently reproduce in the oracle.
+ * Derived from Stata runtime semantics, not from `ForwardScopeResolver`'s
+ * algorithm — so a resolver bug cannot silently propagate into the oracle.
  *
  * Semantics modelled:
  *
- *  - `is_visible_at()` — real Stata semantics: a stack-based simulator
- *    pushes a fresh scope on `do`/`run` and keeps the caller's scope on
- *    `include`. Reports whether the referenced name is bound when the
- *    reference event fires.
+ *  - `is_visible_at()` — real Stata: a scope stack pushes a fresh scope on
+ *    `do`/`run` and keeps the caller's scope on `include`. Reports whether
+ *    the referenced name is bound when the reference event fires.
  *
- *  - `blame_target_for()` — last-matching-claim wins. Each `do`/`run`
- *    boundary reachable at-or-before the reference becomes a claim whose
- *    payload is the callee's include-chain end-of-execution locals.
- *    Deeper nested claims are filtered against the shallower direct-child
- *    they bubble through, so a name already claimed by a shallower
- *    sibling doesn't get re-claimed by a deeper one (matching the LSP's
- *    `excluded_locals` filtering). Among claims that survive filtering,
- *    the last one in source order wins.
+ *  - `blame_target_for()` — counterfactual "all-include" Stata: promote
+ *    every `do`/`run` boundary reachable from the root to `include`,
+ *    execute the flattened chain in source order, and return the file
+ *    index whose `local X` most recently bound the referenced name before
+ *    the reference event fires. The resolver's flattening, dedup, and
+ *    excluded-locals filtering are *not* mirrored: the oracle re-runs
+ *    each callee as the simulator encounters it (stopping only on the
+ *    current recursion path to avoid infinite loops), and the final
+ *    binding of the referenced name is the blame file.
  */
 import { ForwardCallGraph } from '../generators/forward-call-graphs';
-
-interface Claim {
-    /** Map from local name → file index that defined it in the include walk. */
-    end_state: Map<string, number>;
-}
 
 export class StataExecutionOracle {
     constructor(private graph: ForwardCallGraph) {}
@@ -39,15 +32,15 @@ export class StataExecutionOracle {
     }
 
     blame_target_for(): number | null {
-        const the_claims = this.collect_claims_at_ref();
-        let my_winner: number | null = null;
-        for (const my_claim of the_claims) {
-            const my_owner = my_claim.end_state.get(this.graph.reference_name);
-            if (my_owner !== undefined) {
-                my_winner = my_owner;
-            }
-        }
-        return my_winner;
+        // Counterfactual: promote every do/run to include and re-execute
+        // the reachable chain from the root. Every `local X` overwrites
+        // prior bindings (last-def-wins). The result is the file that
+        // last bound `reference_name` before the reference event fires.
+        const the_scope = new Map<string, number>();
+        const reached = this.walk_counterfactual(0, the_scope, new Set<number>());
+        if (!reached) return null;
+        const my_winner = the_scope.get(this.graph.reference_name);
+        return my_winner ?? null;
     }
 
     get_file_name(file_index: number): string {
@@ -77,8 +70,7 @@ export class StataExecutionOracle {
     /**
      * Stack-based real-Stata simulation. Returns the current top-of-stack
      * scope when the reference event is reached in the root file, or
-     * `null` if the reference is never reached (unreachable by the
-     * simulation — shouldn't happen with well-formed graphs).
+     * `null` if the reference is never reached.
      */
     private simulate_stack_until_ref(): Map<string, number> | null {
         const scope_stack: Map<string, number>[] = [new Map()];
@@ -121,125 +113,51 @@ export class StataExecutionOracle {
     }
 
     /**
-     * Walks an individual file through `include` events only, following
-     * the last-def-wins rule across its own `local` statements and the
-     * recursively-included files. Used to compute the payload a `do`/`run`
-     * boundary would carry (i.e., what the caller would see if the
-     * boundary were `include`).
+     * Counterfactual walk: every `include`/`do`/`run` expands inline into
+     * a single shared scope. Walks the root forward-order until the
+     * reference event fires. Returns `true` once the reference is
+     * reached; returns `false` if the walk exhausts without finding it.
+     *
+     * Cycle protection is per-call-path (`current_path`) rather than a
+     * global visited set, matching real Stata's re-execution on each
+     * call and preserving the last-def-wins ordering that two separate
+     * visits to the same file can introduce.
      */
-    private include_chain_end_state(
+    private walk_counterfactual(
         file_index: number,
-        visited: Set<number>,
-    ): Map<string, number> {
-        if (visited.has(file_index)) return new Map();
-        const my_visited = new Set(visited);
-        my_visited.add(file_index);
-        const the_end_state = new Map<string, number>();
-        const my_file = this.graph.files[file_index];
-        for (const my_event of my_file.events) {
-            if (my_event.kind === 'define_local') {
-                the_end_state.set(my_event.name, file_index);
-            } else if (my_event.kind === 'include_call') {
-                const nested = this.include_chain_end_state(my_event.target, my_visited);
-                for (const [my_name, my_file_index] of nested) {
-                    the_end_state.set(my_name, my_file_index);
+        scope: Map<string, number>,
+        current_path: Set<number>,
+    ): boolean {
+        if (current_path.has(file_index)) return false;
+        current_path.add(file_index);
+        try {
+            const my_file = this.graph.files[file_index];
+            for (let i = 0; i < my_file.events.length; i++) {
+                const my_event = my_file.events[i];
+                if (
+                    file_index === 0 &&
+                    i === this.graph.reference_event_index
+                ) {
+                    return true;
+                }
+                if (my_event.kind === 'define_local') {
+                    scope.set(my_event.name, file_index);
+                } else if (
+                    my_event.kind === 'include_call' ||
+                    my_event.kind === 'do_call' ||
+                    my_event.kind === 'run_call'
+                ) {
+                    const reached = this.walk_counterfactual(
+                        my_event.target,
+                        scope,
+                        current_path,
+                    );
+                    if (reached) return true;
                 }
             }
-            // do/run contribute nothing to the include-chain walk.
-        }
-        return the_end_state;
-    }
-
-    /**
-     * Produce the flattened list of claims that would survive at root's
-     * reference. Mirrors the LSP's flattening: each `do`/`run` reachable
-     * via any call type creates a claim, and claims that bubble up
-     * through a shallower direct-child have their names filtered against
-     * that direct-child's claim. Also mirrors the resolver's dedup rule:
-     * a file visited once as `do` won't be re-processed for another
-     * `do`/`run`, and a file visited as `include` won't be re-processed
-     * at all.
-     */
-    private collect_claims_at_ref(): Claim[] {
-        const the_claims: Claim[] = [];
-        // Shared across the whole walk so sibling branches see each
-        // other's visits (matches `ForwardResolveContext.visited`).
-        const visited = new Map<number, 'include' | 'do'>();
-        this.resolve_file(0, this.graph.reference_event_index, 'include', visited, the_claims);
-        return the_claims;
-    }
-
-    private resolve_file(
-        file_index: number,
-        stop_event_index: number | null,
-        parent_effective: 'include' | 'do',
-        visited: Map<number, 'include' | 'do'>,
-        out_claims: Claim[],
-    ): void {
-        const my_file = this.graph.files[file_index];
-        const limit = stop_event_index ?? my_file.events.length;
-        for (let i = 0; i < limit; i++) {
-            const my_event = my_file.events[i];
-            if (
-                my_event.kind !== 'include_call' &&
-                my_event.kind !== 'do_call' &&
-                my_event.kind !== 'run_call'
-            ) {
-                continue;
-            }
-            const call_type: 'include' | 'do' =
-                my_event.kind === 'include_call' ? 'include' : 'do';
-            const my_effective: 'include' | 'do' =
-                parent_effective === 'do' || call_type === 'do' ? 'do' : 'include';
-
-            // Dedup: matches `should_process_call` on the resolver side.
-            const my_prev = visited.get(my_event.target);
-            let action: 'process' | 'skip' | 'add_locals_only';
-            if (my_prev === undefined) {
-                action = 'process';
-            } else if (my_prev === 'include') {
-                action = 'skip';
-            } else if (call_type === 'include') {
-                // Previously visited as `do`; an `include` to the same
-                // file only adds its already-known locals. Doesn't create
-                // a new blame claim.
-                action = 'add_locals_only';
-            } else {
-                action = 'skip';
-            }
-            if (action === 'skip') continue;
-            visited.set(my_event.target, my_effective);
-            if (action === 'add_locals_only') continue;
-
-            // Direct-child claim for this call.
-            let direct_claim: Map<string, number> | null = null;
-            if (my_effective === 'do') {
-                const the_end_state = this.include_chain_end_state(my_event.target, new Set());
-                if (the_end_state.size > 0) {
-                    direct_claim = the_end_state;
-                    out_claims.push({ end_state: the_end_state });
-                }
-            }
-            // Recurse into the callee; collect its claims into a scratch
-            // list, filter against `direct_claim`, then append to out_claims.
-            const the_nested: Claim[] = [];
-            this.resolve_file(my_event.target, null, my_effective, visited, the_nested);
-            for (const my_nested of the_nested) {
-                let filtered_end_state: Map<string, number>;
-                if (direct_claim !== null) {
-                    filtered_end_state = new Map();
-                    for (const [my_name, my_file_index] of my_nested.end_state) {
-                        if (!direct_claim.has(my_name)) {
-                            filtered_end_state.set(my_name, my_file_index);
-                        }
-                    }
-                } else {
-                    filtered_end_state = my_nested.end_state;
-                }
-                if (filtered_end_state.size > 0) {
-                    out_claims.push({ end_state: filtered_end_state });
-                }
-            }
+            return false;
+        } finally {
+            current_path.delete(file_index);
         }
     }
 }

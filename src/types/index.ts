@@ -856,4 +856,11 @@ export interface ContentProvider {
 export type DuplicateCallDecision =
   | { action: 'skip' }
   | { action: 'process' }
-  | { action: 'add_locals_only' };
+  | { action: 'add_locals_only' }
+  // Previously-visited callee is being invoked again via `do`/`run`.
+  // Its symbols are already accumulated (no new locals for caller,
+  // since locals don't cross do/run), but this is still a distinct
+  // blocking boundary: if promoted counterfactually it would make a
+  // different sub-chain visible at the reference. Emit an
+  // excluded_locals claim without re-merging symbols or recursing.
+  | { action: 'boundary_only' };
