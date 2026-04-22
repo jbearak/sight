@@ -343,12 +343,14 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         );
         const ref_line_diags = diags.filter(d => d.range.start.line === 1);
         const rewrite = ref_line_diags.find(
-            d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
-                 d.message.includes('veggie'),
+            d =>
+                d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
+                d.message.includes('veggie'),
         );
         const generic = ref_line_diags.find(
-            d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                 d.message.includes('veggie'),
+            d =>
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                d.message.includes('veggie'),
         );
         expect(rewrite).toBeUndefined();
         expect(generic).toBeDefined();
@@ -476,8 +478,9 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
             h.scope_resolver,
         );
         const informative = diags.find(
-            d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
-                 d.message.includes("'x'"),
+            d =>
+                d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
+                d.message.includes("'x'"),
         );
         expect(informative).toBeDefined();
         expect(informative!.message).toContain('defs1.do');

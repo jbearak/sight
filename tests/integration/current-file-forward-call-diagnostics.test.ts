@@ -419,12 +419,14 @@ di \`veggie'`;
             );
         });
 
-        it('should emit OUT_OF_SCOPE_SYMBOL for do nested under include chain (Bug B regression)', async () => {
-            // Bug B: main includes child, which does grandchild. The
-            // direct-child site (include) has no excluded_locals, so the
-            // deeper `do`-boundary beneath it was losing its only carrier.
-            // Expected: OUT_OF_SCOPE_SYMBOL rewrite blaming grandchild.do
-            // ("locals are not inherited via do/run"). Not generic undefined.
+        it('falls back to generic UNDEFINED_MACRO for do nested under include chain (Bug B)', async () => {
+            // Bug B used to emit a specific OUT_OF_SCOPE_SYMBOL rewrite under
+            // the all-promotion model. Under single-boundary semantics the
+            // root-level boundary in this scenario is `include` (not `do`), so
+            // no one-line fix on a root `do`/`run` would expose the deep
+            // binding defined in the grandchild. The diagnostic therefore
+            // falls back to generic UNDEFINED_MACRO instead of the specific
+            // "locals are not inherited via do/run" rewrite.
             const grandchild_path = join(test_temp_dir, 'bug_b_grandchild.do');
             const grandchild_content = 'local veggie beet';
             writeFileSync(grandchild_path, grandchild_content);
@@ -454,18 +456,13 @@ di \`veggie'`;
                 d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
                     && d.message.includes('veggie')
             );
-            expect(informative).toBeDefined();
-            expect(informative!.message).toContain('bug_b_grandchild.do');
-            expect(informative!.message).toContain(
-                'local macros are not inherited via do/run'
-            );
+            expect(informative).toBeUndefined();
 
-            // The generic "Undefined local macro" should be suppressed in favor
-            // of the informative rewrite.
-            const plain_undefined = line1_diags.filter(
+            const plain_undefined = line1_diags.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes('veggie')
             );
-            expect(plain_undefined.length).toBe(0);
+            expect(plain_undefined).toBeDefined();
         });
 
         it('should NOT suggest switching to include when callee local is program-scoped', async () => {
