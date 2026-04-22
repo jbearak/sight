@@ -27,7 +27,7 @@ A separate issue (#148) tracks the larger question of unifying same-file and cro
 - Do all rewrites in the provider. The analyzer continues to emit `UNDEFINED_MACRO` / `UNDEFINED_VARIABLE` unchanged. Any current or future analyzer emission site for undefined symbols picks up the rewrite for free.
 - Add same-file forward-reference rewriting to the provider: when an undefined-macro / undefined-global reference has a matching later definition in the current document, emit `OUT_OF_SCOPE_SYMBOL` with `used before it is defined (line N)`.
 - Teach `extract_symbol_name_from_diagnostic` to parse `Potentially undefined variable: <name>` so the variable-diagnostic path can feed the rewrite.
-- Add proper reference-kind classification (`local | global | variable | null`) and tighten `out_of_scope_type_matches_reference` so a variable reference only matches a variable out-of-scope entry (and similarly for macros).
+- Add proper reference-kind classification (`local | global | variable | null`) and tighten `out_of_scope_type_matches_reference` so a variable reference only matches a variable out-of-scope entry (and similarly for macros). Scalars, matrices, and programs are deliberately excluded from variable-kind matching — see "Bare-identifier scoping" below.
 - Introduce a shared message helper in a neutral module (`src/utils/out-of-scope-message.ts`) that formats the message for any supported symbol kind and reason.
 - Ensure every rewrite goes through the existing `should_suppress_undefined_symbol` check so `@lsp-ignore` / `@lsp-ignore-next` are honored uniformly.
 
@@ -35,6 +35,7 @@ A separate issue (#148) tracks the larger question of unifying same-file and cro
 
 - Position-aware same-file forward-reference analysis for variables (see #147). The variable path only gains out-of-scope rewriting for diagnostics the analyzer already emits; it does not gain new forward-reference detection inside a single file.
 - Unifying same-file and cross-file enrichment into a general provider-side pipeline (see #148).
+- Scalar-aware analysis. Bare identifiers in expression contexts that act as scalars (e.g., `display x + 1` where `x` is a `scalar`) are not diagnosed today and remain un-diagnosed by this spec. A separate, opt-in strictness mode for scalar-like references is tracked in #149 and is explicitly non-blocking for this work.
 - Changing defaults for `sight.diagnostics.severity.undefinedMacro` or `undefinedVariable`. Both stay where they are. Stata is dynamic; the Pylance/Ruff model (warning by default, opt-in strict) fits better than the TypeScript model.
 - Any change to hover or completion out-of-scope behavior.
 - Migration support for the removed setting — see the next section.
@@ -146,6 +147,18 @@ Behavior:
 - `diagnostics.severity.undefinedVariable = 'off'` does the same for the variable-form rewrite.
 - The removed `crossFile.diagnostics.outOfScope` no longer participates; its absence does not introduce any new suppression case.
 
+### Bare-identifier scoping
+
+The scope resolver's `OutOfScopeSymbol.type` is a broad union: `'local' | 'global' | 'program' | 'variable' | 'scalar' | 'matrix'`. It is tempting to let an undefined-variable reference rewrite against any of these, since a bare identifier in Stata source code could, in principle, be any of them. This spec intentionally does not do that. The scope of the variable-diagnostic rewrite is narrow: **a variable-kind reference matches only a variable out-of-scope entry.**
+
+Justification:
+
+- **Matrices.** Matrix references in Stata are almost always mediated by matrix syntax (`matrix rowname`, `matrix list`, `mat x = ...`) or the `matrix()` function, not by bare identifiers in varlist positions. Matching `Potentially undefined variable: foo` against an out-of-scope matrix named `foo` would produce a misleading diagnostic telling the user a matrix is "out of scope" when their code actually meant a dataset variable.
+- **Programs.** Program references appear in command position, not varlist position. The analyzer emits `UNDEFINED_VARIABLE` only from varlist-position checks (`src/analyzer/index.ts:2356-2371`); a program of the same name is never the intended target.
+- **Scalars.** Scalar references in Stata are typically written as `scalar x` or `scalar(x)` in expression contexts, not as bare varlist identifiers. Matching `variable → scalar` could be useful in expression-position ambiguities, but the analyzer does not currently distinguish expression-position from varlist-position identifiers — the `UNDEFINED_VARIABLE` diagnostic is only emitted from varlist positions, so broadening the matcher without a classifier improvement would produce false positives in varlist contexts. The right path is to add an opt-in strictness mode (tracked in #149) that first teaches the analyzer to detect scalar-like positions, then widens the matcher in concert.
+
+In short: this spec keeps matching symmetric and conservative — `local ↔ local`, `global ↔ global`, `variable ↔ variable`. Anything broader is #149.
+
 ### Reference-kind classification
 
 Replace the narrow `extract_macro_scope_from_diagnostic` with a broader classifier that returns `'local' | 'global' | 'variable' | null`:
@@ -180,7 +193,7 @@ private out_of_scope_type_matches_reference(
 Consequences:
 - A local-macro reference only matches an out-of-scope `local`.
 - A global-macro reference only matches an out-of-scope `global`.
-- A variable-diagnostic reference only matches an out-of-scope `variable` (not `scalar`, not `matrix`, not `program`). Those other categories remain reachable via hover / completion out-of-scope display, which is unchanged.
+- A variable-diagnostic reference only matches an out-of-scope `variable`. Out-of-scope `scalar`, `matrix`, and `program` entries are never matched by the variable-diagnostic path and remain reachable via hover / completion out-of-scope display (unchanged). See "Bare-identifier scoping" above for the rationale and #149 for the future scalar-aware mode.
 - Unknown reference kinds do not match anything. This is stricter than today's fallback; during implementation, add a focused regression test if any existing fixture exercises the `null` branch (none is expected).
 
 ### Variable name extraction
@@ -204,8 +217,7 @@ The function can early-return on code to avoid accidentally matching macro-forma
 New module: `src/utils/out-of-scope-message.ts`. Placed under `src/utils/` rather than `src/providers/` so the analyzer, any future diagnostic emitter, or tests can import it without coupling to provider internals.
 
 ```ts
-export type OutOfScopeSymbolKind =
-    | 'local' | 'global' | 'variable' | 'scalar' | 'matrix' | 'program';
+export type OutOfScopeSymbolKind = 'local' | 'global' | 'variable';
 
 export type OutOfScopeReason =
     | { kind: 'after_call_site'; call_site_line_0: number; source_file: string }
@@ -219,11 +231,13 @@ export function format_out_of_scope_message(
 ): string;
 ```
 
+The helper's `OutOfScopeSymbolKind` union is deliberately narrower than `OutOfScopeSymbol.type`. Because the strict kind matcher rejects every match except `local ↔ local`, `global ↔ global`, and `variable ↔ variable`, the helper is never invoked with `scalar`, `matrix`, or `program` — keeping those out of the union prevents dead formatting code. When #149 adds scalar-aware matching, the helper's union (and matcher) widens in the same change.
+
 **Display-name formatting** (from `symbol_name` + `symbol_kind`):
 
 - `local` → `` `foo' ``
 - `global` → `$foo`
-- `variable` / `scalar` / `matrix` / `program` → `foo` (bare; no decoration)
+- `variable` → `foo` (bare; no decoration)
 
 **Line-number contract.** The helper accepts **0-indexed** line numbers in `call_site_line_0` and `defined_line_0` and converts them to 1-indexed for display. This matches the internal representation used throughout the codebase (`OutOfScopeSymbol.call_site_line` is 0-indexed per scope-resolver comment at line 2027; AST ranges are 0-indexed). Field names carry the `_0` suffix so the contract is visible at call sites. The `+ 1` conversion lives in the helper and nowhere else.
 
@@ -233,7 +247,12 @@ export function format_out_of_scope_message(
 - `inheritance_excludes_locals` → `DN is defined in <source_file> but local macros are not inherited via do/run (use include or @lsp-included-by)`
 - `same_file_forward` → `DN is used before it is defined (line <defined_line_0 + 1>)`
 
-Unit tests cover every `(kind, reason)` combination that actually occurs (`local × {after_call_site, inheritance_excludes_locals, same_file_forward}`, `global × {after_call_site, same_file_forward}`, `variable × {after_call_site}`). Impossible combinations (e.g., `variable × inheritance_excludes_locals`, which only applies to locals by definition) are simply never constructed; the helper does not need to reject them.
+Unit tests cover every `(kind, reason)` combination that actually occurs:
+- `local × {after_call_site, inheritance_excludes_locals, same_file_forward}`
+- `global × {after_call_site, same_file_forward}`
+- `variable × {after_call_site}`
+
+Impossible combinations (e.g., `variable × inheritance_excludes_locals`, which only applies to locals by definition; `variable × same_file_forward`, which depends on analyzer work deferred to #147) are simply never constructed; the helper does not need to reject them. Kinds outside the narrowed union (`scalar`, `matrix`, `program`) are enforced by TypeScript rather than by tests.
 
 ### Code deletions
 
@@ -248,7 +267,7 @@ Unit tests cover every `(kind, reason)` combination that actually occurs (`local
 - **Message helper** (`tests/unit/out-of-scope-message.test.ts`, new) — cover every `(kind, reason)` combination listed above; assert exact strings, including 1-indexed line numbers derived from 0-indexed inputs.
 - **Symbol extractor** (`tests/unit/diagnostics-provider.test.ts`, existing) — add variable-format cases (`Potentially undefined variable: foo` → `foo`) and a case where a macro-format message is not accidentally parsed as a variable. Retain regression coverage for local and global macro formats.
 - **Reference-kind classifier** (`tests/unit/diagnostics-provider.test.ts`) — one case per `(code, message shape) → kind` expectation, plus a `null` fallback case for unrecognized shapes.
-- **Kind matcher** (`tests/unit/diagnostics-provider.test.ts`) — variable-kind reference only matches variable out-of-scope entries; does not match scalar / matrix / program / local / global.
+- **Kind matcher** (`tests/unit/diagnostics-provider.test.ts`) — variable-kind reference only matches variable out-of-scope entries; explicit negative cases for scalar, matrix, program, local, and global. Macro-kind references correspondingly do not match variable entries.
 - **Rewrite severity** (`tests/unit/diagnostics-provider.test.ts`) — base `undefinedMacro` at each of `error | warning | information | hint` propagates to the `OUT_OF_SCOPE_SYMBOL` severity; `off` yields `null` (no diagnostic emitted). Same matrix for the variable branch keyed to `undefinedVariable`.
 - **`@lsp-ignore` coverage** (`tests/unit/diagnostics-provider.test.ts`) — `@lsp-ignore` and `@lsp-ignore-next` at the reference line both suppress `OUT_OF_SCOPE_SYMBOL` rewrites, for all three rewrite forms (same-file, cross-file backward, cross-file forward).
 - **Same-file forward-ref rewrite** (`tests/unit/diagnostics-provider.test.ts`) — macro referenced before it is defined ⇒ `OUT_OF_SCOPE_SYMBOL` with `used before it is defined (line N)` at the correct 1-indexed line; truly undefined macro ⇒ unchanged `UNDEFINED_MACRO` generic message.
