@@ -388,23 +388,18 @@ export class ForwardScopeResolver {
                     return { symbols: accumulated_symbols, call_sites: the_call_sites, diagnostics: my_context.diagnostics };
                 }
 
-                // Add nested call sites with adjusted call lines. When the
-                // direct-child site already carries `excluded_locals`, its
-                // counterfactual walk descended through every call in the
-                // sub-chain (see compute_effective_end_state_locals) and
-                // its map already holds the last-def-wins answer for every
-                // name defined below it. The deeper nested sites' claims
-                // are strict subsets of that walk and would incorrectly
-                // override it under last-in-iteration-wins, so we strip
-                // them. When the direct-child is `include` (no excluded
-                // locals of its own — the outer call is not a blocking
-                // boundary), deeper nested `do`/`run` sites are the only
-                // carriers of their boundary's blame and must be kept.
+                // Add nested call sites with adjusted call lines. Nested sites inherit
+                // the parent call_line for visibility filtering, but their
+                // `excluded_locals` are ALWAYS stripped: each nested site's blame
+                // target represents a different one-line fix (promoting that deeper
+                // do/run to include) than the one the outer reference's diagnostic is
+                // about to suggest. Only the direct-child site's excluded_locals claim
+                // applies to the user's visible "do X" they could edit.
                 for (const nested_site of nested_result.call_sites) {
                     the_call_sites.push({
                         ...nested_site,
-                        call_line: my_call.call_site_line, // Visibility starts at parent call
-                        excluded_locals: excluded_locals ? undefined : nested_site.excluded_locals,
+                        call_line: my_call.call_site_line,
+                        excluded_locals: undefined,
                     });
                 }
 
