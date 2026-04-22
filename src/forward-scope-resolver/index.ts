@@ -228,12 +228,17 @@ export class ForwardScopeResolver {
 
             if (decision.action === 'boundary_only') {
                 // Dedup'd do/run re-visit: don't re-merge symbols or recurse,
-                // but still push a barrier-only site with excluded_locals.
-                // Without this, a second direct `do`/`run` invocation of a
-                // previously-visited callee would leave no blame carrier at
-                // the outer iteration level, and the rewrite would name the
-                // first visit's sub-chain even when counterfactually
-                // promoting this later boundary would win under last-def.
+                // but still push a barrier-only site with excluded_locals so
+                // the diagnostic rewrite can blame the second boundary's
+                // callee under last-visible-site precedence.
+                //
+                // Only meaningful at the outermost resolve() level — at
+                // depth > 0 this site would be bubbled up and have its
+                // excluded_locals stripped by T5's flattening loop, so the
+                // push is dead work.
+                if (my_context.depth > 0) {
+                    continue;
+                }
                 if (token?.isCancellationRequested) {
                     my_stack.delete(file_uri);
                     return { symbols: accumulated_symbols, call_sites: the_call_sites, diagnostics: my_context.diagnostics };
@@ -241,21 +246,21 @@ export class ForwardScopeResolver {
                 if ('error' in callee_result) {
                     continue;
                 }
-                let boundary_excluded: Map<string, MacroSymbol> | undefined;
-                if (my_effective_type === 'do') {
-                    const effective_end_state = await this.compute_effective_end_state_locals(
-                        callee_uri,
-                        resolved_path,
-                        callee_result.working_directory ?? my_context.working_directory,
-                        new Set(my_stack),
-                        my_context.depth + 1,
-                        resolved_config,
-                        token,
-                    );
-                    if (effective_end_state.size > 0) {
-                        boundary_excluded = effective_end_state;
-                    }
-                }
+                // effective_type === 'do' always holds here (this branch
+                // fires only when the previous visit was 'do' and the
+                // current call is do/run). Compute the include-only
+                // end-state so the rewrite can name the second visit's
+                // blame file.
+                const effective_end_state = await this.compute_effective_end_state_locals(
+                    callee_uri,
+                    resolved_path,
+                    callee_result.working_directory ?? my_context.working_directory,
+                    new Set(my_stack),
+                    my_context.depth + 1,
+                    resolved_config,
+                    token,
+                );
+                const boundary_excluded = effective_end_state.size > 0 ? effective_end_state : undefined;
                 the_call_sites.push({
                     callee_uri,
                     call_line: my_call.call_site_line,
@@ -338,7 +343,11 @@ export class ForwardScopeResolver {
             // double-claim every name and let an inner file's claim
             // incorrectly overwrite the outer file's execution-order winner.
             let excluded_locals: Map<string, MacroSymbol> | undefined;
-            if (my_call.type !== 'include' && my_effective_type === 'do') {
+            // Only compute at the outermost resolve() level. Nested-level
+            // sites flow through the bubbling loop below, which
+            // unconditionally strips excluded_locals — computing them here
+            // would be dead work (T5 rationale).
+            if (my_call.type !== 'include' && my_effective_type === 'do' && my_context.depth === 0) {
                 const effective_end_state = await this.compute_effective_end_state_locals(
                     callee_uri,
                     resolved_path,
