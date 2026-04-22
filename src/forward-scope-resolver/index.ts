@@ -223,22 +223,23 @@ export class ForwardScopeResolver {
                 continue;
             }
 
+            // Short-circuit a nested boundary_only re-visit before the
+            // disk-backed callee scope fetch. The site would be bubbled
+            // up and have its excluded_locals stripped by the flattening
+            // loop anyway, so skipping avoids an unnecessary parse.
+            if (decision.action === 'boundary_only' && my_context.depth > 0) {
+                continue;
+            }
+
             // Get callee symbols
             const callee_result = await this.get_callee_scope(resolved_path, callee_uri, my_context.working_directory);
 
             if (decision.action === 'boundary_only') {
-                // Dedup'd do/run re-visit: don't re-merge symbols or recurse,
-                // but still push a barrier-only site with excluded_locals so
-                // the diagnostic rewrite can blame the second boundary's
+                // Dedup'd do/run re-visit at the outermost resolve()
+                // level: don't re-merge symbols or recurse, but push a
+                // barrier-only site with excluded_locals so the
+                // diagnostic rewrite can blame the second boundary's
                 // callee under last-visible-site precedence.
-                //
-                // Only meaningful at the outermost resolve() level — at
-                // depth > 0 this site would be bubbled up and have its
-                // excluded_locals stripped by T5's flattening loop, so the
-                // push is dead work.
-                if (my_context.depth > 0) {
-                    continue;
-                }
                 if (token?.isCancellationRequested) {
                     my_stack.delete(file_uri);
                     return { symbols: accumulated_symbols, call_sites: the_call_sites, diagnostics: my_context.diagnostics };
@@ -596,8 +597,11 @@ export class ForwardScopeResolver {
                 // sorting on line alone would collapse their execution
                 // order. Full (line, character) ordering is robust to
                 // that shape as well as today's `#delimit cr` input.
-                const primary_line = my_symbol.definition_line
-                    ?? my_symbol.location.range.start.line;
+                // Both coordinates come from the same source
+                // (location.range.start) so the sort key is internally
+                // consistent — analyzer emits definition_line equal to
+                // location.range.start.line for primary definitions.
+                const primary_line = my_symbol.location.range.start.line;
                 const primary_char = my_symbol.location.range.start.character;
                 the_events.push({
                     line: primary_line,
