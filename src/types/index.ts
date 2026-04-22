@@ -861,5 +861,8 @@ export type DuplicateCallDecision =
   // promotion may expose a different file's `local X` than the first
   // visit's callee would. Emit a barrier-only site so the diagnostic
   // rewrite can blame the second boundary under last-visible-site
-  // precedence.
+  // precedence. Note: `resolve()` gates the meaningful handling of this
+  // variant to `depth === 0`; nested-depth occurrences are short-
+  // circuited because the flattening loop strips `excluded_locals` on
+  // bubbled-up nested sites.
   | { action: 'boundary_only' };

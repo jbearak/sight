@@ -321,32 +321,18 @@ export class ForwardScopeResolver {
                 );
             }
 
-            // Record call site. For 'do'/'run' we preserve the callee's
-            // *effective* top-level local macros at end-of-execution so
-            // diagnostics can explain why a local that "looks" inherited
-            // isn't actually visible. "Effective end state" means we walk
-            // the callee in execution order, layering in locals from any
-            // nested `include`s the callee makes, so that the callee whose
-            // local would actually shadow earlier ones (last-definition-
-            // wins) is blamed — not whichever happens to come last in the
-            // flattened forward_call_symbols array. Program-scoped locals
-            // (`containingScope === 'program'`) aren't caller-visible even
-            // under `include`, so they're excluded from the walk.
+            // Direct-child do/run sites at the outermost resolve() get
+            // their include-only end-state computed so the blame rewrite
+            // can name a file. Nested sites flow through the flattening
+            // loop below, which strips excluded_locals unconditionally —
+            // computing them at nested depths would be dead work.
             //
-            // Gate on `my_call.type` rather than `my_effective_type`: only a
-            // call whose ORIGINAL type is `do`/`run` is a blocking boundary
-            // that could be counterfactually promoted to `include`. A
-            // nested `include` whose effective type was demoted to `do` by
-            // an outer `do` isn't itself blocking — the outer `do` is, and
-            // its end-state walk already captures this included file's
-            // locals. Emitting excluded_locals for the nested include would
-            // double-claim every name and let an inner file's claim
-            // incorrectly overwrite the outer file's execution-order winner.
+            // `my_effective_type === 'do'` is guaranteed when
+            // `my_call.type !== 'include'` at depth 0 (outer
+            // effective_call_type is 'include' and compute_effective_call_type
+            // returns 'do' for non-include calls), so the condition is
+            // redundant but kept for defensive clarity.
             let excluded_locals: Map<string, MacroSymbol> | undefined;
-            // Only compute at the outermost resolve() level. Nested-level
-            // sites flow through the bubbling loop below, which
-            // unconditionally strips excluded_locals — computing them here
-            // would be dead work (T5 rationale).
             if (my_call.type !== 'include' && my_effective_type === 'do' && my_context.depth === 0) {
                 const effective_end_state = await this.compute_effective_end_state_locals(
                     callee_uri,

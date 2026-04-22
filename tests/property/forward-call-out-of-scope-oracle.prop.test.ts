@@ -4,8 +4,8 @@
  *
  * The {@link StataExecutionOracle} is the ground truth: it executes a
  * generated graph under Stata's real do/run semantics (fresh scope) and
- * its counter-factual "all-include" semantics (locals propagate). Three
- * properties compare that ground truth against what
+ * a single-boundary counterfactual ("promote this one do/run to
+ * include"). Three properties compare that ground truth against what
  * `DiagnosticsProvider` emits on the same graph:
  *
  *   1. Visibility soundness — if the oracle says the reference is
