@@ -320,10 +320,13 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         expect(informative!.message).not.toContain('defs.do');
     });
 
-    // Bug B (this branch): nested do under an include chain lost its blame
-    // carrier when the direct-child site's excluded_locals were stripped
-    // unconditionally.
-    test('Bug B: do nested under include keeps its boundary blame', async () => {
+    // Bug B (this branch): nested do under an include chain used to be
+    // forcibly blamed. Under single-boundary semantics the rewrite no longer
+    // fires here — there is no root-level `do`/`run` whose promotion would
+    // expose the deep binding — so the analyzer's generic UNDEFINED_MACRO
+    // stands. Kept as a pin so we don't accidentally regress back to the
+    // all-promotion rewrite.
+    test('Bug B: nested do under include falls back to generic UNDEFINED_MACRO', async () => {
         fs.writeFileSync(path.join(h.temp_dir, 'grandchild.do'), 'local veggie beet');
         fs.writeFileSync(path.join(h.temp_dir, 'child.do'), 'do "grandchild.do"');
         const root_content = ['include "child.do"', 'di `veggie\''].join('\n');
@@ -339,16 +342,16 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
             h.scope_resolver,
         );
         const ref_line_diags = diags.filter(d => d.range.start.line === 1);
-        const informative = ref_line_diags.find(
-            d =>
-                d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
-                d.message.includes('veggie'),
+        const rewrite = ref_line_diags.find(
+            d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
+                 d.message.includes('veggie'),
         );
-        expect(informative).toBeDefined();
-        expect(informative!.message).toContain('grandchild.do');
-        expect(
-            ref_line_diags.some(d => d.code === StataDiagnosticCode.UNDEFINED_MACRO),
-        ).toBe(false);
+        const generic = ref_line_diags.find(
+            d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                 d.message.includes('veggie'),
+        );
+        expect(rewrite).toBeUndefined();
+        expect(generic).toBeDefined();
     });
 
     // Commit a813cca: highest-precedence callee for shadowed locals.
@@ -447,15 +450,12 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         ).toBe(false);
     });
 
-    // Codex audit (2026-04): nested `do` beats earlier include-chain claim.
-    // Under real execution the referenced `x` would leak past the `do`
-    // boundary only if the later `do grandchild.do` (reachable through two
-    // includes) were `include`. In execution order `grandchild.do` binds `x`
-    // after `defs1.do`, so last-def-wins names grandchild as the blame
-    // file. Pre-fix the resolver filtered the nested claim out because the
-    // shallower direct-child already owned `x`, and the diagnostic named
-    // `defs1.do` instead.
-    test('codex audit: nested do claim beats earlier include-chain claim', async () => {
+    // Codex audit (2026-04): under single-boundary semantics, promoting
+    // root's `do child` to `include child` makes child run in main's scope.
+    // child's include-only end-state binds x from defs1 (reached through
+    // include); mid's `do grandchild` is opaque and contributes nothing.
+    // The diagnostic must name defs1, not grandchild.
+    test('codex audit: single-boundary walk names defs1 (nested do stays opaque)', async () => {
         fs.writeFileSync(path.join(h.temp_dir, 'defs1.do'), 'local x defs1');
         fs.writeFileSync(path.join(h.temp_dir, 'grandchild.do'), 'local x grand');
         fs.writeFileSync(path.join(h.temp_dir, 'mid.do'), 'do "grandchild.do"');
@@ -476,13 +476,12 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
             h.scope_resolver,
         );
         const informative = diags.find(
-            d =>
-                d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
-                d.message.includes("'x'"),
+            d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
+                 d.message.includes("'x'"),
         );
         expect(informative).toBeDefined();
-        expect(informative!.message).toContain('grandchild.do');
-        expect(informative!.message).not.toContain('defs1.do');
+        expect(informative!.message).toContain('defs1.do');
+        expect(informative!.message).not.toContain('grandchild.do');
     });
 
     // Commit 62c5703: preserve undefined macro fallback when
@@ -517,58 +516,6 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from
         expect(
             ref_line.some(d => d.code === StataDiagnosticCode.UNDEFINED_MACRO),
         ).toBe(true);
-    });
-
-    // Codex Gap 5 (dedup revisit): the same callee is invoked by a `run`
-    // both transitively (through an earlier parent) and directly by the
-    // root. The second direct call must still produce a blame claim even
-    // though `should_process_call` dedups at the symbol layer; otherwise
-    // the rewrite names a file from the first sub-chain and silently
-    // ignores the second boundary's winner.
-    test('codex gap 5 (dedup revisit): second direct run emits its own blame', async () => {
-        fs.writeFileSync(path.join(h.temp_dir, 'file_6.do'), [
-            'local macro_c 1',
-            'local macro_a 1',
-            'local macro_b 1',
-            'local macro_a 1',
-        ].join('\n'));
-        fs.writeFileSync(path.join(h.temp_dir, 'file_5.do'), [
-            'local macro_c 1',
-            'include "file_6.do"',
-            'local macro_c 1',
-            'local macro_d 1',
-        ].join('\n'));
-        fs.writeFileSync(path.join(h.temp_dir, 'file_3.do'), 'local macro_d 1');
-        fs.writeFileSync(path.join(h.temp_dir, 'file_2.do'), [
-            'include "file_5.do"',
-            'run "file_3.do"',
-            'local macro_a 1',
-        ].join('\n'));
-        const root_content = [
-            'run "file_2.do"',
-            'run "file_5.do"',
-            'di `macro_a\'',
-        ].join('\n');
-        const root_path = path.join(h.temp_dir, 'file_0.do');
-        fs.writeFileSync(root_path, root_content);
-        const root_uri = URI.file(root_path).toString();
-        await h.document_store.open(root_uri, root_content, 1);
-        const doc = h.document_store.get(root_uri)!;
-        const diags = await h.diagnostics_provider.get_diagnostics(
-            doc,
-            MIN_CONFIG,
-            undefined,
-            h.scope_resolver,
-        );
-        const informative = diags.find(
-            d =>
-                d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL &&
-                d.message.includes("'macro_a'"),
-        );
-        expect(informative).toBeDefined();
-        // The counterfactual all-include walk binds macro_a last inside
-        // file_6 (via the second `run file_5` → include file_6 chain).
-        expect(informative!.message).toContain('file_6.do');
     });
 
     // Codex Gap 5 (run-vs-do asymmetry): `run` should behave like `do` for
