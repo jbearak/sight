@@ -1,11 +1,13 @@
 /**
  * Unit tests for `ForwardScopeResolver.compute_effective_end_state_locals`.
  *
- * The helper is private; these tests access it via `(fsr as any)` to
- * exercise the walk directly without standing up a full diagnostics
- * pipeline. The helper drives the OUT_OF_SCOPE_SYMBOL rewrite message,
- * so covering it at unit level catches shadowing/redefinition and
- * cycle-handling regressions closer to the code under change.
+ * The helper computes a callee's include-only end-state: walk its own
+ * `local X` statements in source order, merging the end-states of any
+ * nested `include` callees. `do`/`run` callees are NOT descended — they
+ * would require a separate boundary promotion to expose their bindings.
+ * The helper drives the OUT_OF_SCOPE_SYMBOL rewrite message, so covering
+ * it at unit level catches shadowing/redefinition and cycle-handling
+ * regressions closer to the code under change.
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
@@ -88,29 +90,24 @@ describe('ForwardScopeResolver.compute_effective_end_state_locals', () => {
         expect(my_veggie.sourceUri).toContain('defs_local_then_include.do');
     });
 
-    test('nested `do` contributes its locals counterfactually (promote-all model)', async () => {
-        // The helper computes the counterfactual end-state under "every
-        // do/run along this sub-chain is promoted to include". Real-Stata
-        // execution still blocks `do`, but the blame rewrite is a hint
-        // about what the user would see if the whole sub-chain were
-        // include'd — so nested `do` must contribute its locals here.
+    test('nested `do` is opaque: walk does not descend into `do`/`run` callees', async () => {
+        // The helper is the engine behind OUT_OF_SCOPE_SYMBOL rewrites. The
+        // rewrite is a single-boundary counterfactual: "promote THIS one
+        // do/run to include — where would the local now come from?" Deeper
+        // do/run boundaries stay opaque because promoting them would be a
+        // separate fix. So this walk does not descend into `do`/`run`
+        // callees, even when they define the referenced name.
         const nested_path = path.join(temp_dir, 'nested_do_target.do');
         fs.writeFileSync(nested_path, 'local veggie beet');
         const my_path = path.join(temp_dir, 'nested_do.do');
         fs.writeFileSync(my_path, ['do "nested_do_target.do"', 'local fruit apple'].join('\n'));
         const result = await walk(my_path);
         expect(result.has('fruit')).toBe(true);
-        expect(result.has('veggie')).toBe(true);
-        // Last-def-wins across the chain: fruit from callee, veggie from
-        // the nested do target.
-        expect(result.get('veggie')!.sourceUri).toContain('nested_do_target.do');
+        expect(result.has('veggie')).toBe(false);
         expect(result.get('fruit')!.sourceUri).toContain('nested_do.do');
     });
 
-    test('nested `do` that redefines an earlier include local: include wins when it comes after', async () => {
-        // Under the counterfactual-all-promote model, sub-chain local
-        // definitions overwrite earlier ones in source order. Here the
-        // `do` appears BEFORE the later own-local, so the own-local wins.
+    test('own local after opaque `do` wins (nested do target is not walked)', async () => {
         const nested_path = path.join(temp_dir, 'nested_do_redef.do');
         fs.writeFileSync(nested_path, 'local shared beet');
         const my_path = path.join(temp_dir, 'nested_do_overridden.do');
@@ -120,6 +117,8 @@ describe('ForwardScopeResolver.compute_effective_end_state_locals', () => {
         );
         const result = await walk(my_path);
         expect(result.size).toBe(1);
+        // `do` is opaque, so only the caller's own `local shared carrot`
+        // contributes — no need to reason about which comes first.
         expect(result.get('shared')!.sourceUri).toContain('nested_do_overridden.do');
     });
 
