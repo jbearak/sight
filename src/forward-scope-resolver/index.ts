@@ -544,18 +544,19 @@ export class ForwardScopeResolver {
     /**
      * Walk a callee's top-level local definitions and nested `include` calls
      * in source order to compute the effective end-of-file local-macro state
-     * — i.e., which callee's local would actually shadow the earlier ones.
+     * assuming the caller's `do`/`run` of this callee were promoted to
+     * `include`. `do`/`run` calls FROM this callee are NOT descended — they
+     * are still blocking boundaries after the single-boundary promotion, so
+     * their bindings are not exposed by this one-line fix.
      *
      * - Own `local X` statements overwrite prior bindings.
-     * - An `include` event merges the nested callee's effective end state
+     * - `include` events merge the nested callee's effective end state
      *   (recursively computed) into the walk.
-     * - `do`/`run` events contribute nothing: those callees run in a fresh
-     *   scope whose locals don't propagate into the caller.
+     * - `do`/`run` events contribute nothing.
      *
      * Used to populate `ForwardCallSite.excluded_locals` for `do`-called
      * sites so OUT_OF_SCOPE_SYMBOL diagnostics point at the callee whose
-     * local actually wins, not whichever site happens to be last in the
-     * flattened call_sites array.
+     * local actually wins under a single-boundary promotion.
      */
     private async compute_effective_end_state_locals(
         callee_uri: string,
@@ -629,16 +630,11 @@ export class ForwardScopeResolver {
             }
             for (const my_call of callee_result.forward_calls) {
                 if (!my_call.is_static || !my_call.path) continue;
-                // Descend into every call type — `include`, `do`, and `run`.
-                // The diagnostic rewrite is a counterfactual: "if the do/run
-                // that blocks this reference were promoted to include (and
-                // any do/run boundaries further inside along the same
-                // chain were promoted as well), where would the referenced
-                // local last be bound?" Treating do/run as include during
-                // the walk answers exactly that question, and lets the
-                // blame name the inner file that has the last `local X`
-                // in execution order — not whichever file happens to be
-                // at the top of the blocked sub-chain.
+                // Include-only descent. `do`/`run` callees run in a fresh scope
+                // and leave no bindings behind for the caller's end-of-execution
+                // state — promoting them to `include` is a separate fix from the
+                // one this helper's blame rewrite suggests.
+                if (my_call.type !== 'include') continue;
                 the_events.push({
                     line: my_call.call_site_line,
                     character: my_call.range.start.character,
