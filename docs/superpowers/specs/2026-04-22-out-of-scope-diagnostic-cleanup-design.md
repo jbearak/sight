@@ -2,190 +2,289 @@
 
 **Status:** design
 **Date:** 2026-04-22
-**Scope:** Delete the misnamed `crossFile.diagnostics.outOfScope` severity setting, fix the `off`-branch divergence between the backward and forward rewrite paths, make the rewrite fire for variables, and give same-file forward references the same specific message that cross-file forward references already get.
+**Scope:** Remove the misnamed `crossFile.diagnostics.outOfScope` severity setting, fix the `off`-branch divergence between the backward and forward rewrite paths, make the rewrite fire for the variable-diagnostic path, give same-file forward references the same specific message that cross-file forward references already get, and ensure `@lsp-ignore` suppression covers out-of-scope rewrites.
 
 ## Problem
 
-`OUT_OF_SCOPE_SYMBOL` is not an independent diagnostic source. It is a rewrite of an existing `UNDEFINED_MACRO` / `UNDEFINED_VARIABLE` diagnostic into a more informative message, emitted when the scope resolver can prove the symbol exists but is unreachable at the reference site. The current shape of this feature has four problems:
+`OUT_OF_SCOPE_SYMBOL` is not an independent diagnostic source. It is a rewrite of an existing `UNDEFINED_MACRO` / `UNDEFINED_VARIABLE` diagnostic into a more informative message, emitted when the scope resolver can prove the symbol exists but is unreachable at the reference site. The current shape of this feature has five problems:
 
 1. **The setting is shaped wrong.** `sight.crossFile.diagnostics.outOfScope: error | warning | information | off` is modeled as a severity, but the rewrite is not a source — turning it `off` should not silence a diagnostic the user otherwise wants, and setting it independently of the base undefined-symbol severity invites incoherent combinations (e.g., base `off` + out-of-scope `error`).
 
 2. **The backward and forward paths diverge on `off`.** In `src/providers/diagnostics.ts:281-286`, `outOfScope = off` suppresses the rewrite entirely on the backward/directive path, losing any diagnostic. In the forward-call path (`tests/property/forward-call-out-of-scope-oracle.prop.test.ts:495`), the same value falls back to plain `UNDEFINED_MACRO`. Same setting, different behavior.
 
-3. **The rewrite is dead code for variables.** `OutOfScopeSymbol` and `filter_by_call_site` carry variables through (`src/scope-resolver/index.ts:2029-2058`), but `extract_symbol_name_from_diagnostic` (`src/providers/diagnostics.ts:880-894`) only parses macro formats. When the base diagnostic message is `Potentially undefined variable: foo`, no name is extracted and the rewrite never triggers.
+3. **The rewrite is dead code for variables.** `OutOfScopeSymbol` and `filter_by_call_site` carry variables through (`src/scope-resolver/index.ts:2029-2058`), but `extract_symbol_name_from_diagnostic` (`src/providers/diagnostics.ts:880-894`) only parses macro formats. When the base diagnostic message is `Potentially undefined variable: foo`, no name is extracted and the rewrite never triggers. In addition, `extract_macro_scope_from_diagnostic` (`src/providers/diagnostics.ts:1196-1216`) only returns `'local'` or `'global'`, and `out_of_scope_type_matches_reference` falls back to `true` when the reference kind is `null` — so even if extraction succeeded for a variable, kind matching would be lossy.
 
 4. **Same-file forward references get a generic message.** The analyzer knows, via the preorder-traversal index and `is_macro_defined(..., token_line)`, that `` `foo' `` on line 5 refers to a macro defined on line 10. It still emits the generic `` Undefined local macro: `foo' ``. Cross-file forward references get a specific "defined in X but after the call site" message. The UX is asymmetric for no reason.
 
-A separate issue (#148) tracks the larger question of unifying same-file and cross-file enrichment into a single provider-side pipeline. A separate issue (#147) tracks true position-aware forward-reference analysis for variables. This spec addresses only the cleanup and correctness work.
+5. **`@lsp-ignore` does not suppress out-of-scope rewrites.** The suppression helper (`src/providers/diagnostics.ts:642-665`) runs inside `convert_semantic_diagnostic` and is only invoked for diagnostics with code `UNDEFINED_MACRO` / `UNDEFINED_VARIABLE`. The current rewrite emit sites (lines ~298-305 and ~381-388) push fully-formed LSP diagnostics directly, bypassing the suppression check. This is a latent bug.
+
+A separate issue (#148) tracks the larger question of unifying same-file and cross-file enrichment into a single provider-side pipeline. A separate issue (#147) tracks true position-aware forward-reference analysis for variables. This spec handles only the cleanup, parity, and correctness work.
 
 ## Goals
 
-- Delete `sight.crossFile.diagnostics.outOfScope`. Severity of the `OUT_OF_SCOPE_SYMBOL` rewrite is inherited from the base `undefinedMacro` / `undefinedVariable` severity.
-- Collapse the backward and forward rewrite branches in `src/providers/diagnostics.ts` to the same shape: when an out-of-scope match is found and the base severity is not `off`, emit the specific message at the base severity. Delete the last reads of `config.cross_file?.diagnostics?.out_of_scope`.
-- Teach `extract_symbol_name_from_diagnostic` to parse `Potentially undefined variable: <name>` so the rewrite fires for variables whenever `undefinedVariable` is enabled.
-- When the analyzer detects a same-file forward reference to a macro or global, emit `OUT_OF_SCOPE_SYMBOL` with a specific `used before it is defined (line N)` message instead of the generic undefined wording.
-- Introduce a shared message helper (`src/providers/out-of-scope-message.ts`) so the analyzer and the provider produce identical wording for the cases they share.
+- Delete `sight.crossFile.diagnostics.outOfScope` outright. Severity of every `OUT_OF_SCOPE_SYMBOL` rewrite is derived from the base `undefinedMacro` / `undefinedVariable` severity setting.
+- Collapse the backward and forward rewrite branches in `src/providers/diagnostics.ts` to the same shape.
+- Do all rewrites in the provider. The analyzer continues to emit `UNDEFINED_MACRO` / `UNDEFINED_VARIABLE` unchanged. Any current or future analyzer emission site for undefined symbols picks up the rewrite for free.
+- Add same-file forward-reference rewriting to the provider: when an undefined-macro / undefined-global reference has a matching later definition in the current document, emit `OUT_OF_SCOPE_SYMBOL` with `used before it is defined (line N)`.
+- Teach `extract_symbol_name_from_diagnostic` to parse `Potentially undefined variable: <name>` so the variable-diagnostic path can feed the rewrite.
+- Add proper reference-kind classification (`local | global | variable | null`) and tighten `out_of_scope_type_matches_reference` so a variable reference only matches a variable out-of-scope entry (and similarly for macros).
+- Introduce a shared message helper in a neutral module (`src/utils/out-of-scope-message.ts`) that formats the message for any supported symbol kind and reason.
+- Ensure every rewrite goes through the existing `should_suppress_undefined_symbol` check so `@lsp-ignore` / `@lsp-ignore-next` are honored uniformly.
 
 ## Non-goals
 
-- Position-aware forward-reference analysis for variables inside a single file (see #147).
-- Moving all same-file and cross-file enrichment into a unified provider-side pipeline (see #148).
-- Changing the default for `sight.diagnostics.severity.undefinedMacro`. It stays `'warning'`. Stata is a dynamic language and the Pylance/Ruff default (warning, opt-in strict → error) fits better than the TypeScript default (error).
-- Changing the default for `sight.diagnostics.severity.undefinedVariable`. It stays `'off'`. Once #147 lands and improves signal quality, revisit.
-- Any change to hover or completion out-of-scope behavior. They are independent of this rewrite.
+- Position-aware same-file forward-reference analysis for variables (see #147). The variable path only gains out-of-scope rewriting for diagnostics the analyzer already emits; it does not gain new forward-reference detection inside a single file.
+- Unifying same-file and cross-file enrichment into a general provider-side pipeline (see #148).
+- Changing defaults for `sight.diagnostics.severity.undefinedMacro` or `undefinedVariable`. Both stay where they are. Stata is dynamic; the Pylance/Ruff model (warning by default, opt-in strict) fits better than the TypeScript model.
+- Any change to hover or completion out-of-scope behavior.
+- Migration support for the removed setting — see the next section.
 
 ## Design
 
 ### Configuration
 
-Delete `sight.crossFile.diagnostics.outOfScope` and the corresponding `CrossFileConfig.diagnostics.out_of_scope` field in `src/types/index.ts:710`. Remove it from the default settings in `src/server-handlers.ts:134` and from the workspace-config mapper (`src/utils/workspace-config.ts`). The sibling keys `missing_file` and `max_depth` stay — those really are independent diagnostic sources.
+- Delete `sight.crossFile.diagnostics.outOfScope` from the user-facing schema.
+- Delete `CrossFileConfig.diagnostics.out_of_scope` from `src/types/index.ts:710`.
+- Remove the default from `src/server-handlers.ts:134`.
+- Remove any mapping of the key from `src/utils/workspace-config.ts`.
+- Remove any validation branch for the key from `src/utils/config-validator.ts`.
+- Remove references from `docs/configuration.md` and `docs/cross-file.md`.
 
-The config validator (`src/utils/config-validator.ts`) accepts the old `crossFile.diagnostics.outOfScope` key as a deprecated alias for one release. When present, it logs a warning ("`crossFile.diagnostics.outOfScope` is no longer used; severity is now inherited from `diagnostics.severity.undefinedMacro`/`undefinedVariable`") and discards the value.
+**No deprecation support.** The key is removed; there is no alias, no warning, no logging. If a user config still contains the old key, the validator's existing handling of unrecognized keys applies (typically a silent no-op; confirm during implementation). This is a deliberate simplification: the setting is narrow, the project is early, and migration machinery is not worth the code.
 
-### Runtime flow
+The sibling keys `crossFile.diagnostics.missing_file` and `crossFile.diagnostics.max_depth` stay — those really are independent diagnostic sources.
 
-The two rewrite branches in `src/providers/diagnostics.ts` (backward/directive at ~260-306, forward-call at ~310-389) collapse to the same control flow:
+### Rewrite belongs entirely to the provider
+
+The analyzer is not changed by this spec. It continues to emit `UNDEFINED_MACRO` and `UNDEFINED_VARIABLE` with the same wording and severity it does today (`src/analyzer/index.ts:2634`, `2669`, `2364`). All three rewrite forms live in `src/providers/diagnostics.ts`:
+
+1. **Cross-file backward / directive** — matched against `resolved_scope.out_of_scope_symbols` (existing path at ~260-306).
+2. **Cross-file forward-call** — matched against the forward-call walk (existing path at ~310-389).
+3. **Same-file forward reference** — matched against `document.symbols.localMacros` / `document.symbols.globalMacros` with a later `location.range.start.line` than the reference line (new branch, integrated into the same diagnostic iteration).
+
+Putting the rewrite in the provider guarantees that any undefined-symbol diagnostic — regardless of which analyzer path (token-based today, AST-based in the future) produced it — can be rewritten consistently. It also avoids introducing a third emitter of `OUT_OF_SCOPE_SYMBOL` and keeps the diagnostic-code discipline clean (the analyzer emits source codes only; rewrites belong downstream).
+
+### Unified control flow
+
+For each semantic diagnostic with code `UNDEFINED_MACRO` or `UNDEFINED_VARIABLE`:
 
 ```
-for each diagnostic with code UNDEFINED_MACRO or UNDEFINED_VARIABLE:
-  symbol_name = extract_symbol_name_from_diagnostic(diag)
-  if not symbol_name: keep base diagnostic
+1. ref_kind = classify_reference_kind(diag)          // 'local' | 'global' | 'variable' | null
+2. name     = extract_symbol_name_from_diagnostic(diag)
+   if !name: convert and emit the base diagnostic unchanged; continue.
 
-  match = find_out_of_scope_match(resolved_scope, forward_call_sites, symbol_name, reference_scope)
-  if not match: keep base diagnostic
+3. match = find_out_of_scope_match(
+       diag, name, ref_kind,
+       resolved_scope,          // for cross-file backward matches
+       forward_call_sites,      // for cross-file forward matches
+       document.symbols         // for same-file forward matches
+   )
+   if !match: convert and emit the base diagnostic unchanged; continue.
 
-  base_severity = config.diagnostics.severity[diag.code === UNDEFINED_MACRO ? 'undefinedMacro' : 'undefinedVariable']
-  if base_severity === 'off': suppress entirely (no base, no rewrite)
-
-  emit OUT_OF_SCOPE_SYMBOL:
-    range    = diag.range
-    severity = severity_to_lsp(base_severity)
-    message  = format_out_of_scope_message(symbol_name, match.reason)
-    code     = OUT_OF_SCOPE_SYMBOL
-    source   = 'sight'
+4. Build a synthetic SemanticDiagnostic for the rewrite:
+       message  = format_out_of_scope_message(name, match.kind, match.reason)
+       range    = diag.range
+       code     = OUT_OF_SCOPE_SYMBOL
+       severity = diag.severity                      // analyzer-produced, e.g. 'warning'
+   Feed it through convert_semantic_diagnostic, which:
+       - runs should_suppress_undefined_symbol (extended to cover OUT_OF_SCOPE_SYMBOL)
+       - maps severity using the *base* code (see below)
+   If the converter returns null (suppressed or disabled), drop the diagnostic
+   entirely — do not fall back to the base diagnostic.
 ```
 
-Concretely:
+`find_out_of_scope_match` prefers matches in this order, with the first winning:
 
-- Every read of `config.cross_file?.diagnostics?.out_of_scope` in `src/providers/diagnostics.ts` (four sites: ~284, ~301, ~356, ~385) deletes.
-- `cross_file_severity_to_lsp` at ~858-871 becomes `severity_to_lsp` with input union `'error' | 'warning' | 'information'` (no `'off'` since suppression is handled upstream). If the existing `convert_semantic_diagnostic` path already maps base severities to LSP severities correctly, reuse it instead of keeping two helpers.
-- The `is_symbol_defined_in_current_document` short-circuit at ~358-380 stays. Its semantics change slightly: with the analyzer now emitting `OUT_OF_SCOPE_SYMBOL` for same-file forward references (see below), "preserve the analyzer's diagnostic" means preserving a specific same-file forward-ref diagnostic instead of a generic undefined one. That is exactly what we want.
-- Match-finding on the backward path continues to use `resolved_scope.out_of_scope_symbols.find(...)`. On the forward path it continues to walk `get_visible_forward_call_sites(...)`. The two remain separate data sources; only the emit stage converges.
+1. Same-file later definition (kind must match `ref_kind`).
+2. Cross-file backward (call-site-filtered `out_of_scope_symbols`, kind must match).
+3. Cross-file forward-call excluded-by-later-redef (kind must match).
 
-### Shared message helper
+Same-file preference preserves the existing short-circuit intent at diagnostics.ts:358-380 (prefer the more local explanation).
 
-New module `src/providers/out-of-scope-message.ts`:
+### Severity inheritance (including `hint`)
+
+`convert_semantic_diagnostic` currently maps `UNDEFINED_MACRO` / `UNDEFINED_VARIABLE` severity by reading `config.diagnostics.severity.undefinedMacro` / `undefinedVariable`. It supports all four values: `'error' | 'warning' | 'information' | 'hint'` (plus `'off'`, which returns `null` to suppress).
+
+For `OUT_OF_SCOPE_SYMBOL`, the converter must look up the severity of the **base code the rewrite stands in for**:
+
+- `ref_kind === 'local' | 'global'` → use `undefinedMacro`.
+- `ref_kind === 'variable'` → use `undefinedVariable`.
+
+Because this code path needs to know the base code, the simplest wiring is to plumb a `base_code` field on the synthetic semantic diagnostic (optional, used only for rewrites) and have `convert_semantic_diagnostic` treat `code === OUT_OF_SCOPE_SYMBOL` as "read severity from `base_code`". All four values — including `'hint'` — flow through unchanged. `'off'` suppresses the rewrite completely.
 
 ```ts
-export type OutOfScopeReason =
-  | { kind: 'after_call_site'; call_site_line: number; source_file: string }
-  | { kind: 'inheritance_excludes_locals'; source_file: string }
-  | { kind: 'same_file_forward'; defined_line: number };
-
-export function format_out_of_scope_message(
-    symbol_name: string,
-    reason: OutOfScopeReason
-): string;
+type SemanticDiagnostic = {
+    message: string;
+    range: Range;
+    code: StataDiagnosticCode;
+    severity: 'error' | 'warning' | 'information' | 'hint';
+    base_code?: StataDiagnosticCode; // set iff code === OUT_OF_SCOPE_SYMBOL
+};
 ```
 
-Wording (all line numbers 1-indexed in the output):
+The `base_code` field stays internal (not part of the LSP Diagnostic shape). Every rewrite site sets it.
 
-- `after_call_site` → `` `foo' is defined in parent.do but after the call site (line 42) `` (unchanged from today)
-- `inheritance_excludes_locals` → `` `foo' is defined in parent.do but local macros are not inherited via do/run (use include or @lsp-included-by) `` (unchanged from today)
-- `same_file_forward` → `` `foo' is used before it is defined (line 42) `` (new)
+### `@lsp-ignore` suppression
 
-The helper is the single place these strings live. Both `src/providers/diagnostics.ts` (for cross-file cases) and `src/analyzer/index.ts` (for same-file cases) call it. A unit test covers each variant.
-
-### Variable extraction
-
-Add one match to `extract_symbol_name_from_diagnostic` in `src/providers/diagnostics.ts:880-894`:
+`should_suppress_undefined_symbol` already inspects the range, not the code. Extend the gating check in `convert_semantic_diagnostic` at line 683-684 so it also applies when `diagnostic.code === OUT_OF_SCOPE_SYMBOL`:
 
 ```ts
-const variable_match = diagnostic.message.match(
-    /^Potentially undefined variable: ([a-zA-Z_][a-zA-Z0-9_]*)$/
-);
-if (variable_match) return variable_match[1];
-```
-
-Order is irrelevant; the patterns are mutually exclusive. This single change makes the cross-file out-of-scope rewrite fire for variables whenever `undefinedVariable` is enabled. Same-file forward-reference analysis for variables is out of scope (#147).
-
-### Same-file forward references in the analyzer
-
-In `src/analyzer/index.ts:2631-2674`, the undefined-macro and undefined-global branches already call `is_macro_defined(name, scope, symbols, undefined, token_line)`. Today, when that returns `false` at the reference line but the symbol exists in `symbols.localMacros` or `symbols.globalMacros` (defined later in the file), both cases emit the generic undefined diagnostic.
-
-After this change, the branches check for a later same-file definition and emit `OUT_OF_SCOPE_SYMBOL` with the `same_file_forward` message when one exists:
-
-```ts
-const token_line = token.range.start.line;
-if (macro_name && !this.is_macro_defined(macro_name, 'local', symbols, undefined, token_line)) {
-    const same_file_def = symbols.localMacros.get(macro_name);
-    if (same_file_def) {
-        diagnostics.push({
-            message: format_out_of_scope_message(macro_name, {
-                kind: 'same_file_forward',
-                defined_line: same_file_def.location.range.start.line + 1,
-            }),
-            range: token.range,
-            code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
-            severity: 'warning',
-        });
-    } else {
-        diagnostics.push({
-            message: `Undefined local macro: \`${macro_name}'`,
-            range: token.range,
-            code: StataDiagnosticCode.UNDEFINED_MACRO,
-            severity: 'warning',
-        });
+if (document &&
+    (diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO ||
+     diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE ||
+     diagnostic.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL)) {
+    if (this.should_suppress_undefined_symbol(document, diagnostic.range)) {
+        return null;
     }
 }
 ```
 
-Same structure for the global branch at ~2640-2674, using `symbols.globalMacros` and `$name` wording when no same-file definition exists.
+Behavior:
+- `@lsp-ignore` on the reference line suppresses the rewrite (just like it suppresses the base diagnostic).
+- `@lsp-ignore-next` on the previous line does the same.
+- `diagnostics.severity.undefinedMacro = 'off'` suppresses both the base diagnostic and the macro-form rewrite (because the converter returns `null` for `'off'`).
+- `diagnostics.severity.undefinedVariable = 'off'` does the same for the variable-form rewrite.
+- The removed `crossFile.diagnostics.outOfScope` no longer participates; its absence does not introduce any new suppression case.
 
-The analyzer continues to emit an internal severity of `'warning'`. The provider's `convert_semantic_diagnostic` path already translates that through `config.diagnostics.severity.undefinedMacro`, so the final LSP severity tracks user configuration. The diagnostic code on the wire is `OUT_OF_SCOPE_SYMBOL` (not `UNDEFINED_MACRO`), which lets the provider's rewrite logic short-circuit when it encounters a same-file forward-ref diagnostic that is already fully formed.
+### Reference-kind classification
 
-### Provider short-circuit for analyzer-formed OUT_OF_SCOPE_SYMBOL
+Replace the narrow `extract_macro_scope_from_diagnostic` with a broader classifier that returns `'local' | 'global' | 'variable' | null`:
 
-When the provider iterates over semantic diagnostics and sees an already-formed `OUT_OF_SCOPE_SYMBOL` (i.e., one produced by the analyzer for a same-file forward reference), it passes it through unchanged. The cross-file match-finding only runs for diagnostics with code `UNDEFINED_MACRO` / `UNDEFINED_VARIABLE`. This keeps the two sources from fighting over the same range.
+```ts
+private classify_reference_kind(
+    diagnostic: { message: string; code: number }
+): 'local' | 'global' | 'variable' | null {
+    if (diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+        return 'variable';
+    }
+    if (diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO) {
+        if (/`[^']+'/.test(diagnostic.message)) return 'local';
+        if (/\$\{?[a-zA-Z_][a-zA-Z0-9_]*\}?/.test(diagnostic.message)) return 'global';
+    }
+    return null;
+}
+```
+
+`out_of_scope_type_matches_reference` (diagnostics.ts:1230-1250) is tightened to require exact equality between reference kind and the out-of-scope symbol type — no lossy fallback:
+
+```ts
+private out_of_scope_type_matches_reference(
+    out_of_scope_type: 'local' | 'global' | 'program' | 'variable' | 'scalar' | 'matrix',
+    reference_kind: 'local' | 'global' | 'variable' | null
+): boolean {
+    if (reference_kind === null) return false;
+    return reference_kind === out_of_scope_type;
+}
+```
+
+Consequences:
+- A local-macro reference only matches an out-of-scope `local`.
+- A global-macro reference only matches an out-of-scope `global`.
+- A variable-diagnostic reference only matches an out-of-scope `variable` (not `scalar`, not `matrix`, not `program`). Those other categories remain reachable via hover / completion out-of-scope display, which is unchanged.
+- Unknown reference kinds do not match anything. This is stricter than today's fallback; during implementation, add a focused regression test if any existing fixture exercises the `null` branch (none is expected).
+
+### Variable name extraction
+
+Add one match to `extract_symbol_name_from_diagnostic` (diagnostics.ts:880-894):
+
+```ts
+if (diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+    const variable_match = diagnostic.message.match(
+        /^Potentially undefined variable: ([a-zA-Z_][a-zA-Z0-9_]*)$/
+    );
+    if (variable_match) return variable_match[1];
+    return null;
+}
+```
+
+The function can early-return on code to avoid accidentally matching macro-format patterns against variable messages.
+
+### Shared message helper
+
+New module: `src/utils/out-of-scope-message.ts`. Placed under `src/utils/` rather than `src/providers/` so the analyzer, any future diagnostic emitter, or tests can import it without coupling to provider internals.
+
+```ts
+export type OutOfScopeSymbolKind =
+    | 'local' | 'global' | 'variable' | 'scalar' | 'matrix' | 'program';
+
+export type OutOfScopeReason =
+    | { kind: 'after_call_site'; call_site_line_0: number; source_file: string }
+    | { kind: 'inheritance_excludes_locals'; source_file: string }
+    | { kind: 'same_file_forward'; defined_line_0: number };
+
+export function format_out_of_scope_message(
+    symbol_name: string,
+    symbol_kind: OutOfScopeSymbolKind,
+    reason: OutOfScopeReason
+): string;
+```
+
+**Display-name formatting** (from `symbol_name` + `symbol_kind`):
+
+- `local` → `` `foo' ``
+- `global` → `$foo`
+- `variable` / `scalar` / `matrix` / `program` → `foo` (bare; no decoration)
+
+**Line-number contract.** The helper accepts **0-indexed** line numbers in `call_site_line_0` and `defined_line_0` and converts them to 1-indexed for display. This matches the internal representation used throughout the codebase (`OutOfScopeSymbol.call_site_line` is 0-indexed per scope-resolver comment at line 2027; AST ranges are 0-indexed). Field names carry the `_0` suffix so the contract is visible at call sites. The `+ 1` conversion lives in the helper and nowhere else.
+
+**Message wording** (display name = DN):
+
+- `after_call_site` → `DN is defined in <source_file> but after the call site (line <call_site_line_0 + 1>)`
+- `inheritance_excludes_locals` → `DN is defined in <source_file> but local macros are not inherited via do/run (use include or @lsp-included-by)`
+- `same_file_forward` → `DN is used before it is defined (line <defined_line_0 + 1>)`
+
+Unit tests cover every `(kind, reason)` combination that actually occurs (`local × {after_call_site, inheritance_excludes_locals, same_file_forward}`, `global × {after_call_site, same_file_forward}`, `variable × {after_call_site}`). Impossible combinations (e.g., `variable × inheritance_excludes_locals`, which only applies to locals by definition) are simply never constructed; the helper does not need to reject them.
+
+### Code deletions
+
+- The four reads of `config.cross_file?.diagnostics?.out_of_scope` in `src/providers/diagnostics.ts`.
+- `cross_file_severity_to_lsp` (diagnostics.ts:858-871) — no remaining callers once the reads above are gone.
+- Any symbol exports and doc references to the removed config key.
 
 ## Testing
 
 ### Unit tests
 
-- **Message helper** (`tests/unit/out-of-scope-message.test.ts`, new) — cover all three `OutOfScopeReason` variants; assert exact strings.
-- **Symbol extractor** (`tests/unit/diagnostics-provider.test.ts`, existing) — add cases for `Potentially undefined variable: foo`; regression coverage for the macro/global formats.
-- **Provider rewrite severity** (`tests/unit/diagnostics-provider.test.ts`, existing) — replace assertions that `OUT_OF_SCOPE_SYMBOL` severity comes from `crossFile.diagnostics.outOfScope` with assertions that it matches the mapped base severity. Add a case: base `off` ⇒ no `OUT_OF_SCOPE_SYMBOL` emitted (and no base diagnostic either).
-- **Analyzer same-file forward-ref** (`tests/unit/analyzer/forward-ref.test.ts` or similar, new) — macro defined on line 10 and referenced on line 5 ⇒ `OUT_OF_SCOPE_SYMBOL` with `used before it is defined (line 10)`; macro truly undefined ⇒ unchanged `UNDEFINED_MACRO` generic message; same coverage for globals.
-- **Validator deprecation** (`tests/unit/config-validator.test.ts`, existing) — old `crossFile.diagnostics.outOfScope` key logs a warning and is ignored; no crash if it is the only crossFile-diagnostics key present.
+- **Message helper** (`tests/unit/out-of-scope-message.test.ts`, new) — cover every `(kind, reason)` combination listed above; assert exact strings, including 1-indexed line numbers derived from 0-indexed inputs.
+- **Symbol extractor** (`tests/unit/diagnostics-provider.test.ts`, existing) — add variable-format cases (`Potentially undefined variable: foo` → `foo`) and a case where a macro-format message is not accidentally parsed as a variable. Retain regression coverage for local and global macro formats.
+- **Reference-kind classifier** (`tests/unit/diagnostics-provider.test.ts`) — one case per `(code, message shape) → kind` expectation, plus a `null` fallback case for unrecognized shapes.
+- **Kind matcher** (`tests/unit/diagnostics-provider.test.ts`) — variable-kind reference only matches variable out-of-scope entries; does not match scalar / matrix / program / local / global.
+- **Rewrite severity** (`tests/unit/diagnostics-provider.test.ts`) — base `undefinedMacro` at each of `error | warning | information | hint` propagates to the `OUT_OF_SCOPE_SYMBOL` severity; `off` yields `null` (no diagnostic emitted). Same matrix for the variable branch keyed to `undefinedVariable`.
+- **`@lsp-ignore` coverage** (`tests/unit/diagnostics-provider.test.ts`) — `@lsp-ignore` and `@lsp-ignore-next` at the reference line both suppress `OUT_OF_SCOPE_SYMBOL` rewrites, for all three rewrite forms (same-file, cross-file backward, cross-file forward).
+- **Same-file forward-ref rewrite** (`tests/unit/diagnostics-provider.test.ts`) — macro referenced before it is defined ⇒ `OUT_OF_SCOPE_SYMBOL` with `used before it is defined (line N)` at the correct 1-indexed line; truly undefined macro ⇒ unchanged `UNDEFINED_MACRO` generic message.
 
 ### Property tests
 
-- `tests/property/forward-call-out-of-scope-oracle.prop.test.ts` — update the oracle to predict `OUT_OF_SCOPE_SYMBOL` whenever the base would fire and an out-of-scope match exists. The existing assertion at ~line 495 that the forward path falls back to plain `UNDEFINED_MACRO` when `outOfScope = off` deletes; that branch no longer exists.
-- `tests/property/out-of-scope-diagnostic-correctness.prop.test.ts` and `tests/property/out-of-scope-diagnostic-message-fix.prop.test.ts` — drop references to the old setting; add a parity property: for equivalent backward and forward out-of-scope scenarios, the emitted `OUT_OF_SCOPE_SYMBOL` has the same severity and code.
-- `tests/property/severity-settings.prop.test.ts` — drop `outOfScope` from the severity matrix. Add properties: (a) `undefinedMacro = off` ⇒ no `OUT_OF_SCOPE_SYMBOL` emitted for macros; (b) emitted `OUT_OF_SCOPE_SYMBOL` severity equals mapped `undefinedMacro` / `undefinedVariable` severity.
+- `tests/property/forward-call-out-of-scope-oracle.prop.test.ts` — update the oracle to predict `OUT_OF_SCOPE_SYMBOL` whenever an out-of-scope match exists and the base severity is not `off`. The existing assertion (~line 495) that the forward path falls back to plain `UNDEFINED_MACRO` when `outOfScope = off` deletes; that setting is gone.
+- `tests/property/out-of-scope-diagnostic-correctness.prop.test.ts`, `tests/property/out-of-scope-diagnostic-message-fix.prop.test.ts` — drop references to the old setting. Add a parity property: for equivalent same-file, backward, and forward scenarios, the emitted `OUT_OF_SCOPE_SYMBOL` has identical severity (controlled by base) and identical code.
+- `tests/property/severity-settings.prop.test.ts` — drop `outOfScope` from the severity matrix. Add properties: (a) `undefinedMacro = off` ⇒ no macro-kind `OUT_OF_SCOPE_SYMBOL`; (b) `undefinedVariable = off` ⇒ no variable-kind `OUT_OF_SCOPE_SYMBOL`; (c) for any non-`off` base severity, the rewrite is emitted at exactly that severity.
+- `tests/property/diagnostic-suppression.test.ts` — extend to cover `@lsp-ignore` / `@lsp-ignore-next` suppressing `OUT_OF_SCOPE_SYMBOL` rewrites.
 
 ### Integration tests
 
-- `tests/integration/out-of-scope-diagnostic-message-bug.test.ts`, `local-macro-inheritance-bug.test.ts`, `cross-file-awareness.test.ts`, `callee-revalidation.test.ts` — adjust config fixtures that set `crossFile.diagnostics.outOfScope`; adjust expected severities to track the base.
-- **New**: same-file forward-ref macro (no cross-file setup) ⇒ asserts `OUT_OF_SCOPE_SYMBOL` with `used before it is defined` message and correct line number.
-- **New**: cross-file out-of-scope variable (with `undefinedVariable='warning'` in test config) ⇒ asserts the rewrite now fires. Regression gate for the variable-extractor change.
+- `tests/integration/out-of-scope-diagnostic-message-bug.test.ts`, `local-macro-inheritance-bug.test.ts`, `cross-file-awareness.test.ts`, `callee-revalidation.test.ts` — strip any config fixtures setting the removed `crossFile.diagnostics.outOfScope`; adjust expected severities to match the base.
+- **New**: same-file forward-reference macro (no cross-file setup) ⇒ asserts `OUT_OF_SCOPE_SYMBOL` with the `used before it is defined` message at the correct line.
+- **New**: cross-file out-of-scope variable with `undefinedVariable = 'warning'` ⇒ asserts the variable-form rewrite fires (regression gate for the extractor + classifier changes).
+- **New**: `@lsp-ignore` at the reference line suppresses the rewrite for each of the three rewrite forms.
 
 ### Documentation
 
-- `docs/configuration.md` — remove the `crossFile.diagnostics.outOfScope` entry. Under the `diagnostics.severity.undefinedMacro` / `undefinedVariable` entries, add a short note: "When the scope resolver can prove a referenced symbol exists but is unreachable (defined later in the same file, defined after the call site in a parent file, or excluded by `do`/`run` inheritance), the diagnostic is replaced with a specific `OUT_OF_SCOPE_SYMBOL` message at the same severity."
-- `docs/cross-file.md` — remove the `outOfScope` severity column from any configuration tables; reframe out-of-scope as "a specific form of the undefined-symbol diagnostic, not a separate source."
-- `CLAUDE.md` — no changes required. The architecture description at the top of the file already describes `OUT_OF_SCOPE_SYMBOL` correctly as a rewrite.
+- `docs/configuration.md` — remove the `crossFile.diagnostics.outOfScope` entry entirely. Under `diagnostics.severity.undefinedMacro` / `undefinedVariable`, add a short note: "When the scope resolver can prove a referenced symbol exists but is unreachable (defined later in the same file, defined after the call site in a parent file, or excluded by `do`/`run` inheritance), the diagnostic is replaced with a specific `OUT_OF_SCOPE_SYMBOL` message at the same severity."
+- `docs/cross-file.md` — remove the `outOfScope` severity entry. Reframe out-of-scope as "a specific form of the undefined-symbol diagnostic, not a separate source."
+- `CLAUDE.md` — no changes required.
 
 ## Migration & release notes
 
-- **BREAKING (config).** `sight.crossFile.diagnostics.outOfScope` is removed. The validator accepts it as a deprecated alias for one release (logs a warning, ignored). After that, it will be rejected as an unknown key.
-- **BEHAVIOR CHANGE.** Users who had `outOfScope = off` will start seeing the out-of-scope rewrite. The severity now matches their `undefinedMacro` / `undefinedVariable` setting (default `'warning'` for macros, default `'off'` for variables). To silence the rewrite, set the corresponding base setting to `'off'`.
-- **BEHAVIOR CHANGE.** Users who had `outOfScope = error` and rely on escalation above the base will lose that capability. To keep escalation, raise the base `undefinedMacro` to `'error'`.
-- **NEW.** The cross-file out-of-scope rewrite now applies to variables when `undefinedVariable` is enabled (previously dead code).
-- **NEW.** Same-file forward references to macros and globals get a specific `used before it is defined (line N)` message with diagnostic code `OUT_OF_SCOPE_SYMBOL`.
+- **BREAKING (config).** `sight.crossFile.diagnostics.outOfScope` is removed. No alias, no warning. Users who still have the key in their `.sight.json` will simply find it ignored (the validator's generic unrecognized-key handling applies).
+- **BEHAVIOR CHANGE.** Users who had `outOfScope = off` will start seeing the out-of-scope rewrite. Severity now matches their `undefinedMacro` / `undefinedVariable` setting (default `'warning'` for macros, default `'off'` for variables). To silence the rewrite, set the corresponding base setting to `'off'`.
+- **BEHAVIOR CHANGE.** Users who had `outOfScope = error` and relied on out-of-scope being more severe than the base will lose that escalation. To keep escalation, raise the base `undefinedMacro` to `'error'`.
+- **NEW.** The cross-file out-of-scope rewrite now applies to the undefined-variable diagnostic when `undefinedVariable` is enabled. This does not extend variable analysis itself; it only routes existing undefined-variable diagnostics through the rewrite path when the scope resolver has a matching entry.
+- **NEW.** Same-file forward references to macros and globals get a specific `used before it is defined (line N)` diagnostic with code `OUT_OF_SCOPE_SYMBOL`.
+- **BUG FIX.** `@lsp-ignore` and `@lsp-ignore-next` now suppress `OUT_OF_SCOPE_SYMBOL` rewrites, matching their existing behavior for `UNDEFINED_MACRO` / `UNDEFINED_VARIABLE`.
 
 ## Risks
 
-- **Variable rewrite side effects.** The variable rewrite path was previously dead. Wiring it up may expose scope-resolver edge cases for variables not previously stressed (e.g., inheritance rules for variables through `do` chains). Property and integration tests exercise the common paths, but watch for reports after release.
-- **Same-file forward-ref false positives.** The analyzer's same-file position tracking is already used for the generic undefined diagnostic, so this change reuses proven logic. The new risk is the diagnostic code change (`UNDEFINED_MACRO` → `OUT_OF_SCOPE_SYMBOL`) — any downstream consumer that filters by code needs to include both.
-- **Deprecation-alias window.** If the ignored-alias warning is noisy, users on older configs will see validator spam until they migrate. Acceptable; that is the point.
+- **Tightened kind matching.** Changing `out_of_scope_type_matches_reference` from `null → true` to `null → false` could, in theory, stop matching cases where extraction fails. The classifier covers the cases the current analyzer actually produces, so this should be a net improvement; focused tests guard the expected shapes.
+- **Variable rewrite blast radius.** The variable rewrite path was previously dead. Wiring it up may expose edge cases in scope-resolver variable handling that were never exercised. Property and integration tests cover the common shapes; watch for reports after release.
+- **Diagnostic code drift for consumers.** Same-file forward references previously surfaced as `UNDEFINED_MACRO`; they will now surface as `OUT_OF_SCOPE_SYMBOL` whenever a later definition exists in the same file. Any downstream tool that filters by code must include both codes to see "undefined macro-like" diagnostics.
+- **Removed setting with no warning.** Users on older configs who used the setting will see behavior change without any tooling signal beyond release notes. This is accepted explicitly in the migration plan.
