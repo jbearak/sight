@@ -27,15 +27,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { URI } from 'vscode-uri';
-import { Connection } from 'vscode-languageserver';
+import type { Connection } from 'vscode-languageserver';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { DocumentStore } from '../../src/document-store';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
-import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
+import { StataDiagnosticCode } from '../../src/types';
+import type { StataLSPConfig } from '../../src/types';
 import {
     arbitrary_forward_call_graph,
     render_file,
+} from './generators/forward-call-graphs';
+import type {
     ForwardCallGraph,
     FileSpec,
 } from './generators/forward-call-graphs';
