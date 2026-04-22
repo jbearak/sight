@@ -2,6 +2,9 @@
  * Stata execution oracle for forward-call graphs.
  *
  * Ground truth for `tests/property/forward-call-out-of-scope-oracle.prop.test.ts`.
+ * Derived from Stata runtime semantics, not from `ForwardScopeResolver`'s
+ * algorithm — so a resolver bug cannot silently propagate into the
+ * oracle.
  *
  * Semantics modelled:
  *
@@ -129,8 +132,11 @@ export class StataExecutionOracle {
      * end-states from nested `include` calls. `do`/`run` events are
      * skipped — they would run in a fresh scope and leave nothing behind.
      *
-     * Cycle protection is per-path (current_path) so mutual includes
-     * terminate.
+     * Cycle protection is per-path (current_path), not a global visited
+     * set, because an include-only walk may legitimately re-enter a file
+     * reached through two distinct include chains and rebind on the
+     * second visit — last-def-wins depends on seeing both. We block only
+     * when recursion would re-enter a file already on the current stack.
      */
     private compute_include_only_end_state(
         file_index: number,
