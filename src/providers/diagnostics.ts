@@ -16,9 +16,25 @@ import { ScopeResolver, build_scope_resolver_config, get_visible_forward_call_si
 import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import {
+    format_out_of_scope_message,
+    OutOfScopeReason as OutOfScopeMessageReason,
+    OutOfScopeSymbolKind,
+} from '../utils/out-of-scope-message';
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
+type SemanticDiagnostic = {
+    message: string;
+    range: any;
+    code: number;
+    severity: 'error' | 'warning' | 'information' | 'hint';
+    base_code?: number;
+};
+type OutOfScopeRewriteMatch = {
+    symbol_kind: OutOfScopeSymbolKind;
+    reason: OutOfScopeMessageReason;
+};
 
 /**
  * DiagnosticsProvider aggregates diagnostics from cached parse results.
@@ -239,156 +255,174 @@ export class DiagnosticsProvider {
                 continue;
             }
 
-            // Check if this is an undefined symbol that's actually defined in cross-file scope
-            if (resolved_scope &&
-                (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO ||
-                 my_diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE)) {
-                const symbol_name = this.extract_symbol_name_from_diagnostic(my_diagnostic);
-                if (symbol_name) {
-                    // Check if defined in cross-file scope (different sourceUri)
-                    if (this.is_symbol_defined_in_scope(symbol_name, resolved_scope.symbols, my_diagnostic.code, document.uri)) {
-                        continue; // Skip - symbol is defined in parent file
-                    }
-                    
-                    // Check if this macro is a c_local from a program in the resolved scope
-                    // This handles the case where the analyzer didn't have workspace symbols
-                    // but the scope resolver found the program via @lsp-done-by chain
-                    if (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO) {
-                        if (this.is_c_local_from_resolved_program(symbol_name, resolved_scope.symbols, document, my_diagnostic.range.start.line)) {
-                            continue; // Skip - macro is a c_local from a program in resolved scope
-                        }
-                    }
-                    
-                    // Check if symbol is out-of-scope (defined after call site or
-                    // excluded by inheritance). This path rewrites an existing
-                    // undefined-symbol diagnostic; it is not an independent
-                    // diagnostic source.
-                    // Only match out-of-scope symbols of the same type as the
-                    // reference.
-                    const reference_scope = this.extract_macro_scope_from_diagnostic(my_diagnostic);
-                    const out_of_scope = resolved_scope.out_of_scope_symbols.find(
-                        s => s.name === symbol_name && this.out_of_scope_type_matches_reference(s.type, reference_scope)
-                    );
-                    if (out_of_scope) {
-                        // Suppress the rewrite when the base undefined-symbol
-                        // diagnostic is disabled. OUT_OF_SCOPE_SYMBOL is a
-                        // rewrite, not an independent source, so turning off
-                        // the base should also silence the rewrite.
-                        const base_severity = my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
-                            ? config.diagnostics.severity.undefinedMacro
-                            : config.diagnostics.severity.undefinedVariable;
-                        if (base_severity === 'off') {
-                            continue;
-                        }
-                        // Check config severity for out-of-scope
-                        const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
-                        if (out_of_scope_severity === 'off') {
-                            continue;
-                        }
-                        // Emit more informative out-of-scope diagnostic based on reason
-                        const source_file = out_of_scope.source_uri.split('/').pop() || out_of_scope.source_uri;
-                        let message: string;
-                        if (out_of_scope.reason === 'inheritance_excludes_locals') {
-                            message = `'${symbol_name}' is defined in ${source_file} but local macros are not inherited via do/run (use include or @lsp-included-by)`;
-                        } else {
-                            // Convert 0-indexed call_site_line to 1-indexed for display
-                            const display_line = out_of_scope.call_site_line + 1;
-                            message = `'${symbol_name}' is defined in ${source_file} but after the call site (line ${display_line})`;
-                        }
-                        the_diagnostics.push({
-                            range: my_diagnostic.range,
-                            message,
-                            severity: this.cross_file_severity_to_lsp(out_of_scope_severity),
-                            source: 'sight',
-                            code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
-                        });
-                        continue;
-                    }
+            const is_undefined_symbol =
+                my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                || my_diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE;
+            const symbol_name = is_undefined_symbol
+                ? this.extract_symbol_name_from_diagnostic(my_diagnostic)
+                : null;
+            const reference_kind = is_undefined_symbol
+                ? this.classify_reference_kind(my_diagnostic)
+                : null;
+
+            // Skip diagnostics when the symbol is truly available from
+            // cross-file scope before attempting any out-of-scope rewrites.
+            if (resolved_scope && symbol_name) {
+                if (this.is_symbol_defined_in_scope(
+                        symbol_name,
+                        resolved_scope.symbols,
+                        my_diagnostic.code,
+                        document.uri
+                    )) {
+                    continue;
+                }
+
+                if (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && this.is_c_local_from_resolved_program(
+                        symbol_name,
+                        resolved_scope.symbols,
+                        document,
+                        my_diagnostic.range.start.line
+                    )) {
+                    continue;
                 }
             }
-            
-            // Check if this is an undefined symbol that's defined in a forward-called
-            // file visible at this diagnostic's line. Uses the shared helper.
-            if (resolved_scope &&
-                (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO ||
-                 my_diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE)) {
-                const symbol_name = this.extract_symbol_name_from_diagnostic(my_diagnostic);
-                if (symbol_name) {
-                    const diag_line = my_diagnostic.range.start.line;
-                    let found_in_forward_call = false;
-                    let excluded_callee_uri: string | undefined;
-                    const reference_scope = this.extract_macro_scope_from_diagnostic(my_diagnostic);
-                    for (const call_site of get_visible_forward_call_sites(resolved_scope, diag_line)) {
-                        if (this.is_symbol_in_forward_call(
-                                symbol_name, call_site.symbols, my_diagnostic.code, call_site.effective_type)) {
-                            found_in_forward_call = true;
-                            break;
-                        }
-                        if (this.is_symbol_excluded_by_forward_call(
-                                symbol_name,
-                                call_site,
-                                my_diagnostic.code,
-                                reference_scope
-                            )) {
-                            // Forward-call symbol precedence is last visible site wins.
-                            // Blame the callee whose local is the effective
-                            // end-of-execution winner for this site's chain
-                            // (see ForwardScopeResolver.compute_effective_end_state_locals).
-                            // Fall back to the direct-child's URI if the
-                            // symbol's sourceUri is missing.
-                            const effective = call_site.excluded_locals?.get(symbol_name);
-                            excluded_callee_uri = effective?.sourceUri ?? call_site.callee_uri;
-                        }
+
+            if (resolved_scope && symbol_name) {
+                const diag_line = my_diagnostic.range.start.line;
+                let found_in_forward_call = false;
+                for (const call_site of get_visible_forward_call_sites(
+                    resolved_scope,
+                    diag_line
+                )) {
+                    if (this.is_symbol_in_forward_call(
+                            symbol_name,
+                            call_site.symbols,
+                            my_diagnostic.code,
+                            call_site.effective_type
+                        )) {
+                        found_in_forward_call = true;
+                        break;
                     }
-                    if (found_in_forward_call) {
+                }
+                if (found_in_forward_call) {
+                    continue;
+                }
+            }
+            if (symbol_name) {
+                const same_file_match = this.find_same_file_out_of_scope_match(
+                    symbol_name,
+                    reference_kind,
+                    document.symbols,
+                    document.uri,
+                    my_diagnostic.range.start.line
+                );
+                if (same_file_match) {
+                    const converted = this.create_out_of_scope_rewrite(
+                        my_diagnostic,
+                        symbol_name,
+                        same_file_match,
+                        config,
+                        document
+                    );
+                    if (converted) {
+                        the_diagnostics.push(converted);
+                    }
+                    continue;
+                }
+            }
+
+            if (resolved_scope && symbol_name) {
+                const backward_match = this.find_backward_out_of_scope_match(
+                    symbol_name,
+                    reference_kind,
+                    resolved_scope
+                );
+                if (backward_match) {
+                    const converted = this.create_out_of_scope_rewrite(
+                        my_diagnostic,
+                        symbol_name,
+                        backward_match,
+                        config,
+                        document
+                    );
+                    if (converted) {
+                        the_diagnostics.push(converted);
+                    }
+                    continue;
+                }
+
+                const diag_line = my_diagnostic.range.start.line;
+                let found_in_forward_call = false;
+                let forward_match: OutOfScopeRewriteMatch | null = null;
+                for (const call_site of get_visible_forward_call_sites(
+                    resolved_scope,
+                    diag_line
+                )) {
+                    if (this.is_symbol_in_forward_call(
+                            symbol_name,
+                            call_site.symbols,
+                            my_diagnostic.code,
+                            call_site.effective_type
+                        )) {
+                        found_in_forward_call = true;
+                        break;
+                    }
+                    if (this.is_symbol_excluded_by_forward_call(
+                            symbol_name,
+                            call_site,
+                            my_diagnostic.code,
+                            reference_kind
+                        )) {
+                        const effective = call_site.excluded_locals?.get(
+                            symbol_name
+                        );
+                        const excluded_callee_uri = effective?.sourceUri
+                            ?? call_site.callee_uri;
+                        const source_file = excluded_callee_uri.split('/').pop()
+                            || excluded_callee_uri;
+                        forward_match = {
+                            symbol_kind: 'local',
+                            reason: {
+                                kind: 'inheritance_excludes_locals',
+                                source_file,
+                            },
+                        };
+                    }
+                }
+                if (found_in_forward_call) {
+                    continue;
+                }
+                if (forward_match) {
+                    if (this.is_symbol_defined_in_current_document(
+                            symbol_name,
+                            document.symbols,
+                            my_diagnostic.code,
+                            document.uri,
+                            reference_kind
+                        )) {
+                        const converted = this.convert_semantic_diagnostic(
+                            my_diagnostic,
+                            config,
+                            document
+                        );
+                        if (converted) {
+                            the_diagnostics.push(converted);
+                        }
                         continue;
                     }
-                    if (excluded_callee_uri) {
-                        // Suppress the rewrite when the base undefined-symbol
-                        // diagnostic is disabled. See comment in the backward
-                        // path above.
-                        const base_severity = my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
-                            ? config.diagnostics.severity.undefinedMacro
-                            : config.diagnostics.severity.undefinedVariable;
-                        if (base_severity === 'off') {
-                            continue;
-                        }
-                        const out_of_scope_severity = config.cross_file?.diagnostics?.out_of_scope;
-                        if (out_of_scope_severity !== 'off') {
-                            if (this.is_symbol_defined_in_current_document(
-                                    symbol_name,
-                                    document.symbols,
-                                    my_diagnostic.code,
-                                    document.uri,
-                                    reference_scope
-                                )) {
-                                // Preserve the analyzer's same-file
-                                // forward-reference diagnostic instead of
-                                // replacing it with cross-file advice. This
-                                // intentionally keeps same-file forward
-                                // references gated by the base undefined-symbol
-                                // severity settings.
-                                const converted = this.convert_semantic_diagnostic(
-                                    my_diagnostic,
-                                    config,
-                                    document
-                                );
-                                if (converted) {
-                                    the_diagnostics.push(converted);
-                                }
-                                continue;
-                            }
-                            const source_file = excluded_callee_uri.split('/').pop() || excluded_callee_uri;
-                            the_diagnostics.push({
-                                range: my_diagnostic.range,
-                                message: `'${symbol_name}' is defined in ${source_file} but local macros are not inherited via do/run (use include or @lsp-include)`,
-                                severity: this.cross_file_severity_to_lsp(out_of_scope_severity),
-                                source: 'sight',
-                                code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
-                            });
-                            continue;
-                        }
+
+                    const converted = this.create_out_of_scope_rewrite(
+                        my_diagnostic,
+                        symbol_name,
+                        forward_match,
+                        config,
+                        document
+                    );
+                    if (converted) {
+                        the_diagnostics.push(converted);
                     }
+                    continue;
                 }
             }
             
@@ -508,18 +542,8 @@ export class DiagnosticsProvider {
     /**
      * Extract semantic diagnostics from document diagnostics.
      */
-    private extract_semantic_diagnostics(document: DocumentState): Array<{
-        message: string;
-        range: any;
-        code: number;
-        severity: 'error' | 'warning' | 'information' | 'hint';
-    }> {
-        const semantic_diags: Array<{
-            message: string;
-            range: any;
-            code: number;
-            severity: 'error' | 'warning' | 'information' | 'hint';
-        }> = [];
+    private extract_semantic_diagnostics(document: DocumentState): SemanticDiagnostic[] {
+        const semantic_diags: SemanticDiagnostic[] = [];
         for (const diag of document.diagnostics) {
             if (diag.code && typeof diag.code === 'number') {
                 const code = diag.code as number;
@@ -611,6 +635,19 @@ export class DiagnosticsProvider {
         };
     }
 
+    private get_undefined_symbol_severity_setting(
+        diagnostic_code: number | undefined,
+        config: StataLSPConfig
+    ): 'error' | 'warning' | 'information' | 'hint' | 'off' | null {
+        if (diagnostic_code === StataDiagnosticCode.UNDEFINED_MACRO) {
+            return config.diagnostics.severity.undefinedMacro;
+        }
+        if (diagnostic_code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+            return config.diagnostics.severity.undefinedVariable;
+        }
+        return null;
+    }
+
     /**
      * Convert a parser error to an LSP Diagnostic.
      */
@@ -669,19 +706,15 @@ export class DiagnosticsProvider {
      * Convert a semantic diagnostic to an LSP Diagnostic.
      */
     private convert_semantic_diagnostic(
-        diagnostic: {
-            message: string;
-            range: any;
-            code: number;
-            severity: 'error' | 'warning' | 'information' | 'hint';
-        },
+        diagnostic: SemanticDiagnostic,
         config: StataLSPConfig,
         document?: DocumentState
     ): Diagnostic | null {
         // Check suppression first for undefined symbol diagnostics
         if (document && 
             (diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO ||
-             diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE)) {
+             diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE ||
+             diagnostic.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL)) {
             if (this.should_suppress_undefined_symbol(document, diagnostic.range)) {
                 return null; // Suppressed
             }
@@ -693,10 +726,18 @@ export class DiagnosticsProvider {
 
         switch (diagnostic.code) {
             case StataDiagnosticCode.UNDEFINED_MACRO:
-            case StataDiagnosticCode.UNDEFINED_VARIABLE: {
-                const severity_setting = diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    ? config.diagnostics.severity.undefinedMacro
-                    : config.diagnostics.severity.undefinedVariable;
+            case StataDiagnosticCode.UNDEFINED_VARIABLE:
+            case StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL: {
+                const severity_setting = this.get_undefined_symbol_severity_setting(
+                    diagnostic.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                        ? diagnostic.base_code
+                        : diagnostic.code,
+                    config
+                );
+                if (!severity_setting) {
+                    severity = this.semantic_severity_to_lsp(diagnostic.severity);
+                    break;
+                }
                 severity = this.get_severity_from_config(severity_setting);
                 break;
             }
@@ -714,6 +755,120 @@ export class DiagnosticsProvider {
             severity,
             code: diagnostic.code,
             source: 'sight',
+        };
+    }
+
+    private create_out_of_scope_rewrite(
+        base_diagnostic: SemanticDiagnostic,
+        symbol_name: string,
+        match: OutOfScopeRewriteMatch,
+        config: StataLSPConfig,
+        document: DocumentState
+    ): Diagnostic | null {
+        return this.convert_semantic_diagnostic(
+            {
+                message: format_out_of_scope_message(
+                    symbol_name,
+                    match.symbol_kind,
+                    match.reason
+                ),
+                range: base_diagnostic.range,
+                code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
+                severity: base_diagnostic.severity,
+                base_code: base_diagnostic.code,
+            },
+            config,
+            document
+        );
+    }
+
+    private find_same_file_out_of_scope_match(
+        symbol_name: string,
+        reference_kind: 'local' | 'global' | 'variable' | null,
+        symbols: SymbolTable,
+        current_document_uri: string,
+        reference_line: number
+    ): OutOfScopeRewriteMatch | null {
+        if (reference_kind !== 'local' && reference_kind !== 'global') {
+            return null;
+        }
+
+        const get_definition_line = (
+            symbol:
+                | {
+                    sourceUri?: string;
+                    location?: { uri?: string; range?: { start?: { line?: number } } };
+                }
+                | undefined
+        ): number | null => {
+            if (!symbol) {
+                return null;
+            }
+            const symbol_uri = symbol.sourceUri ?? symbol.location?.uri;
+            if (symbol_uri !== current_document_uri) {
+                return null;
+            }
+            const definition_line = symbol.location?.range?.start?.line;
+            return typeof definition_line === 'number' ? definition_line : null;
+        };
+
+        const matching_symbol = reference_kind === 'local'
+            ? symbols.localMacros.get(symbol_name)
+            : symbols.globalMacros.get(symbol_name);
+        const definition_line = get_definition_line(matching_symbol);
+
+        if (definition_line === null || definition_line <= reference_line) {
+            return null;
+        }
+
+        return {
+            symbol_kind: reference_kind,
+            reason: {
+                kind: 'same_file_forward',
+                defined_line_0: definition_line,
+            },
+        };
+    }
+
+    private find_backward_out_of_scope_match(
+        symbol_name: string,
+        reference_kind: 'local' | 'global' | 'variable' | null,
+        resolved_scope: ResolvedScope
+    ): OutOfScopeRewriteMatch | null {
+        if (reference_kind === null) {
+            return null;
+        }
+
+        const out_of_scope = resolved_scope.out_of_scope_symbols.find(my_symbol =>
+            my_symbol.name === symbol_name
+            && this.out_of_scope_type_matches_reference(
+                my_symbol.type,
+                reference_kind
+            )
+        );
+        if (!out_of_scope) {
+            return null;
+        }
+
+        const source_file = out_of_scope.source_uri.split('/').pop()
+            || out_of_scope.source_uri;
+        if (out_of_scope.reason === 'inheritance_excludes_locals') {
+            return {
+                symbol_kind: 'local',
+                reason: {
+                    kind: 'inheritance_excludes_locals',
+                    source_file,
+                },
+            };
+        }
+
+        return {
+            symbol_kind: reference_kind,
+            reason: {
+                kind: 'after_call_site',
+                call_site_line_0: out_of_scope.call_site_line,
+                source_file,
+            },
         };
     }
 
@@ -841,7 +996,12 @@ export class DiagnosticsProvider {
         }
 
         const severity = diagnostic.message.includes('Cannot read file')
-            ? this.cross_file_severity_to_lsp(missing_file_severity)
+            ? (
+                missing_file_severity
+                    ? this.get_severity_from_config(missing_file_severity)
+                        ?? DiagnosticSeverity.Information
+                    : DiagnosticSeverity.Information
+            )
             : this.semantic_severity_to_lsp(diagnostic.severity);
 
         return {
@@ -850,24 +1010,6 @@ export class DiagnosticsProvider {
             severity,
             source: 'sight',
         };
-    }
-
-    /**
-     * Convert cross-file config severity to LSP DiagnosticSeverity.
-     */
-    private cross_file_severity_to_lsp(
-        severity?: 'error' | 'warning' | 'information' | 'off'
-    ): DiagnosticSeverity {
-        switch (severity) {
-            case 'error':
-                return DiagnosticSeverity.Error;
-            case 'warning':
-                return DiagnosticSeverity.Warning;
-            case 'information':
-                return DiagnosticSeverity.Information;
-            default:
-                return DiagnosticSeverity.Information;
-        }
     }
 
     /**
@@ -880,6 +1022,19 @@ export class DiagnosticsProvider {
     private extract_symbol_name_from_diagnostic(
         diagnostic: { message: string; code: number }
     ): string | null {
+        if (diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+            const variable_match = diagnostic.message.match(
+                /^Potentially undefined variable: ([a-zA-Z_][a-zA-Z0-9_]*)$/
+            );
+            if (variable_match) {
+                return variable_match[1];
+            }
+            return null;
+        }
+
+        if (diagnostic.code !== StataDiagnosticCode.UNDEFINED_MACRO) {
+            return null;
+        }
         // Try local macro format first: `name'
         const local_macro_match = diagnostic.message.match(/`([^']+)'/);
         if (local_macro_match) {
@@ -965,7 +1120,7 @@ export class DiagnosticsProvider {
         symbols: SymbolTable,
         diagnostic_code: number,
         current_document_uri: string,
-        reference_scope?: 'local' | 'global' | null
+        reference_kind?: 'local' | 'global' | 'variable' | null
     ): boolean {
         const is_from_current_document = (
             symbol: { sourceUri?: string; location?: { uri: string } } | undefined
@@ -978,10 +1133,10 @@ export class DiagnosticsProvider {
         };
 
         if (diagnostic_code === StataDiagnosticCode.UNDEFINED_MACRO) {
-            if (reference_scope === 'local') {
+            if (reference_kind === 'local') {
                 return is_from_current_document(symbols.localMacros.get(symbol_name));
             }
-            if (reference_scope === 'global') {
+            if (reference_kind === 'global') {
                 return is_from_current_document(symbols.globalMacros.get(symbol_name));
             }
             return is_from_current_document(symbols.localMacros.get(symbol_name))
@@ -1013,12 +1168,12 @@ export class DiagnosticsProvider {
         symbol_name: string,
         call_site: import('../types').ForwardCallSite,
         diagnostic_code: number,
-        reference_scope: 'local' | 'global' | null | undefined,
+        reference_kind: 'local' | 'global' | 'variable' | null | undefined,
     ): boolean {
         if (diagnostic_code !== StataDiagnosticCode.UNDEFINED_MACRO) {
             return false;
         }
-        if (reference_scope === 'global') {
+        if (reference_kind === 'global') {
             return false;
         }
         if (call_site.effective_type !== 'do') {
@@ -1183,19 +1338,26 @@ export class DiagnosticsProvider {
     }
 
     /**
-     * Extract the macro scope (local or global) from a diagnostic message.
+     * Classify the referenced symbol kind from a diagnostic.
      * 
      * Local macro references use backtick-apostrophe syntax: `name'
      * Global macro references use dollar sign syntax: $name or ${name}
      * 
      * @param diagnostic - The diagnostic containing the message to parse
-     * @returns 'local' if the message contains local macro syntax,
-     *          'global' if it contains global macro syntax,
+     * @returns 'local', 'global', or 'variable' when the reference kind
+     *          can be determined,
      *          null if neither can be determined
      */
-    private extract_macro_scope_from_diagnostic(
+    private classify_reference_kind(
         diagnostic: { message: string; code: number }
-    ): 'local' | 'global' | null {
+    ): 'local' | 'global' | 'variable' | null {
+        if (diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+            return 'variable';
+        }
+
+        if (diagnostic.code !== StataDiagnosticCode.UNDEFINED_MACRO) {
+            return null;
+        }
         // Check for local macro syntax: `name'
         if (diagnostic.message.includes('`') && diagnostic.message.includes("'")) {
             const local_match = diagnostic.message.match(/`[^']+'/);
@@ -1224,30 +1386,18 @@ export class DiagnosticsProvider {
      * only match out-of-scope global macros, not local macros.
      * 
      * @param out_of_scope_type - The type of the out-of-scope symbol
-     * @param reference_scope - The scope of the reference ('local', 'global', or null)
+     * @param reference_kind - The kind of the reference
      * @returns true if the types match, false otherwise
      */
     private out_of_scope_type_matches_reference(
         out_of_scope_type: 'local' | 'global' | 'program' | 'variable' | 'scalar' | 'matrix',
-        reference_scope: 'local' | 'global' | null
+        reference_kind: 'local' | 'global' | 'variable' | null
     ): boolean {
-        // If we couldn't determine the reference scope, fall back to matching
-        // This preserves backward compatibility for edge cases
-        if (reference_scope === null) {
-            return true;
+        if (reference_kind === null) {
+            return false;
         }
-        
-        // Match local references to local out-of-scope symbols
-        if (reference_scope === 'local' && out_of_scope_type === 'local') {
-            return true;
-        }
-        
-        // Match global references to global out-of-scope symbols
-        if (reference_scope === 'global' && out_of_scope_type === 'global') {
-            return true;
-        }
-        
-        return false;
+
+        return reference_kind === out_of_scope_type;
     }
 
 }

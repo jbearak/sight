@@ -216,7 +216,7 @@ di \`veggie'`;
             expect(plain_undefined.length).toBe(0);
         });
 
-        it('should preserve undefined macro warning when out-of-scope rewrite is disabled', async () => {
+        it('should suppress both the rewrite and base warning when undefinedMacro is off', async () => {
             const child_path = join(test_temp_dir, 'rewrite_off_child.do');
             const child_content = 'local veggie potato';
             writeFileSync(child_path, child_content);
@@ -234,10 +234,11 @@ di \`veggie'`;
                 document_state,
                 {
                     ...config,
-                    cross_file: {
-                        ...config.cross_file,
-                        diagnostics: {
-                            out_of_scope: 'off',
+                    diagnostics: {
+                        ...config.diagnostics,
+                        severity: {
+                            ...config.diagnostics.severity,
+                            undefinedMacro: 'off',
                         },
                     },
                 },
@@ -248,7 +249,7 @@ di \`veggie'`;
             const line1_diags = diagnostics.filter(d => d.range.start.line === 1);
             expect(line1_diags.some(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-            )).toBe(true);
+            )).toBe(false);
             expect(line1_diags.some(
                 d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
             )).toBe(false);

@@ -903,8 +903,272 @@ display \`result'
         });
     });
 
+    describe('out-of-scope helper methods', () => {
+        it('should extract variable names from undefined variable diagnostics', () => {
+            const symbol_name = (provider as any).extract_symbol_name_from_diagnostic({
+                message: 'Potentially undefined variable: foo',
+                code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+            });
+
+            expect(symbol_name).toBe('foo');
+        });
+
+        it('should not parse macro-form messages as undefined variables', () => {
+            const symbol_name = (provider as any).extract_symbol_name_from_diagnostic({
+                message: "Undefined local macro: `foo'",
+                code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+            });
+
+            expect(symbol_name).toBeNull();
+        });
+
+        it('should classify reference kinds for local, global, variable, and unknown diagnostics', () => {
+            expect((provider as any).classify_reference_kind({
+                message: "Undefined local macro: `foo'",
+                code: StataDiagnosticCode.UNDEFINED_MACRO,
+            })).toBe('local');
+
+            expect((provider as any).classify_reference_kind({
+                message: 'Undefined global macro: $foo',
+                code: StataDiagnosticCode.UNDEFINED_MACRO,
+            })).toBe('global');
+
+            expect((provider as any).classify_reference_kind({
+                message: 'Potentially undefined variable: foo',
+                code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+            })).toBe('variable');
+
+            expect((provider as any).classify_reference_kind({
+                message: 'Undefined macro',
+                code: StataDiagnosticCode.UNDEFINED_MACRO,
+            })).toBeNull();
+        });
+
+        it('should only match out-of-scope symbols when kinds are exactly equal', () => {
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'local',
+                'local'
+            )).toBe(true);
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'global',
+                'global'
+            )).toBe(true);
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'variable',
+                'variable'
+            )).toBe(true);
+
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'scalar',
+                'variable'
+            )).toBe(false);
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'matrix',
+                'variable'
+            )).toBe(false);
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'program',
+                'variable'
+            )).toBe(false);
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'variable',
+                'local'
+            )).toBe(false);
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'variable',
+                'global'
+            )).toBe(false);
+            expect((provider as any).out_of_scope_type_matches_reference(
+                'local',
+                null
+            )).toBe(false);
+        });
+    });
+
     describe('out-of-scope diagnostic messages', () => {
-        it('should preserve same-file forward references when a prior do call excludes matching locals', async () => {
+        it('should inherit macro rewrite severity from undefinedMacro', () => {
+            const the_cases = [
+                { severity: 'error' as const, expected: DiagnosticSeverity.Error },
+                { severity: 'warning' as const, expected: DiagnosticSeverity.Warning },
+                {
+                    severity: 'information' as const,
+                    expected: DiagnosticSeverity.Information
+                },
+                { severity: 'hint' as const, expected: DiagnosticSeverity.Hint },
+                { severity: 'off' as const, expected: null },
+            ];
+
+            for (const my_case of the_cases) {
+                const config = {
+                    ...DEFAULT_CONFIG,
+                    diagnostics: {
+                        ...DEFAULT_CONFIG.diagnostics,
+                        severity: {
+                            ...DEFAULT_CONFIG.diagnostics.severity,
+                            undefinedMacro: my_case.severity,
+                        },
+                    },
+                };
+
+                const converted = (provider as any).convert_semantic_diagnostic(
+                    {
+                        message: "`foo' is defined in parent.do but after the call site (line 1)",
+                        range: {
+                            start: { line: 0, character: 0 },
+                            end: { line: 0, character: 5 },
+                        },
+                        code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
+                        base_code: StataDiagnosticCode.UNDEFINED_MACRO,
+                        severity: 'warning',
+                    } as any,
+                    config
+                );
+
+                if (my_case.expected === null) {
+                    expect(converted).toBeNull();
+                } else {
+                    expect(converted).toBeDefined();
+                    expect(converted?.severity).toBe(my_case.expected);
+                }
+            }
+        });
+
+        it('should inherit variable rewrite severity from undefinedVariable', () => {
+            const the_cases = [
+                { severity: 'error' as const, expected: DiagnosticSeverity.Error },
+                { severity: 'warning' as const, expected: DiagnosticSeverity.Warning },
+                {
+                    severity: 'information' as const,
+                    expected: DiagnosticSeverity.Information
+                },
+                { severity: 'hint' as const, expected: DiagnosticSeverity.Hint },
+                { severity: 'off' as const, expected: null },
+            ];
+
+            for (const my_case of the_cases) {
+                const config = {
+                    ...DEFAULT_CONFIG,
+                    diagnostics: {
+                        ...DEFAULT_CONFIG.diagnostics,
+                        severity: {
+                            ...DEFAULT_CONFIG.diagnostics.severity,
+                            undefinedVariable: my_case.severity,
+                        },
+                    },
+                };
+
+                const converted = (provider as any).convert_semantic_diagnostic(
+                    {
+                        message: 'foo is defined in parent.do but after the call site (line 1)',
+                        range: {
+                            start: { line: 0, character: 0 },
+                            end: { line: 0, character: 3 },
+                        },
+                        code: StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL,
+                        base_code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+                        severity: 'warning',
+                    } as any,
+                    config
+                );
+
+                if (my_case.expected === null) {
+                    expect(converted).toBeNull();
+                } else {
+                    expect(converted).toBeDefined();
+                    expect(converted?.severity).toBe(my_case.expected);
+                }
+            }
+        });
+
+        it('should suppress backward-path rewrites with @lsp-ignore', async () => {
+            const content = "display `country_name' // @lsp-ignore";
+            const document = create_real_document_state(content);
+
+            const resolved_scope = {
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [{
+                    name: 'country_name',
+                    type: 'local' as const,
+                    source_uri: 'file:///parent.do',
+                    defined_line: 10,
+                    call_site_line: -1,
+                    reason: 'inheritance_excludes_locals' as const,
+                }],
+                diagnostics: [],
+                has_directives: true,
+                has_auto_parents: false,
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope as any)
+            );
+
+            expect(the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+            )).toBeUndefined();
+            expect(the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            )).toBeUndefined();
+        });
+
+        it('should suppress forward-path rewrites with @lsp-ignore-next', async () => {
+            const content = [
+                'do "child.do"',
+                '// @lsp-ignore-next',
+                "display `veggie'",
+            ].join('\n');
+            const document = create_real_document_state(content);
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: false,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///child.do',
+                    call_line: 0,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'do',
+                    excluded_locals: new Map([
+                        ['veggie', {
+                            name: 'veggie',
+                            scope: 'local',
+                            location: {
+                                uri: 'file:///child.do',
+                                range: {
+                                    start: { line: 0, character: 0 },
+                                    end: { line: 0, character: 12 },
+                                },
+                            },
+                            sourceUri: 'file:///child.do',
+                            definition_line: 0,
+                        }],
+                    ]),
+                }],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            expect(the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('veggie')
+            )).toBeUndefined();
+            expect(the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes('veggie')
+            )).toBeUndefined();
+        });
+        it('should prefer same-file forward-reference rewrites over forward-call blame', async () => {
             const content = [
                 'do "child.do"',
                 "display `veggie'",
@@ -950,17 +1214,69 @@ display \`result'
                 stub_resolver
             );
 
-            const undefined_diag = the_diagnostics.find(
-                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && d.message.includes('`veggie\'')
-            );
-            expect(undefined_diag).toBeDefined();
 
             const out_of_scope_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
                     && d.message.includes('veggie')
             );
+            expect(out_of_scope_diag).toBeDefined();
+            expect(out_of_scope_diag?.message).toBe(
+                "`veggie' is used before it is defined (line 3)"
+            );
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes("`veggie'")
+            );
+            expect(undefined_diag).toBeUndefined();
+        });
+
+        it('should rewrite same-file global forward references', async () => {
+            const content = [
+                'display $after_global',
+                'global after_global "ready"',
+            ].join('\n');
+            const document = create_real_document_state(content);
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG
+            );
+
+            const out_of_scope_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes('$after_global')
+            );
+            expect(out_of_scope_diag).toBeDefined();
+            expect(out_of_scope_diag?.message).toBe(
+                '$after_global is used before it is defined (line 2)'
+            );
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes('$after_global')
+            );
+            expect(undefined_diag).toBeUndefined();
+        });
+
+        it('should keep truly undefined macros on the generic diagnostic path', async () => {
+            const document = create_real_document_state("display `missing'");
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG
+            );
+
+            const out_of_scope_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+            );
             expect(out_of_scope_diag).toBeUndefined();
+
+            const undefined_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && d.message.includes('missing')
+            );
+            expect(undefined_diag).toBeDefined();
         });
 
         it('should show inheritance message for locals excluded by done-by', async () => {
@@ -1250,11 +1566,6 @@ display \`result'
                     severity: {
                         ...DEFAULT_CONFIG.diagnostics.severity,
                         undefinedMacro: 'off' as const,
-                    },
-                },
-                cross_file: {
-                    diagnostics: {
-                        out_of_scope: 'warning' as const,
                     },
                 },
             };

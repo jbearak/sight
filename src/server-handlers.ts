@@ -131,7 +131,6 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         max_chain_depth: 20,
         max_callee_revalidations: 10,
         diagnostics: {
-            out_of_scope: 'information',
             missing_file: 'warning',
             max_depth: 'information',
         },

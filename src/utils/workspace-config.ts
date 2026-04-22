@@ -101,10 +101,6 @@ export function map_stata_lsp_json_to_partial_config(raw: unknown): DeepPartial<
         const diags = cross_file_obj.diagnostics;
         if (diags && typeof diags === 'object') {
             const diags_obj = diags as Record<string, unknown>;
-
-            if (typeof diags_obj.outOfScope === 'string') {
-                mapped.cross_file!.diagnostics!.out_of_scope = normalize_severity(diags_obj.outOfScope);
-            }
             if (typeof diags_obj.missingFile === 'string') {
                 mapped.cross_file!.diagnostics!.missing_file = normalize_severity(diags_obj.missingFile);
             }

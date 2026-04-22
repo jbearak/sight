@@ -19,7 +19,6 @@ export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): Stata
         max_callee_revalidations: 10,
         assume_call_site: 'end',
         diagnostics: {
-            out_of_scope: 'information',
             missing_file: 'warning',
             max_depth: 'warning',
             call_site_identification: 'information'

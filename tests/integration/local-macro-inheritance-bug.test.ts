@@ -66,8 +66,7 @@ describe('Local Macro Inheritance Bug', () => {
             cross_file: {
                 diagnostics: {
                     undefined_symbol: 'warning',
-                    missing_file: 'warning',
-                    out_of_scope: 'warning'
+                    missing_file: 'warning'
                 }
             }
         };

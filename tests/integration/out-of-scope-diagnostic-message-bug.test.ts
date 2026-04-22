@@ -92,8 +92,7 @@ describe('Out-of-Scope Diagnostic Message Bug - Exact Scenario', () => {
             cross_file: {
                 diagnostics: {
                     undefined_symbol: 'warning',
-                    missing_file: 'warning',
-                    out_of_scope: 'warning'
+                    missing_file: 'warning'
                 }
             }
         };
@@ -165,8 +164,7 @@ describe('Out-of-Scope Diagnostic Message Bug - Exact Scenario', () => {
             cross_file: {
                 diagnostics: {
                     undefined_symbol: 'warning',
-                    missing_file: 'warning',
-                    out_of_scope: 'warning'
+                    missing_file: 'warning'
                 }
             }
         };

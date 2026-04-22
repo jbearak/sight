@@ -13,4 +13,12 @@ describe('DEFAULT_SETTINGS', () => {
             expect(DEFAULT_SETTINGS.diagnostics.indentation).toBe(false);
         });
     });
+
+    describe('cross_file.diagnostics', () => {
+        it('should not include removed out_of_scope config', () => {
+            expect('out_of_scope' in DEFAULT_SETTINGS.cross_file.diagnostics).toBe(
+                false
+            );
+        });
+    });
 });

@@ -272,13 +272,6 @@ export function validate_comment_formatting_config(
         if (cross_file.diagnostics) {
             const valid_severities = ['error', 'warning', 'information', 'info', 'off'];
             const normalize_sev = (s: string) => s === 'info' ? 'information' : s;
-
-            if (
-                cross_file.diagnostics.out_of_scope &&
-                valid_severities.includes(cross_file.diagnostics.out_of_scope)
-            ) {
-                validated_config.cross_file.diagnostics.out_of_scope = normalize_sev(cross_file.diagnostics.out_of_scope) as any;
-            }
             if (
                 cross_file.diagnostics.missing_file &&
                 valid_severities.includes(cross_file.diagnostics.missing_file)

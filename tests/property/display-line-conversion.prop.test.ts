@@ -54,7 +54,6 @@ describe('Display Line Conversion Property Tests', () => {
                 assume_call_site: 'end',
                 diagnostics: {
                     undefined_symbol: 'warning',
-                    out_of_scope: 'info',
                     missing_file: 'warning',
                 },
             },
