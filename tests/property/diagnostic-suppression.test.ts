@@ -5,7 +5,7 @@
  * for undefined symbol diagnostics.
  */
 
-import { describe, it, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { StataLSPConfig, StataDiagnosticCode } from '../../src/types';
@@ -343,20 +343,52 @@ describe('Diagnostic Suppression Property Tests', () => {
                 arbitrary_non_reserved_identifier(),
                 fc.constantFrom('@lsp-ignore', '@lsp-ignore-next'),
                 async (macro_name: string, suppress_type: string) => {
-                    const content = suppress_type === '@lsp-ignore'
+                    const suppressed_content = suppress_type === '@lsp-ignore'
                         ? `display \`${macro_name}' // @lsp-ignore\nlocal ${macro_name} value`
                         : `// @lsp-ignore-next\ndisplay \`${macro_name}'\nlocal ${macro_name} value`;
-                    const my_document = create_document_state(content);
-                    const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
-                        my_document,
-                        my_config
+                    const control_content = `display \`${macro_name}'\nlocal ${macro_name} value`;
+
+                    const my_suppressed_document = create_document_state(
+                        suppressed_content
+                    );
+                    const my_control_document = create_document_state(
+                        control_content
                     );
 
-                    // Should not have any out-of-scope rewrites
-                    const out_of_scope_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
-                    );
-                    return out_of_scope_diags.length === 0;
+                    const the_suppressed_diagnostics = await my_diagnostics_provider
+                        .get_diagnostics(
+                            my_suppressed_document,
+                            my_config
+                        );
+                    const the_control_diagnostics = await my_diagnostics_provider
+                        .get_diagnostics(
+                            my_control_document,
+                            my_config
+                        );
+
+                    const control_out_of_scope_diags =
+                        the_control_diagnostics.filter(
+                            d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                        );
+                    expect(control_out_of_scope_diags.length).toBeGreaterThan(0);
+
+                    const suppressed_out_of_scope_diags =
+                        the_suppressed_diagnostics.filter(
+                            d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                        );
+                    expect(suppressed_out_of_scope_diags.length).toBe(0);
+
+                    const suppressed_undefined_macro_diags =
+                        the_suppressed_diagnostics.filter(
+                            d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                        );
+                    expect(suppressed_undefined_macro_diags.length).toBe(0);
+
+                    const control_undefined_macro_diags =
+                        the_control_diagnostics.filter(
+                            d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                        );
+                    expect(control_undefined_macro_diags.length).toBe(0);
                 }
             ),
             { numRuns: 50 }
@@ -428,6 +460,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                         cross_file: {
                             ...my_config.cross_file,
                             diagnostics: {
+                                ...my_config.cross_file.diagnostics,
                                 missing_file: 'off' as const,
                             },
                         },
