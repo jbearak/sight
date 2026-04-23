@@ -122,6 +122,13 @@ export function activate(context: ExtensionContext) {
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {
         output_channel?.appendLine('Reset depth colors command triggered');
+        if (!isDepthColorsEnabled()) {
+            output_channel?.appendLine('Depth colors disabled; reset command is a no-op');
+            window.showInformationMessage(
+                'Sight depth colors are disabled in sight.depthColors.enabled. Enable the setting to reset and reapply colors.'
+            );
+            return;
+        }
         await resetDepthColors(context, output_channel ?? undefined);
         window.showInformationMessage('Sight depth colors have been reset and reapplied.');
     });
