@@ -56,7 +56,7 @@ describe('Comprehensive Rename Validation Property Tests', () => {
                             'diagnostics', 'formatting', 'indexing',
                             'indexWorkspace', 'adoPaths', 'sendToStata',
                             'lineCommentStyle', 'personalAdoDir',
-                            'dataBrowser'
+                            'dataBrowser', 'depthColors'
                         ];
                         
                         if (parts.length >= 2) {
