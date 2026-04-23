@@ -83,12 +83,23 @@ function hasTopLevelDepthColorRules(customizations: TokenColorCustomizations | u
 }
 
 /**
+ * True iff the user has enabled Sight's depth coloring of nested strings
+ * and local macros. Default: true (preserves historical behavior on
+ * upgrade). Read synchronously from the workspace configuration.
+ */
+export function isDepthColorsEnabled(): boolean {
+    return vscode.workspace
+        .getConfiguration('sight')
+        .get<boolean>('depthColors.enabled', true);
+}
+
+/**
  * Configure depth colors in user settings if not already present.
- * 
+ *
  * This function checks if depth color rules actually exist in user settings,
  * and adds them if missing. This ensures colors are always configured,
  * even if the user's settings were reset or the extension was reinstalled.
- * 
+ *
  * It also ensures the top-level textMateRules has rules for themes that don't
  * match [*Dark*] or [*Light*] patterns.
  */
@@ -104,6 +115,10 @@ export async function configureDepthColors(
     };
 
     try {
+        if (!isDepthColorsEnabled()) {
+            log('Depth colors disabled via sight.depthColors.enabled, skipping');
+            return;
+        }
         const config = vscode.workspace.getConfiguration('editor');
         const current_customizations = config.get<TokenColorCustomizations>('tokenColorCustomizations');
         log(`Current customizations: ${JSON.stringify(current_customizations)}`);
@@ -256,6 +271,10 @@ export async function updateUniversalFallbackColors(
     };
 
     try {
+        if (!isDepthColorsEnabled()) {
+            log('Depth colors disabled via sight.depthColors.enabled, skipping fallback update');
+            return;
+        }
         const config = vscode.workspace.getConfiguration('editor');
         const current = config.get<TokenColorCustomizations>('tokenColorCustomizations') || {};
         
