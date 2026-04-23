@@ -186,3 +186,33 @@ export function mergeDepthColors(
 
     return result;
 }
+
+/**
+ * Hex values (uppercased) from the four hard-coded palettes.
+ * Used to identify rules Sight wrote on activation so we can remove them
+ * cleanly when the user disables depth coloring, without touching
+ * rules a user may have hand-edited on the same scopes.
+ */
+export const PALETTE_HEX_VALUES: Set<string> = new Set([
+    ...DARK_STRING_COLORS,
+    ...DARK_MACRO_COLORS,
+    ...LIGHT_STRING_COLORS,
+    ...LIGHT_MACRO_COLORS,
+].map(my_hex => my_hex.toUpperCase()));
+
+/**
+ * True iff a rule targets a Sight depth scope AND its foreground hex
+ * belongs to one of the four hard-coded palettes. Hex comparison is
+ * case-insensitive. A user-customized color on a depth scope is NOT
+ * Sight-owned.
+ */
+export function isSightOwnedDepthRule(rule: TextMateRule): boolean {
+    if (!isDepthColorRule(rule)) {
+        return false;
+    }
+    const the_hex = rule.settings.foreground;
+    if (!the_hex) {
+        return false;
+    }
+    return PALETTE_HEX_VALUES.has(the_hex.toUpperCase());
+}
