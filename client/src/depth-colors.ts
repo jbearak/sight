@@ -5,8 +5,8 @@ import {
     mergeDepthColors,
     buildDepthColorRules,
     isDepthColorRule,
+    removeSightOwnedDepthRules,
     TokenColorCustomizations,
-    ThemeTokenColorCustomizations,
     TextMateRule,
     DARK_STRING_COLORS,
     DARK_MACRO_COLORS,
@@ -23,7 +23,8 @@ export {
     hasDepthColorRules,
     buildDepthColorRules,
     mergeDepthColors,
-    isDepthColorRule
+    isDepthColorRule,
+    removeSightOwnedDepthRules
 } from './depth-colors-core';
 
 /**
@@ -303,5 +304,44 @@ export async function updateUniversalFallbackColors(
     } catch (error) {
         log(`Error updating universal fallback colors: ${error}`);
         console.error('Failed to update universal fallback colors:', error);
+    }
+}
+
+/**
+ * Remove Sight-owned depth color rules from the user's
+ * editor.tokenColorCustomizations. Hand-edited rules on depth scopes
+ * (non-palette colors) are preserved. Called when the user flips
+ * sight.depthColors.enabled to false.
+ *
+ * Errors are logged to the output channel; the function does not throw,
+ * so it is safe to call during activation or configuration-change handlers.
+ */
+export async function disableDepthColors(
+    _context: vscode.ExtensionContext,
+    output_channel?: vscode.OutputChannel
+): Promise<void> {
+    const log = (msg: string) => {
+        if (output_channel) {
+            output_channel.appendLine(`[DepthColors] ${msg}`);
+        }
+    };
+
+    try {
+        const config = vscode.workspace.getConfiguration('editor');
+        const current = config.get<TokenColorCustomizations>('tokenColorCustomizations');
+        if (!current) {
+            log('No editor.tokenColorCustomizations to clean up');
+            return;
+        }
+        const cleaned = removeSightOwnedDepthRules(current);
+        await config.update(
+            'tokenColorCustomizations',
+            cleaned,
+            vscode.ConfigurationTarget.Global
+        );
+        log('Removed Sight-owned depth color rules');
+    } catch (error) {
+        log(`Error disabling depth colors: ${error}`);
+        console.error('Failed to disable depth colors:', error);
     }
 }
