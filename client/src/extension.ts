@@ -14,6 +14,7 @@ import {
 } from 'vscode-languageclient/node';
 import {
     configureDepthColors,
+    disableDepthColors,
     resetDepthColors,
     registerThemeChangeHandler,
     registerDepthColorsConfigHandler,
@@ -134,11 +135,21 @@ export function activate(context: ExtensionContext) {
     });
     context.subscriptions.push(reset_command);
     
-    // Configure depth colors for nested strings and macros on first activation
-    output_channel.appendLine('Calling configureDepthColors...');
-    configureDepthColors(context, output_channel).catch((error) => {
-        output_channel?.appendLine(`Failed to configureDepthColors: ${error}`);
-    });
+    // Configure or clean up depth colors based on the current setting.
+    // Handles the case where a user edits settings.json to disable the
+    // feature while VS Code is closed: on next activation we clean up
+    // the stale rules we wrote in a prior session.
+    if (isDepthColorsEnabled()) {
+        output_channel.appendLine('Calling configureDepthColors...');
+        configureDepthColors(context, output_channel).catch((error) => {
+            output_channel?.appendLine(`Failed to configureDepthColors: ${error}`);
+        });
+    } else {
+        output_channel.appendLine('Depth colors disabled; cleaning up any stale rules...');
+        disableDepthColors(context, output_channel).catch((error) => {
+            output_channel?.appendLine(`Failed to disableDepthColors: ${error}`);
+        });
+    }
     
     // Register theme change handler to update colors when theme kind changes
     const theme_change_handler = registerThemeChangeHandler({
