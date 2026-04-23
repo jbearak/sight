@@ -385,6 +385,11 @@
             "Tint the cell background",
             "No special highlighting"
           ]
+        },
+        "sight.depthColors.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Color nested compound strings and local macros by depth. When disabled, removes Sight's depth color rules from editor.tokenColorCustomizations so your theme's default string and variable colors apply."
         }
       }
     },
