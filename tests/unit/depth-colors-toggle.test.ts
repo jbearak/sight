@@ -25,7 +25,10 @@ describe('PALETTE_HEX_VALUES', () => {
         for (const my_hex of the_expected) {
             expect(PALETTE_HEX_VALUES.has(my_hex)).toBe(true);
         }
-        expect(PALETTE_HEX_VALUES.size).toBe(new Set(the_expected).size);
+    });
+
+    it('has 24 distinct hexes (no cross-palette duplicates)', () => {
+        expect(PALETTE_HEX_VALUES.size).toBe(24);
     });
 });
 

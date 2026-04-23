@@ -222,6 +222,10 @@ export function isSightOwnedDepthRule(rule: TextMateRule): boolean {
  * from [*Dark*], [*Light*], and top-level textMateRules. Hand-edited rules
  * on depth scopes (i.e., rules whose foreground is not in PALETTE_HEX_VALUES)
  * are preserved. Does not mutate the input.
+ *
+ * The three sections listed above are exhaustive of where mergeDepthColors
+ * writes rules. If a future write path starts touching another section
+ * (e.g., `[*]` or a theme-specific key), update this filter in lockstep.
  */
 export function removeSightOwnedDepthRules(
     customizations: TokenColorCustomizations | undefined
