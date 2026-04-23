@@ -345,3 +345,35 @@ export async function disableDepthColors(
         console.error('Failed to disable depth colors:', error);
     }
 }
+
+/**
+ * Register a configuration-change listener for sight.depthColors.enabled.
+ * - false → true: writes default depth color rules.
+ * - true → false: removes Sight-owned depth color rules.
+ *
+ * Returns the Disposable so the caller can push it into
+ * context.subscriptions.
+ */
+export function registerDepthColorsConfigHandler(
+    context: vscode.ExtensionContext,
+    output_channel?: vscode.OutputChannel
+): vscode.Disposable {
+    const log = (msg: string) => {
+        if (output_channel) {
+            output_channel.appendLine(`[DepthColors] ${msg}`);
+        }
+    };
+
+    return vscode.workspace.onDidChangeConfiguration(async (event) => {
+        if (!event.affectsConfiguration('sight.depthColors.enabled')) {
+            return;
+        }
+        const now_enabled = isDepthColorsEnabled();
+        log(`sight.depthColors.enabled changed: now ${now_enabled}`);
+        if (now_enabled) {
+            await configureDepthColors(context, output_channel);
+        } else {
+            await disableDepthColors(context, output_channel);
+        }
+    });
+}

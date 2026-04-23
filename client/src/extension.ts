@@ -12,7 +12,13 @@ import {
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
-import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } from './depth-colors';
+import {
+    configureDepthColors,
+    resetDepthColors,
+    registerThemeChangeHandler,
+    registerDepthColorsConfigHandler,
+    isDepthColorsEnabled
+} from './depth-colors';
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
 import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata, register_stata_terminal } from './send-to-stata';
@@ -133,7 +139,15 @@ export function activate(context: ExtensionContext) {
     });
     context.subscriptions.push(theme_change_handler);
     output_channel.appendLine('Registered theme change handler');
-    
+
+    // React to users flipping sight.depthColors.enabled at runtime
+    const depth_colors_config_handler = registerDepthColorsConfigHandler(
+        context,
+        output_channel ?? undefined
+    );
+    context.subscriptions.push(depth_colors_config_handler);
+    output_channel.appendLine('Registered depth colors config handler');
+
     // The server is bundled inside the extension at 'server/server.js'
     const serverModule = context.asAbsolutePath(
         path.join('server', 'server.js')
