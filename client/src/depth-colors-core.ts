@@ -216,3 +216,52 @@ export function isSightOwnedDepthRule(rule: TextMateRule): boolean {
     }
     return PALETTE_HEX_VALUES.has(the_hex.toUpperCase());
 }
+
+/**
+ * Returns a shallow copy of the input with Sight-owned depth rules removed
+ * from [*Dark*], [*Light*], and top-level textMateRules. Hand-edited rules
+ * on depth scopes (i.e., rules whose foreground is not in PALETTE_HEX_VALUES)
+ * are preserved. Does not mutate the input.
+ */
+export function removeSightOwnedDepthRules(
+    customizations: TokenColorCustomizations | undefined
+): TokenColorCustomizations {
+    if (!customizations) {
+        return {};
+    }
+
+    const result: TokenColorCustomizations = { ...customizations };
+
+    const filter_section = (
+        section: ThemeTokenColorCustomizations | undefined
+    ): ThemeTokenColorCustomizations | undefined => {
+        if (!section) return section;
+        if (!section.textMateRules) return { ...section };
+        return {
+            ...section,
+            textMateRules: section.textMateRules.filter(
+                my_rule => !isSightOwnedDepthRule(my_rule)
+            ),
+        };
+    };
+
+    const existing_dark = result['[*Dark*]'] as
+        ThemeTokenColorCustomizations | undefined;
+    if (existing_dark !== undefined) {
+        result['[*Dark*]'] = filter_section(existing_dark);
+    }
+
+    const existing_light = result['[*Light*]'] as
+        ThemeTokenColorCustomizations | undefined;
+    if (existing_light !== undefined) {
+        result['[*Light*]'] = filter_section(existing_light);
+    }
+
+    if (result.textMateRules) {
+        result.textMateRules = result.textMateRules.filter(
+            my_rule => !isSightOwnedDepthRule(my_rule)
+        );
+    }
+
+    return result;
+}
