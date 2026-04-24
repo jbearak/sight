@@ -5,6 +5,7 @@ import {
     mergeDepthColors,
     buildDepthColorRules,
     isDepthColorRule,
+    isSightOwnedDepthRule,
     removeSightOwnedDepthRules,
     TokenColorCustomizations,
     TextMateRule,
@@ -187,47 +188,26 @@ export async function resetDepthColors(
     };
 
     log('Resetting depth colors configuration...');
-    
-    // Remove existing depth color rules from user settings
+
+    // Remove existing Sight-owned depth color rules from user settings.
+    // Hand-edited rules on depth scopes (non-palette colors) are preserved.
     try {
         const config = vscode.workspace.getConfiguration('editor');
         const current_customizations = config.get<TokenColorCustomizations>('tokenColorCustomizations');
-        
+
         if (current_customizations) {
-            // Remove our depth color rules from dark theme
-            const dark_section = current_customizations['[*Dark*]'];
-            if (dark_section?.textMateRules) {
-                dark_section.textMateRules = dark_section.textMateRules.filter(
-                    rule => !isDepthColorRule(rule)
-                );
-            }
-            
-            // Remove our depth color rules from light theme
-            const light_section = current_customizations['[*Light*]'];
-            if (light_section?.textMateRules) {
-                light_section.textMateRules = light_section.textMateRules.filter(
-                    rule => !isDepthColorRule(rule)
-                );
-            }
-            
-            // Remove our depth color rules from top-level textMateRules (universal fallback)
-            if (current_customizations.textMateRules) {
-                current_customizations.textMateRules = current_customizations.textMateRules.filter(
-                    rule => !isDepthColorRule(rule)
-                );
-            }
-            
+            const cleaned = removeSightOwnedDepthRules(current_customizations);
             await config.update(
                 'tokenColorCustomizations',
-                current_customizations,
+                cleaned,
                 vscode.ConfigurationTarget.Global
             );
-            log('Removed existing depth color rules');
+            log('Removed existing Sight-owned depth color rules');
         }
     } catch (error) {
         log(`Error removing existing rules: ${error}`);
     }
-    
+
     // Re-run configuration to add fresh rules
     await configureDepthColors(_context, output_channel);
     log('Reset complete');
@@ -254,6 +234,11 @@ export function registerThemeChangeHandler(
             log(`Theme kind changed: ${previous_is_dark ? 'dark' : 'light'} -> ${current_is_dark ? 'dark' : 'light'}`);
             previous_is_dark = current_is_dark;
 
+            if (!isDepthColorsEnabled()) {
+                log('Depth colors disabled, skipping fallback update on theme change');
+                return;
+            }
+
             // Update the universal fallback colors
             await updateUniversalFallbackColors(logger);
         }
@@ -278,25 +263,24 @@ export async function updateUniversalFallbackColors(
         }
         const config = vscode.workspace.getConfiguration('editor');
         const current = config.get<TokenColorCustomizations>('tokenColorCustomizations') || {};
-        
-        // Remove existing top-level depth rules
-        let filtered_rules: TextMateRule[] = [];
-        if (current.textMateRules) {
-            filtered_rules = current.textMateRules.filter(
-                rule => !isDepthColorRule(rule)
-            );
-        }
-        
-        // Add new rules based on current theme
+
+        // Remove only Sight-owned top-level depth rules; hand-edited rules
+        // on depth scopes (non-palette colors) are preserved.
+        const filtered_rules: TextMateRule[] = current.textMateRules
+            ? current.textMateRules.filter(my_rule => !isSightOwnedDepthRule(my_rule))
+            : [];
+
+        // Add new rules based on current theme. Build a new object rather
+        // than mutating the value returned by config.get().
         const new_rules = buildUniversalDepthColorRules();
-        current.textMateRules = [
-            ...filtered_rules,
-            ...new_rules
-        ];
-        
+        const updated: TokenColorCustomizations = {
+            ...current,
+            textMateRules: [...filtered_rules, ...new_rules],
+        };
+
         await config.update(
             'tokenColorCustomizations',
-            current,
+            updated,
             vscode.ConfigurationTarget.Global
         );
         

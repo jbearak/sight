@@ -84,7 +84,7 @@ The extension detects your current theme type (dark or light) and applies approp
 
 You can customize these colors by opening your VS Code settings and modifying the `editor.tokenColorCustomizations` section.
 
-To reset depth colors to defaults, use the command palette: **Sight: Reset Depth Colors**
+To reset depth colors to defaults, use the command palette: **Sight: Reset Depth Colors Configuration**
 
 To use your VS Code theme's default string and variable colors instead of
 Sight's depth-specific palette, set `sight.depthColors.enabled` to `false`
