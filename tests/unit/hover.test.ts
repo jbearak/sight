@@ -216,9 +216,7 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             // cursor is on "create" at column 15
             const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 15 });
 
-            if (my_hover && typeof my_hover.contents === 'object' && 'value' in my_hover.contents) {
-                expect(my_hover.contents.value).not.toContain('Frame Subcommand');
-            }
+            expect(my_hover).toBeNull();
         });
 
         it('should not treat non-by colons as by-prefix syntax in line fallback', () => {
@@ -278,8 +276,36 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             // cursor inside "replace" (starts at column 24)
             const my_hover = await my_provider.get_hover(my_doc, { line: 0, character: 26 });
 
-            if (my_hover && typeof my_hover.contents === 'object' && 'value' in my_hover.contents) {
-                expect(my_hover.contents.value).not.toContain('help replace');
+            expect(my_hover).toBeNull();
+        });
+
+        it('should not treat commas inside brackets as top-level commas', () => {
+            const my_doc = create_test_document('matrix x = y[1, 2] replace');
+
+            const my_result = (hover_provider as any).is_after_top_level_comma(
+                my_doc,
+                { line: 0, character: 18 } as Position
+            );
+
+            expect(my_result).toBe(false);
+        });
+
+        it('should provide expression-function hover for mod even without cache metadata', async () => {
+            hover_provider = new HoverProvider(create_test_command_db(), context_tracker);
+
+            const my_content = 'generate x = mod(y, 2)';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            const my_hover = await hover_provider.get_hover(
+                my_doc,
+                { line: 0, character: 13 }
+            );
+
+            expect(my_hover).not.toBeNull();
+            expect(my_hover?.contents).toBeDefined();
+            if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).toContain('**Function:** **mod**()');
             }
         });
 

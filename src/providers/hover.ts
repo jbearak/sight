@@ -52,35 +52,38 @@ import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
 
+const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
+    'byte',
+    'date',
+    'daily',
+    'double',
+    'exp',
+    'float',
+    'halfyearly',
+    'int',
+    'log',
+    'long',
+    'lower',
+    'max',
+    'min',
+    'missing',
+    'mod',
+    'monthly',
+    'normal',
+    'poisson',
+    'proper',
+    'quarterly',
+    'recode',
+    'string',
+    'sum',
+    'trunc',
+    'upper',
+    'weekly',
+    'yearly',
+]);
+
 const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
-    ['byte', 'byte'],
-    ['date', 'date'],
-    ['daily', 'daily'],
-    ['double', 'double'],
-    ['exp', 'exp'],
-    ['float', 'float'],
-    ['halfyearly', 'halfyearly'],
-    ['int', 'int'],
-    ['log', 'log'],
-    ['long', 'long'],
-    ['lower', 'lower'],
-    ['max', 'max'],
     ['mi', 'missing'],
-    ['min', 'min'],
-    ['missing', 'missing'],
-    ['mod', 'mod'],
-    ['monthly', 'monthly'],
-    ['normal', 'normal'],
-    ['poisson', 'poisson'],
-    ['proper', 'proper'],
-    ['quarterly', 'quarterly'],
-    ['recode', 'recode'],
-    ['string', 'string'],
-    ['sum', 'sum'],
-    ['trunc', 'trunc'],
-    ['upper', 'upper'],
-    ['weekly', 'weekly'],
-    ['yearly', 'yearly'],
 ]);
 
 /**
@@ -316,6 +319,7 @@ export class HoverProvider {
         }
 
         let paren_depth = 0;
+        let bracket_depth = 0;
         let saw_top_level_comma = false;
 
         for (const token of tokens) {
@@ -329,6 +333,7 @@ export class HoverProvider {
 
             if (token.type === 'STATEMENT_TERMINATOR') {
                 paren_depth = 0;
+                bracket_depth = 0;
                 saw_top_level_comma = false;
                 continue;
             }
@@ -336,7 +341,15 @@ export class HoverProvider {
                 paren_depth++;
             } else if (token.type === 'RPAREN') {
                 if (paren_depth > 0) paren_depth--;
-            } else if (token.type === 'COMMA' && paren_depth === 0) {
+            } else if (token.type === 'LBRACKET') {
+                bracket_depth++;
+            } else if (token.type === 'RBRACKET') {
+                if (bracket_depth > 0) bracket_depth--;
+            } else if (
+                token.type === 'COMMA'
+                && paren_depth === 0
+                && bracket_depth === 0
+            ) {
                 saw_top_level_comma = true;
             }
         }
@@ -1811,7 +1824,7 @@ export class HoverProvider {
         }
 
         const command = this.command_db.lookup(function_name);
-        if (!command) {
+        if (!command && !STATA_EXPRESSION_FUNCTIONS.has(function_name)) {
             return null;
         }
 
@@ -1834,6 +1847,9 @@ export class HoverProvider {
     }
 
     private resolve_expression_function_name(word: string): string | null {
+        if (STATA_EXPRESSION_FUNCTIONS.has(word)) {
+            return word;
+        }
         return STATA_EXPRESSION_FUNCTION_ALIASES.get(word) ?? null;
     }
 
