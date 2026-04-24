@@ -37,6 +37,7 @@ import {
     ArgumentSpec,
     ResolvedScope,
     ScopeResolverConfig,
+    CommandInfo,
 } from '../types';
 import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
@@ -50,6 +51,37 @@ import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
+
+const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
+    ['byte', 'byte'],
+    ['date', 'date'],
+    ['daily', 'daily'],
+    ['double', 'double'],
+    ['exp', 'exp'],
+    ['float', 'float'],
+    ['halfyearly', 'halfyearly'],
+    ['int', 'int'],
+    ['log', 'log'],
+    ['long', 'long'],
+    ['lower', 'lower'],
+    ['max', 'max'],
+    ['mi', 'missing'],
+    ['min', 'min'],
+    ['missing', 'missing'],
+    ['mod', 'mod'],
+    ['monthly', 'monthly'],
+    ['normal', 'normal'],
+    ['poisson', 'poisson'],
+    ['proper', 'proper'],
+    ['quarterly', 'quarterly'],
+    ['recode', 'recode'],
+    ['string', 'string'],
+    ['sum', 'sum'],
+    ['trunc', 'trunc'],
+    ['upper', 'upper'],
+    ['weekly', 'weekly'],
+    ['yearly', 'yearly'],
+]);
 
 /**
  * One entry in a symbol's `additional_definitions` array.
@@ -246,6 +278,17 @@ export class HoverProvider {
         if (the_symbol_matches.length > 0) {
             const formatted_content = this.format_multi_symbol_hover(the_symbol_matches);
             return { contents: formatted_content, range };
+        }
+
+        // Function calls can share text with prefix commands. For example,
+        // `mi(bar)` is the `missing()` function, not the `mi` prefix command.
+        const expression_function_hover = this.get_expression_function_hover(
+            document,
+            range,
+            word
+        );
+        if (expression_function_hover) {
+            return { contents: expression_function_hover, range };
         }
 
         // Fallback: Check for subcommand context (not a symbol type)
@@ -1778,42 +1821,97 @@ export class HoverProvider {
     private get_command_hover(word: string): MarkupContent | null {
         const command = this.command_db.lookup(word);
         if (command) {
-            let hover_text = `**${command.name}**`;
-
-            if (command.options && command.options.length > 0) {
-                const option_names = command.options.map(opt => opt.name).join(', ');
-                hover_text += `\n\n**Options:** ${option_names}`;
-            }
-
-            hover_text += `\n\nSee Stata documentation: \`help ${command.name}\``;
-
-            return {
-                kind: MarkupKind.Markdown,
-                value: hover_text,
-            };
+            return this.format_builtin_command_hover(command);
         }
 
         // Try broadening the search to abbreviations
         const matches = this.command_db.expand_abbreviation(word);
         if (matches.length === 1) {
             const cmd = matches[0];
-
-            let hover_text = `**${cmd.name}** (abbreviated as \`${word}\`)`;
-
-            if (cmd.options && cmd.options.length > 0) {
-                const option_names = cmd.options.map(opt => opt.name).join(', ');
-                hover_text += `\n\n**Options:** ${option_names}`;
-            }
-
-            hover_text += `\n\nSee Stata documentation: \`help ${cmd.name}\``;
-
-            return {
-                kind: MarkupKind.Markdown,
-                value: hover_text,
-            };
+            return this.format_builtin_command_hover(cmd, word);
         }
 
         return null;
+    }
+
+    private get_expression_function_hover(
+        document: DocumentState,
+        range: { start: Position; end: Position },
+        word: string
+    ): MarkupContent | null {
+        if (!this.is_followed_by_open_paren(document, range.end)) {
+            return null;
+        }
+
+        const function_name = this.resolve_expression_function_name(word);
+        if (!function_name) {
+            return null;
+        }
+
+        const command = this.command_db.lookup(function_name);
+        if (!command) {
+            return null;
+        }
+
+        return this.format_expression_function_hover(
+            function_name,
+            function_name === word ? undefined : word
+        );
+    }
+
+    private is_followed_by_open_paren(
+        document: DocumentState,
+        position: Position
+    ): boolean {
+        const line = get_line_text(document, position.line);
+        let i = position.character;
+        while (i < line.length && /\s/.test(line[i])) {
+            i++;
+        }
+        return line[i] === '(';
+    }
+
+    private resolve_expression_function_name(word: string): string | null {
+        return STATA_EXPRESSION_FUNCTION_ALIASES.get(word) ?? null;
+    }
+
+    private format_expression_function_hover(
+        function_name: string,
+        abbreviated_as?: string
+    ): MarkupContent {
+        let hover_text = `**Function:** **${function_name}**()`;
+        if (abbreviated_as && abbreviated_as !== function_name) {
+            hover_text += ` (abbreviated as \`${abbreviated_as}\`)`;
+        }
+
+        hover_text += `\n\nSee Stata documentation: \`help ${function_name}()\``;
+
+        return {
+            kind: MarkupKind.Markdown,
+            value: hover_text,
+        };
+    }
+
+    private format_builtin_command_hover(
+        command: CommandInfo,
+        abbreviated_as?: string
+    ): MarkupContent {
+        let hover_text = `**${command.name}**`;
+        if (abbreviated_as && abbreviated_as !== command.name) {
+            hover_text += ` (abbreviated as \`${abbreviated_as}\`)`;
+        }
+
+        if (command.options && command.options.length > 0) {
+            const option_names = command.options.map(opt => opt.name).join(', ');
+            hover_text += `\n\n**Options:** ${option_names}`;
+        }
+
+        hover_text += `\n\nSee Stata documentation: \`help ${command.name}\``;
+
+        return {
+            kind: MarkupKind.Markdown,
+            value: hover_text,
+        };
     }
 
     /**

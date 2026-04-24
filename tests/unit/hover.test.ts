@@ -7,6 +7,7 @@ import { init_tracker_from_source } from '../test-context-helper';
 import { Position } from 'vscode-languageserver';
 import { HoverProvider } from '../../src/providers/hover';
 import { CommandDatabase } from '../../src/commands';
+import type { CommandCache } from '../../src/command-database/types';
 import { DocumentState } from '../../src/document-store';
 import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
@@ -61,6 +62,61 @@ function create_test_command_db(): CommandDatabase {
     return db;
 }
 
+function create_mi_missing_command_db(): CommandDatabase {
+    const db = new CommandDatabase();
+    const cache: CommandCache = {
+        version: 18,
+        commands: {
+            mi: {
+                name: 'mi',
+                min_abbreviation: 2,
+                options: [
+                    {
+                        name: 'offset',
+                        min_abbreviation: 3,
+                        has_argument: true,
+                    },
+                    {
+                        name: 'augment',
+                        min_abbreviation: 3,
+                        has_argument: false,
+                    },
+                    {
+                        name: 'conditional',
+                        min_abbreviation: 4,
+                        has_argument: true,
+                    },
+                    {
+                        name: 'bootstrap',
+                        min_abbreviation: 4,
+                        has_argument: false,
+                    },
+                ],
+                priority: 3,
+            },
+            missing: {
+                name: 'missing',
+                min_abbreviation: 4,
+                options: [
+                    {
+                        name: 'within',
+                        min_abbreviation: 6,
+                        has_argument: true,
+                    },
+                ],
+                priority: 3,
+            },
+        },
+        abbreviations: {
+            miss: 'missing',
+            missi: 'missing',
+            missin: 'missing',
+        },
+    };
+    db.load_cache(cache);
+    return db;
+}
+
 describe('HoverProvider - Context-Aware Behavior', () => {
     let hover_provider: HoverProvider;
     let context_tracker: ContextTracker;
@@ -109,6 +165,37 @@ describe('HoverProvider - Context-Aware Behavior', () => {
                 expect(my_hover.contents.value).toContain('Local Macro');
             }
         });
+
+        it(
+            'should resolve mi() expression hover to missing, not the mi prefix command',
+            async () => {
+                command_db = create_mi_missing_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'replace foo = . if mi(bar)';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                const my_hover = await hover_provider.get_hover(
+                    my_doc,
+                    { line: 0, character: 20 }
+                );
+
+                expect(my_hover).not.toBeNull();
+                expect(my_hover?.contents).toBeDefined();
+                if (
+                    typeof my_hover?.contents === 'object'
+                    && 'value' in my_hover.contents
+                ) {
+                    expect(my_hover.contents.value).toContain('**missing**');
+                    expect(my_hover.contents.value).not.toContain('offset');
+                    expect(my_hover.contents.value).not.toContain('augment');
+                    expect(my_hover.contents.value)
+                        .not.toContain('conditional');
+                    expect(my_hover.contents.value).not.toContain('bootstrap');
+                }
+            }
+        );
     });
 
     describe('Comment Context Hover', () => {
