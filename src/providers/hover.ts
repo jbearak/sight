@@ -271,15 +271,10 @@ export class HoverProvider {
             return { contents: formatted_content, range };
         }
 
-        // Past a top-level comma the word is an option name, which shares
-        // spellings with Stata commands (e.g. `replace`) and functions
-        // (e.g. `sum`). Don't fall through to command/function hover there.
-        if (this.is_after_top_level_comma(document, position)) {
-            return null;
-        }
-
         // Function calls can share text with prefix commands. For example,
         // `mi(bar)` is the `missing()` function, not the `mi` prefix command.
+        // Checked before the top-level-comma guard so that expression
+        // functions inside option arguments (e.g. `vce(mi(bar))`) resolve.
         const expression_function_hover = this.get_expression_function_hover(
             document,
             range,
@@ -287,6 +282,13 @@ export class HoverProvider {
         );
         if (expression_function_hover) {
             return { contents: expression_function_hover, range };
+        }
+
+        // Past a top-level comma the word is an option name, which shares
+        // spellings with Stata commands (e.g. `replace`) and functions
+        // (e.g. `sum`). Don't fall through to command/function hover there.
+        if (this.is_after_top_level_comma(document, position)) {
+            return null;
         }
 
         // Fallback: Check for subcommand context (not a symbol type)
@@ -1837,11 +1839,6 @@ export class HoverProvider {
 
         const function_name = this.resolve_expression_function_name(word);
         if (!function_name) {
-            return null;
-        }
-
-        const command = this.command_db.lookup(function_name);
-        if (!command && !STATA_EXPRESSION_FUNCTIONS.has(function_name)) {
             return null;
         }
 

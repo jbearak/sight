@@ -426,6 +426,32 @@ describe('HoverProvider - Context-Aware Behavior', () => {
                 }
             }
         );
+
+        it(
+            'should resolve mi() to missing even after a top-level comma',
+            async () => {
+                command_db = create_mi_missing_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'regress y x, vce(mi(bar))';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                const my_hover = await hover_provider.get_hover(
+                    my_doc,
+                    { line: 0, character: 17 }
+                );
+
+                expect(my_hover).not.toBeNull();
+                expect(my_hover?.contents).toBeDefined();
+                if (
+                    typeof my_hover?.contents === 'object'
+                    && 'value' in my_hover.contents
+                ) {
+                    expect(my_hover.contents.value).toContain('**missing**');
+                }
+            }
+        );
     });
 
     describe('Comment Context Hover', () => {
