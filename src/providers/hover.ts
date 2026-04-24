@@ -1325,8 +1325,13 @@ export class HoverProvider {
             command_index++;
         }
 
-        // Handle "by varlist:" pattern
-        if (text_before_hovered.includes(':')) {
+        // Handle "by varlist:" pattern only when we actually skipped a
+        // lowercase by/bysort prefix. This keeps merge syntax like 1:m, or
+        // mis-cased BY, from being treated as a by-prefix colon form.
+        const skipped_by = tokens_before
+            .slice(0, command_index)
+            .some(t => t === 'by' || t === 'bysort');
+        if (skipped_by && text_before_hovered.includes(':')) {
             const after_colon = text_before_hovered.split(':').pop()?.trim() || '';
             const words_after_colon = after_colon.split(/\s+/).filter(t => t.length > 0);
             if (words_after_colon.length > 0) {

@@ -221,6 +221,30 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             }
         });
 
+        it('should not treat non-by colons as by-prefix syntax in line fallback', () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'merge 1:m frame create mygood';
+            const my_doc = {
+                uri: 'file:///test.do',
+                version: 1,
+                content: my_content,
+                tokens: [],
+            } as unknown as DocumentState;
+
+            const my_result = (hover_provider as any).get_subcommand_context_from_line(
+                my_doc,
+                { line: 0, character: 16 } as Position,
+                'create'
+            );
+
+            expect(my_result).toEqual({
+                is_subcommand: false,
+                prefix_command: null,
+            });
+        });
+
         it('should not show command hover for an option name after a top-level comma', async () => {
             // `replace` is a Stata command and also a merge option. In option
             // position the command hover would mislead the user.
