@@ -46,6 +46,10 @@ import type { WorkspaceIndexer } from '../indexer';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
+import {
+    find_last_token_starting_before,
+    find_token_index_at_position,
+} from '../utils/token-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
 import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 
@@ -310,6 +314,11 @@ export class HoverProvider {
      * True when the cursor is past a top-level comma in the current statement,
      * i.e. in option-argument position. Uses the token stream so commas inside
      * strings, macro references, and nested parentheses are ignored correctly.
+     *
+     * Complexity: O(log N + K) where N is the token count and K is the
+     * number of tokens in the current statement. Binary-searches the cursor
+     * location, scans backwards to the statement start, then forward-scans
+     * that window to preserve the original depth-tracking semantics.
      */
     private is_after_top_level_comma(
         document: DocumentState,
@@ -320,25 +329,33 @@ export class HoverProvider {
             return false;
         }
 
-        let paren_depth = 0;
-        let bracket_depth = 0;
-        let saw_top_level_comma = false;
+        // Locate the last token that starts strictly before the cursor.
+        // Tokens starting at the cursor itself don't contribute, matching
+        // the pre-optimization behavior.
+        const end_index = find_last_token_starting_before(tokens, position);
+        if (end_index < 0) {
+            return false;
+        }
 
-        for (const token of tokens) {
-            const at_or_past_cursor =
-                token.range.start.line > position.line ||
-                (token.range.start.line === position.line &&
-                 token.range.start.character >= position.character);
-            if (at_or_past_cursor) {
+        // Walk backwards to find the start of the current statement. If
+        // no STATEMENT_TERMINATOR is found, the statement starts at the
+        // beginning of the file.
+        let statement_start_index = 0;
+        for (let i = end_index; i >= 0; i--) {
+            if (tokens[i].type === 'STATEMENT_TERMINATOR') {
+                statement_start_index = i + 1;
                 break;
             }
+        }
 
-            if (token.type === 'STATEMENT_TERMINATOR') {
-                paren_depth = 0;
-                bracket_depth = 0;
-                saw_top_level_comma = false;
-                continue;
-            }
+        // Forward scan the statement window, matching the original
+        // depth-tracking semantics. A comma counts as top-level whenever
+        // the forward-scan paren/bracket depths are both zero when it is
+        // encountered, regardless of the cursor's depth.
+        let paren_depth = 0;
+        let bracket_depth = 0;
+        for (let i = statement_start_index; i <= end_index; i++) {
+            const token = tokens[i];
             if (token.type === 'LPAREN') {
                 paren_depth++;
             } else if (token.type === 'RPAREN') {
@@ -352,11 +369,11 @@ export class HoverProvider {
                 && paren_depth === 0
                 && bracket_depth === 0
             ) {
-                saw_top_level_comma = true;
+                return true;
             }
         }
 
-        return saw_top_level_comma;
+        return false;
     }
 
     /**
@@ -1179,6 +1196,11 @@ export class HoverProvider {
     /**
      * Token-based subcommand context detection.
      * Finds the hovered token and checks if the previous non-trivia token is a prefix command.
+     *
+     * Complexity: O(log N + S) where N is the token count and S is the
+     * number of tokens in the current statement. Binary-searches the
+     * hovered token and scans backwards only as far as the most recent
+     * STATEMENT_TERMINATOR.
      */
     private get_subcommand_context_from_tokens(
         document: DocumentState,
@@ -1189,26 +1211,23 @@ export class HoverProvider {
         is_subcommand: boolean;
         prefix_command: string | null;
     } {
+        if (cancellation_token?.isCancellationRequested) {
+            return { is_subcommand: false, prefix_command: null };
+        }
         const tokens = document.tokens!;
         const STANDARD_PREFIXES = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'];
         const TRIVIA_TYPES = ['WHITESPACE', 'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION'];
 
-        // Find the token at the hovered position
-        let hovered_token_index = -1;
-        for (let i = 0; i < tokens.length; i++) {
-            if (i % 500 === 0 && cancellation_token?.isCancellationRequested) {
-                return { is_subcommand: false, prefix_command: null };
-            }
-            const token = tokens[i];
-            if (token.range.start.line === position.line &&
-                token.range.start.character <= position.character &&
-                token.range.end.character >= position.character &&
-                token.type === 'WORD' &&
-                token.value === hovered_word) {
-                hovered_token_index = i;
-                break;
-            }
-        }
+        // Find the WORD token whose value matches `hovered_word` at the
+        // cursor position via binary search. The usual candidate is the
+        // token whose range contains the cursor; at a trailing boundary
+        // (cursor immediately after the word), the matching token is the
+        // preceding one, so we fall back to check it.
+        const hovered_token_index = this.find_hovered_word_token_index(
+            tokens,
+            position,
+            hovered_word
+        );
 
         if (hovered_token_index === -1) {
             return { is_subcommand: false, prefix_command: null };
@@ -1307,6 +1326,46 @@ export class HoverProvider {
         }
 
         return { is_subcommand: true, prefix_command: potential_prefix };
+    }
+
+    /**
+     * Locate the WORD token at the cursor that matches `hovered_word`.
+     *
+     * Uses `find_token_index_at_position` (LSP [start, end) semantics) and
+     * falls back to the preceding token when the cursor sits exactly at
+     * the end boundary of a word (e.g. just after the final character).
+     * This mirrors the inclusive-end check the linear scan performed.
+     */
+    private find_hovered_word_token_index(
+        tokens: Token[],
+        position: Position,
+        hovered_word: string
+    ): number {
+        const is_match = (token: Token): boolean =>
+            token.type === 'WORD'
+            && token.value === hovered_word
+            && token.range.start.line === position.line;
+
+        const covering = find_token_index_at_position(tokens, position);
+        if (covering !== -1 && is_match(tokens[covering])) {
+            return covering;
+        }
+
+        // Cursor may be at the trailing boundary of the word, where the
+        // covering token under LSP [start, end) semantics is the next
+        // token (e.g. whitespace). Check the immediately preceding token
+        // with inclusive-end semantics.
+        const prev_index = find_last_token_starting_before(tokens, position);
+        if (
+            prev_index !== -1
+            && prev_index !== covering
+            && is_match(tokens[prev_index])
+            && tokens[prev_index].range.end.character >= position.character
+        ) {
+            return prev_index;
+        }
+
+        return -1;
     }
 
     /**
