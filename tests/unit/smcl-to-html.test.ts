@@ -858,6 +858,46 @@ describe('smcl_to_html', () => {
         });
     });
 
+    describe('placeholder {title:Title}', () => {
+        it('strips a leading {title:Title} placeholder', () => {
+            const result = smcl_to_html('{title:Title}');
+            expect(result.html).not.toContain('smcl-title');
+            expect(result.html).not.toContain('Title');
+        });
+
+        it('keeps meaningful title headings intact', () => {
+            const result = smcl_to_html(
+                '{title:Syntax}\n{title:Title}'
+            );
+            // First title is "Syntax" (meaningful), so the scan stops
+            // there and the literal {title:Title} later in the doc is
+            // left alone.
+            expect(result.html).toContain('smcl-title');
+            expect(result.html).toContain('Syntax');
+            expect(result.html).toContain('Title');
+        });
+
+        it('strips {title:Title} even when preceded by trivia', () => {
+            const result = smcl_to_html(
+                '{smcl}\n{vieweralsosee "" "--"}\n{title:Title}\n{title:Remarks}'
+            );
+            // Only the placeholder is dropped; Remarks survives.
+            expect(result.html).toContain('Remarks');
+            // No literal "Title" heading remains.
+            expect(result.html).not.toMatch(/<h2[^>]*>Title<\/h2>/);
+        });
+
+        it('keeps {title:Title} that appears after other titles', () => {
+            const result = smcl_to_html(
+                '{title:Description}\n{title:Title}'
+            );
+            // The first title was not the placeholder, so we leave
+            // subsequent occurrences alone.
+            expect(result.html).toContain('Description');
+            expect(result.html).toContain('>Title<');
+        });
+    });
+
     describe('findalias substitution', () => {
         it('renders nothing when no findalias_map is provided', () => {
             const result = smcl_to_html('{findalias frexp}');
@@ -872,11 +912,17 @@ describe('smcl_to_html', () => {
         });
 
         it('substitutes and renders the alias target as SMCL', () => {
-            const result = smcl_to_html('{findalias frexp}', {
-                findalias_map: new Map([
-                    ['frexp', '{manlink U 13 Functions and expressions}'],
-                ]),
-            });
+            // A preceding `{marker}` prevents the findalias-driven
+            // help-title transform from kicking in, so this case
+            // exercises the raw inline substitution path.
+            const result = smcl_to_html(
+                '{marker body}\n{findalias frexp}',
+                {
+                    findalias_map: new Map([
+                        ['frexp', '{manlink U 13 Functions and expressions}'],
+                    ]),
+                }
+            );
             // `{manlink U 13 Functions and expressions}` renders as
             // a bolded PDF link (see render_manlink).
             expect(result.html).toContain('[U] 13 Functions and expressions');
@@ -887,8 +933,10 @@ describe('smcl_to_html', () => {
         });
 
         it('renders the substitution inline within surrounding SMCL', () => {
+            // As above: the `{marker}` keeps the findalias from being
+            // collapsed into a help-title header.
             const result = smcl_to_html(
-                '{pstd}\n{findalias frexp}\n{p_end}',
+                '{marker body}\n{pstd}\n{findalias frexp}\n{p_end}',
                 {
                     findalias_map: new Map([
                         ['frexp', '{manlink U 13 Functions and expressions}'],
@@ -910,6 +958,79 @@ describe('smcl_to_html', () => {
                 ]),
             });
             expect(result.html).toBe('');
+        });
+    });
+
+    describe('findalias-driven help title', () => {
+        const the_map = new Map([
+            ['froperators', '{manlink U 13.2 Operators}'],
+            ['frexp', '{manlink U 13 Functions and expressions}'],
+        ]);
+
+        it('renders {pstd}{findalias X} as a full help-title header', () => {
+            const result = smcl_to_html(
+                '{title:Title}\n\n{pstd}\n{findalias froperators}\n\n{marker syntax}',
+                { findalias_map: the_map }
+            );
+            expect(result.html).toContain('smcl-help-title');
+            expect(result.html).toContain('smcl-help-title-heading');
+            // Heading strips the leading section number ("13.2 ").
+            expect(result.html).toContain('>Operators<');
+            // Full manual reference appears as subtitle.
+            expect(result.html).toContain('[U] 13.2 Operators');
+            // PDF link with the standard label.
+            expect(result.html).toContain(
+                'View the complete manual entry (PDF, opens in browser)'
+            );
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/u13.pdf'
+            );
+            // The pstd paragraph itself should not survive, so we
+            // don't leak the original {findalias} rendering next to
+            // the header.
+            expect(result.html).not.toContain('smcl-pstd');
+        });
+
+        it('strips section numbers from multi-word entries', () => {
+            const result = smcl_to_html(
+                '{pstd}\n{findalias frexp}\n\n{marker remarks}',
+                { findalias_map: the_map }
+            );
+            expect(result.html).toContain('>Functions and expressions<');
+            expect(result.html).toContain(
+                '[U] 13 Functions and expressions'
+            );
+        });
+
+        it('leaves the tree alone when the findalias_map is absent', () => {
+            const result = smcl_to_html(
+                '{pstd}\n{findalias froperators}\n\n{marker syntax}'
+            );
+            expect(result.html).not.toContain('smcl-help-title');
+        });
+
+        it('leaves the tree alone when the substitution is not a manlink', () => {
+            const result = smcl_to_html(
+                '{pstd}\n{findalias asfroperators}\n\n{marker syntax}',
+                {
+                    findalias_map: new Map([
+                        ['asfroperators', '{vieweralsosee "[U] 13.2 Operators" "mansection U 13.2Operators"}'],
+                    ]),
+                }
+            );
+            expect(result.html).not.toContain('smcl-help-title');
+        });
+
+        it('leaves the tree alone when a real title precedes the findalias', () => {
+            // If some other meaningful title (e.g. `Description`)
+            // appears first, the file isn't using the placeholder
+            // convention and we must not swallow the pstd paragraph.
+            const result = smcl_to_html(
+                '{title:Description}\n\n{pstd}\n{findalias froperators}\n',
+                { findalias_map: the_map }
+            );
+            expect(result.html).not.toContain('smcl-help-title-heading');
+            expect(result.html).toContain('Description');
         });
     });
 

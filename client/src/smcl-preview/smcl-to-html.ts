@@ -1357,11 +1357,28 @@ export function smcl_to_html(
     options?: SmclToHtmlOptions
 ): SmclHtmlResult {
     const the_raw_nodes = parse_smcl(smcl);
+    // Drop the `{title:Title}` placeholder many Stata help files put
+    // at the top of the file (368 occurrences in the base ado tree as
+    // of Stata 18). The word "Title" is not meaningful content — it
+    // labels the upcoming title section, which is either a
+    // `{p2colset}…{p2colreset}` block (handled below) or a
+    // `{pstd}{findalias X}` block (resolved via the findalias_map).
+    // Stripping the stand-alone heading avoids a useless "Title"
+    // <h2> above the real title info.
+    const the_stripped_nodes = strip_placeholder_title(the_raw_nodes);
     // Collapse the `.sthlp` header's `{p2colset}…{p2colreset}` title
     // block into a single synthetic directive so we can render it as
     // a proper heading with a PDF-manual link, rather than a narrow
     // 2-column table row.
-    const the_nodes = transform_help_title(the_raw_nodes);
+    const the_p2col_nodes = transform_help_title(the_stripped_nodes);
+    // Files that substitute a manlink via `{pstd}{findalias X}` for
+    // their title block (e.g. `exp.sthlp`, `operator.sthlp`) get the
+    // same `__help_title__` treatment so they render as a proper
+    // heading + PDF link instead of a small inline blue reference.
+    const the_nodes = transform_findalias_help_title(
+        the_p2col_nodes,
+        options?.findalias_map
+    );
     const ctx = create_context(options?.findalias_map);
     let html = render_nodes(the_nodes, ctx);
     // Close any trailing persistent formats and style span
@@ -1388,6 +1405,57 @@ export function smcl_to_html(
 // ---------------------------------------------------------------------------
 // Help-title preprocessor
 // ---------------------------------------------------------------------------
+
+/**
+ * Remove the leading `{title:Title}` directive many Stata help files
+ * use as a placeholder label for their title section.
+ *
+ * Across the Stata 18 base ado tree, `{title:Title}` appears 368
+ * times with this exact placeholder text, always immediately followed
+ * by either a `{p2colset}…{p2colreset}` header block or a
+ * `{pstd}{findalias X}` block that supplies the real title content.
+ * Rendering the literal word "Title" as an `<h2>` adds a noisy,
+ * meaningless heading; Stata's native viewer tolerates it but we can
+ * do better by skipping it.
+ *
+ * We only strip the FIRST top-level `{title:...}` directive, and only
+ * when its content text is exactly "Title". Every other title
+ * (`Syntax`, `Description`, `Remarks`, …) is meaningful and must
+ * survive intact.
+ */
+function strip_placeholder_title(nodes: SmclNode[]): SmclNode[] {
+    for (let i = 0; i < nodes.length; i++) {
+        const my_node = nodes[i];
+        if (!is_directive(my_node)) continue;
+        if (my_node.name.toLowerCase() !== 'title') continue;
+        const my_text = extract_title_plain_text(my_node).trim();
+        if (my_text === 'Title') {
+            return [...nodes.slice(0, i), ...nodes.slice(i + 1)];
+        }
+        // First title encountered was something meaningful; leave it
+        // and every subsequent title alone.
+        return nodes;
+    }
+    return nodes;
+}
+
+/**
+ * Flatten a `{title:…}` directive's content into plain text so we can
+ * check for the `Title` placeholder. Non-text children contribute
+ * nothing (no real help file decorates the title content with
+ * directives; being conservative here only means we leave such a
+ * title in place).
+ */
+function extract_title_plain_text(directive: SmclDirective): string {
+    if (directive.args) return directive.args;
+    const the_parts: string[] = [];
+    for (const my_child of directive.content) {
+        if ('text' in my_child) {
+            the_parts.push(my_child.text);
+        }
+    }
+    return the_parts.join('');
+}
 
 interface HelpTitleInfo {
     /** Command / entry name, e.g. "display" or "frame create". */
@@ -1557,6 +1625,162 @@ function try_match_help_title(
             mansection_text,
         },
     };
+}
+
+/**
+ * Paragraph directives that can open a title-style block. When a help
+ * file substitutes its title via `{pstd}{findalias X}`, the outer
+ * paragraph wrapper is almost always `{pstd}`, but we accept the full
+ * family so layout-variant files still benefit.
+ */
+const PARAGRAPH_DIRECTIVE_NAMES: ReadonlySet<string> = new Set([
+    'p', 'pstd', 'pin', 'pin2', 'pin3',
+    'phang', 'phang2', 'phang3',
+    'pmore', 'pmore2', 'pmore3',
+    'psee',
+]);
+
+/**
+ * Directive names that mark the end of the preamble / title area.
+ * Hitting any of these during the findalias-title scan means the
+ * title block has already been rendered (or this file doesn't follow
+ * the pattern), so we leave the tree untouched.
+ */
+const PREAMBLE_TERMINATOR_NAMES: ReadonlySet<string> = new Set([
+    'marker', 'title', 'p2colset', '__help_title__',
+]);
+
+/**
+ * Walk the top-level nodes and, if the preamble contains a title-
+ * style `{findalias X}` block whose substitution resolves to a
+ * `{manlink A B…}` (the convention used by files like `exp.sthlp`
+ * and `operator.sthlp`), collapse the whole block into a synthetic
+ * `__help_title__` directive carrying the manual-reference heading.
+ *
+ * Without this pass the findalias resolves inline as a small bold
+ * blue link inside a regular paragraph, which hides the fact that
+ * the paragraph is actually the document's title.
+ *
+ * The scan is intentionally cheap and bails to the original node
+ * list the moment it encounters any signal that the preamble is
+ * already done (e.g. a `{marker}`, `{title:…}`, `{p2colset}`, or an
+ * already-synthesized `__help_title__`).
+ */
+function transform_findalias_help_title(
+    nodes: SmclNode[],
+    findalias_map: Map<string, string> | undefined
+): SmclNode[] {
+    if (!findalias_map || findalias_map.size === 0) return nodes;
+
+    // Remember the earliest paragraph directive we've seen so the
+    // replacement range swallows the opening `{pstd}` along with the
+    // `{findalias}` it contains.
+    let paragraph_start = -1;
+
+    for (let i = 0; i < nodes.length; i++) {
+        const my_node = nodes[i];
+
+        if (!is_directive(my_node)) {
+            // Any non-whitespace text before a findalias means we've
+            // moved into real body content; leave the tree alone.
+            if (!/^\s*$/.test(my_node.text)) return nodes;
+            continue;
+        }
+
+        const my_name = my_node.name.toLowerCase();
+        if (PREAMBLE_TERMINATOR_NAMES.has(my_name)) {
+            return nodes;
+        }
+
+        if (my_name === 'findalias') {
+            const my_alias = (my_node.args ?? '').trim();
+            if (my_alias.length === 0) continue;
+            const my_smcl = findalias_map.get(my_alias);
+            if (!my_smcl) continue;
+            const my_info = extract_manlink_help_title(my_smcl);
+            if (!my_info) continue;
+
+            const my_start = paragraph_start >= 0 ? paragraph_start : i;
+            // Consume through the end of the title paragraph: stop at
+            // the next hard boundary (marker/title/p2colset) or EOF.
+            let my_end = i + 1;
+            while (my_end < nodes.length) {
+                const my_next = nodes[my_end];
+                if (is_directive(my_next)) {
+                    const my_next_name = my_next.name.toLowerCase();
+                    if (PREAMBLE_TERMINATOR_NAMES.has(my_next_name)) {
+                        break;
+                    }
+                }
+                my_end++;
+            }
+
+            const my_synthetic: SmclDirective = {
+                name: '__help_title__',
+                args: JSON.stringify(my_info),
+                content: [],
+                line: nodes[my_start].line,
+            };
+            return [
+                ...nodes.slice(0, my_start),
+                my_synthetic,
+                ...nodes.slice(my_end),
+            ];
+        }
+
+        if (
+            paragraph_start < 0
+            && PARAGRAPH_DIRECTIVE_NAMES.has(my_name)
+        ) {
+            paragraph_start = i;
+        }
+    }
+
+    return nodes;
+}
+
+/**
+ * Parse a findalias substitution and, if it contains a `{manlink A B}`
+ * as its primary content, derive help-title metadata from it.
+ *
+ * The heading drops any leading section-number prefix (e.g. `13.2 `)
+ * so topics like `{manlink U 13.2 Operators}` render with a clean
+ * `Operators` heading. The full `[U] 13.2 Operators` reference is
+ * kept as the subtitle, and the mansection target is formatted so
+ * `build_manual_url` produces the canonical `u13.pdf#u13.2Operators`
+ * style URL.
+ */
+function extract_manlink_help_title(
+    smcl: string
+): HelpTitleInfo | null {
+    const the_nodes = parse_smcl(smcl);
+    for (const my_node of the_nodes) {
+        if (!is_directive(my_node)) continue;
+        const my_name = my_node.name.toLowerCase();
+        if (my_name !== 'manlink' && my_name !== 'manlinki') continue;
+
+        const my_args = (my_node.args ?? '').trim();
+        if (my_args.length === 0) return null;
+        const my_space = my_args.indexOf(' ');
+        if (my_space < 0) return null;
+        const my_manual = my_args.substring(0, my_space).trim();
+        const my_entry = my_args.substring(my_space + 1).trim();
+        if (my_manual.length === 0 || my_entry.length === 0) return null;
+
+        // Strip a leading section number like `13 `, `13.2 `, or
+        // `11.1.3 `. Falls back to the raw entry when there's nothing
+        // to strip (e.g. `regress postestimation`).
+        const my_heading = my_entry.replace(/^\d+(?:\.\d+)*\s+/, '').trim()
+            || my_entry;
+
+        return {
+            name: my_heading,
+            description: `[${my_manual}] ${my_entry}`,
+            mansection_target: `${my_manual} ${my_entry}`,
+            mansection_text: 'View complete PDF manual entry',
+        };
+    }
+    return null;
 }
 
 function extract_title_ref_from_p2col(
