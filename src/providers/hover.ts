@@ -1874,7 +1874,10 @@ export class HoverProvider {
     private get_command_hover(word: string): MarkupContent | null {
         const command = this.command_db.lookup(word);
         if (command) {
-            return this.format_builtin_command_hover(command);
+            return this.format_builtin_command_hover(
+                command,
+                word !== command.name ? word : undefined
+            );
         }
 
         // Try broadening the search to abbreviations
