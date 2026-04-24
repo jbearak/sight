@@ -29,7 +29,22 @@ commands. Do NOT use `toLowerCase()` for keyword/command matching.
 Exceptions where case-insensitivity is acceptable:
 - File extensions (`.do`, `.DO` - filesystem dependent)
 - LSP directives (`@lsp-done-by` - our convention, not Stata syntax)
-- Command database lookups for completion/hover (user convenience)
+- Command database lookups for completion/hover (user convenience): when
+  matching a single piece of user-typed text against the canonical command
+  database (e.g., `command_db.get_command(word)`), lowercasing the user input
+  is fine — the database itself normalizes on entry.
+
+The exception is narrow. The following are NOT covered and must use exact-case
+comparison:
+- Hardcoded lists of canonical command names in provider code (e.g., prefix-
+  command arrays like `['by', 'bysort', 'quietly', ...]`). Stata rejects
+  `BY x: reg ...`, so treating `BY` as a prefix produces misleading hover and
+  completion for code that won't run.
+- Comparisons between two pieces of source text at the same position (e.g.,
+  `token.value.toLowerCase() === hovered_word.toLowerCase()` where both sides
+  came from the same document). Lowercasing both sides is redundant when
+  positional overlap is already checked; it adds noise and can mask bugs if
+  the positional check is later weakened.
 
 ## Architecture Overview
 

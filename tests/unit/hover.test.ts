@@ -7,6 +7,7 @@ import { init_tracker_from_source } from '../test-context-helper';
 import { Position } from 'vscode-languageserver';
 import { HoverProvider } from '../../src/providers/hover';
 import { CommandDatabase } from '../../src/commands';
+import type { CommandCache } from '../../src/command-database/types';
 import { DocumentState } from '../../src/document-store';
 import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
@@ -61,6 +62,83 @@ function create_test_command_db(): CommandDatabase {
     return db;
 }
 
+function create_mi_missing_command_db(): CommandDatabase {
+    const db = new CommandDatabase();
+    const cache: CommandCache = {
+        version: 18,
+        commands: {
+            mi: {
+                name: 'mi',
+                min_abbreviation: 2,
+                options: [
+                    {
+                        name: 'offset',
+                        min_abbreviation: 3,
+                        has_argument: true,
+                    },
+                    {
+                        name: 'augment',
+                        min_abbreviation: 3,
+                        has_argument: false,
+                    },
+                    {
+                        name: 'conditional',
+                        min_abbreviation: 4,
+                        has_argument: true,
+                    },
+                    {
+                        name: 'bootstrap',
+                        min_abbreviation: 4,
+                        has_argument: false,
+                    },
+                ],
+                priority: 3,
+            },
+            missing: {
+                name: 'missing',
+                min_abbreviation: 4,
+                options: [
+                    {
+                        name: 'within',
+                        min_abbreviation: 6,
+                        has_argument: true,
+                    },
+                ],
+                priority: 3,
+            },
+        },
+        abbreviations: {
+            miss: 'missing',
+            missi: 'missing',
+            missin: 'missing',
+        },
+    };
+    db.load_cache(cache);
+    return db;
+}
+
+function create_frame_command_db(): CommandDatabase {
+    const db = new CommandDatabase();
+    const cache: CommandCache = {
+        version: 18,
+        commands: {
+            frame: {
+                name: 'frame',
+                min_abbreviation: 5,
+                options: [],
+                subcommands: [
+                    { name: 'create', min_abbreviation: 6 },
+                    { name: 'drop', min_abbreviation: 4 },
+                ],
+                priority: 3,
+            },
+        },
+        abbreviations: {},
+    };
+    db.load_cache(cache);
+    return db;
+}
+
 describe('HoverProvider - Context-Aware Behavior', () => {
     let hover_provider: HoverProvider;
     let context_tracker: ContextTracker;
@@ -109,6 +187,271 @@ describe('HoverProvider - Context-Aware Behavior', () => {
                 expect(my_hover.contents.value).toContain('Local Macro');
             }
         });
+
+        it('should return subcommand hover for valid lowercase `by` prefix', async () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'by x: frame create mygood';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "create" at column 15
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 15 });
+
+            expect(my_hover).not.toBeNull();
+            if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).toContain('Frame Subcommand');
+            }
+        });
+
+        it('should not return subcommand hover for uppercase `BY` prefix (Stata is case-sensitive)', async () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'BY x: frame create mygood';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "create" at column 15
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 15 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it(
+            'should not return subcommand hover for uppercase `FRAME` prefix '
+            + '(Stata is case-sensitive)',
+            async () => {
+                command_db = create_frame_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'FRAME create mygood';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                // cursor is on "create" at column 8
+                const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 8 });
+
+                expect(my_hover).toBeNull();
+            }
+        );
+
+        it(
+            'should not return subcommand hover for mixed-case `Frame` prefix '
+            + '(Stata is case-sensitive)',
+            async () => {
+                command_db = create_frame_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'Frame create mygood';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                // cursor is on "create" at column 8
+                const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 8 });
+
+                expect(my_hover).toBeNull();
+            }
+        );
+
+        it(
+            'should not detect line-fallback subcommand context for uppercase `FRAME` prefix',
+            () => {
+                command_db = create_frame_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'FRAME create mygood';
+                const my_doc = {
+                    uri: 'file:///test.do',
+                    version: 1,
+                    content: my_content,
+                    tokens: [],
+                } as unknown as DocumentState;
+
+                const my_result = (hover_provider as any).get_subcommand_context_from_line(
+                    my_doc,
+                    { line: 0, character: 8 } as Position,
+                    'create'
+                );
+
+                expect(my_result).toEqual({
+                    is_subcommand: false,
+                    prefix_command: null,
+                });
+            }
+        );
+
+        it('should not treat non-by colons as by-prefix syntax in line fallback', () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'merge 1:m frame create mygood';
+            const my_doc = {
+                uri: 'file:///test.do',
+                version: 1,
+                content: my_content,
+                tokens: [],
+            } as unknown as DocumentState;
+
+            const my_result = (hover_provider as any).get_subcommand_context_from_line(
+                my_doc,
+                { line: 0, character: 16 } as Position,
+                'create'
+            );
+
+            expect(my_result).toEqual({
+                is_subcommand: false,
+                prefix_command: null,
+            });
+        });
+
+        it('should not show command hover for an option name after a top-level comma', async () => {
+            // `replace` is a Stata command and also a merge option. In option
+            // position the command hover would mislead the user.
+            const my_db = new CommandDatabase();
+            my_db.load_cache({
+                version: 18,
+                commands: {
+                    merge: {
+                        name: 'merge',
+                        min_abbreviation: 5,
+                        options: [
+                            { name: 'replace', min_abbreviation: 3, has_argument: false },
+                        ],
+                        priority: 3,
+                    },
+                    replace: {
+                        name: 'replace',
+                        min_abbreviation: 3,
+                        options: [],
+                        priority: 3,
+                    },
+                },
+                abbreviations: {},
+            });
+            const my_provider = new HoverProvider(my_db, context_tracker);
+
+            const my_content = 'merge 1:1 id using foo, replace';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor inside "replace" (starts at column 24)
+            const my_hover = await my_provider.get_hover(my_doc, { line: 0, character: 26 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should not treat commas inside brackets as top-level commas', () => {
+            const my_doc = create_test_document('matrix x = y[1, 2] replace');
+
+            const my_result = (hover_provider as any).is_after_top_level_comma(
+                my_doc,
+                { line: 0, character: 18 } as Position
+            );
+
+            expect(my_result).toBe(false);
+        });
+
+        it('should provide expression-function hover for mod even without cache metadata', async () => {
+            hover_provider = new HoverProvider(create_test_command_db(), context_tracker);
+
+            const my_content = 'generate x = mod(y, 2)';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            const my_hover = await hover_provider.get_hover(
+                my_doc,
+                { line: 0, character: 13 }
+            );
+
+            expect(my_hover).not.toBeNull();
+            expect(my_hover?.contents).toBeDefined();
+            if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).toContain('**Function:** **mod**()');
+            }
+        });
+
+        it('should provide macro hover inside an option argument', async () => {
+            const my_content = "regress y x, cluster(`mymacro')";
+            const my_doc = create_test_document(my_content, {
+                localMacros: new Map([
+                    ['mymacro', {
+                        name: 'mymacro',
+                        sourceUri: 'file:///test.do',
+                        value: 'id',
+                        type: 'local',
+                    }],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "mymacro" at column 23
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 23 });
+
+            expect(my_hover).not.toBeNull();
+            expect(my_hover?.contents).toBeDefined();
+            if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).toContain('Local Macro');
+            }
+        });
+
+        it(
+            'should resolve mi() expression hover to missing, not the mi prefix command',
+            async () => {
+                command_db = create_mi_missing_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'replace foo = . if mi(bar)';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                const my_hover = await hover_provider.get_hover(
+                    my_doc,
+                    { line: 0, character: 20 }
+                );
+
+                expect(my_hover).not.toBeNull();
+                expect(my_hover?.contents).toBeDefined();
+                if (
+                    typeof my_hover?.contents === 'object'
+                    && 'value' in my_hover.contents
+                ) {
+                    expect(my_hover.contents.value).toContain('**missing**');
+                    expect(my_hover.contents.value).not.toContain('offset');
+                    expect(my_hover.contents.value).not.toContain('augment');
+                    expect(my_hover.contents.value)
+                        .not.toContain('conditional');
+                    expect(my_hover.contents.value).not.toContain('bootstrap');
+                }
+            }
+        );
+
+        it(
+            'should resolve mi() to missing even after a top-level comma',
+            async () => {
+                command_db = create_mi_missing_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'regress y x, vce(mi(bar))';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                const my_hover = await hover_provider.get_hover(
+                    my_doc,
+                    { line: 0, character: 17 }
+                );
+
+                expect(my_hover).not.toBeNull();
+                expect(my_hover?.contents).toBeDefined();
+                if (
+                    typeof my_hover?.contents === 'object'
+                    && 'value' in my_hover.contents
+                ) {
+                    expect(my_hover.contents.value).toContain('**missing**');
+                }
+            }
+        );
     });
 
     describe('Comment Context Hover', () => {

@@ -37,6 +37,7 @@ import {
     ArgumentSpec,
     ResolvedScope,
     ScopeResolverConfig,
+    CommandInfo,
 } from '../types';
 import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
@@ -50,6 +51,40 @@ import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
+
+const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
+    'byte',
+    'date',
+    'daily',
+    'double',
+    'exp',
+    'float',
+    'halfyearly',
+    'int',
+    'log',
+    'long',
+    'lower',
+    'max',
+    'min',
+    'missing',
+    'mod',
+    'monthly',
+    'normal',
+    'poisson',
+    'proper',
+    'quarterly',
+    'recode',
+    'string',
+    'sum',
+    'trunc',
+    'upper',
+    'weekly',
+    'yearly',
+]);
+
+const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
+    ['mi', 'missing'],
+]);
 
 /**
  * One entry in a symbol's `additional_definitions` array.
@@ -199,18 +234,6 @@ export class HoverProvider {
             );
         }
 
-        // Check if we're in option context BEFORE checking for commands
-        const option_context = this.is_in_option_context(document, position);
-        if (option_context.in_option_context) {
-            // Try to get option hover
-            const option_hover = this.get_option_hover(option_context.command_name, word);
-            if (option_hover) {
-                return { contents: option_hover, range };
-            }
-            // Don't fall through to command lookup
-            return null;
-        }
-
         // Check for block delimiter hover (works in any context)
         const delimiter_hover = this.get_block_delimiter_hover(word, my_context, document, position);
         if (delimiter_hover) {
@@ -248,6 +271,26 @@ export class HoverProvider {
             return { contents: formatted_content, range };
         }
 
+        // Function calls can share text with prefix commands. For example,
+        // `mi(bar)` is the `missing()` function, not the `mi` prefix command.
+        // Checked before the top-level-comma guard so that expression
+        // functions inside option arguments (e.g. `vce(mi(bar))`) resolve.
+        const expression_function_hover = this.get_expression_function_hover(
+            document,
+            range,
+            word
+        );
+        if (expression_function_hover) {
+            return { contents: expression_function_hover, range };
+        }
+
+        // Past a top-level comma the word is an option name, which shares
+        // spellings with Stata commands (e.g. `replace`) and functions
+        // (e.g. `sum`). Don't fall through to command/function hover there.
+        if (this.is_after_top_level_comma(document, position)) {
+            return null;
+        }
+
         // Fallback: Check for subcommand context (not a symbol type)
         const subcommand_hover = this.get_subcommand_hover(document, position, word, cancellation_token);
         if (subcommand_hover) {
@@ -261,6 +304,59 @@ export class HoverProvider {
         }
 
         return null;
+    }
+
+    /**
+     * True when the cursor is past a top-level comma in the current statement,
+     * i.e. in option-argument position. Uses the token stream so commas inside
+     * strings, macro references, and nested parentheses are ignored correctly.
+     */
+    private is_after_top_level_comma(
+        document: DocumentState,
+        position: Position
+    ): boolean {
+        const tokens = document.tokens;
+        if (!tokens || tokens.length === 0) {
+            return false;
+        }
+
+        let paren_depth = 0;
+        let bracket_depth = 0;
+        let saw_top_level_comma = false;
+
+        for (const token of tokens) {
+            const at_or_past_cursor =
+                token.range.start.line > position.line ||
+                (token.range.start.line === position.line &&
+                 token.range.start.character >= position.character);
+            if (at_or_past_cursor) {
+                break;
+            }
+
+            if (token.type === 'STATEMENT_TERMINATOR') {
+                paren_depth = 0;
+                bracket_depth = 0;
+                saw_top_level_comma = false;
+                continue;
+            }
+            if (token.type === 'LPAREN') {
+                paren_depth++;
+            } else if (token.type === 'RPAREN') {
+                if (paren_depth > 0) paren_depth--;
+            } else if (token.type === 'LBRACKET') {
+                bracket_depth++;
+            } else if (token.type === 'RBRACKET') {
+                if (bracket_depth > 0) bracket_depth--;
+            } else if (
+                token.type === 'COMMA'
+                && paren_depth === 0
+                && bracket_depth === 0
+            ) {
+                saw_top_level_comma = true;
+            }
+        }
+
+        return saw_top_level_comma;
     }
 
     /**
@@ -1068,6 +1164,19 @@ export class HoverProvider {
     }
 
     /**
+     * True when the source-text word is recognized as a prefix command with
+     * subcommands (e.g. `frame`, `mi`). Stata prefix commands are
+     * case-sensitive and canonical-lowercase; `has_subcommands` lowercases
+     * internally, so mis-cased forms like `FRAME` need an explicit guard.
+     */
+    private is_canonical_prefix_with_subcommands(source_word: string): boolean {
+        if (source_word !== source_word.toLowerCase()) {
+            return false;
+        }
+        return this.command_db.has_subcommands(source_word);
+    }
+
+    /**
      * Token-based subcommand context detection.
      * Finds the hovered token and checks if the previous non-trivia token is a prefix command.
      */
@@ -1095,7 +1204,7 @@ export class HoverProvider {
                 token.range.start.character <= position.character &&
                 token.range.end.character >= position.character &&
                 token.type === 'WORD' &&
-                token.value.toLowerCase() === hovered_word.toLowerCase()) {
+                token.value === hovered_word) {
                 hovered_token_index = i;
                 break;
             }
@@ -1114,12 +1223,13 @@ export class HoverProvider {
             }
         }
 
-        // Collect non-trivia WORD tokens from statement start to hovered token
+        // Collect non-trivia WORD tokens from statement start to hovered token.
+        // Preserve raw source case; Stata commands/prefixes are case-sensitive.
         const the_statement_words: { value: string; index: number }[] = [];
         for (let i = statement_start_index; i <= hovered_token_index; i++) {
             const token = tokens[i];
             if (token.type === 'WORD' && !TRIVIA_TYPES.includes(token.type)) {
-                the_statement_words.push({ value: token.value.toLowerCase(), index: i });
+                the_statement_words.push({ value: token.value, index: i });
             }
         }
 
@@ -1134,34 +1244,40 @@ export class HoverProvider {
             command_word_index++;
         }
 
-        // Handle "by varlist:" pattern - skip to after colon
-        // Check if there's a colon between command_word_index and hovered token
+        // Handle "by varlist:" pattern - skip to after colon.
+        // Only applies when we skipped a by/bysort prefix; otherwise a stray
+        // colon (or mis-cased `BY`) shouldn't bump us past its varlist.
+        const BY_PREFIXES = ['by', 'bysort'];
+        const skipped_by_prefix = the_statement_words
+            .slice(0, command_word_index)
+            .some(w => BY_PREFIXES.includes(w.value));
         let found_colon = false;
-        for (let i = the_statement_words[command_word_index].index; i < hovered_token_index; i++) {
-            if (tokens[i].type === 'COLON') {
-                found_colon = true;
-                // Find next WORD after colon
-                for (let j = i + 1; j <= hovered_token_index; j++) {
-                    if (tokens[j].type === 'WORD') {
-                        // Update command_word_index to point to this word
-                        for (let k = 0; k < the_statement_words.length; k++) {
-                            if (the_statement_words[k].index === j) {
-                                command_word_index = k;
-                                break;
+        if (skipped_by_prefix) {
+            for (let i = the_statement_words[command_word_index].index; i < hovered_token_index; i++) {
+                if (tokens[i].type === 'COLON') {
+                    found_colon = true;
+                    // Find next WORD after colon
+                    for (let j = i + 1; j <= hovered_token_index; j++) {
+                        if (tokens[j].type === 'WORD') {
+                            // Update command_word_index to point to this word
+                            for (let k = 0; k < the_statement_words.length; k++) {
+                                if (the_statement_words[k].index === j) {
+                                    command_word_index = k;
+                                    break;
+                                }
                             }
+                            break;
                         }
-                        break;
                     }
+                    break;
                 }
-                break;
             }
         }
 
         // The word at command_word_index should be the prefix command
         const potential_prefix = the_statement_words[command_word_index].value;
 
-        // Check if this command has subcommands using the database
-        if (!this.command_db.has_subcommands(potential_prefix)) {
+        if (!this.is_canonical_prefix_with_subcommands(potential_prefix)) {
             return { is_subcommand: false, prefix_command: null };
         }
 
@@ -1207,7 +1323,7 @@ export class HoverProvider {
 
         // Find word boundaries for the hovered word
         const word_info = this.get_word_at_position(document, position);
-        if (!word_info || word_info.word.toLowerCase() !== hovered_word.toLowerCase()) {
+        if (!word_info || word_info.word !== hovered_word) {
             return { is_subcommand: false, prefix_command: null };
         }
 
@@ -1227,22 +1343,32 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
 
-        // Skip standard prefix commands (by, quietly, capture, etc.)
+        // Skip standard prefix commands (by, quietly, capture, etc.).
+        // Stata prefix commands are case-sensitive and must be lowercase.
         const standard_prefixes = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'];
         let command_index = 0;
         while (command_index < tokens_before.length &&
-               standard_prefixes.includes(tokens_before[command_index].toLowerCase())) {
+               standard_prefixes.includes(tokens_before[command_index])) {
             command_index++;
         }
 
-        // Handle "by varlist:" pattern
-        if (text_before_hovered.includes(':')) {
+        // Handle "by varlist:" pattern only when we actually skipped a
+        // lowercase by/bysort prefix. This keeps merge syntax like 1:m, or
+        // mis-cased BY, from being treated as a by-prefix colon form.
+        const skipped_by = tokens_before
+            .slice(0, command_index)
+            .some(t => t === 'by' || t === 'bysort');
+        if (skipped_by && text_before_hovered.includes(':')) {
             const after_colon = text_before_hovered.split(':').pop()?.trim() || '';
             const words_after_colon = after_colon.split(/\s+/).filter(t => t.length > 0);
             if (words_after_colon.length > 0) {
-                // Reset to check words after colon
-                const potential_prefix = words_after_colon[0].toLowerCase();
-                if (this.command_db.has_subcommands(potential_prefix) && words_after_colon.length === 1) {
+                // Reset to check words after colon. Preserve source case so
+                // mis-cased prefix commands are rejected by the case guard.
+                const potential_prefix = words_after_colon[0];
+                if (
+                    this.is_canonical_prefix_with_subcommands(potential_prefix)
+                    && words_after_colon.length === 1
+                ) {
                     const subcommands = this.command_db.get_subcommands(potential_prefix);
                     const is_valid = subcommands?.some(
                         sub => sub.name.toLowerCase() === hovered_word.toLowerCase()
@@ -1259,11 +1385,12 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
 
-        // The token at command_index should be the prefix command
-        const potential_prefix = tokens_before[command_index].toLowerCase();
+        // The token at command_index should be the prefix command.
+        // Preserve source case so mis-cased prefixes (e.g. `FRAME`) are
+        // rejected by the case guard.
+        const potential_prefix = tokens_before[command_index];
 
-        // Check if this command has subcommands using the database
-        if (!this.command_db.has_subcommands(potential_prefix)) {
+        if (!this.is_canonical_prefix_with_subcommands(potential_prefix)) {
             return { is_subcommand: false, prefix_command: null };
         }
 
@@ -1320,96 +1447,6 @@ export class HoverProvider {
             }
         }
 
-        return null;
-    }
-
-    /**
-     * Check if a position is in option context (after a comma).
-     */
-    private is_in_option_context(
-        document: DocumentState,
-        position: Position
-    ): { in_option_context: boolean; command_name: string | null } {
-        const line = get_line_text(document, position.line);
-        if (line === '') {
-            return { in_option_context: false, command_name: null };
-        }
-        const text_before_cursor = line.substring(0, position.character);
-
-        // Find last comma not inside quotes or parentheses
-        let last_comma_pos = -1;
-        let in_quotes = false;
-        let paren_depth = 0;
-        let quote_char = '';
-
-        for (let i = 0; i < text_before_cursor.length; i++) {
-            const char = text_before_cursor[i];
-
-            if (!in_quotes) {
-                if (char === '"' || char === "'") {
-                    in_quotes = true;
-                    quote_char = char;
-                } else if (char === '(') {
-                    paren_depth++;
-                } else if (char === ')') {
-                    paren_depth--;
-                } else if (char === ',' && paren_depth === 0) {
-                    last_comma_pos = i;
-                }
-            } else {
-                if (char === quote_char) {
-                    in_quotes = false;
-                    quote_char = '';
-                }
-            }
-        }
-
-        if (last_comma_pos >= 0) {
-            const text_before_comma = text_before_cursor.substring(0, last_comma_pos);
-            const command_name = this.extract_command_name(text_before_comma);
-            return { in_option_context: true, command_name };
-        }
-
-        return { in_option_context: false, command_name: null };
-    }
-
-    /**
-     * Extract command name from text, handling prefixes and abbreviations.
-     */
-    private extract_command_name(text: string): string | null {
-        const trimmed = text.trim();
-        if (!trimmed) return null;
-
-        // Split into tokens
-        const tokens = trimmed.split(/\s+/);
-        if (tokens.length === 0) return null;
-
-        // Handle prefix commands
-        const prefixes = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'];
-        let command_index = 0;
-
-        // Skip prefix commands
-        while (command_index < tokens.length && prefixes.includes(tokens[command_index].toLowerCase())) {
-            command_index++;
-        }
-
-        if (command_index >= tokens.length) return null;
-
-        let command_name = tokens[command_index];
-
-        // Handle colon syntax (e.g., "merge 1:m" -> "merge")
-        if (command_name.includes(':')) {
-            command_name = command_name.split(':')[0];
-        }
-
-        return command_name;
-    }
-
-    /**
-     * Get hover information for an option.
-     */
-    private get_option_hover(command_name: string | null, option_name: string): MarkupContent | null {
-        // Don't show hover for options
         return null;
     }
 
@@ -1778,42 +1815,95 @@ export class HoverProvider {
     private get_command_hover(word: string): MarkupContent | null {
         const command = this.command_db.lookup(word);
         if (command) {
-            let hover_text = `**${command.name}**`;
-
-            if (command.options && command.options.length > 0) {
-                const option_names = command.options.map(opt => opt.name).join(', ');
-                hover_text += `\n\n**Options:** ${option_names}`;
-            }
-
-            hover_text += `\n\nSee Stata documentation: \`help ${command.name}\``;
-
-            return {
-                kind: MarkupKind.Markdown,
-                value: hover_text,
-            };
+            return this.format_builtin_command_hover(command);
         }
 
         // Try broadening the search to abbreviations
         const matches = this.command_db.expand_abbreviation(word);
         if (matches.length === 1) {
             const cmd = matches[0];
-
-            let hover_text = `**${cmd.name}** (abbreviated as \`${word}\`)`;
-
-            if (cmd.options && cmd.options.length > 0) {
-                const option_names = cmd.options.map(opt => opt.name).join(', ');
-                hover_text += `\n\n**Options:** ${option_names}`;
-            }
-
-            hover_text += `\n\nSee Stata documentation: \`help ${cmd.name}\``;
-
-            return {
-                kind: MarkupKind.Markdown,
-                value: hover_text,
-            };
+            return this.format_builtin_command_hover(cmd, word);
         }
 
         return null;
+    }
+
+    private get_expression_function_hover(
+        document: DocumentState,
+        range: { start: Position; end: Position },
+        word: string
+    ): MarkupContent | null {
+        if (!this.is_followed_by_open_paren(document, range.end)) {
+            return null;
+        }
+
+        const function_name = this.resolve_expression_function_name(word);
+        if (!function_name) {
+            return null;
+        }
+
+        return this.format_expression_function_hover(
+            function_name,
+            function_name === word ? undefined : word
+        );
+    }
+
+    private is_followed_by_open_paren(
+        document: DocumentState,
+        position: Position
+    ): boolean {
+        const line = get_line_text(document, position.line);
+        let i = position.character;
+        while (i < line.length && /\s/.test(line[i])) {
+            i++;
+        }
+        return line[i] === '(';
+    }
+
+    private resolve_expression_function_name(word: string): string | null {
+        if (STATA_EXPRESSION_FUNCTIONS.has(word)) {
+            return word;
+        }
+        return STATA_EXPRESSION_FUNCTION_ALIASES.get(word) ?? null;
+    }
+
+    private format_expression_function_hover(
+        function_name: string,
+        abbreviated_as?: string
+    ): MarkupContent {
+        let hover_text = `**Function:** **${function_name}**()`;
+        if (abbreviated_as && abbreviated_as !== function_name) {
+            hover_text += ` (abbreviated as \`${abbreviated_as}\`)`;
+        }
+
+        hover_text += `\n\nSee Stata documentation: \`help ${function_name}()\``;
+
+        return {
+            kind: MarkupKind.Markdown,
+            value: hover_text,
+        };
+    }
+
+    private format_builtin_command_hover(
+        command: CommandInfo,
+        abbreviated_as?: string
+    ): MarkupContent {
+        let hover_text = `**${command.name}**`;
+        if (abbreviated_as && abbreviated_as !== command.name) {
+            hover_text += ` (abbreviated as \`${abbreviated_as}\`)`;
+        }
+
+        if (command.options && command.options.length > 0) {
+            const option_names = command.options.map(opt => opt.name).join(', ');
+            hover_text += `\n\n**Options:** ${option_names}`;
+        }
+
+        hover_text += `\n\nSee Stata documentation: \`help ${command.name}\``;
+
+        return {
+            kind: MarkupKind.Markdown,
+            value: hover_text,
+        };
     }
 
     /**
