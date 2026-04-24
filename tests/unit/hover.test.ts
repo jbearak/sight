@@ -205,7 +205,7 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             }
         });
 
-        it('should not treat uppercase `BY` as a prefix command (Stata is case-sensitive)', async () => {
+        it('should not return subcommand hover for uppercase `BY` prefix (Stata is case-sensitive)', async () => {
             command_db = create_frame_command_db();
             hover_provider = new HoverProvider(command_db, context_tracker);
 
@@ -220,7 +220,7 @@ describe('HoverProvider - Context-Aware Behavior', () => {
         });
 
         it(
-            'should not treat uppercase `FRAME` as a prefix command with subcommands '
+            'should not return subcommand hover for uppercase `FRAME` prefix '
             + '(Stata is case-sensitive)',
             async () => {
                 command_db = create_frame_command_db();
@@ -238,7 +238,25 @@ describe('HoverProvider - Context-Aware Behavior', () => {
         );
 
         it(
-            'should not treat mis-cased `FRAME` as a prefix command in the line fallback',
+            'should not return subcommand hover for mixed-case `Frame` prefix '
+            + '(Stata is case-sensitive)',
+            async () => {
+                command_db = create_frame_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'Frame create mygood';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                // cursor is on "create" at column 8
+                const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 8 });
+
+                expect(my_hover).toBeNull();
+            }
+        );
+
+        it(
+            'should not detect line-fallback subcommand context for uppercase `FRAME` prefix',
             () => {
                 command_db = create_frame_command_db();
                 hover_provider = new HoverProvider(command_db, context_tracker);
