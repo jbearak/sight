@@ -14515,7 +14515,53 @@
       "name": "frame",
       "min_abbreviation": 5,
       "options": [],
-      "priority": 3
+      "priority": 3,
+      "subcommands": [
+        {
+          "name": "create",
+          "min_abbreviation": 6
+        },
+        {
+          "name": "change",
+          "min_abbreviation": 6
+        },
+        {
+          "name": "copy",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "drop",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "rename",
+          "min_abbreviation": 6
+        },
+        {
+          "name": "put",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "post",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "dir",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "reset",
+          "min_abbreviation": 5
+        },
+        {
+          "name": "list",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "prefix",
+          "min_abbreviation": 6
+        }
+      ]
     },
     "pwf": {
       "name": "pwf",
@@ -21694,7 +21740,77 @@
           "has_argument": false
         }
       ],
-      "priority": 3
+      "priority": 3,
+      "subcommands": [
+        {
+          "name": "set",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "describe",
+          "min_abbreviation": 1
+        },
+        {
+          "name": "estimate",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "impute",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "register",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "unregister",
+          "min_abbreviation": 5
+        },
+        {
+          "name": "passive",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "varying",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "convert",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "export",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "import",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "merge",
+          "min_abbreviation": 5
+        },
+        {
+          "name": "append",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "expand",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "reshape",
+          "min_abbreviation": 4
+        },
+        {
+          "name": "update",
+          "min_abbreviation": 3
+        },
+        {
+          "name": "xeq",
+          "min_abbreviation": 3
+        }
+      ]
     },
     "utility": {
       "name": "utility",
@@ -44802,7 +44918,7 @@
     "constra": "constraint",
     "constrai": "constraint",
     "constrain": "constraint",
-    "di": "dir",
+    "di": "display",
     "cap": "capture",
     "capt": "capture",
     "captu": "capture",

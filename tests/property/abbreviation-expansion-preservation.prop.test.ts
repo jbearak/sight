@@ -1,15 +1,18 @@
 import { describe, it, beforeEach, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { CommandDatabase } from '../../src/command-database';
-import type { CommandCache, CommandInfo, OptionInfo, StataVersion } from '../../src/command-database/types';
+import { get_command_priority } from '../../src/command-database/priority-tiers';
+import type {
+    CommandCache,
+    CommandInfo,
+    OptionInfo,
+    StataVersion,
+} from '../../src/command-database/types';
 
 /**
  * Property Test: Abbreviation Expansion Preservation
  * Feature: command-database-cleanup, Property 2: Abbreviation Expansion Preservation
  * Validates: Requirements 3.4, 6.2
- * 
- * This test verifies that for any abbreviation in the cache's abbreviation dictionary,
- * expanding that abbreviation returns the correct full command name.
  */
 describe('Abbreviation Expansion Preservation Property Tests', () => {
     let my_database: CommandDatabase;
@@ -18,255 +21,235 @@ describe('Abbreviation Expansion Preservation Property Tests', () => {
         my_database = new CommandDatabase();
     });
 
-    // Generator for valid command names (lowercase alphabetic)
+    function compute_expected_lookup(
+        cache: CommandCache,
+        query: string
+    ): string | null {
+        const normalized = query.toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(cache.commands, normalized)) {
+            return cache.commands[normalized].name;
+        }
+
+        const exact_command_names = new Set(Object.keys(cache.commands));
+        const resolved_abbreviations: Record<string, string> = Object.create(null);
+
+        for (const [abbrev, full_name] of Object.entries(cache.abbreviations)) {
+            if (exact_command_names.has(abbrev)) {
+                continue;
+            }
+            if (Object.prototype.hasOwnProperty.call(cache.commands, full_name)) {
+                resolved_abbreviations[abbrev] = full_name;
+            }
+        }
+
+        const the_sorted_commands = Object.values(cache.commands).sort(
+            (cmd_a, cmd_b) => {
+                const priority_a =
+                    cmd_a.priority || get_command_priority(cmd_a.name);
+                const priority_b =
+                    cmd_b.priority || get_command_priority(cmd_b.name);
+                if (priority_a !== priority_b) {
+                    return priority_a - priority_b;
+                }
+                if (cmd_a.min_abbreviation !== cmd_b.min_abbreviation) {
+                    return cmd_a.min_abbreviation - cmd_b.min_abbreviation;
+                }
+                if (cmd_a.name.length !== cmd_b.name.length) {
+                    return cmd_a.name.length - cmd_b.name.length;
+                }
+                return cmd_a.name.localeCompare(cmd_b.name);
+            }
+        );
+
+        for (const my_command of the_sorted_commands) {
+            const normalized_name = my_command.name.toLowerCase();
+            const my_priority =
+                my_command.priority || get_command_priority(normalized_name);
+            const min_len = Math.max(1, my_command.min_abbreviation);
+            for (let i = min_len; i < normalized_name.length; i++) {
+                const abbrev = normalized_name.substring(0, i);
+                if (exact_command_names.has(abbrev)) {
+                    continue;
+                }
+                if (!Object.prototype.hasOwnProperty.call(resolved_abbreviations, abbrev)) {
+                    resolved_abbreviations[abbrev] = normalized_name;
+                    continue;
+                }
+
+                const existing_name = resolved_abbreviations[abbrev];
+                if (
+                    !Object.prototype.hasOwnProperty.call(
+                        cache.commands,
+                        existing_name
+                    )
+                ) {
+                    resolved_abbreviations[abbrev] = normalized_name;
+                    continue;
+                }
+
+                const existing_priority =
+                    cache.commands[existing_name].priority
+                    || get_command_priority(existing_name);
+                if (my_priority < existing_priority) {
+                    resolved_abbreviations[abbrev] = normalized_name;
+                }
+            }
+        }
+
+        return resolved_abbreviations[normalized] ?? null;
+    }
+
     const command_name_generator: fc.Arbitrary<string> = fc.string({
         minLength: 3,
-        maxLength: 12
+        maxLength: 12,
     }).filter(s => /^[a-z]+$/.test(s));
 
-    // Generator for option info
     const option_info_generator: fc.Arbitrary<OptionInfo> = fc.record({
-        name: fc.string({ minLength: 2, maxLength: 10 }).filter(s => /^[a-z]+$/.test(s)),
+        name: fc.string({ minLength: 2, maxLength: 10 }).filter(
+            s => /^[a-z]+$/.test(s)
+        ),
         min_abbreviation: fc.integer({ min: 1, max: 10 }),
         description: fc.string({ minLength: 5, maxLength: 50 }),
-        has_argument: fc.boolean()
+        has_argument: fc.boolean(),
     }).map(info => ({
         ...info,
-        min_abbreviation: Math.min(info.min_abbreviation, info.name.length)
+        min_abbreviation: Math.min(info.min_abbreviation, info.name.length),
     }));
 
-    // Generator for command info (minimal type)
     const command_info_generator: fc.Arbitrary<CommandInfo> = fc.record({
         name: command_name_generator,
         syntax: fc.string({ minLength: 5, maxLength: 100 }),
         description: fc.string({ minLength: 10, maxLength: 100 }),
         min_abbreviation: fc.integer({ min: 1, max: 12 }),
-        options: fc.array(option_info_generator, { minLength: 0, maxLength: 5 })
+        options: fc.array(option_info_generator, { minLength: 0, maxLength: 5 }),
+        priority: fc.option(fc.integer({ min: 1, max: 3 })),
     }).map(info => ({
         ...info,
-        // Ensure min_abbreviation doesn't exceed name length
-        min_abbreviation: Math.min(info.min_abbreviation, info.name.length)
+        min_abbreviation: Math.min(info.min_abbreviation, info.name.length),
     }));
 
-    // Generator for command cache with proper abbreviation mappings
-    // Uses distinct prefixes to avoid abbreviation conflicts
-    const command_cache_generator: fc.Arbitrary<CommandCache> = fc.tuple(
-        fc.constantFrom('reg', 'sum', 'tab', 'gen', 'des', 'lis', 'mer', 'app', 'sor', 'dro'),
-        fc.constantFrom('ress', 'marize', 'ulate', 'erate', 'cribe', 't', 'ge', 'end', 't', 'p')
-    ).chain(([prefix1, suffix1]) => {
-        // Generate commands with distinct prefixes to avoid conflicts
-        const the_prefixes = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
-        return fc.array(
-            fc.tuple(
-                fc.constantFrom(...the_prefixes),
-                fc.string({ minLength: 2, maxLength: 6 }).filter(s => /^[a-z]+$/.test(s)),
-                fc.string({ minLength: 5, maxLength: 50 }),
-                fc.string({ minLength: 10, maxLength: 50 }),
-                fc.integer({ min: 2, max: 5 })
-            ),
-            { minLength: 3, maxLength: 5 }
-        ).map(the_tuples => {
-            const commands: Record<string, CommandInfo> = {};
-            const abbreviations: Record<string, string> = {};
-            const used_names = new Set<string>();
+    const command_cache_generator: fc.Arbitrary<CommandCache> = fc.array(
+        command_info_generator,
+        { minLength: 3, maxLength: 6 }
+    ).map(the_commands => {
+        const commands: Record<string, CommandInfo> = Object.create(null);
+        const abbreviations: Record<string, string> = Object.create(null);
 
-            for (let idx = 0; idx < the_tuples.length; idx++) {
-                const [prefix, suffix, syntax, description, min_abbrev_base] = the_tuples[idx];
-                // Create unique name by appending index
-                const name = `${prefix}${suffix}${idx}`.toLowerCase();
-                
-                if (used_names.has(name)) continue;
-                used_names.add(name);
+        for (let i = 0; i < the_commands.length; i++) {
+            const my_command = the_commands[i];
+            const normalized_name = `${my_command.name}${i}`.toLowerCase();
+            commands[normalized_name] = {
+                ...my_command,
+                name: normalized_name,
+                min_abbreviation: Math.min(
+                    my_command.min_abbreviation,
+                    normalized_name.length
+                ),
+            };
 
-                const min_abbreviation = Math.min(min_abbrev_base, name.length);
-                
-                commands[name] = {
-                    name,
-                    syntax,
-                    description,
-                    min_abbreviation,
-                    options: []
-                };
-
-                // Generate abbreviations - only add if not conflicting
-                for (let i = min_abbreviation; i < name.length; i++) {
-                    const abbrev = name.substring(0, i);
-                    // Only add if not already used as a command or abbreviation
-                    if (!commands[abbrev] && !abbreviations[abbrev]) {
-                        abbreviations[abbrev] = name;
-                    }
+            for (
+                let j = commands[normalized_name].min_abbreviation;
+                j < normalized_name.length;
+                j++
+            ) {
+                const abbrev = normalized_name.substring(0, j);
+                if (!Object.prototype.hasOwnProperty.call(abbreviations, abbrev)) {
+                    abbreviations[abbrev] = normalized_name;
                 }
             }
+        }
 
-            return {
-                version: 18 as StataVersion,
-                commands,
-                abbreviations
-            };
-        });
+        return {
+            version: 18 as StataVersion,
+            commands,
+            abbreviations,
+        };
     });
 
-    /**
-     * Property 2: Abbreviation Expansion Preservation
-     * 
-     * For any abbreviation in the cache's abbreviation dictionary,
-     * expanding that abbreviation SHALL return the correct full command name.
-     * 
-     * Feature: command-database-cleanup, Property 2: Abbreviation Expansion Preservation
-     * Validates: Requirements 3.4, 6.2
-     */
-    it('should expand every abbreviation to its correct full command name', () => {
+    it('should resolve abbreviations according to the precedence oracle', () => {
         fc.assert(
-            fc.property(
-                command_cache_generator,
-                (cache) => {
-                    // Load the cache
-                    my_database.load_cache(cache);
+            fc.property(command_cache_generator, cache => {
+                my_database.load_cache(cache);
 
-                    // For every abbreviation in the cache
-                    for (const [abbrev, expected_full_name] of Object.entries(cache.abbreviations)) {
-                        // Expand the abbreviation via lookup
-                        const result = my_database.lookup_command(abbrev);
+                for (const abbrev of Object.keys(cache.abbreviations)) {
+                    const result = my_database.lookup_command(abbrev);
+                    const expected_name = compute_expected_lookup(cache, abbrev);
 
-                        // The result should not be null
-                        expect(result).not.toBeNull();
-
-                        if (result !== null) {
-                            // The expanded command name should match the expected full name
-                            expect(result.name.toLowerCase()).toBe(expected_full_name.toLowerCase());
-
-                            // The result should have all required fields
-                            expect(result.name).toBeDefined();
-                            expect(result.syntax).toBeDefined();
-                            expect(result.description).toBeDefined();
-                            expect(result.min_abbreviation).toBeDefined();
-                        }
-                    }
-
-                    return true;
+                    expect(expected_name).not.toBeNull();
+                    expect(result).not.toBeNull();
+                    expect(result?.name.toLowerCase()).toBe(
+                        expected_name!.toLowerCase()
+                    );
                 }
-            ),
+
+                return true;
+            }),
             { numRuns: 100 }
         );
     });
 
-    /**
-     * Property: Abbreviation Length Validity
-     * 
-     * For any command, all abbreviations from min_abbreviation length up to
-     * full name length should resolve to that command (when no conflicts exist).
-     * 
-     * Feature: command-database-cleanup, Property 2: Abbreviation Expansion Preservation
-     * Validates: Requirements 3.4, 6.2
-     */
-    it('should resolve all valid abbreviation lengths to the correct command', () => {
+    it('should resolve exact command names to themselves even with overlapping abbreviations', () => {
         fc.assert(
-            fc.property(
-                command_cache_generator,
-                (cache) => {
-                    my_database.load_cache(cache);
+            fc.property(command_cache_generator, cache => {
+                my_database.load_cache(cache);
 
-                    // For each abbreviation in the cache, verify it resolves correctly
-                    for (const [abbrev, expected_cmd] of Object.entries(cache.abbreviations)) {
-                        const result = my_database.lookup_command(abbrev);
-
-                        // Should resolve to some command
-                        expect(result).not.toBeNull();
-
-                        if (result !== null) {
-                            // Should resolve to the expected command
-                            expect(result.name.toLowerCase()).toBe(expected_cmd.toLowerCase());
-                        }
-                    }
-
-                    // Also verify full command names resolve to themselves
-                    for (const [cmd_name, cmd_info] of Object.entries(cache.commands)) {
-                        const result = my_database.lookup_command(cmd_name);
-                        expect(result).not.toBeNull();
-                        if (result !== null) {
-                            expect(result.name.toLowerCase()).toBe(cmd_name.toLowerCase());
-                        }
-                    }
-
-                    return true;
+                for (const cmd_name of Object.keys(cache.commands)) {
+                    const result = my_database.lookup_command(cmd_name);
+                    expect(result).not.toBeNull();
+                    expect(result?.name.toLowerCase()).toBe(cmd_name);
                 }
-            ),
+
+                return true;
+            }),
             { numRuns: 100 }
         );
     });
 
-    /**
-     * Property: Abbreviation Expansion Consistency
-     * 
-     * For any abbreviation, expanding it multiple times should always
-     * return the same result (deterministic behavior).
-     * 
-     * Feature: command-database-cleanup, Property 2: Abbreviation Expansion Preservation
-     * Validates: Requirements 3.4, 6.2
-     */
     it('should consistently expand the same abbreviation to the same command', () => {
         fc.assert(
-            fc.property(
-                command_cache_generator,
-                (cache) => {
-                    my_database.load_cache(cache);
+            fc.property(command_cache_generator, cache => {
+                my_database.load_cache(cache);
 
-                    // For every abbreviation in the cache
-                    for (const abbrev of Object.keys(cache.abbreviations)) {
-                        // Expand multiple times
-                        const result_1 = my_database.lookup_command(abbrev);
-                        const result_2 = my_database.lookup_command(abbrev);
-                        const result_3 = my_database.lookup_command(abbrev);
+                for (const abbrev of Object.keys(cache.abbreviations)) {
+                    const result_1 = my_database.lookup_command(abbrev);
+                    const result_2 = my_database.lookup_command(abbrev);
+                    const result_3 = my_database.lookup_command(abbrev);
 
-                        // All results should be identical
-                        if (result_1 !== null && result_2 !== null && result_3 !== null) {
-                            expect(result_1.name).toBe(result_2.name);
-                            expect(result_2.name).toBe(result_3.name);
-                            expect(result_1.syntax).toBe(result_2.syntax);
-                            expect(result_2.syntax).toBe(result_3.syntax);
-                        }
+                    if (result_1 !== null && result_2 !== null && result_3 !== null) {
+                        expect(result_1.name).toBe(result_2.name);
+                        expect(result_2.name).toBe(result_3.name);
+                        expect(result_1.syntax).toBe(result_2.syntax);
+                        expect(result_2.syntax).toBe(result_3.syntax);
                     }
-
-                    return true;
                 }
-            ),
+
+                return true;
+            }),
             { numRuns: 100 }
         );
     });
 
-    /**
-     * Property: Invalid Abbreviation Rejection
-     * 
-     * For any string that is not in the abbreviations dictionary and not
-     * a command name, lookup should return null.
-     * 
-     * Feature: command-database-cleanup, Property 2: Abbreviation Expansion Preservation
-     * Validates: Requirements 3.4, 6.2
-     */
     it('should return null for invalid abbreviations', () => {
         fc.assert(
             fc.property(
                 command_cache_generator,
                 fc.array(
-                    fc.string({ minLength: 1, maxLength: 10 }).filter(s => /^[a-z]+$/.test(s)),
+                    fc.string({ minLength: 1, maxLength: 10 }).filter(
+                        s => /^[a-z]+$/.test(s)
+                    ),
                     { minLength: 5, maxLength: 10 }
                 ),
                 (cache, the_random_strings) => {
                     my_database.load_cache(cache);
 
-                    // Test random strings that are not valid commands or abbreviations
                     for (const my_str of the_random_strings) {
-                        const is_command = cache.commands[my_str] !== undefined;
-                        const is_abbreviation = cache.abbreviations[my_str] !== undefined;
-
+                        const expected_name = compute_expected_lookup(cache, my_str);
                         const result = my_database.lookup_command(my_str);
-
-                        if (!is_command && !is_abbreviation) {
-                            // Should return null for invalid lookups
+                        if (expected_name === null) {
                             expect(result).toBeNull();
                         } else {
-                            // Should return a valid result for valid lookups
                             expect(result).not.toBeNull();
+                            expect(result?.name).toBe(expected_name);
                         }
                     }
 

@@ -15,6 +15,7 @@ export { CommandDatabase };
 class CommandDatabase {
     private cache: CommandCache | null = null;
     private cache_version: number = 0;
+    private resolved_abbreviations: Record<string, string> = Object.create(null);
     
     // Pre-computed static completions (computed once, reused on every request)
     private all_commands_cached: ProviderCommandInfo[] | null = null;
@@ -39,6 +40,7 @@ class CommandDatabase {
             commands: commands_safe,
             abbreviations: abbreviations_safe,
         };
+        this.recompute_resolved_abbreviations();
         this.all_commands_cached = null; // Invalidate cached array
         this.cache_version++;
     }
@@ -58,17 +60,8 @@ class CommandDatabase {
         for (const addon_cmd of ADDON_COMMANDS) {
             const normalized = addon_cmd.name.toLowerCase();
             this.cache.commands[normalized] = addon_cmd;
-            
-            // Generate abbreviations for this command
-            const min_len = addon_cmd.min_abbreviation;
-            for (let i = min_len; i < addon_cmd.name.length; i++) {
-                const abbrev = addon_cmd.name.substring(0, i).toLowerCase();
-                if (!this.cache.abbreviations[abbrev]) {
-                    this.cache.abbreviations[abbrev] = normalized;
-                }
-            }
         }
-        
+        this.recompute_resolved_abbreviations();
         this.all_commands_cached = null; // Invalidate cached array
         this.cache_version++;
     }
@@ -94,9 +87,9 @@ class CommandDatabase {
             return this.to_provider_command_info(cmd);
         }
 
-        // Try abbreviation expansion
-        if (Object.prototype.hasOwnProperty.call(this.cache.abbreviations, normalized)) {
-            const full_name = this.cache.abbreviations[normalized];
+        // Try abbreviation expansion using the collision-aware resolution map.
+        if (Object.prototype.hasOwnProperty.call(this.resolved_abbreviations, normalized)) {
+            const full_name = this.resolved_abbreviations[normalized];
             if (Object.prototype.hasOwnProperty.call(this.cache.commands, full_name)) {
                 return this.to_provider_command_info(this.cache.commands[full_name]);
             }
@@ -117,8 +110,8 @@ class CommandDatabase {
             return this.cache.commands[normalized];
         }
 
-        if (Object.prototype.hasOwnProperty.call(this.cache.abbreviations, normalized)) {
-            const full_name = this.cache.abbreviations[normalized];
+        if (Object.prototype.hasOwnProperty.call(this.resolved_abbreviations, normalized)) {
+            const full_name = this.resolved_abbreviations[normalized];
             if (Object.prototype.hasOwnProperty.call(this.cache.commands, full_name)) {
                 return this.cache.commands[full_name];
             }
@@ -140,8 +133,8 @@ class CommandDatabase {
             return this.cache.commands[normalized];
         }
 
-        if (Object.prototype.hasOwnProperty.call(this.cache.abbreviations, normalized)) {
-            const full_name = this.cache.abbreviations[normalized];
+        if (Object.prototype.hasOwnProperty.call(this.resolved_abbreviations, normalized)) {
+            const full_name = this.resolved_abbreviations[normalized];
             if (Object.prototype.hasOwnProperty.call(this.cache.commands, full_name)) {
                 return this.cache.commands[full_name];
             }
@@ -256,39 +249,8 @@ class CommandDatabase {
      * Register a command (for compatibility with legacy API).
      */
     register(info: ProviderCommandInfo): void {
-        if (!this.cache) {
-            this.cache = {
-                version: 18,
-                commands: {},
-                abbreviations: {}
-            };
-        }
-        
-        const normalized = info.name.toLowerCase();
-        
-        // Convert provider OptionInfo (minAbbreviation: string) to cache OptionInfo (min_abbreviation: number)
-        const the_cache_options = (info.options || []).map(my_opt => ({
-            name: my_opt.name,
-            min_abbreviation: my_opt.minAbbreviation.length,
-            has_argument: my_opt.hasArgument
-        }));
-
-        // Convert provider SubcommandInfo to cache SubcommandInfo
-        const the_cache_subcommands = info.subcommands?.map(sub => ({
-            name: sub.name,
-            min_abbreviation: sub.minAbbreviation.length
-        }));
-        
-        // Build command info, only including syntax if provided
-        const my_command_info: CommandInfo = {
-            name: info.name,
-            min_abbreviation: info.minAbbreviation.length,
-            options: the_cache_options,
-            subcommands: the_cache_subcommands,
-            priority: info.priority || get_command_priority(info.name)
-        };
-        
-        this.cache.commands[normalized] = my_command_info;
+        this.register_raw(info);
+        this.recompute_resolved_abbreviations();
         this.all_commands_cached = null; // Invalidate cached array
         this.cache_version++;
     }
@@ -298,8 +260,44 @@ class CommandDatabase {
      */
     register_all(the_commands: ProviderCommandInfo[]): void {
         for (const my_cmd of the_commands) {
-            this.register(my_cmd);
+            this.register_raw(my_cmd);
         }
+        this.recompute_resolved_abbreviations();
+        this.all_commands_cached = null; // Invalidate cached array
+        this.cache_version++;
+    }
+
+    private register_raw(info: ProviderCommandInfo): void {
+        if (!this.cache) {
+            this.cache = {
+                version: 18,
+                commands: Object.create(null),
+                abbreviations: Object.create(null)
+            };
+        }
+
+        const normalized = info.name.toLowerCase();
+
+        const the_cache_options = (info.options || []).map(my_opt => ({
+            name: my_opt.name,
+            min_abbreviation: my_opt.minAbbreviation.length,
+            has_argument: my_opt.hasArgument
+        }));
+
+        const the_cache_subcommands = info.subcommands?.map(sub => ({
+            name: sub.name,
+            min_abbreviation: sub.minAbbreviation.length
+        }));
+
+        const my_command_info: CommandInfo = {
+            name: info.name,
+            min_abbreviation: info.minAbbreviation.length,
+            options: the_cache_options,
+            subcommands: the_cache_subcommands,
+            priority: info.priority || get_command_priority(info.name)
+        };
+
+        this.cache.commands[normalized] = my_command_info;
     }
 
     /**
@@ -322,8 +320,87 @@ class CommandDatabase {
      */
     clear(): void {
         this.cache = null;
+        this.resolved_abbreviations = Object.create(null);
         this.all_commands_cached = null;
         this.cache_version++;
+    }
+
+    /**
+     * Rebuilds the collision-aware abbreviation map.
+     *
+     * Phase 1 seeds from `cache.abbreviations` so hand-curated entries
+     * survive. Phase 2 walks all commands in priority order; a stronger
+     * candidate overrides a seed only on a strict priority win, so curated
+     * cache mappings keep same-tier ties while still losing to a real higher
+     * priority command.
+     *
+     * Exact command names are never placed in the map because direct
+     * lookup precedence handles those. The sort order
+     *
+     *   priority -> min_abbreviation -> name length -> alphabetical
+     *
+     * keeps same-tier backfill deterministic.
+     */
+    private recompute_resolved_abbreviations(): void {
+        this.resolved_abbreviations = Object.create(null);
+        if (!this.cache) return;
+
+        const exact_command_names = new Set(Object.keys(this.cache.commands));
+        for (const [abbrev, full_name] of Object.entries(this.cache.abbreviations)) {
+            if (exact_command_names.has(abbrev)) {
+                continue;
+            }
+            if (Object.prototype.hasOwnProperty.call(this.cache.commands, full_name)) {
+                this.resolved_abbreviations[abbrev] = full_name;
+            }
+        }
+        const the_sorted_commands = Object.values(this.cache.commands).sort(
+            (cmd_a, cmd_b) => {
+                const priority_a = cmd_a.priority || get_command_priority(cmd_a.name);
+                const priority_b = cmd_b.priority || get_command_priority(cmd_b.name);
+                if (priority_a !== priority_b) {
+                    return priority_a - priority_b;
+                }
+                if (cmd_a.min_abbreviation !== cmd_b.min_abbreviation) {
+                    return cmd_a.min_abbreviation - cmd_b.min_abbreviation;
+                }
+                if (cmd_a.name.length !== cmd_b.name.length) {
+                    return cmd_a.name.length - cmd_b.name.length;
+                }
+                return cmd_a.name.localeCompare(cmd_b.name);
+            }
+        );
+
+        for (const my_command of the_sorted_commands) {
+            const normalized_name = my_command.name.toLowerCase();
+            const my_priority =
+                my_command.priority || get_command_priority(my_command.name);
+            const min_len = Math.max(1, my_command.min_abbreviation);
+            for (let i = min_len; i < normalized_name.length; i++) {
+                const abbrev = normalized_name.substring(0, i);
+                if (exact_command_names.has(abbrev)) {
+                    continue;
+                }
+                if (!Object.prototype.hasOwnProperty.call(this.resolved_abbreviations, abbrev)) {
+                    this.resolved_abbreviations[abbrev] = normalized_name;
+                    continue;
+                }
+
+                const existing_name = this.resolved_abbreviations[abbrev];
+                if (!Object.prototype.hasOwnProperty.call(this.cache.commands, existing_name)) {
+                    this.resolved_abbreviations[abbrev] = normalized_name;
+                    continue;
+                }
+
+                const existing_command = this.cache.commands[existing_name];
+                const existing_priority =
+                    existing_command.priority
+                    || get_command_priority(existing_command.name);
+                if (my_priority < existing_priority) {
+                    this.resolved_abbreviations[abbrev] = normalized_name;
+                }
+            }
+        }
     }
 
     /**
