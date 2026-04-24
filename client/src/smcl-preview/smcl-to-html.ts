@@ -1025,9 +1025,11 @@ function render_manlink(
 
 /**
  * Shared anchor / span rendering for `{manlink}` and inline-bold
- * `[X] name` references. Returns either an `<a>` (when we can route
- * to a help topic or a stata.com PDF) or a plain span with the
- * existing `.smcl-manlink` styling when we can't classify the target.
+ * `[X] name` references. Matches Stata's native viewer behavior: these
+ * references always target the Reference Manual PDF on stata.com, not
+ * the sthlp help file for a similarly-named command. Falls back to a
+ * plain `.smcl-manlink` span when we can't build a manual URL (e.g.
+ * the target doesn't match the `<MANUAL> <entry>` shape).
  */
 function build_manlink_anchor_inner(
     manual: string,
@@ -1037,16 +1039,6 @@ function build_manlink_anchor_inner(
 ): string {
     if (manual.length === 0 || entry.length === 0) {
         return `<span class="smcl-manlink">${display_html}</span>`;
-    }
-
-    if (looks_like_help_topic(entry)) {
-        // Route to our SMCL help viewer via the same message path as
-        // `{help}` links. The topic is the entry without the bracket.
-        return (
-            `<a class="smcl-help-link smcl-manlink-topic" `
-            + `href="#" data-smcl-topic="${escape_html(entry)}">`
-            + `${display_html}</a>`
-        );
     }
 
     const my_url = build_manual_url(`${manual} ${entry.replace(/\s+/g, '')}`);
@@ -1154,17 +1146,6 @@ function build_manual_url(target: string): string | null {
     // Destination name is `<letter_lower><target_case_preserved>`,
     // matching what Stata embeds in the PDF's /Names tree.
     return `${my_base}#${my_letter}${my_entry_raw}`;
-}
-
-/**
- * Check whether an entry name looks like a Stata command / help topic
- * (all-lowercase identifier words, optionally space-separated — e.g.
- * "display", "frame create", "regress postestimation") rather than a
- * manual section reference. Topics route through the sthlp viewer;
- * non-topics go to the PDF manual.
- */
-function looks_like_help_topic(entry: string): boolean {
-    return /^[a-z_][a-z0-9_]*(?: [a-z_][a-z0-9_]*)*$/.test(entry.trim());
 }
 
 /**

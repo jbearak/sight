@@ -609,13 +609,21 @@ describe('smcl_to_html', () => {
     });
 
     describe('{manlink} references', () => {
-        it('renders {manlink R display} as a help-topic link (sthlp route)', () => {
+        it('renders {manlink R display} as a Reference Manual PDF link', () => {
+            // Matches Stata's native viewer behavior: `{manlink R display}`
+            // opens the R Reference Manual PDF entry, not the display
+            // sthlp help file (which would just re-reveal the page the
+            // user is already viewing).
             const result = smcl_to_html('see {manlink R display} for details');
-            expect(result.html).toContain('data-smcl-topic="display"');
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/rdisplay.pdf"'
+            );
+            expect(result.html).toContain('smcl-manlink-pdf');
             // Displayed text keeps the `[R] display` shape.
             expect(result.html).toContain('>[R] display</a>');
-            // Topic links should NOT become browser-opening PDF links.
-            expect(result.html).not.toContain('www.stata.com/manuals');
+            // PDF-routed manlinks should not emit an internal navigate.
+            expect(result.html).not.toContain('data-smcl-topic');
+            expect(result.html).not.toContain('target="_blank"');
         });
 
         it('renders {manlink U 12.5Foo} as a PDF link (browse route)', () => {
@@ -630,23 +638,29 @@ describe('smcl_to_html', () => {
             expect(result.html).not.toContain('target="_blank"');
         });
 
-        it('wraps {manlinki X Y} in <em> while still emitting a link', () => {
+        it('wraps {manlinki X Y} in <em> while still emitting a PDF link', () => {
             const result = smcl_to_html('{manlinki R display}');
             expect(result.html).toContain('<em>');
-            expect(result.html).toContain('data-smcl-topic="display"');
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/rdisplay.pdf"'
+            );
+            expect(result.html).not.toContain('data-smcl-topic');
         });
     });
 
     describe('{bf:[X] name} inline manual references', () => {
-        it('makes `{bf:[R] regress}` a topic link (case preserved label)', () => {
+        it('makes `{bf:[R] regress}` a Reference Manual PDF link', () => {
             const result = smcl_to_html(
                 'Use {bf:[R] regress} for ordinary least squares.'
             );
             expect(result.html).toContain(
-                '<strong><a class="smcl-help-link smcl-manlink-topic"'
+                '<strong><a class="smcl-browse smcl-mansection smcl-manlink-pdf"'
             );
-            expect(result.html).toContain('data-smcl-topic="regress"');
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/rregress.pdf"'
+            );
             expect(result.html).toContain('>[R] regress</a>');
+            expect(result.html).not.toContain('data-smcl-topic');
         });
 
         it('makes `{bf:[U] 12.5 Formats}` a PDF link', () => {
