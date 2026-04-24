@@ -153,34 +153,36 @@ export function mergeDepthColors(
     const dark_rules = buildDepthColorRules(DARK_STRING_COLORS, DARK_MACRO_COLORS);
     const light_rules = buildDepthColorRules(LIGHT_STRING_COLORS, LIGHT_MACRO_COLORS);
 
-    // Merge dark theme rules
+    // Merge dark theme rules. Sight defaults go first so that any existing
+    // user rule on the same scope wins via VS Code's last-rule-wins ordering.
     const existing_dark = result['[*Dark*]'] as ThemeTokenColorCustomizations | undefined;
     result['[*Dark*]'] = {
         ...existing_dark,
         textMateRules: [
+            ...dark_rules,
             ...(existing_dark?.textMateRules || []),
-            ...dark_rules
         ]
     };
 
-    // Merge light theme rules
+    // Merge light theme rules (same ordering rationale as dark).
     const existing_light = result['[*Light*]'] as ThemeTokenColorCustomizations | undefined;
     result['[*Light*]'] = {
         ...existing_light,
         textMateRules: [
+            ...light_rules,
             ...(existing_light?.textMateRules || []),
-            ...light_rules
         ]
     };
 
-    // Add universal fallback rules to top-level textMateRules (applies to ALL themes)
+    // Add universal fallback rules to top-level textMateRules (applies to ALL themes).
     // This is the key fix: top-level textMateRules work for themes that don't match
-    // [*Dark*] or [*Light*] patterns (e.g., "Monokai", "Dracula", "Nord")
+    // [*Dark*] or [*Light*] patterns (e.g., "Monokai", "Dracula", "Nord"). Sight
+    // defaults go first here too, so user rules on the same scope override them.
     if (universal_rules && universal_rules.length > 0) {
         const existing_top_level = result.textMateRules || [];
         result.textMateRules = [
+            ...universal_rules,
             ...existing_top_level,
-            ...universal_rules
         ];
     }
 

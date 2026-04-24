@@ -189,28 +189,32 @@ export async function resetDepthColors(
 
     log('Resetting depth colors configuration...');
 
-    // Remove existing Sight-owned depth color rules from user settings.
-    // Hand-edited rules on depth scopes (non-palette colors) are preserved.
+    // Clean Sight-owned rules and re-apply defaults in a single write.
+    // We cannot route through configureDepthColors here: it returns early
+    // whenever any depth rule remains, including the user's preserved
+    // hand-edited rules, which would leave the config without defaults.
     try {
+        if (!isDepthColorsEnabled()) {
+            log('Depth colors disabled, skipping reset');
+            return;
+        }
         const config = vscode.workspace.getConfiguration('editor');
         const current_customizations = config.get<TokenColorCustomizations>('tokenColorCustomizations');
 
-        if (current_customizations) {
-            const cleaned = removeSightOwnedDepthRules(current_customizations);
-            await config.update(
-                'tokenColorCustomizations',
-                cleaned,
-                vscode.ConfigurationTarget.Global
-            );
-            log('Removed existing Sight-owned depth color rules');
-        }
-    } catch (error) {
-        log(`Error removing existing rules: ${error}`);
-    }
+        const cleaned = removeSightOwnedDepthRules(current_customizations);
+        const universal_rules = buildUniversalDepthColorRules();
+        const fresh = mergeDepthColors(cleaned, universal_rules);
 
-    // Re-run configuration to add fresh rules
-    await configureDepthColors(_context, output_channel);
-    log('Reset complete');
+        await config.update(
+            'tokenColorCustomizations',
+            fresh,
+            vscode.ConfigurationTarget.Global
+        );
+        log('Reset complete');
+    } catch (error) {
+        log(`Error resetting depth colors: ${error}`);
+        console.error('Failed to reset depth colors:', error);
+    }
 }
 
 /**
@@ -271,11 +275,13 @@ export async function updateUniversalFallbackColors(
             : [];
 
         // Add new rules based on current theme. Build a new object rather
-        // than mutating the value returned by config.get().
+        // than mutating the value returned by config.get(). Sight defaults
+        // go first so that any preserved user rule on the same scope wins
+        // via VS Code's last-rule-wins ordering.
         const new_rules = buildUniversalDepthColorRules();
         const updated: TokenColorCustomizations = {
             ...current,
-            textMateRules: [...filtered_rules, ...new_rules],
+            textMateRules: [...new_rules, ...filtered_rules],
         };
 
         await config.update(
