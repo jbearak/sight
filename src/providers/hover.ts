@@ -91,6 +91,20 @@ const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
 ]);
 
 /**
+ * Render a markdown command link that opens the Sight help viewer for
+ * the given topic. The link label keeps the familiar `help <topic>`
+ * shape so users coming from Stata's `help` command recognize it.
+ *
+ * VS Code requires command arguments to be a JSON array encoded with
+ * `encodeURIComponent`. The client middleware trusts this specific
+ * command URI so the link is clickable from LSP-provided markdown.
+ */
+function format_help_link(topic: string): string {
+    const the_args = encodeURIComponent(JSON.stringify([topic]));
+    return `[help ${topic}](command:sight.openHelpTopic?${the_args})`;
+}
+
+/**
  * One entry in a symbol's `additional_definitions` array.
  *
  * Analyzer invariant (enforced by `add_or_append_definition` and the ad-hoc
@@ -1501,7 +1515,7 @@ export class HoverProvider {
                 const prefix_display = prefix.charAt(0).toUpperCase() + prefix.slice(1);
                 return {
                     kind: MarkupKind.Markdown,
-                    value: `**${prefix_display} Subcommand:** \`${sub.name}\`\n\nSubcommand of \`${prefix}\`.\n\nSee Stata documentation: \`help ${prefix} ${sub.name}\``
+                    value: `**${prefix_display} Subcommand:** \`${sub.name}\`\n\nSubcommand of \`${prefix}\`.\n\nSee Stata documentation: ${format_help_link(`${prefix} ${sub.name}`)}`
                 };
             }
         }
@@ -1935,7 +1949,7 @@ export class HoverProvider {
             hover_text += ` (abbreviated as \`${abbreviated_as}\`)`;
         }
 
-        hover_text += `\n\nSee Stata documentation: \`help ${function_name}()\``;
+        hover_text += `\n\nSee Stata documentation: ${format_help_link(function_name)}`;
 
         return {
             kind: MarkupKind.Markdown,
@@ -1957,7 +1971,7 @@ export class HoverProvider {
             hover_text += `\n\n**Options:** ${option_names}`;
         }
 
-        hover_text += `\n\nSee Stata documentation: \`help ${command.name}\``;
+        hover_text += `\n\nSee Stata documentation: ${format_help_link(command.name)}`;
 
         return {
             kind: MarkupKind.Markdown,

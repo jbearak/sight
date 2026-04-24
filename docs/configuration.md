@@ -154,6 +154,17 @@ Example:
 }
 ```
 
+### Auto-detected Stata install paths
+
+In addition to the paths you configure, Sight automatically consults the standard Stata install and user ado directories when resolving help topics for the SMCL help viewer:
+
+- **macOS:** `/Applications/Stata/ado/{base,site,updates}`, its `StataMP` / `StataSE` / `StataBE` / `StataIC` variants, and `~/Library/Application Support/Stata/ado/{personal,plus}`.
+- **Linux:** `/usr/local/stata<version>/ado/{base,site,updates}` and `/opt/stata<version>/…` for versions 13–20, plus unversioned `stata` directories.
+- **Windows:** `Stata<version>\ado\{base,site,updates}` under each `Program Files` / `Program Files (x86)` directory that Windows reports via its environment variables.
+- All platforms: the legacy `~/ado`, `~/ado/personal`, and `~/ado/plus` conventions.
+
+Only directories that actually exist are used, and the auto-detected paths are only consulted for `.sthlp` lookups — they are not scanned into the workspace symbol index. Use `sight.adoPaths` to override or supplement this list when you install Stata in a non-standard location.
+
 ## Comments
 
 Configure the line comment character used by VS Code's toggle comment shortcut.

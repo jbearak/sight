@@ -57,6 +57,28 @@ body {
     max-width: 100ch;
 }
 
+/* Help-file title block (first {p2colset} block). */
+.smcl-help-title {
+    margin: 0.2em 0 1.2em 0;
+    padding-bottom: 0.6em;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+.smcl-help-title-heading {
+    font-size: 1.6em;
+    font-weight: bold;
+    margin: 0 0 0.2em 0;
+}
+.smcl-help-subtitle {
+    margin: 0;
+    font-size: 1.05em;
+    color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+}
+.smcl-help-manlink {
+    margin: 0.5em 0 0 0;
+    font-size: 0.9em;
+    opacity: 0.85;
+}
+
 /* Headings */
 .smcl-title {
     font-size: 1.3em;
@@ -250,10 +272,16 @@ const WEBVIEW_SCRIPT = `
     // Cross-reference link clicks
     // ----------------------------------------------------------
 
+    // Capture phase: run before VS Code's native link interception
+    // picks up the click. Combined with preventDefault +
+    // stopPropagation, this keeps an .smcl-browse click from being
+    // handled twice (once by the webview native handler and once by
+    // our postMessage route).
     document.addEventListener('click', function(e) {
         const link = e.target.closest('a[data-smcl-topic]');
         if (link) {
             e.preventDefault();
+            e.stopPropagation();
             const topic = link.getAttribute('data-smcl-topic');
             if (topic) {
                 vscode.postMessage({ type: 'navigate', topic: topic });
@@ -266,6 +294,7 @@ const WEBVIEW_SCRIPT = `
             var href = anchor.getAttribute('href');
             if (href && href.startsWith('#')) {
                 e.preventDefault();
+                e.stopPropagation();
                 var target = document.getElementById(href.substring(1));
                 if (target) {
                     target.scrollIntoView({ behavior: 'smooth' });
@@ -277,13 +306,14 @@ const WEBVIEW_SCRIPT = `
         var browse = e.target.closest('a.smcl-browse');
         if (browse) {
             e.preventDefault();
+            e.stopPropagation();
             var url = browse.getAttribute('href');
             if (url) {
                 vscode.postMessage({ type: 'openExternal', url: url });
             }
             return;
         }
-    });
+    }, true);
 
     // ----------------------------------------------------------
     // Scroll sync

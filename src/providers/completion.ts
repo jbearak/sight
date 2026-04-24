@@ -56,6 +56,15 @@ import {
 import { get_line_text, get_line_count } from '../utils/line-utils';
 
 /**
+ * Render a markdown command link that opens the Sight help viewer for
+ * the given topic. Kept in sync with `format_help_link` in `hover.ts`.
+ */
+function format_help_link(topic: string): string {
+    const the_args = encodeURIComponent(JSON.stringify([topic]));
+    return `[help ${topic}](command:sight.openHelpTopic?${the_args})`;
+}
+
+/**
  * Map ForwardCallSite.effective_type to directive_type for ranking.
  * 'include' -> 'included-by', else 'done-by'
  */
@@ -2313,7 +2322,7 @@ export class CompletionProvider {
             value: help_content
         } : {
             kind: 'markdown' as const,
-            value: `See Stata documentation: \`help ${command.name}\``,
+            value: `See Stata documentation: ${format_help_link(command.name)}`,
         };
 
         return {
@@ -2336,7 +2345,7 @@ export class CompletionProvider {
             value: help_content + `\n\n*Abbreviation for \`${command.name}\`*`
         } : {
             kind: 'markdown' as const,
-            value: `See Stata documentation: \`help ${command.name}\`\n\n*Abbreviation for \`${command.name}\`*`,
+            value: `See Stata documentation: ${format_help_link(command.name)}\n\n*Abbreviation for \`${command.name}\`*`,
         };
 
         return {

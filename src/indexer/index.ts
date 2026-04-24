@@ -36,6 +36,7 @@ import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
+import { discover_stata_ado_paths } from '../utils/stata-install-paths';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
@@ -65,6 +66,13 @@ export class WorkspaceIndexer {
     private analyzer = new SemanticAnalyzer();
     private directive_parser = new DirectiveParser();
     private ado_paths: string[] = [];
+    // Auto-discovered Stata install / user ado directories used ONLY
+    // for `.sthlp` help-file lookup. Deliberately kept separate from
+    // `ado_paths` so the workspace scanner doesn't recursively index
+    // the thousands of built-in ado files under `ado/base`. Populated
+    // once during initialize and mutated via `set_help_search_paths`
+    // for tests.
+    private help_search_paths: string[] = [];
     private dependency_graph?: DependencyGraph;
     private metrics: IndexerMetrics = {
         files_indexed: 0,
@@ -235,6 +243,10 @@ export class WorkspaceIndexer {
         }
         this.ado_paths = ado_paths;
         this.workspace_roots = workspace_folders.map(f => path.resolve(f));
+        // Auto-detect Stata install / user ado directories for help
+        // lookup. The discovery is cheap (a handful of `fs.statSync`
+        // calls on well-known paths) and non-fatal if none exist.
+        this.help_search_paths = discover_stata_ado_paths();
         this.cancelled = false;
         const start_time = Date.now();
 
@@ -861,27 +873,43 @@ export class WorkspaceIndexer {
     }
 
     /**
-     * Resolve a program name to its definition location.
-     * Follows Stata resolution order:
-     * 1. Current directory of the referring file
-     * 2. PERSONAL
-     * 3. PLUS
-     * 4. SITE
+     * For tests and callers that want to override or inspect the
+     * auto-discovered help search paths. Accepts absolute directories.
      */
+    set_help_search_paths(paths: string[]): void {
+        this.help_search_paths = [...paths];
+    }
+
     /**
-     * Resolve a .sthlp help file by topic name.
+     * Read-only view of the auto-discovered help search paths.
+     * Exposed primarily for tests.
+     */
+    get_help_search_paths(): string[] {
+        return [...this.help_search_paths];
+    }
+
+    /**
+     * Resolve a `.sthlp` help file by topic name.
      *
-     * Searches ado_paths and workspace roots following Stata's
-     * letter-subdirectory convention (e.g., `r/regress.sthlp`).
+     * Searches the user-configured `ado_paths`, then workspace roots,
+     * then auto-discovered Stata install directories, following
+     * Stata's letter-subdirectory convention (e.g., `r/regress.sthlp`).
      * Returns the absolute file path or null.
      */
     async resolve_sthlp_file(topic: string): Promise<string | null> {
         const my_basename = `${topic}.sthlp`;
         const my_first_letter = topic.charAt(0).toLowerCase();
 
-        // Search ado_paths first (PERSONAL, PLUS, SITE, BASE order),
-        // then workspace roots
-        const the_search_dirs = [...this.ado_paths, ...this.workspace_roots];
+        // Search user-configured ado_paths first (highest priority),
+        // then workspace roots, then the auto-discovered Stata install
+        // directories. Auto-discovered paths come last so an explicit
+        // user override always wins, but they are still consulted so
+        // built-in help like `help include` works out of the box.
+        const the_search_dirs = [
+            ...this.ado_paths,
+            ...this.workspace_roots,
+            ...this.help_search_paths,
+        ];
 
         for (const my_dir of the_search_dirs) {
             // Check letter subdirectory: dir/r/regress.sthlp

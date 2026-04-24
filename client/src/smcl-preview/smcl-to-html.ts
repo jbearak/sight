@@ -85,7 +85,7 @@ function is_directive(node: SmclNode): node is SmclDirective {
  */
 const ARGS_ONLY_DIRECTIVES = new Set([
     'opt', 'opth', 'cmdab', 'browse', 'c', 'char',
-    'viewerjumpto', 'viewerdialog', 'mansection',
+    'viewerjumpto', 'viewerdialog', 'vieweralsosee', 'mansection',
     'marker', 'col', 'space', 'hline', 'dup',
     'p', 'p2colset',
 ]);
@@ -389,6 +389,21 @@ function render_nodes(
                 my_text = my_text.replace(/^\n/, '');
                 ctx.pending_continuation = false;
             }
+            // Drop whitespace-only text between table rows. HTML
+            // parsing foster-parents any text-child of <table> that
+            // isn't inside a cell, which would hoist the newlines
+            // between our {synopt} rows up in front of the table and
+            // render them as tall blank gaps via `white-space:
+            // pre-wrap`. When we're inside a synopt / p2col table but
+            // not inside a row, swallow blank text so the table stays
+            // contiguous.
+            if (
+                (ctx.in_synopt_table || ctx.in_p2col)
+                && !ctx.in_table_row
+                && /^\s*$/.test(my_text)
+            ) {
+                continue;
+            }
             // Wrap text with data-line for scroll sync anchors
             if (my_node.line !== undefined) {
                 the_parts.push(
@@ -659,13 +674,20 @@ function render_directive(
             return render_manlink(directive, ctx, true);
         case 'mansection':
             return render_mansection(directive);
+        case '__help_title__':
+            return render_help_title(directive);
         case 'browse':
             return render_browse(directive, ctx);
         case 'marker':
             return render_marker(directive);
+        // Preamble metadata directives that Stata's native viewer uses
+        // to populate a top nav / "See Also" sidebar. We suppress them
+        // for now so the help file starts at its actual title.
+        // Tracking enhancement:
+        // https://github.com/jbearak/sight/issues/156
         case 'viewerjumpto':
-            return render_viewerjumpto(directive);
         case 'viewerdialog':
+        case 'vieweralsosee':
             return '';
         case 'stata':
             return render_stata_link(directive, ctx);
@@ -976,9 +998,95 @@ function render_manlink(
 }
 
 function render_mansection(directive: SmclDirective): string {
-    const my_text = directive.args ||
-        directive.content.map(n => 'text' in n ? n.text : '').join('');
-    return `<span class="smcl-mansection">${escape_html(my_text)}</span>`;
+    // Args format: `<manual_section>:<display_text>`, e.g.
+    // `P display:View complete PDF manual entry`. When we can build
+    // a stata.com URL from the target, emit a browse-style link so the
+    // existing webview click handler opens it externally. We
+    // deliberately omit `target="_blank"` so VS Code's webview link
+    // interception doesn't race with our `postMessage('openExternal')`
+    // handler — otherwise the PDF opens twice / prompts twice.
+    const my_args = directive.args
+        || directive.content.map(n => 'text' in n ? n.text : '').join('');
+    const my_parsed = parse_mansection_args(my_args);
+    const my_display_text = my_parsed?.display ?? my_args;
+    const my_url = my_parsed
+        ? build_manual_url(my_parsed.target)
+        : null;
+    const my_display_safe = escape_html(my_display_text);
+    if (my_url) {
+        return `<a class="smcl-browse smcl-mansection" href="${escape_html(my_url)}">${my_display_safe}</a>`;
+    }
+    return `<span class="smcl-mansection">${my_display_safe}</span>`;
+}
+
+interface MansectionParsed {
+    target: string;   // e.g. "P display"
+    display: string;  // e.g. "View complete PDF manual entry"
+}
+
+function parse_mansection_args(args: string): MansectionParsed | null {
+    const my_colon = args.indexOf(':');
+    if (my_colon <= 0) return null;
+    const my_target = args.substring(0, my_colon).trim();
+    const my_display = args.substring(my_colon + 1).trim();
+    if (my_target.length === 0 || my_display.length === 0) return null;
+    return { target: my_target, display: my_display };
+}
+
+function build_manual_url(target: string): string | null {
+    // Stata's online manual URLs follow a predictable convention that
+    // was reverse-engineered by inspecting the per-entry PDFs on
+    // stata.com (e.g. /manuals/pdisplay.pdf, /manuals/rregress.pdf):
+    //
+    //   * Filename: `<letter_lower><root_lower>.pdf`, where `root` is
+    //     the lowercase prefix of the sthlp `{mansection}` target
+    //     (everything up to the first uppercase letter).
+    //   * Named destinations inside the PDF preserve the original
+    //     case of the target. The destination name is the lowercase
+    //     manual letter concatenated with the target verbatim.
+    //
+    // Examples (all verified against actual PDFs on stata.com):
+    //   "P display"                     → pdisplay.pdf
+    //   "P displayRemarksandexamples"   → pdisplay.pdf#pdisplayRemarksandexamples
+    //   "R regressMethodsandformulas"   → rregress.pdf#rregressMethodsandformulas
+    //
+    // We only construct URLs for the common `<MANUAL> <entry>` shape;
+    // anything else (section numbers like "U 11.3") returns null so
+    // the caller falls back to plain text.
+    const my_match = target.trim().match(/^([A-Z]+)\s+([A-Za-z][A-Za-z0-9_ ]*)$/);
+    if (!my_match) return null;
+    const my_letter = my_match[1].toLowerCase();
+    const my_entry_raw = my_match[2].replace(/\s+/g, '');
+    if (my_entry_raw.length === 0) return null;
+
+    // Root = lowercase/digit/underscore prefix; the rest (if any,
+    // starting with an uppercase letter) is the PDF subsection.
+    let my_root: string;
+    let my_has_subsection: boolean;
+    if (/^[a-z]/.test(my_entry_raw)) {
+        const my_split = my_entry_raw.match(/^([a-z0-9_]+)([A-Z].*)$/);
+        if (my_split) {
+            my_root = my_split[1];
+            my_has_subsection = true;
+        } else {
+            my_root = my_entry_raw;
+            my_has_subsection = false;
+        }
+    } else {
+        // Entry starts with uppercase (rare; e.g. "SEM Intro5").
+        // Treat the entire entry as the root and skip the anchor.
+        my_root = my_entry_raw;
+        my_has_subsection = false;
+    }
+
+    const my_base =
+        `https://www.stata.com/manuals/${my_letter}${my_root.toLowerCase()}.pdf`;
+    if (!my_has_subsection) {
+        return my_base;
+    }
+    // Destination name is `<letter_lower><target_case_preserved>`,
+    // matching what Stata embeds in the PDF's /Names tree.
+    return `${my_base}#${my_letter}${my_entry_raw}`;
 }
 
 function is_safe_url(url: string): boolean {
@@ -1008,7 +1116,11 @@ function render_browse(
     }
 
     const my_url = escape_html(my_split.url);
-    return `<a class="smcl-browse" href="${my_url}" target="_blank">${my_display}</a>`;
+    // No `target="_blank"`: the webview click handler calls
+    // `vscode.env.openExternal` via postMessage. Emitting target=_blank
+    // would make VS Code's native link interception open the URL a
+    // second time and trigger a duplicate trust prompt.
+    return `<a class="smcl-browse" href="${my_url}">${my_display}</a>`;
 }
 
 function split_browse_args(
@@ -1044,23 +1156,6 @@ function split_browse_args(
 function render_marker(directive: SmclDirective): string {
     const my_name = directive.args || '';
     return `<a id="${escape_html(my_name)}"></a>`;
-}
-
-function render_viewerjumpto(directive: SmclDirective): string {
-    // {viewerjumpto "Display" "topic##anchor"}
-    // Args are typically two quoted strings
-    const my_match = directive.args.match(
-        /"([^"]*)"[\s,]*"([^"]*)"/
-    );
-    if (my_match) {
-        const my_display = escape_html(my_match[1]);
-        const my_target = my_match[2];
-        const my_anchor = my_target.includes('##')
-            ? my_target.split('##')[1]
-            : my_target;
-        return `<a class="smcl-jumpto" href="#${escape_html(my_anchor)}">${my_display}</a>`;
-    }
-    return escape_html(directive.args);
 }
 
 function render_stata_link(
@@ -1117,7 +1212,12 @@ function parse_first_number(args: string): number | null {
 // ---------------------------------------------------------------------------
 
 export function smcl_to_html(smcl: string): SmclHtmlResult {
-    const the_nodes = parse_smcl(smcl);
+    const the_raw_nodes = parse_smcl(smcl);
+    // Collapse the `.sthlp` header's `{p2colset}…{p2colreset}` title
+    // block into a single synthetic directive so we can render it as
+    // a proper heading with a PDF-manual link, rather than a narrow
+    // 2-column table row.
+    const the_nodes = transform_help_title(the_raw_nodes);
     const ctx = create_context();
     let html = render_nodes(the_nodes, ctx);
     // Close any trailing persistent formats and style span
@@ -1139,4 +1239,246 @@ export function smcl_to_html(smcl: string): SmclHtmlResult {
         html,
         cross_references: ctx.cross_references,
     };
+}
+
+// ---------------------------------------------------------------------------
+// Help-title preprocessor
+// ---------------------------------------------------------------------------
+
+interface HelpTitleInfo {
+    /** Command / entry name, e.g. "display" or "frame create". */
+    name: string;
+    /** One-line description from the title row. */
+    description: string;
+    /** `{mansection}` target, e.g. "P display". Optional. */
+    mansection_target?: string;
+    /** `{mansection}` display text. Optional. */
+    mansection_text?: string;
+}
+
+/**
+ * Walk the top-level node list and, if the first `{p2colset}…
+ * {p2colreset}` block matches Stata's help-title convention, replace
+ * it with a single synthetic `__help_title__` directive carrying the
+ * structured heading info.
+ *
+ * The title convention at the top of every Stata `.sthlp` file is:
+ *   {p2colset N N N N}{...}
+ *   {p2col:{bf:[X] name} {hline N}}description{p_end}
+ *   {p2col:}({mansection X entry:display text}){p_end}
+ *   {p2colreset}{...}
+ *
+ * We only match the first `{p2colset}` we encounter, since body-level
+ * 2-col tables should continue rendering as tables.
+ */
+function transform_help_title(nodes: SmclNode[]): SmclNode[] {
+    for (let i = 0; i < nodes.length; i++) {
+        const my_node = nodes[i];
+        if (!is_directive(my_node)) continue;
+        if (my_node.name.toLowerCase() !== 'p2colset') continue;
+
+        const my_match = try_match_help_title(nodes, i);
+        if (!my_match) {
+            // Only the first p2colset is inspected; if it isn't a
+            // title, fall through and render everything normally.
+            return nodes;
+        }
+        const my_synthetic: SmclDirective = {
+            name: '__help_title__',
+            args: JSON.stringify(my_match.info),
+            content: [],
+            line: my_node.line,
+        };
+        return [
+            ...nodes.slice(0, i),
+            my_synthetic,
+            ...nodes.slice(i + my_match.consumed),
+        ];
+    }
+    return nodes;
+}
+
+function try_match_help_title(
+    nodes: SmclNode[],
+    start: number
+): { consumed: number; info: HelpTitleInfo } | null {
+    let i = start;
+
+    const skip_filler = (): void => {
+        while (i < nodes.length) {
+            const my_node = nodes[i];
+            if (!is_directive(my_node)) {
+                if (/^\s*$/.test(my_node.text)) { i++; continue; }
+                break;
+            }
+            if (my_node.name === '...' || my_node.name === '.-') {
+                i++;
+                continue;
+            }
+            break;
+        }
+    };
+
+    // {p2colset ...}
+    if (
+        i >= nodes.length
+        || !is_directive(nodes[i])
+        || (nodes[i] as SmclDirective).name.toLowerCase() !== 'p2colset'
+    ) {
+        return null;
+    }
+    i++;
+    skip_filler();
+
+    // {p2col:{bf:[X] name} ...}description{p_end}
+    if (
+        i >= nodes.length
+        || !is_directive(nodes[i])
+        || (nodes[i] as SmclDirective).name.toLowerCase() !== 'p2col'
+    ) {
+        return null;
+    }
+    const my_title_p2col = nodes[i] as SmclDirective;
+    const my_title_ref = extract_title_ref_from_p2col(my_title_p2col);
+    if (!my_title_ref) return null;
+    i++;
+
+    // Collect the description as the sibling text nodes up to {p_end}.
+    // We keep this conservative: if we see a non-trivial directive in
+    // the description slot, bail out and render as a regular table.
+    const the_description_parts: string[] = [];
+    while (i < nodes.length) {
+        const my_node = nodes[i];
+        if (is_directive(my_node)) {
+            const my_name = my_node.name.toLowerCase();
+            if (my_name === 'p_end') { i++; break; }
+            if (my_name === '...' || my_name === '.-') { i++; continue; }
+            // Description contains unsupported markup; bail.
+            return null;
+        }
+        the_description_parts.push(my_node.text);
+        i++;
+    }
+    const my_description = the_description_parts.join('').trim();
+    if (my_description.length === 0) return null;
+    skip_filler();
+
+    // Optional: {p2col:}({mansection X name:text}){p_end}
+    let mansection_target: string | undefined;
+    let mansection_text: string | undefined;
+    if (
+        i < nodes.length
+        && is_directive(nodes[i])
+        && (nodes[i] as SmclDirective).name.toLowerCase() === 'p2col'
+        && (nodes[i] as SmclDirective).content.length === 0
+    ) {
+        i++;
+        while (i < nodes.length) {
+            const my_node = nodes[i];
+            if (is_directive(my_node) && my_node.name.toLowerCase() === 'p_end') {
+                i++;
+                break;
+            }
+            if (
+                is_directive(my_node)
+                && my_node.name.toLowerCase() === 'mansection'
+            ) {
+                const my_parsed = parse_mansection_args(my_node.args);
+                if (my_parsed) {
+                    mansection_target = my_parsed.target;
+                    mansection_text = my_parsed.display;
+                }
+            }
+            i++;
+        }
+        skip_filler();
+    }
+
+    // {p2colreset}
+    if (
+        i >= nodes.length
+        || !is_directive(nodes[i])
+        || (nodes[i] as SmclDirective).name.toLowerCase() !== 'p2colreset'
+    ) {
+        return null;
+    }
+    i++;
+
+    return {
+        consumed: i - start,
+        info: {
+            name: my_title_ref.name,
+            description: my_description,
+            mansection_target,
+            mansection_text,
+        },
+    };
+}
+
+function extract_title_ref_from_p2col(
+    p2col: SmclDirective
+): { name: string } | null {
+    // Expected content: [{bf:[X] name}, optional text/whitespace,
+    // optional {hline}]. We only look at the first directive to
+    // decide whether this row is a title; trailing space + {hline} is
+    // purely decorative. The leading [X] manual-reference is a
+    // convention most users don't recognize, so we strip it and only
+    // keep the command / entry name.
+    const my_first = p2col.content[0];
+    if (!my_first || !is_directive(my_first)) return null;
+    if (my_first.name.toLowerCase() !== 'bf') return null;
+
+    const my_inner_text = my_first.args
+        || my_first.content
+            .map(n => 'text' in n ? n.text : '')
+            .join('');
+    const my_match = my_inner_text.trim().match(/^\[[A-Z]+\]\s+(.+)$/);
+    if (!my_match) return null;
+    return { name: my_match[1].trim() };
+}
+
+function render_help_title(directive: SmclDirective): string {
+    let the_info: HelpTitleInfo;
+    try {
+        the_info = JSON.parse(directive.args) as HelpTitleInfo;
+    } catch {
+        return '';
+    }
+    const my_name = escape_html(the_info.name);
+    const my_desc = escape_html(the_info.description);
+
+    let my_manlink_html = '';
+    if (the_info.mansection_target && the_info.mansection_text) {
+        const my_url = build_manual_url(the_info.mansection_target);
+        // Override Stata's raw "View complete PDF manual entry" text
+        // with a label that is accurate in our context: the link leaves
+        // VS Code and opens the canonical ("complete") Reference Manual
+        // entry as a PDF on stata.com. We intentionally do NOT override
+        // `render_mansection` callers outside the title block, since
+        // those may legitimately use different display text.
+        const my_label = my_url
+            ? 'View the complete manual entry (PDF, opens in browser)'
+            : the_info.mansection_text;
+        const my_label_safe = escape_html(my_label);
+        if (my_url) {
+            // See render_browse / render_mansection: no `target="_blank"`
+            // — the webview click handler routes to openExternal once.
+            my_manlink_html =
+                `<p class="smcl-help-manlink">` +
+                `<a class="smcl-browse smcl-mansection" ` +
+                `href="${escape_html(my_url)}">` +
+                `${my_label_safe}</a></p>`;
+        } else {
+            my_manlink_html =
+                `<p class="smcl-help-manlink">${my_label_safe}</p>`;
+        }
+    }
+
+    return (
+        `<header class="smcl-help-title"${data_line_attr(directive)}>` +
+        `<h1 class="smcl-help-title-heading">${my_name}</h1>` +
+        `<p class="smcl-help-subtitle">${my_desc}</p>` +
+        my_manlink_html +
+        `</header>`
+    );
 }

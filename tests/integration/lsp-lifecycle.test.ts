@@ -344,7 +344,16 @@ describe('LSP Lifecycle - Handler Factories', () => {
                 && 'value' in result.contents
             ) {
                 expect(result.contents.value).toContain('**missing**');
-                expect(result.contents.value).toContain('help missing()');
+                // Expression functions now link to the Sight help
+                // viewer via a `command:sight.openHelpTopic?...`
+                // markdown URI. The label keeps the `help <topic>`
+                // shape so the existing mental model is preserved.
+                const my_expected_args =
+                    encodeURIComponent(JSON.stringify(['missing']));
+                expect(result.contents.value).toContain(
+                    `(command:sight.openHelpTopic?${my_expected_args})`
+                );
+                expect(result.contents.value).toContain('[help missing]');
             }
         });
     });

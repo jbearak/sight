@@ -165,6 +165,61 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             }
         });
 
+        it('should include a sight.openHelpTopic command link for built-in commands', async () => {
+            const my_content = 'generate x = 1';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            const my_hover = await hover_provider.get_hover(
+                my_doc,
+                { line: 0, character: 2 }
+            );
+
+            expect(my_hover).not.toBeNull();
+            if (
+                typeof my_hover?.contents === 'object'
+                && 'value' in my_hover.contents
+            ) {
+                const my_value = my_hover.contents.value;
+                const my_expected_args =
+                    encodeURIComponent(JSON.stringify(['generate']));
+                expect(my_value).toContain(
+                    `(command:sight.openHelpTopic?${my_expected_args})`
+                );
+                expect(my_value).toContain('[help generate]');
+                // Legacy plain-text form should no longer appear.
+                expect(my_value).not.toContain('`help generate`');
+            }
+        });
+
+        it('should include a frame-subcommand help link using the space-joined topic', async () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'frame create myframe';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            const my_hover = await hover_provider.get_hover(
+                my_doc,
+                { line: 0, character: 8 }
+            );
+
+            expect(my_hover).not.toBeNull();
+            if (
+                my_hover
+                && typeof my_hover.contents === 'object'
+                && 'value' in my_hover.contents
+            ) {
+                const my_expected_args =
+                    encodeURIComponent(JSON.stringify(['frame create']));
+                expect(my_hover.contents.value).toContain(
+                    `(command:sight.openHelpTopic?${my_expected_args})`
+                );
+                expect(my_hover.contents.value).toContain('[help frame create]');
+            }
+        });
+
         it('should provide macro hover in Stata context', async () => {
             const my_content = 'local x = 5\nuse `x`';
             const my_doc = create_test_document(my_content, {

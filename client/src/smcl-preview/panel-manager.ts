@@ -57,7 +57,17 @@ export class SmclPanelManager implements vscode.Disposable {
         this.panels.set(my_key, my_preview);
     }
 
-    private async handle_navigate(topic: string): Promise<void> {
+    /**
+     * Resolve a Stata help topic to a .sthlp file path via the LSP and
+     * open the SMCL preview panel in the given column. Shows an
+     * actionable info message when the topic cannot be resolved,
+     * pointing the user at the `sight.adoPaths` setting which
+     * controls the server-side help file search path.
+     */
+    async open_topic(
+        topic: string,
+        column: vscode.ViewColumn
+    ): Promise<void> {
         const my_client = this.get_client();
         if (!my_client) {
             vscode.window.showInformationMessage(
@@ -73,21 +83,44 @@ export class SmclPanelManager implements vscode.Disposable {
 
             if (my_result?.file_path) {
                 const my_uri = vscode.Uri.file(my_result.file_path);
-                this.open_or_reveal(my_uri, vscode.ViewColumn.Beside);
+                this.open_or_reveal(my_uri, column);
             } else {
-                vscode.window.showInformationMessage(
-                    `Help file not found for: ${topic}`
-                );
+                await this.show_not_found_message(topic);
             }
         } catch (err) {
             console.error(
-                `handle_navigate: sendRequest sight/resolveSthlpFile` +
+                `open_topic: sendRequest sight/resolveSthlpFile` +
                 ` failed for topic="${topic}":`, err
             );
             vscode.window.showInformationMessage(
                 `Could not resolve help file for: ${topic}`
             );
         }
+    }
+
+    private async show_not_found_message(topic: string): Promise<void> {
+        const my_open_settings_label = 'Open Settings';
+        const my_message =
+            `Couldn't find a help file for '${topic}'.` +
+            ` Sight searched your workspace and common Stata install` +
+            ` locations (e.g. /Applications/Stata/ado, /usr/local/stata,` +
+            ` C:\\Program Files\\Stata, and ~/ado). Add the directory` +
+            ` containing the .sthlp file to sight.adoPaths if Sight is` +
+            ` missing it.`;
+        const my_choice = await vscode.window.showInformationMessage(
+            my_message,
+            my_open_settings_label
+        );
+        if (my_choice === my_open_settings_label) {
+            await vscode.commands.executeCommand(
+                'workbench.action.openSettings',
+                'sight.adoPaths'
+            );
+        }
+    }
+
+    private handle_navigate(topic: string): Promise<void> {
+        return this.open_topic(topic, vscode.ViewColumn.Beside);
     }
 
     dispose(): void {

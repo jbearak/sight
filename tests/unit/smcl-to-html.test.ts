@@ -256,12 +256,16 @@ describe('smcl_to_html', () => {
             expect(result.cross_references).toHaveLength(1);
         });
 
-        it('renders {browse URL} as external link', () => {
+        it('renders {browse URL} as external link without target="_blank"', () => {
+            // The webview click handler routes browse clicks to
+            // `vscode.env.openExternal`. Keeping `target="_blank"` on
+            // the anchor would make VS Code also open the URL via its
+            // native link interception, producing a duplicate prompt.
             const result = smcl_to_html(
                 '{browse https://stata.com}'
             );
             expect(result.html).toContain('href="https://stata.com"');
-            expect(result.html).toContain('target="_blank"');
+            expect(result.html).not.toContain('target="_blank"');
         });
 
         it('renders {browse URL:text} with display text', () => {
@@ -305,12 +309,63 @@ describe('smcl_to_html', () => {
             expect(result.html).toContain('id="syntax"');
         });
 
-        it('renders {viewerjumpto} as in-page link', () => {
-            const result = smcl_to_html(
-                '{viewerjumpto "Syntax" "regress##syntax"}'
+        it('suppresses preamble {viewerjumpto}, {vieweralsosee}, and {viewerdialog} metadata', () => {
+            // These directives feed Stata's native viewer toolbar / See
+            // Also sidebar. Rendering them inline produces a wall of
+            // raw quoted args above the real title, so we drop them
+            // until a proper chrome lands (tracked upstream).
+            const my_preamble =
+                '{viewerjumpto "Syntax" "regress##syntax"}{...}\n' +
+                '{viewerjumpto "Description" "regress##description"}{...}\n' +
+                '{vieweralsosee "[D] dir" "mansection D dir"}{...}\n' +
+                '{vieweralsosee "" "--"}{...}\n' +
+                '{vieweralsosee "[D] cd" "help cd"}{...}\n' +
+                '{viewerdialog regress "dialog regress"}{...}';
+            const result = smcl_to_html(my_preamble);
+            // All visible text should be whitespace; the only surviving
+            // markup is the data-line wrappers around the newlines
+            // between directives.
+            const my_visible = result.html
+                .replace(/<[^>]+>/g, '')
+                .trim();
+            expect(my_visible).toBe('');
+            expect(result.html).not.toContain('href="#');
+            expect(result.html).not.toContain('mansection');
+            expect(result.html).not.toContain('help cd');
+        });
+
+        it('hides the preamble while preserving the title row for a real .sthlp header', () => {
+            // Verbatim top of /Applications/Stata/ado/base/d/dir.sthlp
+            // plus the title row; we expect the garbage above the title
+            // to be gone while the title text is rendered.
+            const my_header =
+                '{smcl}\n' +
+                '{* *! version 1.1.8  03sep2020}{...}\n' +
+                '{vieweralsosee "[D] dir" "mansection D dir"}{...}\n' +
+                '{vieweralsosee "" "--"}{...}\n' +
+                '{vieweralsosee "[D] cd" "help cd"}{...}\n' +
+                '{viewerjumpto "Syntax" "dir##syntax"}{...}\n' +
+                '{viewerjumpto "Description" "dir##description"}{...}\n' +
+                '{p2colset 1 12 14 2}{...}\n' +
+                '{p2col:{bf:[D] dir} {hline 2}}Display filenames{p_end}\n' +
+                '{p2colreset}{...}';
+            const result = smcl_to_html(my_header);
+            // Title row is now rendered as a heading with just the
+            // entry name; the [D] manual reference is suppressed.
+            expect(result.html).toContain(
+                '<h1 class="smcl-help-title-heading">dir</h1>'
             );
-            expect(result.html).toContain('href="#syntax"');
-            expect(result.html).toContain('Syntax</a>');
+            expect(result.html).not.toContain('[D]');
+            expect(result.html).toContain('Display filenames');
+            // None of the preamble directive args should leak into the
+            // rendered output.
+            expect(result.html).not.toContain('mansection D dir');
+            expect(result.html).not.toContain('help cd');
+            expect(result.html).not.toContain('dir##syntax');
+            expect(result.html).not.toContain('Links to PDF documentation');
+            // Literal quoted pair (from vieweralsosee "" "--") must not
+            // render either.
+            expect(result.html).not.toContain('"--"');
         });
     });
 
@@ -383,6 +438,171 @@ describe('smcl_to_html', () => {
             const my_table_end = result.html.lastIndexOf('</table>');
             const my_after = result.html.indexOf('After table');
             expect(my_after).toBeGreaterThan(my_table_end);
+        });
+
+        it('drops whitespace-only text between synopt rows', () => {
+            // Blank lines between {synopt:...}{p_end} rows would
+            // otherwise be emitted as text children of <table>, which
+            // the HTML parser foster-parents out of the table and
+            // stacks visually above it as blank lines.
+            const result = smcl_to_html(
+                '{synoptset 32}\n' +
+                '{synopt:{opt a}}first{p_end}\n' +
+                '\n' +
+                '{synopt:{opt b}}second{p_end}\n' +
+                '\n' +
+                '{synopt:{opt c}}third{p_end}\n' +
+                '{p2colreset}'
+            );
+            // No whitespace-only <span> should appear directly
+            // between </tr> and the next <tr>.
+            expect(result.html).not.toMatch(/<\/tr><span[^>]*>\s*<\/span><tr/);
+            // Rows should be contiguous (no other node in between).
+            const my_between_rows = result.html.match(
+                /<\/tr>([\s\S]*?)<tr/g
+            );
+            expect(my_between_rows).not.toBeNull();
+            for (const my_match of my_between_rows!) {
+                expect(my_match).toBe('</tr><tr');
+            }
+        });
+
+        it('drops whitespace-only text between p2col rows', () => {
+            const result = smcl_to_html(
+                '{p2colset 5 19 21 2}\n' +
+                '{p2col:{cmd:a}}desc a{p_end}\n' +
+                '\n' +
+                '{p2col:{cmd:b}}desc b{p_end}\n' +
+                '{p2colreset}'
+            );
+            expect(result.html).not.toMatch(/<\/tr><span[^>]*>\s*<\/span><tr/);
+        });
+    });
+
+    describe('help-file title block', () => {
+        it('collapses the standard title p2colset into a heading with a PDF manual link', () => {
+            const my_header =
+                '{smcl}\n' +
+                '{p2colset 1 12 14 2}{...}\n' +
+                '{p2col:{bf:[P] display} {hline 2}}Display strings and values of scalar expressions{p_end}\n' +
+                '{p2col:}({mansection P display:View complete PDF manual entry}){p_end}\n' +
+                '{p2colreset}{...}';
+            const result = smcl_to_html(my_header);
+
+            expect(result.html).toContain('<header class="smcl-help-title"');
+            // The heading shows just the entry name; the `[P]` manual
+            // reference is noise to most users and is intentionally
+            // stripped.
+            expect(result.html).toContain(
+                '<h1 class="smcl-help-title-heading">display</h1>'
+            );
+            expect(result.html).not.toContain('[P]');
+            expect(result.html).not.toContain('smcl-manual-ref');
+            expect(result.html).toContain(
+                '<p class="smcl-help-subtitle">Display strings and values of scalar expressions</p>'
+            );
+            // PDF manual link resolves to Stata's online manual and
+            // routes through the webview's openExternal handler.
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/pdisplay.pdf"'
+            );
+            expect(result.html).not.toContain('target="_blank"');
+            // The visible label is overridden to make it clear that
+            // clicking leaves VS Code and opens a PDF in the user's
+            // browser.
+            expect(result.html).toContain(
+                'View the complete manual entry (PDF, opens in browser)</a>'
+            );
+            expect(result.html).not.toContain(
+                'View complete PDF manual entry</a>'
+            );
+            expect(result.html).not.toContain('smcl-p2col-table');
+        });
+
+        it('handles multi-word entries such as frame create', () => {
+            const my_header =
+                '{p2colset 1 16 18 2}{...}\n' +
+                '{p2col:{bf:[D] frame create} {hline 2}}Create a new frame{p_end}\n' +
+                '{p2col:}({mansection D framecreate:View complete PDF manual entry}){p_end}\n' +
+                '{p2colreset}{...}';
+            const result = smcl_to_html(my_header);
+            expect(result.html).toContain(
+                '<h1 class="smcl-help-title-heading">frame create</h1>'
+            );
+            expect(result.html).not.toContain('[D]');
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/dframecreate.pdf"'
+            );
+        });
+
+        it('falls back to a normal p2col table when the first row is not a title', () => {
+            // No `{bf:[X] name}` in the first column → render as table.
+            const my_body =
+                '{p2colset 5 19 21 2}\n' +
+                '{p2col:{cmd:regress}}Linear regression{p_end}\n' +
+                '{p2col:{cmd:logit}}Logistic regression{p_end}\n' +
+                '{p2colreset}';
+            const result = smcl_to_html(my_body);
+            expect(result.html).toContain('smcl-p2col-table');
+            expect(result.html).not.toContain('smcl-help-title');
+        });
+
+        it('renders an inline {mansection} as a link outside of the title block', () => {
+            const result = smcl_to_html(
+                'see {mansection P display:the Programming manual}'
+            );
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/pdisplay.pdf"'
+            );
+            // target="_blank" would cause VS Code to race the native
+            // link handler with our postMessage route — the link
+            // should rely solely on the webview click handler.
+            expect(result.html).not.toContain('target="_blank"');
+            expect(result.html).toContain('the Programming manual</a>');
+        });
+
+        it('deep-links mansection subsection targets to the case-preserved PDF destination', () => {
+            // `{mansection P displayRemarksandexamples:Remarks and examples}`
+            // must resolve to `pdisplay.pdf#pdisplayRemarksandexamples`
+            // (case preserved). The destination name was confirmed by
+            // parsing stata.com's published PDF.
+            const result = smcl_to_html(
+                '{mansection P displayRemarksandexamples:Remarks and examples}'
+            );
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/pdisplay.pdf#pdisplayRemarksandexamples"'
+            );
+            // Case-preservation is the whole point — the previous
+            // lowercased form doesn't match the PDF's named
+            // destination and landed on page 1.
+            expect(result.html).not.toContain(
+                'pdisplay.pdf#pdisplayremarksandexamples'
+            );
+            // And the broken `pdisplayremarksandexamples.pdf` guess
+            // must not resurface.
+            expect(result.html).not.toContain(
+                'pdisplayremarksandexamples.pdf'
+            );
+            expect(result.html).toContain('Remarks and examples</a>');
+        });
+
+        it('preserves case for mansection anchors across manuals (rregress)', () => {
+            const result = smcl_to_html(
+                '{mansection R regressMethodsandformulas:Methods and formulas}'
+            );
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/rregress.pdf#rregressMethodsandformulas"'
+            );
+        });
+
+        it('falls back to plain mansection text when the target does not match the single-entry pattern', () => {
+            const result = smcl_to_html(
+                'see {mansection U 12.5 Formats:Formats}'
+            );
+            expect(result.html).not.toContain(
+                'href="https://www.stata.com/manuals/'
+            );
+            expect(result.html).toContain('Formats');
         });
     });
 
@@ -565,10 +785,13 @@ describe('smcl_to_html', () => {
             ].join('\n');
 
             const result = smcl_to_html(smcl);
-            expect(result.html).toContain('href="#syntax"');
-            expect(result.html).toContain('href="#options"');
+            // {viewerjumpto} metadata is suppressed until a dedicated
+            // TOC is implemented; the title row is now rendered as a
+            // heading block rather than a <strong> cell.
+            expect(result.html).not.toContain('href="#syntax"');
+            expect(result.html).not.toContain('href="#options"');
             expect(result.html).toContain('<hr');
-            expect(result.html).toContain('<strong>');
+            expect(result.html).toContain('smcl-help-title-heading');
             expect(result.html).toContain('Linear regression');
         });
     });
