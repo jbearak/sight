@@ -3,7 +3,9 @@ import * as fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
-import { arbitrary_identifier } from './generators';
+import {
+  arbitrary_non_reserved_identifier,
+} from './generators';
 
 describe('Variable Extraction Preservation Property Tests', () => {
   let lexer: StataLexer;
@@ -23,11 +25,11 @@ describe('Variable Extraction Preservation Property Tests', () => {
     return fc
       .tuple(
         fc.constantFrom('gen', 'generate'),
-        arbitrary_identifier(),
+        arbitrary_non_reserved_identifier(),
         fc.oneof(
           fc.integer({ min: 1, max: 100 }).map(n => n.toString()),
           fc.string({ minLength: 1, maxLength: 10 }).map(s => `"${s}"`),
-          arbitrary_identifier()
+          arbitrary_non_reserved_identifier()
         )
       )
       .map(([cmd, varname, expr]) => ({
@@ -42,9 +44,9 @@ describe('Variable Extraction Preservation Property Tests', () => {
   function arbitrary_egen_command(): fc.Arbitrary<{ source: string; varname: string }> {
     return fc
       .tuple(
-        arbitrary_identifier(),
+        arbitrary_non_reserved_identifier(),
         fc.constantFrom('sum', 'mean', 'max', 'min', 'count'),
-        arbitrary_identifier()
+        arbitrary_non_reserved_identifier()
       )
       .map(([varname, func, arg]) => ({
         source: `egen ${varname} = ${func}(${arg})`,

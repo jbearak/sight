@@ -249,39 +249,7 @@ class CommandDatabase {
      * Register a command (for compatibility with legacy API).
      */
     register(info: ProviderCommandInfo): void {
-        if (!this.cache) {
-            this.cache = {
-                version: 18,
-                commands: {},
-                abbreviations: {}
-            };
-        }
-        
-        const normalized = info.name.toLowerCase();
-        
-        // Convert provider OptionInfo (minAbbreviation: string) to cache OptionInfo (min_abbreviation: number)
-        const the_cache_options = (info.options || []).map(my_opt => ({
-            name: my_opt.name,
-            min_abbreviation: my_opt.minAbbreviation.length,
-            has_argument: my_opt.hasArgument
-        }));
-
-        // Convert provider SubcommandInfo to cache SubcommandInfo
-        const the_cache_subcommands = info.subcommands?.map(sub => ({
-            name: sub.name,
-            min_abbreviation: sub.minAbbreviation.length
-        }));
-        
-        // Build command info, only including syntax if provided
-        const my_command_info: CommandInfo = {
-            name: info.name,
-            min_abbreviation: info.minAbbreviation.length,
-            options: the_cache_options,
-            subcommands: the_cache_subcommands,
-            priority: info.priority || get_command_priority(info.name)
-        };
-        
-        this.cache.commands[normalized] = my_command_info;
+        this.register_raw(info);
         this.recompute_resolved_abbreviations();
         this.all_commands_cached = null; // Invalidate cached array
         this.cache_version++;
@@ -292,8 +260,44 @@ class CommandDatabase {
      */
     register_all(the_commands: ProviderCommandInfo[]): void {
         for (const my_cmd of the_commands) {
-            this.register(my_cmd);
+            this.register_raw(my_cmd);
         }
+        this.recompute_resolved_abbreviations();
+        this.all_commands_cached = null; // Invalidate cached array
+        this.cache_version++;
+    }
+
+    private register_raw(info: ProviderCommandInfo): void {
+        if (!this.cache) {
+            this.cache = {
+                version: 18,
+                commands: {},
+                abbreviations: {}
+            };
+        }
+
+        const normalized = info.name.toLowerCase();
+
+        const the_cache_options = (info.options || []).map(my_opt => ({
+            name: my_opt.name,
+            min_abbreviation: my_opt.minAbbreviation.length,
+            has_argument: my_opt.hasArgument
+        }));
+
+        const the_cache_subcommands = info.subcommands?.map(sub => ({
+            name: sub.name,
+            min_abbreviation: sub.minAbbreviation.length
+        }));
+
+        const my_command_info: CommandInfo = {
+            name: info.name,
+            min_abbreviation: info.minAbbreviation.length,
+            options: the_cache_options,
+            subcommands: the_cache_subcommands,
+            priority: info.priority || get_command_priority(info.name)
+        };
+
+        this.cache.commands[normalized] = my_command_info;
     }
 
     /**
@@ -321,6 +325,21 @@ class CommandDatabase {
         this.cache_version++;
     }
 
+    /**
+     * Rebuilds the collision-aware abbreviation map.
+     *
+     * Phase 1 seeds from `cache.abbreviations` so hand-curated entries
+     * survive. Phase 2 walks all commands in priority order; a strictly
+     * higher-priority match overrides a seed, so advisory cache mappings
+     * lose to a real stronger candidate but win ties within the same tier.
+     *
+     * Exact command names are never placed in the map because direct
+     * lookup precedence handles those. The sort order
+     *
+     *   priority -> min_abbreviation -> name length -> alphabetical
+     *
+     * keeps same-tier backfill deterministic.
+     */
     private recompute_resolved_abbreviations(): void {
         this.resolved_abbreviations = Object.create(null);
         if (!this.cache) return;

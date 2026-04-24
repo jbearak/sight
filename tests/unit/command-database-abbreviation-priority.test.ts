@@ -163,4 +163,62 @@ describe('CommandDatabase abbreviation priority resolution', () => {
             'xeq',
         ]);
     });
+
+    it('register_all preserves lookup semantics while recomputing once per batch', () => {
+        const db = new CommandDatabase();
+        db.register_all([
+            {
+                name: 'display',
+                minAbbreviation: 'di',
+                options: [],
+                category: 'builtin',
+                isBuiltin: true,
+                priority: 1,
+            },
+            {
+                name: 'dir',
+                minAbbreviation: 'd',
+                options: [],
+                category: 'builtin',
+                isBuiltin: true,
+                priority: 3,
+            },
+            {
+                name: 'scalar',
+                minAbbreviation: 'sca',
+                options: [],
+                category: 'builtin',
+                isBuiltin: true,
+                priority: 1,
+            },
+        ]);
+
+        expect(db.lookup('di')?.name).toBe('display');
+        expect(db.lookup('dir')?.name).toBe('dir');
+        expect(db.lookup('sca')?.name).toBe('scalar');
+    });
+
+    it('later low-priority registration does not displace a higher-priority abbreviation winner', () => {
+        const db = new CommandDatabase();
+        db.register({
+            name: 'display',
+            minAbbreviation: 'di',
+            options: [],
+            category: 'builtin',
+            isBuiltin: true,
+            priority: 1,
+        });
+        db.register({
+            name: 'dir',
+            minAbbreviation: 'd',
+            options: [],
+            category: 'builtin',
+            isBuiltin: true,
+            priority: 3,
+        });
+
+        expect(db.lookup('di')?.name).toBe('display');
+        expect(db.lookup_command('di')?.name).toBe('display');
+        expect(db.get_command('di')?.name).toBe('display');
+    });
 });

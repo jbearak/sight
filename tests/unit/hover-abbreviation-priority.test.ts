@@ -134,5 +134,6 @@ describe('HoverProvider abbreviation priority', () => {
         const my_text = get_hover_text(my_hover);
         expect(my_text).toContain('**display**');
         expect(my_text).not.toContain('displayknots');
+        expect(my_text).not.toContain('abbreviated as');
     });
 });
