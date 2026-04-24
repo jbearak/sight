@@ -119,6 +119,7 @@ describe('Command Database Property Tests', () => {
         description: fc.string({ minLength: 10, maxLength: 100 }),
         min_abbreviation: fc.integer({ min: 1, max: 12 }),
         options: fc.array(option_info_generator, { minLength: 0, maxLength: 5 }),
+        priority: fc.option(fc.integer({ min: 1, max: 3 })),
     }).map(info => ({
         ...info,
         min_abbreviation: Math.min(info.min_abbreviation, info.name.length),
@@ -129,8 +130,17 @@ describe('Command Database Property Tests', () => {
         { minLength: 5, maxLength: 15 }
     ).map(the_commands => {
         const unique_commands = new Map<string, CommandInfo>();
-        for (const my_command of the_commands) {
-            unique_commands.set(my_command.name.toLowerCase(), my_command);
+        for (let i = 0; i < the_commands.length; i++) {
+            const my_command = the_commands[i];
+            const normalized_name = `${my_command.name}${i}`.toLowerCase();
+            unique_commands.set(normalized_name, {
+                ...my_command,
+                name: normalized_name,
+                min_abbreviation: Math.min(
+                    my_command.min_abbreviation,
+                    normalized_name.length
+                ),
+            });
         }
 
         const commands: Record<string, CommandInfo> = {};
