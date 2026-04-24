@@ -139,6 +139,54 @@ function create_frame_command_db(): CommandDatabase {
     return db;
 }
 
+
+function create_abbreviation_collision_command_db(): CommandDatabase {
+    const db = new CommandDatabase();
+    const cache: CommandCache = {
+        version: 18,
+        commands: {
+            dir: {
+                name: 'dir',
+                min_abbreviation: 1,
+                options: [
+                    {
+                        name: 'wide',
+                        min_abbreviation: 4,
+                        has_argument: false,
+                    },
+                ],
+                priority: 3,
+            },
+            display: {
+                name: 'display',
+                min_abbreviation: 2,
+                options: [
+                    {
+                        name: 'newline',
+                        min_abbreviation: 7,
+                        has_argument: true,
+                    },
+                ],
+                priority: 1,
+            },
+            displayknots: {
+                name: 'displayknots',
+                min_abbreviation: 2,
+                options: [],
+                priority: 3,
+            },
+        },
+        abbreviations: {
+            di: 'dir',
+            dis: 'display',
+            display: 'displayknots',
+            displayk: 'displayknots',
+        },
+    };
+    db.load_cache(cache);
+    return db;
+}
+
 describe('HoverProvider - Context-Aware Behavior', () => {
     let hover_provider: HoverProvider;
     let context_tracker: ContextTracker;
@@ -507,6 +555,59 @@ describe('HoverProvider - Context-Aware Behavior', () => {
                 }
             }
         );
+
+        it(
+            'should resolve di hover to display instead of dir when abbreviations collide',
+            async () => {
+                command_db = create_abbreviation_collision_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'di 1';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                const my_hover = await hover_provider.get_hover(
+                    my_doc,
+                    { line: 0, character: 1 }
+                );
+
+                expect(my_hover).not.toBeNull();
+                if (
+                    typeof my_hover?.contents === 'object'
+                    && 'value' in my_hover.contents
+                ) {
+                    expect(my_hover.contents.value).toContain('**display**');
+                    expect(my_hover.contents.value).not.toContain('help dir');
+                }
+            }
+        );
+
+        it(
+            'should keep exact display hover on display instead of displayknots',
+            async () => {
+                command_db = create_abbreviation_collision_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'display 1';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                const my_hover = await hover_provider.get_hover(
+                    my_doc,
+                    { line: 0, character: 2 }
+                );
+
+                expect(my_hover).not.toBeNull();
+                if (
+                    typeof my_hover?.contents === 'object'
+                    && 'value' in my_hover.contents
+                ) {
+                    expect(my_hover.contents.value).toContain('**display**');
+                    expect(my_hover.contents.value).not.toContain('displayknots');
+                }
+            }
+        );
+
     });
 
     describe('Comment Context Hover', () => {

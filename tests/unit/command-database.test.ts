@@ -100,3 +100,58 @@ test('CommandDatabase get_all cache invalidates on register', () => {
     expect(before_register).not.toBe(after_register);
     expect(after_register.length).toBe(before_register.length + 1);
 });
+
+test('CommandDatabase lookup_command prefers exact command names over longer command prefixes', () => {
+    const db = new CommandDatabase();
+    db.load_cache({
+        version: 18,
+        commands: {
+            'display': {
+                name: 'display',
+                min_abbreviation: 2,
+                options: [],
+                priority: 1
+            },
+            'displayknots': {
+                name: 'displayknots',
+                min_abbreviation: 2,
+                options: [],
+                priority: 3
+            }
+        },
+        abbreviations: {
+            'display': 'displayknots',
+            'displayk': 'displayknots'
+        }
+    });
+
+    expect(db.lookup_command('display')?.name).toBe('display');
+});
+
+test('CommandDatabase lookup_command resolves overlapping abbreviations by precedence', () => {
+    const db = new CommandDatabase();
+    db.load_cache({
+        version: 18,
+        commands: {
+            'dir': {
+                name: 'dir',
+                min_abbreviation: 1,
+                options: [],
+                priority: 3
+            },
+            'display': {
+                name: 'display',
+                min_abbreviation: 2,
+                options: [],
+                priority: 1
+            }
+        },
+        abbreviations: {
+            'di': 'dir',
+            'dis': 'display'
+        }
+    });
+
+    expect(db.lookup_command('di')?.name).toBe('display');
+    expect(db.lookup('di')?.name).toBe('display');
+});

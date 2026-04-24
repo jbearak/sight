@@ -1888,7 +1888,12 @@ export class HoverProvider {
     private get_command_hover(word: string): MarkupContent | null {
         const command = this.command_db.lookup(word);
         if (command) {
-            return this.format_builtin_command_hover(command);
+            const is_abbrev =
+                word.toLowerCase() !== command.name.toLowerCase();
+            return this.format_builtin_command_hover(
+                command,
+                is_abbrev ? word : undefined
+            );
         }
 
         // Try broadening the search to abbreviations

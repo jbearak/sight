@@ -171,17 +171,11 @@ function index_inside_word(content: string, word: string): number {
     return start + Math.floor(word.length / 2);
 }
 
-function command_hover_name(command_name: string): string {
-    if (command_name === 'int') {
-        return 'interval';
-    }
-    if (command_name === 'mod') {
-        return 'models';
-    }
-    if (command_name === 'trunc') {
-        return 'truncate';
-    }
-    return command_name;
+function command_hover_name(
+    command_db: CommandDatabase,
+    command_name: string
+): string | null {
+    return command_db.lookup(command_name)?.name ?? null;
 }
 
 describe('Hover Command vs Expression Position Property Tests', () => {
@@ -248,10 +242,19 @@ describe('Hover Command vs Expression Position Property Tests', () => {
                             character: index_inside_word(content, command_name),
                         }
                     );
+                    const expected_hover_name = command_hover_name(
+                        command_db,
+                        command_name
+                    );
+                    if (expected_hover_name === null) {
+                        expect(hover).toBeNull();
+                        return;
+                    }
+
                     const value = hover_value(hover);
 
                     expect(value).toContain(
-                        `**${command_hover_name(command_name)}**`
+                        `**${expected_hover_name}**`
                     );
                     expect(value).toContain('**Options:**');
                     expect(value).not.toContain('**Function:**');

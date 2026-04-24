@@ -13,6 +13,10 @@ import { get_command_priority } from '../src/command-database/priority-tiers.js'
 
 const BATCH_SIZE = 100;  // Process 100 files concurrently
 
+const COMMAND_ABBREVIATION_OVERRIDES: Record<string, string> = {
+    di: 'display',
+};
+
 /**
  * Fundamental Stata commands that MUST be in the cache.
  * These are hardcoded as a safety net in case help file parsing misses them.
@@ -76,7 +80,9 @@ function find_stata_path(): string {
  * Build abbreviations map from commands.
  * Maps each valid abbreviation to its full command name.
  */
-function build_abbreviations(commands: Record<string, CommandInfo>): Record<string, string> {
+export function build_abbreviations(
+    commands: Record<string, CommandInfo>
+): Record<string, string> {
     const abbreviations: Record<string, string> = {};
     
     for (const [name, info] of Object.entries(commands)) {
@@ -88,7 +94,18 @@ function build_abbreviations(commands: Record<string, CommandInfo>): Record<stri
             }
         }
     }
-    
+    for (const [abbrev, command_name] of Object.entries(
+        COMMAND_ABBREVIATION_OVERRIDES
+    )) {
+        const command_info = commands[command_name];
+        if (
+            command_info
+            && abbrev.length >= command_info.min_abbreviation
+            && command_name.startsWith(abbrev)
+        ) {
+            abbreviations[abbrev] = command_name;
+        }
+    }
     return abbreviations;
 }
 
@@ -168,6 +185,55 @@ export function merge_options(
     }
     
     return [];
+}
+
+function convert_builtin_subcommand_to_cache_format(
+    builtin_subcommand: { name: string; minAbbreviation: string }
+): { name: string; min_abbreviation: number } {
+    return {
+        name: builtin_subcommand.name,
+        min_abbreviation: builtin_subcommand.minAbbreviation.length,
+    };
+}
+
+export function apply_builtin_metadata_fallback(
+    commands: Record<string, CommandInfo>
+): { options_fallback_count: number; subcommands_fallback_count: number } {
+    const builtin_map = new Map<string, typeof BUILTIN_COMMANDS[0]>();
+    for (const my_cmd of BUILTIN_COMMANDS) {
+        builtin_map.set(my_cmd.name.toLowerCase(), my_cmd);
+    }
+
+    let options_fallback_count = 0;
+    let subcommands_fallback_count = 0;
+
+    for (const [cmd_name, cmd_info] of Object.entries(commands)) {
+        const builtin_info = builtin_map.get(cmd_name);
+        if (!builtin_info) {
+            continue;
+        }
+
+        if (builtin_info.options) {
+            const merged = merge_options(cmd_info.options, builtin_info.options);
+            if (merged.length > 0 && cmd_info.options.length === 0) {
+                cmd_info.options = merged;
+                options_fallback_count++;
+            }
+        }
+
+        if (
+            builtin_info.subcommands
+            && builtin_info.subcommands.length > 0
+            && (!cmd_info.subcommands || cmd_info.subcommands.length === 0)
+        ) {
+            cmd_info.subcommands = builtin_info.subcommands.map(
+                convert_builtin_subcommand_to_cache_format
+            );
+            subcommands_fallback_count++;
+        }
+    }
+
+    return { options_fallback_count, subcommands_fallback_count };
 }
 
 /**
@@ -443,27 +509,18 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
         }
     }
     
-    // Apply hardcoded options fallback for commands with no SMCL options
-    const builtin_map = new Map<string, typeof BUILTIN_COMMANDS[0]>();
-    for (const my_cmd of BUILTIN_COMMANDS) {
-        builtin_map.set(my_cmd.name.toLowerCase(), my_cmd);
-    }
-    
-    let options_fallback_count = 0;
-    for (const [cmd_name, cmd_info] of Object.entries(commands)) {
-        const builtin_info = builtin_map.get(cmd_name);
-        if (builtin_info && builtin_info.options) {
-            // Use merge_options to apply fallback
-            const merged = merge_options(cmd_info.options, builtin_info.options);
-            if (merged.length > 0 && cmd_info.options.length === 0) {
-                cmd_info.options = merged;
-                options_fallback_count++;
-            }
-        }
-    }
+    const {
+        options_fallback_count,
+        subcommands_fallback_count,
+    } = apply_builtin_metadata_fallback(commands);
     
     if (options_fallback_count > 0) {
         console.log(`\nApplied hardcoded options fallback to ${options_fallback_count} commands`);
+    }
+    if (subcommands_fallback_count > 0) {
+        console.log(
+            `Applied hardcoded subcommands fallback to ${subcommands_fallback_count} commands`
+        );
     }
     
     // Validate legacy command coverage
@@ -518,7 +575,7 @@ if (import.meta.main) {
     
     try {
         const { cache, result } = await generate_cache({ version, output_path, max_files, force });
-        writeFileSync(output_path, JSON.stringify(cache, null, 2));
+        writeFileSync(output_path, `${JSON.stringify(cache, null, 2)}\n`);
         
         console.log(`\nCache written to: ${output_path}`);
         console.log(`Commands: ${Object.keys(cache.commands).length}`);
