@@ -93,9 +93,7 @@ export class SmclPanelManager implements vscode.Disposable {
                 `open_topic: sendRequest sight/resolveSthlpFile` +
                 ` failed for topic="${topic}":`, err
             );
-            vscode.window.showInformationMessage(
-                `Could not resolve help file for: ${topic}`
-            );
+            await this.show_not_found_message(topic);
         }
     }
 

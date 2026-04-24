@@ -107,8 +107,9 @@ async function prompt_for_topic(): Promise<string | null> {
 }
 
 function extract_topic(arg: unknown): string | null {
-    if (typeof arg === 'string' && arg.length > 0) {
-        return arg;
+    if (typeof arg === 'string') {
+        const my_topic = arg.trim();
+        return my_topic.length > 0 ? my_topic : null;
     }
     if (
         arg
@@ -116,7 +117,7 @@ function extract_topic(arg: unknown): string | null {
         && 'topic' in arg
         && typeof (arg as { topic: unknown }).topic === 'string'
     ) {
-        const my_topic = (arg as { topic: string }).topic;
+        const my_topic = (arg as { topic: string }).topic.trim();
         return my_topic.length > 0 ? my_topic : null;
     }
     return null;

@@ -54,15 +54,7 @@ import {
     MacroCompletionContext
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
-
-/**
- * Render a markdown command link that opens the Sight help viewer for
- * the given topic. Kept in sync with `format_help_link` in `hover.ts`.
- */
-function format_help_link(topic: string): string {
-    const the_args = encodeURIComponent(JSON.stringify([topic]));
-    return `[help ${topic}](command:sight.openHelpTopic?${the_args})`;
-}
+import { format_help_link } from '../utils/help-link';
 
 /**
  * Map ForwardCallSite.effective_type to directive_type for ranking.

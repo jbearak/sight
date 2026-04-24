@@ -90,6 +90,18 @@ export class SmclPreviewPanel implements vscode.Disposable {
             })
         );
 
+        // Clear findalias cache when ado-path configuration changes
+        // so stale null-misses don't persist after new .maint files
+        // become available.
+        this.disposables.push(
+            vscode.workspace.onDidChangeConfiguration(event => {
+                if (event.affectsConfiguration('sight.adoPaths')) {
+                    this.findalias_cache.clear();
+                    this.schedule_update();
+                }
+            })
+        );
+
         // Initial render
         void this.refresh();
     }

@@ -98,9 +98,7 @@ describe_if_stata('Help topic coverage (local Stata install required)', () => {
     it('resolves every command in the cache to a .sthlp file', async () => {
         if (!stata_is_installed) return;
 
-        const the_topics = Object.keys(
-            (command_database as any).cache?.commands ?? {}
-        );
+        const the_topics = command_database.get_all_command_names();
         const the_unresolved: string[] = [];
 
         for (const my_topic of the_topics) {

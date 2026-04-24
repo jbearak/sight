@@ -317,6 +317,14 @@ class CommandDatabase {
     }
 
     /**
+     * Get all command names (normalized, lowercase keys).
+     */
+    get_all_command_names(): string[] {
+        if (!this.cache) return [];
+        return Object.keys(this.cache.commands);
+    }
+
+    /**
      * Clear all commands.
      */
     clear(): void {

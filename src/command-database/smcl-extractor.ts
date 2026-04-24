@@ -354,7 +354,7 @@ export const OPT_HYPERLINK_ARG_PATTERN =
 // Compiled RegExp Constants
 // ============================================================================
 
-const VIEWERDIALOG_REGEX = new RegExp(VIEWERDIALOG_PATTERN.source, 'g');
+const VIEWERDIALOG_REGEX = new RegExp(VIEWERDIALOG_PATTERN.source, 'gi');
 const CMDAB_REGEX = new RegExp(CMDAB_PATTERN.source, 'gi');
 const OPT_REGEX = new RegExp(OPT_PATTERN.source, 'gi');
 const SYNOPT_WRAPPER_REGEX = new RegExp(SYNOPT_WRAPPER_PATTERN.source, 'gi');
@@ -824,26 +824,20 @@ export function extract_primary_command(content: string): string | null {
  * (`[`), or `{cmd:,}` separator. Multi-word subcommand syntax such as
  * `{cmdab:ma:cro} {cmdab:di:r}` still returns `macro` as the lead.
  */
+// Module-level regexes for paragraph-lead detection (hoisted for
+// performance — avoids re-creating on every call during cache
+// generation across thousands of help files).
+const INLINE_PARAGRAPH_LEAD_PATTERN =
+    /^\s*(?:\{p[^}]*\}\s*)+(?:\{cmdab:([a-z][a-z0-9_]*):([a-z0-9_]+)\}|\{cmd:([a-z_][a-z0-9_]*)\})/i;
+const STANDALONE_CMD_PATTERN =
+    /^\s*(?:\{cmdab:([a-z][a-z0-9_]*):([a-z0-9_]+)\}|\{cmd:([a-z_][a-z0-9_]*)\})/i;
+const P_MARKER_PATTERN =
+    /^\s*(?:\{p[^}]*\}|\{phang[^}]*\}|\{pstd\})\s*$/i;
+
 export function extract_paragraph_lead_commands(syntax_section: string): Set<string> {
     const the_commands = new Set<string>();
     const my_doc = { content: syntax_section, line_offsets: compute_line_offsets(syntax_section) };
     const my_line_count = get_line_count(my_doc);
-
-    // Match a command token that is *directly* preceded by one or more
-    // `{p ...}` paragraph tags on the same line. This is the strongest
-    // signal of "this line starts a new syntax paragraph".
-    const the_inline_paragraph_lead_pattern =
-        /^\s*(?:\{p[^}]*\}\s*)+(?:\{cmdab:([a-z][a-z0-9_]*):([a-z0-9_]+)\}|\{cmd:([a-z_][a-z0-9_]*)\})/i;
-    // Match a command token with *no* leading `{p ...}` tag on the
-    // line. Used only when the previous non-empty line was itself a
-    // paragraph-start marker (`{p ...}`, `{phang}`, `{pstd}`), which is
-    // how help files like `generate.sthlp` split a syntax paragraph
-    // across lines:
-    //     {p 8 17 2}
-    //     {cmd:replace}
-    const the_standalone_cmd_pattern =
-        /^\s*(?:\{cmdab:([a-z][a-z0-9_]*):([a-z0-9_]+)\}|\{cmd:([a-z_][a-z0-9_]*)\})/i;
-    const the_p_marker_pattern = /^\s*(?:\{p[^}]*\}|\{phang[^}]*\}|\{pstd\})\s*$/i;
     // Recognise the indented line layout used by files like
     // `quietly.sthlp`, where syntax lines are simply tab-indented and
     // separated by blank lines rather than paragraph tags. A command
@@ -860,14 +854,14 @@ export function extract_paragraph_lead_commands(syntax_section: string): Set<str
             continue;
         }
 
-        const my_inline = my_line.match(the_inline_paragraph_lead_pattern);
+        const my_inline = my_line.match(INLINE_PARAGRAPH_LEAD_PATTERN);
         if (my_inline) {
             const my_command_name = my_inline[1]
                 ? (my_inline[1] + my_inline[2]).toLowerCase()
                 : my_inline[3].toLowerCase();
             the_commands.add(my_command_name);
         } else if (previous_was_paragraph_marker || previous_line_was_blank) {
-            const my_standalone = my_line.match(the_standalone_cmd_pattern);
+            const my_standalone = my_line.match(STANDALONE_CMD_PATTERN);
             if (my_standalone) {
                 const my_command_name = my_standalone[1]
                     ? (my_standalone[1] + my_standalone[2]).toLowerCase()
@@ -876,7 +870,7 @@ export function extract_paragraph_lead_commands(syntax_section: string): Set<str
             }
         }
 
-        previous_was_paragraph_marker = the_p_marker_pattern.test(my_line);
+        previous_was_paragraph_marker = P_MARKER_PATTERN.test(my_line);
         previous_line_was_blank = false;
     }
 

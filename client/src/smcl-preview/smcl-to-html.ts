@@ -1133,7 +1133,7 @@ function build_manual_url(target: string): string | null {
     // may contain periods. Anything that fails to produce a root
     // returns null so the caller falls back to plain text.
     const my_match = target.trim().match(
-        /^([A-Z]+)\s+([A-Za-z0-9][A-Za-z0-9_. ]*)$/
+        /^([A-Z]+(?:-\d+)?)\s+([A-Za-z0-9][A-Za-z0-9_. ]*)$/
     );
     if (!my_match) return null;
     const my_letter = my_match[1].toLowerCase();
@@ -1186,7 +1186,7 @@ function detect_bracketed_manual_ref(
     const my_node = directive.content[0];
     if (is_directive(my_node)) return null;
     const my_raw = my_node.text;
-    const my_match = my_raw.match(/^\s*\[([A-Z]+)\]\s+(.+?)\s*$/);
+    const my_match = my_raw.match(/^\s*\[([A-Z]+(?:-\d+)?)\]\s+(.+?)\s*$/);
     if (!my_match) return null;
     const my_entry = my_match[2].trim();
     if (my_entry.length === 0) return null;
@@ -1701,13 +1701,18 @@ function transform_findalias_help_title(
             if (!my_info) continue;
 
             const my_start = paragraph_start >= 0 ? paragraph_start : i;
-            // Consume through the end of the title paragraph: stop at
-            // the next hard boundary (marker/title/p2colset) or EOF.
+            // Consume through the end of the title paragraph only:
+            // stop at (and include) the first {p_end}, or bail at a
+            // hard preamble boundary / EOF.
             let my_end = i + 1;
             while (my_end < nodes.length) {
                 const my_next = nodes[my_end];
                 if (is_directive(my_next)) {
                     const my_next_name = my_next.name.toLowerCase();
+                    if (my_next_name === 'p_end') {
+                        my_end++;
+                        break;
+                    }
                     if (PREAMBLE_TERMINATOR_NAMES.has(my_next_name)) {
                         break;
                     }
@@ -1800,7 +1805,7 @@ function extract_title_ref_from_p2col(
         || my_first.content
             .map(n => 'text' in n ? n.text : '')
             .join('');
-    const my_match = my_inner_text.trim().match(/^\[[A-Z]+\]\s+(.+)$/);
+    const my_match = my_inner_text.trim().match(/^\[[A-Z]+(?:-\d+)?\]\s+(.+)$/);
     if (!my_match) return null;
     return { name: my_match[1].trim() };
 }

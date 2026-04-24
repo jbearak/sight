@@ -431,7 +431,7 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     for (const my_letter of 'abcdefghijklmnopqrstuvwxyz_'.split('')) {
         const letter_dir = join(base_path, my_letter);
         try {
-            const the_files = readdirSync(letter_dir).filter(f => f.endsWith('.sthlp'));
+            const the_files = readdirSync(letter_dir).filter(f => f.endsWith('.sthlp')).sort();
             for (const my_file of the_files) {
                 the_all_files.push(join(letter_dir, my_file));
                 if (options.max_files && the_all_files.length >= options.max_files) break;

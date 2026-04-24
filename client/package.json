@@ -564,6 +564,10 @@
           "when": "false"
         },
         {
+          "command": "sight.openHelpTopic",
+          "when": "false"
+        },
+        {
           "command": "sight.openSmclPreview",
           "when": "resourceExtname =~ /\\.(smcl|sthlp)/i"
         },

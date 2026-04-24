@@ -42,6 +42,7 @@ import {
 import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
+import { format_help_link } from '../utils/help-link';
 import type { WorkspaceIndexer } from '../indexer';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
@@ -90,19 +91,6 @@ export const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
     ['mi', 'missing'],
 ]);
 
-/**
- * Render a markdown command link that opens the Sight help viewer for
- * the given topic. The link label keeps the familiar `help <topic>`
- * shape so users coming from Stata's `help` command recognize it.
- *
- * VS Code requires command arguments to be a JSON array encoded with
- * `encodeURIComponent`. The client middleware trusts this specific
- * command URI so the link is clickable from LSP-provided markdown.
- */
-function format_help_link(topic: string): string {
-    const the_args = encodeURIComponent(JSON.stringify([topic]));
-    return `[help ${topic}](command:sight.openHelpTopic?${the_args})`;
-}
 
 /**
  * One entry in a symbol's `additional_definitions` array.

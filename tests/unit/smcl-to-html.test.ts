@@ -325,9 +325,13 @@ describe('smcl_to_html', () => {
             // All visible text should be whitespace; the only surviving
             // markup is the data-line wrappers around the newlines
             // between directives.
-            const my_visible = result.html
-                .replace(/<[^>]+>/g, '')
-                .trim();
+            let my_visible = result.html;
+            let my_prev: string;
+            do {
+                my_prev = my_visible;
+                my_visible = my_visible.replace(/<[^>]+>/g, '');
+            } while (my_visible !== my_prev);
+            my_visible = my_visible.trim();
             expect(my_visible).toBe('');
             expect(result.html).not.toContain('href="#');
             expect(result.html).not.toContain('mansection');

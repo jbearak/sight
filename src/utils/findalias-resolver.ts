@@ -163,6 +163,8 @@ export abstract class MaintAliasStore {
     }
 
     private any_cached_file_changed(): boolean {
+        // Check previously contributing files for removal or mtime
+        // changes.
         for (const my_file of this.merged_file_paths) {
             const my_cached = this.file_cache.get(my_file);
             if (!my_cached) return true;
@@ -176,6 +178,27 @@ export abstract class MaintAliasStore {
             }
             if (my_stat.mtimeMs !== my_cached.mtime_ms) {
                 return true;
+            }
+        }
+        // Probe canonical candidate paths for newly created .maint
+        // files that weren't present when the cache was built.
+        const the_known = new Set(this.merged_file_paths);
+        for (const my_dir of this.search_dirs) {
+            for (const my_letter of LETTER_SUBDIRS) {
+                const my_candidate = path.join(
+                    my_dir,
+                    my_letter,
+                    `${my_letter}${this.file_suffix}`
+                );
+                if (the_known.has(my_candidate)) continue;
+                try {
+                    fs.statSync(my_candidate);
+                    // File exists but wasn't in the previous merge —
+                    // a new file appeared on disk.
+                    return true;
+                } catch {
+                    // Still absent, nothing to do.
+                }
             }
         }
         return false;

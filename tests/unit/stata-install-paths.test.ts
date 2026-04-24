@@ -190,31 +190,22 @@ describe('discover_stata_ado_paths', () => {
     });
 
     it('deduplicates candidate paths that resolve to the same absolute path', () => {
-        let the_query_count = 0;
+        const the_unique_queries = new Set<string>();
+        let the_total_queries = 0;
         const the_paths = discover_stata_ado_paths({
             home: '/Users/me',
             platform: 'darwin',
             env: {},
             exists: candidate => {
-                the_query_count++;
+                the_total_queries++;
+                the_unique_queries.add(candidate);
                 return candidate === '/Applications/Stata/ado/base';
             },
         });
         // Only existing path makes it into the result.
         expect(the_paths).toEqual(['/Applications/Stata/ado/base']);
-        // Dedup means each normalized candidate is queried at most once.
-        const the_unique_queries = new Set<string>();
-        // Re-run to count unique queries deterministically.
-        discover_stata_ado_paths({
-            home: '/Users/me',
-            platform: 'darwin',
-            env: {},
-            exists: candidate => {
-                the_unique_queries.add(candidate);
-                return false;
-            },
-        });
+        // Each normalized candidate should be probed at most once.
         expect(the_unique_queries.size).toBeGreaterThan(0);
-        expect(the_query_count).toBeGreaterThan(0);
+        expect(the_total_queries).toBe(the_unique_queries.size);
     });
 });
