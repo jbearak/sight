@@ -268,6 +268,13 @@ export class HoverProvider {
             return { contents: formatted_content, range };
         }
 
+        // Past a top-level comma the word is an option name, which shares
+        // spellings with Stata commands (e.g. `replace`) and functions
+        // (e.g. `sum`). Don't fall through to command/function hover there.
+        if (this.is_after_top_level_comma(document, position)) {
+            return null;
+        }
+
         // Function calls can share text with prefix commands. For example,
         // `mi(bar)` is the `missing()` function, not the `mi` prefix command.
         const expression_function_hover = this.get_expression_function_hover(
@@ -292,6 +299,49 @@ export class HoverProvider {
         }
 
         return null;
+    }
+
+    /**
+     * True when the cursor is past a top-level comma in the current statement,
+     * i.e. in option-argument position. Uses the token stream so commas inside
+     * strings, macro references, and nested parentheses are ignored correctly.
+     */
+    private is_after_top_level_comma(
+        document: DocumentState,
+        position: Position
+    ): boolean {
+        const tokens = document.tokens;
+        if (!tokens || tokens.length === 0) {
+            return false;
+        }
+
+        let paren_depth = 0;
+        let saw_top_level_comma = false;
+
+        for (const token of tokens) {
+            const at_or_past_cursor =
+                token.range.start.line > position.line ||
+                (token.range.start.line === position.line &&
+                 token.range.start.character >= position.character);
+            if (at_or_past_cursor) {
+                break;
+            }
+
+            if (token.type === 'STATEMENT_TERMINATOR') {
+                paren_depth = 0;
+                saw_top_level_comma = false;
+                continue;
+            }
+            if (token.type === 'LPAREN') {
+                paren_depth++;
+            } else if (token.type === 'RPAREN') {
+                if (paren_depth > 0) paren_depth--;
+            } else if (token.type === 'COMMA' && paren_depth === 0) {
+                saw_top_level_comma = true;
+            }
+        }
+
+        return saw_top_level_comma;
     }
 
     /**

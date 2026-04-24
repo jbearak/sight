@@ -221,6 +221,44 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             }
         });
 
+        it('should not show command hover for an option name after a top-level comma', async () => {
+            // `replace` is a Stata command and also a merge option. In option
+            // position the command hover would mislead the user.
+            const my_db = new CommandDatabase();
+            my_db.load_cache({
+                version: 18,
+                commands: {
+                    merge: {
+                        name: 'merge',
+                        min_abbreviation: 5,
+                        options: [
+                            { name: 'replace', min_abbreviation: 3, has_argument: false },
+                        ],
+                        priority: 3,
+                    },
+                    replace: {
+                        name: 'replace',
+                        min_abbreviation: 3,
+                        options: [],
+                        priority: 3,
+                    },
+                },
+                abbreviations: {},
+            });
+            const my_provider = new HoverProvider(my_db, context_tracker);
+
+            const my_content = 'merge 1:1 id using foo, replace';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor inside "replace" (starts at column 24)
+            const my_hover = await my_provider.get_hover(my_doc, { line: 0, character: 26 });
+
+            if (my_hover && typeof my_hover.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).not.toContain('help replace');
+            }
+        });
+
         it('should provide macro hover inside an option argument', async () => {
             const my_content = "regress y x, cluster(`mymacro')";
             const my_doc = create_test_document(my_content, {
