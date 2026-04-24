@@ -36,7 +36,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
     // Cache of `{findalias}` resolutions (alias → SMCL substitution or
     // `null` for misses). Shared across refreshes for a given panel so
     // debounced edits and scroll-sync redraws don't re-query the LSP.
-    private findalias_cache: Map<string, string | null> = new Map();
+    private findalias_cache: Map<string, string> = new Map();
 
     // Scroll sync state
     private scroll_sync_source: 'editor' | 'preview' | null = null;
@@ -204,11 +204,9 @@ export class SmclPreviewPanel implements vscode.Disposable {
         // Pull cached hits up-front so we only query the LSP for misses.
         const the_unresolved: string[] = [];
         for (const my_alias of the_aliases) {
-            if (this.findalias_cache.has(my_alias)) {
-                const my_cached = this.findalias_cache.get(my_alias)!;
-                if (my_cached !== null) {
-                    my_map.set(my_alias, my_cached);
-                }
+            const my_cached = this.findalias_cache.get(my_alias);
+            if (my_cached !== undefined) {
+                my_map.set(my_alias, my_cached);
                 continue;
             }
             the_unresolved.push(my_alias);
@@ -234,10 +232,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
         );
 
         for (const my_result of the_results) {
-            if (!('skip_cache' in my_result)) {
-                this.findalias_cache.set(my_result.alias, my_result.smcl);
-            }
+            // Only cache hits — null misses are intentionally not
+            // cached so that newly installed .maint files are picked
+            // up on the next refresh without reopening the panel.
             if (my_result.smcl !== null) {
+                if (!('skip_cache' in my_result)) {
+                    this.findalias_cache.set(my_result.alias, my_result.smcl);
+                }
                 my_map.set(my_result.alias, my_result.smcl);
             }
         }
