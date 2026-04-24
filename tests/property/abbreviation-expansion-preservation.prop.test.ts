@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { CommandDatabase } from '../../src/command-database';
+import { get_command_priority } from '../../src/command-database/priority-tiers';
 import type {
     CommandCache,
     CommandInfo,
@@ -43,8 +44,10 @@ describe('Abbreviation Expansion Preservation Property Tests', () => {
 
         const the_sorted_commands = Object.values(cache.commands).sort(
             (cmd_a, cmd_b) => {
-                const priority_a = cmd_a.priority ?? 3;
-                const priority_b = cmd_b.priority ?? 3;
+                const priority_a =
+                    cmd_a.priority ?? get_command_priority(cmd_a.name);
+                const priority_b =
+                    cmd_b.priority ?? get_command_priority(cmd_b.name);
                 if (priority_a !== priority_b) {
                     return priority_a - priority_b;
                 }
@@ -60,7 +63,8 @@ describe('Abbreviation Expansion Preservation Property Tests', () => {
 
         for (const my_command of the_sorted_commands) {
             const normalized_name = my_command.name.toLowerCase();
-            const my_priority = my_command.priority ?? 3;
+            const my_priority =
+                my_command.priority ?? get_command_priority(normalized_name);
             const min_len = Math.max(1, my_command.min_abbreviation);
             for (let i = min_len; i < normalized_name.length; i++) {
                 const abbrev = normalized_name.substring(0, i);
@@ -73,7 +77,19 @@ describe('Abbreviation Expansion Preservation Property Tests', () => {
                 }
 
                 const existing_name = resolved_abbreviations[abbrev];
-                const existing_priority = cache.commands[existing_name]?.priority ?? 3;
+                if (
+                    !Object.prototype.hasOwnProperty.call(
+                        cache.commands,
+                        existing_name
+                    )
+                ) {
+                    resolved_abbreviations[abbrev] = normalized_name;
+                    continue;
+                }
+
+                const existing_priority =
+                    cache.commands[existing_name]?.priority
+                    ?? get_command_priority(existing_name);
                 if (my_priority < existing_priority) {
                     resolved_abbreviations[abbrev] = normalized_name;
                 }
@@ -227,12 +243,13 @@ describe('Abbreviation Expansion Preservation Property Tests', () => {
                     my_database.load_cache(cache);
 
                     for (const my_str of the_random_strings) {
-                        const is_command = cache.commands[my_str] !== undefined;
                         const expected_name = compute_expected_lookup(cache, my_str);
                         const result = my_database.lookup_command(my_str);
-
-                        if (!is_command && expected_name === null) {
+                        if (expected_name === null) {
                             expect(result).toBeNull();
+                        } else {
+                            expect(result).not.toBeNull();
+                            expect(result?.name).toBe(expected_name);
                         }
                     }
 

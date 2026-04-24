@@ -74,18 +74,18 @@ describe('CommandDatabase abbreviation priority resolution', () => {
 
     it('direct names win over any abbreviation-table collision for every command', () => {
         const the_failures: string[] = [];
-
-        for (const command_name of Object.keys(cache.commands)) {
-            const lookup_command = database.lookup_command(command_name);
-            const lookup = database.lookup(command_name);
-            const get_command = database.get_command(command_name);
+        for (const my_command_name of Object.keys(cache.commands)) {
+            const lookup_command_result =
+                database.lookup_command(my_command_name);
+            const lookup_result = database.lookup(my_command_name);
+            const get_command_result = database.get_command(my_command_name);
 
             if (
-                lookup_command?.name.toLowerCase() !== command_name
-                || lookup?.name.toLowerCase() !== command_name
-                || get_command?.name.toLowerCase() !== command_name
+                lookup_command_result?.name.toLowerCase() !== my_command_name
+                || lookup_result?.name.toLowerCase() !== my_command_name
+                || get_command_result?.name.toLowerCase() !== my_command_name
             ) {
-                the_failures.push(command_name);
+                the_failures.push(my_command_name);
             }
         }
 
@@ -164,7 +164,7 @@ describe('CommandDatabase abbreviation priority resolution', () => {
         ]);
     });
 
-    it('register_all preserves lookup semantics while recomputing once per batch', () => {
+    it('register_all preserves lookup semantics after batched registration', () => {
         const db = new CommandDatabase();
         db.register_all([
             {
@@ -196,6 +196,33 @@ describe('CommandDatabase abbreviation priority resolution', () => {
         expect(db.lookup('di')?.name).toBe('display');
         expect(db.lookup('dir')?.name).toBe('dir');
         expect(db.lookup('sca')?.name).toBe('scalar');
+    });
+
+    it('same-priority seeded abbreviations preserve curated cache mappings', () => {
+        const db = new CommandDatabase();
+        db.load_cache({
+            version: 18,
+            commands: {
+                alpha: {
+                    name: 'alpha',
+                    min_abbreviation: 1,
+                    options: [],
+                    priority: 3,
+                },
+                alpine: {
+                    name: 'alpine',
+                    min_abbreviation: 1,
+                    options: [],
+                    priority: 3,
+                },
+            },
+            abbreviations: {
+                al: 'alpine',
+            },
+        });
+        expect(db.lookup('al')?.name).toBe('alpine');
+        expect(db.lookup_command('al')?.name).toBe('alpine');
+        expect(db.get_command('al')?.name).toBe('alpine');
     });
 
     it('later low-priority registration does not displace a higher-priority abbreviation winner', () => {

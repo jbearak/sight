@@ -271,8 +271,8 @@ class CommandDatabase {
         if (!this.cache) {
             this.cache = {
                 version: 18,
-                commands: {},
-                abbreviations: {}
+                commands: Object.create(null),
+                abbreviations: Object.create(null)
             };
         }
 
@@ -329,9 +329,10 @@ class CommandDatabase {
      * Rebuilds the collision-aware abbreviation map.
      *
      * Phase 1 seeds from `cache.abbreviations` so hand-curated entries
-     * survive. Phase 2 walks all commands in priority order; a strictly
-     * higher-priority match overrides a seed, so advisory cache mappings
-     * lose to a real stronger candidate but win ties within the same tier.
+     * survive. Phase 2 walks all commands in priority order; a stronger
+     * candidate overrides a seed only on a strict priority win, so curated
+     * cache mappings keep same-tier ties while still losing to a real higher
+     * priority command.
      *
      * Exact command names are never placed in the map because direct
      * lookup precedence handles those. The sort order
@@ -393,7 +394,8 @@ class CommandDatabase {
 
                 const existing_command = this.cache.commands[existing_name];
                 const existing_priority =
-                    existing_command.priority || get_command_priority(existing_command.name);
+                    existing_command.priority
+                    || get_command_priority(existing_command.name);
                 if (my_priority < existing_priority) {
                     this.resolved_abbreviations[abbrev] = normalized_name;
                 }

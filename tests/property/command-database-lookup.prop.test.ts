@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { CommandDatabase } from '../../src/command-database';
+import { get_command_priority } from '../../src/command-database/priority-tiers';
 import type {
     CommandCache,
     CommandInfo,
@@ -25,10 +26,22 @@ describe('Command Database Property Tests', () => {
         }
 
         const exact_command_names = new Set(Object.keys(cache.commands));
+        const resolved_abbreviations: Record<string, string> = Object.create(null);
+
+        for (const [abbrev, full_name] of Object.entries(cache.abbreviations)) {
+            if (exact_command_names.has(abbrev)) {
+                continue;
+            }
+            if (Object.prototype.hasOwnProperty.call(cache.commands, full_name)) {
+                resolved_abbreviations[abbrev] = full_name;
+            }
+        }
         const the_sorted_commands = Object.values(cache.commands).sort(
             (cmd_a, cmd_b) => {
-                const priority_a = cmd_a.priority ?? 3;
-                const priority_b = cmd_b.priority ?? 3;
+                const priority_a =
+                    cmd_a.priority ?? get_command_priority(cmd_a.name);
+                const priority_b =
+                    cmd_b.priority ?? get_command_priority(cmd_b.name);
                 if (priority_a !== priority_b) {
                     return priority_a - priority_b;
                 }
@@ -44,19 +57,46 @@ describe('Command Database Property Tests', () => {
 
         for (const my_command of the_sorted_commands) {
             const normalized_name = my_command.name.toLowerCase();
-            if (normalized.length < Math.max(1, my_command.min_abbreviation)) {
-                continue;
+            const my_priority =
+                my_command.priority ?? get_command_priority(normalized_name);
+            const min_len = Math.max(1, my_command.min_abbreviation);
+            for (let i = min_len; i < normalized_name.length; i++) {
+                const abbrev = normalized_name.substring(0, i);
+                if (exact_command_names.has(abbrev)) {
+                    continue;
+                }
+                if (
+                    !Object.prototype.hasOwnProperty.call(
+                        resolved_abbreviations,
+                        abbrev
+                    )
+                ) {
+                    resolved_abbreviations[abbrev] = normalized_name;
+                    continue;
+                }
+
+                const existing_name = resolved_abbreviations[abbrev];
+                if (
+                    !Object.prototype.hasOwnProperty.call(
+                        cache.commands,
+                        existing_name
+                    )
+                ) {
+                    resolved_abbreviations[abbrev] = normalized_name;
+                    continue;
+                }
+
+                const existing_command = cache.commands[existing_name];
+                const existing_priority =
+                    existing_command.priority
+                    ?? get_command_priority(existing_command.name);
+                if (my_priority < existing_priority) {
+                    resolved_abbreviations[abbrev] = normalized_name;
+                }
             }
-            if (!normalized_name.startsWith(normalized)) {
-                continue;
-            }
-            if (exact_command_names.has(normalized)) {
-                continue;
-            }
-            return my_command.name;
         }
 
-        return null;
+        return resolved_abbreviations[normalized] ?? null;
     }
 
     const option_info_generator: fc.Arbitrary<OptionInfo> = fc.record({
@@ -198,23 +238,13 @@ describe('Command Database Property Tests', () => {
 
                 for (const [abbrev, full_name] of Object.entries(cache.abbreviations)) {
                     const result = my_database.lookup_command(abbrev);
+                    const expected_name = compute_expected_lookup(cache, abbrev);
+                    expect(expected_name).not.toBeNull();
                     expect(result).not.toBeNull();
-                    if (result !== null) {
-                        const abbrev_is_command =
-                            Object.prototype.hasOwnProperty.call(
-                                cache.commands,
-                                abbrev
-                            );
-
-                        if (abbrev_is_command) {
-                            expect(result.name.toLowerCase()).toBe(
-                                abbrev.toLowerCase()
-                            );
-                        } else {
-                            expect(result.name.toLowerCase()).toBe(
-                                full_name.toLowerCase()
-                            );
-                        }
+                    if (result !== null && expected_name !== null) {
+                        expect(result.name.toLowerCase()).toBe(
+                            expected_name.toLowerCase()
+                        );
                     }
                 }
 
