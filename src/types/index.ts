@@ -437,6 +437,13 @@ export interface CommandInfo {
   category: string;
   isBuiltin: boolean;
   priority?: 1 | 2 | 3;
+  /**
+   * Basename (without `.sthlp`) of the help file that documents this
+   * command when it differs from `name`. Populated from the cache so the
+   * `sight/resolveSthlpFile` handler can redirect topics like `local` to
+   * `macro.sthlp`.
+   */
+  helpFile?: string;
 }
 
 export interface OptionInfo {

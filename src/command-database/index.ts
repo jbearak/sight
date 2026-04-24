@@ -285,7 +285,8 @@ class CommandDatabase {
             min_abbreviation: info.minAbbreviation.length,
             options: the_cache_options,
             subcommands: the_cache_subcommands,
-            priority: info.priority || get_command_priority(info.name)
+            priority: info.priority || get_command_priority(info.name),
+            help_file: info.helpFile
         };
         
         this.cache.commands[normalized] = my_command_info;
@@ -351,7 +352,8 @@ class CommandDatabase {
             subcommands: the_provider_subcommands,
             category: 'builtin',
             isBuiltin: true,
-            priority: cmd.priority || get_command_priority(cmd.name)
+            priority: cmd.priority || get_command_priority(cmd.name),
+            helpFile: cmd.help_file
         };
 
         return my_provider_info;

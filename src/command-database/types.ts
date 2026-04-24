@@ -32,6 +32,14 @@ export interface CommandInfo {
     subcommands?: SubcommandInfo[];
     /** Priority tier for completion ordering (1=highest, 3=lowest) */
     priority?: 1 | 2 | 3;
+    /**
+     * Basename (without `.sthlp`) of the help file that actually documents
+     * this command when different from `name`. Used by the
+     * `sight/resolveSthlpFile` handler so topics like `local` resolve to
+     * `macro.sthlp`. Left unset when the help file matches the command
+     * name to keep the cache compact.
+     */
+    help_file?: string;
 }
 
 export interface CommandCache {

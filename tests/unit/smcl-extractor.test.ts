@@ -757,6 +757,78 @@ describe('SMCL Command Extractor - Source File Tracking', () => {
     });
 });
 
+// ============================================================================
+// Tests for Provenance Flags Used by the Cache Generator
+// ============================================================================
+
+describe('SMCL Command Extractor - Provenance Flags', () => {
+    test('macro.sthlp marks local and global with has_viewerdialog=true', () => {
+        const result = extract_commands_from_content(
+            MACRO_STHLP_MOCK,
+            'macro.sthlp'
+        );
+
+        const my_local = result.commands.find(c => c.name === 'local');
+        const my_global = result.commands.find(c => c.name === 'global');
+        const my_tempvar = result.commands.find(c => c.name === 'tempvar');
+        expect(my_local?.has_viewerdialog).toBe(true);
+        expect(my_global?.has_viewerdialog).toBe(true);
+        expect(my_tempvar?.has_viewerdialog).toBe(true);
+    });
+
+    test('generate.sthlp marks replace with has_viewerdialog=true', () => {
+        const result = extract_commands_from_content(
+            GENERATE_STHLP_MOCK,
+            'generate.sthlp'
+        );
+
+        const my_replace = result.commands.find(c => c.name === 'replace');
+        expect(my_replace?.has_viewerdialog).toBe(true);
+    });
+
+    test('macro.sthlp marks cmdab commands as paragraph leads', () => {
+        const result = extract_commands_from_content(
+            MACRO_STHLP_MOCK,
+            'macro.sthlp'
+        );
+
+        const my_local = result.commands.find(c => c.name === 'local');
+        const my_global = result.commands.find(c => c.name === 'global');
+        const my_tempvar = result.commands.find(c => c.name === 'tempvar');
+        expect(my_local?.is_paragraph_lead).toBe(true);
+        expect(my_global?.is_paragraph_lead).toBe(true);
+        expect(my_tempvar?.is_paragraph_lead).toBe(true);
+    });
+
+    test('char-style inline {cmdab} is NOT marked as paragraph lead', () => {
+        // `{c -(}{cmdab:loc:al} | {cmdab:gl:obal}{c )-}` — the command
+        // appears inside an alternation, not at the paragraph start.
+        const CHAR_STYLE_INLINE_MOCK = [
+            '{smcl}',
+            '{p2col:{bf:[P] char} {hline 2}}Characteristics{p_end}',
+            '',
+            '{marker syntax}{...}',
+            '{title:Syntax}',
+            '',
+            '{p 8 25 2}{c -(}{cmdab:loc:al} | {cmdab:gl:obal}{c )-} {it:mname}'
+        ].join('\n');
+
+        const result = extract_commands_from_content(
+            CHAR_STYLE_INLINE_MOCK,
+            'char.sthlp'
+        );
+
+        const my_local = result.commands.find(c => c.name === 'local');
+        const my_global = result.commands.find(c => c.name === 'global');
+        // The extractor still picks them up (they're real cmdab tags),
+        // but they shouldn't be flagged as paragraph leads — that's the
+        // signal the cache generator uses to avoid writing
+        // `help_file: 'char'` for the `local` command.
+        expect(my_local?.is_paragraph_lead).toBe(false);
+        expect(my_global?.is_paragraph_lead).toBe(false);
+    });
+});
+
 
 // ============================================================================
 // Mock SMCL Content for Integration Tests

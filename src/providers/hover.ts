@@ -56,7 +56,7 @@ import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
 
-const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
+export const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
     'byte',
     'date',
     'daily',
@@ -86,7 +86,7 @@ const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
     'yearly',
 ]);
 
-const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
+export const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
     ['mi', 'missing'],
 ]);
 

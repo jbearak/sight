@@ -900,11 +900,9 @@ export function create_resolve_sthlp_file_handler(
             return { file_path: my_direct };
         }
 
-        // 2. Try expanding the first word of the topic via Stata's
-        //    abbreviation conventions (e.g. `reg` → `regress`, `di`
-        //    → `display` or `dir`, `gen` → `generate`), preserving
-        //    any trailing words so `reg postestimation` resolves via
-        //    `regress_postestimation.sthlp`.
+        // Split the topic into head (first word) + tail so we can work
+        // with the subcommand shape (`frame create`, `macro dir`, ...)
+        // the same way across all fallbacks below.
         const my_first_space = my_topic.search(/\s/);
         const my_head = my_first_space === -1
             ? my_topic
@@ -915,7 +913,47 @@ export function create_resolve_sthlp_file_handler(
         if (my_head.length === 0) {
             return { file_path: null };
         }
+        const my_head_lower = my_head.toLowerCase();
 
+        // 2. Redirect via `helpFile` when the command database knows the
+        //    canonical help page lives elsewhere (e.g. `local` →
+        //    `macro.sthlp`, `replace` → `generate.sthlp`). We try the
+        //    redirected topic both with the original tail (so
+        //    `replace postestimation`-style topics still work if they
+        //    ever exist) and — for multi-word topics — without the
+        //    tail, which handles subcommand links like `macro dir`
+        //    whose help lives inside the parent file.
+        const my_head_lookup = command_database.lookup(my_head);
+        if (my_head_lookup?.helpFile && my_head_lookup.helpFile.toLowerCase() !== my_head_lower) {
+            const my_redirected = await my_indexer.resolve_sthlp_file(
+                my_head_lookup.helpFile + my_tail
+            );
+            if (my_redirected) {
+                return { file_path: my_redirected };
+            }
+            if (my_tail.length > 0) {
+                const my_parent_only = await my_indexer.resolve_sthlp_file(
+                    my_head_lookup.helpFile
+                );
+                if (my_parent_only) {
+                    return { file_path: my_parent_only };
+                }
+            }
+        } else if (my_tail.length > 0 && my_head_lookup) {
+            // Subcommands (`macro dir`, `frame drop`) that aren't backed
+            // by a dedicated `<head>_<sub>.sthlp` should still open the
+            // parent's help page rather than surfacing "not found".
+            const my_parent_only = await my_indexer.resolve_sthlp_file(my_head);
+            if (my_parent_only) {
+                return { file_path: my_parent_only };
+            }
+        }
+
+        // 3. Try expanding the first word of the topic via Stata's
+        //    abbreviation conventions (e.g. `reg` → `regress`, `di`
+        //    → `display` or `dir`, `gen` → `generate`), preserving
+        //    any trailing words so `reg postestimation` resolves via
+        //    `regress_postestimation.sthlp`.
         // Gather candidate expansions in preference order. Stata's
         // command-database cache marks more commonly-used commands
         // with a lower `priority` value (1 = Tier 1 / most common),
@@ -924,27 +962,25 @@ export function create_resolve_sthlp_file_handler(
         // command, e.g. `regress` over `regression`). The cache's
         // explicit abbreviations map (`lookup`) is tried first as a
         // published short form.
-        interface Candidate { name: string; priority: number; }
+        interface Candidate { name: string; priority: number; help_file?: string; }
         const the_tried = new Set<string>();
         const the_candidates: Candidate[] = [];
-        const my_head_lower = my_head.toLowerCase();
-        const add_candidate = (name: string, priority: number | undefined): void => {
+        const add_candidate = (name: string, priority: number | undefined, help_file?: string): void => {
             const my_normalized = name.toLowerCase();
             if (my_normalized === my_head_lower) return;
             if (the_tried.has(my_normalized)) return;
             the_tried.add(my_normalized);
-            the_candidates.push({ name, priority: priority ?? 99 });
+            the_candidates.push({ name, priority: priority ?? 99, help_file });
         };
 
-        const my_lookup = command_database.lookup(my_head);
-        if (my_lookup) {
-            add_candidate(my_lookup.name, my_lookup.priority);
+        if (my_head_lookup) {
+            add_candidate(my_head_lookup.name, my_head_lookup.priority, my_head_lookup.helpFile);
         }
         for (const my_match of command_database.expand_abbreviation(my_head)) {
-            add_candidate(my_match.name, my_match.priority);
+            add_candidate(my_match.name, my_match.priority, my_match.helpFile);
         }
         for (const my_match of command_database.search(my_head)) {
-            add_candidate(my_match.name, my_match.priority);
+            add_candidate(my_match.name, my_match.priority, my_match.helpFile);
         }
 
         // Sort by priority ascending (1 = Tier 1 / most common), then
@@ -963,6 +999,27 @@ export function create_resolve_sthlp_file_handler(
             );
             if (my_resolved) {
                 return { file_path: my_resolved };
+            }
+            // If the expanded command itself has a help_file redirect
+            // (e.g. `loc` → `local` → `macro`), follow it.
+            if (
+                my_candidate.help_file
+                && my_candidate.help_file.toLowerCase() !== my_candidate.name.toLowerCase()
+            ) {
+                const my_redirected = await my_indexer.resolve_sthlp_file(
+                    my_candidate.help_file + my_tail
+                );
+                if (my_redirected) {
+                    return { file_path: my_redirected };
+                }
+                if (my_tail.length > 0) {
+                    const my_parent_only = await my_indexer.resolve_sthlp_file(
+                        my_candidate.help_file
+                    );
+                    if (my_parent_only) {
+                        return { file_path: my_parent_only };
+                    }
+                }
             }
         }
         return { file_path: null };
