@@ -45,9 +45,9 @@ describe('Abbreviation Expansion Preservation Property Tests', () => {
         const the_sorted_commands = Object.values(cache.commands).sort(
             (cmd_a, cmd_b) => {
                 const priority_a =
-                    cmd_a.priority ?? get_command_priority(cmd_a.name);
+                    cmd_a.priority || get_command_priority(cmd_a.name);
                 const priority_b =
-                    cmd_b.priority ?? get_command_priority(cmd_b.name);
+                    cmd_b.priority || get_command_priority(cmd_b.name);
                 if (priority_a !== priority_b) {
                     return priority_a - priority_b;
                 }
@@ -64,7 +64,7 @@ describe('Abbreviation Expansion Preservation Property Tests', () => {
         for (const my_command of the_sorted_commands) {
             const normalized_name = my_command.name.toLowerCase();
             const my_priority =
-                my_command.priority ?? get_command_priority(normalized_name);
+                my_command.priority || get_command_priority(normalized_name);
             const min_len = Math.max(1, my_command.min_abbreviation);
             for (let i = min_len; i < normalized_name.length; i++) {
                 const abbrev = normalized_name.substring(0, i);
@@ -88,8 +88,8 @@ describe('Abbreviation Expansion Preservation Property Tests', () => {
                 }
 
                 const existing_priority =
-                    cache.commands[existing_name]?.priority
-                    ?? get_command_priority(existing_name);
+                    cache.commands[existing_name].priority
+                    || get_command_priority(existing_name);
                 if (my_priority < existing_priority) {
                     resolved_abbreviations[abbrev] = normalized_name;
                 }
