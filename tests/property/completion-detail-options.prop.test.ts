@@ -65,6 +65,20 @@ function create_test_command_db(): CommandDatabase {
         options: [],
         category: 'programming',
         isBuiltin: true,
+        priority: 1,
+    });
+
+    // Lower-priority colliding command used to verify abbreviation resolution
+    db.register({
+        name: 'dir',
+        minAbbreviation: 'd',
+        syntax: 'dir [, wide]',
+        options: [
+            { name: 'wide', minAbbreviation: 'wide', hasArgument: false },
+        ],
+        category: 'programming',
+        isBuiltin: true,
+        priority: 3,
     });
     
     return db;
@@ -115,6 +129,40 @@ describe('Completion Detail Options Tests', () => {
         if (my_display_completion!.detail) {
             expect(my_display_completion!.detail.startsWith('Options:')).toBe(false);
         }
+    });
+
+    it('abbreviated command names should resolve option completions via the precedence-aware lookup', async () => {
+        const my_local_db = new CommandDatabase();
+        my_local_db.register({
+            name: 'display',
+            minAbbreviation: 'di',
+            syntax: 'display ...',
+            options: [
+                { name: 'newline', minAbbreviation: 'newline', hasArgument: true },
+            ],
+            category: 'programming',
+            isBuiltin: true,
+            priority: 1,
+        });
+        my_local_db.register({
+            name: 'dir',
+            minAbbreviation: 'd',
+            syntax: 'dir [, wide]',
+            options: [
+                { name: 'wide', minAbbreviation: 'wide', hasArgument: false },
+            ],
+            category: 'programming',
+            isBuiltin: true,
+            priority: 3,
+        });
+        const my_local_provider = new CompletionProvider(my_local_db, { snippet_support: false });
+
+        const my_document = create_test_document('di, n');
+        const my_position = { line: 0, character: 5 };
+        const my_completions = await my_local_provider.get_completions(my_document, my_position);
+
+        expect(my_completions.some(c => c.label === 'newline')).toBe(true);
+        expect(my_completions.some(c => c.label === 'wide')).toBe(false);
     });
 
     it('no completion detail contains SMCL tags', async () => {
