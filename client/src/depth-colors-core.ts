@@ -153,40 +153,49 @@ export function mergeDepthColors(
     const dark_rules = buildDepthColorRules(DARK_STRING_COLORS, DARK_MACRO_COLORS);
     const light_rules = buildDepthColorRules(LIGHT_STRING_COLORS, LIGHT_MACRO_COLORS);
 
-    // Merge dark theme rules. Sight defaults go first so that any existing
-    // user rule on the same scope appears later in the array. VS Code's
-    // published theming guide resolves conflicts by scope specificity rather
-    // than array position, but empirically a later rule at equal specificity
-    // wins; this ordering gives user edits the best chance to override
-    // Sight's defaults.
+    // When a section already has a rule on a Sight depth scope (a preserved
+    // user edit that removeSightOwnedDepthRules kept), skip our default for
+    // that exact scope. Avoids writing two rules on the same scope, which
+    // would rely on undocumented VS Code tie-breaking.
+    const skip_covered_defaults = (
+        default_rules: TextMateRule[],
+        existing_rules: TextMateRule[] | undefined
+    ): TextMateRule[] => {
+        if (!existing_rules || existing_rules.length === 0) {
+            return default_rules;
+        }
+        const the_covered_scopes = new Set(existing_rules.map(my_rule => my_rule.scope));
+        return default_rules.filter(my_rule => !the_covered_scopes.has(my_rule.scope));
+    };
+
+    // Merge dark theme rules.
     const existing_dark = result['[*Dark*]'] as ThemeTokenColorCustomizations | undefined;
     result['[*Dark*]'] = {
         ...existing_dark,
         textMateRules: [
-            ...dark_rules,
             ...(existing_dark?.textMateRules || []),
+            ...skip_covered_defaults(dark_rules, existing_dark?.textMateRules),
         ]
     };
 
-    // Merge light theme rules (same ordering rationale as dark).
+    // Merge light theme rules.
     const existing_light = result['[*Light*]'] as ThemeTokenColorCustomizations | undefined;
     result['[*Light*]'] = {
         ...existing_light,
         textMateRules: [
-            ...light_rules,
             ...(existing_light?.textMateRules || []),
+            ...skip_covered_defaults(light_rules, existing_light?.textMateRules),
         ]
     };
 
     // Add universal fallback rules to top-level textMateRules (applies to ALL themes).
-    // This is the key fix: top-level textMateRules work for themes that don't match
-    // [*Dark*] or [*Light*] patterns (e.g., "Monokai", "Dracula", "Nord"). Sight
-    // defaults go first here too, so user rules on the same scope override them.
+    // Top-level textMateRules work for themes that don't match [*Dark*] or [*Light*]
+    // patterns (e.g., "Monokai", "Dracula", "Nord").
     if (universal_rules && universal_rules.length > 0) {
         const existing_top_level = result.textMateRules || [];
         result.textMateRules = [
-            ...universal_rules,
             ...existing_top_level,
+            ...skip_covered_defaults(universal_rules, existing_top_level),
         ];
     }
 

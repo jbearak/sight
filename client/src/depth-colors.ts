@@ -274,15 +274,16 @@ export async function updateUniversalFallbackColors(
             ? current.textMateRules.filter(my_rule => !isSightOwnedDepthRule(my_rule))
             : [];
 
-        // Add new rules based on current theme. Build a new object rather
-        // than mutating the value returned by config.get(). Sight defaults
-        // go first so any preserved user rule on the same scope appears
-        // later in the array; empirically, VS Code resolves equal-specificity
-        // ties in favor of the later rule, giving user edits precedence.
-        const new_rules = buildUniversalDepthColorRules();
+        // Add new rules based on current theme, skipping any scope already
+        // covered by a preserved user rule. Build a new object rather than
+        // mutating the value returned by config.get().
+        const the_covered_scopes = new Set(filtered_rules.map(my_rule => my_rule.scope));
+        const new_rules = buildUniversalDepthColorRules().filter(
+            my_rule => !the_covered_scopes.has(my_rule.scope)
+        );
         const updated: TokenColorCustomizations = {
             ...current,
-            textMateRules: [...new_rules, ...filtered_rules],
+            textMateRules: [...filtered_rules, ...new_rules],
         };
 
         await config.update(
