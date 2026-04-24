@@ -206,52 +206,90 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private async resolve_findalias_map(
         content: string
     ): Promise<Map<string, string>> {
-        const the_aliases = collect_findalias_names(content);
         const my_map = new Map<string, string>();
-        if (the_aliases.size === 0) return my_map;
-
         const my_client = this.get_client();
-        // Pull cached hits up-front so we only query the LSP for misses.
-        const the_unresolved: string[] = [];
-        for (const my_alias of the_aliases) {
-            const my_cached = this.findalias_cache.get(my_alias);
-            if (my_cached !== undefined) {
-                my_map.set(my_alias, my_cached);
-                continue;
-            }
-            the_unresolved.push(my_alias);
-        }
 
-        if (the_unresolved.length === 0 || !my_client) {
-            return my_map;
-        }
+        // Resolve transitively: an alias's SMCL substitution may
+        // itself contain `{findalias X}`, so we iterate until no new
+        // aliases are discovered. A depth cap prevents runaway loops
+        // from circular alias chains.
+        const MAX_RESOLVE_ROUNDS = 5;
+        // Seed the first round with aliases found in the source.
+        let the_pending = collect_findalias_names(content);
+        // Track every alias we've already attempted (hit or miss) so
+        // we never re-request the same alias in a later round.
+        const the_seen = new Set<string>();
 
-        const the_results = await Promise.all(
-            the_unresolved.map(async (my_alias) => {
-                try {
-                    const my_response = await my_client.sendRequest<{
-                        smcl: string | null;
-                    }>('sight/resolveFindalias', { alias: my_alias });
-                    return { alias: my_alias, smcl: my_response?.smcl ?? null };
-                } catch {
-                    // Server unavailable / handler unregistered: treat
-                    // like a miss. Don't cache so we retry next refresh.
-                    return { alias: my_alias, smcl: null, skip_cache: true };
+        for (
+            let my_round = 0;
+            my_round < MAX_RESOLVE_ROUNDS && the_pending.size > 0;
+            my_round++
+        ) {
+            const the_unresolved: string[] = [];
+            for (const my_alias of the_pending) {
+                if (the_seen.has(my_alias)) continue;
+                the_seen.add(my_alias);
+                const my_cached = this.findalias_cache.get(my_alias);
+                if (my_cached !== undefined) {
+                    my_map.set(my_alias, my_cached);
+                    continue;
                 }
-            })
-        );
-
-        for (const my_result of the_results) {
-            // Only cache hits — null misses are intentionally not
-            // cached so that newly installed .maint files are picked
-            // up on the next refresh without reopening the panel.
-            if (my_result.smcl !== null) {
-                if (!('skip_cache' in my_result)) {
-                    this.findalias_cache.set(my_result.alias, my_result.smcl);
-                }
-                my_map.set(my_result.alias, my_result.smcl);
+                the_unresolved.push(my_alias);
             }
+
+            if (the_unresolved.length === 0 || !my_client) break;
+
+            const the_results = await Promise.all(
+                the_unresolved.map(async (my_alias) => {
+                    try {
+                        const my_response = await my_client.sendRequest<{
+                            smcl: string | null;
+                        }>('sight/resolveFindalias', { alias: my_alias });
+                        return {
+                            alias: my_alias,
+                            smcl: my_response?.smcl ?? null
+                        };
+                    } catch {
+                        // Server unavailable / handler unregistered:
+                        // treat like a miss. Don't cache so we retry
+                        // next refresh.
+                        return {
+                            alias: my_alias,
+                            smcl: null,
+                            skip_cache: true
+                        };
+                    }
+                })
+            );
+
+            // Collect newly resolved SMCL so we can scan it for
+            // nested aliases.
+            const the_new_smcl: string[] = [];
+            for (const my_result of the_results) {
+                if (my_result.smcl !== null) {
+                    if (!('skip_cache' in my_result)) {
+                        this.findalias_cache.set(
+                            my_result.alias,
+                            my_result.smcl
+                        );
+                    }
+                    my_map.set(my_result.alias, my_result.smcl);
+                    the_new_smcl.push(my_result.smcl);
+                }
+            }
+
+            // Scan newly resolved SMCL for transitive aliases.
+            const the_next = new Set<string>();
+            for (const my_smcl of the_new_smcl) {
+                for (const my_alias of collect_findalias_names(my_smcl)) {
+                    if (!the_seen.has(my_alias)) {
+                        the_next.add(my_alias);
+                    }
+                }
+            }
+            the_pending = the_next;
         }
+
         return my_map;
     }
 
