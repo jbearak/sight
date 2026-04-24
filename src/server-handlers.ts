@@ -943,7 +943,11 @@ export function create_resolve_sthlp_file_handler(
             // Subcommands (`macro dir`, `frame drop`) that aren't backed
             // by a dedicated `<head>_<sub>.sthlp` should still open the
             // parent's help page rather than surfacing "not found".
-            const my_parent_only = await my_indexer.resolve_sthlp_file(my_head);
+            // Use the expanded name so abbreviated heads like `mac dir`
+            // or `fr drop` resolve to `macro.sthlp` / `frame.sthlp`.
+            const my_parent_only = await my_indexer.resolve_sthlp_file(
+                my_head_lookup.name
+            );
             if (my_parent_only) {
                 return { file_path: my_parent_only };
             }

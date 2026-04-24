@@ -33,9 +33,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private get_client: () => LanguageClient | null;
     private disposed = false;
 
-    // Cache of `{findalias}` resolutions (alias → SMCL substitution or
-    // `null` for misses). Shared across refreshes for a given panel so
-    // debounced edits and scroll-sync redraws don't re-query the LSP.
+    // Monotonically increasing token so that a slow older refresh
+    // cannot overwrite HTML produced by a newer one.
+    private refresh_seq = 0;
+
+    // Cache of `{findalias}` resolutions (alias → SMCL substitution).
+    // Only hits are cached; misses re-query the LSP on each refresh so
+    // newly installed .maint files are detected without reopening.
     private findalias_cache: Map<string, string> = new Map();
 
     // Scroll sync state
@@ -156,11 +160,17 @@ export class SmclPreviewPanel implements vscode.Disposable {
         const my_content = this.read_content();
         if (my_content === null) return;
 
+        // Capture a token before any async work. If a newer refresh
+        // starts while we're awaiting LSP responses, it will bump the
+        // sequence and we'll discard our stale result.
+        const my_token = ++this.refresh_seq;
+
         const my_findalias_map = await this.resolve_findalias_map(my_content);
 
-        // If the panel was disposed while we were awaiting LSP
-        // responses, bail out rather than writing to a dead webview.
-        if (this.disposed) return;
+        // If the panel was disposed or a newer refresh has started
+        // while we were awaiting, bail out to avoid overwriting
+        // fresher content with stale HTML.
+        if (this.disposed || my_token !== this.refresh_seq) return;
 
         const my_result = smcl_to_html(my_content, {
             findalias_map: my_findalias_map,
