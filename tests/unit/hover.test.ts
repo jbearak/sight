@@ -166,6 +166,30 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             }
         });
 
+        it('should provide macro hover inside an option argument', async () => {
+            const my_content = "regress y x, cluster(`mymacro')";
+            const my_doc = create_test_document(my_content, {
+                localMacros: new Map([
+                    ['mymacro', {
+                        name: 'mymacro',
+                        sourceUri: 'file:///test.do',
+                        value: 'id',
+                        type: 'local',
+                    }],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "mymacro" at column 23
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 23 });
+
+            expect(my_hover).not.toBeNull();
+            expect(my_hover?.contents).toBeDefined();
+            if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).toContain('Local Macro');
+            }
+        });
+
         it(
             'should resolve mi() expression hover to missing, not the mi prefix command',
             async () => {

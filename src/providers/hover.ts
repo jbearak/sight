@@ -231,18 +231,6 @@ export class HoverProvider {
             );
         }
 
-        // Check if we're in option context BEFORE checking for commands
-        const option_context = this.is_in_option_context(document, position);
-        if (option_context.in_option_context) {
-            // Try to get option hover
-            const option_hover = this.get_option_hover(option_context.command_name, word);
-            if (option_hover) {
-                return { contents: option_hover, range };
-            }
-            // Don't fall through to command lookup
-            return null;
-        }
-
         // Check for block delimiter hover (works in any context)
         const delimiter_hover = this.get_block_delimiter_hover(word, my_context, document, position);
         if (delimiter_hover) {
@@ -1363,96 +1351,6 @@ export class HoverProvider {
             }
         }
 
-        return null;
-    }
-
-    /**
-     * Check if a position is in option context (after a comma).
-     */
-    private is_in_option_context(
-        document: DocumentState,
-        position: Position
-    ): { in_option_context: boolean; command_name: string | null } {
-        const line = get_line_text(document, position.line);
-        if (line === '') {
-            return { in_option_context: false, command_name: null };
-        }
-        const text_before_cursor = line.substring(0, position.character);
-
-        // Find last comma not inside quotes or parentheses
-        let last_comma_pos = -1;
-        let in_quotes = false;
-        let paren_depth = 0;
-        let quote_char = '';
-
-        for (let i = 0; i < text_before_cursor.length; i++) {
-            const char = text_before_cursor[i];
-
-            if (!in_quotes) {
-                if (char === '"' || char === "'") {
-                    in_quotes = true;
-                    quote_char = char;
-                } else if (char === '(') {
-                    paren_depth++;
-                } else if (char === ')') {
-                    paren_depth--;
-                } else if (char === ',' && paren_depth === 0) {
-                    last_comma_pos = i;
-                }
-            } else {
-                if (char === quote_char) {
-                    in_quotes = false;
-                    quote_char = '';
-                }
-            }
-        }
-
-        if (last_comma_pos >= 0) {
-            const text_before_comma = text_before_cursor.substring(0, last_comma_pos);
-            const command_name = this.extract_command_name(text_before_comma);
-            return { in_option_context: true, command_name };
-        }
-
-        return { in_option_context: false, command_name: null };
-    }
-
-    /**
-     * Extract command name from text, handling prefixes and abbreviations.
-     */
-    private extract_command_name(text: string): string | null {
-        const trimmed = text.trim();
-        if (!trimmed) return null;
-
-        // Split into tokens
-        const tokens = trimmed.split(/\s+/);
-        if (tokens.length === 0) return null;
-
-        // Handle prefix commands
-        const prefixes = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'];
-        let command_index = 0;
-
-        // Skip prefix commands
-        while (command_index < tokens.length && prefixes.includes(tokens[command_index].toLowerCase())) {
-            command_index++;
-        }
-
-        if (command_index >= tokens.length) return null;
-
-        let command_name = tokens[command_index];
-
-        // Handle colon syntax (e.g., "merge 1:m" -> "merge")
-        if (command_name.includes(':')) {
-            command_name = command_name.split(':')[0];
-        }
-
-        return command_name;
-    }
-
-    /**
-     * Get hover information for an option.
-     */
-    private get_option_hover(command_name: string | null, option_name: string): MarkupContent | null {
-        // Don't show hover for options
         return null;
     }
 
