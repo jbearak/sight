@@ -292,6 +292,7 @@ describe('Configuration Schema Completeness Property Tests', () => {
             (key) => !key.startsWith('sight.sendToStata.')
                 && !key.startsWith('sight.personalAdoDir')
                 && !key.startsWith('sight.dataBrowser.')
+                && !key.startsWith('sight.depthColors.')
         );
         const setting_arb = fc.constantFrom(...the_setting_keys);
 

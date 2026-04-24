@@ -153,35 +153,133 @@ export function mergeDepthColors(
     const dark_rules = buildDepthColorRules(DARK_STRING_COLORS, DARK_MACRO_COLORS);
     const light_rules = buildDepthColorRules(LIGHT_STRING_COLORS, LIGHT_MACRO_COLORS);
 
-    // Merge dark theme rules
+    // When a section already has a rule on a Sight depth scope (a preserved
+    // user edit that removeSightOwnedDepthRules kept), skip our default for
+    // that exact scope. Avoids writing two rules on the same scope, which
+    // would rely on undocumented VS Code tie-breaking.
+    const skip_covered_defaults = (
+        default_rules: TextMateRule[],
+        existing_rules: TextMateRule[] | undefined
+    ): TextMateRule[] => {
+        if (!existing_rules || existing_rules.length === 0) {
+            return default_rules;
+        }
+        const the_covered_scopes = new Set(existing_rules.map(my_rule => my_rule.scope));
+        return default_rules.filter(my_rule => !the_covered_scopes.has(my_rule.scope));
+    };
+
+    // Merge dark theme rules.
     const existing_dark = result['[*Dark*]'] as ThemeTokenColorCustomizations | undefined;
     result['[*Dark*]'] = {
         ...existing_dark,
         textMateRules: [
             ...(existing_dark?.textMateRules || []),
-            ...dark_rules
+            ...skip_covered_defaults(dark_rules, existing_dark?.textMateRules),
         ]
     };
 
-    // Merge light theme rules
+    // Merge light theme rules.
     const existing_light = result['[*Light*]'] as ThemeTokenColorCustomizations | undefined;
     result['[*Light*]'] = {
         ...existing_light,
         textMateRules: [
             ...(existing_light?.textMateRules || []),
-            ...light_rules
+            ...skip_covered_defaults(light_rules, existing_light?.textMateRules),
         ]
     };
 
-    // Add universal fallback rules to top-level textMateRules (applies to ALL themes)
-    // This is the key fix: top-level textMateRules work for themes that don't match
-    // [*Dark*] or [*Light*] patterns (e.g., "Monokai", "Dracula", "Nord")
+    // Add universal fallback rules to top-level textMateRules (applies to ALL themes).
+    // Top-level textMateRules work for themes that don't match [*Dark*] or [*Light*]
+    // patterns (e.g., "Monokai", "Dracula", "Nord").
     if (universal_rules && universal_rules.length > 0) {
         const existing_top_level = result.textMateRules || [];
         result.textMateRules = [
             ...existing_top_level,
-            ...universal_rules
+            ...skip_covered_defaults(universal_rules, existing_top_level),
         ];
+    }
+
+    return result;
+}
+
+/**
+ * Hex values (uppercased) from the four hard-coded palettes.
+ * Used to identify rules Sight wrote on activation so we can remove them
+ * cleanly when the user disables depth coloring, without touching
+ * rules a user may have hand-edited on the same scopes.
+ */
+export const PALETTE_HEX_VALUES: Set<string> = new Set([
+    ...DARK_STRING_COLORS,
+    ...DARK_MACRO_COLORS,
+    ...LIGHT_STRING_COLORS,
+    ...LIGHT_MACRO_COLORS,
+].map(my_hex => my_hex.toUpperCase()));
+
+/**
+ * True iff a rule targets a Sight depth scope AND its foreground hex
+ * belongs to one of the four hard-coded palettes. Hex comparison is
+ * case-insensitive. A user-customized color on a depth scope is NOT
+ * Sight-owned.
+ */
+export function isSightOwnedDepthRule(rule: TextMateRule): boolean {
+    if (!isDepthColorRule(rule)) {
+        return false;
+    }
+    const the_hex = rule.settings.foreground;
+    if (!the_hex) {
+        return false;
+    }
+    return PALETTE_HEX_VALUES.has(the_hex.toUpperCase());
+}
+
+/**
+ * Returns a shallow copy of the input with Sight-owned depth rules removed
+ * from [*Dark*], [*Light*], and top-level textMateRules. Hand-edited rules
+ * on depth scopes (i.e., rules whose foreground is not in PALETTE_HEX_VALUES)
+ * are preserved. Does not mutate the input.
+ *
+ * The three sections listed above are exhaustive of where mergeDepthColors
+ * writes rules. If a future write path starts touching another section
+ * (e.g., `[*]` or a theme-specific key), update this filter in lockstep.
+ */
+export function removeSightOwnedDepthRules(
+    customizations: TokenColorCustomizations | undefined
+): TokenColorCustomizations {
+    if (!customizations) {
+        return {};
+    }
+
+    const result: TokenColorCustomizations = { ...customizations };
+
+    const filter_section = (
+        section: ThemeTokenColorCustomizations | undefined
+    ): ThemeTokenColorCustomizations | undefined => {
+        if (!section) return section;
+        if (!section.textMateRules) return { ...section };
+        return {
+            ...section,
+            textMateRules: section.textMateRules.filter(
+                my_rule => !isSightOwnedDepthRule(my_rule)
+            ),
+        };
+    };
+
+    const existing_dark = result['[*Dark*]'] as
+        ThemeTokenColorCustomizations | undefined;
+    if (existing_dark !== undefined) {
+        result['[*Dark*]'] = filter_section(existing_dark);
+    }
+
+    const existing_light = result['[*Light*]'] as
+        ThemeTokenColorCustomizations | undefined;
+    if (existing_light !== undefined) {
+        result['[*Light*]'] = filter_section(existing_light);
+    }
+
+    if (result.textMateRules) {
+        result.textMateRules = result.textMateRules.filter(
+            my_rule => !isSightOwnedDepthRule(my_rule)
+        );
     }
 
     return result;

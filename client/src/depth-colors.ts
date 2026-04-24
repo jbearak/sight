@@ -5,8 +5,9 @@ import {
     mergeDepthColors,
     buildDepthColorRules,
     isDepthColorRule,
+    isSightOwnedDepthRule,
+    removeSightOwnedDepthRules,
     TokenColorCustomizations,
-    ThemeTokenColorCustomizations,
     TextMateRule,
     DARK_STRING_COLORS,
     DARK_MACRO_COLORS,
@@ -23,7 +24,8 @@ export {
     hasDepthColorRules,
     buildDepthColorRules,
     mergeDepthColors,
-    isDepthColorRule
+    isDepthColorRule,
+    removeSightOwnedDepthRules
 } from './depth-colors-core';
 
 /**
@@ -83,12 +85,23 @@ function hasTopLevelDepthColorRules(customizations: TokenColorCustomizations | u
 }
 
 /**
+ * True iff the user has enabled Sight's depth coloring of nested strings
+ * and local macros. Default: true (preserves historical behavior on
+ * upgrade). Read synchronously from the workspace configuration.
+ */
+export function isDepthColorsEnabled(): boolean {
+    return vscode.workspace
+        .getConfiguration('sight')
+        .get<boolean>('depthColors.enabled', true);
+}
+
+/**
  * Configure depth colors in user settings if not already present.
- * 
+ *
  * This function checks if depth color rules actually exist in user settings,
  * and adds them if missing. This ensures colors are always configured,
  * even if the user's settings were reset or the extension was reinstalled.
- * 
+ *
  * It also ensures the top-level textMateRules has rules for themes that don't
  * match [*Dark*] or [*Light*] patterns.
  */
@@ -104,6 +117,10 @@ export async function configureDepthColors(
     };
 
     try {
+        if (!isDepthColorsEnabled()) {
+            log('Depth colors disabled via sight.depthColors.enabled, skipping');
+            return;
+        }
         const config = vscode.workspace.getConfiguration('editor');
         const current_customizations = config.get<TokenColorCustomizations>('tokenColorCustomizations');
         log(`Current customizations: ${JSON.stringify(current_customizations)}`);
@@ -171,50 +188,33 @@ export async function resetDepthColors(
     };
 
     log('Resetting depth colors configuration...');
-    
-    // Remove existing depth color rules from user settings
+
+    // Clean Sight-owned rules and re-apply defaults in a single write.
+    // We cannot route through configureDepthColors here: it returns early
+    // whenever any depth rule remains, including the user's preserved
+    // hand-edited rules, which would leave the config without defaults.
     try {
+        if (!isDepthColorsEnabled()) {
+            log('Depth colors disabled, skipping reset');
+            return;
+        }
         const config = vscode.workspace.getConfiguration('editor');
         const current_customizations = config.get<TokenColorCustomizations>('tokenColorCustomizations');
-        
-        if (current_customizations) {
-            // Remove our depth color rules from dark theme
-            const dark_section = current_customizations['[*Dark*]'];
-            if (dark_section?.textMateRules) {
-                dark_section.textMateRules = dark_section.textMateRules.filter(
-                    rule => !isDepthColorRule(rule)
-                );
-            }
-            
-            // Remove our depth color rules from light theme
-            const light_section = current_customizations['[*Light*]'];
-            if (light_section?.textMateRules) {
-                light_section.textMateRules = light_section.textMateRules.filter(
-                    rule => !isDepthColorRule(rule)
-                );
-            }
-            
-            // Remove our depth color rules from top-level textMateRules (universal fallback)
-            if (current_customizations.textMateRules) {
-                current_customizations.textMateRules = current_customizations.textMateRules.filter(
-                    rule => !isDepthColorRule(rule)
-                );
-            }
-            
-            await config.update(
-                'tokenColorCustomizations',
-                current_customizations,
-                vscode.ConfigurationTarget.Global
-            );
-            log('Removed existing depth color rules');
-        }
+
+        const cleaned = removeSightOwnedDepthRules(current_customizations);
+        const universal_rules = buildUniversalDepthColorRules();
+        const fresh = mergeDepthColors(cleaned, universal_rules);
+
+        await config.update(
+            'tokenColorCustomizations',
+            fresh,
+            vscode.ConfigurationTarget.Global
+        );
+        log('Reset complete');
     } catch (error) {
-        log(`Error removing existing rules: ${error}`);
+        log(`Error resetting depth colors: ${error}`);
+        console.error('Failed to reset depth colors:', error);
     }
-    
-    // Re-run configuration to add fresh rules
-    await configureDepthColors(_context, output_channel);
-    log('Reset complete');
 }
 
 /**
@@ -238,6 +238,11 @@ export function registerThemeChangeHandler(
             log(`Theme kind changed: ${previous_is_dark ? 'dark' : 'light'} -> ${current_is_dark ? 'dark' : 'light'}`);
             previous_is_dark = current_is_dark;
 
+            if (!isDepthColorsEnabled()) {
+                log('Depth colors disabled, skipping fallback update on theme change');
+                return;
+            }
+
             // Update the universal fallback colors
             await updateUniversalFallbackColors(logger);
         }
@@ -256,27 +261,34 @@ export async function updateUniversalFallbackColors(
     };
 
     try {
+        if (!isDepthColorsEnabled()) {
+            log('Depth colors disabled via sight.depthColors.enabled, skipping fallback update');
+            return;
+        }
         const config = vscode.workspace.getConfiguration('editor');
         const current = config.get<TokenColorCustomizations>('tokenColorCustomizations') || {};
-        
-        // Remove existing top-level depth rules
-        let filtered_rules: TextMateRule[] = [];
-        if (current.textMateRules) {
-            filtered_rules = current.textMateRules.filter(
-                rule => !isDepthColorRule(rule)
-            );
-        }
-        
-        // Add new rules based on current theme
-        const new_rules = buildUniversalDepthColorRules();
-        current.textMateRules = [
-            ...filtered_rules,
-            ...new_rules
-        ];
-        
+
+        // Remove only Sight-owned top-level depth rules; hand-edited rules
+        // on depth scopes (non-palette colors) are preserved.
+        const filtered_rules: TextMateRule[] = current.textMateRules
+            ? current.textMateRules.filter(my_rule => !isSightOwnedDepthRule(my_rule))
+            : [];
+
+        // Add new rules based on current theme, skipping any scope already
+        // covered by a preserved user rule. Build a new object rather than
+        // mutating the value returned by config.get().
+        const the_covered_scopes = new Set(filtered_rules.map(my_rule => my_rule.scope));
+        const new_rules = buildUniversalDepthColorRules().filter(
+            my_rule => !the_covered_scopes.has(my_rule.scope)
+        );
+        const updated: TokenColorCustomizations = {
+            ...current,
+            textMateRules: [...filtered_rules, ...new_rules],
+        };
+
         await config.update(
             'tokenColorCustomizations',
-            current,
+            updated,
             vscode.ConfigurationTarget.Global
         );
         
@@ -285,4 +297,79 @@ export async function updateUniversalFallbackColors(
         log(`Error updating universal fallback colors: ${error}`);
         console.error('Failed to update universal fallback colors:', error);
     }
+}
+
+/**
+ * Remove Sight-owned depth color rules from the user's
+ * editor.tokenColorCustomizations. Hand-edited rules on depth scopes
+ * (non-palette colors) are preserved. Called when the user flips
+ * sight.depthColors.enabled to false.
+ *
+ * Errors are logged to the output channel; the function does not throw,
+ * so it is safe to call during activation or configuration-change handlers.
+ */
+export async function disableDepthColors(
+    _context: vscode.ExtensionContext,
+    output_channel?: vscode.OutputChannel
+): Promise<void> {
+    const log = (msg: string) => {
+        if (output_channel) {
+            output_channel.appendLine(`[DepthColors] ${msg}`);
+        }
+    };
+
+    try {
+        const config = vscode.workspace.getConfiguration('editor');
+        const current = config.get<TokenColorCustomizations>('tokenColorCustomizations');
+        if (!current) {
+            log('No editor.tokenColorCustomizations to clean up');
+            return;
+        }
+        const cleaned = removeSightOwnedDepthRules(current);
+        if (JSON.stringify(cleaned) === JSON.stringify(current)) {
+            log('No Sight-owned depth color rules to remove');
+            return;
+        }
+        await config.update(
+            'tokenColorCustomizations',
+            cleaned,
+            vscode.ConfigurationTarget.Global
+        );
+        log('Removed Sight-owned depth color rules');
+    } catch (error) {
+        log(`Error disabling depth colors: ${error}`);
+        console.error('Failed to disable depth colors:', error);
+    }
+}
+
+/**
+ * Register a configuration-change listener for sight.depthColors.enabled.
+ * - false → true: writes default depth color rules.
+ * - true → false: removes Sight-owned depth color rules.
+ *
+ * Returns the Disposable so the caller can push it into
+ * context.subscriptions.
+ */
+export function registerDepthColorsConfigHandler(
+    context: vscode.ExtensionContext,
+    output_channel?: vscode.OutputChannel
+): vscode.Disposable {
+    const log = (msg: string) => {
+        if (output_channel) {
+            output_channel.appendLine(`[DepthColors] ${msg}`);
+        }
+    };
+
+    return vscode.workspace.onDidChangeConfiguration(async (event) => {
+        if (!event.affectsConfiguration('sight.depthColors.enabled')) {
+            return;
+        }
+        const now_enabled = isDepthColorsEnabled();
+        log(`sight.depthColors.enabled changed: now ${now_enabled}`);
+        if (now_enabled) {
+            await configureDepthColors(context, output_channel);
+        } else {
+            await disableDepthColors(context, output_channel);
+        }
+    });
 }

@@ -12,7 +12,14 @@ import {
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
-import { configureDepthColors, resetDepthColors, registerThemeChangeHandler } from './depth-colors';
+import {
+    configureDepthColors,
+    disableDepthColors,
+    resetDepthColors,
+    registerThemeChangeHandler,
+    registerDepthColorsConfigHandler,
+    isDepthColorsEnabled
+} from './depth-colors';
 import { register_quote_auto_close } from './quote-auto-close';
 import { ConflictDetector } from './conflict-detector';
 import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata, register_stata_terminal } from './send-to-stata';
@@ -116,16 +123,33 @@ export function activate(context: ExtensionContext) {
     // Register the reset depth colors command
     const reset_command = commands.registerCommand('sight.resetDepthColors', async () => {
         output_channel?.appendLine('Reset depth colors command triggered');
+        if (!isDepthColorsEnabled()) {
+            output_channel?.appendLine('Depth colors disabled; reset command is a no-op');
+            window.showInformationMessage(
+                'Sight depth colors are disabled in sight.depthColors.enabled. Enable the setting to reset and reapply colors.'
+            );
+            return;
+        }
         await resetDepthColors(context, output_channel ?? undefined);
         window.showInformationMessage('Sight depth colors have been reset and reapplied.');
     });
     context.subscriptions.push(reset_command);
     
-    // Configure depth colors for nested strings and macros on first activation
-    output_channel.appendLine('Calling configureDepthColors...');
-    configureDepthColors(context, output_channel).catch((error) => {
-        output_channel?.appendLine(`Failed to configureDepthColors: ${error}`);
-    });
+    // Configure or clean up depth colors based on the current setting.
+    // Handles the case where a user edits settings.json to disable the
+    // feature while VS Code is closed: on next activation we clean up
+    // the stale rules we wrote in a prior session.
+    if (isDepthColorsEnabled()) {
+        output_channel.appendLine('Calling configureDepthColors...');
+        configureDepthColors(context, output_channel ?? undefined).catch((error) => {
+            output_channel?.appendLine(`Failed to configureDepthColors: ${error}`);
+        });
+    } else {
+        output_channel.appendLine('Depth colors disabled; cleaning up any stale rules...');
+        disableDepthColors(context, output_channel ?? undefined).catch((error) => {
+            output_channel?.appendLine(`Failed to disableDepthColors: ${error}`);
+        });
+    }
     
     // Register theme change handler to update colors when theme kind changes
     const theme_change_handler = registerThemeChangeHandler({
@@ -133,7 +157,15 @@ export function activate(context: ExtensionContext) {
     });
     context.subscriptions.push(theme_change_handler);
     output_channel.appendLine('Registered theme change handler');
-    
+
+    // React to users flipping sight.depthColors.enabled at runtime
+    const depth_colors_config_handler = registerDepthColorsConfigHandler(
+        context,
+        output_channel ?? undefined
+    );
+    context.subscriptions.push(depth_colors_config_handler);
+    output_channel.appendLine('Registered depth colors config handler');
+
     // The server is bundled inside the extension at 'server/server.js'
     const serverModule = context.asAbsolutePath(
         path.join('server', 'server.js')

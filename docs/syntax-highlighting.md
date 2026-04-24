@@ -84,7 +84,13 @@ The extension detects your current theme type (dark or light) and applies approp
 
 You can customize these colors by opening your VS Code settings and modifying the `editor.tokenColorCustomizations` section.
 
-To reset depth colors to defaults, use the command palette: **Sight: Reset Depth Colors**
+To reset depth colors to defaults, use the command palette: **Sight: Reset Depth Colors Configuration**
+
+To use your VS Code theme's default string and variable colors instead of
+Sight's depth-specific palette, set `sight.depthColors.enabled` to `false`
+in your VS Code settings. Sight will remove the depth color rules it had
+written, leaving any colors you hand-edited on those scopes in place.
+Toggle it back on to restore the defaults; no window reload is needed.
 
 ### Default Nesting Colors
 
