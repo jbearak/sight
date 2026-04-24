@@ -1126,7 +1126,7 @@ export class HoverProvider {
                 token.range.start.character <= position.character &&
                 token.range.end.character >= position.character &&
                 token.type === 'WORD' &&
-                token.value.toLowerCase() === hovered_word.toLowerCase()) {
+                token.value === hovered_word) {
                 hovered_token_index = i;
                 break;
             }
@@ -1145,12 +1145,13 @@ export class HoverProvider {
             }
         }
 
-        // Collect non-trivia WORD tokens from statement start to hovered token
+        // Collect non-trivia WORD tokens from statement start to hovered token.
+        // Preserve raw source case; Stata commands/prefixes are case-sensitive.
         const the_statement_words: { value: string; index: number }[] = [];
         for (let i = statement_start_index; i <= hovered_token_index; i++) {
             const token = tokens[i];
             if (token.type === 'WORD' && !TRIVIA_TYPES.includes(token.type)) {
-                the_statement_words.push({ value: token.value.toLowerCase(), index: i });
+                the_statement_words.push({ value: token.value, index: i });
             }
         }
 
@@ -1165,26 +1166,33 @@ export class HoverProvider {
             command_word_index++;
         }
 
-        // Handle "by varlist:" pattern - skip to after colon
-        // Check if there's a colon between command_word_index and hovered token
+        // Handle "by varlist:" pattern - skip to after colon.
+        // Only applies when we skipped a by/bysort prefix; otherwise a stray
+        // colon (or mis-cased `BY`) shouldn't bump us past its varlist.
+        const BY_PREFIXES = ['by', 'bysort'];
+        const skipped_by_prefix = the_statement_words
+            .slice(0, command_word_index)
+            .some(w => BY_PREFIXES.includes(w.value));
         let found_colon = false;
-        for (let i = the_statement_words[command_word_index].index; i < hovered_token_index; i++) {
-            if (tokens[i].type === 'COLON') {
-                found_colon = true;
-                // Find next WORD after colon
-                for (let j = i + 1; j <= hovered_token_index; j++) {
-                    if (tokens[j].type === 'WORD') {
-                        // Update command_word_index to point to this word
-                        for (let k = 0; k < the_statement_words.length; k++) {
-                            if (the_statement_words[k].index === j) {
-                                command_word_index = k;
-                                break;
+        if (skipped_by_prefix) {
+            for (let i = the_statement_words[command_word_index].index; i < hovered_token_index; i++) {
+                if (tokens[i].type === 'COLON') {
+                    found_colon = true;
+                    // Find next WORD after colon
+                    for (let j = i + 1; j <= hovered_token_index; j++) {
+                        if (tokens[j].type === 'WORD') {
+                            // Update command_word_index to point to this word
+                            for (let k = 0; k < the_statement_words.length; k++) {
+                                if (the_statement_words[k].index === j) {
+                                    command_word_index = k;
+                                    break;
+                                }
                             }
+                            break;
                         }
-                        break;
                     }
+                    break;
                 }
-                break;
             }
         }
 
@@ -1238,7 +1246,7 @@ export class HoverProvider {
 
         // Find word boundaries for the hovered word
         const word_info = this.get_word_at_position(document, position);
-        if (!word_info || word_info.word.toLowerCase() !== hovered_word.toLowerCase()) {
+        if (!word_info || word_info.word !== hovered_word) {
             return { is_subcommand: false, prefix_command: null };
         }
 
@@ -1258,11 +1266,12 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
 
-        // Skip standard prefix commands (by, quietly, capture, etc.)
+        // Skip standard prefix commands (by, quietly, capture, etc.).
+        // Stata prefix commands are case-sensitive and must be lowercase.
         const standard_prefixes = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'];
         let command_index = 0;
         while (command_index < tokens_before.length &&
-               standard_prefixes.includes(tokens_before[command_index].toLowerCase())) {
+               standard_prefixes.includes(tokens_before[command_index])) {
             command_index++;
         }
 

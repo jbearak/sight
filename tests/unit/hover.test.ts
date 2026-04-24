@@ -117,6 +117,28 @@ function create_mi_missing_command_db(): CommandDatabase {
     return db;
 }
 
+function create_frame_command_db(): CommandDatabase {
+    const db = new CommandDatabase();
+    const cache: CommandCache = {
+        version: 18,
+        commands: {
+            frame: {
+                name: 'frame',
+                min_abbreviation: 5,
+                options: [],
+                subcommands: [
+                    { name: 'create', min_abbreviation: 6 },
+                    { name: 'drop', min_abbreviation: 4 },
+                ],
+                priority: 3,
+            },
+        },
+        abbreviations: {},
+    };
+    db.load_cache(cache);
+    return db;
+}
+
 describe('HoverProvider - Context-Aware Behavior', () => {
     let hover_provider: HoverProvider;
     let context_tracker: ContextTracker;
@@ -163,6 +185,39 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             expect(my_hover?.contents).toBeDefined();
             if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
                 expect(my_hover.contents.value).toContain('Local Macro');
+            }
+        });
+
+        it('should return subcommand hover for valid lowercase `by` prefix', async () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'by x: frame create mygood';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "create" at column 15
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 15 });
+
+            expect(my_hover).not.toBeNull();
+            if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).toContain('Frame Subcommand');
+            }
+        });
+
+        it('should not treat uppercase `BY` as a prefix command (Stata is case-sensitive)', async () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'BY x: frame create mygood';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "create" at column 15
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 15 });
+
+            if (my_hover && typeof my_hover.contents === 'object' && 'value' in my_hover.contents) {
+                expect(my_hover.contents.value).not.toContain('Frame Subcommand');
             }
         });
 
