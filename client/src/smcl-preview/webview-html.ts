@@ -191,10 +191,17 @@ table.smcl-synopt-table th {
     padding: 2px 8px;
     vertical-align: top;
     text-align: left;
+    /* Override the document-level white-space:pre-wrap inside table
+     * cells so the newline + spaces continuations in Stata's SMCL
+     * source collapse into normal word-wrap. Without this, wrapped
+     * descriptions are forced to a deep, confusing indent. */
+    white-space: normal;
+    overflow-wrap: break-word;
 }
 .smcl-synopt-col1 {
     width: 30%;
-    white-space: nowrap;
+    /* Allow wide option labels (compound strings, etc.) to wrap to
+     * a second line instead of overflowing into col2. */
     padding-left: 4ch;
 }
 .smcl-synopt-col2 {
@@ -230,6 +237,11 @@ table.smcl-p2col-table {
 table.smcl-p2col-table td {
     padding: 2px 8px;
     vertical-align: top;
+    /* Same rationale as synopt cells: collapse source whitespace so
+     * wrapped text wraps naturally and doesn't inherit the deep
+     * indent from the raw SMCL source. */
+    white-space: normal;
+    overflow-wrap: break-word;
 }
 .smcl-p2col-col1 {
     width: 40%;

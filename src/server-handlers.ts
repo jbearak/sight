@@ -32,6 +32,7 @@ import {
 } from 'vscode-languageserver/node';
 
 import { DocumentStore } from './document-store';
+import { command_database } from './command-database';
 import { DiagnosticsProvider } from './providers/diagnostics';
 import { CompletionProvider, detect_completion_context } from './providers/completion';
 import { HoverProvider } from './providers/hover';
@@ -885,8 +886,85 @@ export function create_resolve_sthlp_file_handler(
         if (!deps.workspace_indexer) {
             return { file_path: null };
         }
-        return {
-            file_path: await deps.workspace_indexer.resolve_sthlp_file(params.topic)
+        const my_indexer = deps.workspace_indexer;
+        const my_topic = (params.topic ?? '').trim();
+        if (my_topic.length === 0) {
+            return { file_path: null };
+        }
+
+        // 1. Try the topic as the user typed it (and its
+        //    spaces-as-underscores variant, handled inside the
+        //    indexer).
+        const my_direct = await my_indexer.resolve_sthlp_file(my_topic);
+        if (my_direct) {
+            return { file_path: my_direct };
+        }
+
+        // 2. Try expanding the first word of the topic via Stata's
+        //    abbreviation conventions (e.g. `reg` → `regress`, `di`
+        //    → `display` or `dir`, `gen` → `generate`), preserving
+        //    any trailing words so `reg postestimation` resolves via
+        //    `regress_postestimation.sthlp`.
+        const my_first_space = my_topic.search(/\s/);
+        const my_head = my_first_space === -1
+            ? my_topic
+            : my_topic.substring(0, my_first_space);
+        const my_tail = my_first_space === -1
+            ? ''
+            : my_topic.substring(my_first_space);
+        if (my_head.length === 0) {
+            return { file_path: null };
+        }
+
+        // Gather candidate expansions in preference order. Stata's
+        // command-database cache marks more commonly-used commands
+        // with a lower `priority` value (1 = Tier 1 / most common),
+        // so we use that as the primary sort key. Ties break on
+        // command name length (shorter is usually the canonical
+        // command, e.g. `regress` over `regression`). The cache's
+        // explicit abbreviations map (`lookup`) is tried first as a
+        // published short form.
+        interface Candidate { name: string; priority: number; }
+        const the_tried = new Set<string>();
+        const the_candidates: Candidate[] = [];
+        const my_head_lower = my_head.toLowerCase();
+        const add_candidate = (name: string, priority: number | undefined): void => {
+            const my_normalized = name.toLowerCase();
+            if (my_normalized === my_head_lower) return;
+            if (the_tried.has(my_normalized)) return;
+            the_tried.add(my_normalized);
+            the_candidates.push({ name, priority: priority ?? 99 });
         };
+
+        const my_lookup = command_database.lookup(my_head);
+        if (my_lookup) {
+            add_candidate(my_lookup.name, my_lookup.priority);
+        }
+        for (const my_match of command_database.expand_abbreviation(my_head)) {
+            add_candidate(my_match.name, my_match.priority);
+        }
+        for (const my_match of command_database.search(my_head)) {
+            add_candidate(my_match.name, my_match.priority);
+        }
+
+        // Sort by priority ascending (1 = Tier 1 / most common), then
+        // by name length ascending so the short canonical command
+        // name (`regress`, `display`) wins over verbose relatives
+        // (`regression`, `dir`). This makes `di` → `display` even
+        // though the cache's `abbreviations` map says otherwise.
+        the_candidates.sort((a, b) => {
+            if (a.priority !== b.priority) return a.priority - b.priority;
+            return a.name.length - b.name.length;
+        });
+
+        for (const my_candidate of the_candidates) {
+            const my_resolved = await my_indexer.resolve_sthlp_file(
+                my_candidate.name + my_tail
+            );
+            if (my_resolved) {
+                return { file_path: my_resolved };
+            }
+        }
+        return { file_path: null };
     };
 }

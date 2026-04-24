@@ -462,6 +462,19 @@ function render_directive(
         // -- Text formatting (scoped: {bf:text}) --
         case 'bf':
             if (directive.content.length > 0) {
+                // Detect inline manual references like `{bf:[R] regress}`
+                // or `{bf:[U] 12.5 Formats}` and route them through the
+                // same help-link / PDF-link machinery as `{manlink}`.
+                const my_ref = detect_bracketed_manual_ref(directive);
+                if (my_ref) {
+                    const my_inner = build_manlink_anchor_inner(
+                        my_ref.manual,
+                        my_ref.entry,
+                        escape_html(my_ref.display_text),
+                        ctx
+                    );
+                    return `<strong>${my_inner}</strong>`;
+                }
                 return `<strong>${render_content(directive, ctx)}</strong>`;
             }
             return push_format(ctx, 'bf');
@@ -983,18 +996,68 @@ function render_manlink(
     ctx: RenderContext,
     italic: boolean
 ): string {
-    // {manlink MANUAL entry}
-    const the_parts = (directive.args || '').split(/\s+/);
+    // {manlink MANUAL entry} — e.g. {manlink R display} or
+    // {manlink U 12.5FormatsControllinghowdataaredisplayed}. Stata's
+    // native viewer opens these in the manual, so we emit a clickable
+    // link: topic-shaped entries go through the help viewer (same
+    // mechanism as `{help}`); manual-section refs link to stata.com
+    // PDFs via `build_manual_url`. Fall back to the plain bold/italic
+    // span when neither path applies.
+    const the_parts = (directive.args || '').trim().split(/\s+/);
     const my_manual = the_parts[0] || '';
-    const my_entry = the_parts.slice(1).join(' ') || '';
+    const my_entry = the_parts.slice(1).join(' ').trim();
     const my_display = directive.content.length > 0
         ? render_content(directive, ctx)
         : `[${escape_html(my_manual)}] ${escape_html(my_entry)}`;
 
-    let my_html = `<span class="smcl-manlink">${my_display}</span>`;
+    const my_inner = build_manlink_anchor_inner(
+        my_manual,
+        my_entry,
+        my_display,
+        ctx
+    );
+
+    let my_html = my_inner;
     if (italic) my_html = `<em>${my_html}</em>`;
     else my_html = `<strong>${my_html}</strong>`;
     return my_html;
+}
+
+/**
+ * Shared anchor / span rendering for `{manlink}` and inline-bold
+ * `[X] name` references. Returns either an `<a>` (when we can route
+ * to a help topic or a stata.com PDF) or a plain span with the
+ * existing `.smcl-manlink` styling when we can't classify the target.
+ */
+function build_manlink_anchor_inner(
+    manual: string,
+    entry: string,
+    display_html: string,
+    _ctx: RenderContext
+): string {
+    if (manual.length === 0 || entry.length === 0) {
+        return `<span class="smcl-manlink">${display_html}</span>`;
+    }
+
+    if (looks_like_help_topic(entry)) {
+        // Route to our SMCL help viewer via the same message path as
+        // `{help}` links. The topic is the entry without the bracket.
+        return (
+            `<a class="smcl-help-link smcl-manlink-topic" `
+            + `href="#" data-smcl-topic="${escape_html(entry)}">`
+            + `${display_html}</a>`
+        );
+    }
+
+    const my_url = build_manual_url(`${manual} ${entry.replace(/\s+/g, '')}`);
+    if (my_url) {
+        return (
+            `<a class="smcl-browse smcl-mansection smcl-manlink-pdf" `
+            + `href="${escape_html(my_url)}">${display_html}</a>`
+        );
+    }
+
+    return `<span class="smcl-manlink">${display_html}</span>`;
 }
 
 function render_mansection(directive: SmclDirective): string {
@@ -1036,46 +1099,50 @@ function parse_mansection_args(args: string): MansectionParsed | null {
 function build_manual_url(target: string): string | null {
     // Stata's online manual URLs follow a predictable convention that
     // was reverse-engineered by inspecting the per-entry PDFs on
-    // stata.com (e.g. /manuals/pdisplay.pdf, /manuals/rregress.pdf):
+    // stata.com (e.g. /manuals/pdisplay.pdf, /manuals/rregress.pdf,
+    // /manuals/u12.pdf):
     //
     //   * Filename: `<letter_lower><root_lower>.pdf`, where `root` is
-    //     the lowercase prefix of the sthlp `{mansection}` target
-    //     (everything up to the first uppercase letter).
+    //     the lowercase/digit prefix of the sthlp `{mansection}` target
+    //     (everything up to the first uppercase letter or period).
     //   * Named destinations inside the PDF preserve the original
     //     case of the target. The destination name is the lowercase
     //     manual letter concatenated with the target verbatim.
     //
     // Examples (all verified against actual PDFs on stata.com):
-    //   "P display"                     → pdisplay.pdf
-    //   "P displayRemarksandexamples"   → pdisplay.pdf#pdisplayRemarksandexamples
-    //   "R regressMethodsandformulas"   → rregress.pdf#rregressMethodsandformulas
+    //   "P display"                              → pdisplay.pdf
+    //   "P displayRemarksandexamples"            → pdisplay.pdf#pdisplayRemarksandexamples
+    //   "R regressMethodsandformulas"            → rregress.pdf#rregressMethodsandformulas
+    //   "U 12.5FormatsControllinghowdataaredisplayed"
+    //                                            → u12.pdf#u12.5FormatsControllinghowdataaredisplayed
     //
-    // We only construct URLs for the common `<MANUAL> <entry>` shape;
-    // anything else (section numbers like "U 11.3") returns null so
-    // the caller falls back to plain text.
-    const my_match = target.trim().match(/^([A-Z]+)\s+([A-Za-z][A-Za-z0-9_ ]*)$/);
+    // The entry may start with a digit (User's Guide section refs) and
+    // may contain periods. Anything that fails to produce a root
+    // returns null so the caller falls back to plain text.
+    const my_match = target.trim().match(
+        /^([A-Z]+)\s+([A-Za-z0-9][A-Za-z0-9_. ]*)$/
+    );
     if (!my_match) return null;
     const my_letter = my_match[1].toLowerCase();
     const my_entry_raw = my_match[2].replace(/\s+/g, '');
     if (my_entry_raw.length === 0) return null;
 
-    // Root = lowercase/digit/underscore prefix; the rest (if any,
-    // starting with an uppercase letter) is the PDF subsection.
+    // Root = longest lowercase/digit/underscore prefix. Anything after
+    // (a period or an uppercase letter) is the PDF subsection.
+    const my_root_match = my_entry_raw.match(/^([a-z0-9_]+)/);
     let my_root: string;
     let my_has_subsection: boolean;
-    if (/^[a-z]/.test(my_entry_raw)) {
-        const my_split = my_entry_raw.match(/^([a-z0-9_]+)([A-Z].*)$/);
-        if (my_split) {
-            my_root = my_split[1];
-            my_has_subsection = true;
-        } else {
-            my_root = my_entry_raw;
-            my_has_subsection = false;
-        }
+    if (my_root_match && my_root_match[1].length < my_entry_raw.length) {
+        my_root = my_root_match[1];
+        my_has_subsection = true;
+    } else if (my_root_match) {
+        // Entire entry is lowercase/digit/underscore; no subsection.
+        my_root = my_entry_raw;
+        my_has_subsection = false;
     } else {
         // Entry starts with uppercase (rare; e.g. "SEM Intro5").
         // Treat the entire entry as the root and skip the anchor.
-        my_root = my_entry_raw;
+        my_root = my_entry_raw.toLowerCase();
         my_has_subsection = false;
     }
 
@@ -1087,6 +1154,45 @@ function build_manual_url(target: string): string | null {
     // Destination name is `<letter_lower><target_case_preserved>`,
     // matching what Stata embeds in the PDF's /Names tree.
     return `${my_base}#${my_letter}${my_entry_raw}`;
+}
+
+/**
+ * Check whether an entry name looks like a Stata command / help topic
+ * (all-lowercase identifier words, optionally space-separated — e.g.
+ * "display", "frame create", "regress postestimation") rather than a
+ * manual section reference. Topics route through the sthlp viewer;
+ * non-topics go to the PDF manual.
+ */
+function looks_like_help_topic(entry: string): boolean {
+    return /^[a-z_][a-z0-9_]*(?: [a-z_][a-z0-9_]*)*$/.test(entry.trim());
+}
+
+/**
+ * Detect a `{bf:[X] name}` pattern in a directive's content and
+ * extract the manual code / entry / original text. Returns null when
+ * the content has nested markup or doesn't match the shape — in that
+ * case the caller should render a plain `<strong>` as before.
+ *
+ * The content must be a single text node (with optional surrounding
+ * whitespace) of the form `[MANUAL] entry` where MANUAL is one or
+ * more uppercase letters and entry is non-empty.
+ */
+function detect_bracketed_manual_ref(
+    directive: SmclDirective
+): { manual: string; entry: string; display_text: string } | null {
+    if (directive.content.length !== 1) return null;
+    const my_node = directive.content[0];
+    if (is_directive(my_node)) return null;
+    const my_raw = my_node.text;
+    const my_match = my_raw.match(/^\s*\[([A-Z]+)\]\s+(.+?)\s*$/);
+    if (!my_match) return null;
+    const my_entry = my_match[2].trim();
+    if (my_entry.length === 0) return null;
+    return {
+        manual: my_match[1],
+        entry: my_entry,
+        display_text: my_raw.trim(),
+    };
 }
 
 function is_safe_url(url: string): boolean {

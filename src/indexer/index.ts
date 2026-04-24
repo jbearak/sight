@@ -897,6 +897,24 @@ export class WorkspaceIndexer {
      * Returns the absolute file path or null.
      */
     async resolve_sthlp_file(topic: string): Promise<string | null> {
+        // Stata convention: multi-word topics (e.g. `regress
+        // postestimation`, `frame create`) live in files named with
+        // underscores (`regress_postestimation.sthlp`,
+        // `frame_create.sthlp`). Try both forms so callers can pass
+        // whichever matches how the user typed the topic.
+        const the_basenames: string[] = [topic];
+        if (topic.includes(' ')) {
+            the_basenames.push(topic.replace(/\s+/g, '_'));
+        }
+        for (const my_candidate of the_basenames) {
+            const my_resolved = await this.resolve_sthlp_basename(my_candidate);
+            if (my_resolved) return my_resolved;
+        }
+        return null;
+    }
+
+    private async resolve_sthlp_basename(topic: string): Promise<string | null> {
+        if (topic.length === 0) return null;
         const my_basename = `${topic}.sthlp`;
         const my_first_letter = topic.charAt(0).toLowerCase();
 

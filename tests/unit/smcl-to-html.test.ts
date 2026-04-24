@@ -595,14 +595,88 @@ describe('smcl_to_html', () => {
             );
         });
 
-        it('falls back to plain mansection text when the target does not match the single-entry pattern', () => {
+        it('resolves U-style section references to chapter PDFs with anchors', () => {
+            // Destinations verified against /manuals/u12.pdf.
             const result = smcl_to_html(
-                'see {mansection U 12.5 Formats:Formats}'
+                '{mansection U 12.5FormatsControllinghowdataaredisplayed:'
+                + '[U] 12.5 Formats: Controlling how data are displayed}'
             );
-            expect(result.html).not.toContain(
-                'href="https://www.stata.com/manuals/'
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/u12.pdf'
+                + '#u12.5FormatsControllinghowdataaredisplayed"'
             );
-            expect(result.html).toContain('Formats');
+        });
+    });
+
+    describe('{manlink} references', () => {
+        it('renders {manlink R display} as a help-topic link (sthlp route)', () => {
+            const result = smcl_to_html('see {manlink R display} for details');
+            expect(result.html).toContain('data-smcl-topic="display"');
+            // Displayed text keeps the `[R] display` shape.
+            expect(result.html).toContain('>[R] display</a>');
+            // Topic links should NOT become browser-opening PDF links.
+            expect(result.html).not.toContain('www.stata.com/manuals');
+        });
+
+        it('renders {manlink U 12.5Foo} as a PDF link (browse route)', () => {
+            const result = smcl_to_html(
+                '{manlink U 12.5FormatsControllinghowdataaredisplayed}'
+            );
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/u12.pdf'
+                + '#u12.5FormatsControllinghowdataaredisplayed"'
+            );
+            expect(result.html).toContain('smcl-browse');
+            expect(result.html).not.toContain('target="_blank"');
+        });
+
+        it('wraps {manlinki X Y} in <em> while still emitting a link', () => {
+            const result = smcl_to_html('{manlinki R display}');
+            expect(result.html).toContain('<em>');
+            expect(result.html).toContain('data-smcl-topic="display"');
+        });
+    });
+
+    describe('{bf:[X] name} inline manual references', () => {
+        it('makes `{bf:[R] regress}` a topic link (case preserved label)', () => {
+            const result = smcl_to_html(
+                'Use {bf:[R] regress} for ordinary least squares.'
+            );
+            expect(result.html).toContain(
+                '<strong><a class="smcl-help-link smcl-manlink-topic"'
+            );
+            expect(result.html).toContain('data-smcl-topic="regress"');
+            expect(result.html).toContain('>[R] regress</a>');
+        });
+
+        it('makes `{bf:[U] 12.5 Formats}` a PDF link', () => {
+            const result = smcl_to_html('see {bf:[U] 12.5 Formats}');
+            expect(result.html).toContain(
+                '<strong><a class="smcl-browse smcl-mansection smcl-manlink-pdf"'
+            );
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/u12.pdf#u12.5Formats"'
+            );
+            expect(result.html).toContain('>[U] 12.5 Formats</a>');
+        });
+
+        it('leaves unrelated `{bf:}` content as plain <strong>', () => {
+            const result = smcl_to_html('{bf:some bold words}');
+            // Content is wrapped in a data-line <span> for scroll
+            // sync; what matters is that no manlink anchor is added.
+            expect(result.html).toContain('<strong>');
+            expect(result.html).toContain('some bold words');
+            expect(result.html).not.toContain('smcl-manlink-topic');
+            expect(result.html).not.toContain('smcl-manlink-pdf');
+            expect(result.html).not.toContain('data-smcl-topic');
+        });
+
+        it('does not transform `{bf:}` content that contains nested markup', () => {
+            // Nested directive inside bf: render as plain bold (no topic).
+            const result = smcl_to_html('{bf:{it:[R] regress}}');
+            expect(result.html).not.toContain('smcl-manlink-topic');
+            expect(result.html).not.toContain('smcl-manlink-pdf');
+            expect(result.html).toContain('<strong>');
         });
     });
 

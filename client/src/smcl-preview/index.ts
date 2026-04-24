@@ -67,17 +67,18 @@ export function register_smcl_preview(
         )
     );
 
-    // Help topic preview (invoked from hover/completion markdown links).
-    // Accepts either a raw topic string or an object with a `topic` field.
+    // Help topic preview. Invoked from hover/completion markdown
+    // links (topic passed as argument) or from the command palette
+    // (no argument — we prompt the user for a topic).
     context.subscriptions.push(
         vscode.commands.registerCommand(
             'sight.openHelpTopic',
             async (arg: unknown) => {
-                const my_topic = extract_topic(arg);
+                let my_topic = extract_topic(arg);
                 if (!my_topic) {
-                    vscode.window.showErrorMessage(
-                        'No help topic provided.'
-                    );
+                    my_topic = await prompt_for_topic();
+                }
+                if (!my_topic) {
                     return;
                 }
                 await my_manager.open_topic(
@@ -87,6 +88,22 @@ export function register_smcl_preview(
             }
         )
     );
+}
+
+async function prompt_for_topic(): Promise<string | null> {
+    const my_input = await vscode.window.showInputBox({
+        title: 'Sight: Open Help Topic',
+        prompt: 'Enter a Stata help topic (e.g. regress, frame create, display)',
+        placeHolder: 'regress',
+        ignoreFocusOut: true,
+        validateInput: value => {
+            if (!value || value.trim().length === 0) {
+                return 'Please enter a help topic.';
+            }
+            return null;
+        },
+    });
+    return my_input ? my_input.trim() : null;
 }
 
 function extract_topic(arg: unknown): string | null {

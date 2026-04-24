@@ -98,6 +98,25 @@ describe('WorkspaceIndexer', () => {
         }
     });
 
+    it('maps multi-word topics to underscore-joined .sthlp filenames', async () => {
+        // Stata convention: `{help regress postestimation}` lives in
+        // `regress_postestimation.sthlp`. The resolver should try both
+        // the literal topic and the underscore-joined form.
+        const my_ado_dir = path.join(temp_dir, 'ado', 'r');
+        const my_help_path = path.join(
+            my_ado_dir, 'regress_postestimation.sthlp'
+        );
+        fs.mkdirSync(my_ado_dir, { recursive: true });
+        fs.writeFileSync(my_help_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const resolved = await indexer.resolve_sthlp_file(
+            'regress postestimation'
+        );
+        expect(resolved).toBe(my_help_path);
+    });
+
     it('prefers user ado_paths over auto-discovered help search paths', async () => {
         // Both user and auto paths provide the same topic; user wins.
         const my_user_dir = path.join(temp_dir, 'user-ado', 'r');
