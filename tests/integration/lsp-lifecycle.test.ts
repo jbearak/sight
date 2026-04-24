@@ -18,6 +18,8 @@ import {
 } from '../../src/server-handlers';
 import { InitializeParams, TextDocumentSyncKind } from 'vscode-languageserver/node';
 import { DocumentStore } from '../../src/document-store';
+import { HoverProvider } from '../../src/providers/hover';
+import { CommandDatabase } from '../../src/commands';
 
 /**
  * Creates mock dependencies for testing handlers.
@@ -318,6 +320,32 @@ describe('LSP Lifecycle - Handler Factories', () => {
             });
 
             expect(result).toBeNull();
+        });
+
+        it('should resolve expression-function hover after top-level comma', async () => {
+            const deps = create_mock_dependencies();
+            deps.hover_provider = new HoverProvider(new CommandDatabase());
+
+            const uri = 'file:///hover-after-top-level-comma.do';
+            const content = 'regress y x, vce(mi(bar))';
+            await deps.document_store.open(uri, content, 1);
+
+            const handler = create_hover_handler(deps);
+            const result = await handler({
+                textDocument: { uri },
+                position: { line: 0, character: 17 },
+            });
+
+            expect(result).not.toBeNull();
+            expect(result?.contents).toBeDefined();
+            if (
+                result?.contents
+                && typeof result.contents === 'object'
+                && 'value' in result.contents
+            ) {
+                expect(result.contents.value).toContain('**missing**');
+                expect(result.contents.value).toContain('help missing()');
+            }
         });
     });
 
