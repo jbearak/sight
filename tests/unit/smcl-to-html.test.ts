@@ -858,6 +858,61 @@ describe('smcl_to_html', () => {
         });
     });
 
+    describe('findalias substitution', () => {
+        it('renders nothing when no findalias_map is provided', () => {
+            const result = smcl_to_html('{findalias frexp}');
+            expect(result.html).toBe('');
+        });
+
+        it('renders nothing when the alias is not in the map', () => {
+            const result = smcl_to_html('{findalias unknown}', {
+                findalias_map: new Map([['frexp', '{manlink U 13 Functions and expressions}']]),
+            });
+            expect(result.html).toBe('');
+        });
+
+        it('substitutes and renders the alias target as SMCL', () => {
+            const result = smcl_to_html('{findalias frexp}', {
+                findalias_map: new Map([
+                    ['frexp', '{manlink U 13 Functions and expressions}'],
+                ]),
+            });
+            // `{manlink U 13 Functions and expressions}` renders as
+            // a bolded PDF link (see render_manlink).
+            expect(result.html).toContain('[U] 13 Functions and expressions');
+            expect(result.html).toContain('<strong>');
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/u13.pdf'
+            );
+        });
+
+        it('renders the substitution inline within surrounding SMCL', () => {
+            const result = smcl_to_html(
+                '{pstd}\n{findalias frexp}\n{p_end}',
+                {
+                    findalias_map: new Map([
+                        ['frexp', '{manlink U 13 Functions and expressions}'],
+                    ]),
+                }
+            );
+            expect(result.html).toContain('smcl-pstd');
+            expect(result.html).toContain('[U] 13 Functions and expressions');
+        });
+
+        it('guards against recursive substitution', () => {
+            // `a` expands to `{findalias b}`, `b` expands back to
+            // `{findalias a}`. The renderer must short-circuit the
+            // second recurrence instead of looping forever.
+            const result = smcl_to_html('{findalias a}', {
+                findalias_map: new Map([
+                    ['a', '{findalias b}'],
+                    ['b', '{findalias a}'],
+                ]),
+            });
+            expect(result.html).toBe('');
+        });
+    });
+
     describe('mixed real-world content', () => {
         it('handles a typical help file header', () => {
             const smcl = [

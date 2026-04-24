@@ -1025,3 +1025,41 @@ export function create_resolve_sthlp_file_handler(
         return { file_path: null };
     };
 }
+
+// -----------------------------------------------------------------------
+// sight/resolveFindalias
+// -----------------------------------------------------------------------
+
+export interface ResolveFindaliasParams {
+    alias: string;
+}
+
+export interface ResolveFindaliasResult {
+    smcl: string | null;
+}
+
+/**
+ * Creates the custom request handler for `sight/resolveFindalias`.
+ *
+ * Resolves a `{findalias X}` SMCL alias to its substitution string by
+ * consulting `*smcl_alias.maint` files under the same directories
+ * `resolve_sthlp_file` searches (user `ado_paths` ∪ workspace roots
+ * ∪ auto-discovered Stata install paths). Returns `{ smcl: null }`
+ * when the alias is unknown or no workspace indexer is available.
+ */
+export function create_resolve_findalias_handler(
+    deps: HandlerDependencies
+): (params: ResolveFindaliasParams) => Promise<ResolveFindaliasResult> {
+    return async (params: ResolveFindaliasParams): Promise<ResolveFindaliasResult> => {
+        if (!deps.workspace_indexer) {
+            return { smcl: null };
+        }
+        const my_alias = (params.alias ?? '').trim();
+        if (my_alias.length === 0) {
+            return { smcl: null };
+        }
+        const my_resolver = deps.workspace_indexer.get_findalias_resolver();
+        const my_smcl = my_resolver.lookup(my_alias);
+        return { smcl: my_smcl };
+    };
+}

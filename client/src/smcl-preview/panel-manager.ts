@@ -46,7 +46,8 @@ export class SmclPanelManager implements vscode.Disposable {
         const my_preview = new SmclPreviewPanel(
             source_uri,
             my_panel,
-            topic => this.handle_navigate(topic)
+            topic => this.handle_navigate(topic),
+            () => this.get_client()
         );
 
         my_preview.on_did_dispose(() => {

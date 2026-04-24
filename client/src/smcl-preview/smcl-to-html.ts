@@ -21,6 +21,18 @@ export interface SmclCrossRef {
     element_id: string;
 }
 
+export interface SmclToHtmlOptions {
+    /**
+     * Resolved `{findalias X}` substitutions keyed by the alias name
+     * (the argument passed to `{findalias}`). Values are raw SMCL that
+     * replace the directive in place and are rendered through the same
+     * parser / renderer. When the map is absent or a lookup misses,
+     * `{findalias}` renders as nothing — matching the pre-resolver
+     * behavior so diffs on unresolved files stay empty.
+     */
+    findalias_map?: Map<string, string>;
+}
+
 // ---------------------------------------------------------------------------
 // Character escape table for {c ...} directives
 // ---------------------------------------------------------------------------
@@ -304,9 +316,16 @@ interface RenderContext {
     active_style: string | null;
     active_formats: string[];
     in_asis: boolean;
+    findalias_map?: Map<string, string>;
+    // Guard against infinite recursion when a `{findalias X}`
+    // substitution itself contains another `{findalias Y}`
+    // (or loops back to `X`).
+    findalias_stack: string[];
 }
 
-function create_context(): RenderContext {
+function create_context(
+    findalias_map?: Map<string, string>
+): RenderContext {
     return {
         cross_references: [],
         ref_counter: 0,
@@ -319,6 +338,8 @@ function create_context(): RenderContext {
         active_style: null,
         active_formats: [],
         in_asis: false,
+        findalias_map,
+        findalias_stack: [],
     };
 }
 
@@ -711,7 +732,7 @@ function render_directive(
         case 'search':
             return render_content(directive, ctx);
         case 'findalias':
-            return '';
+            return render_findalias(directive, ctx);
 
         // -- Special characters --
         case 'c':
@@ -1245,6 +1266,39 @@ function render_marker(directive: SmclDirective): string {
     return `<a id="${escape_html(my_name)}"></a>`;
 }
 
+/**
+ * Render `{findalias X}` by looking up the alias in the current
+ * render context's `findalias_map` and rendering the resulting SMCL
+ * substitution in place. When no map is present or the alias is not
+ * in the map, emit nothing (matching pre-resolver behavior).
+ *
+ * Substitutions are parsed and rendered through the same pipeline as
+ * the outer document so nested directives (`{manlink …}`,
+ * `{vieweralsosee …}`, etc.) render identically to how they would if
+ * they had been inlined by hand.
+ */
+function render_findalias(
+    directive: SmclDirective,
+    ctx: RenderContext
+): string {
+    if (!ctx.findalias_map) return '';
+    const my_alias = (directive.args ?? '').trim();
+    if (my_alias.length === 0) return '';
+    const my_smcl = ctx.findalias_map.get(my_alias);
+    if (my_smcl === undefined) return '';
+    if (ctx.findalias_stack.includes(my_alias)) {
+        // Recursive substitution — bail to avoid infinite expansion.
+        return '';
+    }
+    ctx.findalias_stack.push(my_alias);
+    try {
+        const the_sub_nodes = parse_smcl(my_smcl);
+        return render_nodes(the_sub_nodes, ctx);
+    } finally {
+        ctx.findalias_stack.pop();
+    }
+}
+
 function render_stata_link(
     directive: SmclDirective,
     ctx: RenderContext
@@ -1298,14 +1352,17 @@ function parse_first_number(args: string): number | null {
 // Entry point
 // ---------------------------------------------------------------------------
 
-export function smcl_to_html(smcl: string): SmclHtmlResult {
+export function smcl_to_html(
+    smcl: string,
+    options?: SmclToHtmlOptions
+): SmclHtmlResult {
     const the_raw_nodes = parse_smcl(smcl);
     // Collapse the `.sthlp` header's `{p2colset}…{p2colreset}` title
     // block into a single synthetic directive so we can render it as
     // a proper heading with a PDF-manual link, rather than a narrow
     // 2-column table row.
     const the_nodes = transform_help_title(the_raw_nodes);
-    const ctx = create_context();
+    const ctx = create_context(options?.findalias_map);
     let html = render_nodes(the_nodes, ctx);
     // Close any trailing persistent formats and style span
     html += close_asis(ctx);

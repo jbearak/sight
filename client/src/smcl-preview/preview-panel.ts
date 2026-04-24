@@ -9,11 +9,20 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { LanguageClient } from 'vscode-languageclient/node';
 import { smcl_to_html } from './smcl-to-html';
 import { build_webview_html } from './webview-html';
 
 const UPDATE_DEBOUNCE_MS = 300;
 const SCROLL_SYNC_SUPPRESSION_MS = 80;
+
+/**
+ * Regex used to extract `{findalias <alias>}` directives from raw
+ * SMCL before handing off to the renderer. We only need a best-effort
+ * scan to collect unique aliases for parallel LSP resolution; the
+ * canonical parse happens later inside `smcl_to_html`.
+ */
+const FINDALIAS_RE = /\{\s*findalias\s+([^}]+?)\s*\}/g;
 
 export class SmclPreviewPanel implements vscode.Disposable {
     private panel: vscode.WebviewPanel;
@@ -21,7 +30,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
     private debounce_timer: ReturnType<typeof setTimeout> | undefined;
     private on_navigate: (topic: string) => void;
+    private get_client: () => LanguageClient | null;
     private disposed = false;
+
+    // Cache of `{findalias}` resolutions (alias → SMCL substitution or
+    // `null` for misses). Shared across refreshes for a given panel so
+    // debounced edits and scroll-sync redraws don't re-query the LSP.
+    private findalias_cache: Map<string, string | null> = new Map();
 
     // Scroll sync state
     private scroll_sync_source: 'editor' | 'preview' | null = null;
@@ -30,11 +45,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
     constructor(
         source_uri: vscode.Uri,
         panel: vscode.WebviewPanel,
-        on_navigate: (topic: string) => void
+        on_navigate: (topic: string) => void,
+        get_client: () => LanguageClient | null
     ) {
         this.source_uri = source_uri;
         this.panel = panel;
         this.on_navigate = on_navigate;
+        this.get_client = get_client;
 
         // Handle messages from the webview
         this.disposables.push(
@@ -74,7 +91,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
         );
 
         // Initial render
-        this.refresh();
+        void this.refresh();
     }
 
     get uri_string(): string {
@@ -118,16 +135,24 @@ export class SmclPreviewPanel implements vscode.Disposable {
         }
         this.debounce_timer = setTimeout(() => {
             this.debounce_timer = undefined;
-            this.refresh();
+            void this.refresh();
         }, UPDATE_DEBOUNCE_MS);
     }
 
-    private refresh(): void {
+    private async refresh(): Promise<void> {
         // Try to get content from open editor first; fall back to disk
         const my_content = this.read_content();
         if (my_content === null) return;
 
-        const my_result = smcl_to_html(my_content);
+        const my_findalias_map = await this.resolve_findalias_map(my_content);
+
+        // If the panel was disposed while we were awaiting LSP
+        // responses, bail out rather than writing to a dead webview.
+        if (this.disposed) return;
+
+        const my_result = smcl_to_html(my_content, {
+            findalias_map: my_findalias_map,
+        });
         const my_nonce = crypto.randomBytes(16).toString('hex');
         const my_title = this.get_title();
 
@@ -144,6 +169,67 @@ export class SmclPreviewPanel implements vscode.Disposable {
         if (my_editor) {
             this.sync_editor_to_preview(my_editor.visibleRanges);
         }
+    }
+
+    /**
+     * Collect unique `{findalias X}` aliases in the source and resolve
+     * them via the LSP. Returns a map of alias → SMCL substitution
+     * containing only successful resolutions (misses are omitted so
+     * the renderer can fall back to its empty-string behavior).
+     *
+     * Resolutions are cached for the lifetime of the panel so repeat
+     * renders caused by debounced edits or scroll sync don't re-hit
+     * the LSP.
+     */
+    private async resolve_findalias_map(
+        content: string
+    ): Promise<Map<string, string>> {
+        const the_aliases = collect_findalias_names(content);
+        const my_map = new Map<string, string>();
+        if (the_aliases.size === 0) return my_map;
+
+        const my_client = this.get_client();
+        // Pull cached hits up-front so we only query the LSP for misses.
+        const the_unresolved: string[] = [];
+        for (const my_alias of the_aliases) {
+            if (this.findalias_cache.has(my_alias)) {
+                const my_cached = this.findalias_cache.get(my_alias)!;
+                if (my_cached !== null) {
+                    my_map.set(my_alias, my_cached);
+                }
+                continue;
+            }
+            the_unresolved.push(my_alias);
+        }
+
+        if (the_unresolved.length === 0 || !my_client) {
+            return my_map;
+        }
+
+        const the_results = await Promise.all(
+            the_unresolved.map(async (my_alias) => {
+                try {
+                    const my_response = await my_client.sendRequest<{
+                        smcl: string | null;
+                    }>('sight/resolveFindalias', { alias: my_alias });
+                    return { alias: my_alias, smcl: my_response?.smcl ?? null };
+                } catch {
+                    // Server unavailable / handler unregistered: treat
+                    // like a miss. Don't cache so we retry next refresh.
+                    return { alias: my_alias, smcl: null, skip_cache: true };
+                }
+            })
+        );
+
+        for (const my_result of the_results) {
+            if (!('skip_cache' in my_result)) {
+                this.findalias_cache.set(my_result.alias, my_result.smcl);
+            }
+            if (my_result.smcl !== null) {
+                my_map.set(my_result.alias, my_result.smcl);
+            }
+        }
+        return my_map;
     }
 
     private read_content(): string | null {
@@ -239,4 +325,26 @@ export class SmclPreviewPanel implements vscode.Disposable {
                 break;
         }
     }
+}
+
+/**
+ * Best-effort extraction of unique `{findalias <alias>}` arguments
+ * from raw SMCL text. Returns a set so duplicates trigger only one
+ * LSP lookup per alias.
+ *
+ * Exported for tests. We rely on the pattern being non-nested (Stata
+ * never puts `{` inside `{findalias …}` args), which matches every
+ * real-world occurrence in the ado base tree.
+ */
+export function collect_findalias_names(source: string): Set<string> {
+    const the_names = new Set<string>();
+    FINDALIAS_RE.lastIndex = 0;
+    let my_match: RegExpExecArray | null;
+    while ((my_match = FINDALIAS_RE.exec(source)) !== null) {
+        const my_alias = my_match[1].trim();
+        if (my_alias.length > 0) {
+            the_names.add(my_alias);
+        }
+    }
+    return the_names;
 }

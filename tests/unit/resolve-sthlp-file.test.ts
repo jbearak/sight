@@ -189,4 +189,44 @@ describe('resolveSthlpFile - help_file redirects', () => {
 
         expect(result.file_path).toBe(my_macro_path);
     });
+
+    it('follows a help_alias.maint redirect (operators → operator)', async () => {
+        // operators.sthlp does not exist; Stata ships a redirect in
+        // ohelp_alias.maint that the resolver must follow.
+        const my_op_dir = path.join(temp_dir, 'ado', 'o');
+        const my_op_path = path.join(my_op_dir, 'operator.sthlp');
+        fs.mkdirSync(my_op_dir, { recursive: true });
+        fs.writeFileSync(my_op_path, '{smcl}');
+        fs.writeFileSync(
+            path.join(my_op_dir, 'ohelp_alias.maint'),
+            'operators\t\toperator\n'
+        );
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'operators' });
+
+        expect(result.file_path).toBe(my_op_path);
+    });
+
+    it('returns null when a help-alias chain cycles back on itself', async () => {
+        // Malformed `.maint` files that alias a → b and b → a must not
+        // hang the resolver. The first filesystem lookup misses, the
+        // alias lookup points to `b`, that also has no file and aliases
+        // back to `a`, and the visited set breaks the loop.
+        const my_dir = path.join(temp_dir, 'ado', 'o');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(
+            path.join(my_dir, 'ohelp_alias.maint'),
+            'operators\toperators2\noperators2\toperators\n'
+        );
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'operators' });
+
+        expect(result.file_path).toBeNull();
+    });
 });
