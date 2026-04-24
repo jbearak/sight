@@ -9,6 +9,7 @@ import {
     CompletionItem,
     CompletionItemKind,
     InsertTextFormat,
+    MarkupKind,
     Position,
     CancellationToken,
     TextEdit,
@@ -1372,7 +1373,10 @@ export class CompletionProvider {
                 label: my_subcommand.name,
                 kind: CompletionItemKind.Keyword,
                 detail: `${prefix_display} subcommand`,
-                documentation: `Subcommand of ${prefix_command}. See \`help ${prefix_command} ${my_subcommand.name}\``,
+                documentation: {
+                    kind: MarkupKind.Markdown,
+                    value: `Subcommand of \`${prefix_command}\`. See ${format_help_link(prefix_command + ' ' + my_subcommand.name)}`,
+                },
                 sortText: '0' + my_subcommand.name, // Sort before other completions
             });
         }

@@ -93,8 +93,18 @@ export class SmclPanelManager implements vscode.Disposable {
                 `open_topic: sendRequest sight/resolveSthlpFile` +
                 ` failed for topic="${topic}":`, err
             );
-            await this.show_not_found_message(topic);
+            await this.show_server_error_message(topic);
         }
+    }
+
+    private async show_server_error_message(
+        topic: string
+    ): Promise<void> {
+        await vscode.window.showWarningMessage(
+            `The language server encountered an error resolving` +
+            ` help for '${topic}'. The server may still be` +
+            ` starting up — try again in a moment.`
+        );
     }
 
     private async show_not_found_message(topic: string): Promise<void> {

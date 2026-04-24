@@ -267,7 +267,16 @@ export function parse_maint_file(content: string): Map<string, string> {
     const the_aliases = new Map<string, string>();
     const the_lines = content.split(/\r?\n/);
     for (const my_line of the_lines) {
-        if (my_line.trim().length === 0) continue;
+        const my_trimmed = my_line.trimStart();
+        if (my_trimmed.length === 0) continue;
+        // Skip comment lines so they aren't mistakenly parsed as
+        // alias entries (the regex below would match them).
+        if (
+            my_trimmed.startsWith('*') ||
+            my_trimmed.startsWith('//') ||
+            my_trimmed.startsWith('#') ||
+            my_trimmed.startsWith(';')
+        ) continue;
         const my_match = my_line.match(/^\s*(\S+)\s+(.+?)\s*$/);
         if (!my_match) continue;
         const my_key = my_match[1];

@@ -321,9 +321,9 @@ async function extract_minimal_metadata(file_path: string): Promise<ExtractedCom
  *       inside another command's syntax (`{c -(}{cmdab:loc:al} | ...`).
  *   0 - No structural signal — fall back to first-extracted.
  *
- * Prefer the record whose file basename matches the command name: this
- * is a strong tiebreaker because `macro.sthlp` is always more
- * authoritative than any other file that happens to mention `macro`.
+ * A small fractional bonus (+0.1) is added when the file basename
+ * matches the command name, acting as a tiebreaker within the same
+ * rank category (e.g. `macro.sthlp` for the `macro` command).
  */
 function rank_record(record: ExtractedCommandRecord): number {
     let my_rank = 0;
@@ -331,7 +331,9 @@ function rank_record(record: ExtractedCommandRecord): number {
     else if (record.has_viewerdialog) my_rank = 2;
     else if (record.is_paragraph_lead) my_rank = 1;
     // Bump records whose file is literally named after the command.
-    if (record.help_file_basename === record.key) my_rank += 10;
+    // Use a small fractional bonus so it only breaks ties within
+    // the same primary rank category (0–3).
+    if (record.help_file_basename === record.key) my_rank += 0.1;
     return my_rank;
 }
 

@@ -966,7 +966,7 @@ describe('smcl_to_html', () => {
     });
 
     describe('findalias-driven help title', () => {
-        const the_map = new Map([
+        const my_findalias_map = new Map([
             ['froperators', '{manlink U 13.2 Operators}'],
             ['frexp', '{manlink U 13 Functions and expressions}'],
         ]);
@@ -974,7 +974,7 @@ describe('smcl_to_html', () => {
         it('renders {pstd}{findalias X} as a full help-title header', () => {
             const result = smcl_to_html(
                 '{title:Title}\n\n{pstd}\n{findalias froperators}\n\n{marker syntax}',
-                { findalias_map: the_map }
+                { findalias_map: my_findalias_map }
             );
             expect(result.html).toContain('smcl-help-title');
             expect(result.html).toContain('smcl-help-title-heading');
@@ -998,7 +998,7 @@ describe('smcl_to_html', () => {
         it('strips section numbers from multi-word entries', () => {
             const result = smcl_to_html(
                 '{pstd}\n{findalias frexp}\n\n{marker remarks}',
-                { findalias_map: the_map }
+                { findalias_map: my_findalias_map }
             );
             expect(result.html).toContain('>Functions and expressions<');
             expect(result.html).toContain(
@@ -1031,7 +1031,7 @@ describe('smcl_to_html', () => {
             // convention and we must not swallow the pstd paragraph.
             const result = smcl_to_html(
                 '{title:Description}\n\n{pstd}\n{findalias froperators}\n',
-                { findalias_map: the_map }
+                { findalias_map: my_findalias_map }
             );
             expect(result.html).not.toContain('smcl-help-title-heading');
             expect(result.html).toContain('Description');

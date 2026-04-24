@@ -226,18 +226,39 @@ export class SmclPreviewPanel implements vscode.Disposable {
             my_round++
         ) {
             const the_unresolved: string[] = [];
+            const the_cached_smcl: string[] = [];
             for (const my_alias of the_pending) {
                 if (the_seen.has(my_alias)) continue;
                 the_seen.add(my_alias);
                 const my_cached = this.findalias_cache.get(my_alias);
                 if (my_cached !== undefined) {
                     my_map.set(my_alias, my_cached);
+                    the_cached_smcl.push(my_cached);
                     continue;
                 }
                 the_unresolved.push(my_alias);
             }
 
-            if (the_unresolved.length === 0 || !my_client) break;
+            // Scan cached SMCL for nested aliases so transitive
+            // references discovered from cache hits are resolved in
+            // subsequent rounds.
+            const the_next = new Set<string>();
+            for (const my_smcl of the_cached_smcl) {
+                for (const my_alias of collect_findalias_names(my_smcl)) {
+                    if (!the_seen.has(my_alias)) {
+                        the_next.add(my_alias);
+                    }
+                }
+            }
+
+            // If nothing needs an LSP call, carry forward any nested
+            // aliases discovered from cached hits and continue (or
+            // break if there are none).
+            if (the_unresolved.length === 0 || !my_client) {
+                the_pending = the_next;
+                if (the_next.size === 0) break;
+                continue;
+            }
 
             const the_results = await Promise.all(
                 the_unresolved.map(async (my_alias) => {
@@ -278,8 +299,8 @@ export class SmclPreviewPanel implements vscode.Disposable {
                 }
             }
 
-            // Scan newly resolved SMCL for transitive aliases.
-            const the_next = new Set<string>();
+            // Scan newly resolved SMCL for transitive aliases,
+            // merging with any nested aliases from cached hits.
             for (const my_smcl of the_new_smcl) {
                 for (const my_alias of collect_findalias_names(my_smcl)) {
                     if (!the_seen.has(my_alias)) {
