@@ -129,7 +129,7 @@ described): note that the feature can be turned off via
 
 ### Data flow
 
-```
+```text
 activate() ─┬─► configureDepthColors  ──► isDepthColorsEnabled?
             │                             ├─ yes → write defaults
             │                             └─ no  → skip

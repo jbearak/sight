@@ -141,12 +141,12 @@ export function activate(context: ExtensionContext) {
     // the stale rules we wrote in a prior session.
     if (isDepthColorsEnabled()) {
         output_channel.appendLine('Calling configureDepthColors...');
-        configureDepthColors(context, output_channel).catch((error) => {
+        configureDepthColors(context, output_channel ?? undefined).catch((error) => {
             output_channel?.appendLine(`Failed to configureDepthColors: ${error}`);
         });
     } else {
         output_channel.appendLine('Depth colors disabled; cleaning up any stale rules...');
-        disableDepthColors(context, output_channel).catch((error) => {
+        disableDepthColors(context, output_channel ?? undefined).catch((error) => {
             output_channel?.appendLine(`Failed to disableDepthColors: ${error}`);
         });
     }

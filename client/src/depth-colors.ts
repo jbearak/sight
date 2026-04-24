@@ -334,6 +334,10 @@ export async function disableDepthColors(
             return;
         }
         const cleaned = removeSightOwnedDepthRules(current);
+        if (JSON.stringify(cleaned) === JSON.stringify(current)) {
+            log('No Sight-owned depth color rules to remove');
+            return;
+        }
         await config.update(
             'tokenColorCustomizations',
             cleaned,
