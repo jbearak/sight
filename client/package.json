@@ -2,7 +2,7 @@
   "name": "sight",
   "displayName": "Sight - Comprehensive Stata Language Support",
   "description": "Stata language support: language server, syntax highlighting, and code execution",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "jbearak",
   "repository": {
     "type": "git",
