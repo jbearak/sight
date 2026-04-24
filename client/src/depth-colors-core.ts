@@ -154,7 +154,11 @@ export function mergeDepthColors(
     const light_rules = buildDepthColorRules(LIGHT_STRING_COLORS, LIGHT_MACRO_COLORS);
 
     // Merge dark theme rules. Sight defaults go first so that any existing
-    // user rule on the same scope wins via VS Code's last-rule-wins ordering.
+    // user rule on the same scope appears later in the array. VS Code's
+    // published theming guide resolves conflicts by scope specificity rather
+    // than array position, but empirically a later rule at equal specificity
+    // wins; this ordering gives user edits the best chance to override
+    // Sight's defaults.
     const existing_dark = result['[*Dark*]'] as ThemeTokenColorCustomizations | undefined;
     result['[*Dark*]'] = {
         ...existing_dark,

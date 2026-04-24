@@ -276,8 +276,9 @@ export async function updateUniversalFallbackColors(
 
         // Add new rules based on current theme. Build a new object rather
         // than mutating the value returned by config.get(). Sight defaults
-        // go first so that any preserved user rule on the same scope wins
-        // via VS Code's last-rule-wins ordering.
+        // go first so any preserved user rule on the same scope appears
+        // later in the array; empirically, VS Code resolves equal-specificity
+        // ties in favor of the later rule, giving user edits precedence.
         const new_rules = buildUniversalDepthColorRules();
         const updated: TokenColorCustomizations = {
             ...current,
