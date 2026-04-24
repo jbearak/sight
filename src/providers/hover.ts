@@ -1162,6 +1162,19 @@ export class HoverProvider {
     }
 
     /**
+     * True when the source-text word is recognized as a prefix command with
+     * subcommands (e.g. `frame`, `mi`). Stata prefix commands are
+     * case-sensitive and canonical-lowercase; `has_subcommands` lowercases
+     * internally, so mis-cased forms like `FRAME` need an explicit guard.
+     */
+    private is_canonical_prefix_with_subcommands(source_word: string): boolean {
+        if (source_word !== source_word.toLowerCase()) {
+            return false;
+        }
+        return this.command_db.has_subcommands(source_word);
+    }
+
+    /**
      * Token-based subcommand context detection.
      * Finds the hovered token and checks if the previous non-trivia token is a prefix command.
      */
@@ -1262,8 +1275,7 @@ export class HoverProvider {
         // The word at command_word_index should be the prefix command
         const potential_prefix = the_statement_words[command_word_index].value;
 
-        // Check if this command has subcommands using the database
-        if (!this.command_db.has_subcommands(potential_prefix)) {
+        if (!this.is_canonical_prefix_with_subcommands(potential_prefix)) {
             return { is_subcommand: false, prefix_command: null };
         }
 
@@ -1348,9 +1360,13 @@ export class HoverProvider {
             const after_colon = text_before_hovered.split(':').pop()?.trim() || '';
             const words_after_colon = after_colon.split(/\s+/).filter(t => t.length > 0);
             if (words_after_colon.length > 0) {
-                // Reset to check words after colon
-                const potential_prefix = words_after_colon[0].toLowerCase();
-                if (this.command_db.has_subcommands(potential_prefix) && words_after_colon.length === 1) {
+                // Reset to check words after colon. Preserve source case so
+                // mis-cased prefix commands are rejected by the case guard.
+                const potential_prefix = words_after_colon[0];
+                if (
+                    this.is_canonical_prefix_with_subcommands(potential_prefix)
+                    && words_after_colon.length === 1
+                ) {
                     const subcommands = this.command_db.get_subcommands(potential_prefix);
                     const is_valid = subcommands?.some(
                         sub => sub.name.toLowerCase() === hovered_word.toLowerCase()
@@ -1367,11 +1383,12 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
 
-        // The token at command_index should be the prefix command
-        const potential_prefix = tokens_before[command_index].toLowerCase();
+        // The token at command_index should be the prefix command.
+        // Preserve source case so mis-cased prefixes (e.g. `FRAME`) are
+        // rejected by the case guard.
+        const potential_prefix = tokens_before[command_index];
 
-        // Check if this command has subcommands using the database
-        if (!this.command_db.has_subcommands(potential_prefix)) {
+        if (!this.is_canonical_prefix_with_subcommands(potential_prefix)) {
             return { is_subcommand: false, prefix_command: null };
         }
 

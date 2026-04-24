@@ -219,6 +219,51 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             expect(my_hover).toBeNull();
         });
 
+        it(
+            'should not treat uppercase `FRAME` as a prefix command with subcommands '
+            + '(Stata is case-sensitive)',
+            async () => {
+                command_db = create_frame_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'FRAME create mygood';
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                // cursor is on "create" at column 8
+                const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 8 });
+
+                expect(my_hover).toBeNull();
+            }
+        );
+
+        it(
+            'should not treat mis-cased `FRAME` as a prefix command in the line fallback',
+            () => {
+                command_db = create_frame_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'FRAME create mygood';
+                const my_doc = {
+                    uri: 'file:///test.do',
+                    version: 1,
+                    content: my_content,
+                    tokens: [],
+                } as unknown as DocumentState;
+
+                const my_result = (hover_provider as any).get_subcommand_context_from_line(
+                    my_doc,
+                    { line: 0, character: 8 } as Position,
+                    'create'
+                );
+
+                expect(my_result).toEqual({
+                    is_subcommand: false,
+                    prefix_command: null,
+                });
+            }
+        );
+
         it('should not treat non-by colons as by-prefix syntax in line fallback', () => {
             command_db = create_frame_command_db();
             hover_provider = new HoverProvider(command_db, context_tracker);
