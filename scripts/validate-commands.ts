@@ -47,6 +47,13 @@ interface ValidationResult {
         abbreviation: string;
         min_abbreviation: number;
     }>;
+    /**
+     * Names from any batch that did not produce a `CMD:` line in the
+     * Stata log (e.g. because Stata aborted early or the log was
+     * truncated). Treated as failures: --fix refuses to write while any
+     * remain unvalidated.
+     */
+    missing_validations: string[];
 }
 
 function generate_do_file(
@@ -102,6 +109,83 @@ function parse_log(log_content: string): {
     return { cmd_results, abbrev_results };
 }
 
+/**
+ * For each invalid abbreviation, run `which` against every prefix
+ * length between `min_abbreviation + 1` and `name.length - 1` and
+ * return the shortest length that succeeds (rc == 0). When no shorter
+ * prefix works, the caller falls back to `name.length`.
+ */
+async function probe_min_abbreviations(
+    stata: string,
+    the_invalid: ValidationResult['invalid_abbreviations'],
+    cache: CommandCache
+): Promise<Map<string, number>> {
+    const the_results = new Map<string, number>();
+    if (the_invalid.length === 0) return the_results;
+
+    interface Probe { name: string; length: number; prefix: string; }
+    const the_probes: Probe[] = [];
+    for (const my_entry of the_invalid) {
+        const cmd = cache.commands[my_entry.name.toLowerCase()];
+        if (!cmd) continue;
+        for (
+            let len = my_entry.min_abbreviation + 1;
+            len < cmd.name.length;
+            len++
+        ) {
+            the_probes.push({
+                name: cmd.name,
+                length: len,
+                prefix: cmd.name.substring(0, len),
+            });
+        }
+    }
+    if (the_probes.length === 0) return the_results;
+
+    const do_path = join(TMP_DIR, `validate_probe.do`);
+    const log_path = do_path.replace('.do', '.log');
+    const the_lines: string[] = [];
+    for (const my_probe of the_probes) {
+        the_lines.push(`capture which ${my_probe.prefix}`);
+        the_lines.push(
+            `display "PROBE:${my_probe.name}:${my_probe.length}:rc=" _rc`
+        );
+    }
+    writeFileSync(do_path, the_lines.join('\n') + '\n');
+
+    try {
+        execSync(`"${stata}" -b do "${do_path}"`, {
+            cwd: TMP_DIR,
+            stdio: 'ignore',
+            timeout: 120_000,
+        });
+    } catch {
+        // Ignore non-zero exit; log content is what matters
+    }
+
+    let log_content = '';
+    try {
+        log_content = readFileSync(log_path, 'utf-8');
+    } catch {
+        return the_results;
+    }
+
+    for (const my_line of log_content.split('\n')) {
+        const my_match = my_line.match(/^PROBE:([^:]+):(\d+):rc=\s*(\d+)/);
+        if (!my_match) continue;
+        const my_name = my_match[1];
+        const my_length = parseInt(my_match[2]);
+        const my_rc = parseInt(my_match[3]);
+        if (my_rc !== 0) continue;
+        const my_prev = the_results.get(my_name);
+        if (my_prev === undefined || my_length < my_prev) {
+            the_results.set(my_name, my_length);
+        }
+    }
+
+    return the_results;
+}
+
 async function main(): Promise<void> {
     const fix_mode = process.argv.includes('--fix');
     const stata = find_stata_executable();
@@ -127,6 +211,7 @@ async function main(): Promise<void> {
     const result: ValidationResult = {
         invalid_commands: [],
         invalid_abbreviations: [],
+        missing_validations: [],
     };
 
     for (let i = 0; i < the_all_checks.length; i += BATCH_SIZE) {
@@ -164,6 +249,11 @@ async function main(): Promise<void> {
                 `  Warning: Only ${cmd_results.size}/${my_batch.length} ` +
                 `commands produced results in batch ${batch_index}`
             );
+            for (const my_check of my_batch) {
+                if (!cmd_results.has(my_check.name)) {
+                    result.missing_validations.push(my_check.name);
+                }
+            }
         }
 
         for (const [my_name, my_rc] of cmd_results) {
@@ -207,6 +297,20 @@ async function main(): Promise<void> {
         }
     }
 
+    if (result.missing_validations.length > 0) {
+        console.warn(
+            `\n${result.missing_validations.length} commands had no ` +
+            `validation result (incomplete batch / truncated log).`
+        );
+        if (fix_mode) {
+            console.error(
+                `Refusing to write fixes while any batch is incomplete. ` +
+                `Re-run validation until every command produces a result.`
+            );
+            process.exit(1);
+        }
+    }
+
     if (fix_mode && (result.invalid_commands.length > 0 || result.invalid_abbreviations.length > 0)) {
         console.log(`\n--- Applying fixes ---`);
 
@@ -217,17 +321,27 @@ async function main(): Promise<void> {
             console.log(`  Removed command: ${my_name}`);
         }
 
-        // Fix invalid abbreviations: set min_abbreviation to full name length
+        // Fix invalid abbreviations: probe progressively longer prefixes
+        // and store the shortest one Stata accepts. Falling back to
+        // `name.length` (no abbreviation) only when every shorter prefix
+        // fails preserves completion ordering, which uses
+        // `min_abbreviation` length as a sort-key component.
+        const the_new_min = await probe_min_abbreviations(
+            stata,
+            result.invalid_abbreviations,
+            cache
+        );
         for (const my_entry of result.invalid_abbreviations) {
             const key = my_entry.name.toLowerCase();
             const cmd = cache.commands[key];
-            if (cmd) {
-                cmd.min_abbreviation = cmd.name.length;
-                console.log(
-                    `  Fixed abbreviation: ${my_entry.name} ` +
-                    `(${my_entry.min_abbreviation} → ${cmd.name.length})`
-                );
-            }
+            if (!cmd) continue;
+            const my_new_min =
+                the_new_min.get(my_entry.name) ?? cmd.name.length;
+            cmd.min_abbreviation = my_new_min;
+            console.log(
+                `  Fixed abbreviation: ${my_entry.name} ` +
+                `(${my_entry.min_abbreviation} → ${my_new_min})`
+            );
         }
 
         // Rebuild abbreviations map

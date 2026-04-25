@@ -46,6 +46,11 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private scroll_sync_source: 'editor' | 'preview' | null = null;
     private scroll_sync_timeout: ReturnType<typeof setTimeout> | undefined;
 
+    // Anchor to scroll to once the webview signals it is ready.
+    // Set by the panel manager on first open when the help link
+    // included a `##anchor`; cleared after the first ready signal.
+    private pending_anchor: string | undefined;
+
     constructor(
         source_uri: vscode.Uri,
         panel: vscode.WebviewPanel,
@@ -414,6 +419,14 @@ export class SmclPreviewPanel implements vscode.Disposable {
         });
     }
 
+    /**
+     * Queue an anchor to scroll to once the webview reports it is
+     * ready. Used on first-open to avoid racing the initial render.
+     */
+    set_pending_anchor(anchor: string): void {
+        this.pending_anchor = anchor;
+    }
+
     // ---------------------------------------------------------------
     // Message handling
     // ---------------------------------------------------------------
@@ -440,6 +453,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
             case 'revealLine':
                 if (typeof message.line === 'number') {
                     this.sync_preview_to_editor(message.line);
+                }
+                break;
+            case 'webviewReady':
+                if (this.pending_anchor) {
+                    const my_anchor = this.pending_anchor;
+                    this.pending_anchor = undefined;
+                    this.scroll_to_anchor(my_anchor);
                 }
                 break;
         }

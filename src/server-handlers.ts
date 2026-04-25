@@ -1213,11 +1213,20 @@ export function create_resolve_sthlp_file_handler(
             }
         }
 
-        // Anchor not found — search topic_* related files
+        // Anchor not found — search topic_* related files. Use the
+        // canonical topic derived from the resolved file so that
+        // abbreviations and redirects (e.g. `reg` → `regress`,
+        // `local` → `macro`) search the correct family.
         if (deps.workspace_indexer) {
-            const my_topic = (params.topic ?? '').trim();
+            const my_raw_topic = (params.topic ?? '').trim();
+            const my_resolved_topic =
+                my_result.file_path
+                    .split(/[\\/]/)
+                    .pop()
+                    ?.replace(/\.sthlp$/i, '')
+                ?? my_raw_topic;
             const the_related = await deps.workspace_indexer
-                .find_related_sthlp_files(my_topic);
+                .find_related_sthlp_files(my_resolved_topic);
 
             for (const my_candidate_path of the_related) {
                 if (my_candidate_path === my_result.file_path) continue;

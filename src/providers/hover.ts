@@ -2025,11 +2025,11 @@ export class HoverProvider {
             hover_text += ` (abbreviated as \`${abbreviated_as}\`)`;
         }
 
-        // Link to f_<name> when a function help file exists (e.g.
-        // f_missing.sthlp), otherwise fall back to the bare name.
-        const my_help_topic = this.command_db.is_function(function_name)
-            ? `f_${function_name}`
-            : function_name;
+        // The caller has already classified this token as a function,
+        // so always link to the `f_<name>` help topic. The server-side
+        // resolver falls back to the bare name when no `f_*.sthlp`
+        // exists, so this stays correct even with partial caches.
+        const my_help_topic = `f_${function_name}`;
         hover_text += `\n\nSee Stata documentation: ${format_help_link(my_help_topic, `${function_name}()`)}`;
 
         return {

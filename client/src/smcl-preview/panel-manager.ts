@@ -62,9 +62,10 @@ export class SmclPanelManager implements vscode.Disposable {
         this.panels.set(my_key, my_preview);
 
         if (anchor) {
-            setTimeout(() => {
-                my_preview.scroll_to_anchor(anchor);
-            }, 300);
+            // The webview will post a `webviewReady` message once its
+            // DOM has loaded and anchor targets exist; the panel scrolls
+            // then. Avoids a timing-dependent fixed delay.
+            my_preview.set_pending_anchor(anchor);
         }
     }
 

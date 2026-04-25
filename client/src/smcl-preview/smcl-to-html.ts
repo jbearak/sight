@@ -1369,16 +1369,18 @@ function render_search_link(
     // {search keyword} or {search keyword:display_text}
     // Render as plain styled text — {search} opens Stata's keyword
     // search dialog, not a help page. No link, no cross-reference entry.
-    const my_topic = (directive.args || '').split(' ')[0].trim();
-    if (!my_topic) return render_content(directive, ctx);
+    // Preserve the full query — `{search mixed models}` should search
+    // the phrase "mixed models", not just "mixed".
+    const my_query = (directive.args || '').trim();
+    if (!my_query) return render_content(directive, ctx);
 
     const my_display = directive.content.length > 0
         ? render_content(directive, ctx)
-        : escape_html(my_topic);
+        : escape_html(my_query);
 
     return (
         `<span class="smcl-search-text" ` +
-        `data-smcl-search-query="${escape_html(my_topic)}"` +
+        `data-smcl-search-query="${escape_html(my_query)}"` +
         `>${my_display}</span>`
     );
 }

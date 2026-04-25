@@ -294,7 +294,10 @@ async function main(): Promise<void> {
     let unresolved_count = 0;
 
     for (const my_topic of the_topics) {
-        const my_file_path = await my_indexer.resolve_sthlp_file(my_topic);
+        // Use the same fallback resolver as render_topic so topics that
+        // only resolve via redirect (e.g. `local` → `macro`) or other
+        // fallbacks are still counted and validated.
+        const my_file_path = await resolve_topic(my_topic);
         if (!my_file_path) {
             unresolved_count++;
             continue;

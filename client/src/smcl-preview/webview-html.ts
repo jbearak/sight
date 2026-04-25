@@ -296,6 +296,20 @@ const WEBVIEW_SCRIPT = `
 (function() {
     const vscode = acquireVsCodeApi();
 
+    // Notify the extension once the document is fully parsed and
+    // anchor targets exist in the DOM. The extension uses this to
+    // perform a deferred scroll-to-anchor on first open instead of
+    // relying on a fixed timeout.
+    function notifyReady() {
+        vscode.postMessage({ type: 'webviewReady' });
+    }
+    if (document.readyState === 'complete' ||
+        document.readyState === 'interactive') {
+        notifyReady();
+    } else {
+        document.addEventListener('DOMContentLoaded', notifyReady);
+    }
+
     // ----------------------------------------------------------
     // Cross-reference link clicks
     // ----------------------------------------------------------
