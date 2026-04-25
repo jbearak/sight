@@ -196,7 +196,8 @@ function parse_smcl(source: string): SmclNode[] {
         const my_directive_line = current_line();
         pos++; // consume '{'
 
-        const is_dir_ws = (ch: string) => ch === ' ' || ch === '\n';
+        const is_dir_ws = (ch: string) =>
+            ch === ' ' || ch === '\n' || ch === '\r';
 
         // Skip leading whitespace
         while (pos < source.length && is_dir_ws(source[pos])) pos++;
@@ -208,7 +209,8 @@ function parse_smcl(source: string): SmclNode[] {
             source[pos] !== '}' &&
             source[pos] !== ':' &&
             source[pos] !== ' ' &&
-            source[pos] !== '\n'
+            source[pos] !== '\n' &&
+            source[pos] !== '\r'
         ) {
             pos++;
         }

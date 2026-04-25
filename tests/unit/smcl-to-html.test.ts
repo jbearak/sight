@@ -260,6 +260,15 @@ describe('smcl_to_html', () => {
             expect(result.html).not.toContain('data-smcl-topic=""');
         });
 
+        it('parses {help} directive split across a CRLF newline', () => {
+            const result = smcl_to_html(
+                '{help\r\ngrmap##sd_master:{it:master}}'
+            );
+            expect(result.html).toContain('data-smcl-topic="grmap"');
+            expect(result.html).toContain('data-smcl-anchor="sd_master"');
+            expect(result.html).not.toContain('data-smcl-topic=""');
+        });
+
         it('parses args-only directive split across a newline', () => {
             const result = smcl_to_html('{opt\nvce(robust)}');
             expect(result.html).toContain('vce(robust)');
