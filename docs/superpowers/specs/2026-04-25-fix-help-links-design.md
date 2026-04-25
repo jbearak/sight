@@ -47,8 +47,9 @@ between each.
   `INCLUDE`. No quoted names — bare tokens only. Both verified empirically.
 - Recursive: `.ihlp` files can include other `.ihlp` files (29 cases in
   Stata 18). Depth limit of 10 with cycle detection (track visited paths).
-- Missing `.ihlp` files → remove the `INCLUDE` line and emit a debug-level
-  `console.warn` (observable in dev tools, silent for users)
+- Missing `.ihlp` files → remove the `INCLUDE` line and log via
+  `logger.debug()` (project logger from `src/utils/logger.ts`). Deduplicate:
+  log once per unique missing include name per expansion call.
 - Cache `.ihlp` file content in an LRU cache keyed by resolved path (files
   don't change at runtime). Cache lives in the indexer (alongside
   `FindaliasResolver`), shared across requests, invalidated when ado-paths
@@ -60,9 +61,10 @@ between each.
   follow the same letter-subdirectory convention as `.sthlp` files (verified:
   `r/robust_short.ihlp`, `u/unstarred.ihlp`, etc.), so the implementation
   mirrors `resolve_sthlp_file` with a different extension.
-- Regex to match include lines: `/^INCLUDE help (\S+)/` (line-anchored,
-  case-sensitive). Empirically verified: no leading whitespace, no case
-  variants, no quoted names exist in Stata 18's help corpus.
+- Regex to match include lines: `/^\s*INCLUDE\s+help\s+(\S+)/`
+  (case-sensitive, tolerates leading whitespace and variable spacing).
+  Stata 18's corpus uses strict column-0 uppercase, but user-authored help
+  files may vary. Case-sensitive because `INCLUDE` is a Stata directive.
 - Expand in-place, then return the fully expanded content
 
 **Client-side change (`preview-panel.ts`):**
@@ -81,14 +83,26 @@ between each.
 **Algorithm when `anchor` is present:**
 1. Resolve `topic` to a file path (existing logic, unchanged)
 2. Read the resolved file, expand includes (reuse Part 1 cache), scan for
-   `{marker <anchor>}` using string matching: find lines containing
-   `{marker `, extract the name token, compare with exact string equality.
-   No regex interpolation of anchor text (anchors contain metacharacters
-   like `()`, `.`, `+`).
+   the anchor using the shared marker extraction utility (see below).
+
+**Marker extraction utility** (`src/utils/marker-scanner.ts`): A single
+shared module used by both the resolver and the checker script.
+
+- **Grammar:** `{marker <name>}` where `<name>` is all characters between
+  the space after `marker` and the next `}`. Names can contain letters,
+  digits, `_`, `()`, `.`, `*`, `#`, `-` (verified from corpus).
+- **Implementation:** Regex `/\{marker\s+([^}]+)\}/g` extracts all marker
+  names from a string. Returns a `Set<string>`.
+- **Matching:** Exact string equality between anchor and extracted marker
+  name. No regex interpolation of anchor text (anchors contain
+  metacharacters like `()`, `.`, `+`).
 3. If marker found → return this file path
 4. If not found → find all `topic_*.sthlp` files across the ado-path search
    directories (new indexer method `find_related_sthlp_files(topic)`). For
    each candidate, read + expand includes, scan for the marker.
+   **Deterministic ordering:** candidates are evaluated in ado-path priority
+   order (same order as `resolve_sthlp_file`). Within a single directory,
+   filenames are sorted lexicographically. First match wins.
 5. Return first match. If no match, return the original file path (user sees
    the page without scrolling — better than "not found")
 
@@ -156,6 +170,7 @@ After each part, rerun `scripts/check-help-links.ts` to measure impact:
 |------|--------|
 | `src/server-handlers.ts` | New `sight/expandIncludes` handler; extend `resolveSthlpFile` with `anchor` param and `f_`/`_` fallbacks |
 | `src/indexer/index.ts` | Add `resolve_ihlp_file()`, `find_related_sthlp_files()`, include expansion cache |
+| `src/utils/marker-scanner.ts` | New shared module: extract marker names from SMCL content |
 | `client/src/smcl-preview/preview-panel.ts` | Call `sight/expandIncludes` in `refresh()` |
 | `client/src/smcl-preview/panel-manager.ts` | Pass `anchor` in `resolveSthlpFile` request |
 | `client/src/smcl-preview/smcl-to-html.ts` | Change `render_search_link()` to emit plain text |
@@ -166,12 +181,12 @@ After each part, rerun `scripts/check-help-links.ts` to measure impact:
 
 Graceful degradation throughout — log warnings, never crash or block:
 
-- **Unreadable `.ihlp` file:** Log warning, treat as missing (remove the
-  `INCLUDE` line), continue expansion
-- **Include depth limit exceeded:** Log warning, return content expanded so
-  far (partial expansion is better than none)
-- **Malformed `{marker}` directive:** Skip (don't extract a name), continue
-  scanning
+- **Unreadable `.ihlp` file:** `logger.debug()`, treat as missing (remove
+  the `INCLUDE` line), continue expansion
+- **Include depth limit exceeded:** `logger.warn()`, return content expanded
+  so far (partial expansion is better than none)
+- **Malformed `{marker}` directive:** Skip (regex won't match if no name
+  between `{marker ` and `}`), continue scanning
 - **`_variables.sthlp` missing from installation:** `resolve_sthlp_file`
   returns null, fallback is a no-op
 
@@ -192,6 +207,9 @@ Each part requires automated tests beyond the checker script:
   prefix fallbacks in `resolveSthlpFile`.
 - **Checker script:** Update `check-help-links.ts` to use include expansion
   when validating anchors, so it accurately reflects the viewer's behavior.
+- **Checker-runtime parity:** The checker must call the same include
+  expander and marker scanner (`src/utils/marker-scanner.ts`) used by the
+  resolver. No duplicate implementations.
 
 ## Out of scope
 
