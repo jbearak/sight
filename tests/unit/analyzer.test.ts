@@ -257,6 +257,33 @@ end`;
             expect(result.symbols.variables.has('byte')).toBe(false);
         });
 
+        it('should emit MISSING_VARIABLE_NAME diagnostic for `gen byte` with no name', () => {
+            const result = analyze('gen byte');
+
+            expect(result.symbols.variables.has('byte')).toBe(false);
+            expect(
+                result.diagnostics.some(d => d.code === StataDiagnosticCode.MISSING_VARIABLE_NAME)
+            ).toBe(true);
+        });
+
+        it('should emit MISSING_VARIABLE_NAME diagnostic for `gen byte = 1`', () => {
+            const result = analyze('gen byte = 1');
+
+            expect(result.symbols.variables.has('byte')).toBe(false);
+            expect(
+                result.diagnostics.some(d => d.code === StataDiagnosticCode.MISSING_VARIABLE_NAME)
+            ).toBe(true);
+        });
+
+        it('should emit MISSING_VARIABLE_NAME diagnostic for `egen str20 = sum(x)`', () => {
+            const result = analyze('egen str20 = sum(x)');
+
+            expect(result.symbols.variables.has('str20')).toBe(false);
+            expect(
+                result.diagnostics.some(d => d.code === StataDiagnosticCode.MISSING_VARIABLE_NAME)
+            ).toBe(true);
+        });
+
         it('should NOT register local macro references as variables in gen', () => {
             const result = analyze('gen `my_var\' = 1');
             

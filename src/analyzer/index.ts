@@ -170,6 +170,7 @@ export class SemanticAnalyzer {
     private forward_calls: ForwardCall[] = [];
     private workspace_symbols?: SymbolTable;
     private tokens?: Token[];
+    private current_diagnostics: SemanticDiagnostic[] = [];
 
     /**
      * Analyze an AST and build symbol tables.
@@ -198,6 +199,7 @@ export class SemanticAnalyzer {
         const symbols: SymbolTable = create_empty_symbol_table();
 
         const diagnostics: SemanticDiagnostic[] = [];
+        this.current_diagnostics = diagnostics;
         const scopes: ScopeInfo[] = [];
 
         // Create the top-level do-file scope
@@ -238,6 +240,7 @@ export class SemanticAnalyzer {
         // Clear per-analyze state at end
         this.workspace_symbols = undefined;
         this.tokens = undefined;
+        this.current_diagnostics = [];
 
         return {
             symbols,
@@ -1453,7 +1456,16 @@ export class SemanticAnalyzer {
             return undefined;
         }
         if (is_stata_storage_type(node.varlist[0].name)) {
-            return node.varlist.length > 1 ? node.varlist[1] : undefined;
+            if (node.varlist.length > 1) {
+                return node.varlist[1];
+            }
+            this.current_diagnostics.push({
+                message: `Missing variable name after storage type \`${node.varlist[0].name}'`,
+                range: node.varlist[0].range,
+                code: StataDiagnosticCode.MISSING_VARIABLE_NAME,
+                severity: 'error',
+            });
+            return undefined;
         }
         return node.varlist[0];
     }
