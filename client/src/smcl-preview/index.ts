@@ -74,17 +74,18 @@ export function register_smcl_preview(
         vscode.commands.registerCommand(
             'sight.openHelpTopic',
             async (arg: unknown) => {
-                let my_topic = extract_topic(arg);
+                const my_linked_topic = extract_topic(arg);
+                let my_topic = my_linked_topic;
                 if (!my_topic) {
                     my_topic = await prompt_for_topic();
                 }
                 if (!my_topic) {
                     return;
                 }
-                await my_manager.open_topic(
-                    my_topic,
-                    vscode.ViewColumn.Beside
-                );
+                const my_column = my_linked_topic
+                    ? vscode.ViewColumn.Beside
+                    : vscode.ViewColumn.Active;
+                await my_manager.open_topic(my_topic, my_column);
             }
         )
     );
