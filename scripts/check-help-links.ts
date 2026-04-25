@@ -24,6 +24,7 @@ import { command_database } from '../src/command-database';
 import type { CommandCache } from '../src/command-database/types';
 import { WorkspaceIndexer } from '../src/indexer';
 import { smcl_to_html } from '../client/src/smcl-preview/smcl-to-html';
+import { expand_includes } from '../src/utils/include-expander';
 import { discover_stata_ado_paths } from '../src/utils/stata-install-paths';
 
 // -----------------------------------------------------------------------
@@ -149,6 +150,18 @@ async function main(): Promise<void> {
         anchor_ids: Set<string>;
     }>();
 
+    // Resolver for INCLUDE expansion — uses the indexer
+    const my_include_resolver = async (name: string) => {
+        const my_path = await my_indexer.resolve_ihlp_file(name);
+        if (!my_path) return null;
+        try {
+            const my_file_content = fs.readFileSync(my_path, 'utf-8');
+            return { path: my_path, content: my_file_content };
+        } catch {
+            return null;
+        }
+    };
+
     // Render and cache a topic; returns null if unresolvable
     async function render_topic(
         topic: string
@@ -159,7 +172,10 @@ async function main(): Promise<void> {
         const my_file_path = await my_indexer.resolve_sthlp_file(topic);
         if (!my_file_path) return null;
 
-        const my_content = fs.readFileSync(my_file_path, 'utf-8');
+        const my_raw_content = fs.readFileSync(my_file_path, 'utf-8');
+        const my_content = await expand_includes(
+            my_raw_content, my_include_resolver
+        );
         const my_result = smcl_to_html(my_content, {
             current_topic: topic,
         });
