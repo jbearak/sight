@@ -50,12 +50,16 @@ between each.
 - Missing `.ihlp` files → remove the `INCLUDE` line and emit a debug-level
   `console.warn` (observable in dev tools, silent for users)
 - Cache `.ihlp` file content in an LRU cache keyed by resolved path (files
-  don't change at runtime)
+  don't change at runtime). Cache lives in the indexer (alongside
+  `FindaliasResolver`), shared across requests, invalidated when ado-paths
+  change.
 
 **Server-side implementation:**
 - New handler `create_expand_includes_handler()` in `server-handlers.ts`
-- Uses `workspace_indexer.resolve_sthlp_file()` (or a parallel
-  `resolve_ihlp_file()` method) to locate `.ihlp` files
+- Uses a new `resolve_ihlp_file(name)` method in the indexer. `.ihlp` files
+  follow the same letter-subdirectory convention as `.sthlp` files (verified:
+  `r/robust_short.ihlp`, `u/unstarred.ihlp`, etc.), so the implementation
+  mirrors `resolve_sthlp_file` with a different extension.
 - Regex to match include lines: `/^INCLUDE help (\S+)/` (line-anchored,
   case-sensitive). Empirically verified: no leading whitespace, no case
   variants, no quoted names exist in Stata 18's help corpus.
@@ -82,19 +86,19 @@ between each.
    No regex interpolation of anchor text (anchors contain metacharacters
    like `()`, `.`, `+`).
 3. If marker found → return this file path
-4. If not found → resolve `topic_options` as a topic (full existing resolution
-   chain), scan for the marker
-5. If not found → resolve `topic_postestimation` as a topic, scan for the
-   marker
-6. Return first match. If no match, return the original file path (user sees
+4. If not found → find all `topic_*.sthlp` files across the ado-path search
+   directories (new indexer method `find_related_sthlp_files(topic)`). For
+   each candidate, read + expand includes, scan for the marker.
+5. Return first match. If no match, return the original file path (user sees
    the page without scrolling — better than "not found")
 
-**Fallback scope note:** The suffix fallback is not restricted to estimation
-commands. It triggers only when all three conditions hold: (1) the anchor is
-missing from the primary file, (2) the suffix variant resolves to an existing
-file, and (3) that file contains the exact marker. False positives (unrelated
-file having the same marker name) are theoretically possible but unlikely in
-practice — marker names are specific to their context.
+**Why glob instead of a fixed suffix list:** Stata uses many suffixes beyond
+`_options` and `_postestimation` — including `_postestimation_plots`,
+`_printcolor`, `_fred`, `_summarize`, `_pie`, `_diagnostics`, and others.
+Empirically, scanning all `topic_*` files fixes 90 cross-page anchor links
+vs only 19 with just `_options`/`_postestimation`. The glob is cheap (one
+readdir per search directory, cached) and the marker name match prevents
+false positives.
 
 **When `anchor` is absent:** Existing behavior, fully backward compatible.
 
@@ -151,12 +155,25 @@ After each part, rerun `scripts/check-help-links.ts` to measure impact:
 | File | Change |
 |------|--------|
 | `src/server-handlers.ts` | New `sight/expandIncludes` handler; extend `resolveSthlpFile` with `anchor` param and `f_`/`_` fallbacks |
-| `src/indexer/index.ts` | Add `resolve_ihlp_file()` or reuse `resolve_sthlp_file()` with `.ihlp` extension |
+| `src/indexer/index.ts` | Add `resolve_ihlp_file()`, `find_related_sthlp_files()`, include expansion cache |
 | `client/src/smcl-preview/preview-panel.ts` | Call `sight/expandIncludes` in `refresh()` |
 | `client/src/smcl-preview/panel-manager.ts` | Pass `anchor` in `resolveSthlpFile` request |
 | `client/src/smcl-preview/smcl-to-html.ts` | Change `render_search_link()` to emit plain text |
 | `client/src/smcl-preview/webview-html.ts` | Add `.smcl-search-text` CSS rule |
 | `scripts/check-help-links.ts` | Update to use include expansion when checking anchors |
+
+## Error handling
+
+Graceful degradation throughout — log warnings, never crash or block:
+
+- **Unreadable `.ihlp` file:** Log warning, treat as missing (remove the
+  `INCLUDE` line), continue expansion
+- **Include depth limit exceeded:** Log warning, return content expanded so
+  far (partial expansion is better than none)
+- **Malformed `{marker}` directive:** Skip (don't extract a name), continue
+  scanning
+- **`_variables.sthlp` missing from installation:** `resolve_sthlp_file`
+  returns null, fallback is a no-op
 
 ## Testing
 
@@ -164,16 +181,17 @@ Each part requires automated tests beyond the checker script:
 
 - **Part 1 (INCLUDE expansion):** Unit tests for the expander — basic
   expansion, recursive includes, cycle detection, missing file handling,
-  depth limit. Integration test: render a known `.sthlp` with includes and
-  verify markers appear in output HTML.
+  depth limit, unreadable file handling. Integration test: render a known
+  `.sthlp` with includes and verify markers appear in output HTML.
 - **Part 2 (anchor fallback):** Unit tests for `resolveSthlpFile` with
-  anchor param — anchor found in primary file, anchor found in `_options`
-  suffix, anchor found in `_postestimation` suffix, anchor not found
-  anywhere (returns original file). Test with anchors containing
-  metacharacters like `level()`.
+  anchor param — anchor found in primary file, anchor found in a suffix
+  file, anchor not found anywhere (returns original file). Test with
+  anchors containing metacharacters like `level()`.
 - **Part 3 (renderer/resolver):** Unit test that `render_search_link`
   produces a `<span>` not an `<a>`. Unit tests for `f_` prefix and `_`
   prefix fallbacks in `resolveSthlpFile`.
+- **Checker script:** Update `check-help-links.ts` to use include expansion
+  when validating anchors, so it accurately reflects the viewer's behavior.
 
 ## Out of scope
 
