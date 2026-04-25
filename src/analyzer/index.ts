@@ -1460,7 +1460,7 @@ export class SemanticAnalyzer {
      * Syntax: gen[erate] [type] newvar = exp
      */
     private extract_gen_variable(node: CommandNode, symbols: SymbolTable): void {
-        const the_new_var = this.pick_new_variable(node);
+        const new_var = this.pick_new_variable(node);
         if (!the_new_var) return;
 
         // Skip macro references - they are not actual variable definitions
