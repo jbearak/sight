@@ -353,7 +353,7 @@ describe('LSP Lifecycle - Handler Factories', () => {
                 expect(result.contents.value).toContain(
                     `(command:sight.openHelpTopic?${my_expected_args})`
                 );
-                expect(result.contents.value).toContain('[help missing]');
+                expect(result.contents.value).toContain('[help missing()]');
             }
         });
     });

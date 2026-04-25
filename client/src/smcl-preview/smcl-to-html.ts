@@ -1757,7 +1757,12 @@ function try_match_help_title(
         i++;
     }
     const my_description = the_description_parts.join('').trim();
-    if (my_description.length === 0) return null;
+    // Some help files (e.g. function pages like f_strpos.sthlp) have
+    // no inline description — the title row is just {p2col:{bf:[FN] String functions}}.
+    // Fall back to the full manual reference (e.g. "[FN] String functions").
+    const my_effective_description = my_description.length > 0
+        ? my_description
+        : my_title_ref.full_ref;
     skip_filler();
 
     // Optional: {p2col:}({mansection X name:text}){p_end}
@@ -1767,26 +1772,56 @@ function try_match_help_title(
         i < nodes.length
         && is_directive(nodes[i])
         && (nodes[i] as SmclDirective).name.toLowerCase() === 'p2col'
-        && (nodes[i] as SmclDirective).content.length === 0
     ) {
-        i++;
-        while (i < nodes.length) {
-            const my_node = nodes[i];
-            if (is_directive(my_node) && my_node.name.toLowerCase() === 'p_end') {
-                i++;
-                break;
-            }
+        const my_p2col = nodes[i] as SmclDirective;
+        // Check for mansection inside p2col content (e.g. function pages:
+        // {p2col:({mansection FN Stringfunctions:...})}{p_end})
+        for (const my_child of my_p2col.content) {
             if (
-                is_directive(my_node)
-                && my_node.name.toLowerCase() === 'mansection'
+                is_directive(my_child)
+                && my_child.name.toLowerCase() === 'mansection'
             ) {
-                const my_parsed = parse_mansection_args(my_node.args);
+                const my_parsed = parse_mansection_args(my_child.args);
                 if (my_parsed) {
                     mansection_target = my_parsed.target;
                     mansection_text = my_parsed.display;
                 }
             }
+        }
+        // Also check sibling nodes (standard pattern: {p2col:}({mansection ...}){p_end})
+        if (!mansection_target && my_p2col.content.length === 0) {
             i++;
+            while (i < nodes.length) {
+                const my_node = nodes[i];
+                if (is_directive(my_node) && my_node.name.toLowerCase() === 'p_end') {
+                    i++;
+                    break;
+                }
+                if (
+                    is_directive(my_node)
+                    && my_node.name.toLowerCase() === 'mansection'
+                ) {
+                    const my_parsed = parse_mansection_args(my_node.args);
+                    if (my_parsed) {
+                        mansection_target = my_parsed.target;
+                        mansection_text = my_parsed.display;
+                    }
+                }
+                i++;
+            }
+        } else {
+            // Content was non-empty (mansection found inside, or no
+            // mansection at all). Skip past the trailing {p_end}.
+            i++;
+            // Skip to {p_end}
+            while (i < nodes.length) {
+                const my_node = nodes[i];
+                if (is_directive(my_node) && my_node.name.toLowerCase() === 'p_end') {
+                    i++;
+                    break;
+                }
+                i++;
+            }
         }
         skip_filler();
     }
@@ -1805,7 +1840,7 @@ function try_match_help_title(
         consumed: i - start,
         info: {
             name: my_title_ref.name,
-            description: my_description,
+            description: my_effective_description,
             mansection_target,
             mansection_text,
         },
@@ -1975,7 +2010,7 @@ function extract_manlink_help_title(
 
 function extract_title_ref_from_p2col(
     p2col: SmclDirective
-): { name: string } | null {
+): { name: string; full_ref: string } | null {
     // Expected content: [{bf:[X] name}, optional text/whitespace,
     // optional {hline}]. We only look at the first directive to
     // decide whether this row is a title; trailing space + {hline} is
@@ -1992,7 +2027,10 @@ function extract_title_ref_from_p2col(
             .join('');
     const my_match = my_inner_text.trim().match(/^\[[A-Z]+(?:-\d+)?\]\s+(.+)$/);
     if (!my_match) return null;
-    return { name: my_match[1].trim() };
+    return {
+        name: my_match[1].trim(),
+        full_ref: my_inner_text.trim(),
+    };
 }
 
 function render_help_title(directive: SmclDirective): string {

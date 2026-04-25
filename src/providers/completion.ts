@@ -1286,13 +1286,21 @@ export class CompletionProvider {
                 continue;
             }
 
+            // Sort by abbreviation length within the same tier so
+            // commands with shorter abbreviations (more "canonical")
+            // sort first. This is prefix-independent so it works when
+            // VS Code caches completions (isIncomplete: false) and
+            // filters client-side on subsequent keystrokes.
+            const my_abbrev_sort = my_command.minAbbreviation.length
+                .toString()
+                .padStart(2, '0');
             const ranking_factors: CompletionRankingFactors = {
                 scope_depth: 0,
                 directive_type: 'current',
                 symbol_type: 'builtin',
-                alphabetical_order: my_command.name,
+                alphabetical_order: my_abbrev_sort + my_command.name,
                 parent_uri: document.uri,
-                command_priority: my_command.priority
+                command_priority: my_command.priority,
             };
 
             const completion = this.create_command_completion(my_command);

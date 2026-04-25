@@ -621,6 +621,31 @@ describe('smcl_to_html', () => {
             expect(result.html).not.toContain('smcl-help-title');
         });
 
+        it('collapses function-page title with mansection inside p2col content', () => {
+            // Function help pages (f_strpos.sthlp etc.) have no inline
+            // description and put {mansection} inside the p2col content.
+            const my_header =
+                '{p2colset 1 26 28 2}{...}\n' +
+                '{p2col:{bf:[FN] String functions}}\n' +
+                '{p_end}\n' +
+                '{p2col:({mansection FN Stringfunctions:View complete PDF manual entry})}{p_end}\n' +
+                '{p2colreset}{...}';
+            const result = smcl_to_html(my_header);
+
+            expect(result.html).toContain('<header class="smcl-help-title"');
+            expect(result.html).toContain(
+                '<h1 class="smcl-help-title-heading">String functions</h1>'
+            );
+            // Falls back to full reference when no inline description
+            expect(result.html).toContain(
+                '<p class="smcl-help-subtitle">[FN] String functions</p>'
+            );
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/fnstringfunctions.pdf"'
+            );
+            expect(result.html).not.toContain('smcl-p2col-table');
+        });
+
         it('renders an inline {mansection} as a link outside of the title block', () => {
             const result = smcl_to_html(
                 'see {mansection P display:the Programming manual}'

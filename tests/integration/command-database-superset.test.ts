@@ -40,6 +40,8 @@ describe('Command Database Superset Validation', () => {
         const legacy_count = legacy_command_names.length;
         const new_count = new_command_names.size;
 
+        // The new database should have significantly more commands than legacy,
+        // even after validation removes false positives
         expect(new_count).toBeGreaterThan(legacy_count);
 
         if (process.env.SIGHT_TEST_LOG) {
@@ -49,9 +51,14 @@ describe('Command Database Superset Validation', () => {
     });
 
     it('should contain every legacy command in the new database', () => {
+        // Some legacy commands are graph subcommands (e.g., "bar") that
+        // Stata's `which` doesn't recognize as standalone commands.
+        // These are intentionally excluded after validation.
+        const KNOWN_LEGACY_EXCLUSIONS = new Set(['bar']);
         const the_missing_commands: string[] = [];
 
         for (const my_legacy_name of legacy_command_names) {
+            if (KNOWN_LEGACY_EXCLUSIONS.has(my_legacy_name)) continue;
             if (!new_command_names.has(my_legacy_name)) {
                 the_missing_commands.push(my_legacy_name);
             }
@@ -68,9 +75,11 @@ describe('Command Database Superset Validation', () => {
     });
 
     it('should be able to look up each legacy command by name', () => {
+        const KNOWN_LEGACY_EXCLUSIONS = new Set(['bar']);
         const the_lookup_failures: string[] = [];
 
         for (const my_legacy_name of legacy_command_names) {
+            if (KNOWN_LEGACY_EXCLUSIONS.has(my_legacy_name)) continue;
             const result = new_database.lookup(my_legacy_name);
             if (!result) {
                 the_lookup_failures.push(my_legacy_name);
@@ -87,8 +96,9 @@ describe('Command Database Superset Validation', () => {
         expect(the_lookup_failures).toEqual([]);
     });
 
-    it('should have thousands of commands (not just 50)', () => {
-        // The cache should have thousands of commands, not the test limit of 50
-        expect(new_command_names.size).toBeGreaterThan(1000);
+    it('should have hundreds of validated commands', () => {
+        // After validation with Stata's `which`, the cache contains only
+        // commands that Stata actually recognizes (typically 800-900)
+        expect(new_command_names.size).toBeGreaterThan(800);
     });
 });

@@ -20,6 +20,9 @@ class CommandDatabase {
     // Pre-computed static completions (computed once, reused on every request)
     private all_commands_cached: ProviderCommandInfo[] | null = null;
 
+    // Functions discovered from f_*.sthlp files
+    private functions_set: Set<string> = new Set();
+
     /**
      * Load command cache from JSON data.
      */
@@ -42,6 +45,7 @@ class CommandDatabase {
         };
         this.recompute_resolved_abbreviations();
         this.all_commands_cached = null; // Invalidate cached array
+        this.functions_set = new Set(cache.functions || []);
         this.cache_version++;
     }
 
@@ -325,12 +329,27 @@ class CommandDatabase {
     }
 
     /**
+     * Check if a name is a known Stata function (from f_*.sthlp files).
+     */
+    is_function(name: string): boolean {
+        return this.functions_set.has(name);
+    }
+
+    /**
+     * Get all known function names.
+     */
+    get_all_functions(): string[] {
+        return Array.from(this.functions_set);
+    }
+
+    /**
      * Clear all commands.
      */
     clear(): void {
         this.cache = null;
         this.resolved_abbreviations = Object.create(null);
         this.all_commands_cached = null;
+        this.functions_set = new Set();
         this.cache_version++;
     }
 

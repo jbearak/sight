@@ -198,7 +198,7 @@ function convert_builtin_subcommand_to_cache_format(
 
 export function apply_builtin_metadata_fallback(
     commands: Record<string, CommandInfo>
-): { options_fallback_count: number; subcommands_fallback_count: number } {
+): { options_fallback_count: number; subcommands_fallback_count: number; abbreviation_fallback_count: number } {
     const builtin_map = new Map<string, typeof BUILTIN_COMMANDS[0]>();
     for (const my_cmd of BUILTIN_COMMANDS) {
         builtin_map.set(my_cmd.name.toLowerCase(), my_cmd);
@@ -206,11 +206,23 @@ export function apply_builtin_metadata_fallback(
 
     let options_fallback_count = 0;
     let subcommands_fallback_count = 0;
+    let abbreviation_fallback_count = 0;
 
     for (const [cmd_name, cmd_info] of Object.entries(commands)) {
         const builtin_info = builtin_map.get(cmd_name);
         if (!builtin_info) {
             continue;
+        }
+
+        // Abbreviation fallback: if SMCL extraction found no abbreviation
+        // info (min_abbreviation == full name length), use BUILTIN_COMMANDS
+        if (
+            builtin_info.minAbbreviation
+            && cmd_info.min_abbreviation >= cmd_info.name.length
+            && builtin_info.minAbbreviation.length < cmd_info.name.length
+        ) {
+            cmd_info.min_abbreviation = builtin_info.minAbbreviation.length;
+            abbreviation_fallback_count++;
         }
 
         if (builtin_info.options) {
@@ -233,7 +245,7 @@ export function apply_builtin_metadata_fallback(
         }
     }
 
-    return { options_fallback_count, subcommands_fallback_count };
+    return { options_fallback_count, subcommands_fallback_count, abbreviation_fallback_count };
 }
 
 /**
@@ -420,6 +432,23 @@ function validate_legacy_commands(
     return { missing, present };
 }
 
+/**
+ * Discover Stata function names from f_*.sthlp files.
+ * Function help files follow the naming convention f_<name>.sthlp.
+ */
+function discover_functions(base_path: string): string[] {
+    const f_dir = join(base_path, 'f');
+    try {
+        return readdirSync(f_dir)
+            .filter(f => f.startsWith('f_') && f.endsWith('.sthlp'))
+            .map(f => f.slice(2, -6)) // strip "f_" prefix and ".sthlp" suffix
+            .sort();
+    } catch {
+        console.warn(`Warning: Could not read function directory ${f_dir}`);
+        return [];
+    }
+}
+
 export async function generate_cache(options: GenerateOptions): Promise<{ cache: CommandCache; result: GenerationResult }> {
     const stata_path = options.stata_path || find_stata_path();
     const base_path = join(stata_path, 'ado', 'base');
@@ -514,6 +543,7 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     const {
         options_fallback_count,
         subcommands_fallback_count,
+        abbreviation_fallback_count,
     } = apply_builtin_metadata_fallback(commands);
     
     if (options_fallback_count > 0) {
@@ -522,6 +552,11 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     if (subcommands_fallback_count > 0) {
         console.log(
             `Applied hardcoded subcommands fallback to ${subcommands_fallback_count} commands`
+        );
+    }
+    if (abbreviation_fallback_count > 0) {
+        console.log(
+            `Applied hardcoded abbreviation fallback to ${abbreviation_fallback_count} commands`
         );
     }
     
@@ -538,6 +573,10 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     
     const total_commands = Object.keys(commands).length;
     
+    // Discover functions from f_*.sthlp files
+    const the_functions = discover_functions(base_path);
+    console.log(`\nDiscovered ${the_functions.length} functions from f_*.sthlp files`);
+    
     // Check monotonicity before building final cache
     const { previous_count } = check_monotonicity(
         options.output_path,
@@ -548,7 +587,8 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     const cache: CommandCache = {
         version: options.version,
         commands,
-        abbreviations: build_abbreviations(commands)
+        abbreviations: build_abbreviations(commands),
+        functions: the_functions,
     };
     
     const result: GenerationResult = {
@@ -582,6 +622,7 @@ if (import.meta.main) {
         console.log(`\nCache written to: ${output_path}`);
         console.log(`Commands: ${Object.keys(cache.commands).length}`);
         console.log(`Abbreviations: ${Object.keys(cache.abbreviations).length}`);
+        console.log(`Functions: ${(cache.functions || []).length}`);
         
         // Report monotonicity results
         if (result.commands_previous > 0) {
