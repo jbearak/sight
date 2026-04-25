@@ -376,6 +376,28 @@ describe('WorkspaceIndexer', () => {
         expect(include_only.has(done_uri)).toBe(false);
     });
 
+    it('finds related .sthlp files for multi-word topics with spaces', async () => {
+        // Bug: find_related_sthlp_files used the raw topic to build a
+        // prefix, so a topic like `regress postestimation` produced a
+        // prefix of `regress postestimation_` and missed the on-disk
+        // basename `regress_postestimation_*.sthlp` (Stata convention
+        // joins multi-word topics with underscores).
+        const my_ado_dir = path.join(temp_dir, 'ado', 'r');
+        const my_postest_path = path.join(
+            my_ado_dir, 'regress_postestimation_ts.sthlp'
+        );
+        fs.mkdirSync(my_ado_dir, { recursive: true });
+        fs.writeFileSync(my_postest_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const the_related = await indexer.find_related_sthlp_files(
+            'regress postestimation'
+        );
+
+        expect(the_related).toContain(my_postest_path);
+    });
+
     it('should debounce rapid file updates', async () => {
         const file_path = path.join(temp_dir, 'debounce.do');
         fs.writeFileSync(file_path, 'program define prog1\nend');

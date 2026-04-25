@@ -1100,8 +1100,16 @@ export class WorkspaceIndexer {
 
     async find_related_sthlp_files(topic: string): Promise<string[]> {
         if (topic.length === 0) return [];
-        const my_prefix = `${topic}_`;
-        const my_first_letter = topic.charAt(0).toLowerCase();
+
+        // Stata convention: multi-word topics (e.g. `regress
+        // postestimation`) live in files joined with underscores. Probe
+        // both the raw topic and the underscore-joined form so callers
+        // that pass either shape get the right `topic_*.sthlp` matches.
+        const the_topic_variants: string[] = [topic];
+        const my_underscored = topic.replace(/[\s-]+/g, '_');
+        if (my_underscored !== topic) {
+            the_topic_variants.push(my_underscored);
+        }
 
         const the_search_dirs = [
             ...this.ado_paths,
@@ -1111,25 +1119,30 @@ export class WorkspaceIndexer {
 
         const the_seen = new Set<string>();
         const the_results: string[] = [];
-        for (const my_dir of the_search_dirs) {
-            // Check letter subdirectory first
-            const my_subdir = path.join(my_dir, my_first_letter);
-            const the_subdir_matches =
-                await this.list_matching_sthlp(my_subdir, my_prefix);
-            for (const my_match of the_subdir_matches) {
-                if (!the_seen.has(my_match)) {
-                    the_seen.add(my_match);
-                    the_results.push(my_match);
-                }
-            }
+        for (const my_variant of the_topic_variants) {
+            const my_prefix = `${my_variant}_`;
+            const my_first_letter = my_variant.charAt(0).toLowerCase();
 
-            // Check flat directory
-            const the_flat_matches =
-                await this.list_matching_sthlp(my_dir, my_prefix);
-            for (const my_match of the_flat_matches) {
-                if (!the_seen.has(my_match)) {
-                    the_seen.add(my_match);
-                    the_results.push(my_match);
+            for (const my_dir of the_search_dirs) {
+                // Check letter subdirectory first
+                const my_subdir = path.join(my_dir, my_first_letter);
+                const the_subdir_matches =
+                    await this.list_matching_sthlp(my_subdir, my_prefix);
+                for (const my_match of the_subdir_matches) {
+                    if (!the_seen.has(my_match)) {
+                        the_seen.add(my_match);
+                        the_results.push(my_match);
+                    }
+                }
+
+                // Check flat directory
+                const the_flat_matches =
+                    await this.list_matching_sthlp(my_dir, my_prefix);
+                for (const my_match of the_flat_matches) {
+                    if (!the_seen.has(my_match)) {
+                        the_seen.add(my_match);
+                        the_results.push(my_match);
+                    }
                 }
             }
         }

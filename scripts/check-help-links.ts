@@ -137,6 +137,14 @@ async function main(): Promise<void> {
     const my_throwaway = fs.mkdtempSync(
         path.join(os.tmpdir(), 'sight-link-check-')
     );
+    // Ensure the temp dir is removed even if main() throws.
+    process.on('exit', () => {
+        try {
+            fs.rmSync(my_throwaway, { recursive: true, force: true });
+        } catch {
+            // ignore — process is exiting anyway
+        }
+    });
     const my_indexer = new WorkspaceIndexer();
     await my_indexer.initialize([my_throwaway]);
     my_indexer.set_help_search_paths(the_ado_paths);
@@ -401,9 +409,7 @@ async function main(): Promise<void> {
         }
     }
 
-    // Cleanup
-    fs.rmSync(my_throwaway, { recursive: true, force: true });
-
+    // Cleanup happens via the process.exit handler installed above.
     if (the_all_broken.length > 0) {
         process.exit(1);
     }
