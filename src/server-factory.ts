@@ -65,6 +65,7 @@ import {
     create_resolve_findalias_handler,
     create_expand_includes_handler,
     create_shared_ihlp_resolver,
+    ResolveSthlpFileHandler,
 } from './server-handlers';
 
 import type { TransportType } from './cli';
@@ -122,6 +123,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let forward_scope_resolver: ForwardScopeResolver | null = null;
     let dependency_graph: DependencyGraph | null = null;
     let rename_handler: RenameHandler | null = null;
+    let resolve_sthlp_handler: ResolveSthlpFileHandler | null = null;
 
     // Maximum revalidation cascade depth to prevent A→B→C→A loops
     const MAX_REVALIDATION_DEPTH = 5;
@@ -468,6 +470,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
     function invalidate_and_revalidate_callees(
         changed_callees: Set<string>
     ): void {
+        // Files added/removed from the workspace may satisfy or
+        // invalidate previously-cached sthlp resolutions; drop the
+        // negative cache so unresolvable topics are re-probed.
+        resolve_sthlp_handler?.clear_negative_cache();
         scope_resolver?.cascade_invalidate(changed_callees);
         for (const my_callee_uri of changed_callees) {
             const my_doc = documents.get(my_callee_uri);
@@ -566,6 +572,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 folder_paths,
                 settings.adoPaths || []
             ).then(() => {
+                // Newly indexed files may satisfy previously-unresolvable
+                // sthlp topics. Drop the per-handler negative cache so
+                // those topics are re-probed.
+                resolve_sthlp_handler?.clear_negative_cache();
                 if (dependency_graph?.is_scan_complete()) {
                     revalidate_all_open_docs();
                 }
@@ -1142,7 +1152,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     const shared_ihlp = create_shared_ihlp_resolver(handler_deps);
 
-    const resolve_sthlp_handler = create_resolve_sthlp_file_handler(
+    resolve_sthlp_handler = create_resolve_sthlp_file_handler(
         handler_deps, shared_ihlp
     );
     connection.onRequest('sight/resolveSthlpFile', resolve_sthlp_handler);

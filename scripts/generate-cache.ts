@@ -432,17 +432,59 @@ function validate_legacy_commands(
     return { missing, present };
 }
 
+const CANONICAL_FUNCTION_NAME_REGEX = /\{cmd:([A-Za-z_][A-Za-z0-9_]*)\(/;
+
+/**
+ * Extract the canonical-cased function name from the body of an .ihlp
+ * (or .sthlp) help file. The first `{cmd:NAME(` token holds the
+ * canonical case (e.g. `Cdhms`). Returns null when the pattern is
+ * missing or when the extracted name does not match the filename stem
+ * (a defensive sanity check against picking up a different function
+ * referenced in the file).
+ */
+export function extract_canonical_function_name(
+    content: string,
+    filename_stem: string
+): string | null {
+    const my_match = content.match(CANONICAL_FUNCTION_NAME_REGEX);
+    if (!my_match) return null;
+    const my_name = my_match[1];
+    if (my_name.toLowerCase() !== filename_stem.toLowerCase()) return null;
+    return my_name;
+}
+
 /**
  * Discover Stata function names from f_*.sthlp files.
- * Function help files follow the naming convention f_<name>.sthlp.
+ * Function help files follow the naming convention f_<name>.sthlp,
+ * but on case-insensitive filesystems (macOS) the filename stem is
+ * always lowercased. The canonical case is recovered from the matching
+ * .ihlp (or .sthlp) content.
  */
 function discover_functions(base_path: string): string[] {
     const f_dir = join(base_path, 'f');
     try {
-        return readdirSync(f_dir)
-            .filter(f => f.startsWith('f_') && f.endsWith('.sthlp'))
-            .map(f => f.slice(2, -6)) // strip "f_" prefix and ".sthlp" suffix
-            .sort();
+        const the_entries = readdirSync(f_dir)
+            .filter(f => f.startsWith('f_') && f.endsWith('.sthlp'));
+        const the_names: string[] = [];
+        for (const my_file of the_entries) {
+            const my_stem = my_file.slice(2, -6);
+            const my_ihlp = join(f_dir, `f_${my_stem}.ihlp`);
+            const my_sthlp = join(f_dir, my_file);
+            let my_canonical: string | null = null;
+            for (const my_path of [my_ihlp, my_sthlp]) {
+                try {
+                    const my_content = readFileSync(my_path, 'utf8');
+                    my_canonical = extract_canonical_function_name(
+                        my_content, my_stem
+                    );
+                    if (my_canonical) break;
+                } catch {
+                    // file not present or unreadable; try next
+                }
+            }
+            the_names.push(my_canonical ?? my_stem);
+        }
+        return the_names.sort();
     } catch {
         console.warn(`Warning: Could not read function directory ${f_dir}`);
         return [];
