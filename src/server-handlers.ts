@@ -885,14 +885,21 @@ export interface ResolveSthlpFileResult {
 
 const MAX_IHLP_CACHE_SIZE = 500;
 
+interface IhlpCacheEntry {
+    content: string;
+    mtime_ms: number;
+}
+
 /**
- * Create a shared `IncludeResolver` backed by a single LRU-ish cache
- * so the same `.ihlp` file is never read from disk twice.
+ * Create a shared `IncludeResolver` backed by a single LRU cache
+ * so the same `.ihlp` file is never read from disk twice. Entries are
+ * invalidated when the file's mtime changes on disk.
  */
 export function create_shared_ihlp_resolver(
-    deps: HandlerDependencies
-): { resolver: IncludeResolver; cache: Map<string, string> } {
-    const the_cache = new Map<string, string>();
+    deps: HandlerDependencies,
+    max_size: number = MAX_IHLP_CACHE_SIZE
+): { resolver: IncludeResolver; cache: Map<string, IhlpCacheEntry> } {
+    const the_cache = new Map<string, IhlpCacheEntry>();
 
     const my_resolver: IncludeResolver = async (name: string) => {
         if (!deps.workspace_indexer) return null;
@@ -903,20 +910,36 @@ export function create_shared_ihlp_resolver(
 
         const my_cached = the_cache.get(my_path);
         if (my_cached !== undefined) {
-            return { path: my_path, content: my_cached };
+            try {
+                const my_stat = await fs.promises.stat(my_path);
+                if (my_stat.mtimeMs === my_cached.mtime_ms) {
+                    // Move to most-recently-used position.
+                    the_cache.delete(my_path);
+                    the_cache.set(my_path, my_cached);
+                    return { path: my_path, content: my_cached.content };
+                }
+                the_cache.delete(my_path);
+            } catch {
+                the_cache.delete(my_path);
+                return null;
+            }
         }
 
         try {
+            const my_stat = await fs.promises.stat(my_path);
             const my_content = await fs.promises.readFile(
                 my_path, 'utf-8'
             );
-            if (the_cache.size >= MAX_IHLP_CACHE_SIZE) {
+            if (the_cache.size >= max_size) {
                 const my_first = the_cache.keys().next().value;
                 if (my_first !== undefined) {
                     the_cache.delete(my_first);
                 }
             }
-            the_cache.set(my_path, my_content);
+            the_cache.set(my_path, {
+                content: my_content,
+                mtime_ms: my_stat.mtimeMs,
+            });
             return { path: my_path, content: my_content };
         } catch {
             return null;
@@ -934,7 +957,7 @@ export function create_shared_ihlp_resolver(
  */
 export function create_resolve_sthlp_file_handler(
     deps: HandlerDependencies,
-    shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, string> }
+    shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, IhlpCacheEntry> }
 ): (params: ResolveSthlpFileParams) => Promise<ResolveSthlpFileResult> {
     const { resolver: my_ihlp_resolver } =
         shared_ihlp ?? create_shared_ihlp_resolver(deps);
@@ -1308,7 +1331,7 @@ export interface ExpandIncludesResult {
  */
 export function create_expand_includes_handler(
     deps: HandlerDependencies,
-    shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, string> }
+    shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, IhlpCacheEntry> }
 ): (params: ExpandIncludesParams) => Promise<ExpandIncludesResult> {
     const { resolver: my_ihlp_resolver } =
         shared_ihlp ?? create_shared_ihlp_resolver(deps);
