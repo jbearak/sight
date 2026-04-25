@@ -129,7 +129,7 @@ export class SmclPanelManager implements vscode.Disposable {
     }
 
     private handle_navigate(topic: string): Promise<void> {
-        return this.open_topic(topic, vscode.ViewColumn.Beside);
+        return this.open_topic(topic, vscode.ViewColumn.Active);
     }
 
     dispose(): void {
