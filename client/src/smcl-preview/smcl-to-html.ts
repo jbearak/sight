@@ -1324,17 +1324,6 @@ function split_browse_args(
     return { url: my_url, display: my_display };
 }
 
-/**
- * Strip a single pair of surrounding double quotes from a string,
- * if present. Used to normalize quoted URLs in {browse} directives.
- */
-function strip_surrounding_quotes(s: string): string {
-    if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
-        return s.slice(1, -1);
-    }
-    return s;
-}
-
 function render_marker(directive: SmclDirective): string {
     const my_name = directive.args || '';
     return `<a id="${escape_html(my_name)}"></a>`;
