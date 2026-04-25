@@ -32,7 +32,6 @@ import {
 } from 'vscode-languageserver/node';
 
 import { DocumentStore } from './document-store';
-import { command_database } from './command-database';
 import { DiagnosticsProvider } from './providers/diagnostics';
 import { CompletionProvider, detect_completion_context } from './providers/completion';
 import { HoverProvider } from './providers/hover';
@@ -51,6 +50,7 @@ import { DebounceManager, DocumentDebounceManager } from './utils/debounce-manag
 import * as fs from 'fs';
 import { expand_includes, IncludeResolver } from './utils/include-expander';
 import { extract_marker_names } from './utils/marker-scanner';
+import { resolve_help_topic } from './utils/help-resolver';
 
 /**
  * Interface defining all dependencies required by LSP handlers.
@@ -1015,241 +1015,16 @@ export function create_resolve_sthlp_file_handler(
         }
     }
 
-    // The existing topic resolution logic, extracted into a function
     async function resolve_topic(
         params: ResolveSthlpFileParams
     ): Promise<ResolveSthlpFileResult> {
         if (!deps.workspace_indexer) {
             return { file_path: null };
         }
-        const my_indexer = deps.workspace_indexer;
-        const my_topic = (params.topic ?? '').trim();
-        if (my_topic.length === 0) {
-            return { file_path: null };
-        }
-
-        // 1. Try the topic as the user typed it (and its
-        //    spaces-as-underscores variant, handled inside the
-        //    indexer).
-        const my_direct = await my_indexer.resolve_sthlp_file(my_topic);
-        if (my_direct) {
-            return { file_path: my_direct };
-        }
-
-        // Split the topic into head (first word) + tail so we can work
-        // with the subcommand shape (`frame create`, `macro dir`, ...)
-        // the same way across all fallbacks below.
-        const my_first_space = my_topic.search(/\s/);
-        const my_head = my_first_space === -1
-            ? my_topic
-            : my_topic.substring(0, my_first_space);
-        const my_tail = my_first_space === -1
-            ? ''
-            : my_topic.substring(my_first_space);
-        if (my_head.length === 0) {
-            return { file_path: null };
-        }
-        const my_head_lower = my_head.toLowerCase();
-
-        // 2. Redirect via `helpFile` when the command database knows the
-        //    canonical help page lives elsewhere (e.g. `local` →
-        //    `macro.sthlp`, `replace` → `generate.sthlp`). We try the
-        //    redirected topic both with the original tail (so
-        //    `replace postestimation`-style topics still work if they
-        //    ever exist) and — for multi-word topics — without the
-        //    tail, which handles subcommand links like `macro dir`
-        //    whose help lives inside the parent file.
-        const my_head_lookup = command_database.lookup(my_head);
-        if (my_head_lookup?.helpFile && my_head_lookup.helpFile.toLowerCase() !== my_head_lower) {
-            const my_redirected = await my_indexer.resolve_sthlp_file(
-                my_head_lookup.helpFile + my_tail
-            );
-            if (my_redirected) {
-                return { file_path: my_redirected };
-            }
-            if (my_tail.length > 0) {
-                const my_parent_only = await my_indexer.resolve_sthlp_file(
-                    my_head_lookup.helpFile
-                );
-                if (my_parent_only) {
-                    return { file_path: my_parent_only };
-                }
-            }
-        } else if (my_tail.length > 0 && my_head_lookup) {
-            // Subcommands (`macro dir`, `frame drop`) that aren't backed
-            // by a dedicated `<head>_<sub>.sthlp` should still open the
-            // parent's help page rather than surfacing "not found".
-            // Use the expanded name so abbreviated heads like `mac dir`
-            // or `fr drop` resolve to `macro.sthlp` / `frame.sthlp`.
-            const my_parent_only = await my_indexer.resolve_sthlp_file(
-                my_head_lookup.name
-            );
-            if (my_parent_only) {
-                return { file_path: my_parent_only };
-            }
-        }
-
-        // 3. Try expanding the first word of the topic via Stata's
-        //    abbreviation conventions (e.g. `reg` → `regress`, `di`
-        //    → `display` or `dir`, `gen` → `generate`), preserving
-        //    any trailing words so `reg postestimation` resolves via
-        //    `regress_postestimation.sthlp`.
-        // Gather candidate expansions in preference order. Stata's
-        // command-database cache marks more commonly-used commands
-        // with a lower `priority` value (1 = Tier 1 / most common),
-        // so we use that as the primary sort key. Ties break on
-        // command name length (shorter is usually the canonical
-        // command, e.g. `regress` over `regression`). The cache's
-        // explicit abbreviations map (`lookup`) is tried first as a
-        // published short form.
-        interface Candidate { name: string; priority: number; help_file?: string; }
-        const the_tried = new Set<string>();
-        const the_candidates: Candidate[] = [];
-        const add_candidate = (name: string, priority: number | undefined, help_file?: string): void => {
-            const my_normalized = name.toLowerCase();
-            if (my_normalized === my_head_lower) return;
-            if (the_tried.has(my_normalized)) return;
-            the_tried.add(my_normalized);
-            the_candidates.push({ name, priority: priority ?? 99, help_file });
-        };
-
-        if (my_head_lookup) {
-            add_candidate(my_head_lookup.name, my_head_lookup.priority, my_head_lookup.helpFile);
-        }
-        for (const my_match of command_database.expand_abbreviation(my_head)) {
-            add_candidate(my_match.name, my_match.priority, my_match.helpFile);
-        }
-        for (const my_match of command_database.search(my_head)) {
-            add_candidate(my_match.name, my_match.priority, my_match.helpFile);
-        }
-
-        // Sort by priority ascending (1 = Tier 1 / most common), then
-        // by name length ascending so the short canonical command
-        // name (`regress`, `display`) wins over verbose relatives
-        // (`regression`, `dir`). This makes `di` → `display` even
-        // though the cache's `abbreviations` map says otherwise.
-        the_candidates.sort((a, b) => {
-            if (a.priority !== b.priority) return a.priority - b.priority;
-            return a.name.length - b.name.length;
-        });
-
-        for (const my_candidate of the_candidates) {
-            const my_resolved = await my_indexer.resolve_sthlp_file(
-                my_candidate.name + my_tail
-            );
-            if (my_resolved) {
-                return { file_path: my_resolved };
-            }
-            // If the expanded command itself has a help_file redirect
-            // (e.g. `loc` → `local` → `macro`), follow it.
-            if (
-                my_candidate.help_file
-                && my_candidate.help_file.toLowerCase() !== my_candidate.name.toLowerCase()
-            ) {
-                const my_redirected = await my_indexer.resolve_sthlp_file(
-                    my_candidate.help_file + my_tail
-                );
-                if (my_redirected) {
-                    return { file_path: my_redirected };
-                }
-                if (my_tail.length > 0) {
-                    const my_parent_only = await my_indexer.resolve_sthlp_file(
-                        my_candidate.help_file
-                    );
-                    if (my_parent_only) {
-                        return { file_path: my_parent_only };
-                    }
-                }
-            }
-        }
-
-        // 4. Function-name fallback: float() → f_float.sthlp,
-        //    strpos → f_strpos.sthlp
-        {
-            const my_func_name = my_topic.endsWith('()')
-                ? my_topic.slice(0, -2)
-                : my_topic;
-            if (my_func_name.length > 0) {
-                const my_func_path = await my_indexer.resolve_sthlp_file(
-                    `f_${my_func_name}`
-                );
-                if (my_func_path) {
-                    return { file_path: my_func_path };
-                }
-            }
-        }
-
-        // 5. System variable fallback: _N, _n, _pi, _rc, _cons → _variables
-        if (my_topic.startsWith('_')) {
-            const my_sysvar_path = await my_indexer.resolve_sthlp_file(
-                '_variables'
-            );
-            if (my_sysvar_path) {
-                return { file_path: my_sysvar_path };
-            }
-        }
-
-        // 6. Hash-prefix fallback: #delimit → delimit.sthlp
-        if (my_topic.startsWith('#')) {
-            const my_stripped = my_topic.substring(1);
-            if (my_stripped.length > 0) {
-                const my_hash_path =
-                    await my_indexer.resolve_sthlp_file(my_stripped);
-                if (my_hash_path) {
-                    return { file_path: my_hash_path };
-                }
-            }
-        }
-
-        // 7. Hyphen-to-underscore fallback: stata-be → stata_be
-        //    (alias files use underscores, not hyphens)
-        if (my_topic.includes('-')) {
-            const my_underscore_topic = my_topic.replace(/-/g, '_');
-            const my_hyphen_path =
-                await my_indexer.resolve_sthlp_file(my_underscore_topic);
-            if (my_hyphen_path) {
-                return { file_path: my_hyphen_path };
-            }
-        }
-
-        // 8. Case-insensitive fallback: Java → java, Dynamic → dynamic
-        {
-            const my_lower = my_topic.toLowerCase();
-            if (my_lower !== my_topic) {
-                const my_lower_path =
-                    await my_indexer.resolve_sthlp_file(my_lower);
-                if (my_lower_path) {
-                    return { file_path: my_lower_path };
-                }
-            }
-        }
-
-        // 9. Suffix-probing fallback: Stata's help system tries
-        //    common suffixes when the bare topic has no file
-        //    (e.g. dynamic → dynamic_intro, bayesian → bayesian_estimation)
-        {
-            const the_suffixes = [
-                '_intro', '_commands', '_options', '_functions',
-                '_estimation', '_styles', '_modes', '_postestimation',
-            ];
-            // Try the topic as given, then its lowercase form
-            const the_bases = [my_topic];
-            const my_lower = my_topic.toLowerCase();
-            if (my_lower !== my_topic) the_bases.push(my_lower);
-            for (const my_base of the_bases) {
-                for (const my_suffix of the_suffixes) {
-                    const my_candidate =
-                        await my_indexer.resolve_sthlp_file(
-                            my_base + my_suffix
-                        );
-                    if (my_candidate) {
-                        return { file_path: my_candidate };
-                    }
-                }
-            }
-        }
-
-        return { file_path: null };
+        const my_path = await resolve_help_topic(
+            deps.workspace_indexer, params.topic ?? ''
+        );
+        return { file_path: my_path };
     }
 
     // Main handler: resolve topic, then check anchor if provided

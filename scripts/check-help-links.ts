@@ -26,6 +26,7 @@ import { WorkspaceIndexer } from '../src/indexer';
 import { smcl_to_html } from '../client/src/smcl-preview/smcl-to-html';
 import { expand_includes } from '../src/utils/include-expander';
 import { extract_marker_names } from '../src/utils/marker-scanner';
+import { resolve_help_topic } from '../src/utils/help-resolver';
 import { discover_stata_ado_paths } from '../src/utils/stata-install-paths';
 
 // -----------------------------------------------------------------------
@@ -153,10 +154,11 @@ async function main(): Promise<void> {
     const the_topics = command_database.get_all_command_names();
     console.log(`Checking ${the_topics.length} commands...\n`);
 
-    // Cache of rendered pages: topic -> { html, anchor_ids }
+    // Cache of rendered pages: topic -> { html, anchor_ids, file_path }
     const the_page_cache = new Map<string, {
         html: string;
         anchor_ids: Set<string>;
+        file_path: string;
     }>();
 
     // Resolver for INCLUDE expansion — uses the indexer
@@ -171,92 +173,18 @@ async function main(): Promise<void> {
         }
     };
 
-    // Resolve a topic with the same fallbacks as the LSP handler
-    async function resolve_topic(topic: string): Promise<string | null> {
-        const my_direct = await my_indexer.resolve_sthlp_file(topic);
-        if (my_direct) return my_direct;
-
-        // Function-name fallback: float() → f_float.sthlp,
-        // strpos → f_strpos.sthlp
-        {
-            const my_func_name = topic.endsWith('()')
-                ? topic.slice(0, -2)
-                : topic;
-            if (my_func_name.length > 0) {
-                const my_func_path = await my_indexer.resolve_sthlp_file(
-                    `f_${my_func_name}`
-                );
-                if (my_func_path) return my_func_path;
-            }
-        }
-
-        // System variable fallback: _N, _n, _pi, _rc → _variables
-        if (topic.startsWith('_')) {
-            const my_sysvar_path = await my_indexer.resolve_sthlp_file(
-                '_variables'
-            );
-            if (my_sysvar_path) return my_sysvar_path;
-        }
-
-        // Hash-prefix fallback: #delimit → delimit.sthlp
-        if (topic.startsWith('#')) {
-            const my_stripped = topic.substring(1);
-            if (my_stripped.length > 0) {
-                const my_hash_path =
-                    await my_indexer.resolve_sthlp_file(my_stripped);
-                if (my_hash_path) return my_hash_path;
-            }
-        }
-
-        // Hyphen-to-underscore fallback: stata-be → stata_be
-        if (topic.includes('-')) {
-            const my_underscore_topic = topic.replace(/-/g, '_');
-            const my_hyphen_path =
-                await my_indexer.resolve_sthlp_file(my_underscore_topic);
-            if (my_hyphen_path) return my_hyphen_path;
-        }
-
-        // Case-insensitive fallback: Java → java, Dynamic → dynamic
-        {
-            const my_lower = topic.toLowerCase();
-            if (my_lower !== topic) {
-                const my_lower_path =
-                    await my_indexer.resolve_sthlp_file(my_lower);
-                if (my_lower_path) return my_lower_path;
-            }
-        }
-
-        // Suffix-probing fallback: dynamic → dynamic_intro, etc.
-        {
-            const the_suffixes = [
-                '_intro', '_commands', '_options', '_functions',
-                '_estimation', '_styles', '_modes', '_postestimation',
-            ];
-            const the_bases = [topic];
-            const my_lower = topic.toLowerCase();
-            if (my_lower !== topic) the_bases.push(my_lower);
-            for (const my_base of the_bases) {
-                for (const my_suffix of the_suffixes) {
-                    const my_candidate =
-                        await my_indexer.resolve_sthlp_file(
-                            my_base + my_suffix
-                        );
-                    if (my_candidate) return my_candidate;
-                }
-            }
-        }
-
-        return null;
-    }
-
     // Render and cache a topic; returns null if unresolvable
     async function render_topic(
         topic: string
-    ): Promise<{ html: string; anchor_ids: Set<string> } | null> {
+    ): Promise<{
+        html: string;
+        anchor_ids: Set<string>;
+        file_path: string;
+    } | null> {
         const my_cached = the_page_cache.get(topic);
         if (my_cached) return my_cached;
 
-        const my_file_path = await resolve_topic(topic);
+        const my_file_path = await resolve_help_topic(my_indexer, topic);
         if (!my_file_path) return null;
 
         const my_raw_content = fs.readFileSync(my_file_path, 'utf-8');
@@ -269,19 +197,27 @@ async function main(): Promise<void> {
         const my_entry = {
             html: my_result.html,
             anchor_ids: extract_anchor_ids(my_result.html),
+            file_path: my_file_path,
         };
         the_page_cache.set(topic, my_entry);
         return my_entry;
     }
 
-    // Anchor fallback: check topic_* related files for a marker
+    // Anchor fallback: check `<resolved>_*.sthlp` related files for a
+    // marker. Mirrors the LSP handler's logic by deriving the search
+    // prefix from the resolved file's basename rather than the
+    // user-typed topic — multi-word/aliased topics like
+    // `ciwidth table` resolve to `ciwidth.sthlp`, and the related
+    // files we want are `ciwidth_*.sthlp`, not `ciwidth_table_*.sthlp`.
     async function check_anchor_in_related_files(
-        topic: string,
+        resolved_file_path: string,
         anchor: string
     ): Promise<boolean> {
+        const my_basename = path.basename(resolved_file_path, '.sthlp');
         const the_related =
-            await my_indexer.find_related_sthlp_files(topic);
+            await my_indexer.find_related_sthlp_files(my_basename);
         for (const my_candidate_path of the_related) {
+            if (my_candidate_path === resolved_file_path) continue;
             try {
                 const my_raw = fs.readFileSync(my_candidate_path, 'utf-8');
                 const my_expanded = await expand_includes(
@@ -305,7 +241,7 @@ async function main(): Promise<void> {
         // Use the same fallback resolver as render_topic so topics that
         // only resolve via redirect (e.g. `local` → `macro`) or other
         // fallbacks are still counted and validated.
-        const my_file_path = await resolve_topic(my_topic);
+        const my_file_path = await resolve_help_topic(my_indexer, my_topic);
         if (!my_file_path) {
             unresolved_count++;
             continue;
@@ -347,7 +283,7 @@ async function main(): Promise<void> {
                     if (!my_target.anchor_ids.has(my_link.anchor)) {
                         const my_fallback_found =
                             await check_anchor_in_related_files(
-                                my_link.topic, my_link.anchor
+                                my_target.file_path, my_link.anchor
                             );
                         if (my_fallback_found) continue;
                         the_broken.push({
