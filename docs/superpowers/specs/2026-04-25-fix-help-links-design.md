@@ -92,7 +92,8 @@ shared module used by both the resolver and the checker script.
   the space after `marker` and the next `}`. Names can contain letters,
   digits, `_`, `()`, `.`, `*`, `#`, `-` (verified from corpus).
 - **Implementation:** Regex `/\{marker\s+([^}]+)\}/g` extracts all marker
-  names from a string. Returns a `Set<string>`.
+  names from a string. Names are trimmed before insertion. Returns a
+  `Set<string>`.
 - **Matching:** Exact string equality between anchor and extracted marker
   name. No regex interpolation of anchor text (anchors contain
   metacharacters like `()`, `.`, `+`).
