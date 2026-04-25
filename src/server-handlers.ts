@@ -32,6 +32,7 @@ import {
 } from 'vscode-languageserver/node';
 
 import { DocumentStore } from './document-store';
+import { command_database } from './command-database';
 import { DiagnosticsProvider } from './providers/diagnostics';
 import { CompletionProvider, detect_completion_context } from './providers/completion';
 import { HoverProvider } from './providers/hover';
@@ -885,8 +886,184 @@ export function create_resolve_sthlp_file_handler(
         if (!deps.workspace_indexer) {
             return { file_path: null };
         }
-        return {
-            file_path: await deps.workspace_indexer.resolve_sthlp_file(params.topic)
+        const my_indexer = deps.workspace_indexer;
+        const my_topic = (params.topic ?? '').trim();
+        if (my_topic.length === 0) {
+            return { file_path: null };
+        }
+
+        // 1. Try the topic as the user typed it (and its
+        //    spaces-as-underscores variant, handled inside the
+        //    indexer).
+        const my_direct = await my_indexer.resolve_sthlp_file(my_topic);
+        if (my_direct) {
+            return { file_path: my_direct };
+        }
+
+        // Split the topic into head (first word) + tail so we can work
+        // with the subcommand shape (`frame create`, `macro dir`, ...)
+        // the same way across all fallbacks below.
+        const my_first_space = my_topic.search(/\s/);
+        const my_head = my_first_space === -1
+            ? my_topic
+            : my_topic.substring(0, my_first_space);
+        const my_tail = my_first_space === -1
+            ? ''
+            : my_topic.substring(my_first_space);
+        if (my_head.length === 0) {
+            return { file_path: null };
+        }
+        const my_head_lower = my_head.toLowerCase();
+
+        // 2. Redirect via `helpFile` when the command database knows the
+        //    canonical help page lives elsewhere (e.g. `local` →
+        //    `macro.sthlp`, `replace` → `generate.sthlp`). We try the
+        //    redirected topic both with the original tail (so
+        //    `replace postestimation`-style topics still work if they
+        //    ever exist) and — for multi-word topics — without the
+        //    tail, which handles subcommand links like `macro dir`
+        //    whose help lives inside the parent file.
+        const my_head_lookup = command_database.lookup(my_head);
+        if (my_head_lookup?.helpFile && my_head_lookup.helpFile.toLowerCase() !== my_head_lower) {
+            const my_redirected = await my_indexer.resolve_sthlp_file(
+                my_head_lookup.helpFile + my_tail
+            );
+            if (my_redirected) {
+                return { file_path: my_redirected };
+            }
+            if (my_tail.length > 0) {
+                const my_parent_only = await my_indexer.resolve_sthlp_file(
+                    my_head_lookup.helpFile
+                );
+                if (my_parent_only) {
+                    return { file_path: my_parent_only };
+                }
+            }
+        } else if (my_tail.length > 0 && my_head_lookup) {
+            // Subcommands (`macro dir`, `frame drop`) that aren't backed
+            // by a dedicated `<head>_<sub>.sthlp` should still open the
+            // parent's help page rather than surfacing "not found".
+            // Use the expanded name so abbreviated heads like `mac dir`
+            // or `fr drop` resolve to `macro.sthlp` / `frame.sthlp`.
+            const my_parent_only = await my_indexer.resolve_sthlp_file(
+                my_head_lookup.name
+            );
+            if (my_parent_only) {
+                return { file_path: my_parent_only };
+            }
+        }
+
+        // 3. Try expanding the first word of the topic via Stata's
+        //    abbreviation conventions (e.g. `reg` → `regress`, `di`
+        //    → `display` or `dir`, `gen` → `generate`), preserving
+        //    any trailing words so `reg postestimation` resolves via
+        //    `regress_postestimation.sthlp`.
+        // Gather candidate expansions in preference order. Stata's
+        // command-database cache marks more commonly-used commands
+        // with a lower `priority` value (1 = Tier 1 / most common),
+        // so we use that as the primary sort key. Ties break on
+        // command name length (shorter is usually the canonical
+        // command, e.g. `regress` over `regression`). The cache's
+        // explicit abbreviations map (`lookup`) is tried first as a
+        // published short form.
+        interface Candidate { name: string; priority: number; help_file?: string; }
+        const the_tried = new Set<string>();
+        const the_candidates: Candidate[] = [];
+        const add_candidate = (name: string, priority: number | undefined, help_file?: string): void => {
+            const my_normalized = name.toLowerCase();
+            if (my_normalized === my_head_lower) return;
+            if (the_tried.has(my_normalized)) return;
+            the_tried.add(my_normalized);
+            the_candidates.push({ name, priority: priority ?? 99, help_file });
         };
+
+        if (my_head_lookup) {
+            add_candidate(my_head_lookup.name, my_head_lookup.priority, my_head_lookup.helpFile);
+        }
+        for (const my_match of command_database.expand_abbreviation(my_head)) {
+            add_candidate(my_match.name, my_match.priority, my_match.helpFile);
+        }
+        for (const my_match of command_database.search(my_head)) {
+            add_candidate(my_match.name, my_match.priority, my_match.helpFile);
+        }
+
+        // Sort by priority ascending (1 = Tier 1 / most common), then
+        // by name length ascending so the short canonical command
+        // name (`regress`, `display`) wins over verbose relatives
+        // (`regression`, `dir`). This makes `di` → `display` even
+        // though the cache's `abbreviations` map says otherwise.
+        the_candidates.sort((a, b) => {
+            if (a.priority !== b.priority) return a.priority - b.priority;
+            return a.name.length - b.name.length;
+        });
+
+        for (const my_candidate of the_candidates) {
+            const my_resolved = await my_indexer.resolve_sthlp_file(
+                my_candidate.name + my_tail
+            );
+            if (my_resolved) {
+                return { file_path: my_resolved };
+            }
+            // If the expanded command itself has a help_file redirect
+            // (e.g. `loc` → `local` → `macro`), follow it.
+            if (
+                my_candidate.help_file
+                && my_candidate.help_file.toLowerCase() !== my_candidate.name.toLowerCase()
+            ) {
+                const my_redirected = await my_indexer.resolve_sthlp_file(
+                    my_candidate.help_file + my_tail
+                );
+                if (my_redirected) {
+                    return { file_path: my_redirected };
+                }
+                if (my_tail.length > 0) {
+                    const my_parent_only = await my_indexer.resolve_sthlp_file(
+                        my_candidate.help_file
+                    );
+                    if (my_parent_only) {
+                        return { file_path: my_parent_only };
+                    }
+                }
+            }
+        }
+        return { file_path: null };
+    };
+}
+
+// -----------------------------------------------------------------------
+// sight/resolveFindalias
+// -----------------------------------------------------------------------
+
+export interface ResolveFindaliasParams {
+    alias: string;
+}
+
+export interface ResolveFindaliasResult {
+    smcl: string | null;
+}
+
+/**
+ * Creates the custom request handler for `sight/resolveFindalias`.
+ *
+ * Resolves a `{findalias X}` SMCL alias to its substitution string by
+ * consulting `*smcl_alias.maint` files under the same directories
+ * `resolve_sthlp_file` searches (user `ado_paths` ∪ workspace roots
+ * ∪ auto-discovered Stata install paths). Returns `{ smcl: null }`
+ * when the alias is unknown or no workspace indexer is available.
+ */
+export function create_resolve_findalias_handler(
+    deps: HandlerDependencies
+): (params: ResolveFindaliasParams) => Promise<ResolveFindaliasResult> {
+    return async (params: ResolveFindaliasParams): Promise<ResolveFindaliasResult> => {
+        if (!deps.workspace_indexer) {
+            return { smcl: null };
+        }
+        const my_alias = (params.alias ?? '').trim();
+        if (my_alias.length === 0) {
+            return { smcl: null };
+        }
+        const my_resolver = deps.workspace_indexer.get_findalias_resolver();
+        const my_smcl = my_resolver.lookup(my_alias);
+        return { smcl: my_smcl };
     };
 }

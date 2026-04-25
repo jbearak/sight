@@ -9,6 +9,7 @@ import {
     CompletionItem,
     CompletionItemKind,
     InsertTextFormat,
+    MarkupKind,
     Position,
     CancellationToken,
     TextEdit,
@@ -54,6 +55,7 @@ import {
     MacroCompletionContext
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import { format_help_link } from '../utils/help-link';
 
 /**
  * Map ForwardCallSite.effective_type to directive_type for ranking.
@@ -1371,7 +1373,10 @@ export class CompletionProvider {
                 label: my_subcommand.name,
                 kind: CompletionItemKind.Keyword,
                 detail: `${prefix_display} subcommand`,
-                documentation: `Subcommand of ${prefix_command}. See \`help ${prefix_command} ${my_subcommand.name}\``,
+                documentation: {
+                    kind: MarkupKind.Markdown,
+                    value: `Subcommand of \`${prefix_command}\`. See ${format_help_link(prefix_command + ' ' + my_subcommand.name)}`,
+                },
                 sortText: '0' + my_subcommand.name, // Sort before other completions
             });
         }
@@ -2313,7 +2318,7 @@ export class CompletionProvider {
             value: help_content
         } : {
             kind: 'markdown' as const,
-            value: `See Stata documentation: \`help ${command.name}\``,
+            value: `See Stata documentation: ${format_help_link(command.name)}`,
         };
 
         return {
@@ -2336,7 +2341,7 @@ export class CompletionProvider {
             value: help_content + `\n\n*Abbreviation for \`${command.name}\`*`
         } : {
             kind: 'markdown' as const,
-            value: `See Stata documentation: \`help ${command.name}\`\n\n*Abbreviation for \`${command.name}\`*`,
+            value: `See Stata documentation: ${format_help_link(command.name)}\n\n*Abbreviation for \`${command.name}\`*`,
         };
 
         return {

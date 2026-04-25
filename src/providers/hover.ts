@@ -42,6 +42,7 @@ import {
 import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
+import { format_help_link } from '../utils/help-link';
 import type { WorkspaceIndexer } from '../indexer';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
@@ -56,7 +57,7 @@ import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
 
-const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
+export const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
     'byte',
     'date',
     'daily',
@@ -86,9 +87,10 @@ const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
     'yearly',
 ]);
 
-const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
+export const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
     ['mi', 'missing'],
 ]);
+
 
 /**
  * One entry in a symbol's `additional_definitions` array.
@@ -1501,7 +1503,7 @@ export class HoverProvider {
                 const prefix_display = prefix.charAt(0).toUpperCase() + prefix.slice(1);
                 return {
                     kind: MarkupKind.Markdown,
-                    value: `**${prefix_display} Subcommand:** \`${sub.name}\`\n\nSubcommand of \`${prefix}\`.\n\nSee Stata documentation: \`help ${prefix} ${sub.name}\``
+                    value: `**${prefix_display} Subcommand:** \`${sub.name}\`\n\nSubcommand of \`${prefix}\`.\n\nSee Stata documentation: ${format_help_link(`${prefix} ${sub.name}`)}`
                 };
             }
         }
@@ -1940,7 +1942,7 @@ export class HoverProvider {
             hover_text += ` (abbreviated as \`${abbreviated_as}\`)`;
         }
 
-        hover_text += `\n\nSee Stata documentation: \`help ${function_name}()\``;
+        hover_text += `\n\nSee Stata documentation: ${format_help_link(function_name)}`;
 
         return {
             kind: MarkupKind.Markdown,
@@ -1962,7 +1964,7 @@ export class HoverProvider {
             hover_text += `\n\n**Options:** ${option_names}`;
         }
 
-        hover_text += `\n\nSee Stata documentation: \`help ${command.name}\``;
+        hover_text += `\n\nSee Stata documentation: ${format_help_link(command.name)}`;
 
         return {
             kind: MarkupKind.Markdown,

@@ -404,6 +404,10 @@
         "title": "Open SMCL Preview (Full Width)"
       },
       {
+        "command": "sight.openHelpTopic",
+        "title": "Sight: Open Help Topic"
+      },
+      {
         "command": "sight.resetDepthColors",
         "title": "Sight: Reset Depth Colors Configuration"
       },

@@ -9,11 +9,20 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { LanguageClient } from 'vscode-languageclient/node';
 import { smcl_to_html } from './smcl-to-html';
 import { build_webview_html } from './webview-html';
 
 const UPDATE_DEBOUNCE_MS = 300;
 const SCROLL_SYNC_SUPPRESSION_MS = 80;
+
+/**
+ * Regex used to extract `{findalias <alias>}` directives from raw
+ * SMCL before handing off to the renderer. We only need a best-effort
+ * scan to collect unique aliases for parallel LSP resolution; the
+ * canonical parse happens later inside `smcl_to_html`.
+ */
+const FINDALIAS_RE = /\{\s*findalias\s+([^}]+?)\s*\}/g;
 
 export class SmclPreviewPanel implements vscode.Disposable {
     private panel: vscode.WebviewPanel;
@@ -21,7 +30,17 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
     private debounce_timer: ReturnType<typeof setTimeout> | undefined;
     private on_navigate: (topic: string) => void;
+    private get_client: () => LanguageClient | null;
     private disposed = false;
+
+    // Monotonically increasing token so that a slow older refresh
+    // cannot overwrite HTML produced by a newer one.
+    private refresh_seq = 0;
+
+    // Cache of `{findalias}` resolutions (alias → SMCL substitution).
+    // Only hits are cached; misses re-query the LSP on each refresh so
+    // newly installed .maint files are detected without reopening.
+    private findalias_cache: Map<string, string> = new Map();
 
     // Scroll sync state
     private scroll_sync_source: 'editor' | 'preview' | null = null;
@@ -30,11 +49,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
     constructor(
         source_uri: vscode.Uri,
         panel: vscode.WebviewPanel,
-        on_navigate: (topic: string) => void
+        on_navigate: (topic: string) => void,
+        get_client: () => LanguageClient | null
     ) {
         this.source_uri = source_uri;
         this.panel = panel;
         this.on_navigate = on_navigate;
+        this.get_client = get_client;
 
         // Handle messages from the webview
         this.disposables.push(
@@ -73,8 +94,20 @@ export class SmclPreviewPanel implements vscode.Disposable {
             })
         );
 
+        // Clear findalias cache when ado-path configuration changes
+        // so stale null-misses don't persist after new .maint files
+        // become available.
+        this.disposables.push(
+            vscode.workspace.onDidChangeConfiguration(event => {
+                if (event.affectsConfiguration('sight.adoPaths')) {
+                    this.findalias_cache.clear();
+                    this.schedule_update();
+                }
+            })
+        );
+
         // Initial render
-        this.refresh();
+        void this.refresh();
     }
 
     get uri_string(): string {
@@ -118,16 +151,30 @@ export class SmclPreviewPanel implements vscode.Disposable {
         }
         this.debounce_timer = setTimeout(() => {
             this.debounce_timer = undefined;
-            this.refresh();
+            void this.refresh();
         }, UPDATE_DEBOUNCE_MS);
     }
 
-    private refresh(): void {
+    private async refresh(): Promise<void> {
         // Try to get content from open editor first; fall back to disk
         const my_content = this.read_content();
         if (my_content === null) return;
 
-        const my_result = smcl_to_html(my_content);
+        // Capture a token before any async work. If a newer refresh
+        // starts while we're awaiting LSP responses, it will bump the
+        // sequence and we'll discard our stale result.
+        const my_token = ++this.refresh_seq;
+
+        const my_findalias_map = await this.resolve_findalias_map(my_content);
+
+        // If the panel was disposed or a newer refresh has started
+        // while we were awaiting, bail out to avoid overwriting
+        // fresher content with stale HTML.
+        if (this.disposed || my_token !== this.refresh_seq) return;
+
+        const my_result = smcl_to_html(my_content, {
+            findalias_map: my_findalias_map,
+        });
         const my_nonce = crypto.randomBytes(16).toString('hex');
         const my_title = this.get_title();
 
@@ -144,6 +191,121 @@ export class SmclPreviewPanel implements vscode.Disposable {
         if (my_editor) {
             this.sync_editor_to_preview(my_editor.visibleRanges);
         }
+    }
+
+    /**
+     * Collect unique `{findalias X}` aliases in the source and resolve
+     * them via the LSP. Returns a map of alias → SMCL substitution
+     * containing only successful resolutions (misses are omitted so
+     * the renderer can fall back to its empty-string behavior).
+     *
+     * Resolutions are cached for the lifetime of the panel so repeat
+     * renders caused by debounced edits or scroll sync don't re-hit
+     * the LSP.
+     */
+    private async resolve_findalias_map(
+        content: string
+    ): Promise<Map<string, string>> {
+        const my_map = new Map<string, string>();
+        const my_client = this.get_client();
+
+        // Resolve transitively: an alias's SMCL substitution may
+        // itself contain `{findalias X}`, so we iterate until no new
+        // aliases are discovered. A depth cap prevents runaway loops
+        // from circular alias chains.
+        const MAX_RESOLVE_ROUNDS = 5;
+        // Seed the first round with aliases found in the source.
+        let the_pending = collect_findalias_names(content);
+        // Track every alias we've already attempted (hit or miss) so
+        // we never re-request the same alias in a later round.
+        const the_seen = new Set<string>();
+
+        for (
+            let my_round = 0;
+            my_round < MAX_RESOLVE_ROUNDS && the_pending.size > 0;
+            my_round++
+        ) {
+            const the_unresolved: string[] = [];
+            const the_cached_smcl: string[] = [];
+            for (const my_alias of the_pending) {
+                if (the_seen.has(my_alias)) continue;
+                the_seen.add(my_alias);
+                const my_cached = this.findalias_cache.get(my_alias);
+                if (my_cached !== undefined) {
+                    my_map.set(my_alias, my_cached);
+                    the_cached_smcl.push(my_cached);
+                    continue;
+                }
+                the_unresolved.push(my_alias);
+            }
+
+            // Scan cached SMCL for nested aliases so transitive
+            // references discovered from cache hits are resolved in
+            // subsequent rounds.
+            const the_next = new Set<string>();
+            for (const my_smcl of the_cached_smcl) {
+                for (const my_alias of collect_findalias_names(my_smcl)) {
+                    if (!the_seen.has(my_alias)) {
+                        the_next.add(my_alias);
+                    }
+                }
+            }
+
+            // If nothing needs an LSP call, carry forward any nested
+            // aliases discovered from cached hits and continue (or
+            // break if there are none).
+            if (the_unresolved.length === 0 || !my_client) {
+                the_pending = the_next;
+                if (the_next.size === 0) break;
+                continue;
+            }
+
+            const the_results = await Promise.all(
+                the_unresolved.map(async (my_alias) => {
+                    try {
+                        const my_response = await my_client.sendRequest<{
+                            smcl: string | null;
+                        }>('sight/resolveFindalias', { alias: my_alias });
+                        return {
+                            alias: my_alias,
+                            smcl: my_response?.smcl ?? null
+                        };
+                    } catch {
+                        // Server unavailable / handler unregistered:
+                        // treat like a miss (smcl: null). Not cached,
+                        // so we retry next refresh.
+                        return { alias: my_alias, smcl: null };
+                    }
+                })
+            );
+
+            // Collect newly resolved SMCL so we can scan it for
+            // nested aliases.
+            const the_new_smcl: string[] = [];
+            for (const my_result of the_results) {
+                if (my_result.smcl !== null) {
+                    this.findalias_cache.set(
+                        my_result.alias,
+                        my_result.smcl
+                    );
+                    my_map.set(my_result.alias, my_result.smcl);
+                    the_new_smcl.push(my_result.smcl);
+                }
+            }
+
+            // Scan newly resolved SMCL for transitive aliases,
+            // merging with any nested aliases from cached hits.
+            for (const my_smcl of the_new_smcl) {
+                for (const my_alias of collect_findalias_names(my_smcl)) {
+                    if (!the_seen.has(my_alias)) {
+                        the_next.add(my_alias);
+                    }
+                }
+            }
+            the_pending = the_next;
+        }
+
+        return my_map;
     }
 
     private read_content(): string | null {
@@ -239,4 +401,26 @@ export class SmclPreviewPanel implements vscode.Disposable {
                 break;
         }
     }
+}
+
+/**
+ * Best-effort extraction of unique `{findalias <alias>}` arguments
+ * from raw SMCL text. Returns a set so duplicates trigger only one
+ * LSP lookup per alias.
+ *
+ * Exported for tests. We rely on the pattern being non-nested (Stata
+ * never puts `{` inside `{findalias …}` args), which matches every
+ * real-world occurrence in the ado base tree.
+ */
+export function collect_findalias_names(source: string): Set<string> {
+    const the_names = new Set<string>();
+    FINDALIAS_RE.lastIndex = 0;
+    let my_match: RegExpExecArray | null;
+    while ((my_match = FINDALIAS_RE.exec(source)) !== null) {
+        const my_alias = my_match[1].trim();
+        if (my_alias.length > 0) {
+            the_names.add(my_alias);
+        }
+    }
+    return the_names;
 }

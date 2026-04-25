@@ -2,7 +2,7 @@
 
 // Manual cache generation script - run when needed, commit results
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { CommandCache, CommandInfo, OptionInfo, StataVersion } from '../src/command-database/types.js';
 import { extract_commands_from_file, ExtractedCommand } from '../src/command-database/smcl-extractor.js';
 import { BUILTIN_COMMANDS } from '../src/commands/builtin-commands.js';
@@ -237,21 +237,37 @@ export function apply_builtin_metadata_fallback(
 }
 
 /**
+ * A single command extracted from a single help file, along with the
+ * provenance flags we need to pick the right `help_file` when the same
+ * command appears in multiple files.
+ */
+interface ExtractedCommandRecord {
+    key: string;
+    command_info: CommandInfo;
+    is_primary: boolean;
+    has_viewerdialog: boolean;
+    is_paragraph_lead: boolean;
+    /** Basename of the source help file without the `.sthlp` extension. */
+    help_file_basename: string;
+}
+
+/**
  * Process a single file and extract all commands from it.
  * Uses the SMCL extractor to properly handle multi-command files.
- * Returns an array of [name, CommandInfo] tuples.
  */
-async function extract_minimal_metadata(file_path: string): Promise<Array<[string, CommandInfo]>> {
+async function extract_minimal_metadata(file_path: string): Promise<ExtractedCommandRecord[]> {
     try {
         const result = extract_commands_from_file(file_path);
-        
+
         // Log any warnings
         for (const my_warning of result.warnings) {
             console.warn(my_warning);
         }
-        
-        // Convert ExtractedCommand to [name, CommandInfo] tuples
-        const the_tuples: Array<[string, CommandInfo]> = [];
+
+        const the_help_file_basename = basename(file_path, '.sthlp').toLowerCase();
+
+        // Convert ExtractedCommand to provenance-carrying records.
+        const the_records: ExtractedCommandRecord[] = [];
         for (const my_cmd of result.commands) {
             // Skip invalid command names (e.g., "kap (2 raters)" documentation entries)
             if (!/^[a-z_][a-z0-9_]*$/i.test(my_cmd.name)) {
@@ -264,27 +280,61 @@ async function extract_minimal_metadata(file_path: string): Promise<Array<[strin
                 min_abbreviation: opt.min_abbreviation,
                 has_argument: opt.has_argument
             }));
-            
+
             // Normalize command name to lowercase for cache key
             const normalized_key = my_cmd.name.toLowerCase();
-            
-            the_tuples.push([
-                normalized_key,
-                {
+
+            the_records.push({
+                key: normalized_key,
+                command_info: {
                     name: my_cmd.name,
                     // syntax field removed - see smcl-syntax-cleanup spec
                     min_abbreviation: my_cmd.min_abbreviation,
                     options: cache_options,
                     priority: get_command_priority(my_cmd.name)
-                }
-            ]);
+                },
+                is_primary: my_cmd.is_primary,
+                has_viewerdialog: my_cmd.has_viewerdialog,
+                is_paragraph_lead: my_cmd.is_paragraph_lead,
+                help_file_basename: the_help_file_basename
+            });
         }
-        
-        return the_tuples;
+
+        return the_records;
     } catch (error) {
         console.warn(`Failed to process ${file_path}: ${error}`);
         return [];
     }
+}
+
+/**
+ * Rank a provenance record so we can pick the best source when the same
+ * command appears in multiple files. Higher is better; ties fall back to
+ * first-extracted wins.
+ *
+ * Hierarchy of signals:
+ *   3 - The command is the file's primary (`[P] macro` → `macro`).
+ *   2 - The command has a `{viewerdialog}` tag in the file.
+ *   1 - The command leads a syntax paragraph (e.g., `{cmdab:loc:al}` at
+ *       the start of a `{p ...}` line in `macro.sthlp`), which
+ *       distinguishes canonical documentation from incidental mentions
+ *       inside another command's syntax (`{c -(}{cmdab:loc:al} | ...`).
+ *   0 - No structural signal — fall back to first-extracted.
+ *
+ * A small fractional bonus (+0.1) is added when the file basename
+ * matches the command name, acting as a tiebreaker within the same
+ * rank category (e.g. `macro.sthlp` for the `macro` command).
+ */
+function rank_record(record: ExtractedCommandRecord): number {
+    let my_rank = 0;
+    if (record.is_primary) my_rank = 3;
+    else if (record.has_viewerdialog) my_rank = 2;
+    else if (record.is_paragraph_lead) my_rank = 1;
+    // Bump records whose file is literally named after the command.
+    // Use a small fractional bonus so it only breaks ties within
+    // the same primary rank category (0–3).
+    if (record.help_file_basename === record.key) my_rank += 0.1;
+    return my_rank;
 }
 
 /**
@@ -383,7 +433,7 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     for (const my_letter of 'abcdefghijklmnopqrstuvwxyz_'.split('')) {
         const letter_dir = join(base_path, my_letter);
         try {
-            const the_files = readdirSync(letter_dir).filter(f => f.endsWith('.sthlp'));
+            const the_files = readdirSync(letter_dir).filter(f => f.endsWith('.sthlp')).sort();
             for (const my_file of the_files) {
                 the_all_files.push(join(letter_dir, my_file));
                 if (options.max_files && the_all_files.length >= options.max_files) break;
@@ -399,33 +449,55 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     // Process files in parallel batches of BATCH_SIZE
     let files_processed = 0;
     let commands_extracted = 0;
-    
+
+    // Track the best provenance record we've seen for each command so
+    // that, when a command appears in multiple files, we prefer the one
+    // where it's the primary command or has a viewerdialog tag. This is
+    // what turns `local` into a pointer at `macro.sthlp` instead of the
+    // first (semi-arbitrary) file that happened to mention it.
+    const best_records: Record<string, ExtractedCommandRecord> = Object.create(null);
+
     for (let i = 0; i < the_all_files.length; i += BATCH_SIZE) {
         const my_batch = the_all_files.slice(i, i + BATCH_SIZE);
         const my_batch_results = await Promise.all(
             my_batch.map(file => extract_minimal_metadata(file))
         );
-        
+
         // Collect results from this batch - now handles multiple commands per file
         for (const my_result of my_batch_results) {
-            for (const [command_name, command_info] of my_result) {
-                // Only add if not already present (first occurrence wins)
-                if (!commands[command_name]) {
-                    commands[command_name] = command_info;
+            for (const my_record of my_result) {
+                const my_existing = best_records[my_record.key];
+                if (!my_existing) {
+                    best_records[my_record.key] = my_record;
                     commands_extracted++;
+                    continue;
+                }
+                if (rank_record(my_record) > rank_record(my_existing)) {
+                    best_records[my_record.key] = my_record;
                 }
             }
             if (my_result.length > 0) {
                 files_processed++;
             }
         }
-        
+
         // Progress reporting
         if (files_processed % 100 === 0 || i + BATCH_SIZE >= the_all_files.length) {
             console.log(`Processed ${files_processed} files, extracted ${commands_extracted} commands...`);
         }
     }
-    
+
+    // Promote best_records into the `commands` map, stamping `help_file`
+    // only when it diverges from the command name (keeps cache churn
+    // small and the diff easy to review).
+    for (const [my_key, my_record] of Object.entries(best_records)) {
+        const my_command_info = my_record.command_info;
+        if (my_record.help_file_basename !== my_key) {
+            my_command_info.help_file = my_record.help_file_basename;
+        }
+        commands[my_key] = my_command_info;
+    }
+
     console.log(`Extracted ${commands_extracted} commands from ${files_processed} files`);
     
     // Add fundamental commands that may be missing

@@ -36,6 +36,11 @@ import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
+import { discover_stata_ado_paths } from '../utils/stata-install-paths';
+import {
+    FindaliasResolver,
+    HelpAliasResolver,
+} from '../utils/findalias-resolver';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
@@ -65,6 +70,22 @@ export class WorkspaceIndexer {
     private analyzer = new SemanticAnalyzer();
     private directive_parser = new DirectiveParser();
     private ado_paths: string[] = [];
+    // Auto-discovered Stata install / user ado directories used ONLY
+    // for `.sthlp` help-file lookup. Deliberately kept separate from
+    // `ado_paths` so the workspace scanner doesn't recursively index
+    // the thousands of built-in ado files under `ado/base`. Populated
+    // once during initialize and mutated via `set_help_search_paths`
+    // for tests.
+    private help_search_paths: string[] = [];
+    // Shared FindaliasResolver that consults the same search dirs used
+    // by `resolve_sthlp_file` (ado_paths ∪ workspace roots ∪ help_search_paths).
+    // Its `set_search_dirs` call is a no-op when the list is unchanged,
+    // so callers can refresh it cheaply on every lookup.
+    private findalias_resolver = new FindaliasResolver();
+    // Parallel HelpAliasResolver consulted inside `resolve_sthlp_file`
+    // to handle Stata's `<topic>` → `<other_topic>` redirects that
+    // ship in `*help_alias.maint` files (e.g. `operators` → `operator`).
+    private help_alias_resolver = new HelpAliasResolver();
     private dependency_graph?: DependencyGraph;
     private metrics: IndexerMetrics = {
         files_indexed: 0,
@@ -235,6 +256,10 @@ export class WorkspaceIndexer {
         }
         this.ado_paths = ado_paths;
         this.workspace_roots = workspace_folders.map(f => path.resolve(f));
+        // Auto-detect Stata install / user ado directories for help
+        // lookup. The discovery is cheap (a handful of `fs.statSync`
+        // calls on well-known paths) and non-fatal if none exist.
+        this.help_search_paths = discover_stata_ado_paths();
         this.cancelled = false;
         const start_time = Date.now();
 
@@ -861,27 +886,120 @@ export class WorkspaceIndexer {
     }
 
     /**
-     * Resolve a program name to its definition location.
-     * Follows Stata resolution order:
-     * 1. Current directory of the referring file
-     * 2. PERSONAL
-     * 3. PLUS
-     * 4. SITE
+     * For tests and callers that want to override or inspect the
+     * auto-discovered help search paths. Accepts absolute directories.
      */
+    set_help_search_paths(paths: string[]): void {
+        this.help_search_paths = [...paths];
+    }
+
     /**
-     * Resolve a .sthlp help file by topic name.
+     * Read-only view of the auto-discovered help search paths.
+     * Exposed primarily for tests.
+     */
+    get_help_search_paths(): string[] {
+        return [...this.help_search_paths];
+    }
+
+    /**
+     * Return the shared `FindaliasResolver`, refreshed with the same
+     * search-path list that `resolve_sthlp_file` uses. The resolver
+     * caches `.maint` file reads internally so refreshing the search
+     * dirs here is effectively free when nothing has changed.
+     */
+    get_findalias_resolver(): FindaliasResolver {
+        this.findalias_resolver.set_search_dirs(this.maint_search_dirs());
+        return this.findalias_resolver;
+    }
+
+    /**
+     * Return the shared `HelpAliasResolver` used by
+     * `resolve_sthlp_file` to follow `*help_alias.maint` redirects
+     * (e.g. `operators` → `operator`). Refreshed on every access with
+     * the same search-path list as the SMCL-alias resolver.
+     */
+    get_help_alias_resolver(): HelpAliasResolver {
+        this.help_alias_resolver.set_search_dirs(this.maint_search_dirs());
+        return this.help_alias_resolver;
+    }
+
+    /**
+     * Shared search-path list fed to every `.maint` resolver. Matches
+     * the lookup order used by `resolve_sthlp_file`.
+     */
+    private maint_search_dirs(): string[] {
+        return [
+            ...this.ado_paths,
+            ...this.workspace_roots,
+            ...this.help_search_paths,
+        ];
+    }
+
+    /**
+     * Resolve a `.sthlp` help file by topic name.
      *
-     * Searches ado_paths and workspace roots following Stata's
-     * letter-subdirectory convention (e.g., `r/regress.sthlp`).
+     * Searches the user-configured `ado_paths`, then workspace roots,
+     * then auto-discovered Stata install directories, following
+     * Stata's letter-subdirectory convention (e.g., `r/regress.sthlp`).
      * Returns the absolute file path or null.
+     *
+     * When the filesystem lookup misses, consults Stata's
+     * `*help_alias.maint` redirects (e.g. `operators` → `operator`)
+     * and retries with the redirected topic. A per-call visited set
+     * guards against malformed alias chains that cycle back on
+     * themselves.
      */
     async resolve_sthlp_file(topic: string): Promise<string | null> {
+        return this.resolve_sthlp_file_with_visited(topic, new Set());
+    }
+
+    private async resolve_sthlp_file_with_visited(
+        topic: string,
+        visited: Set<string>
+    ): Promise<string | null> {
+        // Stata convention: multi-word topics (e.g. `regress
+        // postestimation`, `frame create`) live in files named with
+        // underscores (`regress_postestimation.sthlp`,
+        // `frame_create.sthlp`). Try both forms so callers can pass
+        // whichever matches how the user typed the topic.
+        const the_basenames: string[] = [topic];
+        if (topic.includes(' ')) {
+            the_basenames.push(topic.replace(/\s+/g, '_'));
+        }
+        for (const my_candidate of the_basenames) {
+            const my_resolved = await this.resolve_sthlp_basename(my_candidate);
+            if (my_resolved) return my_resolved;
+        }
+
+        // Filesystem lookup missed. Try Stata's `*help_alias.maint`
+        // redirects (e.g. `operators` → `operator`) and retry the
+        // resolver on the redirected topic.
+        if (visited.has(topic)) return null;
+        visited.add(topic);
+        const my_alias_target = this.get_help_alias_resolver().lookup(topic);
+        if (my_alias_target && !visited.has(my_alias_target)) {
+            return this.resolve_sthlp_file_with_visited(
+                my_alias_target, visited
+            );
+        }
+        return null;
+    }
+
+    private async resolve_sthlp_basename(topic: string): Promise<string | null> {
+        if (topic.length === 0) return null;
         const my_basename = `${topic}.sthlp`;
         const my_first_letter = topic.charAt(0).toLowerCase();
 
-        // Search ado_paths first (PERSONAL, PLUS, SITE, BASE order),
-        // then workspace roots
-        const the_search_dirs = [...this.ado_paths, ...this.workspace_roots];
+        // Search user-configured ado_paths first (highest priority),
+        // then workspace roots, then the auto-discovered Stata install
+        // directories. Auto-discovered paths come last so an explicit
+        // user override always wins, but they are still consulted so
+        // built-in help like `help include` works out of the box.
+        const the_search_dirs = [
+            ...this.ado_paths,
+            ...this.workspace_roots,
+            ...this.help_search_paths,
+        ];
 
         for (const my_dir of the_search_dirs) {
             // Check letter subdirectory: dir/r/regress.sthlp

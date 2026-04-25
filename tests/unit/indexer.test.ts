@@ -72,6 +72,76 @@ describe('WorkspaceIndexer', () => {
         expect(resolved).toBe(my_help_path);
     });
 
+    it('resolves .sthlp files under auto-discovered help search paths', async () => {
+        // Simulate a Stata install outside the workspace: the ado base
+        // directory with the letter-subdir layout.
+        const my_base = path.join(temp_dir, 'fake-stata', 'ado', 'base');
+        const my_letter_dir = path.join(my_base, 'i');
+        const my_help_path = path.join(my_letter_dir, 'include.sthlp');
+        fs.mkdirSync(my_letter_dir, { recursive: true });
+        fs.writeFileSync(my_help_path, '{smcl}');
+
+        // Initialize with a totally unrelated workspace so the topic
+        // can only be resolved via the help search paths.
+        const my_other_workspace = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'sight-other-')
+        );
+        try {
+            await indexer.initialize([my_other_workspace]);
+            indexer.set_help_search_paths([my_base]);
+
+            const resolved = await indexer.resolve_sthlp_file('include');
+
+            expect(resolved).toBe(my_help_path);
+        } finally {
+            fs.rmSync(my_other_workspace, { recursive: true, force: true });
+        }
+    });
+
+    it('maps multi-word topics to underscore-joined .sthlp filenames', async () => {
+        // Stata convention: `{help regress postestimation}` lives in
+        // `regress_postestimation.sthlp`. The resolver should try both
+        // the literal topic and the underscore-joined form.
+        const my_ado_dir = path.join(temp_dir, 'ado', 'r');
+        const my_help_path = path.join(
+            my_ado_dir, 'regress_postestimation.sthlp'
+        );
+        fs.mkdirSync(my_ado_dir, { recursive: true });
+        fs.writeFileSync(my_help_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const resolved = await indexer.resolve_sthlp_file(
+            'regress postestimation'
+        );
+        expect(resolved).toBe(my_help_path);
+    });
+
+    it('prefers user ado_paths over auto-discovered help search paths', async () => {
+        // Both user and auto paths provide the same topic; user wins.
+        const my_user_dir = path.join(temp_dir, 'user-ado', 'r');
+        const my_user_help = path.join(my_user_dir, 'regress.sthlp');
+        fs.mkdirSync(my_user_dir, { recursive: true });
+        fs.writeFileSync(my_user_help, '{smcl}user version');
+
+        const my_auto_dir = path.join(temp_dir, 'auto-ado', 'r');
+        const my_auto_help = path.join(my_auto_dir, 'regress.sthlp');
+        fs.mkdirSync(my_auto_dir, { recursive: true });
+        fs.writeFileSync(my_auto_help, '{smcl}auto version');
+
+        await indexer.initialize(
+            [temp_dir],
+            [path.join(temp_dir, 'user-ado')]
+        );
+        indexer.set_help_search_paths([
+            path.join(temp_dir, 'auto-ado'),
+        ]);
+
+        const resolved = await indexer.resolve_sthlp_file('regress');
+
+        expect(resolved).toBe(my_user_help);
+    });
+
     it('should remove symbols when file is removed', async () => {
         const file_path = path.join(temp_dir, 'test.do');
         fs.writeFileSync(file_path, 'program define todelete\nend');

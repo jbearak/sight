@@ -46,6 +46,22 @@ export interface ExtractedCommand {
     source_file: string;
     /** Whether this is the primary command documented in the file */
     is_primary: boolean;
+    /**
+     * Whether this command had a {viewerdialog} tag in the help file.
+     * Combined with `is_primary`, this is the strongest signal that the
+     * current file is the canonical home of the command's help page.
+     */
+    has_viewerdialog: boolean;
+    /**
+     * Whether this command appears as the first token of a syntax paragraph
+     * (i.e., `{p ...}{cmdab:...}` or `{p ...}{cmd:NAME}` with no intervening
+     * alternation delimiters like `{c -(}`). This distinguishes files that
+     * genuinely document the command (e.g. `macro.sthlp`'s `{cmdab:loc:al}`
+     * leading a syntax paragraph) from files that merely reference it as
+     * one alternative inside another command's syntax (e.g. `char.sthlp`'s
+     * `{c -(}{cmdab:loc:al} | {cmdab:gl:obal}{c )-}`).
+     */
+    is_paragraph_lead: boolean;
     /** Options available for this command */
     options: ExtractedOption[];
 }
@@ -220,10 +236,13 @@ export function should_exclude_command(
 // ============================================================================
 
 /**
- * Pattern 1: viewerdialog - indicates command has dialog interface
- * Example: {viewerdialog "replace" "dialog replace"}
+ * Pattern 1: viewerdialog - indicates command has dialog interface.
+ * Both quoted (`{viewerdialog "replace" "dialog replace"}`) and
+ * unquoted (`{viewerdialog encode "dialog encode"}`) first-name
+ * forms appear in the wild, and both are accepted here.
  */
-export const VIEWERDIALOG_PATTERN = /\{viewerdialog\s+"([^"]+)"\s+"dialog\s+[^"]+"\}/g;
+export const VIEWERDIALOG_PATTERN =
+    /\{viewerdialog\s+(?:"([^"]+)"|([a-z_][a-z0-9_]*(?:\s+[a-z_][a-z0-9_]*)*))\s+"dialog\s+[^"]+"\}/gi;
 
 /**
  * Pattern 2: cmdab - command with abbreviation
@@ -335,7 +354,7 @@ export const OPT_HYPERLINK_ARG_PATTERN =
 // Compiled RegExp Constants
 // ============================================================================
 
-const VIEWERDIALOG_REGEX = new RegExp(VIEWERDIALOG_PATTERN.source, 'g');
+const VIEWERDIALOG_REGEX = new RegExp(VIEWERDIALOG_PATTERN.source, 'gi');
 const CMDAB_REGEX = new RegExp(CMDAB_PATTERN.source, 'gi');
 const OPT_REGEX = new RegExp(OPT_PATTERN.source, 'gi');
 const SYNOPT_WRAPPER_REGEX = new RegExp(SYNOPT_WRAPPER_PATTERN.source, 'gi');
@@ -357,7 +376,8 @@ export function extract_viewerdialog_commands(content: string): string[] {
 
     let my_match: RegExpExecArray | null;
     while ((my_match = VIEWERDIALOG_REGEX.exec(content)) !== null) {
-        const my_command_name = my_match[1];
+        // my_match[1] captures the quoted form, my_match[2] the unquoted.
+        const my_command_name = my_match[1] ?? my_match[2];
         if (my_command_name && !the_commands.includes(my_command_name)) {
             the_commands.push(my_command_name);
         }
@@ -793,6 +813,71 @@ export function extract_primary_command(content: string): string | null {
 }
 
 /**
+ * Extract the set of command names that appear as the *first* command
+ * token of a syntax paragraph. Used as a "this file documents the
+ * command" signal so the cache generator can pick `macro.sthlp` over
+ * `char.sthlp` for `local`: macro.sthlp leads a paragraph with
+ * `{cmdab:loc:al}` while char.sthlp nests it inside `{c -(} | {c )-}`.
+ *
+ * A paragraph lead must follow optional `{p ...}` tags with no
+ * intervening alternation delimiter (`{c -(}` / `{c )-}`), bracket
+ * (`[`), or `{cmd:,}` separator. Multi-word subcommand syntax such as
+ * `{cmdab:ma:cro} {cmdab:di:r}` still returns `macro` as the lead.
+ */
+// Module-level regexes for paragraph-lead detection (hoisted for
+// performance — avoids re-creating on every call during cache
+// generation across thousands of help files).
+const INLINE_PARAGRAPH_LEAD_PATTERN =
+    /^\s*(?:\{p[^}]*\}\s*)+(?:\{cmdab:([a-z][a-z0-9_]*):([a-z0-9_]+)\}|\{cmd:([a-z_][a-z0-9_]*)\})/i;
+const STANDALONE_CMD_PATTERN =
+    /^\s*(?:\{cmdab:([a-z][a-z0-9_]*):([a-z0-9_]+)\}|\{cmd:([a-z_][a-z0-9_]*)\})/i;
+const P_MARKER_PATTERN =
+    /^\s*(?:\{p[^}]*\}|\{phang[^}]*\}|\{pstd\})\s*$/i;
+
+export function extract_paragraph_lead_commands(syntax_section: string): Set<string> {
+    const the_commands = new Set<string>();
+    const my_doc = { content: syntax_section, line_offsets: compute_line_offsets(syntax_section) };
+    const my_line_count = get_line_count(my_doc);
+    // Recognise the indented line layout used by files like
+    // `quietly.sthlp`, where syntax lines are simply tab-indented and
+    // separated by blank lines rather than paragraph tags. A command
+    // tag that begins at the start of such a line (after a blank
+    // separator) also counts as a paragraph lead.
+    let previous_line_was_blank = true;
+    let previous_was_paragraph_marker = false;
+    for (let i = 0; i < my_line_count; i++) {
+        const my_line = get_line_text(my_doc, i);
+
+        if (my_line.trim().length === 0) {
+            previous_was_paragraph_marker = false;
+            previous_line_was_blank = true;
+            continue;
+        }
+
+        const my_inline = my_line.match(INLINE_PARAGRAPH_LEAD_PATTERN);
+        if (my_inline) {
+            const my_command_name = my_inline[1]
+                ? (my_inline[1] + my_inline[2]).toLowerCase()
+                : my_inline[3].toLowerCase();
+            the_commands.add(my_command_name);
+        } else if (previous_was_paragraph_marker || previous_line_was_blank) {
+            const my_standalone = my_line.match(STANDALONE_CMD_PATTERN);
+            if (my_standalone) {
+                const my_command_name = my_standalone[1]
+                    ? (my_standalone[1] + my_standalone[2]).toLowerCase()
+                    : my_standalone[3].toLowerCase();
+                the_commands.add(my_command_name);
+            }
+        }
+
+        previous_was_paragraph_marker = P_MARKER_PATTERN.test(my_line);
+        previous_line_was_blank = false;
+    }
+
+    return the_commands;
+}
+
+/**
  * Extract command names from {cmd:name} patterns in the syntax section.
  *
  * @param syntax_section - The syntax section content
@@ -1069,6 +1154,7 @@ export function extract_commands_from_file(file_path: string): ExtractionResult 
     );
 
     const cmd_commands = extract_cmd_patterns(syntax_section);
+    const paragraph_lead_commands = extract_paragraph_lead_commands(syntax_section);
 
     // Avoid scanning the full file for {cmdab:...} patterns.
     // Many help files use cmdab tags for non-command tokens (tables, labels,
@@ -1134,6 +1220,7 @@ export function extract_commands_from_file(file_path: string): ExtractionResult 
     for (const my_name of all_names) {
         const is_primary = my_name === primary_name;
         const has_viewerdialog = dialog_names.has(my_name);
+        const is_paragraph_lead = paragraph_lead_commands.has(my_name);
 
         // Filter out non-command tokens
         if (should_exclude_command(my_name, has_viewerdialog, is_primary)) {
@@ -1150,6 +1237,8 @@ export function extract_commands_from_file(file_path: string): ExtractionResult 
             description: my_description,
             source_file: file_path,
             is_primary: is_primary,
+            has_viewerdialog: has_viewerdialog,
+            is_paragraph_lead: is_paragraph_lead,
             options: extracted_options
         });
     }
@@ -1210,6 +1299,7 @@ export function extract_commands_from_content(
     );
 
     const cmd_commands = extract_cmd_patterns(syntax_section);
+    const paragraph_lead_commands = extract_paragraph_lead_commands(syntax_section);
 
     // Avoid scanning the full file for {cmdab:...} patterns.
     // Many help files use cmdab tags for non-command tokens (tables, labels,
@@ -1273,6 +1363,7 @@ export function extract_commands_from_content(
     for (const my_name of all_names) {
         const is_primary = my_name === primary_name;
         const has_viewerdialog = dialog_names.has(my_name);
+        const is_paragraph_lead = paragraph_lead_commands.has(my_name);
 
         // Filter out non-command tokens
         if (should_exclude_command(my_name, has_viewerdialog, is_primary)) {
@@ -1289,6 +1380,8 @@ export function extract_commands_from_content(
             description: my_description,
             source_file: source_file,
             is_primary: is_primary,
+            has_viewerdialog: has_viewerdialog,
+            is_paragraph_lead: is_paragraph_lead,
             options: extracted_options
         });
     }

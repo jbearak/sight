@@ -30,6 +30,10 @@ import {
     apply_language_configuration,
     read_line_comment_style,
 } from './language-config';
+import {
+    trust_hover,
+    trust_completion_item,
+} from './help-link-middleware';
 
 let client: LanguageClient | null = null;
 let output_channel: OutputChannel | null = window.createOutputChannel(
@@ -199,6 +203,46 @@ export function activate(context: ExtensionContext) {
             fileEvents: file_watcher,
             // Synchronize the 'sight' configuration section with the server
             configurationSection: 'sight'
+        },
+        // Trust the `sight.openHelpTopic` command link that the server
+        // emits in hover and completion markdown. VS Code strips
+        // command URIs from LSP-provided markdown by default; this
+        // middleware narrowly re-enables the single Sight command.
+        middleware: {
+            provideHover: async (document, position, token, next) => {
+                const my_hover = await next(document, position, token);
+                if (!my_hover) {
+                    return my_hover;
+                }
+                return trust_hover(my_hover);
+            },
+            provideCompletionItem: async (
+                document, position, context, token, next
+            ) => {
+                const my_result = await next(
+                    document, position, context, token
+                );
+                if (!my_result) {
+                    return my_result;
+                }
+                if (Array.isArray(my_result)) {
+                    for (const my_item of my_result) {
+                        trust_completion_item(my_item);
+                    }
+                    return my_result;
+                }
+                for (const my_item of my_result.items) {
+                    trust_completion_item(my_item);
+                }
+                return my_result;
+            },
+            resolveCompletionItem: async (item, token, next) => {
+                const my_resolved = await next(item, token);
+                if (!my_resolved) {
+                    return my_resolved;
+                }
+                return trust_completion_item(my_resolved);
+            },
         }
     };
 
