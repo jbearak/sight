@@ -57,7 +57,10 @@ import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
 
-export const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
+// Fallback list used only when the command database has no functions
+// loaded (e.g. tests without a cache fixture). Source of truth is
+// command_db.is_function.
+export const STATA_EXPRESSION_FUNCTIONS_FALLBACK = new Set<string>([
     // Type casting / storage types
     'byte', 'double', 'float', 'int', 'long',
     // String functions
@@ -2005,12 +2008,15 @@ export class HoverProvider {
         return line[i] === '(';
     }
 
-    private resolve_expression_function_name(word: string): string | null {
-        if (STATA_EXPRESSION_FUNCTIONS.has(word)) {
+    resolve_expression_function_name(word: string): string | null {
+        // Source of truth: functions discovered from f_*.sthlp in the
+        // command database (populated from the cache).
+        if (this.command_db.is_function(word)) {
             return word;
         }
-        // Check functions discovered from f_*.sthlp in the command database
-        if (this.command_db.is_function(word)) {
+        // Fallback only when no functions are loaded (tests / missing cache).
+        if (this.command_db.get_all_functions().length === 0
+            && STATA_EXPRESSION_FUNCTIONS_FALLBACK.has(word)) {
             return word;
         }
         return STATA_EXPRESSION_FUNCTION_ALIASES.get(word) ?? null;

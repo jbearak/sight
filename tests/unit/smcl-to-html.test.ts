@@ -891,6 +891,18 @@ describe('smcl_to_html', () => {
             expect(result.html).not.toContain('<script>');
             expect(result.html).toContain('&lt;script&gt;');
         });
+
+        it("escapes single quotes in plain text", () => {
+            const result = smcl_to_html("don't");
+            expect(result.html).toContain('&#39;');
+            expect(result.html).not.toContain("don't");
+        });
+
+        it('escapes single quotes inside directive args', () => {
+            const result = smcl_to_html("{cmd:it's}");
+            expect(result.html).toContain('&#39;');
+            expect(result.html).not.toContain("it's");
+        });
     });
 
     describe('scroll sync data-line attributes', () => {

@@ -29,7 +29,7 @@ import { DocumentStore } from '../../src/document-store';
 import { command_database } from '../../src/command-database';
 import type { CommandCache } from '../../src/command-database/types';
 import {
-    STATA_EXPRESSION_FUNCTIONS,
+    STATA_EXPRESSION_FUNCTIONS_FALLBACK,
     STATA_EXPRESSION_FUNCTION_ALIASES,
 } from '../../src/providers/hover';
 import { discover_stata_ado_paths } from '../../src/utils/stata-install-paths';
@@ -127,7 +127,7 @@ describe_if_stata('Help topic coverage (local Stata install required)', () => {
         if (!stata_is_installed) return;
 
         const the_topics = new Set<string>([
-            ...STATA_EXPRESSION_FUNCTIONS,
+            ...STATA_EXPRESSION_FUNCTIONS_FALLBACK,
             ...STATA_EXPRESSION_FUNCTION_ALIASES.keys(),
             ...STATA_EXPRESSION_FUNCTION_ALIASES.values(),
         ]);

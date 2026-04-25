@@ -8,7 +8,8 @@
 import { describe, it, expect } from 'bun:test';
 import {
     STATA_SYSTEM_VARIABLES,
-    STATA_EXPRESSION_FUNCTIONS,
+    STATA_EXPRESSION_FUNCTIONS_FALLBACK,
+    HoverProvider,
 } from '../../src/providers/hover';
 import {
     compute_ranking_key,
@@ -39,26 +40,26 @@ describe('System variable hover', () => {
 describe('Expression functions set', () => {
     it('should contain common string functions', () => {
         for (const my_fn of ['strpos', 'substr', 'strlen', 'regexm', 'word']) {
-            expect(STATA_EXPRESSION_FUNCTIONS.has(my_fn)).toBe(true);
+            expect(STATA_EXPRESSION_FUNCTIONS_FALLBACK.has(my_fn)).toBe(true);
         }
     });
 
     it('should contain common math functions', () => {
         for (const my_fn of ['abs', 'ceil', 'floor', 'round', 'sqrt', 'ln']) {
-            expect(STATA_EXPRESSION_FUNCTIONS.has(my_fn)).toBe(true);
+            expect(STATA_EXPRESSION_FUNCTIONS_FALLBACK.has(my_fn)).toBe(true);
         }
     });
 
     it('should contain common programming functions', () => {
         for (const my_fn of ['cond', 'inlist', 'inrange', 'missing']) {
-            expect(STATA_EXPRESSION_FUNCTIONS.has(my_fn)).toBe(true);
+            expect(STATA_EXPRESSION_FUNCTIONS_FALLBACK.has(my_fn)).toBe(true);
         }
     });
 
     it('should not contain duplicate entries', () => {
         // Verify the set size matches a manual count of unique entries
         // (Set automatically deduplicates, so this just documents intent)
-        const the_array = Array.from(STATA_EXPRESSION_FUNCTIONS);
+        const the_array = Array.from(STATA_EXPRESSION_FUNCTIONS_FALLBACK);
         const the_unique = new Set(the_array);
         expect(the_array.length).toBe(the_unique.size);
     });
@@ -100,6 +101,50 @@ describe('CommandDatabase function support', () => {
         expect(db.is_function('strpos')).toBe(true);
         db.clear();
         expect(db.is_function('strpos')).toBe(false);
+    });
+});
+
+describe('resolve_expression_function_name', () => {
+    it('uses command_db.is_function when populated, ignoring fallback set', () => {
+        const db = new CommandDatabase();
+        db.load_cache({
+            version: 18,
+            commands: {},
+            abbreviations: {},
+            functions: ['foo'],
+        });
+        const provider = new HoverProvider(db);
+        // `foo` is not in the fallback set but is in the DB.
+        expect(provider.resolve_expression_function_name('foo')).toBe('foo');
+        // `abs` is in the fallback set but NOT in the DB; must return null
+        // because the DB is authoritative when populated.
+        expect(provider.resolve_expression_function_name('abs')).toBeNull();
+    });
+
+    it('falls back to static set when command_db has no functions loaded', () => {
+        const db = new CommandDatabase();
+        db.load_cache({
+            version: 18,
+            commands: {},
+            abbreviations: {},
+        });
+        const provider = new HoverProvider(db);
+        // `abs` is in the fallback set.
+        expect(provider.resolve_expression_function_name('abs')).toBe('abs');
+        // `regress` is not a function anywhere.
+        expect(provider.resolve_expression_function_name('regress')).toBeNull();
+    });
+
+    it('resolves aliases regardless of mode', () => {
+        const db = new CommandDatabase();
+        db.load_cache({
+            version: 18,
+            commands: {},
+            abbreviations: {},
+            functions: ['missing'],
+        });
+        const provider = new HoverProvider(db);
+        expect(provider.resolve_expression_function_name('mi')).toBe('missing');
     });
 });
 

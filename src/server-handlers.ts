@@ -949,6 +949,23 @@ export function create_shared_ihlp_resolver(
     return { resolver: my_resolver, cache: the_cache };
 }
 
+// Bound for the per-handler negative cache of unresolvable (topic, anchor)
+// keys. FIFO eviction keeps memory bounded across long sessions where a
+// user may hover on many unknown identifiers.
+const MAX_RESOLVE_STHLP_NEGATIVE_CACHE_SIZE = 1000;
+
+export interface ResolveSthlpFileHandler {
+    (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult>;
+    /**
+     * Clear the negative cache. Should be called whenever the workspace
+     * is re-indexed (a previously-unresolvable topic may now be
+     * resolvable). Until a re-index event hook is wired up, callers
+     * should invoke this manually after triggering an indexer rescan;
+     * stale negatives persist until then. TODO: wire to indexer events.
+     */
+    clear_negative_cache(): void;
+}
+
 /**
  * Creates the custom request handler for sight/resolveSthlpFile.
  *
@@ -958,9 +975,26 @@ export function create_shared_ihlp_resolver(
 export function create_resolve_sthlp_file_handler(
     deps: HandlerDependencies,
     shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, IhlpCacheEntry> }
-): (params: ResolveSthlpFileParams) => Promise<ResolveSthlpFileResult> {
+): ResolveSthlpFileHandler {
     const { resolver: my_ihlp_resolver } =
         shared_ihlp ?? create_shared_ihlp_resolver(deps);
+
+    // Per-handler negative cache. Keys are `${topic} ${anchor ?? ''}`.
+    // We use insertion order for FIFO eviction (Set preserves it).
+    const the_negative_cache = new Set<string>();
+    const make_negative_key = (params: ResolveSthlpFileParams): string =>
+        `${(params.topic ?? '').trim()} ${params.anchor ?? ''}`;
+    const remember_negative = (key: string): void => {
+        if (the_negative_cache.has(key)) return;
+        if (the_negative_cache.size >= MAX_RESOLVE_STHLP_NEGATIVE_CACHE_SIZE) {
+            // FIFO eviction: drop the oldest entry.
+            const my_oldest = the_negative_cache.values().next().value;
+            if (my_oldest !== undefined) {
+                the_negative_cache.delete(my_oldest);
+            }
+        }
+        the_negative_cache.add(key);
+    };
 
     /**
      * Read a .sthlp file, expand its INCLUDE directives, and return
@@ -1219,11 +1253,18 @@ export function create_resolve_sthlp_file_handler(
     }
 
     // Main handler: resolve topic, then check anchor if provided
-    return async (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult> => {
+    const handler = async (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult> => {
+        const my_negative_key = make_negative_key(params);
+        if (the_negative_cache.has(my_negative_key)) {
+            return { file_path: null };
+        }
         const my_result = await resolve_topic(params);
 
         // If no anchor requested, or no file resolved, return as-is
         if (!params.anchor || !my_result.file_path) {
+            if (my_result.file_path === null) {
+                remember_negative(my_negative_key);
+            }
             return my_result;
         }
 
@@ -1269,6 +1310,11 @@ export function create_resolve_sthlp_file_handler(
         // No related file has the anchor — return original file
         return my_result;
     };
+
+    (handler as ResolveSthlpFileHandler).clear_negative_cache = (): void => {
+        the_negative_cache.clear();
+    };
+    return handler as ResolveSthlpFileHandler;
 }
 
 // -----------------------------------------------------------------------
