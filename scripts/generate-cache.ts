@@ -264,7 +264,7 @@ async function extract_minimal_metadata(file_path: string): Promise<ExtractedCom
             console.warn(my_warning);
         }
 
-        const the_help_file_basename = basename(file_path, '.sthlp');
+        const the_help_file_basename = basename(file_path, '.sthlp').toLowerCase();
 
         // Convert ExtractedCommand to provenance-carrying records.
         const the_records: ExtractedCommandRecord[] = [];

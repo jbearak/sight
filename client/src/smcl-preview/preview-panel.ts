@@ -272,13 +272,9 @@ export class SmclPreviewPanel implements vscode.Disposable {
                         };
                     } catch {
                         // Server unavailable / handler unregistered:
-                        // treat like a miss. Don't cache so we retry
-                        // next refresh.
-                        return {
-                            alias: my_alias,
-                            smcl: null,
-                            skip_cache: true
-                        };
+                        // treat like a miss (smcl: null). Not cached,
+                        // so we retry next refresh.
+                        return { alias: my_alias, smcl: null };
                     }
                 })
             );
@@ -288,12 +284,10 @@ export class SmclPreviewPanel implements vscode.Disposable {
             const the_new_smcl: string[] = [];
             for (const my_result of the_results) {
                 if (my_result.smcl !== null) {
-                    if (!('skip_cache' in my_result)) {
-                        this.findalias_cache.set(
-                            my_result.alias,
-                            my_result.smcl
-                        );
-                    }
+                    this.findalias_cache.set(
+                        my_result.alias,
+                        my_result.smcl
+                    );
                     my_map.set(my_result.alias, my_result.smcl);
                     the_new_smcl.push(my_result.smcl);
                 }
