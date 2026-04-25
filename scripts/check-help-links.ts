@@ -187,6 +187,54 @@ async function main(): Promise<void> {
             if (my_sysvar_path) return my_sysvar_path;
         }
 
+        // Hash-prefix fallback: #delimit → delimit.sthlp
+        if (topic.startsWith('#')) {
+            const my_stripped = topic.substring(1);
+            if (my_stripped.length > 0) {
+                const my_hash_path =
+                    await my_indexer.resolve_sthlp_file(my_stripped);
+                if (my_hash_path) return my_hash_path;
+            }
+        }
+
+        // Hyphen-to-underscore fallback: stata-be → stata_be
+        if (topic.includes('-')) {
+            const my_underscore_topic = topic.replace(/-/g, '_');
+            const my_hyphen_path =
+                await my_indexer.resolve_sthlp_file(my_underscore_topic);
+            if (my_hyphen_path) return my_hyphen_path;
+        }
+
+        // Case-insensitive fallback: Java → java, Dynamic → dynamic
+        {
+            const my_lower = topic.toLowerCase();
+            if (my_lower !== topic) {
+                const my_lower_path =
+                    await my_indexer.resolve_sthlp_file(my_lower);
+                if (my_lower_path) return my_lower_path;
+            }
+        }
+
+        // Suffix-probing fallback: dynamic → dynamic_intro, etc.
+        {
+            const the_suffixes = [
+                '_intro', '_commands', '_options', '_functions',
+                '_estimation', '_styles', '_modes', '_postestimation',
+            ];
+            const the_bases = [topic];
+            const my_lower = topic.toLowerCase();
+            if (my_lower !== topic) the_bases.push(my_lower);
+            for (const my_base of the_bases) {
+                for (const my_suffix of the_suffixes) {
+                    const my_candidate =
+                        await my_indexer.resolve_sthlp_file(
+                            my_base + my_suffix
+                        );
+                    if (my_candidate) return my_candidate;
+                }
+            }
+        }
+
         return null;
     }
 

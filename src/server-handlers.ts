@@ -1104,6 +1104,66 @@ export function create_resolve_sthlp_file_handler(
             }
         }
 
+        // 6. Hash-prefix fallback: #delimit → delimit.sthlp
+        if (my_topic.startsWith('#')) {
+            const my_stripped = my_topic.substring(1);
+            if (my_stripped.length > 0) {
+                const my_hash_path =
+                    await my_indexer.resolve_sthlp_file(my_stripped);
+                if (my_hash_path) {
+                    return { file_path: my_hash_path };
+                }
+            }
+        }
+
+        // 7. Hyphen-to-underscore fallback: stata-be → stata_be
+        //    (alias files use underscores, not hyphens)
+        if (my_topic.includes('-')) {
+            const my_underscore_topic = my_topic.replace(/-/g, '_');
+            const my_hyphen_path =
+                await my_indexer.resolve_sthlp_file(my_underscore_topic);
+            if (my_hyphen_path) {
+                return { file_path: my_hyphen_path };
+            }
+        }
+
+        // 8. Case-insensitive fallback: Java → java, Dynamic → dynamic
+        {
+            const my_lower = my_topic.toLowerCase();
+            if (my_lower !== my_topic) {
+                const my_lower_path =
+                    await my_indexer.resolve_sthlp_file(my_lower);
+                if (my_lower_path) {
+                    return { file_path: my_lower_path };
+                }
+            }
+        }
+
+        // 9. Suffix-probing fallback: Stata's help system tries
+        //    common suffixes when the bare topic has no file
+        //    (e.g. dynamic → dynamic_intro, bayesian → bayesian_estimation)
+        {
+            const the_suffixes = [
+                '_intro', '_commands', '_options', '_functions',
+                '_estimation', '_styles', '_modes', '_postestimation',
+            ];
+            // Try the topic as given, then its lowercase form
+            const the_bases = [my_topic];
+            const my_lower = my_topic.toLowerCase();
+            if (my_lower !== my_topic) the_bases.push(my_lower);
+            for (const my_base of the_bases) {
+                for (const my_suffix of the_suffixes) {
+                    const my_candidate =
+                        await my_indexer.resolve_sthlp_file(
+                            my_base + my_suffix
+                        );
+                    if (my_candidate) {
+                        return { file_path: my_candidate };
+                    }
+                }
+            }
+        }
+
         return { file_path: null };
     }
 
