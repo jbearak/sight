@@ -34,6 +34,7 @@ import { Logger } from './utils/logger';
 import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
+import { discover_stata_ado_paths } from './utils/stata-install-paths';
 
 // Import cache directly so it gets bundled into the binary
 import embedded_cache_raw from './command-database/caches/v18.json';
@@ -573,6 +574,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 );
             });
         } else {
+            // No workspace folders open — still discover Stata install
+            // paths so the help viewer can resolve built-in topics.
+            if (workspace_indexer) {
+                workspace_indexer.set_help_search_paths(
+                    discover_stata_ado_paths()
+                );
+            }
             dependency_graph?.mark_scan_complete();
             revalidate_all_open_docs();
         }
