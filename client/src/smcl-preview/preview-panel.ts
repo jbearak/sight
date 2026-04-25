@@ -157,13 +157,18 @@ export class SmclPreviewPanel implements vscode.Disposable {
 
     private async refresh(): Promise<void> {
         // Try to get content from open editor first; fall back to disk
-        const my_content = this.read_content();
-        if (my_content === null) return;
+        const my_raw_content = this.read_content();
+        if (my_raw_content === null) return;
 
         // Capture a token before any async work. If a newer refresh
         // starts while we're awaiting LSP responses, it will bump the
         // sequence and we'll discard our stale result.
         const my_token = ++this.refresh_seq;
+
+        // Expand INCLUDE directives before findalias resolution
+        // (included content may contain {findalias} references).
+        const my_content = await this.expand_includes(my_raw_content);
+        if (this.disposed || my_token !== this.refresh_seq) return;
 
         const my_findalias_map = await this.resolve_findalias_map(my_content);
 
@@ -191,6 +196,25 @@ export class SmclPreviewPanel implements vscode.Disposable {
         );
         if (my_editor) {
             this.sync_editor_to_preview(my_editor.visibleRanges);
+        }
+    }
+
+    /**
+     * Expand `INCLUDE help <name>` directives via the LSP server.
+     * Falls back to the original content if the server is unavailable.
+     */
+    private async expand_includes(content: string): Promise<string> {
+        const my_client = this.get_client();
+        if (!my_client) return content;
+
+        try {
+            const my_result = await my_client.sendRequest<{
+                content: string;
+            }>('sight/expandIncludes', { content });
+            return my_result?.content ?? content;
+        } catch {
+            // Server unavailable or request failed — use unexpanded content
+            return content;
         }
     }
 
