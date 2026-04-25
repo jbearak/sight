@@ -34,6 +34,7 @@ import { DirectiveParser } from '../directive-parser';
 import { ScopeResolver, build_scope_resolver_config } from '../scope-resolver';
 import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
+import { is_safe_include_name } from '../utils/include-expander';
 import { compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
 import { discover_stata_ado_paths } from '../utils/stata-install-paths';
@@ -987,6 +988,7 @@ export class WorkspaceIndexer {
 
     private async resolve_sthlp_basename(topic: string): Promise<string | null> {
         if (topic.length === 0) return null;
+        if (!is_safe_include_name(topic)) return null;
         const my_basename = `${topic}.sthlp`;
         const my_first_letter = topic.charAt(0).toLowerCase();
 
@@ -1034,6 +1036,118 @@ export class WorkspaceIndexer {
         }
 
         return null;
+    }
+
+    async resolve_ihlp_file(name: string): Promise<string | null> {
+        if (name.length === 0) return null;
+        if (!is_safe_include_name(name)) return null;
+        // Strip .ihlp extension if already present — some SMCL files
+        // write `INCLUDE help foo.ihlp` rather than `INCLUDE help foo`.
+        const my_bare = name.endsWith('.ihlp')
+            ? name.slice(0, -5)
+            : name;
+        const my_basename = `${my_bare}.ihlp`;
+        const my_first_letter = my_bare.charAt(0).toLowerCase();
+
+        const the_search_dirs = [
+            ...this.ado_paths,
+            ...this.workspace_roots,
+            ...this.help_search_paths,
+        ];
+
+        for (const my_dir of the_search_dirs) {
+            // Check letter subdirectory: dir/r/robust_short.ihlp
+            const my_subdir_path = path.join(
+                my_dir, my_first_letter, my_basename
+            );
+            try {
+                await fs.promises.access(my_subdir_path);
+                return my_subdir_path;
+            } catch {
+                // not found, continue
+            }
+
+            // Check directly in directory: dir/robust_short.ihlp
+            const my_direct_path = path.join(my_dir, my_basename);
+            try {
+                await fs.promises.access(my_direct_path);
+                return my_direct_path;
+            } catch {
+                // not found, continue
+            }
+        }
+
+        return null;
+    }
+
+    private async list_matching_sthlp(
+        dir: string,
+        prefix: string
+    ): Promise<string[]> {
+        try {
+            const the_entries = await fs.promises.readdir(dir);
+            const the_matches = the_entries
+                .filter(my_entry =>
+                    my_entry.startsWith(prefix) &&
+                    my_entry.endsWith('.sthlp')
+                )
+                .sort();
+            return the_matches.map(my_entry => path.join(dir, my_entry));
+        } catch {
+            return [];
+        }
+    }
+
+    async find_related_sthlp_files(topic: string): Promise<string[]> {
+        if (topic.length === 0) return [];
+
+        // Stata convention: multi-word topics (e.g. `regress
+        // postestimation`) live in files joined with underscores. Probe
+        // both the raw topic and the underscore-joined form so callers
+        // that pass either shape get the right `topic_*.sthlp` matches.
+        const the_topic_variants: string[] = [topic];
+        const my_underscored = topic.replace(/[\s-]+/g, '_');
+        if (my_underscored !== topic) {
+            the_topic_variants.push(my_underscored);
+        }
+
+        const the_search_dirs = [
+            ...this.ado_paths,
+            ...this.workspace_roots,
+            ...this.help_search_paths,
+        ];
+
+        const the_seen = new Set<string>();
+        const the_results: string[] = [];
+        for (const my_variant of the_topic_variants) {
+            const my_prefix = `${my_variant}_`;
+            const my_first_letter = my_variant.charAt(0).toLowerCase();
+
+            for (const my_dir of the_search_dirs) {
+                // Check letter subdirectory first
+                const my_subdir = path.join(my_dir, my_first_letter);
+                const the_subdir_matches =
+                    await this.list_matching_sthlp(my_subdir, my_prefix);
+                for (const my_match of the_subdir_matches) {
+                    if (!the_seen.has(my_match)) {
+                        the_seen.add(my_match);
+                        the_results.push(my_match);
+                    }
+                }
+
+                // Check flat directory
+                const the_flat_matches =
+                    await this.list_matching_sthlp(my_dir, my_prefix);
+                for (const my_match of the_flat_matches) {
+                    if (!the_seen.has(my_match)) {
+                        the_seen.add(my_match);
+                        the_results.push(my_match);
+                    }
+                }
+            }
+        }
+
+        return the_results;
     }
 
     private static readonly EXCLUDED_DIRS = new Set([

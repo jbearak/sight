@@ -31,6 +31,12 @@ export interface SmclToHtmlOptions {
      * behavior so diffs on unresolved files stay empty.
      */
     findalias_map?: Map<string, string>;
+    /**
+     * The topic name of the currently rendered help page (e.g. "regress"
+     * for regress.sthlp). Used to distinguish same-page anchor links from
+     * cross-page links.
+     */
+    current_topic?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +70,8 @@ function escape_html(text: string): string {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // ---------------------------------------------------------------------------
@@ -321,10 +328,12 @@ interface RenderContext {
     // substitution itself contains another `{findalias Y}`
     // (or loops back to `X`).
     findalias_stack: string[];
+    current_topic?: string;
 }
 
 function create_context(
-    findalias_map?: Map<string, string>
+    findalias_map?: Map<string, string>,
+    current_topic?: string
 ): RenderContext {
     return {
         cross_references: [],
@@ -340,6 +349,7 @@ function create_context(
         in_asis: false,
         findalias_map,
         findalias_stack: [],
+        current_topic,
     };
 }
 
@@ -728,9 +738,9 @@ function render_directive(
         case 'dialog':
             return render_content(directive, ctx);
         case 'view':
-            return render_content(directive, ctx);
+            return render_view_link(directive, ctx);
         case 'search':
-            return render_content(directive, ctx);
+            return render_search_link(directive, ctx);
         case 'findalias':
             return render_findalias(directive, ctx);
 
@@ -959,26 +969,62 @@ function render_help_link(
     bold: boolean,
     italic: boolean
 ): string {
-    // {help topic} or {help topic:display_text}
-    const my_topic = directive.args || '';
+    // {help topic} or {help topic##anchor} or {help topic:display_text}
+    const my_full_topic = directive.args || '';
     const my_display = directive.content.length > 0
         ? render_content(directive, ctx)
-        : escape_html(my_topic);
+        : escape_html(my_full_topic);
 
-    // Extract topic name (may have ## suffix for anchor)
-    const my_topic_name = my_topic.split('#')[0].split(' ')[0].trim();
+    // Split topic##anchor — Stata uses ## as the anchor separator.
+    // When a ## is present, the topic portion may contain spaces
+    // (e.g. "diagnostic plots##options2") and is kept whole so the
+    // resolver can map it to "diagnostic_plots.sthlp". Without ##,
+    // only the first word is used (e.g. "matrix list" → "matrix")
+    // because Stata's {help} without an anchor typically addresses the
+    // parent page rather than a subcommand variant.
+    const my_anchor_idx = my_full_topic.indexOf('##');
+    const my_topic_name = (my_anchor_idx >= 0
+        ? my_full_topic.substring(0, my_anchor_idx)
+        : my_full_topic.split(' ')[0]
+    ).trim();
+    const my_anchor = my_anchor_idx >= 0
+        ? my_full_topic.substring(my_anchor_idx + 2).split(' ')[0].trim()
+        : '';
 
     const my_id = `smcl-ref-${ctx.ref_counter++}`;
     ctx.cross_references.push({
         topic: my_topic_name,
-        display_text: my_topic,
+        display_text: my_full_topic,
         element_id: my_id,
     });
 
-    let my_html =
-        `<a class="smcl-help-link" id="${my_id}" ` +
-        `href="#" data-smcl-topic="${escape_html(my_topic_name)}"` +
-        `>${my_display}</a>`;
+    let my_html: string;
+
+    // Same-page anchor: render as in-page jump link
+    if (
+        my_anchor &&
+        ctx.current_topic &&
+        my_topic_name === ctx.current_topic
+    ) {
+        my_html =
+            `<a class="smcl-jumpto" id="${my_id}" ` +
+            `href="#${escape_html(my_anchor)}"` +
+            `>${my_display}</a>`;
+    } else if (my_anchor) {
+        // Cross-page anchor: navigate link with anchor data
+        my_html =
+            `<a class="smcl-help-link" id="${my_id}" ` +
+            `href="#" data-smcl-topic="${escape_html(my_topic_name)}" ` +
+            `data-smcl-anchor="${escape_html(my_anchor)}"` +
+            `>${my_display}</a>`;
+    } else {
+        // No anchor: standard navigate link
+        my_html =
+            `<a class="smcl-help-link" id="${my_id}" ` +
+            `href="#" data-smcl-topic="${escape_html(my_topic_name)}"` +
+            `>${my_display}</a>`;
+    }
+
     if (bold) my_html = `<strong>${my_html}</strong>`;
     if (italic) my_html = `<em>${my_html}</em>`;
     return my_html;
@@ -1238,6 +1284,24 @@ function split_browse_args(
     // separator. Scanning from the end correctly handles port
     // numbers (http://host:8080) and mailto: URLs since the
     // display separator is always the final colon.
+    // Stata allows quoting the URL in {browse} — e.g.:
+    //   {browse "https://example.com"}
+    //   {browse "https://example.com":display text}
+    // In both forms the URL is wrapped in double quotes. Handle the
+    // quoted form first so later colon-splitting works on bare URLs.
+    if (raw.startsWith('"')) {
+        const my_close = raw.indexOf('"', 1);
+        if (my_close > 0) {
+            const my_url = raw.substring(1, my_close);
+            // After the closing quote, expect either nothing or ":display"
+            const my_after = raw.substring(my_close + 1);
+            const my_display = my_after.startsWith(':')
+                ? my_after.substring(1)
+                : null;
+            return { url: my_url, display: my_display };
+        }
+    }
+
     const my_last_colon = raw.lastIndexOf(':');
     if (my_last_colon < 0) {
         return { url: raw, display: null };
@@ -1299,6 +1363,60 @@ function render_findalias(
     }
 }
 
+function render_search_link(
+    directive: SmclDirective,
+    ctx: RenderContext
+): string {
+    // {search keyword} or {search keyword:display_text}
+    // Render as plain styled text — {search} opens Stata's keyword
+    // search dialog, not a help page. No link, no cross-reference entry.
+    // Preserve the full query — `{search mixed models}` should search
+    // the phrase "mixed models", not just "mixed".
+    const my_query = (directive.args || '').trim();
+    if (!my_query) return render_content(directive, ctx);
+
+    const my_display = directive.content.length > 0
+        ? render_content(directive, ctx)
+        : escape_html(my_query);
+
+    return (
+        `<span class="smcl-search-text" ` +
+        `data-smcl-search-query="${escape_html(my_query)}"` +
+        `>${my_display}</span>`
+    );
+}
+
+function render_view_link(
+    directive: SmclDirective,
+    ctx: RenderContext
+): string {
+    // {view filename} or {view filename:display_text}
+    const my_filename = (directive.args || '').trim();
+    if (!my_filename) return render_content(directive, ctx);
+
+    // Only render as help link if it's a .sthlp or .hlp file
+    const my_match = my_filename.match(/^(.+)\.(sthlp|hlp)$/i);
+    if (!my_match) return render_content(directive, ctx);
+
+    const my_topic = my_match[1];
+    const my_display = directive.content.length > 0
+        ? render_content(directive, ctx)
+        : escape_html(my_filename);
+
+    const my_id = `smcl-ref-${ctx.ref_counter++}`;
+    ctx.cross_references.push({
+        topic: my_topic,
+        display_text: my_filename,
+        element_id: my_id,
+    });
+
+    return (
+        `<a class="smcl-help-link" id="${my_id}" ` +
+        `href="#" data-smcl-topic="${escape_html(my_topic)}"` +
+        `>${my_display}</a>`
+    );
+}
+
 function render_stata_link(
     directive: SmclDirective,
     ctx: RenderContext
@@ -1349,6 +1467,70 @@ function parse_first_number(args: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// viewerjumpto TOC
+// ---------------------------------------------------------------------------
+
+interface ViewerJumptoEntry {
+    label: string;
+    anchor: string;
+}
+
+/**
+ * Extract `{viewerjumpto "Label" "topic##anchor"}` directives from
+ * the node list. Returns the entries and the filtered node list with
+ * viewerjumpto nodes removed.
+ */
+function collect_viewerjumpto_entries(
+    nodes: SmclNode[]
+): { entries: ViewerJumptoEntry[]; filtered: SmclNode[] } {
+    const the_entries: ViewerJumptoEntry[] = [];
+    const the_filtered: SmclNode[] = [];
+
+    for (const my_node of nodes) {
+        if (
+            is_directive(my_node) &&
+            my_node.name.toLowerCase() === 'viewerjumpto'
+        ) {
+            const my_args = my_node.args || '';
+            // Parse: "Label" "topic##anchor"
+            const my_match = my_args.match(
+                /^"([^"]*)"\s+"[^#]*##([^"]*)"/
+            );
+            if (my_match) {
+                the_entries.push({
+                    label: my_match[1],
+                    anchor: my_match[2],
+                });
+            }
+        } else {
+            the_filtered.push(my_node);
+        }
+    }
+
+    return { entries: the_entries, filtered: the_filtered };
+}
+
+/**
+ * Render collected viewerjumpto entries as a horizontal TOC bar.
+ */
+function render_viewerjumpto_toc(
+    entries: ViewerJumptoEntry[]
+): string {
+    if (entries.length === 0) return '';
+
+    const the_links = entries.map(my_entry =>
+        `<a class="smcl-jumpto" href="#${escape_html(my_entry.anchor)}"` +
+        `>${escape_html(my_entry.label)}</a>`
+    );
+
+    return (
+        '<nav class="smcl-toc">' +
+        the_links.join('<span class="smcl-toc-separator"> | </span>') +
+        '</nav>'
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -1375,12 +1557,18 @@ export function smcl_to_html(
     // their title block (e.g. `exp.sthlp`, `operator.sthlp`) get the
     // same `__help_title__` treatment so they render as a proper
     // heading + PDF link instead of a small inline blue reference.
-    const the_nodes = transform_findalias_help_title(
+    const the_findalias_nodes = transform_findalias_help_title(
         the_p2col_nodes,
         options?.findalias_map
     );
-    const ctx = create_context(options?.findalias_map);
-    let html = render_nodes(the_nodes, ctx);
+    // Collect {viewerjumpto} entries for the TOC bar, removing them
+    // from the node list so they don't render inline.
+    const { entries: the_toc_entries, filtered: the_nodes } =
+        collect_viewerjumpto_entries(the_findalias_nodes);
+
+    const ctx = create_context(options?.findalias_map, options?.current_topic);
+    let html = render_viewerjumpto_toc(the_toc_entries);
+    html += render_nodes(the_nodes, ctx);
     // Close any trailing persistent formats and style span
     html += close_asis(ctx);
     html += close_all_formats(ctx);
@@ -1572,7 +1760,12 @@ function try_match_help_title(
         i++;
     }
     const my_description = the_description_parts.join('').trim();
-    if (my_description.length === 0) return null;
+    // Some help files (e.g. function pages like f_strpos.sthlp) have
+    // no inline description — the title row is just {p2col:{bf:[FN] String functions}}.
+    // Fall back to the full manual reference (e.g. "[FN] String functions").
+    const my_effective_description = my_description.length > 0
+        ? my_description
+        : my_title_ref.full_ref;
     skip_filler();
 
     // Optional: {p2col:}({mansection X name:text}){p_end}
@@ -1582,26 +1775,56 @@ function try_match_help_title(
         i < nodes.length
         && is_directive(nodes[i])
         && (nodes[i] as SmclDirective).name.toLowerCase() === 'p2col'
-        && (nodes[i] as SmclDirective).content.length === 0
     ) {
-        i++;
-        while (i < nodes.length) {
-            const my_node = nodes[i];
-            if (is_directive(my_node) && my_node.name.toLowerCase() === 'p_end') {
-                i++;
-                break;
-            }
+        const my_p2col = nodes[i] as SmclDirective;
+        // Check for mansection inside p2col content (e.g. function pages:
+        // {p2col:({mansection FN Stringfunctions:...})}{p_end})
+        for (const my_child of my_p2col.content) {
             if (
-                is_directive(my_node)
-                && my_node.name.toLowerCase() === 'mansection'
+                is_directive(my_child)
+                && my_child.name.toLowerCase() === 'mansection'
             ) {
-                const my_parsed = parse_mansection_args(my_node.args);
+                const my_parsed = parse_mansection_args(my_child.args);
                 if (my_parsed) {
                     mansection_target = my_parsed.target;
                     mansection_text = my_parsed.display;
                 }
             }
+        }
+        // Also check sibling nodes (standard pattern: {p2col:}({mansection ...}){p_end})
+        if (!mansection_target && my_p2col.content.length === 0) {
             i++;
+            while (i < nodes.length) {
+                const my_node = nodes[i];
+                if (is_directive(my_node) && my_node.name.toLowerCase() === 'p_end') {
+                    i++;
+                    break;
+                }
+                if (
+                    is_directive(my_node)
+                    && my_node.name.toLowerCase() === 'mansection'
+                ) {
+                    const my_parsed = parse_mansection_args(my_node.args);
+                    if (my_parsed) {
+                        mansection_target = my_parsed.target;
+                        mansection_text = my_parsed.display;
+                    }
+                }
+                i++;
+            }
+        } else {
+            // Content was non-empty (mansection found inside, or no
+            // mansection at all). Skip past the trailing {p_end}.
+            i++;
+            // Skip to {p_end}
+            while (i < nodes.length) {
+                const my_node = nodes[i];
+                if (is_directive(my_node) && my_node.name.toLowerCase() === 'p_end') {
+                    i++;
+                    break;
+                }
+                i++;
+            }
         }
         skip_filler();
     }
@@ -1620,7 +1843,7 @@ function try_match_help_title(
         consumed: i - start,
         info: {
             name: my_title_ref.name,
-            description: my_description,
+            description: my_effective_description,
             mansection_target,
             mansection_text,
         },
@@ -1790,7 +2013,7 @@ function extract_manlink_help_title(
 
 function extract_title_ref_from_p2col(
     p2col: SmclDirective
-): { name: string } | null {
+): { name: string; full_ref: string } | null {
     // Expected content: [{bf:[X] name}, optional text/whitespace,
     // optional {hline}]. We only look at the first directive to
     // decide whether this row is a title; trailing space + {hline} is
@@ -1807,7 +2030,10 @@ function extract_title_ref_from_p2col(
             .join('');
     const my_match = my_inner_text.trim().match(/^\[[A-Z]+(?:-\d+)?\]\s+(.+)$/);
     if (!my_match) return null;
-    return { name: my_match[1].trim() };
+    return {
+        name: my_match[1].trim(),
+        full_ref: my_inner_text.trim(),
+    };
 }
 
 function render_help_title(directive: SmclDirective): string {

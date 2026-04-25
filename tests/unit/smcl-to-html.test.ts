@@ -256,6 +256,13 @@ describe('smcl_to_html', () => {
             expect(result.cross_references).toHaveLength(1);
         });
 
+        it('accepts current_topic option without affecting basic rendering', () => {
+            const result = smcl_to_html('{help regress}', {
+                current_topic: 'generate',
+            });
+            expect(result.html).toContain('data-smcl-topic="regress"');
+        });
+
         it('renders {browse URL} as external link without target="_blank"', () => {
             // The webview click handler routes browse clicks to
             // `vscode.env.openExternal`. Keeping `target="_blank"` on
@@ -304,16 +311,33 @@ describe('smcl_to_html', () => {
             );
         });
 
+        it('handles quoted URL in browse without display text', () => {
+            const result = smcl_to_html(
+                '{browse "https://example.com"}'
+            );
+            expect(result.html).toContain(
+                'href="https://example.com"'
+            );
+            expect(result.html).toContain('smcl-browse');
+        });
+
+        it('handles quoted URL in browse with display text', () => {
+            const result = smcl_to_html(
+                '{browse "https://www.youtube.com/watch?v=l5QM2RzU3VM"' +
+                ':How to label variables}'
+            );
+            expect(result.html).toContain(
+                'href="https://www.youtube.com/watch?v=l5QM2RzU3VM"'
+            );
+            expect(result.html).toContain('How to label variables</a>');
+        });
+
         it('renders {marker name} as anchor', () => {
             const result = smcl_to_html('{marker syntax}');
             expect(result.html).toContain('id="syntax"');
         });
 
-        it('suppresses preamble {viewerjumpto}, {vieweralsosee}, and {viewerdialog} metadata', () => {
-            // These directives feed Stata's native viewer toolbar / See
-            // Also sidebar. Rendering them inline produces a wall of
-            // raw quoted args above the real title, so we drop them
-            // until a proper chrome lands (tracked upstream).
+        it('renders preamble {viewerjumpto} as TOC and suppresses {vieweralsosee} and {viewerdialog}', () => {
             const my_preamble =
                 '{viewerjumpto "Syntax" "regress##syntax"}{...}\n' +
                 '{viewerjumpto "Description" "regress##description"}{...}\n' +
@@ -321,21 +345,16 @@ describe('smcl_to_html', () => {
                 '{vieweralsosee "" "--"}{...}\n' +
                 '{vieweralsosee "[D] cd" "help cd"}{...}\n' +
                 '{viewerdialog regress "dialog regress"}{...}';
-            const result = smcl_to_html(my_preamble);
-            // All visible text should be whitespace; the only surviving
-            // markup is the data-line wrappers around the newlines
-            // between directives.
-            let my_visible = result.html;
-            let my_prev: string;
-            do {
-                my_prev = my_visible;
-                my_visible = my_visible.replace(/<[^>]+>/g, '');
-            } while (my_visible !== my_prev);
-            my_visible = my_visible.trim();
-            expect(my_visible).toBe('');
-            expect(result.html).not.toContain('href="#');
+            const result = smcl_to_html(my_preamble, {
+                current_topic: 'regress',
+            });
+            // viewerjumpto entries appear as a TOC
+            expect(result.html).toContain('class="smcl-toc"');
+            expect(result.html).toContain('href="#syntax"');
+            expect(result.html).toContain('href="#description"');
+            // vieweralsosee and viewerdialog are still suppressed
             expect(result.html).not.toContain('mansection');
-            expect(result.html).not.toContain('help cd');
+            expect(result.html).not.toContain('dialog');
         });
 
         it('hides the preamble while preserving the title row for a real .sthlp header', () => {
@@ -370,6 +389,57 @@ describe('smcl_to_html', () => {
             // Literal quoted pair (from vieweralsosee "" "--") must not
             // render either.
             expect(result.html).not.toContain('"--"');
+        });
+
+        describe('anchor links', () => {
+            it('renders same-page anchor as jumpto link', () => {
+                const result = smcl_to_html('{help regress##syntax}', {
+                    current_topic: 'regress',
+                });
+                expect(result.html).toContain('class="smcl-jumpto"');
+                expect(result.html).toContain('href="#syntax"');
+                expect(result.html).not.toContain('data-smcl-topic');
+            });
+
+            it('renders cross-page anchor with data-smcl-anchor', () => {
+                const result = smcl_to_html('{help regress##syntax}', {
+                    current_topic: 'generate',
+                });
+                expect(result.html).toContain('data-smcl-topic="regress"');
+                expect(result.html).toContain('data-smcl-anchor="syntax"');
+            });
+
+            it('renders anchor-only link (no topic change) as jumpto', () => {
+                const result = smcl_to_html('{help generate##description}', {
+                    current_topic: 'generate',
+                });
+                expect(result.html).toContain('href="#description"');
+                expect(result.html).toContain('class="smcl-jumpto"');
+            });
+
+            it('renders help link without anchor unchanged', () => {
+                const result = smcl_to_html('{help regress}', {
+                    current_topic: 'generate',
+                });
+                expect(result.html).toContain('data-smcl-topic="regress"');
+                expect(result.html).not.toContain('data-smcl-anchor');
+            });
+
+            it('renders anchor link with display text', () => {
+                const result = smcl_to_html(
+                    '{help regress##syntax:click here}',
+                    { current_topic: 'generate' }
+                );
+                expect(result.html).toContain('data-smcl-topic="regress"');
+                expect(result.html).toContain('data-smcl-anchor="syntax"');
+                expect(result.html).toContain('click here');
+            });
+
+            it('cross-page anchor link without current_topic uses navigate', () => {
+                const result = smcl_to_html('{help regress##syntax}');
+                expect(result.html).toContain('data-smcl-topic="regress"');
+                expect(result.html).toContain('data-smcl-anchor="syntax"');
+            });
         });
     });
 
@@ -549,6 +619,31 @@ describe('smcl_to_html', () => {
             const result = smcl_to_html(my_body);
             expect(result.html).toContain('smcl-p2col-table');
             expect(result.html).not.toContain('smcl-help-title');
+        });
+
+        it('collapses function-page title with mansection inside p2col content', () => {
+            // Function help pages (f_strpos.sthlp etc.) have no inline
+            // description and put {mansection} inside the p2col content.
+            const my_header =
+                '{p2colset 1 26 28 2}{...}\n' +
+                '{p2col:{bf:[FN] String functions}}\n' +
+                '{p_end}\n' +
+                '{p2col:({mansection FN Stringfunctions:View complete PDF manual entry})}{p_end}\n' +
+                '{p2colreset}{...}';
+            const result = smcl_to_html(my_header);
+
+            expect(result.html).toContain('<header class="smcl-help-title"');
+            expect(result.html).toContain(
+                '<h1 class="smcl-help-title-heading">String functions</h1>'
+            );
+            // Falls back to full reference when no inline description
+            expect(result.html).toContain(
+                '<p class="smcl-help-subtitle">[FN] String functions</p>'
+            );
+            expect(result.html).toContain(
+                'href="https://www.stata.com/manuals/fnstringfunctions.pdf"'
+            );
+            expect(result.html).not.toContain('smcl-p2col-table');
         });
 
         it('renders an inline {mansection} as a link outside of the title block', () => {
@@ -796,6 +891,18 @@ describe('smcl_to_html', () => {
             expect(result.html).not.toContain('<script>');
             expect(result.html).toContain('&lt;script&gt;');
         });
+
+        it("escapes single quotes in plain text", () => {
+            const result = smcl_to_html("don't");
+            expect(result.html).toContain('&#39;');
+            expect(result.html).not.toContain("don't");
+        });
+
+        it('escapes single quotes inside directive args', () => {
+            const result = smcl_to_html("{cmd:it's}");
+            expect(result.html).toContain('&#39;');
+            expect(result.html).not.toContain("it's");
+        });
     });
 
     describe('scroll sync data-line attributes', () => {
@@ -1038,6 +1145,60 @@ describe('smcl_to_html', () => {
         });
     });
 
+    describe('viewerjumpto TOC', () => {
+        it('renders viewerjumpto directives as a horizontal TOC bar', () => {
+            const my_input =
+                '{viewerjumpto "Syntax" "regress##syntax"}{...}\n' +
+                '{viewerjumpto "Description" "regress##description"}{...}\n' +
+                '{title:Title}\n' +
+                '{p}Body text{p_end}';
+            const result = smcl_to_html(my_input, {
+                current_topic: 'regress',
+            });
+            expect(result.html).toContain('class="smcl-toc"');
+            expect(result.html).toContain('href="#syntax"');
+            expect(result.html).toContain('href="#description"');
+            expect(result.html).toContain('>Syntax<');
+            expect(result.html).toContain('>Description<');
+        });
+
+        it('renders TOC entries as smcl-jumpto links', () => {
+            const my_input =
+                '{viewerjumpto "Options" "test##options"}{...}\n' +
+                '{p}Content{p_end}';
+            const result = smcl_to_html(my_input, {
+                current_topic: 'test',
+            });
+            expect(result.html).toContain('class="smcl-jumpto"');
+            expect(result.html).toContain('href="#options"');
+        });
+
+        it('renders TOC with pipe separators', () => {
+            const my_input =
+                '{viewerjumpto "A" "x##a"}{...}\n' +
+                '{viewerjumpto "B" "x##b"}{...}\n' +
+                '{viewerjumpto "C" "x##c"}{...}\n';
+            const result = smcl_to_html(my_input, {
+                current_topic: 'x',
+            });
+            expect(result.html).toContain('smcl-toc-separator');
+        });
+
+        it('does not render TOC when no viewerjumpto directives', () => {
+            const result = smcl_to_html('{p}Just content{p_end}');
+            expect(result.html).not.toContain('smcl-toc');
+        });
+
+        it('still suppresses viewerdialog and vieweralsosee', () => {
+            const my_input =
+                '{vieweralsosee "[D] dir" "mansection D dir"}{...}\n' +
+                '{viewerdialog regress "dialog regress"}{...}';
+            const result = smcl_to_html(my_input);
+            expect(result.html).not.toContain('dir');
+            expect(result.html).not.toContain('dialog');
+        });
+    });
+
     describe('mixed real-world content', () => {
         it('handles a typical help file header', () => {
             const smcl = [
@@ -1052,15 +1213,62 @@ describe('smcl_to_html', () => {
                 '{hline}',
             ].join('\n');
 
-            const result = smcl_to_html(smcl);
-            // {viewerjumpto} metadata is suppressed until a dedicated
-            // TOC is implemented; the title row is now rendered as a
-            // heading block rather than a <strong> cell.
-            expect(result.html).not.toContain('href="#syntax"');
-            expect(result.html).not.toContain('href="#options"');
+            const result = smcl_to_html(smcl, { current_topic: 'regress' });
+            // {viewerjumpto} entries render as a TOC bar; the title row
+            // is rendered as a heading block.
+            expect(result.html).toContain('href="#syntax"');
+            expect(result.html).toContain('href="#options"');
             expect(result.html).toContain('<hr');
             expect(result.html).toContain('smcl-help-title-heading');
             expect(result.html).toContain('Linear regression');
         });
     });
+
+    describe('{search} and {view} directives', () => {
+        it('renders {search keyword} as plain text, not a link', () => {
+            const result = smcl_to_html('{search robust}');
+            expect(result.html).toContain('class="smcl-search-text"');
+            expect(result.html).toContain('data-smcl-search-query="robust"');
+            expect(result.html).not.toContain('data-smcl-topic');
+            expect(result.html).not.toContain('<a ');
+        });
+
+        it('renders {search keyword:display text} with display text', () => {
+            const result = smcl_to_html('{search robust:click here}');
+            expect(result.html).toContain('data-smcl-search-query="robust"');
+            expect(result.html).toContain('click here');
+            expect(result.html).not.toContain('<a ');
+        });
+
+        it('renders {view file.sthlp} as a help link', () => {
+            const result = smcl_to_html('{view regress.sthlp}');
+            expect(result.html).toContain('data-smcl-topic="regress"');
+            expect(result.html).toContain('class="smcl-help-link"');
+        });
+
+        it('renders {view file.hlp} as a help link', () => {
+            const result = smcl_to_html('{view myhelp.hlp}');
+            expect(result.html).toContain('data-smcl-topic="myhelp"');
+        });
+
+        it('renders {view other.txt} as plain text', () => {
+            const result = smcl_to_html('{view notes.txt}');
+            expect(result.html).toContain('notes.txt');
+            expect(result.html).not.toContain('data-smcl-topic');
+        });
+
+        it('renders {view file.sthlp:display} with display text', () => {
+            const result = smcl_to_html('{view regress.sthlp:see regress}');
+            expect(result.html).toContain('data-smcl-topic="regress"');
+            expect(result.html).toContain('see regress');
+        });
+
+        it('keeps {dialog} as plain text', () => {
+            const result = smcl_to_html('{dialog regress:the dialog box}');
+            expect(result.html).toContain('the dialog box');
+            expect(result.html).not.toContain('data-smcl-topic');
+            expect(result.html).not.toContain('href');
+        });
+    });
+
 });

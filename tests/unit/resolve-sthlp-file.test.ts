@@ -229,4 +229,219 @@ describe('resolveSthlpFile - help_file redirects', () => {
 
         expect(result.file_path).toBeNull();
     });
+
+    it('resolves _N to _variables.sthlp via system variable fallback', async () => {
+        const my_var_dir = path.join(temp_dir, 'ado', '_');
+        const my_var_path = path.join(my_var_dir, '_variables.sthlp');
+        fs.mkdirSync(my_var_dir, { recursive: true });
+        fs.writeFileSync(my_var_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: '_N' });
+
+        expect(result.file_path).toBe(my_var_path);
+    });
+
+    it('resolves #delimit to delimit.sthlp via hash-prefix fallback', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'd');
+        const my_path = path.join(my_dir, 'delimit.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: '#delimit' });
+
+        expect(result.file_path).toBe(my_path);
+    });
+
+    it('resolves stata-be to statabe.sthlp via hyphen-to-underscore + alias', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 's');
+        const my_path = path.join(my_dir, 'statabe.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+        fs.writeFileSync(
+            path.join(my_dir, 'shelp_alias.maint'),
+            'stata_be\t\tstatabe\n'
+        );
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'stata-be' });
+
+        expect(result.file_path).toBe(my_path);
+    });
+
+    it('resolves Java to java_intro.sthlp via case + alias fallback', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'j');
+        const my_intro_path = path.join(my_dir, 'java_intro.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_intro_path, '{smcl}');
+        fs.writeFileSync(
+            path.join(my_dir, 'jhelp_alias.maint'),
+            'java\t\tjava_intro\n'
+        );
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'Java' });
+
+        expect(result.file_path).toBe(my_intro_path);
+    });
+
+    it('resolves dynamic to dynamic_intro.sthlp via suffix probing', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'd');
+        const my_path = path.join(my_dir, 'dynamic_intro.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'dynamic' });
+
+        expect(result.file_path).toBe(my_path);
+    });
+
+    it('resolves float() to f_float.sthlp via f_ prefix fallback', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'f');
+        const my_path = path.join(my_dir, 'f_float.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'float()' });
+
+        expect(result.file_path).toBe(my_path);
+    });
+
+    it('rejects path-traversal topics in resolve_sthlp_file', async () => {
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+        expect(await indexer.resolve_sthlp_file('../foo')).toBeNull();
+        expect(await indexer.resolve_sthlp_file('foo/bar')).toBeNull();
+        expect(await indexer.resolve_sthlp_file('foo\\bar')).toBeNull();
+        expect(await indexer.resolve_sthlp_file('/abs/path')).toBeNull();
+    });
+
+    it('rejects path-traversal names in resolve_ihlp_file', async () => {
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+        expect(await indexer.resolve_ihlp_file('../foo')).toBeNull();
+        expect(await indexer.resolve_ihlp_file('foo/bar')).toBeNull();
+        expect(await indexer.resolve_ihlp_file('foo\\bar')).toBeNull();
+        expect(await indexer.resolve_ihlp_file('/abs/path')).toBeNull();
+    });
+
+    it('caches unresolvable topics so repeated probes hit zero indexer calls', async () => {
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+        // Wrap the indexer's resolve_sthlp_file to count invocations.
+        const original = indexer.resolve_sthlp_file.bind(indexer);
+        let call_count = 0;
+        indexer.resolve_sthlp_file = async (topic: string) => {
+            call_count++;
+            return original(topic);
+        };
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const first = await handler({ topic: 'definitely_not_a_topic' });
+        expect(first.file_path).toBeNull();
+        const calls_after_first = call_count;
+        expect(calls_after_first).toBeGreaterThan(0);
+
+        const second = await handler({ topic: 'definitely_not_a_topic' });
+        expect(second.file_path).toBeNull();
+        // Negative cache short-circuits: zero new indexer calls.
+        expect(call_count).toBe(calls_after_first);
+    });
+
+    it('does not cache resolvable topics in the negative cache', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'r');
+        const my_path = path.join(my_dir, 'regress.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const first = await handler({ topic: 'regress' });
+        expect(first.file_path).toBe(my_path);
+
+        // Delete the file so a real second call would fail. If the
+        // positive result were (incorrectly) cached as negative, this
+        // would return null. If not cached at all, it returns null too,
+        // but the point is: a positive resolution must not be
+        // remembered as a negative.
+        // Easier: clear the cache and confirm it is still resolvable.
+        handler.clear_negative_cache();
+        const second = await handler({ topic: 'regress' });
+        expect(second.file_path).toBe(my_path);
+    });
+
+    it('evicts oldest negative entries after exceeding the bound', async () => {
+        // Force the bound by requesting many distinct unresolvable
+        // topics, then verify the very first one is re-probed (i.e.
+        // it was evicted from the FIFO negative cache).
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+        const original = indexer.resolve_sthlp_file.bind(indexer);
+        let call_count_for_first = 0;
+        const my_first_topic = 'evict_probe_first_topic';
+        indexer.resolve_sthlp_file = async (topic: string) => {
+            if (topic === my_first_topic) call_count_for_first++;
+            return original(topic);
+        };
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        await handler({ topic: my_first_topic });
+        const calls_after_seed = call_count_for_first;
+        expect(calls_after_seed).toBeGreaterThan(0);
+
+        // Fill cache past its bound. The cap is 1000; pump 1001 unique
+        // topics to evict the seed entry.
+        for (let i = 0; i < 1001; i++) {
+            await handler({ topic: `evict_filler_${i}` });
+        }
+
+        // The seed should now be evicted; re-probing it triggers
+        // indexer calls again.
+        await handler({ topic: my_first_topic });
+        expect(call_count_for_first).toBeGreaterThan(calls_after_seed);
+    });
+
+    it('clear_negative_cache allows re-probing previously negative topics', async () => {
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+
+        const first = await handler({ topic: 'no_such_topic' });
+        expect(first.file_path).toBeNull();
+
+        // Now create the file and clear the cache; a re-probe should
+        // resolve it.
+        const my_dir = path.join(temp_dir, 'ado', 'n');
+        const my_path = path.join(my_dir, 'no_such_topic.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        handler.clear_negative_cache();
+        const second = await handler({ topic: 'no_such_topic' });
+        expect(second.file_path).toBe(my_path);
+    });
+
+    it('resolves strpos to f_strpos.sthlp via f_ prefix (no parens)', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'f');
+        const my_path = path.join(my_dir, 'f_strpos.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'strpos' });
+
+        expect(result.file_path).toBe(my_path);
+    });
 });

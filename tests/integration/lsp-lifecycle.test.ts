@@ -349,11 +349,11 @@ describe('LSP Lifecycle - Handler Factories', () => {
                 // markdown URI. The label keeps the `help <topic>`
                 // shape so the existing mental model is preserved.
                 const my_expected_args =
-                    encodeURIComponent(JSON.stringify(['missing']));
+                    encodeURIComponent(JSON.stringify(['f_missing']));
                 expect(result.contents.value).toContain(
                     `(command:sight.openHelpTopic?${my_expected_args})`
                 );
-                expect(result.contents.value).toContain('[help missing]');
+                expect(result.contents.value).toContain('[help missing()]');
             }
         });
     });

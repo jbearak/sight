@@ -7,7 +7,8 @@
  * `encodeURIComponent`. The client middleware trusts this specific
  * command URI so the link is clickable from LSP-provided markdown.
  */
-export function format_help_link(topic: string): string {
+export function format_help_link(topic: string, display?: string): string {
     const my_encoded_args = encodeURIComponent(JSON.stringify([topic]));
-    return `[help ${topic}](command:sight.openHelpTopic?${my_encoded_args})`;
+    const my_label = display || topic;
+    return `[help ${my_label}](command:sight.openHelpTopic?${my_encoded_args})`;
 }

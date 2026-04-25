@@ -198,7 +198,7 @@ function convert_builtin_subcommand_to_cache_format(
 
 export function apply_builtin_metadata_fallback(
     commands: Record<string, CommandInfo>
-): { options_fallback_count: number; subcommands_fallback_count: number } {
+): { options_fallback_count: number; subcommands_fallback_count: number; abbreviation_fallback_count: number } {
     const builtin_map = new Map<string, typeof BUILTIN_COMMANDS[0]>();
     for (const my_cmd of BUILTIN_COMMANDS) {
         builtin_map.set(my_cmd.name.toLowerCase(), my_cmd);
@@ -206,11 +206,23 @@ export function apply_builtin_metadata_fallback(
 
     let options_fallback_count = 0;
     let subcommands_fallback_count = 0;
+    let abbreviation_fallback_count = 0;
 
     for (const [cmd_name, cmd_info] of Object.entries(commands)) {
         const builtin_info = builtin_map.get(cmd_name);
         if (!builtin_info) {
             continue;
+        }
+
+        // Abbreviation fallback: if SMCL extraction found no abbreviation
+        // info (min_abbreviation == full name length), use BUILTIN_COMMANDS
+        if (
+            builtin_info.minAbbreviation
+            && cmd_info.min_abbreviation >= cmd_info.name.length
+            && builtin_info.minAbbreviation.length < cmd_info.name.length
+        ) {
+            cmd_info.min_abbreviation = builtin_info.minAbbreviation.length;
+            abbreviation_fallback_count++;
         }
 
         if (builtin_info.options) {
@@ -233,7 +245,7 @@ export function apply_builtin_metadata_fallback(
         }
     }
 
-    return { options_fallback_count, subcommands_fallback_count };
+    return { options_fallback_count, subcommands_fallback_count, abbreviation_fallback_count };
 }
 
 /**
@@ -420,6 +432,65 @@ function validate_legacy_commands(
     return { missing, present };
 }
 
+const CANONICAL_FUNCTION_NAME_REGEX = /\{cmd:([A-Za-z_][A-Za-z0-9_]*)\(/;
+
+/**
+ * Extract the canonical-cased function name from the body of an .ihlp
+ * (or .sthlp) help file. The first `{cmd:NAME(` token holds the
+ * canonical case (e.g. `Cdhms`). Returns null when the pattern is
+ * missing or when the extracted name does not match the filename stem
+ * (a defensive sanity check against picking up a different function
+ * referenced in the file).
+ */
+export function extract_canonical_function_name(
+    content: string,
+    filename_stem: string
+): string | null {
+    const my_match = content.match(CANONICAL_FUNCTION_NAME_REGEX);
+    if (!my_match) return null;
+    const my_name = my_match[1];
+    if (my_name.toLowerCase() !== filename_stem.toLowerCase()) return null;
+    return my_name;
+}
+
+/**
+ * Discover Stata function names from f_*.sthlp files.
+ * Function help files follow the naming convention f_<name>.sthlp,
+ * but on case-insensitive filesystems (macOS) the filename stem is
+ * always lowercased. The canonical case is recovered from the matching
+ * .ihlp (or .sthlp) content.
+ */
+function discover_functions(base_path: string): string[] {
+    const f_dir = join(base_path, 'f');
+    try {
+        const the_entries = readdirSync(f_dir)
+            .filter(f => f.startsWith('f_') && f.endsWith('.sthlp'));
+        const the_names: string[] = [];
+        for (const my_file of the_entries) {
+            const my_stem = my_file.slice(2, -6);
+            const my_ihlp = join(f_dir, `f_${my_stem}.ihlp`);
+            const my_sthlp = join(f_dir, my_file);
+            let my_canonical: string | null = null;
+            for (const my_path of [my_ihlp, my_sthlp]) {
+                try {
+                    const my_content = readFileSync(my_path, 'utf8');
+                    my_canonical = extract_canonical_function_name(
+                        my_content, my_stem
+                    );
+                    if (my_canonical) break;
+                } catch {
+                    // file not present or unreadable; try next
+                }
+            }
+            the_names.push(my_canonical ?? my_stem);
+        }
+        return the_names.sort();
+    } catch {
+        console.warn(`Warning: Could not read function directory ${f_dir}`);
+        return [];
+    }
+}
+
 export async function generate_cache(options: GenerateOptions): Promise<{ cache: CommandCache; result: GenerationResult }> {
     const stata_path = options.stata_path || find_stata_path();
     const base_path = join(stata_path, 'ado', 'base');
@@ -514,6 +585,7 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     const {
         options_fallback_count,
         subcommands_fallback_count,
+        abbreviation_fallback_count,
     } = apply_builtin_metadata_fallback(commands);
     
     if (options_fallback_count > 0) {
@@ -522,6 +594,11 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     if (subcommands_fallback_count > 0) {
         console.log(
             `Applied hardcoded subcommands fallback to ${subcommands_fallback_count} commands`
+        );
+    }
+    if (abbreviation_fallback_count > 0) {
+        console.log(
+            `Applied hardcoded abbreviation fallback to ${abbreviation_fallback_count} commands`
         );
     }
     
@@ -538,6 +615,10 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     
     const total_commands = Object.keys(commands).length;
     
+    // Discover functions from f_*.sthlp files
+    const the_functions = discover_functions(base_path);
+    console.log(`\nDiscovered ${the_functions.length} functions from f_*.sthlp files`);
+    
     // Check monotonicity before building final cache
     const { previous_count } = check_monotonicity(
         options.output_path,
@@ -548,7 +629,8 @@ export async function generate_cache(options: GenerateOptions): Promise<{ cache:
     const cache: CommandCache = {
         version: options.version,
         commands,
-        abbreviations: build_abbreviations(commands)
+        abbreviations: build_abbreviations(commands),
+        functions: the_functions,
     };
     
     const result: GenerationResult = {
@@ -582,6 +664,7 @@ if (import.meta.main) {
         console.log(`\nCache written to: ${output_path}`);
         console.log(`Commands: ${Object.keys(cache.commands).length}`);
         console.log(`Abbreviations: ${Object.keys(cache.abbreviations).length}`);
+        console.log(`Functions: ${(cache.functions || []).length}`);
         
         // Report monotonicity results
         if (result.commands_previous > 0) {

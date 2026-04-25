@@ -143,26 +143,15 @@ describe('Property 7: Priority Tier Ordering', () => {
         const tier_2_commands = sorted.filter((c) => get_tier(c.label) === 2);
         const tier_3_commands = sorted.filter((c) => get_tier(c.label) === 3);
 
-        // Within each tier, commands should be alphabetically sorted
-        for (let i = 1; i < tier_1_commands.length; i++) {
-            expect(
-                tier_1_commands[i - 1].label.toLowerCase() <=
-                    tier_1_commands[i].label.toLowerCase()
-            ).toBe(true);
-        }
-
-        for (let i = 1; i < tier_2_commands.length; i++) {
-            expect(
-                tier_2_commands[i - 1].label.toLowerCase() <=
-                    tier_2_commands[i].label.toLowerCase()
-            ).toBe(true);
-        }
-
-        for (let i = 1; i < tier_3_commands.length; i++) {
-            expect(
-                tier_3_commands[i - 1].label.toLowerCase() <=
-                    tier_3_commands[i].label.toLowerCase()
-            ).toBe(true);
+        // Within each tier, commands should be sorted by sortText
+        // (which encodes abbreviation length then name).
+        for (const tier_commands of [tier_1_commands, tier_2_commands, tier_3_commands]) {
+            for (let i = 1; i < tier_commands.length; i++) {
+                expect(
+                    (tier_commands[i - 1].sortText || tier_commands[i - 1].label) <=
+                        (tier_commands[i].sortText || tier_commands[i].label)
+                ).toBe(true);
+            }
         }
     });
 
