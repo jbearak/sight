@@ -276,6 +276,16 @@ describe('DiagnosticsProvider', () => {
             expect(off_macro).toBeUndefined();
         });
 
+        it('should surface MISSING_VARIABLE_NAME for `gen byte = 1`', async () => {
+            const document = create_real_document_state('gen byte = 1\n');
+            const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG);
+
+            const missing_name = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.MISSING_VARIABLE_NAME
+            );
+            expect(missing_name).toBeDefined();
+        });
+
         it('should return empty diagnostics when diagnostics are disabled', async () => {
             const document = create_document_state('display `undefined\'\n');
             const disabled_config = {

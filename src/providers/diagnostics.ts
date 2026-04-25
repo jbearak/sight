@@ -539,7 +539,8 @@ export class DiagnosticsProvider {
             if (diag.code && typeof diag.code === 'number') {
                 const code = diag.code as StataDiagnosticCode;
                 if (code === StataDiagnosticCode.UNDEFINED_MACRO
-                    || code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
+                    || code === StataDiagnosticCode.UNDEFINED_VARIABLE
+                    || code === StataDiagnosticCode.MISSING_VARIABLE_NAME) {
                     // This is a semantic error code
                     const severity_map: Record<DiagnosticSeverity, 'error' | 'warning' | 'information' | 'hint'> = {
                         [DiagnosticSeverity.Error]: 'error',
