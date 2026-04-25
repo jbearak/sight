@@ -11,11 +11,13 @@
  * is picked up automatically when it lives in a standard location.
  *
  * This module intentionally avoids doing any work that would slow
- * startup: `fs.existsSync` is called at most a few dozen times, on
- * paths shallow enough that the check is effectively free. The
- * resolver consumes the returned list for lookups — it does NOT add
- * these directories to the workspace scanner, so we never start
- * recursively indexing thousands of built-in `.ado` files.
+ * startup: `fs.existsSync` is called at most a few hundred times
+ * (the Windows candidate set, which includes drive-root probing
+ * across mounted letters, is ~150–170 paths), on paths shallow
+ * enough that the check is effectively free. The resolver consumes
+ * the returned list for lookups — it does NOT add these directories
+ * to the workspace scanner, so we never start recursively indexing
+ * thousands of built-in `.ado` files.
  */
 import * as fs from 'fs';
 import * as os from 'os';
@@ -30,6 +32,14 @@ const STATA_MAJOR_VERSIONS = [20, 19, 18, 17, 16, 15, 14, 13];
 
 const WINDOWS_VARIANT_DIRS = ['Stata'];
 const MAC_VARIANT_DIRS = ['Stata', 'StataMP', 'StataSE', 'StataBE', 'StataIC'];
+
+// Drive letters to probe for drive-root installs like `C:\Stata18` or
+// `D:\Stata18`. Many institutional and lab-image Windows machines put
+// Stata directly under a drive root rather than under Program Files,
+// either to avoid UAC issues during install or because `C:` is small
+// and a separate data drive is preferred. Each candidate is filtered
+// by `fs.statSync`, so non-existent drives cost a single failed stat.
+const WINDOWS_DRIVE_LETTERS = ['C:', 'D:', 'E:'];
 
 /**
  * Test-friendly options for path discovery. Each field defaults to
@@ -113,7 +123,7 @@ function gather_candidates(
     // `resolve_sthlp_file` probes both `dir/<letter>/topic.sthlp` and
     // `dir/topic.sthlp`, so including the ado root itself covers very
     // old installs that drop .sthlp files directly under `~/ado/`.
-    for (const my_user_root of user_ado_roots(home, platform, my_path)) {
+    for (const my_user_root of user_ado_roots(home, platform, env, my_path)) {
         the_paths.push(my_user_root);
         the_paths.push(my_path.join(my_user_root, 'personal'));
         the_paths.push(my_path.join(my_user_root, 'plus'));
@@ -132,6 +142,7 @@ function gather_candidates(
 function user_ado_roots(
     home: string,
     platform: NodeJS.Platform,
+    env: Record<string, string | undefined>,
     my_path: typeof path.posix | typeof path.win32
 ): string[] {
     const the_roots: string[] = [
@@ -149,6 +160,22 @@ function user_ado_roots(
                 'ado'
             )
         );
+    }
+    if (platform === 'win32') {
+        // Stata's documented Windows defaults for PERSONAL, PLUS, and
+        // OLDPLACE live at the system-drive root (e.g. `C:\ado\plus`),
+        // not under the user's home directory. See `help sysdir`.
+        // We probe both `%SystemDrive%\ado` and a hardcoded `C:\ado`
+        // fallback in case the env var is missing.
+        const the_drive_roots = new Set<string>();
+        const my_system_drive = env['SystemDrive'];
+        if (my_system_drive && my_system_drive.length > 0) {
+            the_drive_roots.add(my_system_drive);
+        }
+        the_drive_roots.add('C:');
+        for (const my_drive of the_drive_roots) {
+            the_roots.push(my_path.join(my_drive + '\\', 'ado'));
+        }
     }
     return the_roots;
 }
@@ -201,6 +228,19 @@ function windows_install_roots(
         }
         for (const my_variant of WINDOWS_VARIANT_DIRS) {
             the_roots.push(my_path.join(my_pf, my_variant));
+        }
+    }
+    // Drive-root installs (e.g. `C:\Stata18`, `D:\Stata`). Common on
+    // lab images and on machines where the `C:` drive is small. Stata's
+    // installer accepts an arbitrary destination, and many older
+    // installs predate the Program Files convention entirely.
+    for (const my_drive of WINDOWS_DRIVE_LETTERS) {
+        const my_drive_root = my_drive + '\\';
+        for (const my_version of STATA_MAJOR_VERSIONS) {
+            the_roots.push(my_path.join(my_drive_root, `Stata${my_version}`));
+        }
+        for (const my_variant of WINDOWS_VARIANT_DIRS) {
+            the_roots.push(my_path.join(my_drive_root, my_variant));
         }
     }
     return the_roots;

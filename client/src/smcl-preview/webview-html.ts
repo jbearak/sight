@@ -168,10 +168,26 @@ a.smcl-browse:hover,
 a.smcl-jumpto:hover {
     text-decoration: underline;
 }
+/* Table of contents bar */
+.smcl-toc {
+    padding: 6px 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+    font-size: 0.9em;
+    line-height: 1.8;
+}
+.smcl-toc-separator {
+    color: var(--vscode-descriptionForeground, rgba(128, 128, 128, 0.7));
+    margin: 0 2px;
+}
 a.smcl-stata {
     color: var(--vscode-textLink-foreground);
     text-decoration: none;
     cursor: default;
+    opacity: 0.8;
+}
+.smcl-search-text {
+    color: var(--vscode-foreground);
     opacity: 0.8;
 }
 .smcl-manlink,
@@ -280,6 +296,20 @@ const WEBVIEW_SCRIPT = `
 (function() {
     const vscode = acquireVsCodeApi();
 
+    // Notify the extension once the document is fully parsed and
+    // anchor targets exist in the DOM. The extension uses this to
+    // perform a deferred scroll-to-anchor on first open instead of
+    // relying on a fixed timeout.
+    function notifyReady() {
+        vscode.postMessage({ type: 'webviewReady' });
+    }
+    if (document.readyState === 'complete' ||
+        document.readyState === 'interactive') {
+        notifyReady();
+    } else {
+        document.addEventListener('DOMContentLoaded', notifyReady);
+    }
+
     // ----------------------------------------------------------
     // Cross-reference link clicks
     // ----------------------------------------------------------
@@ -296,7 +326,10 @@ const WEBVIEW_SCRIPT = `
             e.stopPropagation();
             const topic = link.getAttribute('data-smcl-topic');
             if (topic) {
-                vscode.postMessage({ type: 'navigate', topic: topic });
+                const anchor = link.getAttribute('data-smcl-anchor');
+                var msg = { type: 'navigate', topic: topic };
+                if (anchor) { msg.anchor = anchor; }
+                vscode.postMessage(msg);
             }
             return;
         }
@@ -389,6 +422,12 @@ const WEBVIEW_SCRIPT = `
         var msg = event.data;
         if (msg.type === 'scrollToLine') {
             scrollToSourceLine(msg.line);
+        }
+        if (msg.type === 'scrollToAnchor') {
+            var target = document.getElementById(msg.anchor);
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth' });
+            }
         }
     });
 

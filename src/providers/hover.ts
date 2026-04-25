@@ -57,40 +57,116 @@ import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
 
-export const STATA_EXPRESSION_FUNCTIONS = new Set<string>([
-    'byte',
-    'date',
-    'daily',
-    'double',
-    'exp',
-    'float',
-    'halfyearly',
-    'int',
-    'log',
-    'long',
-    'lower',
-    'max',
-    'min',
-    'missing',
-    'mod',
-    'monthly',
-    'normal',
-    'poisson',
-    'proper',
-    'quarterly',
-    'recode',
-    'string',
-    'sum',
-    'trunc',
-    'upper',
-    'weekly',
-    'yearly',
+// Fallback list used only when the command database has no functions
+// loaded (e.g. tests without a cache fixture). Source of truth is
+// command_db.is_function.
+export const STATA_EXPRESSION_FUNCTIONS_FALLBACK = new Set<string>([
+    // Type casting / storage types
+    'byte', 'double', 'float', 'int', 'long',
+    // String functions
+    'abbrev', 'char', 'indexnot', 'itrim', 'length',
+    'lower', 'ltrim', 'plural', 'proper', 'real',
+    'regexm', 'regexr', 'regexs', 'reverse',
+    'rtrim', 'soundex', 'soundex_nara',
+    'strcat', 'strdup', 'string',
+    'stritrim', 'strlen', 'strlower', 'strltrim',
+    'strmatch', 'strofreal', 'strpos', 'strproper',
+    'strreverse', 'strrtrim', 'strtoname', 'strtrim',
+    'strupper', 'subinstr', 'subinword', 'substr',
+    'tobytes', 'trim', 'upper', 'word', 'wordbreaklocale',
+    'wordcount',
+    // Unicode string functions
+    'uchar', 'udstrlen', 'udsubstr',
+    'uisdigit', 'uisletter',
+    'ustrcompare', 'ustrcompareex', 'ustrfix', 'ustrinvalidcnt',
+    'ustrleft', 'ustrlen', 'ustrlower', 'ustrltrim',
+    'ustrnormalize', 'ustrpos', 'ustrregexm', 'ustrregexrf',
+    'ustrregexs', 'ustrreverse', 'ustrright', 'ustrrpos',
+    'ustrrtrim', 'ustrsortkey', 'ustrsortkeyex',
+    'ustrtitle', 'ustrtrim', 'ustrunescape', 'ustrupper',
+    'ustrword', 'ustrwordcount', 'usubinstr', 'usubstr',
+    // Math functions
+    'abs', 'ceil', 'cloglog', 'comb', 'digamma',
+    'exp', 'expm1', 'floor', 'invcloglog',
+    'invlogit', 'ln', 'lnfactorial', 'lngamma',
+    'log', 'log10', 'log1p', 'logit',
+    'max', 'min', 'mod', 'reldif', 'round',
+    'sign', 'sqrt', 'sum', 'trunc', 'trigamma',
+    // Trig functions
+    'acos', 'acosh', 'asin', 'asinh', 'atan', 'atan2',
+    'atanh', 'cos', 'cosh', 'sin', 'sinh', 'tan', 'tanh',
+    // Date/time functions
+    'bofd', 'Cdhms', 'Chms', 'clock', 'clockdiff',
+    'Cmdyhms', 'Cofc', 'Cofd', 'cofC', 'cofd',
+    'daily', 'date', 'day', 'dhms', 'dmy', 'dofb',
+    'dofC', 'dofc', 'dofh', 'dofm', 'dofq', 'dofw', 'dofy',
+    'dow', 'doy', 'halfyearly', 'halfyear', 'hh', 'hhC',
+    'hms', 'hofd', 'hours',
+    'mdy', 'mdyhms', 'minutes', 'mm', 'mmC',
+    'mofd', 'month', 'monthly',
+    'qofd', 'quarter', 'quarterly',
+    'seconds', 'ss', 'ssC',
+    'tC', 'tc', 'td', 'th', 'tm', 'tq', 'tw',
+    'week', 'weekly', 'wofd',
+    'year', 'yearly', 'yh', 'ym', 'yofd', 'yq', 'yw',
+    // Random number functions
+    'rbeta', 'rbinomial', 'rcauchy', 'rchi2',
+    'rexponential', 'rgamma', 'rhypergeometric',
+    'rigaussian', 'rlaplace', 'rlogistic',
+    'rnbinomial', 'rnormal', 'rpoisson',
+    'rt', 'runiform', 'runiformint', 'rweibull',
+    // Statistical distribution functions
+    'betaden', 'binomial', 'binomialp', 'binomialtail',
+    'binormal', 'chi2', 'chi2den', 'chi2tail',
+    'Fden', 'Ftail', 'gammaden', 'gammap', 'gammaptail',
+    'invbinomial', 'invbinomialtail',
+    'invchi2', 'invchi2tail', 'invF', 'invFtail',
+    'invgammap', 'invgammaptail',
+    'invnbinomial', 'invnbinomialtail',
+    'invnchi2', 'invnFtail', 'invnibeta',
+    'invnormal', 'invnt', 'invnttail',
+    'invpoisson', 'invpoissontail',
+    'invt', 'invttail',
+    'nbetaden', 'nbinomial', 'nbinomialp', 'nbinomialtail',
+    'nchi2', 'nchi2den', 'nchi2tail',
+    'nFden', 'nFtail', 'nibeta',
+    'normal', 'normalden', 'npnchi2',
+    'ntden', 'nttail',
+    'poisson', 'poissonp', 'poissontail',
+    'tden', 'ttail',
+    // Programming functions
+    'autocode', 'byteorder', 'c', 'cholesky',
+    'clip', 'cond', 'e', 'epsdouble', 'epsfloat',
+    'fileexists', 'fileread', 'filereaderror', 'filewrite',
+    'has_eprop', 'inlist', 'inrange', 'irecode',
+    'matrix', 'maxbyte', 'maxdouble', 'maxfloat',
+    'maxint', 'maxlong', 'minbyte', 'mindouble',
+    'minfloat', 'minint', 'minlong',
+    'missing', 'r', 'recode', 'replay',
+    'return', 'scalar', 's',
+    // Misc
+    'chop', 'colnumb', 'colsof', 'det',
+    'diag', 'el', 'hadamard', 'I', 'inv', 'issymmetric',
+    'J', 'matmissing', 'matuniform', 'mreldif',
+    'nullmat', 'rownumb', 'rowsof', 'sweep', 'trace',
+    'vec', 'vecdiag',
 ]);
 
 export const STATA_EXPRESSION_FUNCTION_ALIASES = new Map<string, string>([
     ['mi', 'missing'],
 ]);
 
+/**
+ * Stata system variables with descriptions.
+ * These are built-in read-only values available in all contexts.
+ */
+export const STATA_SYSTEM_VARIABLES = new Map<string, string>([
+    ['_rc', 'Return code from the last `capture` command'],
+    ['_N', 'Total number of observations in the dataset'],
+    ['_n', 'Current observation number'],
+    ['_pi', 'The mathematical constant π (3.14159…)'],
+    ['_cons', 'Constant term in estimation results'],
+]);
 
 /**
  * One entry in a symbol's `additional_definitions` array.
@@ -288,6 +364,12 @@ export class HoverProvider {
         );
         if (expression_function_hover) {
             return { contents: expression_function_hover, range };
+        }
+
+        // System variables: _rc, _N, _n, _pi, _cons
+        const sysvar_hover = this.get_system_variable_hover(word);
+        if (sysvar_hover) {
+            return { contents: sysvar_hover, range };
         }
 
         // Past a top-level comma the word is an option name, which shares
@@ -1926,8 +2008,15 @@ export class HoverProvider {
         return line[i] === '(';
     }
 
-    private resolve_expression_function_name(word: string): string | null {
-        if (STATA_EXPRESSION_FUNCTIONS.has(word)) {
+    resolve_expression_function_name(word: string): string | null {
+        // Source of truth: functions discovered from f_*.sthlp in the
+        // command database (populated from the cache).
+        if (this.command_db.is_function(word)) {
+            return word;
+        }
+        // Fallback only when no functions are loaded (tests / missing cache).
+        if (this.command_db.get_all_functions().length === 0
+            && STATA_EXPRESSION_FUNCTIONS_FALLBACK.has(word)) {
             return word;
         }
         return STATA_EXPRESSION_FUNCTION_ALIASES.get(word) ?? null;
@@ -1942,11 +2031,25 @@ export class HoverProvider {
             hover_text += ` (abbreviated as \`${abbreviated_as}\`)`;
         }
 
-        hover_text += `\n\nSee Stata documentation: ${format_help_link(function_name)}`;
+        // The caller has already classified this token as a function,
+        // so always link to the `f_<name>` help topic. The server-side
+        // resolver falls back to the bare name when no `f_*.sthlp`
+        // exists, so this stays correct even with partial caches.
+        const my_help_topic = `f_${function_name}`;
+        hover_text += `\n\nSee Stata documentation: ${format_help_link(my_help_topic, `${function_name}()`)}`;
 
         return {
             kind: MarkupKind.Markdown,
             value: hover_text,
+        };
+    }
+
+    private get_system_variable_hover(word: string): MarkupContent | null {
+        const description = STATA_SYSTEM_VARIABLES.get(word);
+        if (!description) return null;
+        return {
+            kind: MarkupKind.Markdown,
+            value: `**System variable:** **${word}** — ${description}\n\nSee Stata documentation: ${format_help_link('_variables')}`,
         };
     }
 

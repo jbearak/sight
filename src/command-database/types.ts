@@ -46,4 +46,6 @@ export interface CommandCache {
     version: StataVersion;
     commands: Record<string, CommandInfo>;
     abbreviations: Record<string, string>; // abbrev -> full_name
+    /** Function names discovered from f_*.sthlp files */
+    functions?: string[];
 }

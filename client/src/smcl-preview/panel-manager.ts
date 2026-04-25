@@ -22,13 +22,17 @@ export class SmclPanelManager implements vscode.Disposable {
 
     open_or_reveal(
         source_uri: vscode.Uri,
-        column: vscode.ViewColumn
+        column: vscode.ViewColumn,
+        anchor?: string
     ): void {
         const my_key = source_uri.toString();
         const my_existing = this.panels.get(my_key);
 
         if (my_existing) {
             my_existing.reveal(column);
+            if (anchor) {
+                my_existing.scroll_to_anchor(anchor);
+            }
             return;
         }
 
@@ -46,7 +50,7 @@ export class SmclPanelManager implements vscode.Disposable {
         const my_preview = new SmclPreviewPanel(
             source_uri,
             my_panel,
-            topic => this.handle_navigate(topic),
+            (topic, anch) => this.handle_navigate(topic, anch),
             () => this.get_client()
         );
 
@@ -56,6 +60,13 @@ export class SmclPanelManager implements vscode.Disposable {
         });
 
         this.panels.set(my_key, my_preview);
+
+        if (anchor) {
+            // The webview will post a `webviewReady` message once its
+            // DOM has loaded and anchor targets exist; the panel scrolls
+            // then. Avoids a timing-dependent fixed delay.
+            my_preview.set_pending_anchor(anchor);
+        }
     }
 
     /**
@@ -67,7 +78,8 @@ export class SmclPanelManager implements vscode.Disposable {
      */
     async open_topic(
         topic: string,
-        column: vscode.ViewColumn
+        column: vscode.ViewColumn,
+        anchor?: string
     ): Promise<void> {
         const my_client = this.get_client();
         if (!my_client) {
@@ -80,11 +92,11 @@ export class SmclPanelManager implements vscode.Disposable {
         try {
             const my_result = await my_client.sendRequest<{
                 file_path: string | null;
-            }>('sight/resolveSthlpFile', { topic });
+            }>('sight/resolveSthlpFile', { topic, anchor });
 
             if (my_result?.file_path) {
                 const my_uri = vscode.Uri.file(my_result.file_path);
-                this.open_or_reveal(my_uri, column);
+                this.open_or_reveal(my_uri, column, anchor);
             } else {
                 await this.show_not_found_message(topic);
             }
@@ -108,19 +120,29 @@ export class SmclPanelManager implements vscode.Disposable {
     }
 
     private async show_not_found_message(topic: string): Promise<void> {
-        const my_open_settings_label = 'Open Settings';
+        const my_copy_label = 'Copy Command';
+        const my_settings_label = 'Open Settings';
+        const my_help_command = `help ${topic}`;
         const my_message =
             `Couldn't find a help file for '${topic}'.` +
             ` Sight searched your workspace and common Stata install` +
             ` locations (e.g. /Applications/Stata/ado, /usr/local/stata,` +
-            ` C:\\Program Files\\Stata, and ~/ado). Add the directory` +
-            ` containing the .sthlp file to sight.adoPaths if Sight is` +
-            ` missing it.`;
+            ` C:\\Program Files\\Stata, C:\\Stata, C:\\ado, and ~/ado).` +
+            ` You can view this topic by running` +
+            ` \`${my_help_command}\` in Stata, or add the` +
+            ` directory containing the .sthlp file to` +
+            ` sight.adoPaths in Settings.`;
         const my_choice = await vscode.window.showInformationMessage(
             my_message,
-            my_open_settings_label
+            my_copy_label,
+            my_settings_label
         );
-        if (my_choice === my_open_settings_label) {
+        if (my_choice === my_copy_label) {
+            await vscode.env.clipboard.writeText(my_help_command);
+            vscode.window.showInformationMessage(
+                `Copied \`${my_help_command}\` to clipboard.`
+            );
+        } else if (my_choice === my_settings_label) {
             await vscode.commands.executeCommand(
                 'workbench.action.openSettings',
                 'sight.adoPaths'
@@ -128,8 +150,11 @@ export class SmclPanelManager implements vscode.Disposable {
         }
     }
 
-    private handle_navigate(topic: string): Promise<void> {
-        return this.open_topic(topic, vscode.ViewColumn.Active);
+    private handle_navigate(
+        topic: string,
+        anchor?: string
+    ): Promise<void> {
+        return this.open_topic(topic, vscode.ViewColumn.Active, anchor);
     }
 
     dispose(): void {

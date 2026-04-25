@@ -32,7 +32,6 @@ import {
 } from 'vscode-languageserver/node';
 
 import { DocumentStore } from './document-store';
-import { command_database } from './command-database';
 import { DiagnosticsProvider } from './providers/diagnostics';
 import { CompletionProvider, detect_completion_context } from './providers/completion';
 import { HoverProvider } from './providers/hover';
@@ -48,6 +47,10 @@ import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DependencyGraph } from './dependency-graph';
 import { RenameHandler } from './utils/file-rename-handler';
 import { DebounceManager, DocumentDebounceManager } from './utils/debounce-manager';
+import * as fs from 'fs';
+import { expand_includes, IncludeResolver } from './utils/include-expander';
+import { extract_marker_names } from './utils/marker-scanner';
+import { resolve_help_topic } from './utils/help-resolver';
 
 /**
  * Interface defining all dependencies required by LSP handlers.
@@ -867,10 +870,100 @@ export function create_get_working_directory_handler(
 
 export interface ResolveSthlpFileParams {
     topic: string;
+    anchor?: string;
 }
 
 export interface ResolveSthlpFileResult {
     file_path: string | null;
+}
+
+// -----------------------------------------------------------------------
+// Shared ihlp cache and include-resolver used by both
+// `create_resolve_sthlp_file_handler` (anchor fallback) and
+// `create_expand_includes_handler` (webview rendering).
+// -----------------------------------------------------------------------
+
+const MAX_IHLP_CACHE_SIZE = 500;
+
+interface IhlpCacheEntry {
+    content: string;
+    mtime_ms: number;
+}
+
+/**
+ * Create a shared `IncludeResolver` backed by a single LRU cache
+ * so the same `.ihlp` file is never read from disk twice. Entries are
+ * invalidated when the file's mtime changes on disk.
+ */
+export function create_shared_ihlp_resolver(
+    deps: HandlerDependencies,
+    max_size: number = MAX_IHLP_CACHE_SIZE
+): { resolver: IncludeResolver; cache: Map<string, IhlpCacheEntry> } {
+    const the_cache = new Map<string, IhlpCacheEntry>();
+
+    const my_resolver: IncludeResolver = async (name: string) => {
+        if (!deps.workspace_indexer) return null;
+
+        const my_path =
+            await deps.workspace_indexer.resolve_ihlp_file(name);
+        if (!my_path) return null;
+
+        const my_cached = the_cache.get(my_path);
+        if (my_cached !== undefined) {
+            try {
+                const my_stat = await fs.promises.stat(my_path);
+                if (my_stat.mtimeMs === my_cached.mtime_ms) {
+                    // Move to most-recently-used position.
+                    the_cache.delete(my_path);
+                    the_cache.set(my_path, my_cached);
+                    return { path: my_path, content: my_cached.content };
+                }
+                the_cache.delete(my_path);
+            } catch {
+                the_cache.delete(my_path);
+                return null;
+            }
+        }
+
+        try {
+            const my_stat = await fs.promises.stat(my_path);
+            const my_content = await fs.promises.readFile(
+                my_path, 'utf-8'
+            );
+            if (the_cache.size >= max_size) {
+                const my_first = the_cache.keys().next().value;
+                if (my_first !== undefined) {
+                    the_cache.delete(my_first);
+                }
+            }
+            the_cache.set(my_path, {
+                content: my_content,
+                mtime_ms: my_stat.mtimeMs,
+            });
+            return { path: my_path, content: my_content };
+        } catch {
+            return null;
+        }
+    };
+
+    return { resolver: my_resolver, cache: the_cache };
+}
+
+// Bound for the per-handler negative cache of unresolvable (topic, anchor)
+// keys. FIFO eviction keeps memory bounded across long sessions where a
+// user may hover on many unknown identifiers.
+const MAX_RESOLVE_STHLP_NEGATIVE_CACHE_SIZE = 1000;
+
+export interface ResolveSthlpFileHandler {
+    (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult>;
+    /**
+     * Clear the negative cache. Should be called whenever the workspace
+     * is re-indexed (a previously-unresolvable topic may now be
+     * resolvable). Until a re-index event hook is wired up, callers
+     * should invoke this manually after triggering an indexer rescan;
+     * stale negatives persist until then. TODO: wire to indexer events.
+     */
+    clear_negative_cache(): void;
 }
 
 /**
@@ -880,154 +973,123 @@ export interface ResolveSthlpFileResult {
  * by searching ado-paths and workspace roots.
  */
 export function create_resolve_sthlp_file_handler(
-    deps: HandlerDependencies
-): (params: ResolveSthlpFileParams) => Promise<ResolveSthlpFileResult> {
-    return async (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult> => {
+    deps: HandlerDependencies,
+    shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, IhlpCacheEntry> }
+): ResolveSthlpFileHandler {
+    const { resolver: my_ihlp_resolver } =
+        shared_ihlp ?? create_shared_ihlp_resolver(deps);
+
+    // Per-handler negative cache. Keys are `${topic} ${anchor ?? ''}`.
+    // We use insertion order for FIFO eviction (Set preserves it).
+    const the_negative_cache = new Set<string>();
+    const make_negative_key = (params: ResolveSthlpFileParams): string =>
+        `${(params.topic ?? '').trim()} ${params.anchor ?? ''}`;
+    const remember_negative = (key: string): void => {
+        if (the_negative_cache.has(key)) return;
+        if (the_negative_cache.size >= MAX_RESOLVE_STHLP_NEGATIVE_CACHE_SIZE) {
+            // FIFO eviction: drop the oldest entry.
+            const my_oldest = the_negative_cache.values().next().value;
+            if (my_oldest !== undefined) {
+                the_negative_cache.delete(my_oldest);
+            }
+        }
+        the_negative_cache.add(key);
+    };
+
+    /**
+     * Read a .sthlp file, expand its INCLUDE directives, and return
+     * the expanded content. Used for scanning markers during anchor
+     * fallback resolution.
+     */
+    async function read_and_expand(
+        file_path: string
+    ): Promise<string | null> {
+        if (!deps.workspace_indexer) return null;
+        try {
+            const my_content = await fs.promises.readFile(
+                file_path, 'utf-8'
+            );
+            return expand_includes(my_content, my_ihlp_resolver);
+        } catch {
+            return null;
+        }
+    }
+
+    async function resolve_topic(
+        params: ResolveSthlpFileParams
+    ): Promise<ResolveSthlpFileResult> {
         if (!deps.workspace_indexer) {
             return { file_path: null };
         }
-        const my_indexer = deps.workspace_indexer;
-        const my_topic = (params.topic ?? '').trim();
-        if (my_topic.length === 0) {
+        const my_path = await resolve_help_topic(
+            deps.workspace_indexer, params.topic ?? ''
+        );
+        return { file_path: my_path };
+    }
+
+    // Main handler: resolve topic, then check anchor if provided
+    const handler = async (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult> => {
+        const my_negative_key = make_negative_key(params);
+        if (the_negative_cache.has(my_negative_key)) {
             return { file_path: null };
         }
+        const my_result = await resolve_topic(params);
 
-        // 1. Try the topic as the user typed it (and its
-        //    spaces-as-underscores variant, handled inside the
-        //    indexer).
-        const my_direct = await my_indexer.resolve_sthlp_file(my_topic);
-        if (my_direct) {
-            return { file_path: my_direct };
+        // If no anchor requested, or no file resolved, return as-is
+        if (!params.anchor || !my_result.file_path) {
+            if (my_result.file_path === null) {
+                remember_negative(my_negative_key);
+            }
+            return my_result;
         }
 
-        // Split the topic into head (first word) + tail so we can work
-        // with the subcommand shape (`frame create`, `macro dir`, ...)
-        // the same way across all fallbacks below.
-        const my_first_space = my_topic.search(/\s/);
-        const my_head = my_first_space === -1
-            ? my_topic
-            : my_topic.substring(0, my_first_space);
-        const my_tail = my_first_space === -1
-            ? ''
-            : my_topic.substring(my_first_space);
-        if (my_head.length === 0) {
-            return { file_path: null };
-        }
-        const my_head_lower = my_head.toLowerCase();
-
-        // 2. Redirect via `helpFile` when the command database knows the
-        //    canonical help page lives elsewhere (e.g. `local` →
-        //    `macro.sthlp`, `replace` → `generate.sthlp`). We try the
-        //    redirected topic both with the original tail (so
-        //    `replace postestimation`-style topics still work if they
-        //    ever exist) and — for multi-word topics — without the
-        //    tail, which handles subcommand links like `macro dir`
-        //    whose help lives inside the parent file.
-        const my_head_lookup = command_database.lookup(my_head);
-        if (my_head_lookup?.helpFile && my_head_lookup.helpFile.toLowerCase() !== my_head_lower) {
-            const my_redirected = await my_indexer.resolve_sthlp_file(
-                my_head_lookup.helpFile + my_tail
-            );
-            if (my_redirected) {
-                return { file_path: my_redirected };
-            }
-            if (my_tail.length > 0) {
-                const my_parent_only = await my_indexer.resolve_sthlp_file(
-                    my_head_lookup.helpFile
-                );
-                if (my_parent_only) {
-                    return { file_path: my_parent_only };
-                }
-            }
-        } else if (my_tail.length > 0 && my_head_lookup) {
-            // Subcommands (`macro dir`, `frame drop`) that aren't backed
-            // by a dedicated `<head>_<sub>.sthlp` should still open the
-            // parent's help page rather than surfacing "not found".
-            // Use the expanded name so abbreviated heads like `mac dir`
-            // or `fr drop` resolve to `macro.sthlp` / `frame.sthlp`.
-            const my_parent_only = await my_indexer.resolve_sthlp_file(
-                my_head_lookup.name
-            );
-            if (my_parent_only) {
-                return { file_path: my_parent_only };
+        // Check if the anchor exists in the resolved file
+        const my_expanded = await read_and_expand(my_result.file_path);
+        if (my_expanded) {
+            const the_markers = extract_marker_names(my_expanded);
+            if (the_markers.has(params.anchor)) {
+                return my_result;
             }
         }
 
-        // 3. Try expanding the first word of the topic via Stata's
-        //    abbreviation conventions (e.g. `reg` → `regress`, `di`
-        //    → `display` or `dir`, `gen` → `generate`), preserving
-        //    any trailing words so `reg postestimation` resolves via
-        //    `regress_postestimation.sthlp`.
-        // Gather candidate expansions in preference order. Stata's
-        // command-database cache marks more commonly-used commands
-        // with a lower `priority` value (1 = Tier 1 / most common),
-        // so we use that as the primary sort key. Ties break on
-        // command name length (shorter is usually the canonical
-        // command, e.g. `regress` over `regression`). The cache's
-        // explicit abbreviations map (`lookup`) is tried first as a
-        // published short form.
-        interface Candidate { name: string; priority: number; help_file?: string; }
-        const the_tried = new Set<string>();
-        const the_candidates: Candidate[] = [];
-        const add_candidate = (name: string, priority: number | undefined, help_file?: string): void => {
-            const my_normalized = name.toLowerCase();
-            if (my_normalized === my_head_lower) return;
-            if (the_tried.has(my_normalized)) return;
-            the_tried.add(my_normalized);
-            the_candidates.push({ name, priority: priority ?? 99, help_file });
-        };
+        // Anchor not found — search topic_* related files. Use the
+        // canonical topic derived from the resolved file so that
+        // abbreviations and redirects (e.g. `reg` → `regress`,
+        // `local` → `macro`) search the correct family.
+        if (deps.workspace_indexer) {
+            const my_raw_topic = (params.topic ?? '').trim();
+            const my_resolved_topic =
+                my_result.file_path
+                    .split(/[\\/]/)
+                    .pop()
+                    ?.replace(/\.sthlp$/i, '')
+                ?? my_raw_topic;
+            const the_related = await deps.workspace_indexer
+                .find_related_sthlp_files(my_resolved_topic);
 
-        if (my_head_lookup) {
-            add_candidate(my_head_lookup.name, my_head_lookup.priority, my_head_lookup.helpFile);
-        }
-        for (const my_match of command_database.expand_abbreviation(my_head)) {
-            add_candidate(my_match.name, my_match.priority, my_match.helpFile);
-        }
-        for (const my_match of command_database.search(my_head)) {
-            add_candidate(my_match.name, my_match.priority, my_match.helpFile);
-        }
+            for (const my_candidate_path of the_related) {
+                if (my_candidate_path === my_result.file_path) continue;
 
-        // Sort by priority ascending (1 = Tier 1 / most common), then
-        // by name length ascending so the short canonical command
-        // name (`regress`, `display`) wins over verbose relatives
-        // (`regression`, `dir`). This makes `di` → `display` even
-        // though the cache's `abbreviations` map says otherwise.
-        the_candidates.sort((a, b) => {
-            if (a.priority !== b.priority) return a.priority - b.priority;
-            return a.name.length - b.name.length;
-        });
+                const my_candidate_content =
+                    await read_and_expand(my_candidate_path);
+                if (!my_candidate_content) continue;
 
-        for (const my_candidate of the_candidates) {
-            const my_resolved = await my_indexer.resolve_sthlp_file(
-                my_candidate.name + my_tail
-            );
-            if (my_resolved) {
-                return { file_path: my_resolved };
-            }
-            // If the expanded command itself has a help_file redirect
-            // (e.g. `loc` → `local` → `macro`), follow it.
-            if (
-                my_candidate.help_file
-                && my_candidate.help_file.toLowerCase() !== my_candidate.name.toLowerCase()
-            ) {
-                const my_redirected = await my_indexer.resolve_sthlp_file(
-                    my_candidate.help_file + my_tail
-                );
-                if (my_redirected) {
-                    return { file_path: my_redirected };
-                }
-                if (my_tail.length > 0) {
-                    const my_parent_only = await my_indexer.resolve_sthlp_file(
-                        my_candidate.help_file
-                    );
-                    if (my_parent_only) {
-                        return { file_path: my_parent_only };
-                    }
+                const the_candidate_markers =
+                    extract_marker_names(my_candidate_content);
+                if (the_candidate_markers.has(params.anchor)) {
+                    return { file_path: my_candidate_path };
                 }
             }
         }
-        return { file_path: null };
+
+        // No related file has the anchor — return original file
+        return my_result;
     };
+
+    (handler as ResolveSthlpFileHandler).clear_negative_cache = (): void => {
+        the_negative_cache.clear();
+    };
+    return handler as ResolveSthlpFileHandler;
 }
 
 // -----------------------------------------------------------------------
@@ -1065,5 +1127,45 @@ export function create_resolve_findalias_handler(
         const my_resolver = deps.workspace_indexer.get_findalias_resolver();
         const my_smcl = my_resolver.lookup(my_alias);
         return { smcl: my_smcl };
+    };
+}
+
+// -----------------------------------------------------------------------
+// sight/expandIncludes
+// -----------------------------------------------------------------------
+
+export interface ExpandIncludesParams {
+    content: string;
+}
+
+export interface ExpandIncludesResult {
+    content: string;
+}
+
+/**
+ * Creates the custom request handler for `sight/expandIncludes`.
+ *
+ * Expands `{include filename.ihlp}` directives in SMCL content by
+ * resolving `.ihlp` files through the workspace indexer's ado-path
+ * search. Uses the shared ihlp cache. Returns the original content
+ * when no workspace indexer is available.
+ */
+export function create_expand_includes_handler(
+    deps: HandlerDependencies,
+    shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, IhlpCacheEntry> }
+): (params: ExpandIncludesParams) => Promise<ExpandIncludesResult> {
+    const { resolver: my_ihlp_resolver } =
+        shared_ihlp ?? create_shared_ihlp_resolver(deps);
+
+    return async (
+        params: ExpandIncludesParams
+    ): Promise<ExpandIncludesResult> => {
+        if (!deps.workspace_indexer) {
+            return { content: params.content };
+        }
+        const my_result = await expand_includes(
+            params.content, my_ihlp_resolver
+        );
+        return { content: my_result };
     };
 }

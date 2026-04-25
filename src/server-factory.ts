@@ -34,6 +34,7 @@ import { Logger } from './utils/logger';
 import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
+import { discover_stata_ado_paths } from './utils/stata-install-paths';
 
 // Import cache directly so it gets bundled into the binary
 import embedded_cache_raw from './command-database/caches/v18.json';
@@ -62,6 +63,9 @@ import {
     create_get_working_directory_handler,
     create_resolve_sthlp_file_handler,
     create_resolve_findalias_handler,
+    create_expand_includes_handler,
+    create_shared_ihlp_resolver,
+    ResolveSthlpFileHandler,
 } from './server-handlers';
 
 import type { TransportType } from './cli';
@@ -119,6 +123,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let forward_scope_resolver: ForwardScopeResolver | null = null;
     let dependency_graph: DependencyGraph | null = null;
     let rename_handler: RenameHandler | null = null;
+    let resolve_sthlp_handler: ResolveSthlpFileHandler | null = null;
 
     // Maximum revalidation cascade depth to prevent A→B→C→A loops
     const MAX_REVALIDATION_DEPTH = 5;
@@ -465,6 +470,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
     function invalidate_and_revalidate_callees(
         changed_callees: Set<string>
     ): void {
+        // Files added/removed from the workspace may satisfy or
+        // invalidate previously-cached sthlp resolutions; drop the
+        // negative cache so unresolvable topics are re-probed.
+        resolve_sthlp_handler?.clear_negative_cache();
         scope_resolver?.cascade_invalidate(changed_callees);
         for (const my_callee_uri of changed_callees) {
             const my_doc = documents.get(my_callee_uri);
@@ -563,6 +572,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 folder_paths,
                 settings.adoPaths || []
             ).then(() => {
+                // Newly indexed files may satisfy previously-unresolvable
+                // sthlp topics. Drop the per-handler negative cache so
+                // those topics are re-probed.
+                resolve_sthlp_handler?.clear_negative_cache();
                 if (dependency_graph?.is_scan_complete()) {
                     revalidate_all_open_docs();
                 }
@@ -572,6 +585,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 );
             });
         } else {
+            // No workspace folders open — still discover Stata install
+            // paths so the help viewer can resolve built-in topics.
+            if (workspace_indexer) {
+                workspace_indexer.set_help_search_paths(
+                    discover_stata_ado_paths()
+                );
+            }
             dependency_graph?.mark_scan_complete();
             revalidate_all_open_docs();
         }
@@ -1130,11 +1150,20 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Custom request handlers
     connection.onRequest('sight/getWorkingDirectory', working_directory_handler);
 
-    const resolve_sthlp_handler = create_resolve_sthlp_file_handler(handler_deps);
+    const shared_ihlp = create_shared_ihlp_resolver(handler_deps);
+
+    resolve_sthlp_handler = create_resolve_sthlp_file_handler(
+        handler_deps, shared_ihlp
+    );
     connection.onRequest('sight/resolveSthlpFile', resolve_sthlp_handler);
 
     const resolve_findalias_handler = create_resolve_findalias_handler(handler_deps);
     connection.onRequest('sight/resolveFindalias', resolve_findalias_handler);
+
+    const expand_includes_handler = create_expand_includes_handler(
+        handler_deps, shared_ihlp
+    );
+    connection.onRequest('sight/expandIncludes', expand_includes_handler);
 
     // Start listening
     documents.listen(connection);

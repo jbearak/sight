@@ -29,7 +29,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private source_uri: vscode.Uri;
     private disposables: vscode.Disposable[] = [];
     private debounce_timer: ReturnType<typeof setTimeout> | undefined;
-    private on_navigate: (topic: string) => void;
+    private on_navigate: (topic: string, anchor?: string) => void;
     private get_client: () => LanguageClient | null;
     private disposed = false;
 
@@ -46,10 +46,15 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private scroll_sync_source: 'editor' | 'preview' | null = null;
     private scroll_sync_timeout: ReturnType<typeof setTimeout> | undefined;
 
+    // Anchor to scroll to once the webview signals it is ready.
+    // Set by the panel manager on first open when the help link
+    // included a `##anchor`; cleared after the first ready signal.
+    private pending_anchor: string | undefined;
+
     constructor(
         source_uri: vscode.Uri,
         panel: vscode.WebviewPanel,
-        on_navigate: (topic: string) => void,
+        on_navigate: (topic: string, anchor?: string) => void,
         get_client: () => LanguageClient | null
     ) {
         this.source_uri = source_uri;
@@ -157,13 +162,18 @@ export class SmclPreviewPanel implements vscode.Disposable {
 
     private async refresh(): Promise<void> {
         // Try to get content from open editor first; fall back to disk
-        const my_content = this.read_content();
-        if (my_content === null) return;
+        const my_raw_content = this.read_content();
+        if (my_raw_content === null) return;
 
         // Capture a token before any async work. If a newer refresh
         // starts while we're awaiting LSP responses, it will bump the
         // sequence and we'll discard our stale result.
         const my_token = ++this.refresh_seq;
+
+        // Expand INCLUDE directives before findalias resolution
+        // (included content may contain {findalias} references).
+        const my_content = await this.expand_includes(my_raw_content);
+        if (this.disposed || my_token !== this.refresh_seq) return;
 
         const my_findalias_map = await this.resolve_findalias_map(my_content);
 
@@ -174,6 +184,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
 
         const my_result = smcl_to_html(my_content, {
             findalias_map: my_findalias_map,
+            current_topic: this.get_current_topic(),
         });
         const my_nonce = crypto.randomBytes(16).toString('hex');
         const my_title = this.get_title();
@@ -190,6 +201,25 @@ export class SmclPreviewPanel implements vscode.Disposable {
         );
         if (my_editor) {
             this.sync_editor_to_preview(my_editor.visibleRanges);
+        }
+    }
+
+    /**
+     * Expand `INCLUDE help <name>` directives via the LSP server.
+     * Falls back to the original content if the server is unavailable.
+     */
+    private async expand_includes(content: string): Promise<string> {
+        const my_client = this.get_client();
+        if (!my_client) return content;
+
+        try {
+            const my_result = await my_client.sendRequest<{
+                content: string;
+            }>('sight/expandIncludes', { content });
+            return my_result?.content ?? content;
+        } catch {
+            // Server unavailable or request failed — use unexpanded content
+            return content;
         }
     }
 
@@ -329,6 +359,14 @@ export class SmclPreviewPanel implements vscode.Disposable {
         return `Preview ${my_name}`;
     }
 
+    private get_current_topic(): string | undefined {
+        const my_basename = this.source_uri.fsPath.split(/[\\/]/).pop();
+        if (!my_basename) return undefined;
+        // Strip .sthlp extension to get topic name
+        const my_match = my_basename.match(/^(.+)\.sthlp$/i);
+        return my_match?.[1];
+    }
+
     // ---------------------------------------------------------------
     // Scroll sync
     // ---------------------------------------------------------------
@@ -374,6 +412,21 @@ export class SmclPreviewPanel implements vscode.Disposable {
         }, SCROLL_SYNC_SUPPRESSION_MS);
     }
 
+    scroll_to_anchor(anchor: string): void {
+        this.panel.webview.postMessage({
+            type: 'scrollToAnchor',
+            anchor,
+        });
+    }
+
+    /**
+     * Queue an anchor to scroll to once the webview reports it is
+     * ready. Used on first-open to avoid racing the initial render.
+     */
+    set_pending_anchor(anchor: string): void {
+        this.pending_anchor = anchor;
+    }
+
     // ---------------------------------------------------------------
     // Message handling
     // ---------------------------------------------------------------
@@ -384,7 +437,10 @@ export class SmclPreviewPanel implements vscode.Disposable {
         switch (message.type) {
             case 'navigate':
                 if (typeof message.topic === 'string') {
-                    this.on_navigate(message.topic);
+                    const my_anchor = typeof message.anchor === 'string'
+                        ? message.anchor
+                        : undefined;
+                    this.on_navigate(message.topic, my_anchor);
                 }
                 break;
             case 'openExternal':
@@ -397,6 +453,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
             case 'revealLine':
                 if (typeof message.line === 'number') {
                     this.sync_preview_to_editor(message.line);
+                }
+                break;
+            case 'webviewReady':
+                if (this.pending_anchor) {
+                    const my_anchor = this.pending_anchor;
+                    this.pending_anchor = undefined;
+                    this.scroll_to_anchor(my_anchor);
                 }
                 break;
         }
