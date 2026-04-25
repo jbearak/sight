@@ -168,6 +168,18 @@ a.smcl-browse:hover,
 a.smcl-jumpto:hover {
     text-decoration: underline;
 }
+/* Table of contents bar */
+.smcl-toc {
+    padding: 6px 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+    font-size: 0.9em;
+    line-height: 1.8;
+}
+.smcl-toc-separator {
+    color: var(--vscode-descriptionForeground, rgba(128, 128, 128, 0.7));
+    margin: 0 2px;
+}
 a.smcl-stata {
     color: var(--vscode-textLink-foreground);
     text-decoration: none;

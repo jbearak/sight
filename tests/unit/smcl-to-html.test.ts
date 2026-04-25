@@ -316,11 +316,7 @@ describe('smcl_to_html', () => {
             expect(result.html).toContain('id="syntax"');
         });
 
-        it('suppresses preamble {viewerjumpto}, {vieweralsosee}, and {viewerdialog} metadata', () => {
-            // These directives feed Stata's native viewer toolbar / See
-            // Also sidebar. Rendering them inline produces a wall of
-            // raw quoted args above the real title, so we drop them
-            // until a proper chrome lands (tracked upstream).
+        it('renders preamble {viewerjumpto} as TOC and suppresses {vieweralsosee} and {viewerdialog}', () => {
             const my_preamble =
                 '{viewerjumpto "Syntax" "regress##syntax"}{...}\n' +
                 '{viewerjumpto "Description" "regress##description"}{...}\n' +
@@ -328,21 +324,16 @@ describe('smcl_to_html', () => {
                 '{vieweralsosee "" "--"}{...}\n' +
                 '{vieweralsosee "[D] cd" "help cd"}{...}\n' +
                 '{viewerdialog regress "dialog regress"}{...}';
-            const result = smcl_to_html(my_preamble);
-            // All visible text should be whitespace; the only surviving
-            // markup is the data-line wrappers around the newlines
-            // between directives.
-            let my_visible = result.html;
-            let my_prev: string;
-            do {
-                my_prev = my_visible;
-                my_visible = my_visible.replace(/<[^>]+>/g, '');
-            } while (my_visible !== my_prev);
-            my_visible = my_visible.trim();
-            expect(my_visible).toBe('');
-            expect(result.html).not.toContain('href="#');
+            const result = smcl_to_html(my_preamble, {
+                current_topic: 'regress',
+            });
+            // viewerjumpto entries appear as a TOC
+            expect(result.html).toContain('class="smcl-toc"');
+            expect(result.html).toContain('href="#syntax"');
+            expect(result.html).toContain('href="#description"');
+            // vieweralsosee and viewerdialog are still suppressed
             expect(result.html).not.toContain('mansection');
-            expect(result.html).not.toContain('help cd');
+            expect(result.html).not.toContain('dialog');
         });
 
         it('hides the preamble while preserving the title row for a real .sthlp header', () => {
@@ -1096,6 +1087,60 @@ describe('smcl_to_html', () => {
         });
     });
 
+    describe('viewerjumpto TOC', () => {
+        it('renders viewerjumpto directives as a horizontal TOC bar', () => {
+            const my_input =
+                '{viewerjumpto "Syntax" "regress##syntax"}{...}\n' +
+                '{viewerjumpto "Description" "regress##description"}{...}\n' +
+                '{title:Title}\n' +
+                '{p}Body text{p_end}';
+            const result = smcl_to_html(my_input, {
+                current_topic: 'regress',
+            });
+            expect(result.html).toContain('class="smcl-toc"');
+            expect(result.html).toContain('href="#syntax"');
+            expect(result.html).toContain('href="#description"');
+            expect(result.html).toContain('>Syntax<');
+            expect(result.html).toContain('>Description<');
+        });
+
+        it('renders TOC entries as smcl-jumpto links', () => {
+            const my_input =
+                '{viewerjumpto "Options" "test##options"}{...}\n' +
+                '{p}Content{p_end}';
+            const result = smcl_to_html(my_input, {
+                current_topic: 'test',
+            });
+            expect(result.html).toContain('class="smcl-jumpto"');
+            expect(result.html).toContain('href="#options"');
+        });
+
+        it('renders TOC with pipe separators', () => {
+            const my_input =
+                '{viewerjumpto "A" "x##a"}{...}\n' +
+                '{viewerjumpto "B" "x##b"}{...}\n' +
+                '{viewerjumpto "C" "x##c"}{...}\n';
+            const result = smcl_to_html(my_input, {
+                current_topic: 'x',
+            });
+            expect(result.html).toContain('smcl-toc-separator');
+        });
+
+        it('does not render TOC when no viewerjumpto directives', () => {
+            const result = smcl_to_html('{p}Just content{p_end}');
+            expect(result.html).not.toContain('smcl-toc');
+        });
+
+        it('still suppresses viewerdialog and vieweralsosee', () => {
+            const my_input =
+                '{vieweralsosee "[D] dir" "mansection D dir"}{...}\n' +
+                '{viewerdialog regress "dialog regress"}{...}';
+            const result = smcl_to_html(my_input);
+            expect(result.html).not.toContain('dir');
+            expect(result.html).not.toContain('dialog');
+        });
+    });
+
     describe('mixed real-world content', () => {
         it('handles a typical help file header', () => {
             const smcl = [
@@ -1110,12 +1155,11 @@ describe('smcl_to_html', () => {
                 '{hline}',
             ].join('\n');
 
-            const result = smcl_to_html(smcl);
-            // {viewerjumpto} metadata is suppressed until a dedicated
-            // TOC is implemented; the title row is now rendered as a
-            // heading block rather than a <strong> cell.
-            expect(result.html).not.toContain('href="#syntax"');
-            expect(result.html).not.toContain('href="#options"');
+            const result = smcl_to_html(smcl, { current_topic: 'regress' });
+            // {viewerjumpto} entries render as a TOC bar; the title row
+            // is rendered as a heading block.
+            expect(result.html).toContain('href="#syntax"');
+            expect(result.html).toContain('href="#options"');
             expect(result.html).toContain('<hr');
             expect(result.html).toContain('smcl-help-title-heading');
             expect(result.html).toContain('Linear regression');

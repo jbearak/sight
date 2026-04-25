@@ -1388,6 +1388,70 @@ function parse_first_number(args: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// viewerjumpto TOC
+// ---------------------------------------------------------------------------
+
+interface ViewerJumptoEntry {
+    label: string;
+    anchor: string;
+}
+
+/**
+ * Extract `{viewerjumpto "Label" "topic##anchor"}` directives from
+ * the node list. Returns the entries and the filtered node list with
+ * viewerjumpto nodes removed.
+ */
+function collect_viewerjumpto_entries(
+    nodes: SmclNode[]
+): { entries: ViewerJumptoEntry[]; filtered: SmclNode[] } {
+    const the_entries: ViewerJumptoEntry[] = [];
+    const the_filtered: SmclNode[] = [];
+
+    for (const my_node of nodes) {
+        if (
+            is_directive(my_node) &&
+            my_node.name.toLowerCase() === 'viewerjumpto'
+        ) {
+            const my_args = my_node.args || '';
+            // Parse: "Label" "topic##anchor"
+            const my_match = my_args.match(
+                /^"([^"]*)"\s+"[^#]*##([^"]*)"/
+            );
+            if (my_match) {
+                the_entries.push({
+                    label: my_match[1],
+                    anchor: my_match[2],
+                });
+            }
+        } else {
+            the_filtered.push(my_node);
+        }
+    }
+
+    return { entries: the_entries, filtered: the_filtered };
+}
+
+/**
+ * Render collected viewerjumpto entries as a horizontal TOC bar.
+ */
+function render_viewerjumpto_toc(
+    entries: ViewerJumptoEntry[]
+): string {
+    if (entries.length === 0) return '';
+
+    const the_links = entries.map(my_entry =>
+        `<a class="smcl-jumpto" href="#${escape_html(my_entry.anchor)}"` +
+        `>${escape_html(my_entry.label)}</a>`
+    );
+
+    return (
+        '<nav class="smcl-toc">' +
+        the_links.join('<span class="smcl-toc-separator"> | </span>') +
+        '</nav>'
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -1414,12 +1478,18 @@ export function smcl_to_html(
     // their title block (e.g. `exp.sthlp`, `operator.sthlp`) get the
     // same `__help_title__` treatment so they render as a proper
     // heading + PDF link instead of a small inline blue reference.
-    const the_nodes = transform_findalias_help_title(
+    const the_findalias_nodes = transform_findalias_help_title(
         the_p2col_nodes,
         options?.findalias_map
     );
+    // Collect {viewerjumpto} entries for the TOC bar, removing them
+    // from the node list so they don't render inline.
+    const { entries: the_toc_entries, filtered: the_nodes } =
+        collect_viewerjumpto_entries(the_findalias_nodes);
+
     const ctx = create_context(options?.findalias_map, options?.current_topic);
-    let html = render_nodes(the_nodes, ctx);
+    let html = render_viewerjumpto_toc(the_toc_entries);
+    html += render_nodes(the_nodes, ctx);
     // Close any trailing persistent formats and style span
     html += close_asis(ctx);
     html += close_all_formats(ctx);
