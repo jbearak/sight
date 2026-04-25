@@ -1,0 +1,289 @@
+#!/usr/bin/env bun
+/**
+ * Broken-link checker for Stata help pages.
+ *
+ * Enumerates every command in the v18 cache, resolves each to a
+ * `.sthlp` file, renders it via `smcl_to_html()`, then validates:
+ *   1. Every `data-smcl-topic` can be resolved to a `.sthlp` file
+ *   2. Every `href="#anchor"` has a matching `<a id="anchor">` in
+ *      the same page
+ *   3. Every `data-smcl-anchor` has a matching `<a id="anchor">` in
+ *      the resolved target page
+ *
+ * Requires a local Stata installation (uses `discover_stata_ado_paths`).
+ *
+ * Usage:
+ *   bun scripts/check-help-links.ts [--ado-path /path/to/ado]
+ */
+
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+import { command_database } from '../src/command-database';
+import type { CommandCache } from '../src/command-database/types';
+import { WorkspaceIndexer } from '../src/indexer';
+import { smcl_to_html } from '../client/src/smcl-preview/smcl-to-html';
+import { discover_stata_ado_paths } from '../src/utils/stata-install-paths';
+
+// -----------------------------------------------------------------------
+// Types
+// -----------------------------------------------------------------------
+
+interface BrokenLink {
+    source_topic: string;
+    link_type: 'topic' | 'same_page_anchor' | 'cross_page_anchor';
+    target_topic: string;
+    target_anchor: string;
+    reason: string;
+}
+
+interface PageResult {
+    topic: string;
+    file_path: string;
+    total_links: number;
+    broken_links: BrokenLink[];
+}
+
+// -----------------------------------------------------------------------
+// HTML link extraction (regex-based, sufficient for our controlled output)
+// -----------------------------------------------------------------------
+
+interface ExtractedLink {
+    type: 'navigate' | 'same_page_anchor';
+    topic: string;
+    anchor: string;
+}
+
+function extract_links(html: string): ExtractedLink[] {
+    const the_links: ExtractedLink[] = [];
+
+    // Navigate links: data-smcl-topic="X" [data-smcl-anchor="Y"]
+    const NAVIGATE_RE =
+        /data-smcl-topic="([^"]*)"(?:\s+data-smcl-anchor="([^"]*)")?/g;
+    let my_match: RegExpExecArray | null;
+    while ((my_match = NAVIGATE_RE.exec(html)) !== null) {
+        the_links.push({
+            type: 'navigate',
+            topic: my_match[1],
+            anchor: my_match[2] || '',
+        });
+    }
+
+    // Same-page anchor links: class="smcl-jumpto" ... href="#X"
+    const JUMPTO_RE = /class="smcl-jumpto"[^>]*href="#([^"]*)"/g;
+    while ((my_match = JUMPTO_RE.exec(html)) !== null) {
+        the_links.push({
+            type: 'same_page_anchor',
+            topic: '',
+            anchor: my_match[1],
+        });
+    }
+
+    return the_links;
+}
+
+function extract_anchor_ids(html: string): Set<string> {
+    const the_ids = new Set<string>();
+    const ID_RE = /<a\s+id="([^"]*)"/g;
+    let my_match: RegExpExecArray | null;
+    while ((my_match = ID_RE.exec(html)) !== null) {
+        the_ids.add(my_match[1]);
+    }
+    return the_ids;
+}
+
+// -----------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------
+
+async function main(): Promise<void> {
+    // Parse args
+    const the_args = process.argv.slice(2);
+    let explicit_ado_path: string | undefined;
+    for (let i = 0; i < the_args.length; i++) {
+        if (the_args[i] === '--ado-path' && the_args[i + 1]) {
+            explicit_ado_path = the_args[i + 1];
+            i++;
+        }
+    }
+
+    // Discover ado paths
+    const the_ado_paths = explicit_ado_path
+        ? [explicit_ado_path]
+        : discover_stata_ado_paths();
+
+    if (the_ado_paths.length === 0) {
+        console.error(
+            'No Stata installation found. Use --ado-path to specify.'
+        );
+        process.exit(1);
+    }
+    console.log(`Using ado paths: ${the_ado_paths.join(', ')}`);
+
+    // Load command cache
+    const my_cache_path = path.join(
+        __dirname,
+        '../src/command-database/caches/v18.json'
+    );
+    const the_cache = JSON.parse(
+        fs.readFileSync(my_cache_path, 'utf-8')
+    ) as CommandCache;
+    command_database.load_cache(the_cache);
+
+    // Set up indexer
+    const my_throwaway = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'sight-link-check-')
+    );
+    const my_indexer = new WorkspaceIndexer();
+    await my_indexer.initialize([my_throwaway]);
+    my_indexer.set_help_search_paths(the_ado_paths);
+
+    // Enumerate topics
+    const the_topics = command_database.get_all_command_names();
+    console.log(`Checking ${the_topics.length} commands...\n`);
+
+    // Cache of rendered pages: topic -> { html, anchor_ids }
+    const the_page_cache = new Map<string, {
+        html: string;
+        anchor_ids: Set<string>;
+    }>();
+
+    // Render and cache a topic; returns null if unresolvable
+    async function render_topic(
+        topic: string
+    ): Promise<{ html: string; anchor_ids: Set<string> } | null> {
+        const my_cached = the_page_cache.get(topic);
+        if (my_cached) return my_cached;
+
+        const my_file_path = await my_indexer.resolve_sthlp_file(topic);
+        if (!my_file_path) return null;
+
+        const my_content = fs.readFileSync(my_file_path, 'utf-8');
+        const my_result = smcl_to_html(my_content, {
+            current_topic: topic,
+        });
+        const my_entry = {
+            html: my_result.html,
+            anchor_ids: extract_anchor_ids(my_result.html),
+        };
+        the_page_cache.set(topic, my_entry);
+        return my_entry;
+    }
+
+    // Phase 1: Render all pages
+    const the_results: PageResult[] = [];
+    let resolved_count = 0;
+    let unresolved_count = 0;
+
+    for (const my_topic of the_topics) {
+        const my_file_path = await my_indexer.resolve_sthlp_file(my_topic);
+        if (!my_file_path) {
+            unresolved_count++;
+            continue;
+        }
+        resolved_count++;
+
+        const my_page = await render_topic(my_topic);
+        if (!my_page) continue;
+
+        const the_links = extract_links(my_page.html);
+        const the_broken: BrokenLink[] = [];
+
+        for (const my_link of the_links) {
+            if (my_link.type === 'same_page_anchor') {
+                // Validate same-page anchor
+                if (!my_page.anchor_ids.has(my_link.anchor)) {
+                    the_broken.push({
+                        source_topic: my_topic,
+                        link_type: 'same_page_anchor',
+                        target_topic: my_topic,
+                        target_anchor: my_link.anchor,
+                        reason: `No <a id="${my_link.anchor}"> in page`,
+                    });
+                }
+            } else if (my_link.type === 'navigate') {
+                // Validate topic resolution
+                const my_target = await render_topic(my_link.topic);
+                if (!my_target) {
+                    the_broken.push({
+                        source_topic: my_topic,
+                        link_type: 'topic',
+                        target_topic: my_link.topic,
+                        target_anchor: my_link.anchor,
+                        reason: `Cannot resolve ${my_link.topic}.sthlp`,
+                    });
+                } else if (my_link.anchor) {
+                    // Validate cross-page anchor
+                    if (!my_target.anchor_ids.has(my_link.anchor)) {
+                        the_broken.push({
+                            source_topic: my_topic,
+                            link_type: 'cross_page_anchor',
+                            target_topic: my_link.topic,
+                            target_anchor: my_link.anchor,
+                            reason: `No <a id="${my_link.anchor}"> in ${my_link.topic}`,
+                        });
+                    }
+                }
+            }
+        }
+
+        the_results.push({
+            topic: my_topic,
+            file_path: my_file_path,
+            total_links: the_links.length,
+            broken_links: the_broken,
+        });
+    }
+
+    // Phase 2: Report
+    const the_all_broken = the_results.flatMap(r => r.broken_links);
+    const my_total_links = the_results.reduce(
+        (sum, r) => sum + r.total_links, 0
+    );
+
+    console.log('=== Help Link Check Results ===\n');
+    console.log(`Commands in cache:   ${the_topics.length}`);
+    console.log(`Resolved to .sthlp:  ${resolved_count}`);
+    console.log(`Unresolvable:        ${unresolved_count}`);
+    console.log(`Total links checked: ${my_total_links}`);
+    console.log(`Broken links:        ${the_all_broken.length}\n`);
+
+    if (the_all_broken.length > 0) {
+        // Group by source topic
+        const the_by_source = new Map<string, BrokenLink[]>();
+        for (const my_broken of the_all_broken) {
+            const my_existing = the_by_source.get(my_broken.source_topic);
+            if (my_existing) {
+                my_existing.push(my_broken);
+            } else {
+                the_by_source.set(my_broken.source_topic, [my_broken]);
+            }
+        }
+
+        for (const [my_source, my_links] of the_by_source) {
+            console.log(`--- ${my_source} ---`);
+            for (const my_link of my_links) {
+                const my_target = my_link.target_anchor
+                    ? `${my_link.target_topic}##${my_link.target_anchor}`
+                    : my_link.target_topic;
+                console.log(
+                    `  [${my_link.link_type}] → ${my_target}: ${my_link.reason}`
+                );
+            }
+            console.log('');
+        }
+    }
+
+    // Cleanup
+    fs.rmSync(my_throwaway, { recursive: true, force: true });
+
+    if (the_all_broken.length > 0) {
+        process.exit(1);
+    }
+}
+
+main().catch(err => {
+    console.error('Fatal error:', err);
+    process.exit(2);
+});
