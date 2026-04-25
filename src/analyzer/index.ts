@@ -152,7 +152,11 @@ const STATA_STORAGE_TYPES = new Set([
 function is_stata_storage_type(name: string): boolean {
     if (STATA_STORAGE_TYPES.has(name)) return true;
     // str1..str2045
-    return /^str\d+$/.test(name);
+    if (/^str\d+$/.test(name)) {
+        const num = parseInt(name.slice(3), 10);
+        return num >= 1 && num <= 2045;
+    }
+    return false;
 }
 
 export class SemanticAnalyzer {
