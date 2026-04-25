@@ -1080,6 +1080,30 @@ export function create_resolve_sthlp_file_handler(
                 }
             }
         }
+
+        // 4. Function-name fallback: float() → f_float.sthlp
+        if (my_topic.endsWith('()')) {
+            const my_func_name = my_topic.slice(0, -2);
+            if (my_func_name.length > 0) {
+                const my_func_path = await my_indexer.resolve_sthlp_file(
+                    `f_${my_func_name}`
+                );
+                if (my_func_path) {
+                    return { file_path: my_func_path };
+                }
+            }
+        }
+
+        // 5. System variable fallback: _N, _n, _pi, _rc, _cons → _variables
+        if (my_topic.startsWith('_')) {
+            const my_sysvar_path = await my_indexer.resolve_sthlp_file(
+                '_variables'
+            );
+            if (my_sysvar_path) {
+                return { file_path: my_sysvar_path };
+            }
+        }
+
         return { file_path: null };
     }
 
