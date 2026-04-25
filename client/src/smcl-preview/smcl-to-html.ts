@@ -737,9 +737,9 @@ function render_directive(
         case 'dialog':
             return render_content(directive, ctx);
         case 'view':
-            return render_content(directive, ctx);
+            return render_view_link(directive, ctx);
         case 'search':
-            return render_content(directive, ctx);
+            return render_search_link(directive, ctx);
         case 'findalias':
             return render_findalias(directive, ctx);
 
@@ -1336,6 +1336,63 @@ function render_findalias(
     } finally {
         ctx.findalias_stack.pop();
     }
+}
+
+function render_search_link(
+    directive: SmclDirective,
+    ctx: RenderContext
+): string {
+    // {search keyword} or {search keyword:display_text}
+    const my_topic = (directive.args || '').split(' ')[0].trim();
+    if (!my_topic) return render_content(directive, ctx);
+
+    const my_display = directive.content.length > 0
+        ? render_content(directive, ctx)
+        : escape_html(my_topic);
+
+    const my_id = `smcl-ref-${ctx.ref_counter++}`;
+    ctx.cross_references.push({
+        topic: my_topic,
+        display_text: my_topic,
+        element_id: my_id,
+    });
+
+    return (
+        `<a class="smcl-help-link" id="${my_id}" ` +
+        `href="#" data-smcl-topic="${escape_html(my_topic)}"` +
+        `>${my_display}</a>`
+    );
+}
+
+function render_view_link(
+    directive: SmclDirective,
+    ctx: RenderContext
+): string {
+    // {view filename} or {view filename:display_text}
+    const my_filename = (directive.args || '').trim();
+    if (!my_filename) return render_content(directive, ctx);
+
+    // Only render as help link if it's a .sthlp or .hlp file
+    const my_match = my_filename.match(/^(.+)\.(sthlp|hlp)$/i);
+    if (!my_match) return render_content(directive, ctx);
+
+    const my_topic = my_match[1];
+    const my_display = directive.content.length > 0
+        ? render_content(directive, ctx)
+        : escape_html(my_filename);
+
+    const my_id = `smcl-ref-${ctx.ref_counter++}`;
+    ctx.cross_references.push({
+        topic: my_topic,
+        display_text: my_filename,
+        element_id: my_id,
+    });
+
+    return (
+        `<a class="smcl-help-link" id="${my_id}" ` +
+        `href="#" data-smcl-topic="${escape_html(my_topic)}"` +
+        `>${my_display}</a>`
+    );
 }
 
 function render_stata_link(

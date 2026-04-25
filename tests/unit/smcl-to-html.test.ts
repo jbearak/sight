@@ -1165,4 +1165,48 @@ describe('smcl_to_html', () => {
             expect(result.html).toContain('Linear regression');
         });
     });
+
+    describe('{search} and {view} directives', () => {
+        it('renders {search keyword} as a help link', () => {
+            const result = smcl_to_html('{search robust}');
+            expect(result.html).toContain('data-smcl-topic="robust"');
+            expect(result.html).toContain('class="smcl-help-link"');
+        });
+
+        it('renders {search keyword:display text} with display text', () => {
+            const result = smcl_to_html('{search robust:click here}');
+            expect(result.html).toContain('data-smcl-topic="robust"');
+            expect(result.html).toContain('click here');
+        });
+
+        it('renders {view file.sthlp} as a help link', () => {
+            const result = smcl_to_html('{view regress.sthlp}');
+            expect(result.html).toContain('data-smcl-topic="regress"');
+            expect(result.html).toContain('class="smcl-help-link"');
+        });
+
+        it('renders {view file.hlp} as a help link', () => {
+            const result = smcl_to_html('{view myhelp.hlp}');
+            expect(result.html).toContain('data-smcl-topic="myhelp"');
+        });
+
+        it('renders {view other.txt} as plain text', () => {
+            const result = smcl_to_html('{view notes.txt}');
+            expect(result.html).toContain('notes.txt');
+            expect(result.html).not.toContain('data-smcl-topic');
+        });
+
+        it('renders {view file.sthlp:display} with display text', () => {
+            const result = smcl_to_html('{view regress.sthlp:see regress}');
+            expect(result.html).toContain('data-smcl-topic="regress"');
+            expect(result.html).toContain('see regress');
+        });
+
+        it('keeps {dialog} as plain text', () => {
+            const result = smcl_to_html('{dialog regress:the dialog box}');
+            expect(result.html).toContain('the dialog box');
+            expect(result.html).not.toContain('data-smcl-topic');
+            expect(result.html).not.toContain('href');
+        });
+    });
 });
