@@ -247,7 +247,7 @@ function parse_smcl(source: string): SmclNode[] {
         // For args-only directives, collect everything to } as args
         if (is_args_only) {
             // Skip optional space after name
-            if (pos < source.length && is_dir_ws(source[pos])) pos++;
+            while (pos < source.length && is_dir_ws(source[pos])) pos++;
             // Also skip colon if present (some args-only directives
             // have the form {c -(} with no colon, but {cmdab:x:y} has)
             if (pos < source.length && source[pos] === ':') pos++;
