@@ -322,6 +322,22 @@ describe('resolveSthlpFile - help_file redirects', () => {
         expect(result.file_path).toBe(my_path);
     });
 
+    it('rejects path-traversal topics in resolve_sthlp_file', async () => {
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+        expect(await indexer.resolve_sthlp_file('../foo')).toBeNull();
+        expect(await indexer.resolve_sthlp_file('foo/bar')).toBeNull();
+        expect(await indexer.resolve_sthlp_file('foo\\bar')).toBeNull();
+        expect(await indexer.resolve_sthlp_file('/abs/path')).toBeNull();
+    });
+
+    it('rejects path-traversal names in resolve_ihlp_file', async () => {
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+        expect(await indexer.resolve_ihlp_file('../foo')).toBeNull();
+        expect(await indexer.resolve_ihlp_file('foo/bar')).toBeNull();
+        expect(await indexer.resolve_ihlp_file('foo\\bar')).toBeNull();
+        expect(await indexer.resolve_ihlp_file('/abs/path')).toBeNull();
+    });
+
     it('resolves strpos to f_strpos.sthlp via f_ prefix (no parens)', async () => {
         const my_dir = path.join(temp_dir, 'ado', 'f');
         const my_path = path.join(my_dir, 'f_strpos.sthlp');

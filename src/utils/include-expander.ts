@@ -15,6 +15,27 @@ import { logger } from './logger';
 const INCLUDE_RE = /^\s*INCLUDE\s+help\s+(\S+)/;
 const DEFAULT_MAX_DEPTH = 10;
 
+/**
+ * Validate that an include name / help-topic basename is safe to use
+ * as a filename component. Rejects path separators, `..` segments,
+ * absolute paths (POSIX or Windows-drive), and empty/whitespace input.
+ *
+ * This is a defense against attacker-controlled `.sthlp` files that
+ * could otherwise smuggle `INCLUDE help ../../etc/passwd` past the
+ * search-root logic in the resolvers.
+ */
+export function is_safe_include_name(name: string): boolean {
+    if (name.length === 0) return false;
+    if (name.trim().length === 0) return false;
+    if (name.includes('/') || name.includes('\\')) return false;
+    if (/^[A-Za-z]:/.test(name)) return false;
+    const the_segments = name.split(/[\\/]/);
+    for (const my_segment of the_segments) {
+        if (my_segment === '..') return false;
+    }
+    return true;
+}
+
 export interface ExpandIncludesOptions {
     /** Maximum recursion depth (default: 10). */
     max_depth?: number;
@@ -73,6 +94,18 @@ async function expand_recursive(
         }
 
         const my_name = my_match[1];
+
+        if (!is_safe_include_name(my_name)) {
+            if (!missing_logged.has(my_name)) {
+                missing_logged.add(my_name);
+                logger.debug(
+                    `INCLUDE: rejected unsafe include name "${my_name}"`
+                );
+                on_missing?.(my_name);
+            }
+            the_result.push('');
+            continue;
+        }
 
         const my_resolved = await resolver(my_name);
         if (!my_resolved) {

@@ -2,7 +2,10 @@
  * Tests for the INCLUDE directive expander.
  */
 import { describe, it, expect } from 'bun:test';
-import { expand_includes } from '../../src/utils/include-expander';
+import {
+    expand_includes,
+    is_safe_include_name,
+} from '../../src/utils/include-expander';
 
 // Stub resolver: returns content from a map, null for missing files
 function make_resolver(
@@ -125,6 +128,23 @@ describe('expand_includes', () => {
         expect(result).toBe(my_input);
     });
 
+    it('treats path-traversal include name as missing', async () => {
+        const the_warnings: string[] = [];
+        let resolver_called = false;
+        const my_resolver = async (_name: string) => {
+            resolver_called = true;
+            return null;
+        };
+        const result = await expand_includes(
+            'before\nINCLUDE help ../escape\nafter',
+            my_resolver,
+            { on_missing: (name) => the_warnings.push(name) }
+        );
+        expect(result).toBe('before\n\nafter');
+        expect(resolver_called).toBe(false);
+        expect(the_warnings).toEqual(['../escape']);
+    });
+
     it('logs missing includes (deduplicated)', async () => {
         const the_warnings: string[] = [];
         const my_resolver = make_resolver({});
@@ -135,5 +155,36 @@ describe('expand_includes', () => {
         );
         // "missing" logged once (deduplicated), "other" logged once
         expect(the_warnings).toEqual(['missing', 'other']);
+    });
+});
+
+describe('is_safe_include_name', () => {
+    it('accepts ordinary names', () => {
+        expect(is_safe_include_name('foo')).toBe(true);
+        expect(is_safe_include_name('foo_bar')).toBe(true);
+        expect(is_safe_include_name('foo.ihlp')).toBe(true);
+        expect(is_safe_include_name('_foo')).toBe(true);
+        expect(is_safe_include_name('foo-bar')).toBe(true);
+    });
+
+    it('rejects path separators', () => {
+        expect(is_safe_include_name('foo/bar')).toBe(false);
+        expect(is_safe_include_name('foo\\bar')).toBe(false);
+    });
+
+    it('rejects parent-directory components', () => {
+        expect(is_safe_include_name('..')).toBe(false);
+        expect(is_safe_include_name('../etc/passwd')).toBe(false);
+    });
+
+    it('rejects absolute paths', () => {
+        expect(is_safe_include_name('/abs/path')).toBe(false);
+        expect(is_safe_include_name('\\abs\\path')).toBe(false);
+        expect(is_safe_include_name('C:\\windows')).toBe(false);
+    });
+
+    it('rejects empty/whitespace names', () => {
+        expect(is_safe_include_name('')).toBe(false);
+        expect(is_safe_include_name('   ')).toBe(false);
     });
 });

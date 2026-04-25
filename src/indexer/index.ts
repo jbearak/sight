@@ -34,6 +34,7 @@ import { DirectiveParser } from '../directive-parser';
 import { ScopeResolver, build_scope_resolver_config } from '../scope-resolver';
 import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
+import { is_safe_include_name } from '../utils/include-expander';
 import { compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
 import { discover_stata_ado_paths } from '../utils/stata-install-paths';
@@ -987,6 +988,7 @@ export class WorkspaceIndexer {
 
     private async resolve_sthlp_basename(topic: string): Promise<string | null> {
         if (topic.length === 0) return null;
+        if (!is_safe_include_name(topic)) return null;
         const my_basename = `${topic}.sthlp`;
         const my_first_letter = topic.charAt(0).toLowerCase();
 
@@ -1038,6 +1040,7 @@ export class WorkspaceIndexer {
 
     async resolve_ihlp_file(name: string): Promise<string | null> {
         if (name.length === 0) return null;
+        if (!is_safe_include_name(name)) return null;
         // Strip .ihlp extension if already present — some SMCL files
         // write `INCLUDE help foo.ihlp` rather than `INCLUDE help foo`.
         const my_bare = name.endsWith('.ihlp')
