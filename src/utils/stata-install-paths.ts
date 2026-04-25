@@ -11,11 +11,13 @@
  * is picked up automatically when it lives in a standard location.
  *
  * This module intentionally avoids doing any work that would slow
- * startup: `fs.existsSync` is called at most a few dozen times, on
- * paths shallow enough that the check is effectively free. The
- * resolver consumes the returned list for lookups — it does NOT add
- * these directories to the workspace scanner, so we never start
- * recursively indexing thousands of built-in `.ado` files.
+ * startup: `fs.existsSync` is called at most a few hundred times
+ * (the Windows candidate set, which includes drive-root probing
+ * across mounted letters, is ~150–170 paths), on paths shallow
+ * enough that the check is effectively free. The resolver consumes
+ * the returned list for lookups — it does NOT add these directories
+ * to the workspace scanner, so we never start recursively indexing
+ * thousands of built-in `.ado` files.
  */
 import * as fs from 'fs';
 import * as os from 'os';
