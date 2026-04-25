@@ -25,6 +25,7 @@ import type { CommandCache } from '../src/command-database/types';
 import { WorkspaceIndexer } from '../src/indexer';
 import { smcl_to_html } from '../client/src/smcl-preview/smcl-to-html';
 import { expand_includes } from '../src/utils/include-expander';
+import { extract_marker_names } from '../src/utils/marker-scanner';
 import { discover_stata_ado_paths } from '../src/utils/stata-install-paths';
 
 // -----------------------------------------------------------------------
@@ -187,6 +188,28 @@ async function main(): Promise<void> {
         return my_entry;
     }
 
+    // Anchor fallback: check topic_* related files for a marker
+    async function check_anchor_in_related_files(
+        topic: string,
+        anchor: string
+    ): Promise<boolean> {
+        const the_related =
+            await my_indexer.find_related_sthlp_files(topic);
+        for (const my_candidate_path of the_related) {
+            try {
+                const my_raw = fs.readFileSync(my_candidate_path, 'utf-8');
+                const my_expanded = await expand_includes(
+                    my_raw, my_include_resolver
+                );
+                const the_markers = extract_marker_names(my_expanded);
+                if (the_markers.has(anchor)) return true;
+            } catch {
+                continue;
+            }
+        }
+        return false;
+    }
+
     // Phase 1: Render all pages
     const the_results: PageResult[] = [];
     let resolved_count = 0;
@@ -230,8 +253,14 @@ async function main(): Promise<void> {
                         reason: `Cannot resolve ${my_link.topic}.sthlp`,
                     });
                 } else if (my_link.anchor) {
-                    // Validate cross-page anchor
+                    // Validate cross-page anchor — check primary file,
+                    // then try topic_* related files (anchor fallback)
                     if (!my_target.anchor_ids.has(my_link.anchor)) {
+                        const my_fallback_found =
+                            await check_anchor_in_related_files(
+                                my_link.topic, my_link.anchor
+                            );
+                        if (my_fallback_found) continue;
                         the_broken.push({
                             source_topic: my_topic,
                             link_type: 'cross_page_anchor',
