@@ -275,6 +275,36 @@ describe('smcl_to_html', () => {
             expect(result.html).not.toContain('{opt');
         });
 
+        it('parses args-only {cmdab} split across CRLF before colon', () => {
+            const result = smcl_to_html('{cmdab\r\n:gl:obal}');
+            expect(result.html).toContain('<u>gl</u>obal');
+            expect(result.html).not.toContain('<u></u>');
+        });
+
+        it('parses args-only {cmdab} split across CR-only before colon', () => {
+            const result = smcl_to_html('{cmdab\r:gl:obal}');
+            expect(result.html).toContain('<u>gl</u>obal');
+            expect(result.html).not.toContain('<u></u>');
+        });
+
+        it('parses {help} directive split across CR-only newline', () => {
+            const result = smcl_to_html(
+                '{help\rgrmap##sd_master:{it:master}}'
+            );
+            expect(result.html).toContain('data-smcl-topic="grmap"');
+            expect(result.html).toContain('data-smcl-anchor="sd_master"');
+            expect(result.html).not.toContain('data-smcl-topic=""');
+        });
+
+        it('parses {help} directive with mixed whitespace before colon', () => {
+            const result = smcl_to_html(
+                '{help \r\n grmap##sd_master:{it:master}}'
+            );
+            expect(result.html).toContain('data-smcl-topic="grmap"');
+            expect(result.html).toContain('data-smcl-anchor="sd_master"');
+            expect(result.html).not.toContain('data-smcl-topic=""');
+        });
+
         it('renders {help topic:display} with custom text', () => {
             const result = smcl_to_html('{help regress:regression}');
             expect(result.html).toContain('data-smcl-topic="regress"');
