@@ -1451,6 +1451,8 @@ export class SemanticAnalyzer {
      * in this position, so a lone storage-type token (e.g. `gen byte = 1`,
      * which is invalid Stata) yields no variable.
      */
+    // Pushes diagnostics to this.current_diagnostics; only call from within an
+    // analyze() cycle (e.g., process_command → extract_gen_variable / extract_egen_variable).
     private pick_new_variable(node: CommandNode): IdentifierNode | undefined {
         if (!node.varlist || node.varlist.length === 0) {
             return undefined;
@@ -1475,22 +1477,22 @@ export class SemanticAnalyzer {
      * Syntax: gen[erate] [type] newvar = exp
      */
     private extract_gen_variable(node: CommandNode, symbols: SymbolTable): void {
-        const the_new_var = this.pick_new_variable(node);
-        if (!the_new_var) return;
+        const new_var = this.pick_new_variable(node);
+        if (!new_var) return;
 
         // Skip macro references - they are not actual variable definitions
-        if (this.is_macro_reference(the_new_var.name)) {
+        if (this.is_macro_reference(new_var.name)) {
             return;
         }
 
         const var_symbol: VariableSymbol = {
-            name: the_new_var.name,
-            location: { uri: this.uri, range: the_new_var.range },
+            name: new_var.name,
+            location: { uri: this.uri, range: new_var.range },
             sourceUri: this.uri,
             source: 'gen',
         };
 
-        symbols.variables.set(the_new_var.name, var_symbol);
+        symbols.variables.set(new_var.name, var_symbol);
     }
 
     /**
@@ -1498,22 +1500,22 @@ export class SemanticAnalyzer {
      * Syntax: egen [type] newvar = fcn(arguments)
      */
     private extract_egen_variable(node: CommandNode, symbols: SymbolTable): void {
-        const the_new_var = this.pick_new_variable(node);
-        if (!the_new_var) return;
+        const new_var = this.pick_new_variable(node);
+        if (!new_var) return;
 
         // Skip macro references - they are not actual variable definitions
-        if (this.is_macro_reference(the_new_var.name)) {
+        if (this.is_macro_reference(new_var.name)) {
             return;
         }
 
         const var_symbol: VariableSymbol = {
-            name: the_new_var.name,
-            location: { uri: this.uri, range: the_new_var.range },
+            name: new_var.name,
+            location: { uri: this.uri, range: new_var.range },
             sourceUri: this.uri,
             source: 'egen',
         };
 
-        symbols.variables.set(the_new_var.name, var_symbol);
+        symbols.variables.set(new_var.name, var_symbol);
     }
 
     /**
