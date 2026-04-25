@@ -229,4 +229,82 @@ describe('resolveSthlpFile - help_file redirects', () => {
 
         expect(result.file_path).toBeNull();
     });
+
+    it('resolves _N to _variables.sthlp via system variable fallback', async () => {
+        const my_var_dir = path.join(temp_dir, 'ado', '_');
+        const my_var_path = path.join(my_var_dir, '_variables.sthlp');
+        fs.mkdirSync(my_var_dir, { recursive: true });
+        fs.writeFileSync(my_var_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: '_N' });
+
+        expect(result.file_path).toBe(my_var_path);
+    });
+
+    it('resolves #delimit to delimit.sthlp via hash-prefix fallback', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'd');
+        const my_path = path.join(my_dir, 'delimit.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: '#delimit' });
+
+        expect(result.file_path).toBe(my_path);
+    });
+
+    it('resolves stata-be to statabe.sthlp via hyphen-to-underscore + alias', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 's');
+        const my_path = path.join(my_dir, 'statabe.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+        fs.writeFileSync(
+            path.join(my_dir, 'shelp_alias.maint'),
+            'stata_be\t\tstatabe\n'
+        );
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'stata-be' });
+
+        expect(result.file_path).toBe(my_path);
+    });
+
+    it('resolves Java to java_intro.sthlp via case + alias fallback', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'j');
+        const my_intro_path = path.join(my_dir, 'java_intro.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_intro_path, '{smcl}');
+        fs.writeFileSync(
+            path.join(my_dir, 'jhelp_alias.maint'),
+            'java\t\tjava_intro\n'
+        );
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'Java' });
+
+        expect(result.file_path).toBe(my_intro_path);
+    });
+
+    it('resolves dynamic to dynamic_intro.sthlp via suffix probing', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'd');
+        const my_path = path.join(my_dir, 'dynamic_intro.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'dynamic' });
+
+        expect(result.file_path).toBe(my_path);
+    });
 });
