@@ -119,19 +119,26 @@ export class SmclPanelManager implements vscode.Disposable {
     }
 
     private async show_not_found_message(topic: string): Promise<void> {
-        const my_open_settings_label = 'Open Settings';
+        const my_copy_label = 'Copy Command';
+        const my_settings_label = 'Open Settings';
+        const my_help_command = `help ${topic}`;
         const my_message =
             `Couldn't find a help file for '${topic}'.` +
-            ` Sight searched your workspace and common Stata install` +
-            ` locations (e.g. /Applications/Stata/ado, /usr/local/stata,` +
-            ` C:\\Program Files\\Stata, and ~/ado). Add the directory` +
-            ` containing the .sthlp file to sight.adoPaths if Sight is` +
-            ` missing it.`;
+            ` You can view this topic by running` +
+            ` \`${my_help_command}\` in Stata, or add the` +
+            ` directory containing the .sthlp file to` +
+            ` sight.adoPaths in Settings.`;
         const my_choice = await vscode.window.showInformationMessage(
             my_message,
-            my_open_settings_label
+            my_copy_label,
+            my_settings_label
         );
-        if (my_choice === my_open_settings_label) {
+        if (my_choice === my_copy_label) {
+            await vscode.env.clipboard.writeText(my_help_command);
+            vscode.window.showInformationMessage(
+                `Copied \`${my_help_command}\` to clipboard.`
+            );
+        } else if (my_choice === my_settings_label) {
             await vscode.commands.executeCommand(
                 'workbench.action.openSettings',
                 'sight.adoPaths'
