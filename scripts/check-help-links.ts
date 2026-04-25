@@ -163,6 +163,33 @@ async function main(): Promise<void> {
         }
     };
 
+    // Resolve a topic with the same fallbacks as the LSP handler
+    async function resolve_topic(topic: string): Promise<string | null> {
+        const my_direct = await my_indexer.resolve_sthlp_file(topic);
+        if (my_direct) return my_direct;
+
+        // Function-name fallback: float() → f_float.sthlp
+        if (topic.endsWith('()')) {
+            const my_func_name = topic.slice(0, -2);
+            if (my_func_name.length > 0) {
+                const my_func_path = await my_indexer.resolve_sthlp_file(
+                    `f_${my_func_name}`
+                );
+                if (my_func_path) return my_func_path;
+            }
+        }
+
+        // System variable fallback: _N, _n, _pi, _rc → _variables
+        if (topic.startsWith('_')) {
+            const my_sysvar_path = await my_indexer.resolve_sthlp_file(
+                '_variables'
+            );
+            if (my_sysvar_path) return my_sysvar_path;
+        }
+
+        return null;
+    }
+
     // Render and cache a topic; returns null if unresolvable
     async function render_topic(
         topic: string
@@ -170,7 +197,7 @@ async function main(): Promise<void> {
         const my_cached = the_page_cache.get(topic);
         if (my_cached) return my_cached;
 
-        const my_file_path = await my_indexer.resolve_sthlp_file(topic);
+        const my_file_path = await resolve_topic(topic);
         if (!my_file_path) return null;
 
         const my_raw_content = fs.readFileSync(my_file_path, 'utf-8');
