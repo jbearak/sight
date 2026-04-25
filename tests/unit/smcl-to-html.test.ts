@@ -311,6 +311,27 @@ describe('smcl_to_html', () => {
             );
         });
 
+        it('handles quoted URL in browse without display text', () => {
+            const result = smcl_to_html(
+                '{browse "https://example.com"}'
+            );
+            expect(result.html).toContain(
+                'href="https://example.com"'
+            );
+            expect(result.html).toContain('smcl-browse');
+        });
+
+        it('handles quoted URL in browse with display text', () => {
+            const result = smcl_to_html(
+                '{browse "https://www.youtube.com/watch?v=l5QM2RzU3VM"' +
+                ':How to label variables}'
+            );
+            expect(result.html).toContain(
+                'href="https://www.youtube.com/watch?v=l5QM2RzU3VM"'
+            );
+            expect(result.html).toContain('How to label variables</a>');
+        });
+
         it('renders {marker name} as anchor', () => {
             const result = smcl_to_html('{marker syntax}');
             expect(result.html).toContain('id="syntax"');

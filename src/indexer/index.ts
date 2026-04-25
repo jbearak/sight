@@ -1038,8 +1038,13 @@ export class WorkspaceIndexer {
 
     async resolve_ihlp_file(name: string): Promise<string | null> {
         if (name.length === 0) return null;
-        const my_basename = `${name}.ihlp`;
-        const my_first_letter = name.charAt(0).toLowerCase();
+        // Strip .ihlp extension if already present — some SMCL files
+        // write `INCLUDE help foo.ihlp` rather than `INCLUDE help foo`.
+        const my_bare = name.endsWith('.ihlp')
+            ? name.slice(0, -5)
+            : name;
+        const my_basename = `${my_bare}.ihlp`;
+        const my_first_letter = my_bare.charAt(0).toLowerCase();
 
         const the_search_dirs = [
             ...this.ado_paths,

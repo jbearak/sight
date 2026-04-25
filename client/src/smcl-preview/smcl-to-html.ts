@@ -974,12 +974,18 @@ function render_help_link(
         ? render_content(directive, ctx)
         : escape_html(my_full_topic);
 
-    // Split topic##anchor — Stata uses ## as the anchor separator
+    // Split topic##anchor — Stata uses ## as the anchor separator.
+    // When a ## is present, the topic portion may contain spaces
+    // (e.g. "diagnostic plots##options2") and is kept whole so the
+    // resolver can map it to "diagnostic_plots.sthlp". Without ##,
+    // only the first word is used (e.g. "matrix list" → "matrix")
+    // because Stata's {help} without an anchor typically addresses the
+    // parent page rather than a subcommand variant.
     const my_anchor_idx = my_full_topic.indexOf('##');
     const my_topic_name = (my_anchor_idx >= 0
         ? my_full_topic.substring(0, my_anchor_idx)
-        : my_full_topic
-    ).split(' ')[0].trim();
+        : my_full_topic.split(' ')[0]
+    ).trim();
     const my_anchor = my_anchor_idx >= 0
         ? my_full_topic.substring(my_anchor_idx + 2).split(' ')[0].trim()
         : '';
@@ -1277,6 +1283,24 @@ function split_browse_args(
     // separator. Scanning from the end correctly handles port
     // numbers (http://host:8080) and mailto: URLs since the
     // display separator is always the final colon.
+    // Stata allows quoting the URL in {browse} — e.g.:
+    //   {browse "https://example.com"}
+    //   {browse "https://example.com":display text}
+    // In both forms the URL is wrapped in double quotes. Handle the
+    // quoted form first so later colon-splitting works on bare URLs.
+    if (raw.startsWith('"')) {
+        const my_close = raw.indexOf('"', 1);
+        if (my_close > 0) {
+            const my_url = raw.substring(1, my_close);
+            // After the closing quote, expect either nothing or ":display"
+            const my_after = raw.substring(my_close + 1);
+            const my_display = my_after.startsWith(':')
+                ? my_after.substring(1)
+                : null;
+            return { url: my_url, display: my_display };
+        }
+    }
+
     const my_last_colon = raw.lastIndexOf(':');
     if (my_last_colon < 0) {
         return { url: raw, display: null };
@@ -1298,6 +1322,17 @@ function split_browse_args(
     }
 
     return { url: my_url, display: my_display };
+}
+
+/**
+ * Strip a single pair of surrounding double quotes from a string,
+ * if present. Used to normalize quoted URLs in {browse} directives.
+ */
+function strip_surrounding_quotes(s: string): string {
+    if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+        return s.slice(1, -1);
+    }
+    return s;
 }
 
 function render_marker(directive: SmclDirective): string {
