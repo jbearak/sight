@@ -62,6 +62,7 @@ import {
     create_get_working_directory_handler,
     create_resolve_sthlp_file_handler,
     create_resolve_findalias_handler,
+    create_expand_includes_handler,
 } from './server-handlers';
 
 import type { TransportType } from './cli';
@@ -1135,6 +1136,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     const resolve_findalias_handler = create_resolve_findalias_handler(handler_deps);
     connection.onRequest('sight/resolveFindalias', resolve_findalias_handler);
+
+    const expand_includes_handler = create_expand_includes_handler(handler_deps);
+    connection.onRequest('sight/expandIncludes', expand_includes_handler);
 
     // Start listening
     documents.listen(connection);

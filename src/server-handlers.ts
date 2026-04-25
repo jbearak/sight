@@ -48,6 +48,8 @@ import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DependencyGraph } from './dependency-graph';
 import { RenameHandler } from './utils/file-rename-handler';
 import { DebounceManager, DocumentDebounceManager } from './utils/debounce-manager';
+import * as fs from 'fs';
+import { expand_includes, IncludeResolver } from './utils/include-expander';
 
 /**
  * Interface defining all dependencies required by LSP handlers.
@@ -1065,5 +1067,70 @@ export function create_resolve_findalias_handler(
         const my_resolver = deps.workspace_indexer.get_findalias_resolver();
         const my_smcl = my_resolver.lookup(my_alias);
         return { smcl: my_smcl };
+    };
+}
+
+// -----------------------------------------------------------------------
+// sight/expandIncludes
+// -----------------------------------------------------------------------
+
+export interface ExpandIncludesParams {
+    content: string;
+}
+
+export interface ExpandIncludesResult {
+    content: string;
+}
+
+const MAX_IHLP_CACHE_SIZE = 500;
+
+/**
+ * Creates the custom request handler for `sight/expandIncludes`.
+ *
+ * Expands `{include filename.ihlp}` directives in SMCL content by
+ * resolving `.ihlp` files through the workspace indexer's ado-path
+ * search. Cached up to 500 entries. Returns the original content when
+ * no workspace indexer is available.
+ */
+export function create_expand_includes_handler(
+    deps: HandlerDependencies
+): (params: ExpandIncludesParams) => Promise<ExpandIncludesResult> {
+    const the_ihlp_cache = new Map<string, string>();
+
+    const my_resolver: IncludeResolver = async (name: string) => {
+        if (!deps.workspace_indexer) return null;
+
+        const my_path = await deps.workspace_indexer.resolve_ihlp_file(name);
+        if (!my_path) return null;
+
+        const my_cached = the_ihlp_cache.get(my_path);
+        if (my_cached !== undefined) return { path: my_path, content: my_cached };
+
+        try {
+            const my_content = await fs.promises.readFile(my_path, 'utf8');
+            if (the_ihlp_cache.size >= MAX_IHLP_CACHE_SIZE) {
+                const my_first_key = the_ihlp_cache.keys().next().value;
+                if (my_first_key !== undefined) {
+                    the_ihlp_cache.delete(my_first_key);
+                }
+            }
+            the_ihlp_cache.set(my_path, my_content);
+            return { path: my_path, content: my_content };
+        } catch (my_err) {
+            deps.connection.console.log(
+                `[debug] expand_includes: failed to read ${my_path}: ${my_err}`
+            );
+            return null;
+        }
+    };
+
+    return async (
+        params: ExpandIncludesParams
+    ): Promise<ExpandIncludesResult> => {
+        if (!deps.workspace_indexer) {
+            return { content: params.content };
+        }
+        const my_result = await expand_includes(params.content, my_resolver);
+        return { content: my_result };
     };
 }
