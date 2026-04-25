@@ -138,6 +138,14 @@ export const STATA_SYSTEM_GLOBALS = new Set<string>([
 // Weight argument types constant
 const WEIGHT_TYPES = ['weight', 'fweight', 'fw', 'aweight', 'aw', 'pweight', 'pw', 'iweight', 'iw'] as const;
 
+const STATA_STORAGE_TYPES = new Set(['byte', 'int', 'long', 'float', 'double', 'str', 'strL']);
+
+function is_stata_storage_type(name: string): boolean {
+    if (STATA_STORAGE_TYPES.has(name)) return true;
+    // str1..str2045
+    return /^str\d+$/.test(name);
+}
+
 export class SemanticAnalyzer {
     private uri: string = '';
     private config: AnalyzerConfig = create_default_config();
@@ -1427,9 +1435,11 @@ export class SemanticAnalyzer {
             return;
         }
 
-        // The first identifier in varlist is typically the new variable name
-        // (may be preceded by type in some cases, but we'll take first as approximation)
-        const first_var = node.varlist[0];
+        // Skip a leading Stata storage type (byte, int, long, float, double,
+        // str, str#, strL) so the new variable — not the type — is extracted.
+        const first_var = node.varlist.length > 1 && is_stata_storage_type(node.varlist[0].name)
+            ? node.varlist[1]
+            : node.varlist[0];
 
         // Skip macro references - they are not actual variable definitions
         if (this.is_macro_reference(first_var.name)) {
@@ -1455,7 +1465,9 @@ export class SemanticAnalyzer {
             return;
         }
 
-        const first_var = node.varlist[0];
+        const first_var = node.varlist.length > 1 && is_stata_storage_type(node.varlist[0].name)
+            ? node.varlist[1]
+            : node.varlist[0];
 
         // Skip macro references - they are not actual variable definitions
         if (this.is_macro_reference(first_var.name)) {

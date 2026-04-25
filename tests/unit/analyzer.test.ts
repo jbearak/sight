@@ -180,6 +180,22 @@ end`;
             expect(variable?.source).toBe('gen');
         });
 
+        it('should skip storage type when extracting gen variable', () => {
+            const result = analyze('gen byte most_recent = 1');
+
+            expect(result.symbols.variables.has('most_recent')).toBe(true);
+            expect(result.symbols.variables.has('byte')).toBe(false);
+            const variable = result.symbols.variables.get('most_recent');
+            expect(variable?.source).toBe('gen');
+        });
+
+        it('should skip storage type when extracting egen variable', () => {
+            const result = analyze('egen double total = sum(x)');
+
+            expect(result.symbols.variables.has('total')).toBe(true);
+            expect(result.symbols.variables.has('double')).toBe(false);
+        });
+
         it('should NOT register local macro references as variables in gen', () => {
             const result = analyze('gen `my_var\' = 1');
             
