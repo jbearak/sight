@@ -968,26 +968,56 @@ function render_help_link(
     bold: boolean,
     italic: boolean
 ): string {
-    // {help topic} or {help topic:display_text}
-    const my_topic = directive.args || '';
+    // {help topic} or {help topic##anchor} or {help topic:display_text}
+    const my_full_topic = directive.args || '';
     const my_display = directive.content.length > 0
         ? render_content(directive, ctx)
-        : escape_html(my_topic);
+        : escape_html(my_full_topic);
 
-    // Extract topic name (may have ## suffix for anchor)
-    const my_topic_name = my_topic.split('#')[0].split(' ')[0].trim();
+    // Split topic##anchor — Stata uses ## as the anchor separator
+    const my_anchor_idx = my_full_topic.indexOf('##');
+    const my_topic_name = (my_anchor_idx >= 0
+        ? my_full_topic.substring(0, my_anchor_idx)
+        : my_full_topic
+    ).split(' ')[0].trim();
+    const my_anchor = my_anchor_idx >= 0
+        ? my_full_topic.substring(my_anchor_idx + 2).split(' ')[0].trim()
+        : '';
 
     const my_id = `smcl-ref-${ctx.ref_counter++}`;
     ctx.cross_references.push({
         topic: my_topic_name,
-        display_text: my_topic,
+        display_text: my_full_topic,
         element_id: my_id,
     });
 
-    let my_html =
-        `<a class="smcl-help-link" id="${my_id}" ` +
-        `href="#" data-smcl-topic="${escape_html(my_topic_name)}"` +
-        `>${my_display}</a>`;
+    let my_html: string;
+
+    // Same-page anchor: render as in-page jump link
+    if (
+        my_anchor &&
+        ctx.current_topic &&
+        my_topic_name === ctx.current_topic
+    ) {
+        my_html =
+            `<a class="smcl-jumpto" id="${my_id}" ` +
+            `href="#${escape_html(my_anchor)}"` +
+            `>${my_display}</a>`;
+    } else if (my_anchor) {
+        // Cross-page anchor: navigate link with anchor data
+        my_html =
+            `<a class="smcl-help-link" id="${my_id}" ` +
+            `href="#" data-smcl-topic="${escape_html(my_topic_name)}" ` +
+            `data-smcl-anchor="${escape_html(my_anchor)}"` +
+            `>${my_display}</a>`;
+    } else {
+        // No anchor: standard navigate link
+        my_html =
+            `<a class="smcl-help-link" id="${my_id}" ` +
+            `href="#" data-smcl-topic="${escape_html(my_topic_name)}"` +
+            `>${my_display}</a>`;
+    }
+
     if (bold) my_html = `<strong>${my_html}</strong>`;
     if (italic) my_html = `<em>${my_html}</em>`;
     return my_html;

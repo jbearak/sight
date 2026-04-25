@@ -378,6 +378,57 @@ describe('smcl_to_html', () => {
             // render either.
             expect(result.html).not.toContain('"--"');
         });
+
+        describe('anchor links', () => {
+            it('renders same-page anchor as jumpto link', () => {
+                const result = smcl_to_html('{help regress##syntax}', {
+                    current_topic: 'regress',
+                });
+                expect(result.html).toContain('class="smcl-jumpto"');
+                expect(result.html).toContain('href="#syntax"');
+                expect(result.html).not.toContain('data-smcl-topic');
+            });
+
+            it('renders cross-page anchor with data-smcl-anchor', () => {
+                const result = smcl_to_html('{help regress##syntax}', {
+                    current_topic: 'generate',
+                });
+                expect(result.html).toContain('data-smcl-topic="regress"');
+                expect(result.html).toContain('data-smcl-anchor="syntax"');
+            });
+
+            it('renders anchor-only link (no topic change) as jumpto', () => {
+                const result = smcl_to_html('{help generate##description}', {
+                    current_topic: 'generate',
+                });
+                expect(result.html).toContain('href="#description"');
+                expect(result.html).toContain('class="smcl-jumpto"');
+            });
+
+            it('renders help link without anchor unchanged', () => {
+                const result = smcl_to_html('{help regress}', {
+                    current_topic: 'generate',
+                });
+                expect(result.html).toContain('data-smcl-topic="regress"');
+                expect(result.html).not.toContain('data-smcl-anchor');
+            });
+
+            it('renders anchor link with display text', () => {
+                const result = smcl_to_html(
+                    '{help regress##syntax:click here}',
+                    { current_topic: 'generate' }
+                );
+                expect(result.html).toContain('data-smcl-topic="regress"');
+                expect(result.html).toContain('data-smcl-anchor="syntax"');
+                expect(result.html).toContain('click here');
+            });
+
+            it('cross-page anchor link without current_topic uses navigate', () => {
+                const result = smcl_to_html('{help regress##syntax}');
+                expect(result.html).toContain('data-smcl-topic="regress"');
+                expect(result.html).toContain('data-smcl-anchor="syntax"');
+            });
+        });
     });
 
     describe('nested directives', () => {
