@@ -196,6 +196,51 @@ end`;
             expect(result.symbols.variables.has('double')).toBe(false);
         });
 
+        it('should skip str# storage type when extracting gen variable', () => {
+            const result = analyze('gen str20 name = "x"');
+
+            expect(result.symbols.variables.has('name')).toBe(true);
+            expect(result.symbols.variables.has('str20')).toBe(false);
+        });
+
+        it('should skip strL storage type when extracting gen variable', () => {
+            const result = analyze('gen strL longstr = "x"');
+
+            expect(result.symbols.variables.has('longstr')).toBe(true);
+            expect(result.symbols.variables.has('strL')).toBe(false);
+        });
+
+        it('should skip abbreviated double storage type (dou/doub/doubl)', () => {
+            for (const abbrev of ['dou', 'doub', 'doubl']) {
+                const result = analyze(`gen ${abbrev} myvar = 1`);
+                expect(result.symbols.variables.has('myvar')).toBe(true);
+                expect(result.symbols.variables.has(abbrev)).toBe(false);
+            }
+        });
+
+        it('should skip abbreviated float storage type (floa)', () => {
+            const result = analyze('gen floa myvar = 1');
+
+            expect(result.symbols.variables.has('myvar')).toBe(true);
+            expect(result.symbols.variables.has('floa')).toBe(false);
+        });
+
+        it('should NOT treat capitalized Byte as a storage type (case-sensitive)', () => {
+            // Stata rejects `Byte` as a storage type, so we should not silently
+            // swallow it. The first token is registered as the variable name.
+            const result = analyze('gen Byte x = 1');
+
+            expect(result.symbols.variables.has('Byte')).toBe(true);
+        });
+
+        it('should treat lone storage-type-like name as the variable name', () => {
+            // `gen byte = 1` is legal Stata creating a variable literally named
+            // `byte` (no storage type, no other token). Falls back to varlist[0].
+            const result = analyze('gen byte = 1');
+
+            expect(result.symbols.variables.has('byte')).toBe(true);
+        });
+
         it('should NOT register local macro references as variables in gen', () => {
             const result = analyze('gen `my_var\' = 1');
             

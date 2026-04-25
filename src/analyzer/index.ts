@@ -25,6 +25,7 @@ import {
     MacroReference,
     DeclarationDirective,
     ForwardCall,
+    IdentifierNode,
 } from '../types';
 import { DirectiveParser } from '../directive-parser';
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
@@ -138,7 +139,15 @@ export const STATA_SYSTEM_GLOBALS = new Set<string>([
 // Weight argument types constant
 const WEIGHT_TYPES = ['weight', 'fweight', 'fw', 'aweight', 'aw', 'pweight', 'pw', 'iweight', 'iw'] as const;
 
-const STATA_STORAGE_TYPES = new Set(['byte', 'int', 'long', 'float', 'double', 'str', 'strL']);
+// Stata storage types accepted in `generate`/`egen`. Case-sensitive.
+// `double` may be abbreviated to `dou`, `doub`, `doubl`; `float` to `floa`.
+// `byte`, `int`, `long`, `str`, and `strL` have no shorter forms.
+const STATA_STORAGE_TYPES = new Set([
+    'byte', 'int', 'long',
+    'float', 'floa',
+    'double', 'doubl', 'doub', 'dou',
+    'str', 'strL',
+]);
 
 function is_stata_storage_type(name: string): boolean {
     if (STATA_STORAGE_TYPES.has(name)) return true;
@@ -1427,33 +1436,42 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * Pick the new-variable token from a `gen`/`egen` varlist, skipping a
+     * leading storage type when present. If only one token is present (e.g.
+     * `gen byte = 1`, which Stata accepts as a variable literally named
+     * `byte`), it is treated as the variable name.
+     */
+    private pick_new_variable(node: CommandNode): IdentifierNode | undefined {
+        if (!node.varlist || node.varlist.length === 0) {
+            return undefined;
+        }
+        if (node.varlist.length > 1 && is_stata_storage_type(node.varlist[0].name)) {
+            return node.varlist[1];
+        }
+        return node.varlist[0];
+    }
+
+    /**
      * Extract variable from generate command.
      * Syntax: gen[erate] [type] newvar = exp
      */
     private extract_gen_variable(node: CommandNode, symbols: SymbolTable): void {
-        if (!node.varlist || node.varlist.length === 0) {
-            return;
-        }
-
-        // Skip a leading Stata storage type (byte, int, long, float, double,
-        // str, str#, strL) so the new variable — not the type — is extracted.
-        const first_var = node.varlist.length > 1 && is_stata_storage_type(node.varlist[0].name)
-            ? node.varlist[1]
-            : node.varlist[0];
+        const the_new_var = this.pick_new_variable(node);
+        if (!the_new_var) return;
 
         // Skip macro references - they are not actual variable definitions
-        if (this.is_macro_reference(first_var.name)) {
+        if (this.is_macro_reference(the_new_var.name)) {
             return;
         }
 
         const var_symbol: VariableSymbol = {
-            name: first_var.name,
-            location: { uri: this.uri, range: first_var.range },
+            name: the_new_var.name,
+            location: { uri: this.uri, range: the_new_var.range },
             sourceUri: this.uri,
             source: 'gen',
         };
 
-        symbols.variables.set(first_var.name, var_symbol);
+        symbols.variables.set(the_new_var.name, var_symbol);
     }
 
     /**
@@ -1461,27 +1479,22 @@ export class SemanticAnalyzer {
      * Syntax: egen [type] newvar = fcn(arguments)
      */
     private extract_egen_variable(node: CommandNode, symbols: SymbolTable): void {
-        if (!node.varlist || node.varlist.length === 0) {
-            return;
-        }
-
-        const first_var = node.varlist.length > 1 && is_stata_storage_type(node.varlist[0].name)
-            ? node.varlist[1]
-            : node.varlist[0];
+        const the_new_var = this.pick_new_variable(node);
+        if (!the_new_var) return;
 
         // Skip macro references - they are not actual variable definitions
-        if (this.is_macro_reference(first_var.name)) {
+        if (this.is_macro_reference(the_new_var.name)) {
             return;
         }
 
         const var_symbol: VariableSymbol = {
-            name: first_var.name,
-            location: { uri: this.uri, range: first_var.range },
+            name: the_new_var.name,
+            location: { uri: this.uri, range: the_new_var.range },
             sourceUri: this.uri,
             source: 'egen',
         };
 
-        symbols.variables.set(first_var.name, var_symbol);
+        symbols.variables.set(the_new_var.name, var_symbol);
     }
 
     /**
