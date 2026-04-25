@@ -113,7 +113,8 @@ export class SmclPanelManager implements vscode.Disposable {
             `Couldn't find a help file for '${topic}'.` +
             ` Sight searched your workspace and common Stata install` +
             ` locations (e.g. /Applications/Stata/ado, /usr/local/stata,` +
-            ` C:\\Program Files\\Stata, and ~/ado). Add the directory` +
+            ` C:\\Program Files\\Stata, C:\\Stata, C:\\ado, and ~/ado).` +
+            ` Add the directory` +
             ` containing the .sthlp file to sight.adoPaths if Sight is` +
             ` missing it.`;
         const my_choice = await vscode.window.showInformationMessage(

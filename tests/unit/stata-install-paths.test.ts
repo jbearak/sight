@@ -174,6 +174,59 @@ describe('discover_stata_ado_paths', () => {
             expect(the_paths).toEqual(the_present);
         });
 
+        it('discovers drive-root installs like C:\\Stata18 with no Program Files entries', () => {
+            const the_present = [
+                path.win32.resolve('C:\\Stata18\\ado\\base'),
+            ];
+            const the_paths = discover_stata_ado_paths({
+                home: 'C:\\Users\\me',
+                platform: 'win32',
+                exists: make_exists(the_present, path.win32),
+                env: {},
+            });
+            expect(the_paths).toEqual(the_present);
+        });
+
+        it('discovers drive-root installs on alternate drives like D:\\Stata17', () => {
+            const the_present = [
+                path.win32.resolve('D:\\Stata17\\ado\\base'),
+            ];
+            const the_paths = discover_stata_ado_paths({
+                home: 'C:\\Users\\me',
+                platform: 'win32',
+                exists: make_exists(the_present, path.win32),
+                env: {},
+            });
+            expect(the_paths).toEqual(the_present);
+        });
+
+        it('discovers Stata default PLUS at C:\\ado\\plus on Windows', () => {
+            const the_present = [
+                path.win32.resolve('C:\\ado\\personal'),
+                path.win32.resolve('C:\\ado\\plus'),
+            ];
+            const the_paths = discover_stata_ado_paths({
+                home: 'C:\\Users\\me',
+                platform: 'win32',
+                exists: make_exists(the_present, path.win32),
+                env: {},
+            });
+            expect(the_paths).toEqual(the_present);
+        });
+
+        it('honours SystemDrive env var for ado defaults', () => {
+            const the_present = [
+                path.win32.resolve('D:\\ado\\plus'),
+            ];
+            const the_paths = discover_stata_ado_paths({
+                home: 'C:\\Users\\me',
+                platform: 'win32',
+                exists: make_exists(the_present, path.win32),
+                env: { SystemDrive: 'D:' },
+            });
+            expect(the_paths).toEqual(the_present);
+        });
+
         it('includes the home-directory ~/ado conventions on Windows too', () => {
             const the_present = [
                 path.win32.resolve('C:\\Users\\me\\ado\\personal'),
