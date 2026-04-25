@@ -1101,6 +1101,7 @@ export class WorkspaceIndexer {
             ...this.help_search_paths,
         ];
 
+        const the_seen = new Set<string>();
         const the_results: string[] = [];
         for (const my_dir of the_search_dirs) {
             // Check letter subdirectory first
@@ -1108,14 +1109,20 @@ export class WorkspaceIndexer {
             const the_subdir_matches =
                 await this.list_matching_sthlp(my_subdir, my_prefix);
             for (const my_match of the_subdir_matches) {
-                the_results.push(my_match);
+                if (!the_seen.has(my_match)) {
+                    the_seen.add(my_match);
+                    the_results.push(my_match);
+                }
             }
 
             // Check flat directory
             const the_flat_matches =
                 await this.list_matching_sthlp(my_dir, my_prefix);
             for (const my_match of the_flat_matches) {
-                the_results.push(my_match);
+                if (!the_seen.has(my_match)) {
+                    the_seen.add(my_match);
+                    the_results.push(my_match);
+                }
             }
         }
 

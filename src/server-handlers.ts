@@ -877,6 +877,55 @@ export interface ResolveSthlpFileResult {
     file_path: string | null;
 }
 
+// -----------------------------------------------------------------------
+// Shared ihlp cache and include-resolver used by both
+// `create_resolve_sthlp_file_handler` (anchor fallback) and
+// `create_expand_includes_handler` (webview rendering).
+// -----------------------------------------------------------------------
+
+const MAX_IHLP_CACHE_SIZE = 500;
+
+/**
+ * Create a shared `IncludeResolver` backed by a single LRU-ish cache
+ * so the same `.ihlp` file is never read from disk twice.
+ */
+export function create_shared_ihlp_resolver(
+    deps: HandlerDependencies
+): { resolver: IncludeResolver; cache: Map<string, string> } {
+    const the_cache = new Map<string, string>();
+
+    const my_resolver: IncludeResolver = async (name: string) => {
+        if (!deps.workspace_indexer) return null;
+
+        const my_path =
+            await deps.workspace_indexer.resolve_ihlp_file(name);
+        if (!my_path) return null;
+
+        const my_cached = the_cache.get(my_path);
+        if (my_cached !== undefined) {
+            return { path: my_path, content: my_cached };
+        }
+
+        try {
+            const my_content = await fs.promises.readFile(
+                my_path, 'utf-8'
+            );
+            if (the_cache.size >= MAX_IHLP_CACHE_SIZE) {
+                const my_first = the_cache.keys().next().value;
+                if (my_first !== undefined) {
+                    the_cache.delete(my_first);
+                }
+            }
+            the_cache.set(my_path, my_content);
+            return { path: my_path, content: my_content };
+        } catch {
+            return null;
+        }
+    };
+
+    return { resolver: my_resolver, cache: the_cache };
+}
+
 /**
  * Creates the custom request handler for sight/resolveSthlpFile.
  *
@@ -884,11 +933,11 @@ export interface ResolveSthlpFileResult {
  * by searching ado-paths and workspace roots.
  */
 export function create_resolve_sthlp_file_handler(
-    deps: HandlerDependencies
+    deps: HandlerDependencies,
+    shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, string> }
 ): (params: ResolveSthlpFileParams) => Promise<ResolveSthlpFileResult> {
-    // Cache for include-expanded file content used during marker scanning
-    const the_ihlp_cache = new Map<string, string>();
-    const CACHE_MAX_SIZE = 500;
+    const { resolver: my_ihlp_resolver } =
+        shared_ihlp ?? create_shared_ihlp_resolver(deps);
 
     /**
      * Read a .sthlp file, expand its INCLUDE directives, and return
@@ -903,31 +952,7 @@ export function create_resolve_sthlp_file_handler(
             const my_content = await fs.promises.readFile(
                 file_path, 'utf-8'
             );
-            const my_resolver: IncludeResolver = async (name: string) => {
-                const my_path =
-                    await deps.workspace_indexer!.resolve_ihlp_file(name);
-                if (!my_path) return null;
-                const my_cached = the_ihlp_cache.get(my_path);
-                if (my_cached !== undefined) {
-                    return { path: my_path, content: my_cached };
-                }
-                try {
-                    const my_file_content = await fs.promises.readFile(
-                        my_path, 'utf-8'
-                    );
-                    if (the_ihlp_cache.size >= CACHE_MAX_SIZE) {
-                        const my_first = the_ihlp_cache.keys().next().value;
-                        if (my_first !== undefined) {
-                            the_ihlp_cache.delete(my_first);
-                        }
-                    }
-                    the_ihlp_cache.set(my_path, my_file_content);
-                    return { path: my_path, content: my_file_content };
-                } catch {
-                    return null;
-                }
-            };
-            return expand_includes(my_content, my_resolver);
+            return expand_includes(my_content, my_ihlp_resolver);
         } catch {
             return null;
         }
@@ -1081,9 +1106,12 @@ export function create_resolve_sthlp_file_handler(
             }
         }
 
-        // 4. Function-name fallback: float() → f_float.sthlp
-        if (my_topic.endsWith('()')) {
-            const my_func_name = my_topic.slice(0, -2);
+        // 4. Function-name fallback: float() → f_float.sthlp,
+        //    strpos → f_strpos.sthlp
+        {
+            const my_func_name = my_topic.endsWith('()')
+                ? my_topic.slice(0, -2)
+                : my_topic;
             if (my_func_name.length > 0) {
                 const my_func_path = await my_indexer.resolve_sthlp_file(
                     `f_${my_func_name}`
@@ -1261,47 +1289,20 @@ export interface ExpandIncludesResult {
     content: string;
 }
 
-const MAX_IHLP_CACHE_SIZE = 500;
-
 /**
  * Creates the custom request handler for `sight/expandIncludes`.
  *
  * Expands `{include filename.ihlp}` directives in SMCL content by
  * resolving `.ihlp` files through the workspace indexer's ado-path
- * search. Cached up to 500 entries. Returns the original content when
- * no workspace indexer is available.
+ * search. Uses the shared ihlp cache. Returns the original content
+ * when no workspace indexer is available.
  */
 export function create_expand_includes_handler(
-    deps: HandlerDependencies
+    deps: HandlerDependencies,
+    shared_ihlp?: { resolver: IncludeResolver; cache: Map<string, string> }
 ): (params: ExpandIncludesParams) => Promise<ExpandIncludesResult> {
-    const the_ihlp_cache = new Map<string, string>();
-
-    const my_resolver: IncludeResolver = async (name: string) => {
-        if (!deps.workspace_indexer) return null;
-
-        const my_path = await deps.workspace_indexer.resolve_ihlp_file(name);
-        if (!my_path) return null;
-
-        const my_cached = the_ihlp_cache.get(my_path);
-        if (my_cached !== undefined) return { path: my_path, content: my_cached };
-
-        try {
-            const my_content = await fs.promises.readFile(my_path, 'utf8');
-            if (the_ihlp_cache.size >= MAX_IHLP_CACHE_SIZE) {
-                const my_first_key = the_ihlp_cache.keys().next().value;
-                if (my_first_key !== undefined) {
-                    the_ihlp_cache.delete(my_first_key);
-                }
-            }
-            the_ihlp_cache.set(my_path, my_content);
-            return { path: my_path, content: my_content };
-        } catch (my_err) {
-            deps.connection.console.log(
-                `[debug] expand_includes: failed to read ${my_path}: ${my_err}`
-            );
-            return null;
-        }
-    };
+    const { resolver: my_ihlp_resolver } =
+        shared_ihlp ?? create_shared_ihlp_resolver(deps);
 
     return async (
         params: ExpandIncludesParams
@@ -1309,7 +1310,9 @@ export function create_expand_includes_handler(
         if (!deps.workspace_indexer) {
             return { content: params.content };
         }
-        const my_result = await expand_includes(params.content, my_resolver);
+        const my_result = await expand_includes(
+            params.content, my_ihlp_resolver
+        );
         return { content: my_result };
     };
 }

@@ -64,6 +64,7 @@ import {
     create_resolve_sthlp_file_handler,
     create_resolve_findalias_handler,
     create_expand_includes_handler,
+    create_shared_ihlp_resolver,
 } from './server-handlers';
 
 import type { TransportType } from './cli';
@@ -1139,13 +1140,19 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Custom request handlers
     connection.onRequest('sight/getWorkingDirectory', working_directory_handler);
 
-    const resolve_sthlp_handler = create_resolve_sthlp_file_handler(handler_deps);
+    const shared_ihlp = create_shared_ihlp_resolver(handler_deps);
+
+    const resolve_sthlp_handler = create_resolve_sthlp_file_handler(
+        handler_deps, shared_ihlp
+    );
     connection.onRequest('sight/resolveSthlpFile', resolve_sthlp_handler);
 
     const resolve_findalias_handler = create_resolve_findalias_handler(handler_deps);
     connection.onRequest('sight/resolveFindalias', resolve_findalias_handler);
 
-    const expand_includes_handler = create_expand_includes_handler(handler_deps);
+    const expand_includes_handler = create_expand_includes_handler(
+        handler_deps, shared_ihlp
+    );
     connection.onRequest('sight/expandIncludes', expand_includes_handler);
 
     // Start listening

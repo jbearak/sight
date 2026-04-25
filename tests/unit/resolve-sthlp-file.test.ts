@@ -307,4 +307,32 @@ describe('resolveSthlpFile - help_file redirects', () => {
 
         expect(result.file_path).toBe(my_path);
     });
+
+    it('resolves float() to f_float.sthlp via f_ prefix fallback', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'f');
+        const my_path = path.join(my_dir, 'f_float.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'float()' });
+
+        expect(result.file_path).toBe(my_path);
+    });
+
+    it('resolves strpos to f_strpos.sthlp via f_ prefix (no parens)', async () => {
+        const my_dir = path.join(temp_dir, 'ado', 'f');
+        const my_path = path.join(my_dir, 'f_strpos.sthlp');
+        fs.mkdirSync(my_dir, { recursive: true });
+        fs.writeFileSync(my_path, '{smcl}');
+
+        indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
+
+        const handler = create_resolve_sthlp_file_handler(make_deps(indexer));
+        const result = await handler({ topic: 'strpos' });
+
+        expect(result.file_path).toBe(my_path);
+    });
 });

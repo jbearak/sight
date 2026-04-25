@@ -168,9 +168,12 @@ async function main(): Promise<void> {
         const my_direct = await my_indexer.resolve_sthlp_file(topic);
         if (my_direct) return my_direct;
 
-        // Function-name fallback: float() → f_float.sthlp
-        if (topic.endsWith('()')) {
-            const my_func_name = topic.slice(0, -2);
+        // Function-name fallback: float() → f_float.sthlp,
+        // strpos → f_strpos.sthlp
+        {
+            const my_func_name = topic.endsWith('()')
+                ? topic.slice(0, -2)
+                : topic;
             if (my_func_name.length > 0) {
                 const my_func_path = await my_indexer.resolve_sthlp_file(
                     `f_${my_func_name}`

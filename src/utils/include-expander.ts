@@ -93,7 +93,11 @@ async function expand_recursive(
             continue;
         }
 
-        visited.add(my_resolved.path);
+        // Clone visited set so sibling includes that share a common
+        // dependency each get their own expansion (e.g. if B and C
+        // both include D, both get D's content).
+        const my_branch_visited = new Set(visited);
+        my_branch_visited.add(my_resolved.path);
         const my_next_depth = depth + 1;
         if (my_next_depth > max_depth) {
             logger.warn(
@@ -108,8 +112,8 @@ async function expand_recursive(
             continue;
         }
         const my_expanded = await expand_recursive(
-            my_resolved.content, resolver, visited, missing_logged,
-            my_next_depth, max_depth, on_missing
+            my_resolved.content, resolver, my_branch_visited,
+            missing_logged, my_next_depth, max_depth, on_missing
         );
         the_result.push(my_expanded);
     }
