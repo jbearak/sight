@@ -1343,6 +1343,8 @@ function render_search_link(
     ctx: RenderContext
 ): string {
     // {search keyword} or {search keyword:display_text}
+    // Render as plain styled text — {search} opens Stata's keyword
+    // search dialog, not a help page. No link, no cross-reference entry.
     const my_topic = (directive.args || '').split(' ')[0].trim();
     if (!my_topic) return render_content(directive, ctx);
 
@@ -1350,17 +1352,10 @@ function render_search_link(
         ? render_content(directive, ctx)
         : escape_html(my_topic);
 
-    const my_id = `smcl-ref-${ctx.ref_counter++}`;
-    ctx.cross_references.push({
-        topic: my_topic,
-        display_text: my_topic,
-        element_id: my_id,
-    });
-
     return (
-        `<a class="smcl-help-link" id="${my_id}" ` +
-        `href="#" data-smcl-topic="${escape_html(my_topic)}"` +
-        `>${my_display}</a>`
+        `<span class="smcl-search-text" ` +
+        `data-smcl-search-query="${escape_html(my_topic)}"` +
+        `>${my_display}</span>`
     );
 }
 

@@ -186,6 +186,10 @@ a.smcl-stata {
     cursor: default;
     opacity: 0.8;
 }
+.smcl-search-text {
+    color: var(--vscode-foreground);
+    opacity: 0.8;
+}
 .smcl-manlink,
 .smcl-mansection {
     color: var(--vscode-foreground);

@@ -1167,16 +1167,19 @@ describe('smcl_to_html', () => {
     });
 
     describe('{search} and {view} directives', () => {
-        it('renders {search keyword} as a help link', () => {
+        it('renders {search keyword} as plain text, not a link', () => {
             const result = smcl_to_html('{search robust}');
-            expect(result.html).toContain('data-smcl-topic="robust"');
-            expect(result.html).toContain('class="smcl-help-link"');
+            expect(result.html).toContain('class="smcl-search-text"');
+            expect(result.html).toContain('data-smcl-search-query="robust"');
+            expect(result.html).not.toContain('data-smcl-topic');
+            expect(result.html).not.toContain('<a ');
         });
 
         it('renders {search keyword:display text} with display text', () => {
             const result = smcl_to_html('{search robust:click here}');
-            expect(result.html).toContain('data-smcl-topic="robust"');
+            expect(result.html).toContain('data-smcl-search-query="robust"');
             expect(result.html).toContain('click here');
+            expect(result.html).not.toContain('<a ');
         });
 
         it('renders {view file.sthlp} as a help link', () => {
@@ -1209,4 +1212,5 @@ describe('smcl_to_html', () => {
             expect(result.html).not.toContain('href');
         });
     });
+
 });
