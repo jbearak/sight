@@ -139,20 +139,23 @@ export const STATA_SYSTEM_GLOBALS = new Set<string>([
 // Weight argument types constant
 const WEIGHT_TYPES = ['weight', 'fweight', 'fw', 'aweight', 'aw', 'pweight', 'pw', 'iweight', 'iw'] as const;
 
-// Stata storage types accepted in `generate`/`egen`. Case-sensitive.
+// Per Stata `help data_types`. Storage types are case-sensitive.
 // `double` may be abbreviated to `dou`, `doub`, `doubl`; `float` to `floa`.
-// `byte`, `int`, `long`, `str`, and `strL` have no shorter forms.
+// `byte`, `int`, `long`, and `strL` have no shorter forms. Bare `str` is not
+// a valid storage type — only `str1`..`str2045` and `strL`.
 const STATA_STORAGE_TYPES = new Set([
     'byte', 'int', 'long',
     'float', 'floa',
     'double', 'doubl', 'doub', 'dou',
-    'str', 'strL',
+    'strL',
 ]);
+
+const STR_WIDTH_RE = /^str\d+$/;
 
 function is_stata_storage_type(name: string): boolean {
     if (STATA_STORAGE_TYPES.has(name)) return true;
     // str1..str2045
-    if (/^str\d+$/.test(name)) {
+    if (STR_WIDTH_RE.test(name)) {
         const num = parseInt(name.slice(3), 10);
         return num >= 1 && num <= 2045;
     }
@@ -1441,16 +1444,16 @@ export class SemanticAnalyzer {
 
     /**
      * Pick the new-variable token from a `gen`/`egen` varlist, skipping a
-     * leading storage type when present. If only one token is present (e.g.
-     * `gen byte = 1`, which Stata accepts as a variable literally named
-     * `byte`), it is treated as the variable name.
+     * leading storage type when present. Storage-type keywords are reserved
+     * in this position, so a lone storage-type token (e.g. `gen byte = 1`,
+     * which is invalid Stata) yields no variable.
      */
     private pick_new_variable(node: CommandNode): IdentifierNode | undefined {
         if (!node.varlist || node.varlist.length === 0) {
             return undefined;
         }
-        if (node.varlist.length > 1 && is_stata_storage_type(node.varlist[0].name)) {
-            return node.varlist[1];
+        if (is_stata_storage_type(node.varlist[0].name)) {
+            return node.varlist.length > 1 ? node.varlist[1] : undefined;
         }
         return node.varlist[0];
     }

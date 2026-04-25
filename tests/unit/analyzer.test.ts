@@ -196,6 +196,20 @@ end`;
             expect(result.symbols.variables.has('double')).toBe(false);
         });
 
+        it('should skip abbreviated storage type when extracting egen variable', () => {
+            const result = analyze('egen dou total = sum(x)');
+
+            expect(result.symbols.variables.has('total')).toBe(true);
+            expect(result.symbols.variables.has('dou')).toBe(false);
+        });
+
+        it('should skip str# storage type when extracting egen variable', () => {
+            const result = analyze('egen str20 label = max(x)');
+
+            expect(result.symbols.variables.has('label')).toBe(true);
+            expect(result.symbols.variables.has('str20')).toBe(false);
+        });
+
         it('should skip str# storage type when extracting gen variable', () => {
             const result = analyze('gen str20 name = "x"');
 
@@ -211,10 +225,11 @@ end`;
         });
 
         it('should skip abbreviated double storage type (dou/doub/doubl)', () => {
-            for (const abbrev of ['dou', 'doub', 'doubl']) {
-                const result = analyze(`gen ${abbrev} myvar = 1`);
+            const the_abbrevs = ['dou', 'doub', 'doubl'];
+            for (const my_abbrev of the_abbrevs) {
+                const result = analyze(`gen ${my_abbrev} myvar = 1`);
                 expect(result.symbols.variables.has('myvar')).toBe(true);
-                expect(result.symbols.variables.has(abbrev)).toBe(false);
+                expect(result.symbols.variables.has(my_abbrev)).toBe(false);
             }
         });
 
@@ -233,12 +248,13 @@ end`;
             expect(result.symbols.variables.has('Byte')).toBe(true);
         });
 
-        it('should treat lone storage-type-like name as the variable name', () => {
-            // `gen byte = 1` is legal Stata creating a variable literally named
-            // `byte` (no storage type, no other token). Falls back to varlist[0].
+        it('should NOT register a lone storage-type token as a variable', () => {
+            // `gen byte = 1` is invalid Stata: storage-type keywords are
+            // reserved and cannot be used as a variable name in this position.
+            // The analyzer should not register `byte` as a variable.
             const result = analyze('gen byte = 1');
 
-            expect(result.symbols.variables.has('byte')).toBe(true);
+            expect(result.symbols.variables.has('byte')).toBe(false);
         });
 
         it('should NOT register local macro references as variables in gen', () => {
