@@ -256,6 +256,13 @@ describe('smcl_to_html', () => {
             expect(result.cross_references).toHaveLength(1);
         });
 
+        it('accepts current_topic option without affecting basic rendering', () => {
+            const result = smcl_to_html('{help regress}', {
+                current_topic: 'generate',
+            });
+            expect(result.html).toContain('data-smcl-topic="regress"');
+        });
+
         it('renders {browse URL} as external link without target="_blank"', () => {
             // The webview click handler routes browse clicks to
             // `vscode.env.openExternal`. Keeping `target="_blank"` on

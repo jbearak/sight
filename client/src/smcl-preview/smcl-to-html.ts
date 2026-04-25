@@ -31,6 +31,12 @@ export interface SmclToHtmlOptions {
      * behavior so diffs on unresolved files stay empty.
      */
     findalias_map?: Map<string, string>;
+    /**
+     * The topic name of the currently rendered help page (e.g. "regress"
+     * for regress.sthlp). Used to distinguish same-page anchor links from
+     * cross-page links.
+     */
+    current_topic?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,10 +327,12 @@ interface RenderContext {
     // substitution itself contains another `{findalias Y}`
     // (or loops back to `X`).
     findalias_stack: string[];
+    current_topic?: string;
 }
 
 function create_context(
-    findalias_map?: Map<string, string>
+    findalias_map?: Map<string, string>,
+    current_topic?: string
 ): RenderContext {
     return {
         cross_references: [],
@@ -340,6 +348,7 @@ function create_context(
         in_asis: false,
         findalias_map,
         findalias_stack: [],
+        current_topic,
     };
 }
 
@@ -1379,7 +1388,7 @@ export function smcl_to_html(
         the_p2col_nodes,
         options?.findalias_map
     );
-    const ctx = create_context(options?.findalias_map);
+    const ctx = create_context(options?.findalias_map, options?.current_topic);
     let html = render_nodes(the_nodes, ctx);
     // Close any trailing persistent formats and style span
     html += close_asis(ctx);

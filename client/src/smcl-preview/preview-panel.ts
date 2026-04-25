@@ -174,6 +174,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
 
         const my_result = smcl_to_html(my_content, {
             findalias_map: my_findalias_map,
+            current_topic: this.get_current_topic(),
         });
         const my_nonce = crypto.randomBytes(16).toString('hex');
         const my_title = this.get_title();
@@ -327,6 +328,14 @@ export class SmclPreviewPanel implements vscode.Disposable {
         const my_path = this.source_uri.fsPath;
         const my_name = my_path.split(/[\\/]/).pop() || 'SMCL Preview';
         return `Preview ${my_name}`;
+    }
+
+    private get_current_topic(): string | undefined {
+        const my_basename = this.source_uri.fsPath.split(/[\\/]/).pop();
+        if (!my_basename) return undefined;
+        // Strip .sthlp extension to get topic name
+        const my_match = my_basename.match(/^(.+)\.sthlp$/i);
+        return my_match?.[1];
     }
 
     // ---------------------------------------------------------------
