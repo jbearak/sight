@@ -91,7 +91,7 @@ export class SmclPanelManager implements vscode.Disposable {
         try {
             const my_result = await my_client.sendRequest<{
                 file_path: string | null;
-            }>('sight/resolveSthlpFile', { topic });
+            }>('sight/resolveSthlpFile', { topic, anchor });
 
             if (my_result?.file_path) {
                 const my_uri = vscode.Uri.file(my_result.file_path);
