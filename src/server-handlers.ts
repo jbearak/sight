@@ -50,6 +50,7 @@ import { RenameHandler } from './utils/file-rename-handler';
 import { DebounceManager, DocumentDebounceManager } from './utils/debounce-manager';
 import * as fs from 'fs';
 import { expand_includes, IncludeResolver } from './utils/include-expander';
+import { extract_marker_names } from './utils/marker-scanner';
 
 /**
  * Interface defining all dependencies required by LSP handlers.
@@ -869,6 +870,7 @@ export function create_get_working_directory_handler(
 
 export interface ResolveSthlpFileParams {
     topic: string;
+    anchor?: string;
 }
 
 export interface ResolveSthlpFileResult {
@@ -884,7 +886,57 @@ export interface ResolveSthlpFileResult {
 export function create_resolve_sthlp_file_handler(
     deps: HandlerDependencies
 ): (params: ResolveSthlpFileParams) => Promise<ResolveSthlpFileResult> {
-    return async (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult> => {
+    // Cache for include-expanded file content used during marker scanning
+    const the_ihlp_cache = new Map<string, string>();
+    const CACHE_MAX_SIZE = 500;
+
+    /**
+     * Read a .sthlp file, expand its INCLUDE directives, and return
+     * the expanded content. Used for scanning markers during anchor
+     * fallback resolution.
+     */
+    async function read_and_expand(
+        file_path: string
+    ): Promise<string | null> {
+        if (!deps.workspace_indexer) return null;
+        try {
+            const my_content = await fs.promises.readFile(
+                file_path, 'utf-8'
+            );
+            const my_resolver: IncludeResolver = async (name: string) => {
+                const my_path =
+                    await deps.workspace_indexer!.resolve_ihlp_file(name);
+                if (!my_path) return null;
+                const my_cached = the_ihlp_cache.get(my_path);
+                if (my_cached !== undefined) {
+                    return { path: my_path, content: my_cached };
+                }
+                try {
+                    const my_file_content = await fs.promises.readFile(
+                        my_path, 'utf-8'
+                    );
+                    if (the_ihlp_cache.size >= CACHE_MAX_SIZE) {
+                        const my_first = the_ihlp_cache.keys().next().value;
+                        if (my_first !== undefined) {
+                            the_ihlp_cache.delete(my_first);
+                        }
+                    }
+                    the_ihlp_cache.set(my_path, my_file_content);
+                    return { path: my_path, content: my_file_content };
+                } catch {
+                    return null;
+                }
+            };
+            return expand_includes(my_content, my_resolver);
+        } catch {
+            return null;
+        }
+    }
+
+    // The existing topic resolution logic, extracted into a function
+    async function resolve_topic(
+        params: ResolveSthlpFileParams
+    ): Promise<ResolveSthlpFileResult> {
         if (!deps.workspace_indexer) {
             return { file_path: null };
         }
@@ -1029,6 +1081,49 @@ export function create_resolve_sthlp_file_handler(
             }
         }
         return { file_path: null };
+    }
+
+    // Main handler: resolve topic, then check anchor if provided
+    return async (params: ResolveSthlpFileParams): Promise<ResolveSthlpFileResult> => {
+        const my_result = await resolve_topic(params);
+
+        // If no anchor requested, or no file resolved, return as-is
+        if (!params.anchor || !my_result.file_path) {
+            return my_result;
+        }
+
+        // Check if the anchor exists in the resolved file
+        const my_expanded = await read_and_expand(my_result.file_path);
+        if (my_expanded) {
+            const the_markers = extract_marker_names(my_expanded);
+            if (the_markers.has(params.anchor)) {
+                return my_result;
+            }
+        }
+
+        // Anchor not found — search topic_* related files
+        if (deps.workspace_indexer) {
+            const my_topic = (params.topic ?? '').trim();
+            const the_related = await deps.workspace_indexer
+                .find_related_sthlp_files(my_topic);
+
+            for (const my_candidate_path of the_related) {
+                if (my_candidate_path === my_result.file_path) continue;
+
+                const my_candidate_content =
+                    await read_and_expand(my_candidate_path);
+                if (!my_candidate_content) continue;
+
+                const the_candidate_markers =
+                    extract_marker_names(my_candidate_content);
+                if (the_candidate_markers.has(params.anchor)) {
+                    return { file_path: my_candidate_path };
+                }
+            }
+        }
+
+        // No related file has the anchor — return original file
+        return my_result;
     };
 }
 
