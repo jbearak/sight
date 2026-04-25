@@ -22,13 +22,17 @@ export class SmclPanelManager implements vscode.Disposable {
 
     open_or_reveal(
         source_uri: vscode.Uri,
-        column: vscode.ViewColumn
+        column: vscode.ViewColumn,
+        anchor?: string
     ): void {
         const my_key = source_uri.toString();
         const my_existing = this.panels.get(my_key);
 
         if (my_existing) {
             my_existing.reveal(column);
+            if (anchor) {
+                my_existing.scroll_to_anchor(anchor);
+            }
             return;
         }
 
@@ -46,7 +50,7 @@ export class SmclPanelManager implements vscode.Disposable {
         const my_preview = new SmclPreviewPanel(
             source_uri,
             my_panel,
-            topic => this.handle_navigate(topic),
+            (topic, anch) => this.handle_navigate(topic, anch),
             () => this.get_client()
         );
 
@@ -56,6 +60,12 @@ export class SmclPanelManager implements vscode.Disposable {
         });
 
         this.panels.set(my_key, my_preview);
+
+        if (anchor) {
+            setTimeout(() => {
+                my_preview.scroll_to_anchor(anchor);
+            }, 300);
+        }
     }
 
     /**
@@ -67,7 +77,8 @@ export class SmclPanelManager implements vscode.Disposable {
      */
     async open_topic(
         topic: string,
-        column: vscode.ViewColumn
+        column: vscode.ViewColumn,
+        anchor?: string
     ): Promise<void> {
         const my_client = this.get_client();
         if (!my_client) {
@@ -84,7 +95,7 @@ export class SmclPanelManager implements vscode.Disposable {
 
             if (my_result?.file_path) {
                 const my_uri = vscode.Uri.file(my_result.file_path);
-                this.open_or_reveal(my_uri, column);
+                this.open_or_reveal(my_uri, column, anchor);
             } else {
                 await this.show_not_found_message(topic);
             }
@@ -128,8 +139,11 @@ export class SmclPanelManager implements vscode.Disposable {
         }
     }
 
-    private handle_navigate(topic: string): Promise<void> {
-        return this.open_topic(topic, vscode.ViewColumn.Active);
+    private handle_navigate(
+        topic: string,
+        anchor?: string
+    ): Promise<void> {
+        return this.open_topic(topic, vscode.ViewColumn.Active, anchor);
     }
 
     dispose(): void {

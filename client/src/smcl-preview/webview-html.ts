@@ -296,7 +296,10 @@ const WEBVIEW_SCRIPT = `
             e.stopPropagation();
             const topic = link.getAttribute('data-smcl-topic');
             if (topic) {
-                vscode.postMessage({ type: 'navigate', topic: topic });
+                const anchor = link.getAttribute('data-smcl-anchor');
+                var msg = { type: 'navigate', topic: topic };
+                if (anchor) { msg.anchor = anchor; }
+                vscode.postMessage(msg);
             }
             return;
         }
@@ -389,6 +392,12 @@ const WEBVIEW_SCRIPT = `
         var msg = event.data;
         if (msg.type === 'scrollToLine') {
             scrollToSourceLine(msg.line);
+        }
+        if (msg.type === 'scrollToAnchor') {
+            var target = document.getElementById(msg.anchor);
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth' });
+            }
         }
     });
 

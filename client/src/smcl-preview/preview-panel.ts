@@ -29,7 +29,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private source_uri: vscode.Uri;
     private disposables: vscode.Disposable[] = [];
     private debounce_timer: ReturnType<typeof setTimeout> | undefined;
-    private on_navigate: (topic: string) => void;
+    private on_navigate: (topic: string, anchor?: string) => void;
     private get_client: () => LanguageClient | null;
     private disposed = false;
 
@@ -49,7 +49,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
     constructor(
         source_uri: vscode.Uri,
         panel: vscode.WebviewPanel,
-        on_navigate: (topic: string) => void,
+        on_navigate: (topic: string, anchor?: string) => void,
         get_client: () => LanguageClient | null
     ) {
         this.source_uri = source_uri;
@@ -383,6 +383,13 @@ export class SmclPreviewPanel implements vscode.Disposable {
         }, SCROLL_SYNC_SUPPRESSION_MS);
     }
 
+    scroll_to_anchor(anchor: string): void {
+        this.panel.webview.postMessage({
+            type: 'scrollToAnchor',
+            anchor,
+        });
+    }
+
     // ---------------------------------------------------------------
     // Message handling
     // ---------------------------------------------------------------
@@ -393,7 +400,10 @@ export class SmclPreviewPanel implements vscode.Disposable {
         switch (message.type) {
             case 'navigate':
                 if (typeof message.topic === 'string') {
-                    this.on_navigate(message.topic);
+                    const my_anchor = typeof message.anchor === 'string'
+                        ? message.anchor
+                        : undefined;
+                    this.on_navigate(message.topic, my_anchor);
                 }
                 break;
             case 'openExternal':
