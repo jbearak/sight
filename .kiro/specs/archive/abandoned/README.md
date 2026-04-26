@@ -30,6 +30,12 @@ These archived specifications provide:
 - **Requirements archaeology** showing how needs evolved over time
 - **Decision rationale** for why certain paths were not taken
 
+## Related User Documentation
+
+For current user-facing viewer documentation, see:
+- [Log Viewer](../../../../docs/log-viewer.md)
+- [Help Viewer](../../../../docs/help-viewer.md)
+
 ## Common Reasons for Abandonment
 
 ### Marketplace Publishing Deferral
