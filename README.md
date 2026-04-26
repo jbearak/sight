@@ -47,7 +47,7 @@ The editor extension enables language server features and further provides:
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
 
 Per-feature reference pages live in [`docs/`](docs) and are linked from
-each entry in [Features](#features) above.
+most entries in [Features](#features) above.
 
 ### Examples
 
