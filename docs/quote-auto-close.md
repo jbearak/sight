@@ -1,4 +1,4 @@
-# Quote Auto-Close
+# Auto-Closing Pairs
 
 The extension provides intelligent auto-closing for Stata's unique quoting conventions. Unlike VS Code's built-in auto-closing pairs, this feature handles Stata's overlapping delimiters correctly.
 

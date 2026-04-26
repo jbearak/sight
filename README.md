@@ -15,62 +15,61 @@ Sight's sister project [Raven](https://github.com/jbearak/raven) implements a la
 ## Features
 
 ### Language Server:
-- **Code Completion**: Context-aware completions for commands, options, macros, and variables
-- **Diagnostics**: Real-time syntax error detection and undefined macro warnings
+
+- **[Diagnostics](docs/diagnostics.md)**: Real-time syntax error detection and undefined macro warnings
+- **[Code Completion](docs/completion.md)**: Context-aware completions for commands, options, macros, and variables
 - **Go-to-Definition**: Jump to definitions of local/global macros and programs across the workspace
-- **Find References**: Locate every use of a macro, program, or variable across related files
-- **Document Outline**: Hierarchical code navigation with programs, macros, variables, and code sections
+- **[Find References](docs/find-references.md)**: Locate every use of a macro, program, or variable across related files
+- **[Cross-file awareness](docs/cross-file.md)**: Symbol resolution across `do`/`include` chains with position-aware scope
+- **[Declaration directives](docs/declaration-directives.md)**: Suppress diagnostics for dynamically-created symbols (`@lsp-local`, `@lsp-global`)
+- **[Document Outline](docs/document-outline.md)**: Hierarchical code navigation with programs, macros, variables, and code sections
 - **Workspace Symbols**: Search for symbols across the entire workspace
-- **Cross-file awareness**: Symbol resolution across `do`/`include` chains with position-aware scope
-- **Declaration directives**: Suppress diagnostics for dynamically-created symbols (`@lsp-local`, `@lsp-global`)
 
 ### Editor Extension:
 
 The editor extension enables language server features and further provides:
 
-- **Data Browser**: Open `.dta` files directly in VS Code, or call `vview` from Stata to send the current dataset to the editor — features a virtualized grid with column resizing/hiding and value labels
-- **SMCL Log Viewer**: Render Stata log files (`.smcl`) with formatted output directly in VS Code
-- **Run Code**: Execute code in the Stata application or terminal with intelligent statement detection and working directory management
-- **Syntax Highlighting**: Rich syntax highlighting with unique features like macro/string nesting depth coloring
-- **Quote Auto-Close**: Intelligently handles Stata's unique conventions for nested macros and compound strings
+- **[Run Code](docs/send-to-stata.md)**: Execute code in the Stata application or terminal with intelligent statement detection and working directory management
+- **[Syntax Highlighting](docs/syntax-highlighting.md)**: Rich syntax highlighting with unique features like macro/string nesting depth coloring
+- **[Auto-Closing Pairs](docs/quote-auto-close.md)**: Intelligently handles Stata's unique conventions for nested macros and compound strings
+- **[Data Browser](docs/data-browser.md)**: Open `.dta` files directly in VS Code, or call `vview` from Stata to send the current dataset to the editor — features a virtualized grid with column resizing/hiding and value labels
+- **[Log Viewer](docs/log-viewer.md)**: Render Stata log files (`.smcl`) with formatted output directly in VS Code
+- **[Help Viewer](docs/help-viewer.md)**: Read Stata help files (`.sthlp`) directly in VS Code with clickable help-topic links
+- **[Code Formatting](docs/formatting.md)** (experimental): Format `.do` files and normalize comment styles
 
 ## Documentation
 
 ### Guides
+
 - [Configuration](docs/configuration.md) - All settings and options
 - [Standalone Installation](docs/standalone-installation.md) - CLI usage, npm/npx, build from source
 - [Editor Integrations](docs/editor-integrations.md) - Generic LSP clients, AI agents
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
 
-### Features
-- [Data Browser](docs/data-browser.md) - Browse datasets in VS Code with the `vview` command
-- [SMCL Log Viewer](docs/smcl-viewer.md) - Render Stata `.smcl` log files in VS Code
-- [Document Outline](docs/document-outline.md) - Hierarchical code navigation with sections, programs, and macros
-- [Cross-File Awareness](docs/cross-file.md) - Workspace indexing, directives, scope resolution
-- [Declaration Directives](docs/declaration-directives.md) - `@lsp-local`, `@lsp-global` for dynamically-created symbols
-- [Send to Stata](docs/send-to-stata.md) - Execute code in Stata from VS Code or terminal
-- [Quote Auto-Close](docs/quote-auto-close.md) - Intelligent auto-closing for Stata quoting conventions
-- [Formatting](docs/formatting.md) - Code formatting and comment normalization (experimental)
-- [Syntax Highlighting](docs/syntax-highlighting.md) - TextMate scopes, nesting depth colors
+Per-feature reference pages live in [`docs/`](docs) and are linked from
+most entries in [Features](#features) above.
 
 ### Examples
 
 #### Undefined local macro
+
 Stata would evaluate `` `froot' `` to `""` because of the misspelling. In this example, it affects the displayed text. When combined with if-then-else statements, this leads to unexpected control flow.
-<img width="683" height="390" src="examples/undefined_local.png"/>
+<img width="683" height="390" alt="Undefined local macro diagnostic" src="examples/undefined_local.png"/>
 
 #### Command completion
-<img width="615" height="420" src="examples/command_completion.png"/>
+<img width="615" height="420" alt="Command completion popup" src="examples/command_completion.png"/>
 
 #### Syntax highlighting
+
 Sight colorizes nesting depth of compound strings and local macros.
 
-<img width="581" height="386" src="examples/nested_locals_within_compound_strings_dark.png"/>
-<img width="581" height="386" src="examples/nested_locals_within_compound_strings_light.png"/>
+<img width="581" height="386" alt="Syntax highlighting with nesting depth colors (dark theme)" src="examples/nested_locals_within_compound_strings_dark.png"/>
+<img width="581" height="386" alt="Syntax highlighting with nesting depth colors (light theme)" src="examples/nested_locals_within_compound_strings_light.png"/>
 
 #### Send to Stata
+
 Execute code in Stata directly from the editor.
-<img width="641" height="565" src="examples/send_to_stata_menu.png"/>
+<img width="641" height="565" alt="Send to Stata menu" src="examples/send_to_stata_menu.png"/>
 
 > See the [Examples Gallery](docs/examples.md) for more screenshots.
 
@@ -85,10 +84,10 @@ Execute code in Stata directly from the editor.
 
 1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
 2. In VS Code:
-   - Extensions → `...` menu → "Install from VSIX..."
-   - Or via CLI: `code --install-extension sight-client-<version>.vsix`
+  - Extensions → `...` menu → "Install from VSIX..."
+  - Or via CLI: `code --install-extension sight-client-<version>.vsix`
 
-> **Note:** If you have other extensions installed that provide Stata syntax highlighting (e.g., `stata-enhanced` or `stata-language`), disable them to use Sight's syntax highlighting. Extensions like `stataRun` (which launches Stata from VS Code) can remain enabled.
+> **Note:** If you have other extensions installed that provide Stata syntax highlighting (e.g., `stata-enhanced` or `stata-language`), disable them to use Sight's syntax highlighting.
 
 ### Other Methods
 
