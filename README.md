@@ -64,22 +64,22 @@ The editor extension enables language server features and further provides:
 #### Undefined local macro
 
 Stata would evaluate `` `froot' `` to `""` because of the misspelling. In this example, it affects the displayed text. When combined with if-then-else statements, this leads to unexpected control flow.
-<img width="683" height="390" src="examples/undefined_local.png"/>
+<img width="683" height="390" alt="Undefined local macro diagnostic" src="examples/undefined_local.png"/>
 
 #### Command completion
-<img width="615" height="420" src="examples/command_completion.png"/>
+<img width="615" height="420" alt="Command completion popup" src="examples/command_completion.png"/>
 
 #### Syntax highlighting
 
 Sight colorizes nesting depth of compound strings and local macros.
 
-<img width="581" height="386" src="examples/nested_locals_within_compound_strings_dark.png"/>
-<img width="581" height="386" src="examples/nested_locals_within_compound_strings_light.png"/>
+<img width="581" height="386" alt="Syntax highlighting with nesting depth colors (dark theme)" src="examples/nested_locals_within_compound_strings_dark.png"/>
+<img width="581" height="386" alt="Syntax highlighting with nesting depth colors (light theme)" src="examples/nested_locals_within_compound_strings_light.png"/>
 
 #### Send to Stata
 
 Execute code in Stata directly from the editor.
-<img width="641" height="565" src="examples/send_to_stata_menu.png"/>
+<img width="641" height="565" alt="Send to Stata menu" src="examples/send_to_stata_menu.png"/>
 
 > See the [Examples Gallery](docs/examples.md) for more screenshots.
 

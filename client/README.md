@@ -24,27 +24,27 @@ Comprehensive language support for Stata: real-time diagnostics, completions, go
 <details>
 <summary>Real-time diagnostics</summary>
 
-<img width="683" height="390" src="https://github.com/jbearak/sight/blob/main/examples/undefined_local.png?raw=true"/>
+<img width="683" height="390" alt="Undefined local macro diagnostic" src="https://github.com/jbearak/sight/blob/main/examples/undefined_local.png?raw=true"/>
 </details>
 
 <details>
 <summary>Intelligent completions</summary>
 
-<img width="615" height="420" src="https://github.com/jbearak/sight/blob/main/examples/command_completion.png?raw=true"/>
+<img width="615" height="420" alt="Command completion popup" src="https://github.com/jbearak/sight/blob/main/examples/command_completion.png?raw=true"/>
 
-<img width="651" height="449" src="https://github.com/jbearak/sight/blob/main/examples/macro_completion.png?raw=true"/>
+<img width="651" height="449" alt="Macro completion popup" src="https://github.com/jbearak/sight/blob/main/examples/macro_completion.png?raw=true"/>
 </details>
 
 <details>
 <summary>Run code in Stata</summary>
 
-<img width="641" height="565" src="https://github.com/jbearak/sight/blob/main/examples/send_to_stata_menu.png?raw=true"/>
+<img width="641" height="565" alt="Send to Stata menu" src="https://github.com/jbearak/sight/blob/main/examples/send_to_stata_menu.png?raw=true"/>
 </details>
 
 <details>
 <summary>Syntax highlighting with nesting depth colors</summary>
 
-<img width="581" height="386" src="https://github.com/jbearak/sight/blob/main/examples/nested_locals_within_compound_strings_dark.png?raw=true"/>
+<img width="581" height="386" alt="Syntax highlighting with nesting depth colors" src="https://github.com/jbearak/sight/blob/main/examples/nested_locals_within_compound_strings_dark.png?raw=true"/>
 </details>
 
 ## Installation

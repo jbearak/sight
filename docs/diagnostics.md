@@ -100,7 +100,7 @@ turned off independently.
 | Code | Name | Default | Severity key | Trigger |
 |---|---|---|---|---|
 | 6001 | `MALFORMED_OPERATOR` | warning | `malformedOperator` | Compound operators split by whitespace (`< =`, `> =`, `! =`). Stata accepts these but they are usually typos. |
-| 6002 | `INVALID_OPERATOR_SEQUENCE` | error | `invalidOperatorSequence` | Token sequences Stata cannot parse (e.g., `< |`, `= ==`). |
+| 6002 | `INVALID_OPERATOR_SEQUENCE` | error | `invalidOperatorSequence` | Token sequences Stata cannot parse (e.g., `< \|`, `= ==`). |
 | 6003 | `CSTYLE_LOGICAL_IN_CONTROL_FLOW` | information | `cStyleLogicalInControlFlow` | `&&` / `\|\|` used in `if` / `else if`. Legal in Stata, but the canonical style uses `&` / `\|`. |
 | 6004 | `MIXED_LOGICAL_OPERATORS` | warning | `mixedLogicalOperators` | `&` and `\|` mixed in one expression without parentheses; precedence is easy to misread. |
 
