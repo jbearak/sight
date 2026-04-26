@@ -9,7 +9,7 @@ Open any `.smcl` file in VS Code and use any of the following:
 
 - Click the **Open Preview** icon in the editor title bar
 - Right-click the file and select **Open SMCL Preview** or **Open SMCL Preview (Full Width)**
-- Use the Command Palette: **Sight: Open SMCL Preview**
+- Use the Command Palette: **Open SMCL Preview** (`sight.openSmclPreview`)
 
 The preview renders Stata SMCL markup as formatted HTML in a VS Code webview
 panel, showing output similarly to Stata's Viewer window.

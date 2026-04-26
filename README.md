@@ -16,25 +16,26 @@ Sight's sister project [Raven](https://github.com/jbearak/raven) implements a la
 
 ### Language Server:
 
-- **Diagnostics**: Real-time syntax error detection and undefined macro warnings
-- **Code Completion**: Context-aware completions for commands, options, macros, and variables
+- **[Diagnostics](docs/diagnostics.md)**: Real-time syntax error detection and undefined macro warnings
+- **[Code Completion](docs/completion.md)**: Context-aware completions for commands, options, macros, and variables
 - **Go-to-Definition**: Jump to definitions of local/global macros and programs across the workspace
-- **Find References**: Locate every use of a macro, program, or variable across related files
-- **Cross-file awareness**: Symbol resolution across `do`/`include` chains with position-aware scope
-- **Declaration directives**: Suppress diagnostics for dynamically-created symbols (`@lsp-local`, `@lsp-global`)
-- **Document Outline**: Hierarchical code navigation with programs, macros, variables, and code sections
+- **[Find References](docs/find-references.md)**: Locate every use of a macro, program, or variable across related files
+- **[Cross-file awareness](docs/cross-file.md)**: Symbol resolution across `do`/`include` chains with position-aware scope
+- **[Declaration directives](docs/declaration-directives.md)**: Suppress diagnostics for dynamically-created symbols (`@lsp-local`, `@lsp-global`)
+- **[Document Outline](docs/document-outline.md)**: Hierarchical code navigation with programs, macros, variables, and code sections
 - **Workspace Symbols**: Search for symbols across the entire workspace
 
 ### Editor Extension:
 
 The editor extension enables language server features and further provides:
 
-- **Run Code**: Execute code in the Stata application or terminal with intelligent statement detection and working directory management
-- **Syntax Highlighting**: Rich syntax highlighting with unique features like macro/string nesting depth coloring
-- **Auto-Closing Pairs**: Intelligently handles Stata's unique conventions for nested macros and compound strings
-- **Data Browser**: Open `.dta` files directly in VS Code, or call `vview` from Stata to send the current dataset to the editor — features a virtualized grid with column resizing/hiding and value labels
-- **Log Viewer**: Render Stata log files (`.smcl`) with formatted output directly in VS Code
-- **Help Viewer**: Read Stata help files (`.sthlp`) directly in VS Code with clickable help-topic links
+- **[Run Code](docs/send-to-stata.md)**: Execute code in the Stata application or terminal with intelligent statement detection and working directory management
+- **[Syntax Highlighting](docs/syntax-highlighting.md)**: Rich syntax highlighting with unique features like macro/string nesting depth coloring
+- **[Auto-Closing Pairs](docs/quote-auto-close.md)**: Intelligently handles Stata's unique conventions for nested macros and compound strings
+- **[Data Browser](docs/data-browser.md)**: Open `.dta` files directly in VS Code, or call `vview` from Stata to send the current dataset to the editor — features a virtualized grid with column resizing/hiding and value labels
+- **[Log Viewer](docs/log-viewer.md)**: Render Stata log files (`.smcl`) with formatted output directly in VS Code
+- **[Help Viewer](docs/help-viewer.md)**: Read Stata help files (`.sthlp`) directly in VS Code with clickable help-topic links
+- **[Code Formatting](docs/formatting.md)** (experimental): Format `.do` files and normalize comment styles
 
 ## Documentation
 
@@ -45,19 +46,8 @@ The editor extension enables language server features and further provides:
 - [Editor Integrations](docs/editor-integrations.md) - Generic LSP clients, AI agents
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
 
-### Features
-
-- [Diagnostics](docs/diagnostics.md) - Real-time error detection, scoping rules, suppression directives
-- [Data Browser](docs/data-browser.md) - Browse datasets in VS Code with the `vview` command
-- [Log Viewer](docs/log-viewer.md) - Render Stata `.smcl` log files in VS Code
-- [Help Viewer](docs/help-viewer.md) - Read Stata `.sthlp` help files in VS Code
-- [Document Outline](docs/document-outline.md) - Hierarchical code navigation with sections, programs, and macros
-- [Cross-File Awareness](docs/cross-file.md) - Workspace indexing, directives, scope resolution
-- [Declaration Directives](docs/declaration-directives.md) - `@lsp-local`, `@lsp-global` for dynamically-created symbols
-- [Send to Stata](docs/send-to-stata.md) - Execute code in Stata from VS Code or terminal
-- [Quote Auto-Close](docs/quote-auto-close.md) - Intelligent auto-closing for Stata quoting conventions
-- [Formatting](docs/formatting.md) - Code formatting and comment normalization (experimental)
-- [Syntax Highlighting](docs/syntax-highlighting.md) - TextMate scopes, nesting depth colors
+Per-feature reference pages live in [`docs/`](docs) and are linked from
+each entry in [Features](#features) above.
 
 ### Examples
 

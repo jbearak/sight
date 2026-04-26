@@ -13,8 +13,12 @@ tables below) and `source: "sight"`.
 ## Quick reference
 
 - **Silence one site** — add `// @lsp-ignore` on the offending line, or
-  `// @lsp-ignore-next` on the line above. Suppresses every Sight
-  diagnostic on the targeted line.
+  `// @lsp-ignore-next` on the line above. Suppresses undefined-symbol
+  (`UNDEFINED_MACRO`, `UNDEFINED_VARIABLE`, `OUT_OF_SCOPE_SYMBOL`) and
+  operator-style diagnostics on the targeted line. Lexer, parser /
+  brace-style, and indentation diagnostics are not silenced this way —
+  fix lexer/parser issues at the source, or turn indentation off via
+  `sight.diagnostics.indentation` (it ships off by default).
 - **Declare a symbol the analyzer can't see** — use
   [`@lsp-local`, `@lsp-global`, `@lsp-variables`, `@lsp-scalar`,
   `@lsp-matrix`, `@lsp-program`](declaration-directives.md). Forward-only:
@@ -86,17 +90,6 @@ first definition (see [Forward references](#forward-references)).
 Positional macro arguments (`` `0' ``, `` `1' ``, …) bypass position
 and scope checks: they are bound by the caller, not by lexical position.
 
-## Indentation diagnostics
-
-Off by default. Enable with `sight.diagnostics.indentation: true`.
-This is an on/off toggle — there is no severity key; both codes are
-emitted at `information` severity.
-
-| Code | Name | Trigger |
-|---|---|---|
-| 5001 | `UNNECESSARY_INDENTATION` | A line is indented past the AST-computed depth. |
-| 5002 | `MISSING_INDENTATION` | A line is at a shallower indent than its block depth. |
-
 ## Operator style diagnostics
 
 Each operator diagnostic has its own severity key, and each can be
@@ -108,6 +101,17 @@ turned off independently.
 | 6002 | `INVALID_OPERATOR_SEQUENCE` | error | `invalidOperatorSequence` | Token sequences Stata cannot parse (e.g., `< \|`, `= ==`). |
 | 6003 | `CSTYLE_LOGICAL_IN_CONTROL_FLOW` | information | `cStyleLogicalInControlFlow` | `&&` / `\|\|` used in `if` / `else if`. Legal in Stata, but the canonical style uses `&` / `\|`. |
 | 6004 | `MIXED_LOGICAL_OPERATORS` | warning | `mixedLogicalOperators` | `&` and `\|` mixed in one expression without parentheses; precedence is easy to misread. |
+
+## Indentation diagnostics
+
+Off by default. Enable with `sight.diagnostics.indentation: true`.
+This is an on/off toggle — there is no severity key; both codes are
+emitted at `information` severity.
+
+| Code | Name | Trigger |
+|---|---|---|
+| 5001 | `UNNECESSARY_INDENTATION` | A line is indented past the AST-computed depth. |
+| 5002 | `MISSING_INDENTATION` | A line is at a shallower indent than its block depth. |
 
 ## Configuration
 
@@ -152,17 +156,19 @@ Each severity key accepts `"error"`, `"warning"`, `"information"`,
 - `undefinedVariable` is experimental and ships off — see
   [Why undefined-variable is off by default](#why-undefined-variable-is-off-by-default).
 - `styleWarnings` currently gates `CONTINUATION_NO_SPACE` (1004).
-- Parse, brace-style, and indentation diagnostics do not have
-  per-category severity keys; use `@lsp-ignore` to silence individual
-  sites, or disable indentation as a whole via
-  `sight.diagnostics.indentation`.
+- Parse and brace-style diagnostics have no per-category control and
+  `@lsp-ignore` does not silence them — fix the underlying issue.
+- Indentation diagnostics ship off; turn them on with the boolean
+  `sight.diagnostics.indentation`. Both indentation codes emit at
+  `information` severity (there is no severity key), and `@lsp-ignore`
+  does not silence individual sites.
 
 ## Suppressing diagnostics in source
 
 | Directive | Effect |
 |---|---|
-| `// @lsp-ignore` | Suppresses Sight diagnostics on the same line. |
-| `// @lsp-ignore-next` | Suppresses Sight diagnostics on the next non-trivia statement. |
+| `// @lsp-ignore` | Suppresses undefined-symbol and operator-style diagnostics on the same line. Does not silence lexer, parser / brace-style, or indentation diagnostics. |
+| `// @lsp-ignore-next` | Same effect as `@lsp-ignore`, but applied to the next non-trivia statement. |
 | `// @lsp-local name [name …]` | Declares one or more local macros from the directive line forward. |
 | `// @lsp-global name [name …]` | Same, for globals. |
 | `// @lsp-variables var [var …]` | Declares variables (e.g., loaded from a `.dta` file). |
