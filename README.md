@@ -87,7 +87,7 @@ Execute code in Stata directly from the editor.
   - Extensions → `...` menu → "Install from VSIX..."
   - Or via CLI: `code --install-extension sight-client-<version>.vsix`
 
-> **Note:** If you have other extensions installed that provide Stata syntax highlighting (e.g., `stata-enhanced` or `stata-language`), disable them to use Sight's syntax highlighting. Extensions like `stataRun` (which launches Stata from VS Code) can remain enabled.
+> **Note:** If you have other extensions installed that provide Stata syntax highlighting (e.g., `stata-enhanced` or `stata-language`), disable them to use Sight's syntax highlighting.
 
 ### Other Methods
 
