@@ -1,7 +1,7 @@
 # Help Viewer
 
 Sight includes an in-editor help viewer that renders Stata documentation.  
-Access it through `sight.openHelpTopic` in the Command Palette or  
+Access it through **Sight: Open Help Topic** (`sight.openHelpTopic`) in the Command Palette or  
 by clicking a `help <topic>` link shown when hovering a command or function  
 name.
 
