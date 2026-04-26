@@ -47,6 +47,7 @@ The editor extension enables language server features and further provides:
 
 ### Features
 
+- [Diagnostics](docs/diagnostics.md) - Real-time error detection, scoping rules, suppression directives
 - [Data Browser](docs/data-browser.md) - Browse datasets in VS Code with the `vview` command
 - [Log Viewer](docs/log-viewer.md) - Render Stata `.smcl` log files in VS Code
 - [Help Viewer](docs/help-viewer.md) - Read Stata `.sthlp` help files in VS Code
