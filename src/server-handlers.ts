@@ -1009,7 +1009,7 @@ export function create_resolve_sthlp_file_handler(
             const my_content = await fs.promises.readFile(
                 file_path, 'utf-8'
             );
-            return expand_includes(my_content, my_ihlp_resolver);
+            return await expand_includes(my_content, my_ihlp_resolver);
         } catch {
             return null;
         }

@@ -59,7 +59,12 @@ Stata still runs the code.
 | 3006 | `CODE_AFTER_OPEN_BRACE` | warning | Tokens follow `{` on the same line as the opening brace. Stata runs the block but ignores trailing code on that line. |
 | 3008 | `FORVALUES_SYNTAX` | error | Malformed `forvalues` range (e.g., missing `=` or bad `to`/`/` separators). |
 | 3009 | `REDUNDANT_MACRO_SUFFIX` | warning | A macro reference includes redundant trailing characters that Stata ignores. |
-| 3010 | `INVALID_MACRO_CHAR` | error | A macro name contains a character Stata does not allow in identifiers. |
+| 3010 | `INVALID_MACRO_CHAR` | error | A macro name contains a character Stata does not allow in identifiers. (Analyzer-emitted; shares numeric code 3010 with the parser-emitted `MISSING_EXPRESSION_AFTER_EQUALS` below.) |
+| 3010 | `MISSING_EXPRESSION_AFTER_EQUALS` | error | An `=` is followed by no expression — e.g., `gen x =`, an empty `if` / `while` condition, or an empty qualifier. |
+| 3011 | `UNBALANCED_PARENTHESES` | error | Mismatched `(` / `)` in an expression, `if` / `while` condition, or `by` / `bysort` qualifier. |
+| 3012 | `ORPHAN_CLOSE_BRACE` | error | A `}` appears with no matching opening block. |
+| 3013 | `STRAY_TOKEN_IN_CONDITION` | error | Unexpected token inside an `if` / `while` / qualifier condition. |
+| 3014 | `SPLIT_LITERAL_IN_CONDITION` | error | A string or compound literal is split across the condition boundary, leaving an unterminated literal in an `if` / `while` condition. |
 
 ## Semantic / scope diagnostics
 
