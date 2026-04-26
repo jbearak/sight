@@ -111,8 +111,7 @@ turned off independently.
 
 ## Configuration
 
-All keys live under `sight.*` in VS Code settings or in `.sight.json`
-at the workspace root.
+Diagnostics keys live under `sight.*` in VS Code's `settings.json`:
 
 ```jsonc
 {
@@ -127,6 +126,23 @@ at the workspace root.
   "sight.diagnostics.severity.mixedLogicalOperators":       "warning"
 }
 ```
+
+The workspace-root `.sight.json` file uses a separate, unprefixed
+schema and currently exposes only the indentation toggle for
+diagnostics:
+
+```json
+{
+  "diagnostics": {
+    "indentation": false
+  }
+}
+```
+
+Severity keys are not yet recognized in `.sight.json` — set them in
+VS Code settings. See the
+[Project Configuration File](configuration.md#project-configuration-file)
+section for the full `.sight.json` schema.
 
 Each severity key accepts `"error"`, `"warning"`, `"information"`,
 `"hint"`, or `"off"`. Notes:
