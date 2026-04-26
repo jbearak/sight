@@ -196,8 +196,11 @@ function parse_smcl(source: string): SmclNode[] {
         const my_directive_line = current_line();
         pos++; // consume '{'
 
+        const is_dir_ws = (ch: string) =>
+            ch === ' ' || ch === '\n' || ch === '\r';
+
         // Skip leading whitespace
-        while (pos < source.length && source[pos] === ' ') pos++;
+        while (pos < source.length && is_dir_ws(source[pos])) pos++;
 
         // Read directive name
         const name_start = pos;
@@ -206,7 +209,8 @@ function parse_smcl(source: string): SmclNode[] {
             source[pos] !== '}' &&
             source[pos] !== ':' &&
             source[pos] !== ' ' &&
-            source[pos] !== '\n'
+            source[pos] !== '\n' &&
+            source[pos] !== '\r'
         ) {
             pos++;
         }
@@ -243,7 +247,7 @@ function parse_smcl(source: string): SmclNode[] {
         // For args-only directives, collect everything to } as args
         if (is_args_only) {
             // Skip optional space after name
-            if (pos < source.length && source[pos] === ' ') pos++;
+            while (pos < source.length && is_dir_ws(source[pos])) pos++;
             // Also skip colon if present (some args-only directives
             // have the form {c -(} with no colon, but {cmdab:x:y} has)
             if (pos < source.length && source[pos] === ':') pos++;
@@ -266,9 +270,9 @@ function parse_smcl(source: string): SmclNode[] {
 
         // Read args (between name and colon, or name and closing brace)
         let my_args = '';
-        if (pos < source.length && source[pos] === ' ') {
+        if (pos < source.length && is_dir_ws(source[pos])) {
             // There are arguments before a potential colon
-            pos++; // skip space
+            pos++; // skip separator (space or newline)
             const args_start = pos;
             // Read until colon or closing brace, but be careful with
             // nested braces in arguments
