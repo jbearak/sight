@@ -968,12 +968,14 @@ export class SemanticAnalyzer {
             }
         }
 
-        // Register each option as an implicit local
+        // Register each option as an implicit local. Stata's `syntax` command
+        // uses uppercase letters in option names to declare a minimum
+        // abbreviation (e.g. `Cache(string)`), but the implicit local Stata
+        // creates at runtime is always lowercased.
         for (const opt of signature.options) {
-            // Check if macro already exists (first definition wins)
-            const existing_macro = symbols.localMacros.get(opt.name);
+            const local_name = opt.name.toLowerCase();
+            const existing_macro = symbols.localMacros.get(local_name);
             if (existing_macro) {
-                // Add to additional_definitions array
                 if (!existing_macro.additional_definitions) {
                     existing_macro.additional_definitions = [];
                 }
@@ -983,9 +985,8 @@ export class SemanticAnalyzer {
                     location: { uri: this.uri, range: opt.range }
                 });
             } else {
-                // Create new macro with first definition
                 const macro_symbol: MacroSymbol = {
-                    name: opt.name,
+                    name: local_name,
                     scope: 'local',
                     location: { uri: this.uri, range: opt.range },
                     sourceUri: this.uri,
@@ -994,8 +995,8 @@ export class SemanticAnalyzer {
                     definition_line: opt.range.start.line,
                 };
 
-                current_scope.localMacros.set(opt.name, macro_symbol);
-                symbols.localMacros.set(opt.name, macro_symbol);
+                current_scope.localMacros.set(local_name, macro_symbol);
+                symbols.localMacros.set(local_name, macro_symbol);
             }
         }
     }

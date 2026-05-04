@@ -92,10 +92,14 @@ describe('Syntax Command Analyzer Property Tests', () => {
           // Analyze
           const my_result = analyze_program(my_source);
 
-          // Verify each option is registered as a local macro
+          // Verify each option is registered as a local macro. Stata uses
+          // uppercase letters in option names only to declare a minimum
+          // abbreviation; the implicit local it creates at runtime is the
+          // lowercase form of the name.
           for (const my_opt_name of my_option_names) {
-            expect(my_result.symbols.localMacros.has(my_opt_name)).toBe(true);
-            const my_macro = my_result.symbols.localMacros.get(my_opt_name);
+            const my_runtime_name = my_opt_name.toLowerCase();
+            expect(my_result.symbols.localMacros.has(my_runtime_name)).toBe(true);
+            const my_macro = my_result.symbols.localMacros.get(my_runtime_name);
             expect(my_macro?.scope).toBe('local');
           }
         }
