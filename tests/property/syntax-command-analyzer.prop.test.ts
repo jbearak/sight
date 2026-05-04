@@ -95,13 +95,26 @@ describe('Syntax Command Analyzer Property Tests', () => {
           // Verify each option is registered as a local macro. Stata uses
           // uppercase letters in option names only to declare a minimum
           // abbreviation; the implicit local it creates at runtime is the
-          // lowercase form of the name.
-          for (const my_opt_name of my_option_names) {
-            const my_runtime_name = my_opt_name.toLowerCase();
+          // lowercase form of the name. Multiple options that differ only
+          // in case (e.g. `Foo` and `foo`) collapse onto one runtime local,
+          // so we deduplicate by the lowercase form before asserting.
+          const the_runtime_names = new Set(
+            my_option_names.map((my_name) => my_name.toLowerCase())
+          );
+          for (const my_runtime_name of the_runtime_names) {
             expect(my_result.symbols.localMacros.has(my_runtime_name)).toBe(true);
             const my_macro = my_result.symbols.localMacros.get(my_runtime_name);
             expect(my_macro?.scope).toBe('local');
           }
+          // Also confirm we did not silently drop options: every distinct
+          // lowercase name should map to exactly one entry in localMacros.
+          let the_matching_local_count = 0;
+          for (const my_runtime_name of the_runtime_names) {
+            if (my_result.symbols.localMacros.has(my_runtime_name)) {
+              the_matching_local_count++;
+            }
+          }
+          expect(the_matching_local_count).toBe(the_runtime_names.size);
         }
       ),
       { numRuns: 100 }

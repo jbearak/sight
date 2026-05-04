@@ -68,4 +68,18 @@ end`;
 end`;
         expect(undefined_macro_messages(my_source)).toEqual([]);
     });
+
+    it('still flags references that use the wrong case (Stata is case-sensitive)', () => {
+        // Stata only creates the lowercase implicit local. A reference to
+        // \`Cache' (with capitals) is genuinely undefined and must still
+        // produce a diagnostic — this guards against accidentally registering
+        // both casings.
+        const my_source = `program define wrong_case
+    syntax, Cache(string)
+    display "\`Cache'"
+end`;
+        expect(undefined_macro_messages(my_source)).toEqual([
+            "Undefined local macro: \`Cache'",
+        ]);
+    });
 });

@@ -736,6 +736,12 @@ export class SemanticAnalyzer {
      * Returns a Set of option names declared in the program's syntax signature.
      */
     private extract_syntax_option_names(nodes: StataNode[]): Set<string> {
+        // Returns the names verbatim. The c_local-pattern matcher in
+        // extract_macro_creating_option_patterns compares against the literal
+        // text inside `\`name'`, so casing must match here too. End-to-end
+        // correctness for capitalised option names also requires lowercasing
+        // call-site option matching — a broader change tracked separately
+        // from the implicit-local fix.
         const option_names = new Set<string>();
         for (const node of nodes) {
             if (node.type === 'syntax') {
