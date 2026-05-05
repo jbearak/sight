@@ -736,6 +736,12 @@ export class SemanticAnalyzer {
      * Returns a Set of option names declared in the program's syntax signature.
      */
     private extract_syntax_option_names(nodes: StataNode[]): Set<string> {
+        // Returns the names verbatim. The c_local-pattern matcher in
+        // extract_macro_creating_option_patterns compares against the literal
+        // text inside `\`name'`, so casing must match here too. End-to-end
+        // correctness for capitalised option names also requires lowercasing
+        // call-site option matching — a broader change tracked separately
+        // from the implicit-local fix.
         const option_names = new Set<string>();
         for (const node of nodes) {
             if (node.type === 'syntax') {
@@ -968,12 +974,14 @@ export class SemanticAnalyzer {
             }
         }
 
-        // Register each option as an implicit local
+        // Register each option as an implicit local. Stata's `syntax` command
+        // uses uppercase letters in option names to declare a minimum
+        // abbreviation (e.g. `Cache(string)`), but the implicit local Stata
+        // creates at runtime is always lowercased.
         for (const opt of signature.options) {
-            // Check if macro already exists (first definition wins)
-            const existing_macro = symbols.localMacros.get(opt.name);
+            const local_name = opt.name.toLowerCase();
+            const existing_macro = symbols.localMacros.get(local_name);
             if (existing_macro) {
-                // Add to additional_definitions array
                 if (!existing_macro.additional_definitions) {
                     existing_macro.additional_definitions = [];
                 }
@@ -983,9 +991,8 @@ export class SemanticAnalyzer {
                     location: { uri: this.uri, range: opt.range }
                 });
             } else {
-                // Create new macro with first definition
                 const macro_symbol: MacroSymbol = {
-                    name: opt.name,
+                    name: local_name,
                     scope: 'local',
                     location: { uri: this.uri, range: opt.range },
                     sourceUri: this.uri,
@@ -994,8 +1001,8 @@ export class SemanticAnalyzer {
                     definition_line: opt.range.start.line,
                 };
 
-                current_scope.localMacros.set(opt.name, macro_symbol);
-                symbols.localMacros.set(opt.name, macro_symbol);
+                current_scope.localMacros.set(local_name, macro_symbol);
+                symbols.localMacros.set(local_name, macro_symbol);
             }
         }
     }
