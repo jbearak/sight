@@ -139,6 +139,27 @@ end`;
             expect(program?.macro_creating_global_options).toContain('global');
         });
 
+        it('should lower-case macro-creating syntax options at call sites', () => {
+            const source = `program define myprog
+    syntax, Cache(string)
+    c_local \`cache' "value"
+end
+
+myprog, Cache(result)
+display \`result'
+`;
+
+            const result = analyze(source);
+
+            const program = result.symbols.programs.get('myprog');
+            expect(program?.macro_creating_local_options).toEqual(['cache']);
+            expect(result.symbols.localMacros.has('result')).toBe(true);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('result')
+            )).toBeUndefined();
+        });
+
         it('should fall back to command range when option argument_range is undefined', () => {
             // Per spec requirements 3.3 and 4.3: definition location should use
             // option argument span, and if unavailable fall back to command span

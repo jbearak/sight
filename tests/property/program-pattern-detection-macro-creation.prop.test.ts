@@ -53,7 +53,9 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
         
         // Create syntax_option_names set containing all the option names
         // (simulating that these options are declared in a syntax command)
-        const syntax_option_names = new Set([...local_options, ...global_options]);
+        const syntax_option_names = new Set(
+            [...local_options, ...global_options].map(opt => opt.toLowerCase())
+        );
         
         // Test the extraction method directly
         return (analyzer as any).extract_macro_creating_option_patterns(mock_nodes, syntax_option_names);
@@ -160,7 +162,7 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
                     const result = test_macro_creating_patterns('test_prog', option_names, []);
 
                     // Deduplication means unique options only
-                    const unique_options = [...new Set(option_names)];
+                    const unique_options = [...new Set(option_names.map(opt => opt.toLowerCase()))];
                     expect(result.local_options.length).toBe(unique_options.length);
 
                     for (const option_name of unique_options) {
@@ -185,7 +187,7 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
                     const result = test_macro_creating_patterns('test_prog', [], option_names);
                     
                     // Deduplication means unique options only
-                    const unique_options = [...new Set(option_names)];
+                    const unique_options = [...new Set(option_names.map(opt => opt.toLowerCase()))];
                     expect(result.global_options.length).toBe(unique_options.length);
                     
                     for (const option_name of unique_options) {
@@ -209,8 +211,8 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
                 (local_options, global_options) => {
                     const result = test_macro_creating_patterns('test_prog', local_options, global_options);
 
-                    const unique_local_options = [...new Set(local_options)];
-                    const unique_global_options = [...new Set(global_options)];
+                    const unique_local_options = [...new Set(local_options.map(opt => opt.toLowerCase()))];
+                    const unique_global_options = [...new Set(global_options.map(opt => opt.toLowerCase()))];
 
                     expect(result.local_options.length).toBe(unique_local_options.length);
                     expect(result.global_options.length).toBe(unique_global_options.length);
@@ -257,10 +259,10 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
                     };
                     
                     // Include option_name in syntax_option_names to simulate it being declared in syntax
-                    const syntax_option_names = new Set([option_name]);
+                    const syntax_option_names = new Set([option_name.toLowerCase()]);
                     const result = (analyzer as any).extract_macro_creating_option_patterns([mock_if_node], syntax_option_names);
                     
-                    expect(result.local_options).toContain(option_name);
+                    expect(result.local_options).toContain(option_name.toLowerCase());
                 }
             ),
             { numRuns: 30 }
@@ -288,7 +290,7 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
                     ];
                     
                     // Include option_name in syntax_option_names (but patterns are still invalid)
-                    const syntax_option_names = new Set([option_name]);
+                    const syntax_option_names = new Set([option_name.toLowerCase()]);
                     
                     for (const invalid_pattern of invalid_patterns) {
                         const mock_node = {
@@ -334,12 +336,12 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
                     }));
                     
                     // Include option_name in syntax_option_names
-                    const syntax_option_names = new Set([option_name]);
+                    const syntax_option_names = new Set([option_name.toLowerCase()]);
                     const result = (analyzer as any).extract_macro_creating_option_patterns(duplicate_nodes, syntax_option_names);
                     
                     // Implementation deduplicates, so should have exactly 1 entry
                     expect(result.local_options.length).toBe(1);
-                    expect(result.local_options[0]).toBe(option_name);
+                    expect(result.local_options[0]).toBe(option_name.toLowerCase());
                 }
             ),
             { numRuns: 20 }
@@ -348,7 +350,7 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
 
     /**
      * Property 8: Case Sensitivity
-     * Pattern detection should be case-sensitive for macro names but case-insensitive for commands.
+     * Pattern detection should normalize syntax-option macro names to lower case.
      */
     it('should handle case sensitivity correctly', () => {
         fc.assert(
@@ -368,10 +370,10 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
                     };
                     
                     // Include option_name in syntax_option_names
-                    const syntax_option_names = new Set([option_name]);
+                    const syntax_option_names = new Set([option_name.toLowerCase()]);
                     const result = (analyzer as any).extract_macro_creating_option_patterns([mock_node], syntax_option_names);
                     
-                    expect(result.local_options).toContain(option_name);
+                    expect(result.local_options).toContain(option_name.toLowerCase());
                 }
             ),
             { numRuns: 20 }
@@ -475,8 +477,8 @@ describe('Program Pattern Detection and Macro Creation Property Tests', () => {
                     const result = test_macro_creating_patterns('test_prog', local_opts, global_opts);
                     
                     // Deduplication means unique options only
-                    const unique_local = [...new Set(local_opts)];
-                    const unique_global = [...new Set(global_opts)];
+                    const unique_local = [...new Set(local_opts.map(opt => opt.toLowerCase()))];
+                    const unique_global = [...new Set(global_opts.map(opt => opt.toLowerCase()))];
                     
                     // Check all local options are detected
                     expect(result.local_options.length).toBe(unique_local.length);

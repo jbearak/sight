@@ -733,20 +733,17 @@ export class SemanticAnalyzer {
 
     /**
      * Extract option names from syntax commands in program body.
-     * Returns a Set of option names declared in the program's syntax signature.
+     * Returns a Set of lowercased option names declared in the program's
+     * syntax signature. Stata's `syntax` command creates lowercased implicit
+     * locals for options, even when the signature uses uppercase letters to
+     * declare minimum abbreviations.
      */
     private extract_syntax_option_names(nodes: StataNode[]): Set<string> {
-        // Returns the names verbatim. The c_local-pattern matcher in
-        // extract_macro_creating_option_patterns compares against the literal
-        // text inside `\`name'`, so casing must match here too. End-to-end
-        // correctness for capitalised option names also requires lowercasing
-        // call-site option matching — a broader change tracked separately
-        // from the implicit-local fix.
         const option_names = new Set<string>();
         for (const node of nodes) {
             if (node.type === 'syntax') {
                 for (const opt of node.signature.options) {
-                    option_names.add(opt.name);
+                    option_names.add(opt.name.toLowerCase());
                 }
             } else if (this.is_control_flow(node)) {
                 // Recurse into control flow bodies
@@ -776,9 +773,10 @@ export class SemanticAnalyzer {
                     // Check if it's a macro reference pattern (starts with backtick)
                     if (macro_name.startsWith('`') && macro_name.endsWith("'")) {
                         const inner_name = macro_name.slice(1, -1);
+                        const local_name = inner_name.toLowerCase();
                         // Only add if it's a valid identifier AND matches a syntax option parameter
-                        if (inner_name && is_valid_identifier(inner_name) && syntax_option_names.has(inner_name)) {
-                            local_set.add(inner_name);
+                        if (inner_name && is_valid_identifier(inner_name) && syntax_option_names.has(local_name)) {
+                            local_set.add(local_name);
                         }
                     }
                 }
@@ -788,9 +786,10 @@ export class SemanticAnalyzer {
                     // Check if it's a macro reference pattern (starts with backtick)
                     if (macro_name.startsWith('`') && macro_name.endsWith("'")) {
                         const inner_name = macro_name.slice(1, -1);
+                        const global_name = inner_name.toLowerCase();
                         // Only add if it's a valid identifier AND matches a syntax option parameter
-                        if (inner_name && is_valid_identifier(inner_name) && syntax_option_names.has(inner_name)) {
-                            global_set.add(inner_name);
+                        if (inner_name && is_valid_identifier(inner_name) && syntax_option_names.has(global_name)) {
+                            global_set.add(global_name);
                         }
                     }
                 }
@@ -2091,21 +2090,21 @@ export class SemanticAnalyzer {
             for (const option of node.options) {
                 for (const opt of builtin_cmd.local_options) {
                     if (matches_option(option.name, opt)) {
-                        local_option_names.add(option.name);
+                        local_option_names.add(option.name.toLowerCase());
                     }
                 }
                 for (const opt of builtin_cmd.global_options) {
                     if (matches_option(option.name, opt)) {
-                        global_option_names.add(option.name);
+                        global_option_names.add(option.name.toLowerCase());
                     }
                 }
             }
         } else if (program_options) {
             for (const option_name of program_options.local_options) {
-                local_option_names.add(option_name);
+                local_option_names.add(option_name.toLowerCase());
             }
             for (const option_name of program_options.global_options) {
-                global_option_names.add(option_name);
+                global_option_names.add(option_name.toLowerCase());
             }
         }
         
@@ -2117,12 +2116,13 @@ export class SemanticAnalyzer {
             }
             
             const macro_name = parse_result.identifier;
+            const option_name = option.name.toLowerCase();
             
             // Check if this is a local() option
-            const is_local_option = local_option_names.has(option.name);
+            const is_local_option = local_option_names.has(option_name);
             
             // Check if this is a global() option
-            const is_global_option = global_option_names.has(option.name);
+            const is_global_option = global_option_names.has(option_name);
             
             if (is_local_option) {
                 // Check if macro already exists (first definition wins)
