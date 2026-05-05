@@ -3,6 +3,7 @@ import * as fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { CommandNode } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 /**
  * Property tests for quoted path parsing fix.
@@ -73,9 +74,13 @@ describe('Quoted Path Parsing Property Tests', () => {
 
   /**
    * Generator for valid Stata identifiers (WORD tokens).
+   * Excludes reserved qualifier keywords (`if`, `in`), prefix commands
+   * (`by`, `bysort`, `quietly`, ...), and file commands (`do`, `use`, ...)
+   * which are parsed specially when they appear as the first identifier
+   * after a command. See tests/property/generators/primitives.ts.
    */
   function arbitrary_identifier(): fc.Arbitrary<string> {
-    return arbitrary_macro_name();
+    return arbitrary_non_reserved_identifier();
   }
 
   /**
