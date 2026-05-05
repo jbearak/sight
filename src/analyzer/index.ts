@@ -2090,21 +2090,21 @@ export class SemanticAnalyzer {
             for (const option of node.options) {
                 for (const opt of builtin_cmd.local_options) {
                     if (matches_option(option.name, opt)) {
-                        local_option_names.add(option.name);
+                        local_option_names.add(option.name.toLowerCase());
                     }
                 }
                 for (const opt of builtin_cmd.global_options) {
                     if (matches_option(option.name, opt)) {
-                        global_option_names.add(option.name);
+                        global_option_names.add(option.name.toLowerCase());
                     }
                 }
             }
         } else if (program_options) {
             for (const option_name of program_options.local_options) {
-                local_option_names.add(option_name);
+                local_option_names.add(option_name.toLowerCase());
             }
             for (const option_name of program_options.global_options) {
-                global_option_names.add(option_name);
+                global_option_names.add(option_name.toLowerCase());
             }
         }
         

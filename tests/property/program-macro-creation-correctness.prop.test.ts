@@ -91,7 +91,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                         const { program: invalid_program } = parse_and_analyze(invalid_code);
                         
                         expect(invalid_program).toBeDefined();
-                        expect(invalid_program!.macro_creating_local_options?.includes(option_name) || false).toBe(false);
+                        expect(invalid_program!.macro_creating_local_options?.includes(option_name.toLowerCase()) || false).toBe(false);
                     }
                 }
             ),
@@ -114,7 +114,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                     
                     expect(program).toBeDefined();
                     // Invalid identifiers should not be detected as macro-creating options
-                    expect(program!.macro_creating_local_options?.includes(invalid_name) || false).toBe(false);
+                    expect(program!.macro_creating_local_options?.includes(invalid_name.toLowerCase()) || false).toBe(false);
                 }
             ),
             { numRuns: 25 }
@@ -145,8 +145,8 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                     
                     expect(program).toBeDefined();
                     // Non-c_local/global commands should not create macro-creating options
-                    expect(program!.macro_creating_local_options?.includes(option_name) || false).toBe(false);
-                    expect(program!.macro_creating_global_options?.includes(option_name) || false).toBe(false);
+                    expect(program!.macro_creating_local_options?.includes(option_name.toLowerCase()) || false).toBe(false);
+                    expect(program!.macro_creating_global_options?.includes(option_name.toLowerCase()) || false).toBe(false);
                 }
             ),
             { numRuns: 25 }
@@ -362,7 +362,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                     const upper_code = `program define ${prog_name}_upper\n    syntax, ${option_name}(name)\n    C_LOCAL \`${option_name}' "value"\nend`;
                     const { program: upper_program } = parse_and_analyze(upper_code);
                     expect(upper_program).toBeDefined();
-                    expect(upper_program!.macro_creating_local_options?.includes(option_name) || false).toBe(false);
+                    expect(upper_program!.macro_creating_local_options?.includes(option_name.toLowerCase()) || false).toBe(false);
                 }
             ),
             { numRuns: 20 }
@@ -429,7 +429,7 @@ end`;
                         const { program } = parse_and_analyze(code);
                         
                         expect(program).toBeDefined();
-                        expect(program!.macro_creating_local_options?.includes(option_name) || false).toBe(false);
+                        expect(program!.macro_creating_local_options?.includes(option_name.toLowerCase()) || false).toBe(false);
                     }
                 }
             ),
