@@ -13,20 +13,20 @@ import { StataParser } from '../../../src/parser';
 import { StataDiagnosticCode } from '../../../src/types';
 
 describe('Syntax option capitalization → implicit locals', () => {
-    let analyzer: SemanticAnalyzer;
-    let lexer: StataLexer;
-    let parser: StataParser;
+    let my_analyzer: SemanticAnalyzer;
+    let my_lexer: StataLexer;
+    let my_parser: StataParser;
 
     beforeEach(() => {
-        analyzer = new SemanticAnalyzer();
-        lexer = new StataLexer();
-        parser = new StataParser();
+        my_analyzer = new SemanticAnalyzer();
+        my_lexer = new StataLexer();
+        my_parser = new StataParser();
     });
 
     function analyze_document(my_source: string) {
-        const my_lex_result = lexer.tokenize(my_source);
-        const my_parse_result = parser.parse(my_lex_result.tokens);
-        return analyzer.analyze(
+        const my_lex_result = my_lexer.tokenize(my_source);
+        const my_parse_result = my_parser.parse(my_lex_result.tokens);
+        return my_analyzer.analyze(
             my_parse_result.ast,
             'file:///test.do',
             undefined,
