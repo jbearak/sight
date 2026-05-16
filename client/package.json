@@ -1,6 +1,6 @@
 {
   "name": "sight",
-  "displayName": "Stata - Stata Language Server",
+  "displayName": "Sight - Stata Language Server",
   "description": "Stata language support: language server, syntax highlighting, and code execution",
   "version": "0.6.2",
   "publisher": "jbearak",
