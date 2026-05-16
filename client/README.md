@@ -1,4 +1,4 @@
-# Sight - Comprehensive Stata Language Support
+# Stata - Stata Language Server
 
 Comprehensive language support for Stata: real-time diagnostics, completions, go-to-definition, find references, run code in Stata, syntax highlighting with nesting depth colors, code formatting, cross-file symbol resolution, and built-in viewers for datasets, logs, and help files.
 
