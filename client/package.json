@@ -2,7 +2,7 @@
   "name": "sight",
   "displayName": "Stata - Stata Language Server",
   "description": "Stata language support: language server, syntax highlighting, and code execution",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "publisher": "jbearak",
   "icon": "icon.png",
   "repository": {
