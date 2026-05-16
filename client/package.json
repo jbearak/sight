@@ -4,6 +4,7 @@
   "description": "Stata language support: language server, syntax highlighting, and code execution",
   "version": "0.6.1",
   "publisher": "jbearak",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/jbearak/sight"
