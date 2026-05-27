@@ -43,6 +43,8 @@ import { ColumnContextMenu } from './column-context-menu';
 import { ColumnVisibilityPopover } from './column-visibility-popover';
 import { ToolbarSortStrip } from './sort-strip';
 import { ToolbarFilterStrip } from './filter-strip';
+import { FilterPopover } from './filter-popover';
+import { col_kind } from './filter-column-kind';
 import {
     active_direction,
     apply_sort_pick,
@@ -245,6 +247,14 @@ type ContextMenuState = {
     top_px: number;
 };
 
+type FilterEditorState = {
+    col_index: number;
+    // The existing entry being edited, or null when adding a new filter.
+    entry: FilterEntry | null;
+    left_px: number;
+    top_px: number;
+};
+
 export function App() {
     const { grid: vscode_theme, missing_fg, missing_bg } =
         use_vscode_theme();
@@ -260,6 +270,8 @@ export function App() {
         nobs_effective,
         apply_sort,
         apply_filter,
+        histograms,
+        request_histogram,
         update_viewport,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
@@ -284,11 +296,44 @@ export function App() {
         useState(false);
     const [context_menu, set_context_menu] =
         useState<ContextMenuState | null>(null);
+    const [filter_editor, set_filter_editor] =
+        useState<FilterEditorState | null>(null);
     const grid_shell_ref = useRef<HTMLDivElement>(null);
     const last_mouse_ref = useRef<{
         x: number;
         y: number;
     }>({ x: 0, y: 0 });
+    // Viewport-relative mouse coords (the filter popover renders
+    // position: fixed, so it anchors in viewport space, not grid-shell
+    // space like the context menu/tooltip).
+    const viewport_mouse_ref = useRef<{ x: number; y: number }>({
+        x: 0,
+        y: 0,
+    });
+
+    useEffect(() => {
+        const update_viewport_mouse = (e: MouseEvent) => {
+            viewport_mouse_ref.current = { x: e.clientX, y: e.clientY };
+        };
+        document.addEventListener('mousemove', update_viewport_mouse, true);
+        document.addEventListener(
+            'contextmenu',
+            update_viewport_mouse,
+            true
+        );
+        return () => {
+            document.removeEventListener(
+                'mousemove',
+                update_viewport_mouse,
+                true
+            );
+            document.removeEventListener(
+                'contextmenu',
+                update_viewport_mouse,
+                true
+            );
+        };
+    }, []);
 
     useEffect(() => {
         const my_el = grid_shell_ref.current;
@@ -489,6 +534,41 @@ export function App() {
         do_apply_filter(
             filter.entries.filter(my_entry => my_entry.id !== id)
         );
+    };
+
+    // Open the filter editor for a column, seeding from any existing entry
+    // and pre-fetching the histogram for the numeric brush.
+    const open_filter_editor = (col_index: number) => {
+        if (!metadata) return;
+        const my_var = metadata.variables[col_index];
+        if (!my_var) return;
+        const my_kind = col_kind(my_var);
+        if (my_kind === 'numeric' || my_kind === 'labelledNumeric') {
+            request_histogram(col_index);
+        }
+        const my_existing =
+            filter.entries.find(
+                my_entry => my_entry.col_index === col_index
+            ) ?? null;
+        set_filter_editor({
+            col_index,
+            entry: my_existing,
+            left_px: viewport_mouse_ref.current.x,
+            top_px: viewport_mouse_ref.current.y,
+        });
+    };
+
+    // One filter per column: applying drops any existing entry for this
+    // column (by id when editing, and by col_index for safety), then
+    // appends the new one.
+    const apply_filter_entry = (entry: FilterEntry) => {
+        const the_rest = filter.entries.filter(
+            my_entry =>
+                my_entry.id !== entry.id
+                && my_entry.col_index !== entry.col_index
+        );
+        do_apply_filter([...the_rest, entry]);
+        set_filter_editor(null);
     };
 
     // The "focused" variable index for keyboard sort shortcuts: the
@@ -943,9 +1023,9 @@ export function App() {
                     <ToolbarFilterStrip
                         filter={filter}
                         columns={metadata.variables}
-                        // Editing opens the filter popover (wired in the
-                        // App-integration step alongside the menu trigger).
-                        on_edit={() => {}}
+                        on_edit={my_entry =>
+                            open_filter_editor(my_entry.col_index)
+                        }
                         on_toggle_enabled={toggle_filter_enabled}
                         on_remove={remove_filter_entry}
                         on_clear_all={() => do_apply_filter([])}
@@ -1064,6 +1144,31 @@ export function App() {
                         };
                     }}
                 />
+                {filter_editor && metadata && (() => {
+                    const my_col =
+                        metadata.variables[filter_editor.col_index];
+                    if (!my_col) return null;
+                    return (
+                        <FilterPopover
+                            // Key by column so switching columns remounts
+                            // and re-seeds the form (the seed runs only in
+                            // useState initializers).
+                            key={filter_editor.col_index}
+                            column={my_col}
+                            col_index={filter_editor.col_index}
+                            histogram={histograms.get(
+                                filter_editor.col_index
+                            )}
+                            initial={filter_editor.entry ?? undefined}
+                            anchor={{
+                                left_px: filter_editor.left_px,
+                                top_px: filter_editor.top_px,
+                            }}
+                            on_apply={apply_filter_entry}
+                            on_cancel={() => set_filter_editor(null)}
+                        />
+                    );
+                })()}
                 {header_tooltip && (
                     <div
                         ref={tooltip_ref}
