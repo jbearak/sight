@@ -377,6 +377,11 @@
           "default": true,
           "description": "Remember the row sort applied to a dataset and restore it the next time the same dataset (matching shape) is opened."
         },
+        "sight.dataBrowser.persistFilters": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remember the row filters applied to a dataset and restore them the next time the same dataset (matching shape) is opened. The surviving rows are always recomputed against the current data."
+        },
         "sight.dataBrowser.missingValueStyle": {
           "type": "string",
           "enum": [
