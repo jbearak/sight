@@ -28,10 +28,18 @@ describe('data-browser classify_sort_kind', () => {
         expect(classify_sort_kind(v('float', '%9.0g'))).toBe('numeric');
         expect(classify_sort_kind(v('long', '%12.0g'))).toBe('numeric');
     });
-    it('classifies date display formats', () => {
+    it('classifies daily/clock formats as date', () => {
         expect(classify_sort_kind(v('float', '%td'))).toBe('date');
         expect(classify_sort_kind(v('double', '%tc'))).toBe('date');
-        expect(classify_sort_kind(v('int', '%tq'))).toBe('date');
+        expect(classify_sort_kind(v('double', '%tC'))).toBe('date');
+        expect(classify_sort_kind(v('long', '%d'))).toBe('date');
+    });
+    it('classifies non-daily %t formats as numeric (no clean ISO map)', () => {
+        // %tw/%tm/%tq/%th/%ty store offsets in non-day units; a date
+        // filter would mis-convert ISO->days, so they stay numeric.
+        expect(classify_sort_kind(v('int', '%tq'))).toBe('numeric');
+        expect(classify_sort_kind(v('int', '%tm'))).toBe('numeric');
+        expect(classify_sort_kind(v('int', '%tw'))).toBe('numeric');
     });
     it('classifies labelled numerics ahead of date', () => {
         expect(classify_sort_kind(v('byte', '%9.0g', true)))

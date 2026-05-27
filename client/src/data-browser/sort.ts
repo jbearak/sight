@@ -31,8 +31,15 @@ export interface SortColumn {
     compare: (a: number, b: number) => number;
 }
 
-// Stata date/time display formats: modern %t<x> family + legacy %d.
-const DATE_FORMAT_PATTERN = /^%-?(t[cCdwmqhybgn]|d)/;
+// Stata date/time display formats that live on a day/millisecond domain
+// an ISO string converts cleanly into: daily (%td, legacy %d) and clock
+// (%tc, %tC). The other %t<x> formats (%tw weekly, %tm monthly, %tq
+// quarterly, %th half-yearly, %ty yearly, %tg generic) store integer
+// offsets in non-day units, so a date filter's ISO->days conversion would
+// silently mis-match them. They classify as `numeric` and are
+// sorted/filtered by the raw code (still monotonic in time). See
+// iso_to_stata_date in filter.ts.
+const DATE_FORMAT_PATTERN = /^%-?(t[cCd]|d)/;
 const STRING_TYPE_PATTERN = /^(str\d+|strL)$/i;
 
 const COLLATOR = new Intl.Collator(undefined, {
