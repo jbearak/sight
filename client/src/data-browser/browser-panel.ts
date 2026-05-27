@@ -24,6 +24,7 @@ import type {
 } from './column-visibility-state';
 import { should_unlink_data_browser_path } from './opening';
 import { RowCache } from './row-cache';
+import { schema_hash } from './schema-hash';
 import type {
     WebviewMessage,
     RowResponse,
@@ -243,24 +244,27 @@ export class DataBrowserPanel implements vscode.Disposable {
                         'foreground'
                     );
 
+            const my_variables = this.dta_file.variables.map(
+                (my_v: VariableInfo) => ({
+                    name: my_v.name,
+                    type: my_v.type,
+                    format: my_v.format,
+                    label: my_v.label,
+                    has_value_labels:
+                        my_v.value_label_name !== ''
+                        && this.dta_file!
+                            .value_label_tables.has(
+                                my_v.value_label_name
+                            ),
+                })
+            );
+
             const my_metadata: MetadataMessage = {
                 type: 'metadata',
                 nobs: this.dta_file.nobs,
                 missing_value_style: my_missing_style,
-                variables: this.dta_file.variables.map(
-                    (my_v: VariableInfo) => ({
-                        name: my_v.name,
-                        type: my_v.type,
-                        format: my_v.format,
-                        label: my_v.label,
-                        has_value_labels:
-                            my_v.value_label_name !== ''
-                            && this.dta_file!
-                                .value_label_tables.has(
-                                    my_v.value_label_name
-                                ),
-                    })
-                ),
+                variables: my_variables,
+                schema_hash: schema_hash(my_variables),
                 dataset_label: this.dta_file.dataset_label,
                 name: this.sidecar.name,
                 dataset_key: this.dataset_key,

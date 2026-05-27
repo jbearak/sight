@@ -40,12 +40,27 @@ export interface CopyColumnRequest {
     show_formats: boolean;
 }
 
+export interface SetSortMessage {
+    type: 'setSort';
+    keys: SortKey[];
+    labels_on: boolean;
+}
+
+export interface SaveSortMessage {
+    type: 'saveSort';
+    dataset_key: string;
+    schema_hash: string;
+    sort: SortState;
+}
+
 export type WebviewMessage =
     | RowRequest
     | ReadyMessage
     | ColumnWidthsChangedMessage
     | ColumnVisibilityChangedMessage
-    | CopyColumnRequest;
+    | CopyColumnRequest
+    | SetSortMessage
+    | SaveSortMessage;
 
 // Extension → Webview messages
 
@@ -69,8 +84,10 @@ export interface MetadataMessage {
     dataset_label: string;
     name: string;
     dataset_key: string;
+    schema_hash: string;
     stored_column_widths?: Record<string, number>;
     stored_hidden_columns?: string[];
+    stored_sort?: SortState;
     source?: string;
     subsetted?: boolean;
     varlist?: string[];
@@ -79,9 +96,23 @@ export interface MetadataMessage {
     missing_value_style?: MissingValueStyle;
 }
 
+export interface SortAppliedMessage {
+    type: 'sortApplied';
+    sort: SortState;
+    nobs_effective: number;
+    from_persistence: boolean;
+}
+
+export interface SortStatusMessage {
+    type: 'sortStatus';
+    state: 'pending' | 'idle';
+}
+
 export type ExtensionMessage =
     | RowResponse
-    | MetadataMessage;
+    | MetadataMessage
+    | SortAppliedMessage
+    | SortStatusMessage;
 
 export interface VariableDescription {
     name: string;
@@ -117,3 +148,22 @@ export interface VviewSidecar {
     if?: string;
     in?: string;
 }
+
+// -----------------------------------------------------------
+// Sort
+// -----------------------------------------------------------
+
+export interface SortKey {
+    col_index: number; // 0-based index into variables[]
+    direction: 'asc' | 'desc';
+}
+
+export interface SortState {
+    keys: SortKey[];
+    labels_on_when_sorted: boolean;
+}
+
+export const EMPTY_SORT: SortState = {
+    keys: [],
+    labels_on_when_sorted: true,
+};
