@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { DataBrowserPanel } from './browser-panel';
 import type { DataBrowserColumnWidthStore } from './column-width-state';
 import type { DataBrowserColumnVisibilityStore } from './column-visibility-state';
+import type { DataBrowserSortStateStore } from './sort-state';
 import {
     build_direct_open_sidecar,
     DATA_BROWSER_EDITOR_VIEW_TYPE,
@@ -27,7 +28,8 @@ export class DataBrowserReadonlyEditorProvider
     constructor(
         private readonly extension_uri: vscode.Uri,
         private readonly column_width_store: DataBrowserColumnWidthStore,
-        private readonly column_visibility_store: DataBrowserColumnVisibilityStore
+        private readonly column_visibility_store: DataBrowserColumnVisibilityStore,
+        private readonly sort_state_store: DataBrowserSortStateStore
     ) {}
 
     async openCustomDocument(
@@ -69,7 +71,8 @@ export class DataBrowserReadonlyEditorProvider
             document.uri.fsPath,
             my_html,
             this.column_width_store,
-            this.column_visibility_store
+            this.column_visibility_store,
+            this.sort_state_store
         );
     }
 }
@@ -77,7 +80,8 @@ export class DataBrowserReadonlyEditorProvider
 export function register_data_browser_custom_editor(
     context: vscode.ExtensionContext,
     column_width_store: DataBrowserColumnWidthStore,
-    column_visibility_store: DataBrowserColumnVisibilityStore
+    column_visibility_store: DataBrowserColumnVisibilityStore,
+    sort_state_store: DataBrowserSortStateStore
 ): void {
     context.subscriptions.push(
         vscode.window.registerCustomEditorProvider(
@@ -85,7 +89,8 @@ export function register_data_browser_custom_editor(
             new DataBrowserReadonlyEditorProvider(
                 context.extensionUri,
                 column_width_store,
-                column_visibility_store
+                column_visibility_store,
+                sort_state_store
             ),
             {
                 supportsMultipleEditorsPerDocument: true,

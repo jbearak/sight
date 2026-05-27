@@ -33,6 +33,7 @@ import {
 import type {
     DataBrowserColumnVisibilityStore,
 } from './column-visibility-state';
+import type { DataBrowserSortStateStore } from './sort-state';
 import { should_unlink_data_browser_path } from './opening';
 import { RowCache } from './row-cache';
 import { schema_hash } from './schema-hash';
@@ -64,10 +65,12 @@ export class DataBrowserPanel implements vscode.Disposable {
     private dataset_key_aliases: string[];
     private readonly column_width_store: DataBrowserColumnWidthStore;
     private readonly column_visibility_store: DataBrowserColumnVisibilityStore;
+    private readonly sort_state_store: DataBrowserSortStateStore;
     private disposed = false;
     private generation = 0;
     private sort: SortState = EMPTY_SORT;
     private permutation: Uint32Array | null = null;
+    private sort_restored = false;
 
     constructor(
         panel: vscode.WebviewPanel,
@@ -75,7 +78,8 @@ export class DataBrowserPanel implements vscode.Disposable {
         dta_path: string,
         webview_html: string,
         column_width_store: DataBrowserColumnWidthStore,
-        column_visibility_store: DataBrowserColumnVisibilityStore
+        column_visibility_store: DataBrowserColumnVisibilityStore,
+        sort_state_store: DataBrowserSortStateStore
     ) {
         this.panel = panel;
         this.sidecar = sidecar;
@@ -92,6 +96,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.column_width_store = column_width_store;
         this.column_visibility_store =
             column_visibility_store;
+        this.sort_state_store = sort_state_store;
 
         panel.webview.html = webview_html;
 
@@ -132,6 +137,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.row_cache.clear();
         this.sort = EMPTY_SORT;
         this.permutation = null;
+        this.sort_restored = false;
 
         // Clean up the old temp file on Windows before
         // overwriting the path (other platforms unlink
@@ -279,12 +285,19 @@ export class DataBrowserPanel implements vscode.Disposable {
                 })
             );
 
+            const my_schema_hash = schema_hash(my_variables);
+            await this.maybe_restore_sort(my_schema_hash);
+            if (!this.dta_file) return;
+
             const my_metadata: MetadataMessage = {
                 type: 'metadata',
                 nobs: this.dta_file.nobs,
                 missing_value_style: my_missing_style,
                 variables: my_variables,
-                schema_hash: schema_hash(my_variables),
+                schema_hash: my_schema_hash,
+                stored_sort: this.sort.keys.length > 0
+                    ? this.sort
+                    : undefined,
                 dataset_label: this.dta_file.dataset_label,
                 name: this.sidecar.name,
                 dataset_key: this.dataset_key,
@@ -400,7 +413,63 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         this.post_sort_status('idle');
         this.post_sort_applied();
-        // Sort persistence is wired in a later task.
+
+        if (this.persist_sort_enabled()) {
+            await this.sort_state_store.set(
+                this.dataset_key,
+                this.current_schema_hash(),
+                this.sort
+            );
+        }
+    }
+
+    private persist_sort_enabled(): boolean {
+        return vscode.workspace
+            .getConfiguration('sight.dataBrowser')
+            .get<boolean>('persistSort', true) ?? true;
+    }
+
+    private current_schema_hash(): string {
+        if (!this.dta_file) return '';
+        return schema_hash(
+            this.dta_file.variables.map(my_v => ({
+                name: my_v.name,
+                type: my_v.type,
+            }))
+        );
+    }
+
+    /**
+     * On first metadata for a dataset, restore any persisted sort for
+     * this dataset_key × schema_hash and recompute its permutation.
+     * No-op on later metadata re-sends (the in-memory sort wins).
+     */
+    private async maybe_restore_sort(
+        schema_hash_value: string
+    ): Promise<void> {
+        if (this.sort_restored) return;
+        this.sort_restored = true;
+        if (!this.dta_file || !this.persist_sort_enabled()) return;
+
+        const my_stored = this.sort_state_store.get(
+            this.dataset_key,
+            schema_hash_value
+        );
+        if (!my_stored) return;
+
+        const my_generation = this.generation;
+        let my_permutation: Uint32Array | null = null;
+        try {
+            my_permutation =
+                await this.compute_sort_permutation(my_stored);
+        } catch {
+            my_permutation = null;
+        }
+        if (my_generation !== this.generation) return;
+        if (my_permutation) {
+            this.sort = my_stored;
+            this.permutation = my_permutation;
+        }
     }
 
     /** Read one full column as raw cells (length === nobs). */
