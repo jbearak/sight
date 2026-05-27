@@ -37,8 +37,16 @@ body,
 }
 
 .row-count {
-    margin-right: auto;
     opacity: 0.85;
+}
+
+/* Action buttons (Labels / Formats / Columns) stay pinned to the right,
+   even when the sort/filter chips are open to their left. */
+.toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .toggle {

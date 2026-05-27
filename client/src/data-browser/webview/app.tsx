@@ -1043,65 +1043,6 @@ export function App() {
         <div className="browser-root">
             <div className="toolbar">
                 <span className="row-count">{row_count_text}</span>
-                <button
-                    className={show_labels ? 'toggle active' : 'toggle'}
-                    onClick={() => set_show_labels(!show_labels)}
-                    type="button"
-                >
-                    Labels
-                </button>
-                <button
-                    className={show_formats ? 'toggle active' : 'toggle'}
-                    onClick={() => set_show_formats(!show_formats)}
-                    type="button"
-                >
-                    Formats
-                </button>
-                <div className="columns-popover-anchor">
-                    <button
-                        className={columns_popover_open ? 'toggle active' : 'toggle'}
-                        onClick={() => set_columns_popover_open(v => !v)}
-                        type="button"
-                    >
-                        Columns
-                        {hidden_columns.size > 0 && (
-                            <span className="hidden-count-badge">
-                                {hidden_columns.size}
-                            </span>
-                        )}
-                    </button>
-                    {columns_popover_open && metadata && (
-                        <ColumnVisibilityPopover
-                            variables={metadata.variables}
-                            hidden_columns={hidden_columns}
-                            on_toggle={name => {
-                                update_hidden_columns(
-                                    toggle_column_hidden(
-                                        hidden_columns,
-                                        name
-                                    )
-                                );
-                            }}
-                            on_show_all={() => {
-                                update_hidden_columns(
-                                    show_all_columns()
-                                );
-                            }}
-                            on_hide_all={() => {
-                                update_hidden_columns(
-                                    hide_all_columns(
-                                        metadata.variables.map(
-                                            v => v.name
-                                        )
-                                    )
-                                );
-                            }}
-                            on_close={() =>
-                                set_columns_popover_open(false)
-                            }
-                        />
-                    )}
-                </div>
                 <ToolbarSortStrip
                     keys={sort.keys}
                     column_names={column_names}
@@ -1120,6 +1061,67 @@ export function App() {
                         on_clear_all={() => do_apply_filter([])}
                     />
                 )}
+                <div className="toolbar-actions">
+                    <button
+                        className={show_labels ? 'toggle active' : 'toggle'}
+                        onClick={() => set_show_labels(!show_labels)}
+                        type="button"
+                    >
+                        Labels
+                    </button>
+                    <button
+                        className={show_formats ? 'toggle active' : 'toggle'}
+                        onClick={() => set_show_formats(!show_formats)}
+                        type="button"
+                    >
+                        Formats
+                    </button>
+                    <div className="columns-popover-anchor">
+                        <button
+                            className={columns_popover_open ? 'toggle active' : 'toggle'}
+                            onClick={() => set_columns_popover_open(v => !v)}
+                            type="button"
+                        >
+                            Columns
+                            {hidden_columns.size > 0 && (
+                                <span className="hidden-count-badge">
+                                    {hidden_columns.size}
+                                </span>
+                            )}
+                        </button>
+                        {columns_popover_open && metadata && (
+                            <ColumnVisibilityPopover
+                                variables={metadata.variables}
+                                hidden_columns={hidden_columns}
+                                on_toggle={name => {
+                                    update_hidden_columns(
+                                        toggle_column_hidden(
+                                            hidden_columns,
+                                            name
+                                        )
+                                    );
+                                }}
+                                on_show_all={() => {
+                                    update_hidden_columns(
+                                        show_all_columns()
+                                    );
+                                }}
+                                on_hide_all={() => {
+                                    update_hidden_columns(
+                                        hide_all_columns(
+                                            metadata.variables.map(
+                                                v => v.name
+                                            )
+                                        )
+                                    );
+                                }}
+                                on_close={() =>
+                                    set_columns_popover_open(false)
+                                }
+                            />
+                        )}
+                    </div>
+                </div>
             </div>
             <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
