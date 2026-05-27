@@ -267,6 +267,7 @@ export function App() {
         sort,
         sort_pending,
         filter,
+        filter_pending,
         nobs_effective,
         apply_sort,
         apply_filter,
@@ -571,6 +572,19 @@ export function App() {
         set_filter_editor(null);
     };
 
+    const clear_filter_on_column = (col_index: number) => {
+        do_apply_filter(
+            filter.entries.filter(
+                my_entry => my_entry.col_index !== col_index
+            )
+        );
+    };
+
+    const has_filter_on_column = (col_index: number): boolean =>
+        filter.entries.some(
+            my_entry => my_entry.col_index === col_index
+        );
+
     // The "focused" variable index for keyboard sort shortcuts: the
     // focused cell's column if any, else the selected column header,
     // mapped back through the visibility map.
@@ -603,6 +617,23 @@ export function App() {
         if (!my_touches_labelled) return;
         apply_sort(sort.keys, show_labels);
     }, [show_labels, sort, metadata, apply_sort]);
+
+    // Toggling Labels re-filters a labelled column so the stored
+    // labels_on_when_filtered stays in sync. Labelled-numeric set matching
+    // is code-based, so this is effectively a no-op for Stata data, but the
+    // guard is kept faithful (and prevents a re-filter loop: the host's
+    // filterApplied sets labels_on_when_filtered to the new value, which
+    // re-satisfies the guard).
+    useEffect(() => {
+        if (filter.entries.length === 0) return;
+        if (filter.labels_on_when_filtered === show_labels) return;
+        const my_touches_labelled = filter.entries.some(my_entry => {
+            const my_var = metadata?.variables[my_entry.col_index];
+            return my_var?.has_value_labels === true;
+        });
+        if (!my_touches_labelled) return;
+        apply_filter(filter.entries, show_labels);
+    }, [show_labels, filter, metadata, apply_filter]);
 
     // Keyboard sort shortcuts: Shift+Alt+A/D sort the focused column
     // ascending/descending (replace); Shift+Alt+0 clears all sorts.
@@ -648,6 +679,48 @@ export function App() {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metadata, focused_var_index, sort, show_labels]);
+
+    // Keyboard filter shortcuts: Shift+Alt+F opens the filter editor for
+    // the focused column; Shift+Alt+X clears that column's filter;
+    // Shift+Alt+9 clears all filters.
+    useEffect(() => {
+        const handle_keydown = (e: KeyboardEvent) => {
+            if (!metadata) return;
+            if (
+                !e.shiftKey
+                || !e.altKey
+                || e.metaKey
+                || e.ctrlKey
+            ) {
+                return;
+            }
+            if (is_editable_target(e.target)) return;
+
+            if (e.code === 'KeyF') {
+                if (focused_var_index === undefined) return;
+                e.preventDefault();
+                open_filter_editor(focused_var_index);
+            } else if (e.code === 'KeyX') {
+                if (focused_var_index === undefined) return;
+                if (!has_filter_on_column(focused_var_index)) return;
+                e.preventDefault();
+                clear_filter_on_column(focused_var_index);
+            } else if (e.code === 'Digit9') {
+                if (filter.entries.length === 0) return;
+                e.preventDefault();
+                do_apply_filter([]);
+            }
+        };
+        document.addEventListener('keydown', handle_keydown, true);
+        return () => {
+            document.removeEventListener(
+                'keydown',
+                handle_keydown,
+                true
+            );
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [metadata, focused_var_index, filter, show_labels]);
 
     const draw_sort_glyph = (
         ctx: CanvasRenderingContext2D,
@@ -752,10 +825,26 @@ export function App() {
         : sort.keys.length > 0
             ? `sorted by ${describe_sort_keys(sort.keys, column_names)}`
             : '';
+    const has_enabled_filter = filter.entries.some(
+        my_entry => my_entry.enabled
+    );
+    const filter_status_text = filter_pending
+        ? 'Filtering…'
+        : has_enabled_filter
+            && metadata
+            && nobs_effective !== undefined
+            ? `filtered to ${nobs_effective} of ${metadata.nobs}`
+                + ` (${metadata.nobs > 0
+                    ? Math.round(
+                        (100 * nobs_effective) / metadata.nobs
+                    )
+                    : 0}%)`
+            : '';
     const status_text = [
         describe_status_summary(metadata),
         hidden_count_text,
         sort_status_text,
+        filter_status_text,
     ].filter(Boolean).join(' | ');
 
     const clamp_position = (
@@ -1267,6 +1356,34 @@ export function App() {
                                 set_context_menu(null);
                             },
                         }}
+                        filter={
+                            menu_var_index >= 0
+                                ? {
+                                    has_filter_on_column:
+                                        has_filter_on_column(
+                                            menu_var_index
+                                        ),
+                                    any_filtered:
+                                        filter.entries.length > 0,
+                                    on_filter: () => {
+                                        open_filter_editor(
+                                            menu_var_index
+                                        );
+                                        set_context_menu(null);
+                                    },
+                                    on_clear_column: () => {
+                                        clear_filter_on_column(
+                                            menu_var_index
+                                        );
+                                        set_context_menu(null);
+                                    },
+                                    on_clear_all: () => {
+                                        do_apply_filter([]);
+                                        set_context_menu(null);
+                                    },
+                                }
+                                : undefined
+                        }
                     />
                 )}
             </div>

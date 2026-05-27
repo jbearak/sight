@@ -13,6 +13,16 @@ export interface SortMenuProps {
     on_clear_all: () => void;
 }
 
+/** Filter-related slice of the column context menu. Present only for
+ *  column-header menus. */
+export interface FilterMenuProps {
+    has_filter_on_column: boolean;
+    any_filtered: boolean;
+    on_filter: () => void;
+    on_clear_column: () => void;
+    on_clear_all: () => void;
+}
+
 export interface ColumnContextMenuProps {
     left_px: number;
     top_px: number;
@@ -20,6 +30,7 @@ export interface ColumnContextMenuProps {
     on_hide: () => void;
     on_close: () => void;
     sort?: SortMenuProps;
+    filter?: FilterMenuProps;
 }
 
 const MARGIN_PX = 4;
@@ -31,6 +42,7 @@ export function ColumnContextMenu({
     on_hide,
     on_close,
     sort,
+    filter,
 }: ColumnContextMenuProps) {
     const menu_ref = useRef<HTMLDivElement>(null);
 
@@ -194,6 +206,53 @@ export function ColumnContextMenu({
                             Clear all sorts
                             <span className="column-context-menu-shortcut">
                                 ⇧⌥0
+                            </span>
+                        </button>
+                    )}
+                </>
+            )}
+            {filter && (
+                <>
+                    <div
+                        className="column-context-menu-divider"
+                        role="separator"
+                    />
+                    <button
+                        type="button"
+                        className="column-context-menu-item"
+                        role="menuitem"
+                        onClick={filter.on_filter}
+                    >
+                        <span className="column-context-menu-check" />
+                        {filter.has_filter_on_column
+                            ? 'Edit filter…'
+                            : 'Filter…'}
+                        <span className="column-context-menu-shortcut">
+                            ⇧⌥F
+                        </span>
+                    </button>
+                    {filter.has_filter_on_column && (
+                        <button
+                            type="button"
+                            className="column-context-menu-item"
+                            role="menuitem"
+                            onClick={filter.on_clear_column}
+                        >
+                            <span className="column-context-menu-check" />
+                            Clear filter on this column
+                        </button>
+                    )}
+                    {filter.any_filtered && (
+                        <button
+                            type="button"
+                            className="column-context-menu-item"
+                            role="menuitem"
+                            onClick={filter.on_clear_all}
+                        >
+                            <span className="column-context-menu-check" />
+                            Clear all filters
+                            <span className="column-context-menu-shortcut">
+                                ⇧⌥9
                             </span>
                         </button>
                     )}
