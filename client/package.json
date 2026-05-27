@@ -372,6 +372,11 @@
           "minimum": 1,
           "description": "Maximum number of dataset layout entries (column widths and visibility) stored across all datasets. When the limit is reached, the least recently used entries are removed first. Each dataset may use multiple entries for alias keys."
         },
+        "sight.dataBrowser.persistSort": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remember the row sort applied to a dataset and restore it the next time the same dataset (matching shape) is opened."
+        },
         "sight.dataBrowser.missingValueStyle": {
           "type": "string",
           "enum": [
