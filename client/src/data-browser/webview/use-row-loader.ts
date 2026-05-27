@@ -3,8 +3,13 @@ import type {
     CellValue,
     MetadataMessage,
     RowResponse,
+    SortAppliedMessage,
+    SortKey,
+    SortState,
+    SortStatusMessage,
     WebviewMessage,
 } from '../types';
+import { EMPTY_SORT } from '../types';
 import {
     get_needed_page_starts,
     PAGE_SIZE,
@@ -14,6 +19,12 @@ declare function acquireVsCodeApi(): {
     postMessage(message: WebviewMessage): void;
 };
 
+type IncomingMessage =
+    | MetadataMessage
+    | RowResponse
+    | SortAppliedMessage
+    | SortStatusMessage;
+
 export function use_row_loader() {
     const vscode_api = useMemo(() => acquireVsCodeApi(), []);
     const [metadata, set_metadata] = useState<MetadataMessage | null>(
@@ -22,19 +33,25 @@ export function use_row_loader() {
     const [pages, set_pages] = useState<Map<number, CellValue[][]>>(
         () => new Map()
     );
+    const [sort, set_sort] = useState<SortState>(EMPTY_SORT);
+    const [sort_pending, set_sort_pending] = useState(false);
+    const [nobs_effective, set_nobs_effective] =
+        useState<number | undefined>(undefined);
+    const [reload_token, set_reload_token] = useState(0);
     const pending_pages = useRef<Set<number>>(new Set());
     const request_counter = useRef(0);
 
     useEffect(() => {
         function on_message(event: MessageEvent) {
-            const my_msg = event.data as
-                | MetadataMessage
-                | RowResponse;
+            const my_msg = event.data as IncomingMessage;
 
             if (my_msg.type === 'metadata') {
                 set_metadata(my_msg);
                 set_pages(new Map());
                 pending_pages.current.clear();
+                set_sort(my_msg.stored_sort ?? EMPTY_SORT);
+                set_sort_pending(false);
+                set_nobs_effective(undefined);
                 return;
             }
 
@@ -45,6 +62,23 @@ export function use_row_loader() {
                     my_next.set(my_msg.start, my_msg.rows);
                     return my_next;
                 });
+                return;
+            }
+
+            if (my_msg.type === 'sortApplied') {
+                set_sort(my_msg.sort);
+                set_nobs_effective(my_msg.nobs_effective);
+                set_pages(new Map());
+                pending_pages.current.clear();
+                set_sort_pending(false);
+                // Force the visible window to be re-requested.
+                set_reload_token(my_token => my_token + 1);
+                return;
+            }
+
+            if (my_msg.type === 'sortStatus') {
+                set_sort_pending(my_msg.state === 'pending');
+                return;
             }
         }
 
@@ -92,11 +126,24 @@ export function use_row_loader() {
         return my_page[row_index - my_page_start];
     }
 
+    function apply_sort(keys: SortKey[], labels_on: boolean) {
+        vscode_api.postMessage({
+            type: 'setSort',
+            keys,
+            labels_on,
+        });
+    }
+
     return {
         metadata,
         ensure_rows,
         get_row,
         pages,
         vscode_api,
+        sort,
+        sort_pending,
+        nobs_effective,
+        reload_token,
+        apply_sort,
     };
 }

@@ -41,8 +41,28 @@ import {
 import { use_row_loader } from './use-row-loader';
 import { ColumnContextMenu } from './column-context-menu';
 import { ColumnVisibilityPopover } from './column-visibility-popover';
+import { ToolbarSortStrip } from './sort-strip';
+import {
+    active_direction,
+    apply_sort_pick,
+    describe_sort_keys,
+    sort_priority_map,
+} from './sort-actions';
+import type { SortKey } from '../types';
 
 const HEADER_HEIGHT_PX = 40;
+
+function is_editable_target(el: EventTarget | null): boolean {
+    const my_el = el as HTMLElement | null;
+    if (!my_el) return false;
+    const my_tag = my_el.tagName;
+    return (
+        my_tag === 'INPUT'
+        || my_tag === 'TEXTAREA'
+        || my_tag === 'SELECT'
+        || my_el.isContentEditable === true
+    );
+}
 
 function read_css_var(style: CSSStyleDeclaration, name: string): string {
     return style.getPropertyValue(name).trim();
@@ -233,6 +253,11 @@ export function App() {
         get_row,
         pages,
         vscode_api,
+        sort,
+        sort_pending,
+        nobs_effective,
+        reload_token,
+        apply_sort,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
     const [show_formats, set_show_formats] = useState(true);
@@ -429,6 +454,136 @@ export function App() {
         [metadata, column_widths_by_name, hidden_columns]
     );
 
+    const column_names = useMemo(
+        () => metadata?.variables.map(my_v => my_v.name) ?? [],
+        [metadata]
+    );
+
+    const sort_info = useMemo(
+        () => sort_priority_map(sort.keys),
+        [sort.keys]
+    );
+
+    const do_apply_sort = (keys: SortKey[]) => {
+        apply_sort(keys, show_labels);
+    };
+
+    // The "focused" variable index for keyboard sort shortcuts: the
+    // single selected column, mapped back through the visibility map.
+    const focused_var_index = (() => {
+        const my_visible = grid_selection.columns.first();
+        if (my_visible === undefined) return undefined;
+        const my_var_index = visible_col_map[my_visible];
+        return my_var_index === undefined ? undefined : my_var_index;
+    })();
+
+    const menu_var_index =
+        context_menu && metadata
+            ? metadata.variables.findIndex(
+                my_v => my_v.name === context_menu.variable_name
+            )
+            : -1;
+
+    // Re-request the visible window after a sort permutation is applied
+    // (the row cache was cleared, so cells would otherwise stay blank).
+    useEffect(() => {
+        if (!metadata || reload_token === 0) return;
+        ensure_rows(
+            first_visible_row,
+            first_visible_row + visible_row_count + 10
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reload_token]);
+
+    // Toggling Labels re-sorts a labelled column WYSIWYG.
+    useEffect(() => {
+        if (sort.keys.length === 0) return;
+        if (sort.labels_on_when_sorted === show_labels) return;
+        const my_touches_labelled = sort.keys.some(my_key => {
+            const my_var = metadata?.variables[my_key.col_index];
+            return my_var?.has_value_labels === true;
+        });
+        if (!my_touches_labelled) return;
+        apply_sort(sort.keys, show_labels);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [show_labels]);
+
+    // Keyboard sort shortcuts: Shift+Alt+A/D sort the focused column
+    // ascending/descending (replace); Shift+Alt+0 clears all sorts.
+    useEffect(() => {
+        const handle_keydown = (e: KeyboardEvent) => {
+            if (!metadata) return;
+            if (
+                !e.shiftKey
+                || !e.altKey
+                || e.metaKey
+                || e.ctrlKey
+            ) {
+                return;
+            }
+            if (is_editable_target(e.target)) return;
+
+            if (e.code === 'KeyA' || e.code === 'KeyD') {
+                if (focused_var_index === undefined) return;
+                e.preventDefault();
+                const my_direction =
+                    e.code === 'KeyA' ? 'asc' : 'desc';
+                do_apply_sort(
+                    apply_sort_pick(
+                        sort.keys,
+                        focused_var_index,
+                        my_direction,
+                        false
+                    )
+                );
+            } else if (e.code === 'Digit0') {
+                if (sort.keys.length === 0) return;
+                e.preventDefault();
+                do_apply_sort([]);
+            }
+        };
+        document.addEventListener('keydown', handle_keydown, true);
+        return () => {
+            document.removeEventListener(
+                'keydown',
+                handle_keydown,
+                true
+            );
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [metadata, focused_var_index, sort, show_labels]);
+
+    const draw_sort_glyph = (
+        ctx: CanvasRenderingContext2D,
+        rect: { x: number; y: number; width: number; height: number },
+        theme: Theme,
+        info: { direction: 'asc' | 'desc'; priority: number },
+        show_priority: boolean,
+        selected: boolean
+    ) => {
+        const my_color = selected
+            ? theme.textHeaderSelected
+            : theme.textHeader;
+        const my_right = rect.x + rect.width - 8;
+        const my_cy = rect.y + rect.height / 2;
+        ctx.save();
+        ctx.fillStyle = my_color;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.globalAlpha = info.priority === 1 ? 0.85 : 0.55;
+        ctx.font = `9px ${theme.fontFamily}`;
+        ctx.fillText(
+            info.direction === 'asc' ? '▲' : '▼',
+            my_right,
+            my_cy
+        );
+        if (show_priority) {
+            ctx.font = `bold 9px ${theme.fontFamily}`;
+            ctx.fillText(String(info.priority), my_right - 10, my_cy);
+        }
+        ctx.restore();
+    };
+
     const draw_header: DrawHeaderCallback = ({
         ctx,
         column,
@@ -439,36 +594,47 @@ export function App() {
     }, draw_content) => {
         const my_column = column as BrowserGridColumn;
         const my_variable_label = my_column.variable_label;
+        const my_selected = isSelected || hasSelectedCell;
+        const my_sort = sort_info.get(Number(my_column.id));
 
         if (!my_variable_label) {
             draw_content();
-            return;
-        }
-
-        const my_text_color =
-            isSelected || hasSelectedCell
+        } else {
+            const my_text_color = my_selected
                 ? theme.textHeaderSelected
                 : theme.textHeader;
-        const my_left = rect.x + 12;
-        const my_title_y = rect.y + 14;
-        const my_subtitle_y = rect.y + rect.height - 9;
+            const my_left = rect.x + 12;
+            const my_title_y = rect.y + 14;
+            const my_subtitle_y = rect.y + rect.height - 9;
 
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(rect.x, rect.y, rect.width, rect.height);
-        ctx.clip();
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(rect.x, rect.y, rect.width, rect.height);
+            ctx.clip();
 
-        ctx.fillStyle = my_text_color;
-        ctx.font = `${theme.headerFontStyle} ${theme.fontFamily}`;
-        ctx.textBaseline = 'middle';
-        ctx.fillText(my_column.title, my_left, my_title_y);
+            ctx.fillStyle = my_text_color;
+            ctx.font = `${theme.headerFontStyle} ${theme.fontFamily}`;
+            ctx.textBaseline = 'middle';
+            ctx.fillText(my_column.title, my_left, my_title_y);
 
-        ctx.fillStyle = my_text_color;
-        ctx.globalAlpha = 0.68;
-        ctx.font = `400 11px ${theme.fontFamily}`;
-        ctx.fillText(my_variable_label, my_left, my_subtitle_y);
+            ctx.fillStyle = my_text_color;
+            ctx.globalAlpha = 0.68;
+            ctx.font = `400 11px ${theme.fontFamily}`;
+            ctx.fillText(my_variable_label, my_left, my_subtitle_y);
 
-        ctx.restore();
+            ctx.restore();
+        }
+
+        if (my_sort) {
+            draw_sort_glyph(
+                ctx,
+                rect,
+                theme,
+                my_sort,
+                sort.keys.length > 1,
+                my_selected
+            );
+        }
     };
 
     const row_count_text = metadata
@@ -482,9 +648,15 @@ export function App() {
     const hidden_count_text = describe_hidden_column_count(
         hidden_columns.size
     );
+    const sort_status_text = sort_pending
+        ? 'Sorting…'
+        : sort.keys.length > 0
+            ? `sorted by ${describe_sort_keys(sort.keys, column_names)}`
+            : '';
     const status_text = [
         describe_status_summary(metadata),
         hidden_count_text,
+        sort_status_text,
     ].filter(Boolean).join(' | ');
 
     const clamp_position = (
@@ -742,6 +914,12 @@ export function App() {
                         />
                     )}
                 </div>
+                <ToolbarSortStrip
+                    keys={sort.keys}
+                    column_names={column_names}
+                    on_change={do_apply_sort}
+                    on_clear_all={() => do_apply_sort([])}
+                />
             </div>
             <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
@@ -750,7 +928,7 @@ export function App() {
                     width="100%"
                     height="100%"
                     columns={the_columns}
-                    rows={metadata?.nobs ?? 0}
+                    rows={nobs_effective ?? metadata?.nobs ?? 0}
                     headerHeight={HEADER_HEIGHT_PX}
                     rowMarkers="number"
                     columnSelect="multi"
@@ -894,6 +1072,61 @@ export function App() {
                         on_close={() =>
                             set_context_menu(null)
                         }
+                        sort={{
+                            active_direction:
+                                menu_var_index >= 0
+                                    ? active_direction(
+                                        sort.keys,
+                                        menu_var_index
+                                    )
+                                    : 'none',
+                            any_sorted: sort.keys.length > 0,
+                            other_columns_sorted: sort.keys.some(
+                                my_key =>
+                                    my_key.col_index
+                                    !== menu_var_index
+                            ),
+                            on_sort: (direction, append) => {
+                                if (menu_var_index >= 0) {
+                                    do_apply_sort(
+                                        apply_sort_pick(
+                                            sort.keys,
+                                            menu_var_index,
+                                            direction,
+                                            append
+                                        )
+                                    );
+                                }
+                                set_context_menu(null);
+                            },
+                            on_add_to_sort: direction => {
+                                if (menu_var_index >= 0) {
+                                    do_apply_sort(
+                                        apply_sort_pick(
+                                            sort.keys,
+                                            menu_var_index,
+                                            direction,
+                                            true
+                                        )
+                                    );
+                                }
+                                set_context_menu(null);
+                            },
+                            on_clear_column: () => {
+                                do_apply_sort(
+                                    sort.keys.filter(
+                                        my_key =>
+                                            my_key.col_index
+                                            !== menu_var_index
+                                    )
+                                );
+                                set_context_menu(null);
+                            },
+                            on_clear_all: () => {
+                                do_apply_sort([]);
+                                set_context_menu(null);
+                            },
+                        }}
                     />
                 )}
             </div>
