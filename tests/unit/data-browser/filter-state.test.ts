@@ -105,4 +105,12 @@ describe('data-browser compose_effective', () => {
         expect([...compose_effective(survivors, perm, 4)!])
             .toEqual([3, 1]);
     });
+
+    it('trims (no trailing zeros) when nobs is stale/too small', () => {
+        // nobs=2 can't cover survivor index 3, so only survivor 1 is
+        // found; the result must be [1], not [1, 0].
+        const perm = u32(3, 2, 1, 0);
+        const survivors = u32(1, 3);
+        expect([...compose_effective(survivors, perm, 2)!]).toEqual([1]);
+    });
 });

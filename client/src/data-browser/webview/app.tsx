@@ -811,7 +811,7 @@ export function App() {
 
     const row_count_text = metadata
         ? describe_visible_rows(
-            metadata.nobs,
+            nobs_effective ?? metadata.nobs,
             first_visible_row,
             visible_row_count
         )

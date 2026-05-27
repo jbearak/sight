@@ -44,6 +44,21 @@ const STATA_EPOCH_MS = Date.UTC(1960, 0, 1);
 const MS_PER_DAY = 86_400_000;
 
 /**
+ * Force a datetime-local string (YYYY-MM-DDTHH:mm[:ss], from the popover's
+ * `datetime-local` input) to be read as UTC. Date.parse reads such a
+ * tz-less *date-time* as LOCAL time, which would shift %tc/%tC filters by
+ * the user's UTC offset. A date-only string (no `T`) is already parsed as
+ * UTC by Date.parse, and a string that already carries `Z` or an offset is
+ * left alone.
+ */
+function normalize_iso_utc(iso: string): string {
+    if (iso.includes('T') && !/([zZ]|[+-]\d\d:?\d\d)$/.test(iso)) {
+        return `${iso}Z`;
+    }
+    return iso;
+}
+
+/**
  * Convert an ISO date string into the Stata numeric domain a date column
  * stores: days since 1960-01-01 for daily formats, milliseconds since
  * 1960-01-01 for clock (timestamp) formats. Returns NaN when the string
@@ -53,7 +68,7 @@ export function iso_to_stata_date(
     iso: string,
     is_timestamp: boolean
 ): number {
-    const ms_since_unix = Date.parse(iso);
+    const ms_since_unix = Date.parse(normalize_iso_utc(iso));
     if (!Number.isFinite(ms_since_unix)) return NaN;
     const ms_since_epoch = ms_since_unix - STATA_EPOCH_MS;
     return is_timestamp
@@ -130,13 +145,22 @@ function acceptor_for(
         case 'numCompare': {
             const the_values = to_numbers(column, nobs);
             const v = predicate.value;
-            switch (predicate.op) {
+            const my_op = predicate.op;
+            switch (my_op) {
                 case '=': return (i) => the_values[i] === v;
                 case '!=': return (i) => the_values[i] !== v;
                 case '<': return (i) => the_values[i] < v;
                 case '<=': return (i) => the_values[i] <= v;
                 case '>': return (i) => the_values[i] > v;
                 case '>=': return (i) => the_values[i] >= v;
+                default: {
+                    // Exhaustive: guarantees this case returns, so the
+                    // outer switch can't fall through to numBetween.
+                    const _exhaustive: never = my_op;
+                    throw new Error(
+                        `filter: unhandled numCompare op ${_exhaustive}`
+                    );
+                }
             }
         }
         case 'numBetween': {
@@ -222,13 +246,22 @@ function acceptor_for(
             // fallback. Without this guard `!=` would keep every row, since
             // `x !== NaN` is always true.
             if (!Number.isFinite(v)) return () => false;
-            switch (predicate.op) {
+            const my_op = predicate.op;
+            switch (my_op) {
                 case '=': return (i) => the_values[i] === v;
                 case '!=': return (i) => the_values[i] !== v;
                 case '<': return (i) => the_values[i] < v;
                 case '<=': return (i) => the_values[i] <= v;
                 case '>': return (i) => the_values[i] > v;
                 case '>=': return (i) => the_values[i] >= v;
+                default: {
+                    // Exhaustive: guarantees this case returns, so the
+                    // outer switch can't fall through to dateBetween.
+                    const _exhaustive: never = my_op;
+                    throw new Error(
+                        `filter: unhandled dateCompare op ${_exhaustive}`
+                    );
+                }
             }
         }
         case 'dateBetween': {

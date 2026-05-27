@@ -65,7 +65,11 @@ export function compose_effective(
             out[j++] = permutation[i];
         }
     }
-    return out;
+    // Normally every survivor appears once in the permutation, so
+    // j === filtered_indices.length. If `nobs` is stale (smaller than a
+    // survivor index) some survivors are missed; trim so the tail isn't
+    // left as zeros (which would all alias original row 0).
+    return j === out.length ? out : out.subarray(0, j);
 }
 
 /**

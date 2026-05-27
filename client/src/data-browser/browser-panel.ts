@@ -855,11 +855,17 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         let my_bins = this.histogram_cache.get(my_col_index);
         if (!my_bins) {
-            const my_generation = this.generation;
+            // The histogram is over the full column and is independent of
+            // sort/filter, so guard on the dataset identity (a refresh
+            // swaps dta_file) rather than the sort/filter generation —
+            // otherwise a concurrent sort/filter would drop the response
+            // and the webview, having marked the column requested, would
+            // never see a brush.
+            const my_file = this.dta_file;
             const the_values = await this.read_full_column(
                 my_col_index
             );
-            if (my_generation !== this.generation || !this.dta_file) {
+            if (this.dta_file !== my_file || !this.dta_file) {
                 return;
             }
             const the_numbers: number[] = [];

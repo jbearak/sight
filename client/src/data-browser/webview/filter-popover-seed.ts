@@ -198,13 +198,15 @@ export function build_predicate(
             return { kind: 'isNotEmpty' };
         case 'numCompare': {
             const v = parseFloat(form.num_compare.value);
-            if (Number.isNaN(v)) return null;
+            // Reject NaN and ±Infinity (e.g. "1e999") — only finite bounds
+            // make a sensible predicate.
+            if (!Number.isFinite(v)) return null;
             return { kind: 'numCompare', op: form.num_compare.op, value: v };
         }
         case 'numBetween': {
             const lo = parseFloat(form.num_between.lo);
             const hi = parseFloat(form.num_between.hi);
-            if (Number.isNaN(lo) || Number.isNaN(hi)) return null;
+            if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
             return {
                 kind: 'numBetween', lo, hi,
                 inclusive: form.num_between.inclusive,
@@ -213,7 +215,7 @@ export function build_predicate(
         case 'numNotBetween': {
             const lo = parseFloat(form.num_between.lo);
             const hi = parseFloat(form.num_between.hi);
-            if (Number.isNaN(lo) || Number.isNaN(hi)) return null;
+            if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
             return {
                 kind: 'numNotBetween', lo, hi,
                 inclusive: form.num_between.inclusive,

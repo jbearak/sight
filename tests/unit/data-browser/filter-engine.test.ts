@@ -54,6 +54,15 @@ describe('data-browser iso_to_stata_date', () => {
         expect(iso_to_stata_date('1960-01-01', true)).toBe(0);
         expect(iso_to_stata_date('1960-01-02', true)).toBe(86400000);
     });
+    it('reads tz-less datetime-local input as UTC, not local time', () => {
+        // The popover emits `datetime-local` strings (no zone) for %tc/%tC;
+        // these must convert in UTC so the filter is timezone-independent.
+        expect(iso_to_stata_date('1960-01-01T00:00', true)).toBe(0);
+        expect(iso_to_stata_date('1960-01-01T01:00', true)).toBe(3600000);
+        expect(iso_to_stata_date('1960-01-02T00:00', true)).toBe(86400000);
+        // An explicit Z is honored unchanged.
+        expect(iso_to_stata_date('1960-01-01T00:00Z', true)).toBe(0);
+    });
     it('returns NaN for an unparseable date', () => {
         expect(Number.isNaN(iso_to_stata_date('nonsense', false)))
             .toBe(true);
