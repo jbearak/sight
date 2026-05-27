@@ -52,6 +52,11 @@ export interface SetFiltersMessage {
     labels_on: boolean;
 }
 
+export interface RequestHistogramMessage {
+    type: 'requestHistogram';
+    col_index: number;
+}
+
 export type WebviewMessage =
     | RowRequest
     | ReadyMessage
@@ -59,7 +64,8 @@ export type WebviewMessage =
     | ColumnVisibilityChangedMessage
     | CopyColumnRequest
     | SetSortMessage
-    | SetFiltersMessage;
+    | SetFiltersMessage
+    | RequestHistogramMessage;
 
 // Extension → Webview messages
 
@@ -88,7 +94,6 @@ export interface MetadataMessage {
     stored_hidden_columns?: string[];
     stored_sort?: SortState;
     stored_filter?: FilterState;
-    histograms?: Record<number, HistogramBin[]>;
     source?: string;
     subsetted?: boolean;
     varlist?: string[];
@@ -119,13 +124,20 @@ export interface FilterStatusMessage {
     state: 'pending' | 'idle';
 }
 
+export interface HistogramDataMessage {
+    type: 'histogramData';
+    col_index: number;
+    bins: HistogramBin[];
+}
+
 export type ExtensionMessage =
     | RowResponse
     | MetadataMessage
     | SortAppliedMessage
     | SortStatusMessage
     | FilterAppliedMessage
-    | FilterStatusMessage;
+    | FilterStatusMessage
+    | HistogramDataMessage;
 
 export interface VariableDescription {
     name: string;
