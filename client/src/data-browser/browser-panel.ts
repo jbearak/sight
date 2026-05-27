@@ -57,6 +57,7 @@ import type {
     SortStatusMessage,
     SetFiltersMessage,
     FilterState,
+    FilterPredicate,
     FilterAppliedMessage,
     FilterStatusMessage,
     RequestHistogramMessage,
@@ -744,16 +745,83 @@ export class DataBrowserPanel implements vscode.Disposable {
         );
         if (!my_stored) return;
 
+        // The persistence key folds in column name + type but not the
+        // display format, so a column re-saved with a different
+        // date/numeric format keeps its slot. Drop entries whose predicate
+        // no longer fits the column's current kind (e.g. a date filter on
+        // a now-numeric column would convert ISO dates into the wrong
+        // domain); showing the data unfiltered is safer than mis-filtering.
+        const the_kept_entries = my_stored.entries.filter(my_entry => {
+            const my_var =
+                this.dta_file!.variables[my_entry.col_index];
+            return my_var !== undefined
+                && this.predicate_fits_column(
+                    my_entry.predicate,
+                    my_var
+                );
+        });
+        if (the_kept_entries.length === 0) return;
+        const my_filter: FilterState = {
+            entries: the_kept_entries,
+            labels_on_when_filtered: my_stored.labels_on_when_filtered,
+        };
+
         const my_generation = this.generation;
         let my_indices: Uint32Array | null = null;
         try {
-            my_indices = await this.compute_filter_indices(my_stored);
+            my_indices = await this.compute_filter_indices(my_filter);
         } catch {
             my_indices = null;
         }
         if (my_generation !== this.generation) return;
-        this.filter = my_stored;
+        this.filter = my_filter;
         this.filtered_indices = my_indices;
+    }
+
+    /**
+     * Whether a (restored) predicate still makes sense for a column's
+     * current kind. Mirrors `kind_options` in filter-column-kind.ts: each
+     * predicate family is offered only for certain kinds, so a stale
+     * persisted entry from before a format change is dropped rather than
+     * applied with the wrong domain semantics.
+     */
+    private predicate_fits_column(
+        predicate: FilterPredicate,
+        variable: VariableInfo
+    ): boolean {
+        if (!this.dta_file) return false;
+        const my_kind = classify_sort_kind({
+            type: variable.type,
+            format: variable.format,
+            has_value_labels:
+                variable.value_label_name !== ''
+                && this.dta_file.value_label_tables.has(
+                    variable.value_label_name
+                ),
+        });
+        switch (predicate.kind) {
+            case 'isEmpty':
+            case 'isNotEmpty':
+                return true;
+            case 'numCompare':
+            case 'numBetween':
+            case 'numNotBetween':
+                return my_kind === 'numeric'
+                    || my_kind === 'labelledNumeric';
+            case 'setIn':
+            case 'setNotIn':
+                return my_kind === 'labelledNumeric';
+            case 'strCompare':
+            case 'strContains':
+            case 'strStartsWith':
+            case 'strEndsWith':
+            case 'strRegex':
+                return my_kind === 'string';
+            case 'dateCompare':
+            case 'dateBetween':
+            case 'dateNotBetween':
+                return my_kind === 'date';
+        }
     }
 
     /**
