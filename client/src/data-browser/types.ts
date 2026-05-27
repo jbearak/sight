@@ -46,21 +46,13 @@ export interface SetSortMessage {
     labels_on: boolean;
 }
 
-export interface SaveSortMessage {
-    type: 'saveSort';
-    dataset_key: string;
-    schema_hash: string;
-    sort: SortState;
-}
-
 export type WebviewMessage =
     | RowRequest
     | ReadyMessage
     | ColumnWidthsChangedMessage
     | ColumnVisibilityChangedMessage
     | CopyColumnRequest
-    | SetSortMessage
-    | SaveSortMessage;
+    | SetSortMessage;
 
 // Extension → Webview messages
 
@@ -100,7 +92,6 @@ export interface SortAppliedMessage {
     type: 'sortApplied';
     sort: SortState;
     nobs_effective: number;
-    from_persistence: boolean;
 }
 
 export interface SortStatusMessage {

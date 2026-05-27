@@ -11,9 +11,20 @@ import * as fs from 'fs';
 import {
     type VariableInfo,
     type Row,
+    type RowCell,
 } from '@jbearak/dta-parser';
 import { DtaFile } from '@jbearak/dta-parser/node';
 import { build_cell_value } from './cell-format';
+import {
+    build_sort_column,
+    classify_sort_kind,
+    compute_permutation,
+    type SortColumn,
+} from './sort';
+import {
+    group_contiguous_runs,
+    permuted_window_indices,
+} from './permuted-rows';
 import {
     build_dataset_key,
     build_dataset_key_aliases,
@@ -32,7 +43,12 @@ import type {
     CellValue,
     VviewSidecar,
     MissingValueStyle,
+    SetSortMessage,
+    SortState,
+    SortAppliedMessage,
+    SortStatusMessage,
 } from './types';
+import { EMPTY_SORT } from './types';
 
 const PAGE_SIZE = 200;
 const MAX_CACHED_PAGES = 10;
@@ -50,6 +66,8 @@ export class DataBrowserPanel implements vscode.Disposable {
     private readonly column_visibility_store: DataBrowserColumnVisibilityStore;
     private disposed = false;
     private generation = 0;
+    private sort: SortState = EMPTY_SORT;
+    private permutation: Uint32Array | null = null;
 
     constructor(
         panel: vscode.WebviewPanel,
@@ -112,6 +130,8 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.dta_file?.close();
         this.dta_file = null;
         this.row_cache.clear();
+        this.sort = EMPTY_SORT;
+        this.permutation = null;
 
         // Clean up the old temp file on Windows before
         // overwriting the path (other platforms unlink
@@ -327,6 +347,9 @@ export class DataBrowserPanel implements vscode.Disposable {
             case 'requestRows':
                 await this.handle_row_request(msg);
                 break;
+            case 'setSort':
+                await this.handle_set_sort(msg);
+                break;
             case 'copyColumn':
                 await this.handle_copy_column(
                     msg.col_index,
@@ -337,12 +360,156 @@ export class DataBrowserPanel implements vscode.Disposable {
         }
     }
 
+    // -------------------------------------------------------
+    // Sorting
+    // -------------------------------------------------------
+
+    private async handle_set_sort(
+        msg: SetSortMessage
+    ): Promise<void> {
+        if (!this.dta_file) return;
+
+        const my_generation = this.generation;
+        this.post_sort_status('pending');
+
+        const my_nvar = this.dta_file.nvar;
+        const my_valid = msg.keys.every(
+            my_key =>
+                my_key.col_index >= 0
+                && my_key.col_index < my_nvar
+        );
+        const my_sort: SortState = {
+            keys: my_valid ? msg.keys : [],
+            labels_on_when_sorted: msg.labels_on,
+        };
+
+        let my_permutation: Uint32Array | null = null;
+        try {
+            my_permutation =
+                await this.compute_sort_permutation(my_sort);
+        } catch {
+            my_permutation = null;
+        }
+
+        // Drop stale results after a refresh
+        if (my_generation !== this.generation) return;
+
+        this.sort = my_sort;
+        this.permutation = my_permutation;
+        this.row_cache.clear();
+
+        this.post_sort_status('idle');
+        this.post_sort_applied();
+        // Sort persistence is wired in a later task.
+    }
+
+    /** Read one full column as raw cells (length === nobs). */
+    private async read_full_column(
+        col_index: number
+    ): Promise<RowCell[]> {
+        if (!this.dta_file) return [];
+        const the_rows = await this.dta_file.read_rows(
+            0,
+            this.dta_file.nobs,
+            col_index,
+            col_index + 1
+        );
+        return the_rows.map(my_row => my_row[0]);
+    }
+
+    /**
+     * Build the sort permutation for a sort state, reading each
+     * sort-key column once. Returns null for an empty or out-of-range
+     * sort. The caller is responsible for re-checking `generation`
+     * after the await, since column reads are asynchronous.
+     */
+    private async compute_sort_permutation(
+        sort: SortState
+    ): Promise<Uint32Array | null> {
+        if (!this.dta_file || sort.keys.length === 0) {
+            return null;
+        }
+        const my_nvar = this.dta_file.nvar;
+        for (const my_key of sort.keys) {
+            if (
+                my_key.col_index < 0
+                || my_key.col_index >= my_nvar
+            ) {
+                return null;
+            }
+        }
+
+        const the_columns: SortColumn[] = [];
+        const the_directions: (1 | -1)[] = [];
+        for (const my_key of sort.keys) {
+            const my_var =
+                this.dta_file.variables[my_key.col_index];
+            const my_has_value_labels =
+                my_var.value_label_name !== ''
+                && this.dta_file.value_label_tables.has(
+                    my_var.value_label_name
+                );
+            const my_kind = classify_sort_kind({
+                type: my_var.type,
+                format: my_var.format,
+                has_value_labels: my_has_value_labels,
+            });
+            const my_values = await this.read_full_column(
+                my_key.col_index
+            );
+            const my_table =
+                this.dta_file.value_label_tables.get(
+                    my_var.value_label_name
+                );
+            the_columns.push(
+                build_sort_column(
+                    my_values,
+                    my_kind,
+                    my_table,
+                    sort.labels_on_when_sorted
+                )
+            );
+            the_directions.push(
+                my_key.direction === 'desc' ? -1 : 1
+            );
+        }
+        return compute_permutation(
+            the_columns,
+            the_directions,
+            this.dta_file.nobs
+        );
+    }
+
+    private post_sort_status(
+        state: 'pending' | 'idle'
+    ): void {
+        const my_msg: SortStatusMessage = {
+            type: 'sortStatus',
+            state,
+        };
+        this.panel.webview.postMessage(my_msg);
+    }
+
+    private post_sort_applied(): void {
+        const my_msg: SortAppliedMessage = {
+            type: 'sortApplied',
+            sort: this.sort,
+            nobs_effective: this.dta_file?.nobs ?? 0,
+        };
+        this.panel.webview.postMessage(my_msg);
+    }
+
+    // -------------------------------------------------------
+    // Row requests
+    // -------------------------------------------------------
+
     private async handle_row_request(
         request: WebviewMessage & { type: 'requestRows' }
     ): Promise<void> {
         if (!this.dta_file) return;
 
-        // Check cache first
+        // Check cache first. Cached pages already reflect the active
+        // permutation (the cache is cleared whenever sort changes).
         const my_cached = this.row_cache.get_page(
             request.start
         );
@@ -362,17 +529,45 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         // Cache miss — read from the .dta file
         const my_generation = this.generation;
-        const the_raw_rows = await this.dta_file.read_rows(
-            request.start,
-            request.count,
-            request.col_start,
-            request.col_end
-        );
+        let the_raw_rows: Row[];
 
-        // Drop stale responses after a refresh
-        if (my_generation !== this.generation) return;
+        if (this.permutation) {
+            // Map the visible window to original rows (display order)
+            // and read them, batching ascending-contiguous runs.
+            const the_indices = permuted_window_indices(
+                this.permutation,
+                request.start,
+                request.count,
+                this.dta_file.nobs
+            );
+            the_raw_rows = new Array(the_indices.length);
+            let my_pos = 0;
+            for (
+                const my_run of group_contiguous_runs(the_indices)
+            ) {
+                const my_chunk = await this.dta_file.read_rows(
+                    my_run.start,
+                    my_run.len,
+                    request.col_start,
+                    request.col_end
+                );
+                if (my_generation !== this.generation) return;
+                for (let j = 0; j < my_chunk.length; j++) {
+                    the_raw_rows[my_pos++] = my_chunk[j];
+                }
+            }
+        } else {
+            the_raw_rows = await this.dta_file.read_rows(
+                request.start,
+                request.count,
+                request.col_start,
+                request.col_end
+            );
+            // Drop stale responses after a refresh
+            if (my_generation !== this.generation) return;
+        }
 
-        // Cache the raw rows for future requests
+        // Cache the (display-order) raw rows for future requests
         this.row_cache.set_page(request.start, the_raw_rows);
 
         const my_response: RowResponse = {
@@ -404,49 +599,56 @@ export class DataBrowserPanel implements vscode.Disposable {
         const the_values: string[] = [my_variable.name];
         const my_nobs = this.dta_file.nobs;
 
-        for (
-            let my_offset = 0;
-            my_offset < my_nobs;
-            my_offset += PAGE_SIZE
-        ) {
-            const my_count = Math.min(
-                PAGE_SIZE,
-                my_nobs - my_offset
+        const display_for = (raw: RowCell): string => {
+            const my_cell = this.format_cell(raw, my_variable);
+            if (my_cell.missing_type) {
+                return (show_labels && my_cell.label_display)
+                    ? my_cell.label_display
+                    : my_cell.missing_type;
+            }
+            if (show_labels && my_cell.label_display) {
+                return my_cell.label_display;
+            }
+            return show_formats
+                ? my_cell.formatted_display
+                : my_cell.raw_display;
+        };
+
+        if (this.permutation) {
+            // Copy in display (sorted/filtered) order so the clipboard
+            // matches what the user sees.
+            const the_column = await this.read_full_column(
+                col_index
             );
-            const the_raw_rows =
-                await this.dta_file.read_rows(
-                    my_offset,
-                    my_count,
-                    col_index,
-                    col_index + 1
-                );
-
             if (my_generation !== this.generation) return;
-
-            for (const my_row of the_raw_rows) {
-                const my_cell = this.format_cell(
-                    my_row[0],
-                    my_variable
+            for (let i = 0; i < this.permutation.length; i++) {
+                the_values.push(
+                    display_for(the_column[this.permutation[i]])
                 );
-                let my_display: string;
-                if (my_cell.missing_type) {
-                    my_display =
-                        (show_labels
-                            && my_cell.label_display)
-                            ? my_cell.label_display
-                            : my_cell.missing_type;
-                } else if (
-                    show_labels
-                    && my_cell.label_display
-                ) {
-                    my_display = my_cell.label_display;
-                } else if (show_formats) {
-                    my_display =
-                        my_cell.formatted_display;
-                } else {
-                    my_display = my_cell.raw_display;
+            }
+        } else {
+            for (
+                let my_offset = 0;
+                my_offset < my_nobs;
+                my_offset += PAGE_SIZE
+            ) {
+                const my_count = Math.min(
+                    PAGE_SIZE,
+                    my_nobs - my_offset
+                );
+                const the_raw_rows =
+                    await this.dta_file.read_rows(
+                        my_offset,
+                        my_count,
+                        col_index,
+                        col_index + 1
+                    );
+
+                if (my_generation !== this.generation) return;
+
+                for (const my_row of the_raw_rows) {
+                    the_values.push(display_for(my_row[0]));
                 }
-                the_values.push(my_display);
             }
         }
 
