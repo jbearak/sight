@@ -69,6 +69,46 @@ This supports Stata formats 113–119 (Stata 8 through Stata 18).
 - **Value labels**: Toggle between raw values, formatted values, and value labels
 - **Missing values**: Extended missing values (`.a` through `.z`) are highlighted; style configurable via `sight.dataBrowser.missingValueStyle`
 - **Theme-aware**: The grid automatically adapts to your VS Code color theme
+- **Sorting**: Sort rows by one or more columns (see below)
+
+## Sorting Rows
+
+Right-click a column header to sort:
+
+- **Sort ascending / Sort descending** replaces any active sort with this column.
+- **Add ascending/descending to sort** appends the column as the next sort key
+  (also available by holding **Shift** while clicking Sort ascending/descending).
+  This builds a multi-column sort: rows are ordered by the first key, ties broken
+  by the second, and so on.
+- **Clear sort on this column** / **Clear all sorts** remove keys.
+
+Sorted headers show a small arrow (▲ ascending, ▼ descending). With more than one
+key, each header also shows its 1-based priority number. The toolbar grows a chip
+strip listing the active keys; click a chip to flip its direction, remove it, or
+move it to first. The status bar appends a `sorted by …` summary.
+
+**Keyboard shortcuts** (when the grid is focused and a column is selected):
+
+| Shortcut | Action |
+|----------|--------|
+| `Shift+Alt+A` | Sort the focused column ascending (replace) |
+| `Shift+Alt+D` | Sort the focused column descending (replace) |
+| `Shift+Alt+0` | Clear all sorts |
+
+### Sort details
+
+- **Missing values sort last** in both ascending and descending order. (This is a
+  data-browser convention, not Stata's "missing is larger than any number"
+  ordering — it keeps real values together at the top however you sort.)
+- **Labels are WYSIWYG**: a value-labelled column sorts by the displayed label when
+  **Labels** is on, and by the underlying numeric code when it is off. Toggling
+  **Labels** re-sorts such a column. Display **Formats** never affect order.
+- **String columns** use natural numeric-aware collation, so `file_2` sorts before
+  `file_10`.
+- Sorting runs in the extension host against the on-disk `.dta` file; **Copy
+  column** follows the displayed (sorted) order.
+- The active sort is remembered per dataset (and dataset shape) and restored the
+  next time you open it, unless `sight.dataBrowser.persistSort` is disabled.
 
 ## Layout Persistence
 
@@ -89,5 +129,6 @@ With the default limit of 10,000 entries and ~3-4 alias keys per dataset, this a
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `sight.dataBrowser.missingValueStyle` | `"foreground"` | How to highlight missing values: `"foreground"` (colorize text), `"background"` (tint cell), or `"none"` |
+| `sight.dataBrowser.persistSort` | `true` | Remember and restore the row sort per dataset (matching shape) |
 | `sight.dataBrowser.maxStoredLayouts` | `10000` | Maximum stored layout entries (see above) |
 | `sight.personalAdoDir` | (platform default) | Path where Sight installs `vview.ado` |
