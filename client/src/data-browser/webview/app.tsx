@@ -823,7 +823,9 @@ export function App() {
         : 'Loading...';
 
     // Drop the sort/filter chips onto their own row when they would
-    // otherwise crowd the action buttons off the toolbar.
+    // otherwise crowd the action buttons off the toolbar. `hidden_columns.size`
+    // is a dependency because it drives the Columns button's count badge,
+    // which changes the action buttons' width.
     const toolbar_chips_wrapped = use_toolbar_wrap(
         {
             toolbar: toolbar_ref,
@@ -831,7 +833,7 @@ export function App() {
             chips: toolbar_chips_ref,
             actions: toolbar_actions_ref,
         },
-        [sort.keys, filter.entries, row_count_text]
+        [sort.keys, filter.entries, row_count_text, hidden_columns.size]
     );
 
     const hidden_count_text = describe_hidden_column_count(

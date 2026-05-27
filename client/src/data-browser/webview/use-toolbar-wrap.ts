@@ -37,9 +37,11 @@ export interface ToolbarPartWidths {
  * Decide whether the chip group should wrap to its own row.
  *
  * `was_wrapped` is the current state, used only for the hysteresis
- * band. The decision is otherwise computed from intrinsic widths that
- * do not change when the layout wraps, so it has a single stable fixed
- * point and does not oscillate.
+ * band. The decision is otherwise a fixed point — and so does not
+ * oscillate — only as long as the measured `parts` widths are the same
+ * whether or not the toolbar is currently wrapped. The hook below holds
+ * up its end of that bargain by summing each strip's `scrollWidth`
+ * (intrinsic content width); see the precondition documented there.
  */
 export function should_wrap(
     parts: ToolbarPartWidths,
@@ -83,13 +85,24 @@ interface ToolbarWrapRefs {
  * Track whether the toolbar chip group must wrap onto its own row.
  *
  * Measures intrinsic content widths — each region's `scrollWidth`, and
- * for the chips the sum of the individual strips' content widths (so a
- * full-width wrapped chips container does not read as overflowing) —
- * and compares them to the toolbar's client width via `should_wrap`.
+ * for the chips the sum of the individual strips' `scrollWidth` (not the
+ * `.toolbar-chips` container's, which stretches to full width when
+ * wrapped and would then read as overflowing) — and compares them to
+ * the toolbar's client width via `should_wrap`.
+ *
+ * PRECONDITION (keeps `should_wrap` from oscillating): a strip's
+ * `scrollWidth` must equal its intrinsic content width regardless of how
+ * wide its parent is. That holds because every chip leaf is
+ * non-shrinking (`flex-grow: 0`) and `white-space: nowrap`, so a strip
+ * never reflows or ellipsizes when the wrapped container gives it more
+ * room. Adding grow/ellipsis/wrapping to a strip child would break this
+ * and could make the wrap decision flip-flop.
  *
  * Re-measures on toolbar width changes (ResizeObserver, ignoring
- * height-only churn from wrapping) and whenever `content_deps` change
- * (chips added/removed, row-count text updated).
+ * height-only churn from wrapping) and whenever `content_deps` change.
+ * Callers must include in `content_deps` anything that changes a
+ * region's width without changing the toolbar's width — e.g. the Columns
+ * count badge, which widens the action buttons.
  */
 export function use_toolbar_wrap(
     refs: ToolbarWrapRefs,
@@ -116,17 +129,24 @@ export function use_toolbar_wrap(
             chips_px += Math.max(0, the_strips.length - 1) * TOOLBAR_GAP_PX;
         }
 
-        const next_wrapped = should_wrap(
-            { lead_px, chips_px, actions_px },
-            my_toolbar.clientWidth,
-            TOOLBAR_GAP_PX,
-            is_wrapped
-        );
-        set_is_wrapped(prev => (prev === next_wrapped ? prev : next_wrapped));
+        const parts = { lead_px, chips_px, actions_px };
+        const available_px = my_toolbar.clientWidth;
+        // Decide against the committed `prev`, not a closed-over value, so
+        // the hysteresis band always sees the true current wrap state.
+        set_is_wrapped(prev => {
+            const next_wrapped = should_wrap(
+                parts,
+                available_px,
+                TOOLBAR_GAP_PX,
+                prev
+            );
+            return prev === next_wrapped ? prev : next_wrapped;
+        });
     };
 
-    // Keep a ref to the latest `measure` (fresh `is_wrapped` and refs)
-    // so the one-time observer below can call it without re-subscribing.
+    // Keep a ref to the latest `measure` (closing over the current
+    // `refs`) so the one-time observer below can call it without
+    // re-subscribing.
     const measure_ref = useRef<() => void>(() => {});
     useLayoutEffect(() => {
         measure_ref.current = measure;
