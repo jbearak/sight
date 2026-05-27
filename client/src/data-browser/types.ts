@@ -46,13 +46,20 @@ export interface SetSortMessage {
     labels_on: boolean;
 }
 
+export interface SetFiltersMessage {
+    type: 'setFilters';
+    entries: FilterEntry[];
+    labels_on: boolean;
+}
+
 export type WebviewMessage =
     | RowRequest
     | ReadyMessage
     | ColumnWidthsChangedMessage
     | ColumnVisibilityChangedMessage
     | CopyColumnRequest
-    | SetSortMessage;
+    | SetSortMessage
+    | SetFiltersMessage;
 
 // Extension → Webview messages
 
@@ -80,6 +87,8 @@ export interface MetadataMessage {
     stored_column_widths?: Record<string, number>;
     stored_hidden_columns?: string[];
     stored_sort?: SortState;
+    stored_filter?: FilterState;
+    histograms?: Record<number, HistogramBin[]>;
     source?: string;
     subsetted?: boolean;
     varlist?: string[];
@@ -99,11 +108,24 @@ export interface SortStatusMessage {
     state: 'pending' | 'idle';
 }
 
+export interface FilterAppliedMessage {
+    type: 'filterApplied';
+    filter: FilterState;
+    nobs_filtered: number;
+}
+
+export interface FilterStatusMessage {
+    type: 'filterStatus';
+    state: 'pending' | 'idle';
+}
+
 export type ExtensionMessage =
     | RowResponse
     | MetadataMessage
     | SortAppliedMessage
-    | SortStatusMessage;
+    | SortStatusMessage
+    | FilterAppliedMessage
+    | FilterStatusMessage;
 
 export interface VariableDescription {
     name: string;
@@ -111,6 +133,10 @@ export interface VariableDescription {
     format: string;
     label: string;
     has_value_labels: boolean;
+    // Value-label table (code -> label), string-keyed for JSON. Present
+    // only for value-labelled numeric columns; used by the filter UI to
+    // show label checklists and by chip summaries.
+    value_labels?: Record<string, string>;
 }
 
 export interface CellValue {
@@ -158,3 +184,54 @@ export const EMPTY_SORT: SortState = {
     keys: [],
     labels_on_when_sorted: true,
 };
+
+// -----------------------------------------------------------
+// Filter
+// -----------------------------------------------------------
+
+export type FilterPredicate =
+    | { kind: 'isEmpty' }
+    | { kind: 'isNotEmpty' }
+    | { kind: 'numCompare';
+        op: '=' | '!=' | '<' | '<=' | '>' | '>='; value: number }
+    | { kind: 'numBetween'; lo: number; hi: number; inclusive: boolean }
+    | { kind: 'numNotBetween';
+        lo: number; hi: number; inclusive: boolean }
+    | { kind: 'setIn'; values: number[] }
+    | { kind: 'setNotIn'; values: number[] }
+    | { kind: 'strCompare';
+        op: '=' | '!='; value: string; case_sensitive: boolean }
+    | { kind: 'strContains';
+        value: string; case_sensitive: boolean; negate: boolean }
+    | { kind: 'strStartsWith'; value: string; case_sensitive: boolean }
+    | { kind: 'strEndsWith'; value: string; case_sensitive: boolean }
+    | { kind: 'strRegex'; pattern: string; case_sensitive: boolean }
+    | { kind: 'dateCompare';
+        op: '=' | '!=' | '<' | '<=' | '>' | '>='; value: string }
+    | { kind: 'dateBetween'; lo: string; hi: string; inclusive: boolean }
+    | { kind: 'dateNotBetween';
+        lo: string; hi: string; inclusive: boolean };
+
+export interface FilterEntry {
+    id: string;
+    col_index: number;
+    predicate: FilterPredicate;
+    enabled: boolean;
+    include_missing: boolean;
+}
+
+export interface FilterState {
+    entries: FilterEntry[];
+    labels_on_when_filtered: boolean;
+}
+
+export const EMPTY_FILTER: FilterState = {
+    entries: [],
+    labels_on_when_filtered: true,
+};
+
+export interface HistogramBin {
+    lo: number;
+    hi: number;
+    count: number;
+}

@@ -53,6 +53,8 @@ import { EMPTY_SORT } from './types';
 
 const PAGE_SIZE = 200;
 const MAX_CACHED_PAGES = 10;
+// Upper bound on value-label entries shipped per column to the webview.
+const MAX_SHIPPED_VALUE_LABELS = 10_000;
 
 export class DataBrowserPanel implements vscode.Disposable {
     private panel: vscode.WebviewPanel;
@@ -271,18 +273,37 @@ export class DataBrowserPanel implements vscode.Disposable {
                     );
 
             const my_variables = this.dta_file.variables.map(
-                (my_v: VariableInfo) => ({
-                    name: my_v.name,
-                    type: my_v.type,
-                    format: my_v.format,
-                    label: my_v.label,
-                    has_value_labels:
+                (my_v: VariableInfo) => {
+                    const my_table =
                         my_v.value_label_name !== ''
-                        && this.dta_file!
-                            .value_label_tables.has(
+                            ? this.dta_file!.value_label_tables.get(
                                 my_v.value_label_name
-                            ),
-                })
+                            )
+                            : undefined;
+                    let my_value_labels:
+                        Record<string, string> | undefined;
+                    // Ship the code->label map for the filter UI, but
+                    // bound it so a pathological label set can't bloat
+                    // the metadata message.
+                    if (
+                        my_table
+                        && my_table.size <= MAX_SHIPPED_VALUE_LABELS
+                    ) {
+                        my_value_labels = {};
+                        for (const [my_code, my_label] of my_table) {
+                            my_value_labels[String(my_code)] =
+                                my_label;
+                        }
+                    }
+                    return {
+                        name: my_v.name,
+                        type: my_v.type,
+                        format: my_v.format,
+                        label: my_v.label,
+                        has_value_labels: my_table !== undefined,
+                        value_labels: my_value_labels,
+                    };
+                }
             );
 
             const my_schema_hash = schema_hash(my_variables);
