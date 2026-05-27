@@ -7,6 +7,12 @@ import {
 } from 'react';
 import type {
     CellValue,
+    FilterAppliedMessage,
+    FilterEntry,
+    FilterState,
+    FilterStatusMessage,
+    HistogramBin,
+    HistogramDataMessage,
     MetadataMessage,
     RowResponse,
     SortAppliedMessage,
@@ -15,7 +21,7 @@ import type {
     SortStatusMessage,
     WebviewMessage,
 } from '../types';
-import { EMPTY_SORT } from '../types';
+import { EMPTY_FILTER, EMPTY_SORT } from '../types';
 import {
     get_needed_page_starts,
     PAGE_SIZE,
@@ -29,7 +35,10 @@ type IncomingMessage =
     | MetadataMessage
     | RowResponse
     | SortAppliedMessage
-    | SortStatusMessage;
+    | SortStatusMessage
+    | FilterAppliedMessage
+    | FilterStatusMessage
+    | HistogramDataMessage;
 
 export function use_row_loader() {
     const vscode_api = useMemo(() => acquireVsCodeApi(), []);
@@ -41,8 +50,18 @@ export function use_row_loader() {
     );
     const [sort, set_sort] = useState<SortState>(EMPTY_SORT);
     const [sort_pending, set_sort_pending] = useState(false);
+    const [filter, set_filter] = useState<FilterState>(EMPTY_FILTER);
+    const [filter_pending, set_filter_pending] = useState(false);
+    // The visible row count after sort+filter. Both sortApplied and
+    // filterApplied carry the host's effective count, so a single state
+    // tracks it regardless of which arrives last.
     const [nobs_effective, set_nobs_effective] =
         useState<number | undefined>(undefined);
+    const [histograms, set_histograms] =
+        useState<Map<number, HistogramBin[]>>(() => new Map());
+    // Columns whose histogram has been requested (pending or arrived), so
+    // opening a numeric filter popover repeatedly doesn't re-request.
+    const requested_histograms = useRef<Set<number>>(new Set());
     const pending_pages = useRef<Set<number>>(new Set());
     const request_counter = useRef(0);
     // Last visible window [start, end), kept in a ref so the message
@@ -77,7 +96,11 @@ export function use_row_loader() {
                 pending_pages.current.clear();
                 set_sort(my_msg.stored_sort ?? EMPTY_SORT);
                 set_sort_pending(false);
+                set_filter(my_msg.stored_filter ?? EMPTY_FILTER);
+                set_filter_pending(false);
                 set_nobs_effective(undefined);
+                set_histograms(new Map());
+                requested_histograms.current.clear();
                 return;
             }
 
@@ -112,6 +135,39 @@ export function use_row_loader() {
 
             if (my_msg.type === 'sortStatus') {
                 set_sort_pending(my_msg.state === 'pending');
+                return;
+            }
+
+            if (my_msg.type === 'filterApplied') {
+                set_filter(my_msg.filter);
+                set_nobs_effective(my_msg.nobs_filtered);
+                set_pages(new Map());
+                pending_pages.current.clear();
+                set_filter_pending(false);
+                // Re-request the current viewport in the new (filtered)
+                // order; the host cleared its cache for this permutation.
+                const my_viewport = viewport_ref.current;
+                for (const my_start of get_needed_page_starts(
+                    my_viewport.start,
+                    my_viewport.end,
+                    PAGE_SIZE
+                )) {
+                    request_page(my_start);
+                }
+                return;
+            }
+
+            if (my_msg.type === 'filterStatus') {
+                set_filter_pending(my_msg.state === 'pending');
+                return;
+            }
+
+            if (my_msg.type === 'histogramData') {
+                set_histograms(my_previous => {
+                    const my_next = new Map(my_previous);
+                    my_next.set(my_msg.col_index, my_msg.bins);
+                    return my_next;
+                });
                 return;
             }
         }
@@ -172,6 +228,29 @@ export function use_row_loader() {
         [vscode_api]
     );
 
+    const apply_filter = useCallback(
+        (entries: FilterEntry[], labels_on: boolean) => {
+            vscode_api.postMessage({
+                type: 'setFilters',
+                entries,
+                labels_on,
+            });
+        },
+        [vscode_api]
+    );
+
+    const request_histogram = useCallback(
+        (col_index: number) => {
+            if (requested_histograms.current.has(col_index)) return;
+            requested_histograms.current.add(col_index);
+            vscode_api.postMessage({
+                type: 'requestHistogram',
+                col_index,
+            });
+        },
+        [vscode_api]
+    );
+
     return {
         metadata,
         ensure_rows,
@@ -180,8 +259,13 @@ export function use_row_loader() {
         vscode_api,
         sort,
         sort_pending,
+        filter,
+        filter_pending,
         nobs_effective,
         apply_sort,
+        apply_filter,
+        histograms,
+        request_histogram,
         update_viewport,
     };
 }

@@ -42,13 +42,14 @@ import { use_row_loader } from './use-row-loader';
 import { ColumnContextMenu } from './column-context-menu';
 import { ColumnVisibilityPopover } from './column-visibility-popover';
 import { ToolbarSortStrip } from './sort-strip';
+import { ToolbarFilterStrip } from './filter-strip';
 import {
     active_direction,
     apply_sort_pick,
     describe_sort_keys,
     sort_priority_map,
 } from './sort-actions';
-import type { SortKey } from '../types';
+import type { FilterEntry, SortKey } from '../types';
 
 const HEADER_HEIGHT_PX = 40;
 
@@ -255,8 +256,10 @@ export function App() {
         vscode_api,
         sort,
         sort_pending,
+        filter,
         nobs_effective,
         apply_sort,
+        apply_filter,
         update_viewport,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
@@ -466,6 +469,26 @@ export function App() {
 
     const do_apply_sort = (keys: SortKey[]) => {
         apply_sort(keys, show_labels);
+    };
+
+    const do_apply_filter = (entries: FilterEntry[]) => {
+        apply_filter(entries, show_labels);
+    };
+
+    const toggle_filter_enabled = (id: string) => {
+        do_apply_filter(
+            filter.entries.map(my_entry =>
+                my_entry.id === id
+                    ? { ...my_entry, enabled: !my_entry.enabled }
+                    : my_entry
+            )
+        );
+    };
+
+    const remove_filter_entry = (id: string) => {
+        do_apply_filter(
+            filter.entries.filter(my_entry => my_entry.id !== id)
+        );
     };
 
     // The "focused" variable index for keyboard sort shortcuts: the
@@ -916,6 +939,18 @@ export function App() {
                     on_change={do_apply_sort}
                     on_clear_all={() => do_apply_sort([])}
                 />
+                {metadata && (
+                    <ToolbarFilterStrip
+                        filter={filter}
+                        columns={metadata.variables}
+                        // Editing opens the filter popover (wired in the
+                        // App-integration step alongside the menu trigger).
+                        on_edit={() => {}}
+                        on_toggle_enabled={toggle_filter_enabled}
+                        on_remove={remove_filter_entry}
+                        on_clear_all={() => do_apply_filter([])}
+                    />
+                )}
             </div>
             <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
