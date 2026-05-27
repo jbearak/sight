@@ -21,8 +21,8 @@
  *     Numeric and date predicates always match the raw stored value.
  *   - Missing semantics: a missing row fails any predicate unless
  *     include_missing is true on that entry, in which case the entry
- *     passes the missing row regardless of predicate value. isEmpty is the
- *     sole exception — it always passes missing rows (and only those).
+ *     passes the missing row regardless of predicate value. isEmpty always
+ *     passes missing rows (and only those); isNotEmpty always excludes them.
  *
  * Performance: the row mask is a Uint8Array(nobs); enabled entries
  * short-circuit once the mask is all-zero; final compaction is O(nobs).
@@ -108,11 +108,13 @@ function apply_entry(
     const nobs = mask.length;
     const the_predicate = entry.predicate;
     const accept = acceptor_for(my_column, the_predicate, nobs);
-    // isEmpty targets missing values — they always pass, regardless of the
-    // include_missing flag. Every other predicate honors the flag.
+    // isEmpty targets missing values, while isNotEmpty explicitly excludes
+    // them even if an old hidden include_missing value is still persisted.
     const include_missing = the_predicate.kind === 'isEmpty'
         ? true
-        : entry.include_missing;
+        : the_predicate.kind === 'isNotEmpty'
+            ? false
+            : entry.include_missing;
     const the_missing = missing_mask(my_column, nobs);
 
     for (let i = 0; i < nobs; i++) {
@@ -332,6 +334,8 @@ function missing_mask(column: FilterColumn, nobs: number): Uint8Array {
     for (let i = 0; i < nobs; i++) {
         const my_value = the_values[i];
         if (my_value === null || my_value === undefined) {
+            out[i] = 1;
+        } else if (my_value === '') {
             out[i] = 1;
         } else if (is_missing_value_object(my_value)) {
             out[i] = 1;

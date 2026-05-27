@@ -122,6 +122,22 @@ describe('data-browser compute_filtered_indices', () => {
         )).toEqual([1]);
     });
 
+    it('isEmpty treats empty strings as missing', () => {
+        expect(run(
+            cols({ 0: ['alpha', '', 'bravo'] }),
+            [entry(0, { kind: 'isEmpty' })],
+            3
+        )).toEqual([1]);
+    });
+
+    it('isNotEmpty excludes missing rows even when include_missing is true', () => {
+        expect(run(
+            cols({ 0: ['alpha', '', mv, 'bravo'] }),
+            [entry(0, { kind: 'isNotEmpty' }, true)],
+            4
+        )).toEqual([0, 3]);
+    });
+
     it('string contains is case-insensitive when asked', () => {
         expect(run(
             cols({ 0: ['Apple', 'banana', 'CAPE'] }),
