@@ -11,6 +11,7 @@ import { DataBrowserPanel } from './browser-panel';
 import type { DataBrowserColumnWidthStore } from './column-width-state';
 import type { DataBrowserColumnVisibilityStore } from './column-visibility-state';
 import type { DataBrowserSortStateStore } from './sort-state';
+import type { DataBrowserFilterStateStore } from './filter-state';
 import {
     build_direct_open_sidecar,
     DATA_BROWSER_PANEL_VIEW_TYPE,
@@ -30,7 +31,8 @@ export class DataBrowserPanelManager
         private readonly extension_uri: vscode.Uri,
         private readonly column_width_store: DataBrowserColumnWidthStore,
         private readonly column_visibility_store: DataBrowserColumnVisibilityStore,
-        private readonly sort_state_store: DataBrowserSortStateStore
+        private readonly sort_state_store: DataBrowserSortStateStore,
+        private readonly filter_state_store: DataBrowserFilterStateStore
     ) {}
 
     async open_or_refresh(
@@ -83,7 +85,8 @@ export class DataBrowserPanelManager
             my_html,
             this.column_width_store,
             this.column_visibility_store,
-            this.sort_state_store
+            this.sort_state_store,
+            this.filter_state_store
         );
 
         my_panel.on_did_dispose(() => {
@@ -143,7 +146,8 @@ export class DataBrowserPanelManager
             my_html,
             this.column_width_store,
             this.column_visibility_store,
-            this.sort_state_store
+            this.sort_state_store,
+            this.filter_state_store
         );
 
         my_panel.on_did_dispose(() => {

@@ -13,6 +13,7 @@ import * as os from 'os';
 import { create_column_width_store } from './column-width-state';
 import { create_column_visibility_store } from './column-visibility-state';
 import { create_sort_state_store } from './sort-state';
+import { create_filter_state_store } from './filter-state';
 import { register_data_browser_custom_editor } from './custom-editor';
 import { DataBrowserPanelManager } from './panel-manager';
 import {
@@ -95,11 +96,17 @@ export function register_data_browser(
             context,
             my_get_max_layouts
         );
+    const my_filter_state_store =
+        create_filter_state_store(
+            context,
+            my_get_max_layouts
+        );
     const my_manager = new DataBrowserPanelManager(
         context.extensionUri,
         my_column_width_store,
         my_column_visibility_store,
-        my_sort_state_store
+        my_sort_state_store,
+        my_filter_state_store
     );
     context.subscriptions.push(my_manager);
     register_open_data_browser_command(
@@ -110,7 +117,8 @@ export function register_data_browser(
         context,
         my_column_width_store,
         my_column_visibility_store,
-        my_sort_state_store
+        my_sort_state_store,
+        my_filter_state_store
     );
 
     try {

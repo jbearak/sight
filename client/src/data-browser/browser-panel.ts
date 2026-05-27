@@ -22,9 +22,15 @@ import {
     type SortColumn,
 } from './sort';
 import {
+    compose_effective,
     group_contiguous_runs,
     permuted_window_indices,
 } from './permuted-rows';
+import {
+    compute_filtered_indices,
+    type FilterColumn,
+} from './filter';
+import { compute_histogram } from './histograms';
 import {
     build_dataset_key,
     build_dataset_key_aliases,
@@ -34,6 +40,7 @@ import type {
     DataBrowserColumnVisibilityStore,
 } from './column-visibility-state';
 import type { DataBrowserSortStateStore } from './sort-state';
+import type { DataBrowserFilterStateStore } from './filter-state';
 import { should_unlink_data_browser_path } from './opening';
 import { RowCache } from './row-cache';
 import { schema_hash } from './schema-hash';
@@ -48,8 +55,22 @@ import type {
     SortState,
     SortAppliedMessage,
     SortStatusMessage,
+    SetFiltersMessage,
+    FilterState,
+    FilterAppliedMessage,
+    FilterStatusMessage,
+    RequestHistogramMessage,
+    HistogramDataMessage,
+    HistogramBin,
 } from './types';
-import { EMPTY_SORT } from './types';
+import { EMPTY_SORT, EMPTY_FILTER } from './types';
+
+/** %tc / %tC store milliseconds since 1960; other date formats store
+ *  days. Consulted when building a {@link FilterColumn} for date
+ *  predicates so ISO strings convert into the column's stored domain. */
+function is_timestamp_format(format: string): boolean {
+    return /^%-?t[cC]/.test(format);
+}
 
 const PAGE_SIZE = 200;
 const MAX_CACHED_PAGES = 10;
@@ -68,11 +89,24 @@ export class DataBrowserPanel implements vscode.Disposable {
     private readonly column_width_store: DataBrowserColumnWidthStore;
     private readonly column_visibility_store: DataBrowserColumnVisibilityStore;
     private readonly sort_state_store: DataBrowserSortStateStore;
+    private readonly filter_state_store: DataBrowserFilterStateStore;
     private disposed = false;
     private generation = 0;
     private sort: SortState = EMPTY_SORT;
     private permutation: Uint32Array | null = null;
     private sort_restored = false;
+    private filter: FilterState = EMPTY_FILTER;
+    private filtered_indices: Uint32Array | null = null;
+    private filter_restored = false;
+    // The filter survivor set composed with the sort permutation: the
+    // single effective permutation handed to the reader. Recomputed
+    // whenever sort or filter changes (null === identity order).
+    private effective_perm: Uint32Array | null = null;
+    // Per-column histogram cache for the numeric filter brush, computed
+    // lazily on `requestHistogram`. Keyed by column index; cleared on
+    // refresh (the values change), not on sort/filter (the brush always
+    // shows the full column distribution).
+    private histogram_cache = new Map<number, HistogramBin[]>();
 
     constructor(
         panel: vscode.WebviewPanel,
@@ -81,7 +115,8 @@ export class DataBrowserPanel implements vscode.Disposable {
         webview_html: string,
         column_width_store: DataBrowserColumnWidthStore,
         column_visibility_store: DataBrowserColumnVisibilityStore,
-        sort_state_store: DataBrowserSortStateStore
+        sort_state_store: DataBrowserSortStateStore,
+        filter_state_store: DataBrowserFilterStateStore
     ) {
         this.panel = panel;
         this.sidecar = sidecar;
@@ -99,6 +134,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.column_visibility_store =
             column_visibility_store;
         this.sort_state_store = sort_state_store;
+        this.filter_state_store = filter_state_store;
 
         panel.webview.html = webview_html;
 
@@ -140,6 +176,11 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.sort = EMPTY_SORT;
         this.permutation = null;
         this.sort_restored = false;
+        this.filter = EMPTY_FILTER;
+        this.filtered_indices = null;
+        this.filter_restored = false;
+        this.effective_perm = null;
+        this.histogram_cache.clear();
 
         // Clean up the old temp file on Windows before
         // overwriting the path (other platforms unlink
@@ -309,6 +350,9 @@ export class DataBrowserPanel implements vscode.Disposable {
             const my_schema_hash = schema_hash(my_variables);
             await this.maybe_restore_sort(my_schema_hash);
             if (!this.dta_file) return;
+            await this.maybe_restore_filter(my_schema_hash);
+            if (!this.dta_file) return;
+            this.recompute_effective();
 
             const my_metadata: MetadataMessage = {
                 type: 'metadata',
@@ -318,6 +362,9 @@ export class DataBrowserPanel implements vscode.Disposable {
                 schema_hash: my_schema_hash,
                 stored_sort: this.sort.keys.length > 0
                     ? this.sort
+                    : undefined,
+                stored_filter: this.filter.entries.length > 0
+                    ? this.filter
                     : undefined,
                 dataset_label: this.dta_file.dataset_label,
                 name: this.sidecar.name,
@@ -340,6 +387,13 @@ export class DataBrowserPanel implements vscode.Disposable {
             };
 
             this.panel.webview.postMessage(my_metadata);
+
+            // A restored filter changes the visible row count; the
+            // webview learns it from filterApplied (metadata.nobs stays
+            // the full dataset size for the status bar).
+            if (this.filtered_indices) {
+                this.post_filter_applied();
+            }
         } catch (my_err) {
             vscode.window.showErrorMessage(
                 `Failed to open .dta file: ${my_err}`
@@ -383,6 +437,12 @@ export class DataBrowserPanel implements vscode.Disposable {
                 break;
             case 'setSort':
                 await this.handle_set_sort(msg);
+                break;
+            case 'setFilters':
+                await this.handle_set_filters(msg);
+                break;
+            case 'requestHistogram':
+                await this.handle_request_histogram(msg);
                 break;
             case 'copyColumn':
                 await this.handle_copy_column(
@@ -435,6 +495,7 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         this.sort = my_sort;
         this.permutation = my_permutation;
+        this.recompute_effective();
         this.row_cache.clear();
 
         this.post_sort_status('idle');
@@ -592,7 +653,231 @@ export class DataBrowserPanel implements vscode.Disposable {
         const my_msg: SortAppliedMessage = {
             type: 'sortApplied',
             sort: this.sort,
-            nobs_effective: this.dta_file?.nobs ?? 0,
+            // Sort never changes the row set, but a filter may already be
+            // active, so report the effective (post-filter) count.
+            nobs_effective: this.effective_nobs(),
+        };
+        this.panel.webview.postMessage(my_msg);
+    }
+
+    // -------------------------------------------------------
+    // Filtering
+    // -------------------------------------------------------
+
+    private async handle_set_filters(
+        msg: SetFiltersMessage
+    ): Promise<void> {
+        if (!this.dta_file) return;
+
+        // Bump the generation so an in-flight row request under the old
+        // effective permutation is dropped rather than posting stale rows
+        // after this filter lands, and so a later setFilters supersedes an
+        // earlier (slower) one.
+        this.generation++;
+        const my_generation = this.generation;
+        this.post_filter_status('pending');
+
+        const my_nvar = this.dta_file.nvar;
+        // Drop entries whose column no longer exists (e.g. a stale chip
+        // after the schema changed); keep the rest.
+        const the_valid_entries = msg.entries.filter(
+            my_entry =>
+                my_entry.col_index >= 0
+                && my_entry.col_index < my_nvar
+        );
+        const my_filter: FilterState = {
+            entries: the_valid_entries,
+            labels_on_when_filtered: msg.labels_on,
+        };
+
+        let my_indices: Uint32Array | null = null;
+        try {
+            my_indices = await this.compute_filter_indices(my_filter);
+        } catch {
+            my_indices = null;
+        }
+
+        // Drop stale results after a refresh or a superseding filter.
+        if (my_generation !== this.generation) return;
+
+        this.filter = my_filter;
+        this.filtered_indices = my_indices;
+        this.recompute_effective();
+        this.row_cache.clear();
+
+        this.post_filter_status('idle');
+        this.post_filter_applied();
+
+        if (this.persist_filters_enabled()) {
+            await this.filter_state_store.set(
+                this.dataset_key,
+                this.current_schema_hash(),
+                this.filter
+            );
+        }
+    }
+
+    private persist_filters_enabled(): boolean {
+        return vscode.workspace
+            .getConfiguration('sight.dataBrowser')
+            .get<boolean>('persistFilters', true) ?? true;
+    }
+
+    /**
+     * On first metadata for a dataset, restore any persisted filter for
+     * this dataset_key × schema_hash and recompute its survivor set.
+     * Unlike sort restore, the chip descriptors are restored even when the
+     * recompute yields no index (e.g. all entries disabled), so disabled
+     * chips reappear for the user to re-enable or edit. No-op on later
+     * metadata re-sends (the in-memory filter wins).
+     */
+    private async maybe_restore_filter(
+        schema_hash_value: string
+    ): Promise<void> {
+        if (this.filter_restored) return;
+        this.filter_restored = true;
+        if (!this.dta_file || !this.persist_filters_enabled()) return;
+
+        const my_stored = this.filter_state_store.get(
+            this.dataset_key,
+            schema_hash_value
+        );
+        if (!my_stored) return;
+
+        const my_generation = this.generation;
+        let my_indices: Uint32Array | null = null;
+        try {
+            my_indices = await this.compute_filter_indices(my_stored);
+        } catch {
+            my_indices = null;
+        }
+        if (my_generation !== this.generation) return;
+        this.filter = my_stored;
+        this.filtered_indices = my_indices;
+    }
+
+    /**
+     * Compute the surviving original-row indices for a filter, reading
+     * each referenced (enabled) column once. Returns null when no entry is
+     * enabled or any enabled column is out of range — the caller treats
+     * null as "no filtering". The caller must re-check `generation` after
+     * the await, since column reads are asynchronous.
+     */
+    private async compute_filter_indices(
+        filter: FilterState
+    ): Promise<Uint32Array | null> {
+        if (!this.dta_file) return null;
+        const the_active = filter.entries.filter(
+            my_entry => my_entry.enabled
+        );
+        if (the_active.length === 0) return null;
+
+        const my_nvar = this.dta_file.nvar;
+        const the_needed = new Set<number>();
+        for (const my_entry of the_active) {
+            if (
+                my_entry.col_index < 0
+                || my_entry.col_index >= my_nvar
+            ) {
+                return null;
+            }
+            the_needed.add(my_entry.col_index);
+        }
+
+        const the_columns = new Map<number, FilterColumn>();
+        for (const my_col_index of the_needed) {
+            const my_values = await this.read_full_column(
+                my_col_index
+            );
+            // A refresh during the await nulls dta_file; bail so the
+            // caller's generation check discards this stale result.
+            if (!this.dta_file) return null;
+            const my_var =
+                this.dta_file.variables[my_col_index];
+            the_columns.set(my_col_index, {
+                values: my_values,
+                is_timestamp: is_timestamp_format(my_var.format),
+            });
+        }
+
+        return compute_filtered_indices(
+            the_columns,
+            filter,
+            this.dta_file.nobs
+        ) ?? null;
+    }
+
+    private recompute_effective(): void {
+        this.effective_perm = compose_effective(
+            this.filtered_indices,
+            this.permutation,
+            this.dta_file?.nobs ?? 0
+        );
+    }
+
+    /** Visible row count: the effective permutation length when sort or
+     *  filter is active, else the full dataset size. */
+    private effective_nobs(): number {
+        if (this.effective_perm) return this.effective_perm.length;
+        return this.dta_file?.nobs ?? 0;
+    }
+
+    private post_filter_status(
+        state: 'pending' | 'idle'
+    ): void {
+        const my_msg: FilterStatusMessage = {
+            type: 'filterStatus',
+            state,
+        };
+        this.panel.webview.postMessage(my_msg);
+    }
+
+    private post_filter_applied(): void {
+        const my_msg: FilterAppliedMessage = {
+            type: 'filterApplied',
+            filter: this.filter,
+            nobs_filtered: this.effective_nobs(),
+        };
+        this.panel.webview.postMessage(my_msg);
+    }
+
+    private async handle_request_histogram(
+        msg: RequestHistogramMessage
+    ): Promise<void> {
+        if (!this.dta_file) return;
+        const my_col_index = msg.col_index;
+        if (
+            my_col_index < 0
+            || my_col_index >= this.dta_file.nvar
+        ) {
+            return;
+        }
+
+        let my_bins = this.histogram_cache.get(my_col_index);
+        if (!my_bins) {
+            const my_generation = this.generation;
+            const the_values = await this.read_full_column(
+                my_col_index
+            );
+            if (my_generation !== this.generation || !this.dta_file) {
+                return;
+            }
+            const the_numbers: number[] = [];
+            for (const my_value of the_values) {
+                // Missing cells are MissingValue objects; only finite
+                // doubles enter the brush distribution.
+                if (typeof my_value === 'number') {
+                    the_numbers.push(my_value);
+                }
+            }
+            my_bins = compute_histogram(the_numbers);
+            this.histogram_cache.set(my_col_index, my_bins);
+        }
+
+        const my_msg: HistogramDataMessage = {
+            type: 'histogramData',
+            col_index: my_col_index,
+            bins: my_bins,
         };
         this.panel.webview.postMessage(my_msg);
     }
@@ -629,14 +914,15 @@ export class DataBrowserPanel implements vscode.Disposable {
         const my_generation = this.generation;
         let the_raw_rows: Row[];
 
-        if (this.permutation) {
+        if (this.effective_perm) {
             // Map the visible window to original rows (display order)
-            // and read them, batching ascending-contiguous runs.
+            // and read them, batching ascending-contiguous runs. The
+            // effective permutation already folds in any active filter.
             const the_indices = permuted_window_indices(
-                this.permutation,
+                this.effective_perm,
                 request.start,
                 request.count,
-                this.dta_file.nobs
+                this.effective_nobs()
             );
             the_raw_rows = new Array(the_indices.length);
             let my_pos = 0;
@@ -712,16 +998,16 @@ export class DataBrowserPanel implements vscode.Disposable {
                 : my_cell.raw_display;
         };
 
-        if (this.permutation) {
-            // Copy in display (sorted/filtered) order so the clipboard
+        if (this.effective_perm) {
+            // Copy in display (filtered + sorted) order so the clipboard
             // matches what the user sees.
             const the_column = await this.read_full_column(
                 col_index
             );
             if (my_generation !== this.generation) return;
-            for (let i = 0; i < this.permutation.length; i++) {
+            for (let i = 0; i < this.effective_perm.length; i++) {
                 the_values.push(
-                    display_for(the_column[this.permutation[i]])
+                    display_for(the_column[this.effective_perm[i]])
                 );
             }
         } else {

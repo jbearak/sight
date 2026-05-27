@@ -33,6 +33,42 @@ export function permuted_window_indices(
 }
 
 /**
+ * Combine a filter survivor set with a sort permutation into the single
+ * effective permutation handed to the row reader.
+ *
+ * `filtered_indices` is the surviving rows in ORIGINAL order; `permutation`
+ * (when present) is a sort permutation over the ORIGINAL frame. When both
+ * are active we walk the sort permutation keeping only survivors, so the
+ * visible window reflects both — filtered set, in sorted order. `nobs` is
+ * the full (unfiltered) row count, used to size the survivor lookup.
+ *
+ * Returns the filter set when only filtering, the permutation when only
+ * sorting, and `null` when neither is active (caller reads rows in
+ * identity order). Ported from Raven's panel `composeEffective`.
+ */
+export function compose_effective(
+    filtered_indices: Uint32Array | null | undefined,
+    permutation: Uint32Array | null | undefined,
+    nobs: number
+): Uint32Array | null {
+    if (!filtered_indices) return permutation ?? null;
+    if (!permutation) return filtered_indices;
+
+    const the_survives = new Uint8Array(nobs);
+    for (let i = 0; i < filtered_indices.length; i++) {
+        the_survives[filtered_indices[i]] = 1;
+    }
+    const out = new Uint32Array(filtered_indices.length);
+    let j = 0;
+    for (let i = 0; i < permutation.length; i++) {
+        if (the_survives[permutation[i]]) {
+            out[j++] = permutation[i];
+        }
+    }
+    return out;
+}
+
+/**
  * Collapse a display-order list of original row indices into maximal
  * ascending-contiguous runs, preserving order. Each run can then be read
  * with a single `read_rows(start, len)` call. Scattered indices (typical
