@@ -70,6 +70,7 @@ This supports Stata formats 113–119 (Stata 8 through Stata 18).
 - **Missing values**: Extended missing values (`.a` through `.z`) are highlighted; style configurable via `sight.dataBrowser.missingValueStyle`
 - **Theme-aware**: The grid automatically adapts to your VS Code color theme
 - **Sorting**: Sort rows by one or more columns (see below)
+- **Filtering**: Filter rows by per-column predicates (see below)
 
 ## Sorting Rows
 
@@ -110,6 +111,66 @@ move it to first. The status bar appends a `sorted by …` summary.
 - The active sort is remembered per dataset (and dataset shape) and restored the
   next time you open it, unless `sight.dataBrowser.persistSort` is disabled.
 
+## Filtering Rows
+
+Right-click a column header and choose **Filter…** (or **Edit filter…** if the
+column already has one) to open the filter editor. Pick a condition, enter the
+value(s), and click **Apply** (or press **Enter**). One filter per column;
+applying a new filter replaces the column's existing one. Multiple columns'
+filters combine with **AND** — a row is shown only if it passes every enabled
+filter.
+
+The available conditions depend on the column's type:
+
+| Column kind | Conditions |
+|-------------|-----------|
+| Numeric | Compare (`=, ≠, <, ≤, >, ≥`), Between, Not between, Is empty / Is not empty |
+| Value-labelled numeric | Is one of / Is not one of (a checklist of labels), plus all numeric conditions |
+| String | Contains, Does not contain, Starts with, Ends with, Equals, Not equals, Matches regex, Is empty / Is not empty |
+| Date | Compare, Between, Not between, Is empty / Is not empty |
+
+Each applied filter becomes a chip in the toolbar's second row. A chip shows a
+✓/✗ enabled glyph and a short predicate summary; click its body to edit, or use
+the **⋯** menu to Enable/Disable or Remove it. A trailing **✕** clears all
+filters. The status bar appends `filtered to N of M (P%)`.
+
+**Keyboard shortcuts** (when the grid is focused and a column is selected):
+
+| Shortcut | Action |
+|----------|--------|
+| `Shift+Alt+F` | Open the filter editor for the focused column |
+| `Shift+Alt+X` | Clear the focused column's filter |
+| `Shift+Alt+9` | Clear all filters |
+
+### Filter details
+
+- **Missing values** (`.`, `.a`–`.z`) fail every predicate by default. Tick
+  **Include missing** in the editor to keep missing rows as well. The **Is
+  empty** condition matches *only* missing rows (and ignores the checkbox).
+- **Numeric "Between"** shows a histogram brush: drag the two thumbs (or nudge
+  with arrow keys; hold **Shift** for a 10× step) to set the low/high bounds,
+  which stay in sync with the typed inputs.
+- **Value-labelled numerics** filter by the underlying numeric **code**, not the
+  displayed label. The label checklist is for convenience only, so a filter
+  survives toggling **Labels** on or off. Display **Formats** never affect which
+  rows match.
+- **Dates** are entered as calendar dates (or date-times for `%tc`/`%tC`
+  clock formats) and converted to Stata's internal day/millisecond domain. Only
+  daily (`%td`, `%d`) and clock (`%tc`, `%tC`) formats are treated as dates;
+  other `%t…` formats (weekly, monthly, quarterly, …) filter as plain numerics
+  by their stored code.
+- **Regular expressions** are validated live in the editor; an invalid pattern
+  can't be applied. Note that a pathological pattern (catastrophic backtracking)
+  runs synchronously over every row on a large dataset and can briefly stall the
+  view — this is self-inflicted and limited to your own typed pattern.
+- Filtering runs in the extension host against the on-disk `.dta` file; the
+  visible row numbers reflect the filtered sequence, and **Copy column** follows
+  the displayed (filtered, then sorted) order.
+- Active filters are remembered per dataset (and dataset shape) and restored the
+  next time you open it, unless `sight.dataBrowser.persistFilters` is disabled.
+  Only the filter definitions are stored; the surviving rows are always
+  recomputed against the current data.
+
 ## Layout Persistence
 
 Column widths and visibility settings are saved automatically in VS Code's global state, keyed by the source dataset path. Layouts persist across sessions and survive dataset refreshes.
@@ -130,5 +191,6 @@ With the default limit of 10,000 entries and ~3-4 alias keys per dataset, this a
 |---------|---------|-------------|
 | `sight.dataBrowser.missingValueStyle` | `"foreground"` | How to highlight missing values: `"foreground"` (colorize text), `"background"` (tint cell), or `"none"` |
 | `sight.dataBrowser.persistSort` | `true` | Remember and restore the row sort per dataset (matching shape) |
+| `sight.dataBrowser.persistFilters` | `true` | Remember and restore the row filters per dataset (matching shape) |
 | `sight.dataBrowser.maxStoredLayouts` | `10000` | Maximum stored layout entries (see above) |
 | `sight.personalAdoDir` | (platform default) | Path where Sight installs `vview.ado` |
