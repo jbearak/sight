@@ -146,7 +146,18 @@ export function FilterPopover({
             left: Math.min(Math.max(MARGIN, anchor.left_px), my_max_left),
             top: Math.min(Math.max(MARGIN, anchor.top_px), my_max_top),
         });
-    }, [anchor.left_px, anchor.top_px]);
+        // Re-clamp when the body's height can change (different condition
+        // controls, the label checklist filtering, the regex error line,
+        // or the histogram appearing) so a taller popover can't extend
+        // off-screen.
+    }, [
+        anchor.left_px,
+        anchor.top_px,
+        selected_kind,
+        label_search,
+        str_regex.regex_error,
+        histogram,
+    ]);
 
     useEffect(() => {
         first_control_ref.current?.focus();
@@ -155,6 +166,9 @@ export function FilterPopover({
     const is_labelled_numeric = my_kind === 'labelledNumeric';
     const the_labelled_choices =
         is_labelled_numeric ? labelled_choices(column) : [];
+    // O(1) membership for the per-row checklist render (avoids an
+    // includes() scan per choice).
+    const selected_codes = new Set(set_value.selected);
     // Set membership only appears for labelled-numeric columns, and those
     // always resolve through the code checklist.
     const set_uses_checklist = is_labelled_numeric;
@@ -385,9 +399,7 @@ export function FilterPopover({
                                 )
                                 .map(my_choice => {
                                     const my_checked =
-                                        set_value.selected.includes(
-                                            my_choice.code
-                                        );
+                                        selected_codes.has(my_choice.code);
                                     return (
                                         <label
                                             key={my_choice.code}

@@ -736,3 +736,22 @@ body,
     fill: var(--vscode-button-hoverBackground, #1177bb);
     outline: none;
 }
+
+/* Keyboard focus indicators for the sort/filter controls. Chips and
+ * inline buttons get an outset ring; the full-width popover/menu items
+ * inset it so it isn't clipped. */
+.sort-chip:focus-visible,
+.sort-strip-clear:focus-visible,
+.filter-chip-body:focus-visible,
+.filter-chip-kebab:focus-visible,
+.filter-strip-clear:focus-visible,
+.filter-popover-btn:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    outline-offset: 1px;
+}
+
+.sort-chip-popover-item:focus-visible,
+.filter-chip-popover-item:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    outline-offset: -1px;
+}

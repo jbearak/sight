@@ -169,7 +169,6 @@ function FilterChip({
                     type="button"
                     className="filter-chip-body"
                     aria-label={my_aria_label}
-                    aria-pressed={entry.enabled}
                     onClick={do_edit}
                 >
                     {my_summary}
