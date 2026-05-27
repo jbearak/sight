@@ -10,7 +10,7 @@
  * helpers and `use_dismiss`.
  */
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { SortKey } from '../types';
 import { flip_key, move_to_first, remove_key } from './sort-actions';
 import { use_dismiss } from './use-dismiss';
@@ -89,7 +89,8 @@ function SortChip({
         useState<{ left: number; top: number } | null>(null);
     const popover_ref = useRef<HTMLDivElement>(null);
     const chip_ref = useRef<HTMLButtonElement>(null);
-    use_dismiss(popover_ref, () => set_coords(null));
+    const close_popover = useCallback(() => set_coords(null), []);
+    use_dismiss(popover_ref, close_popover);
 
     useLayoutEffect(() => {
         const my_el = popover_ref.current;

@@ -186,9 +186,16 @@ body,
 }
 
 .column-context-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    color: inherit;
     padding: 5px 14px;
     cursor: pointer;
     white-space: nowrap;
+    font: inherit;
     font-size: 12px;
 }
 

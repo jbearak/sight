@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import type {
     CellValue,
     MetadataMessage,
@@ -37,9 +43,29 @@ export function use_row_loader() {
     const [sort_pending, set_sort_pending] = useState(false);
     const [nobs_effective, set_nobs_effective] =
         useState<number | undefined>(undefined);
-    const [reload_token, set_reload_token] = useState(0);
     const pending_pages = useRef<Set<number>>(new Set());
     const request_counter = useRef(0);
+    // Last visible window [start, end), kept in a ref so the message
+    // handler (registered once) can re-request it after a sort lands.
+    const viewport_ref = useRef<{ start: number; end: number }>({
+        start: 0,
+        end: 0,
+    });
+
+    const request_page = useCallback(
+        (page_start: number) => {
+            pending_pages.current.add(page_start);
+            request_counter.current += 1;
+            vscode_api.postMessage({
+                type: 'requestRows',
+                start: page_start,
+                count: PAGE_SIZE,
+                request_id:
+                    'req_' + String(request_counter.current),
+            });
+        },
+        [vscode_api]
+    );
 
     useEffect(() => {
         function on_message(event: MessageEvent) {
@@ -71,8 +97,16 @@ export function use_row_loader() {
                 set_pages(new Map());
                 pending_pages.current.clear();
                 set_sort_pending(false);
-                // Force the visible window to be re-requested.
-                set_reload_token(my_token => my_token + 1);
+                // Re-request the current viewport in the new order;
+                // the host has cleared its cache for this permutation.
+                const my_viewport = viewport_ref.current;
+                for (const my_start of get_needed_page_starts(
+                    my_viewport.start,
+                    my_viewport.end,
+                    PAGE_SIZE
+                )) {
+                    request_page(my_start);
+                }
                 return;
             }
 
@@ -87,7 +121,7 @@ export function use_row_loader() {
         return () => {
             window.removeEventListener('message', on_message);
         };
-    }, [vscode_api]);
+    }, [vscode_api, request_page]);
 
     function ensure_rows(start_row: number, end_row: number) {
         const the_page_starts = get_needed_page_starts(
@@ -103,18 +137,19 @@ export function use_row_loader() {
             ) {
                 continue;
             }
-
-            pending_pages.current.add(my_page_start);
-            request_counter.current += 1;
-            vscode_api.postMessage({
-                type: 'requestRows',
-                start: my_page_start,
-                count: PAGE_SIZE,
-                request_id:
-                    'req_' + String(request_counter.current),
-            });
+            request_page(my_page_start);
         }
     }
+
+    const update_viewport = useCallback(
+        (start_row: number, end_row: number) => {
+            viewport_ref.current = {
+                start: start_row,
+                end: end_row,
+            };
+        },
+        []
+    );
 
     function get_row(row_index: number): CellValue[] | undefined {
         const my_page_start = Math.floor(row_index / PAGE_SIZE)
@@ -126,13 +161,16 @@ export function use_row_loader() {
         return my_page[row_index - my_page_start];
     }
 
-    function apply_sort(keys: SortKey[], labels_on: boolean) {
-        vscode_api.postMessage({
-            type: 'setSort',
-            keys,
-            labels_on,
-        });
-    }
+    const apply_sort = useCallback(
+        (keys: SortKey[], labels_on: boolean) => {
+            vscode_api.postMessage({
+                type: 'setSort',
+                keys,
+                labels_on,
+            });
+        },
+        [vscode_api]
+    );
 
     return {
         metadata,
@@ -143,7 +181,7 @@ export function use_row_loader() {
         sort,
         sort_pending,
         nobs_effective,
-        reload_token,
         apply_sort,
+        update_viewport,
     };
 }

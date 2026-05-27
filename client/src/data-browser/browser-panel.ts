@@ -382,6 +382,11 @@ export class DataBrowserPanel implements vscode.Disposable {
     ): Promise<void> {
         if (!this.dta_file) return;
 
+        // Bump the generation so any row request that is already
+        // in-flight under the previous permutation is dropped instead of
+        // posting stale rows after this sort lands, and so that a later
+        // setSort supersedes an earlier (slower) one rather than racing.
+        this.generation++;
         const my_generation = this.generation;
         this.post_sort_status('pending');
 
@@ -526,6 +531,9 @@ export class DataBrowserPanel implements vscode.Disposable {
             const my_values = await this.read_full_column(
                 my_key.col_index
             );
+            // A refresh during the await nulls dta_file; bail so the
+            // caller's generation check discards this stale result.
+            if (!this.dta_file) return null;
             const my_table =
                 this.dta_file.value_label_tables.get(
                     my_var.value_label_name

@@ -256,8 +256,8 @@ export function App() {
         sort,
         sort_pending,
         nobs_effective,
-        reload_token,
         apply_sort,
+        update_viewport,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
     const [show_formats, set_show_formats] = useState(true);
@@ -469,9 +469,12 @@ export function App() {
     };
 
     // The "focused" variable index for keyboard sort shortcuts: the
-    // single selected column, mapped back through the visibility map.
+    // focused cell's column if any, else the selected column header,
+    // mapped back through the visibility map.
     const focused_var_index = (() => {
-        const my_visible = grid_selection.columns.first();
+        const my_visible =
+            grid_selection.current?.cell[0]
+            ?? grid_selection.columns.first();
         if (my_visible === undefined) return undefined;
         const my_var_index = visible_col_map[my_visible];
         return my_var_index === undefined ? undefined : my_var_index;
@@ -484,18 +487,9 @@ export function App() {
             )
             : -1;
 
-    // Re-request the visible window after a sort permutation is applied
-    // (the row cache was cleared, so cells would otherwise stay blank).
-    useEffect(() => {
-        if (!metadata || reload_token === 0) return;
-        ensure_rows(
-            first_visible_row,
-            first_visible_row + visible_row_count + 10
-        );
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [reload_token]);
-
-    // Toggling Labels re-sorts a labelled column WYSIWYG.
+    // Toggling Labels re-sorts a labelled column WYSIWYG. (The host's
+    // sortApplied sets labels_on_when_sorted to the new value, which
+    // re-satisfies the guard below, so there is no re-sort loop.)
     useEffect(() => {
         if (sort.keys.length === 0) return;
         if (sort.labels_on_when_sorted === show_labels) return;
@@ -505,8 +499,7 @@ export function App() {
         });
         if (!my_touches_labelled) return;
         apply_sort(sort.keys, show_labels);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [show_labels]);
+    }, [show_labels, sort, metadata, apply_sort]);
 
     // Keyboard sort shortcuts: Shift+Alt+A/D sort the focused column
     // ascending/descending (replace); Shift+Alt+0 clears all sorts.
@@ -567,6 +560,9 @@ export function App() {
         const my_right = rect.x + rect.width - 8;
         const my_cy = rect.y + rect.height / 2;
         ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.width, rect.height);
+        ctx.clip();
         ctx.fillStyle = my_color;
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'right';
@@ -987,6 +983,10 @@ export function App() {
                     }) => {
                         set_first_visible_row(my_range.y);
                         set_visible_row_count(my_range.height);
+                        update_viewport(
+                            my_range.y,
+                            my_range.y + my_range.height + 10
+                        );
                         ensure_rows(
                             my_range.y,
                             my_range.y + my_range.height + 10

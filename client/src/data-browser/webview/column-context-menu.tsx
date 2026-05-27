@@ -71,36 +71,44 @@ export function ColumnContextMenu({
         <div
             ref={menu_ref}
             className="column-context-menu"
+            role="menu"
             style={{
                 left: `${left_px}px`,
                 top: `${top_px}px`,
             }}
         >
-            <div
+            <button
+                type="button"
                 className="column-context-menu-item"
+                role="menuitem"
                 onClick={on_copy}
             >
                 Copy column
-            </div>
-            <div
+            </button>
+            <button
+                type="button"
                 className="column-context-menu-item"
+                role="menuitem"
                 onClick={on_hide}
             >
                 Hide column
-            </div>
+            </button>
             {sort && (
                 <>
                     <div
                         className="column-context-menu-divider"
                         role="separator"
                     />
-                    <div
+                    <button
+                        type="button"
                         className={
                             sort.active_direction === 'asc'
                                 ? 'column-context-menu-item active'
                                 : 'column-context-menu-item'
                         }
-                        onClick={(e: MouseEvent<HTMLDivElement>) =>
+                        role="menuitemcheckbox"
+                        aria-checked={sort.active_direction === 'asc'}
+                        onClick={(e: MouseEvent<HTMLButtonElement>) =>
                             sort.on_sort('asc', e.shiftKey)
                         }
                     >
@@ -111,14 +119,17 @@ export function ColumnContextMenu({
                         <span className="column-context-menu-shortcut">
                             ⇧⌥A
                         </span>
-                    </div>
-                    <div
+                    </button>
+                    <button
+                        type="button"
                         className={
                             sort.active_direction === 'desc'
                                 ? 'column-context-menu-item active'
                                 : 'column-context-menu-item'
                         }
-                        onClick={(e: MouseEvent<HTMLDivElement>) =>
+                        role="menuitemcheckbox"
+                        aria-checked={sort.active_direction === 'desc'}
+                        onClick={(e: MouseEvent<HTMLButtonElement>) =>
                             sort.on_sort('desc', e.shiftKey)
                         }
                     >
@@ -129,42 +140,54 @@ export function ColumnContextMenu({
                         <span className="column-context-menu-shortcut">
                             ⇧⌥D
                         </span>
-                    </div>
+                    </button>
                     {sort.other_columns_sorted
                         && sort.active_direction === 'none' && (
                         <>
                             <div
+                                className="column-context-menu-divider"
+                                role="separator"
+                            />
+                            <button
+                                type="button"
                                 className="column-context-menu-item"
+                                role="menuitem"
                                 onClick={() =>
                                     sort.on_add_to_sort('asc')
                                 }
                             >
                                 <span className="column-context-menu-check" />
                                 Add ascending to sort
-                            </div>
-                            <div
+                            </button>
+                            <button
+                                type="button"
                                 className="column-context-menu-item"
+                                role="menuitem"
                                 onClick={() =>
                                     sort.on_add_to_sort('desc')
                                 }
                             >
                                 <span className="column-context-menu-check" />
                                 Add descending to sort
-                            </div>
+                            </button>
                         </>
                     )}
                     {sort.active_direction !== 'none' && (
-                        <div
+                        <button
+                            type="button"
                             className="column-context-menu-item"
+                            role="menuitem"
                             onClick={sort.on_clear_column}
                         >
                             <span className="column-context-menu-check" />
                             Clear sort on this column
-                        </div>
+                        </button>
                     )}
                     {sort.any_sorted && (
-                        <div
+                        <button
+                            type="button"
                             className="column-context-menu-item"
+                            role="menuitem"
                             onClick={sort.on_clear_all}
                         >
                             <span className="column-context-menu-check" />
@@ -172,7 +195,7 @@ export function ColumnContextMenu({
                             <span className="column-context-menu-shortcut">
                                 ⇧⌥0
                             </span>
-                        </div>
+                        </button>
                     )}
                 </>
             )}
