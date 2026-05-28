@@ -226,9 +226,11 @@ Create:
    `client/src/data-browser/webview-html.ts`, but point the script src at
    `dist-test/toolbar-wrap-harness/index.js`), `send(msg)` +
    `wait_for_snapshot()`/handshake helpers.
-4. `client/test/toolbar-wrap-layout/toolbar-wrap-layout.test.js` — Mocha
+4. `client/test/toolbar-wrap-layout/toolbar-wrap-layout.mocha.js` — Mocha
    `describe/it` suite; opens the panel in `before`, `test:reset` in
-   `beforeEach`, closes in `after`; the ~8-10 cases from §6.
+   `beforeEach`, closes in `after`; the ~8-10 cases from §6. (Named
+   `.mocha.js`, not `.test.js`, so the root CI's bare `bun test` does not
+   auto-discover and try to run this Mocha/vscode-test file.)
 5. `client/test/toolbar-wrap-layout/index.js` — programmatic Mocha runner
    exporting `run()` (the `extensionTestsPath` target).
 

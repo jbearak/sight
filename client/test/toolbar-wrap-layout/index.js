@@ -20,8 +20,14 @@ function run() {
         timeout: 60000,
     });
 
+    // The suite file is `.mocha.js`, not `.test.js`, on purpose: the repo's
+    // CI runs a bare `bun test` from the root, which auto-discovers every
+    // `*.test.*` file. This is a Mocha + vscode-test suite (it `require`s
+    // `vscode` and uses `this.timeout`), so bun must not try to run it.
+    // Mocha loads it here by explicit path, so the name is free to dodge
+    // bun's glob — same reason `extension-smoke.js` has no `.test.` either.
     my_mocha.addFile(
-        path.resolve(__dirname, 'toolbar-wrap-layout.test.js')
+        path.resolve(__dirname, 'toolbar-wrap-layout.mocha.js')
     );
 
     return new Promise((resolve, reject) => {
