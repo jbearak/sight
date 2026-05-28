@@ -360,7 +360,10 @@ describe('Syntax Command Hover Provider Property Tests', () => {
     it('should fail silently for missing signatures', async () => {
         fc.assert(
             fc.asyncProperty(
-                arbitrary_identifier(),
+                // Prefix to avoid collisions with Stata built-ins (e.g., _n,
+                // _N, _pi, _rc, _cons) and built-in function names that the
+                // hover provider responds to even without a program symbol.
+                arbitrary_identifier().map((id) => `nonexistent_${id}`),
                 async (my_program_name) => {
                     // Create workspace symbols WITHOUT the program
                     const my_workspace_symbols: SymbolTable = {
@@ -382,7 +385,7 @@ describe('Syntax Command Hover Provider Property Tests', () => {
                             { line: 0, character: 1 },
                             my_workspace_symbols
                         );
-                    } catch (my_error) {
+                    } catch {
                         // Should not throw
                         return false;
                     }
