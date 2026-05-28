@@ -301,9 +301,14 @@ To format only a specific range:
 
 ## Best Practices
 
-### 1. Start with Normalization Disabled
+### 1. Try It on a Small File First
 
-Begin with `normalizeCommentStyle: false` to understand the feature before applying it to your codebase.
+Before turning normalization on across a large project:
+
+1. Create a test file with various comment styles
+2. Enable `normalizeCommentStyle` and set `preferredCommentStyle`
+3. Format and review the output
+4. Adjust settings if needed
 
 ### 2. Review Changes Before Committing
 
@@ -340,15 +345,6 @@ Enable `normalizeOnSave` only if:
 - Your entire team uses the same settings
 - You want automatic normalization on every save
 - You're comfortable with automatic changes
-
-### 6. Test with Small Files First
-
-Before applying to large projects:
-
-1. Create a test file with various comment styles
-2. Enable normalization
-3. Format and review the output
-4. Adjust settings if needed
 
 ## Troubleshooting
 
@@ -417,26 +413,10 @@ Different projects can have different comment styles:
 }
 ```
 
-## FAQ
+## Notes
 
-**Q: Will normalization change my code logic?**
-A: No. Only comment delimiters are changed; comment content is preserved exactly.
-
-**Q: Can I undo normalization?**
-A: Yes. Use `⌘Z` on macOS (`Ctrl+Z` on Windows/Linux) to undo formatting changes.
-
-**Q: What about comments in strings?**
-A: Comments inside strings are never modified. Only actual comments are normalized.
-
-**Q: Can I normalize only part of a file?**
-A: Yes. Select the code you want to format and use Format Selection (`⌘K ⌘F` on macOS, `Ctrl+K Ctrl+F` on Windows/Linux).
-
-**Q: Does normalization work with embedded languages?**
-A: Comments in Mata and Python blocks are preserved in their original style.
-
-**Q: Can I have different styles in the same file?**
-A: The normalization feature converts all comments to one style. If you need mixed styles, disable normalization.
-
-## Support
-
-For issues or feature requests, please visit the [GitHub repository](https://github.com/your-repo/sight).
+- Only comment delimiters are changed; comment content is preserved exactly.
+- Comments inside strings are never modified — only actual comments are normalized.
+- Comments in Mata and Python blocks are preserved in their original style (see [Embedded Language Blocks](#embedded-language-blocks)).
+- Normalization converts every comment in scope to the preferred style. To keep mixed styles in a file, leave `normalizeCommentStyle` off (the default) or use [Range Formatting](#range-formatting) to normalize only a selection.
+- Formatting changes can be undone with `⌘Z` on macOS (`Ctrl+Z` on Windows/Linux).
