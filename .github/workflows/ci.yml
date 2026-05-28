@@ -53,7 +53,7 @@ jobs:
               - 'package.json'
               - 'bun.lock'
               - 'tsconfig*.json'
-              - '.eslintrc.cjs'
+              - 'eslint.config.js'
               - 'src/**'
               - 'scripts/**'
               - 'tests/**'
@@ -93,7 +93,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
         with:
-          node-version: "22"
+          node-version: "24"
       - name: Typecheck
         run: bun run typecheck
       - name: Tests
@@ -109,7 +109,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
         with:
-          node-version: "22"
+          node-version: "24"
       - name: Build npm package
         run: bun run build:npm
       - name: Test package creation
@@ -136,7 +136,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Build extension
         run: bun run package
       - name: Validate VSIX contents
@@ -193,7 +193,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Build current platform binary
         run: bun run build:current
       - name: Test binary execution
@@ -234,7 +234,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Build binaries
         run: bun run build:binary
       - name: Test formula syntax

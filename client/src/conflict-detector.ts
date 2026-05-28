@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { findConflictingExtensions, formatConflictMessage, formatConflictTooltip, isStataFile, getDisplayName, shouldPersistDismissal, ConflictingExtension } from './conflict-detector-core';
-import { applyViewerTabIcon } from './viewer-tab-icon';
+import { findConflictingExtensions, formatConflictMessage, formatConflictTooltip, isStataFile, getDisplayName, shouldPersistDismissal, ConflictingExtension } from './conflict-detector-core.js';
+import { applyViewerTabIcon } from './viewer-tab-icon.js';
 
-export { ConflictingExtension } from './conflict-detector-core';
+export { ConflictingExtension } from './conflict-detector-core.js';
 
 const DOCS_URL = 'https://github.com/jbearak/sight?tab=readme-ov-file#extension-conflict-detection';
 const STATE_KEY_WARNING_DISMISSED = 'sight.conflictWarningDismissed';

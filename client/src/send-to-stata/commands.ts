@@ -1,26 +1,26 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { LanguageClient } from 'vscode-languageclient/node';
+import { LanguageClient } from 'vscode-languageclient/node.js';
 import {
     detect_statement,
     get_statement_text,
     get_upward_bounds,
     get_downward_bounds
-} from './statement-detector';
+} from './statement-detector.js';
 import {
     create_temp_file,
     schedule_temp_file_cleanup
-} from './temp-file';
-import { detect_stata_app } from './stata-detector';
-import { send_to_stata_app } from './applescript';
-import { send_to_terminal } from './terminal';
+} from './temp-file.js';
+import { detect_stata_app } from './stata-detector.js';
+import { send_to_stata_app } from './applescript.js';
+import { send_to_terminal } from './terminal.js';
 import {
     send_to_stata_terminal
-} from './stata-terminal-manager';
-import type { StataCommand } from './index';
-import { send_to_stata_windows } from './windows-sender';
-import { compute_cursor_position } from './cursor-advance-core';
-import { escape_path_for_stata } from './cd-commands';
+} from './stata-terminal-manager.js';
+import type { StataCommand } from './index.js';
+import { send_to_stata_windows } from './windows-sender.js';
+import { compute_cursor_position } from './cursor-advance-core.js';
+import { escape_path_for_stata } from './cd-commands.js';
 
 export type WorkingDirectoryOption = 'none' | 'file' | 'workspace' | 'lsp';
 export type SendTargetSetting = 'auto' | 'integrated' | 'external';

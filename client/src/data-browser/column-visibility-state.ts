@@ -2,7 +2,7 @@ import type { ExtensionContext } from 'vscode';
 import {
     type DataBrowserColumnWidthContextLike,
     DEFAULT_MAX_STORED_LAYOUTS,
-} from './column-width-state';
+} from './column-width-state.js';
 
 export const DATA_BROWSER_COLUMN_VISIBILITY_KEY =
     'sight.dataBrowser.columnVisibility';

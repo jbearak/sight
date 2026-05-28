@@ -3,7 +3,7 @@ import type {
     CellValue,
     MetadataMessage,
     VariableDescription,
-} from '../types';
+} from '../types.js';
 
 export const PAGE_SIZE = 200;
 export const MIN_COLUMN_WIDTH_PX = 72;

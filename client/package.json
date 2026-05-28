@@ -5,6 +5,7 @@
   "version": "0.7.0",
   "publisher": "jbearak",
   "icon": "icon.png",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/jbearak/sight"
@@ -723,15 +724,15 @@
   },
   "scripts": {
     "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server",
-    "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --outfile=dist/extension.js --external:vscode --minify",
+    "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --external:vscode --minify && node -e \"require('fs').writeFileSync('dist/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
     "bundle:webview-test": "bunx esbuild src/data-browser/webview/test-harness/index.tsx --bundle --platform=browser --format=iife --outfile=dist-test/toolbar-wrap-harness/index.js --loader:.css=css",
     "copy-vview-ado": "mkdir -p stata && cp ../stata/vview.ado stata/vview.ado",
-    "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/",
+    "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/ && node -e \"require('fs').writeFileSync('server/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "compile": "bun run copy-vview-ado && bun run bundle && bun run bundle:webview",
     "watch": "tsc -watch -p ./",
     "pretest": "bun run compile && bun run lint",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
     "test": "node ./test/runTest.js",
     "test:extension": "node ./test/runTest.js",
     "test:layout": "bun run bundle && bun run bundle:webview-test && node ./test/runTest.js --suite layout",
@@ -750,17 +751,13 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "^16.11.7",
+    "@types/node": "^24.0.0",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/vscode": "^1.75.0",
-    "@typescript-eslint/eslint-plugin": "^5.48.1",
-    "@typescript-eslint/parser": "^5.48.1",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
-    "eslint": "^8.31.0",
     "mocha": "^11.7.6",
-    "ovsx": "^0.8.3",
-    "typescript": "^4.9.4"
+    "ovsx": "^0.8.3"
   }
 }

@@ -17,7 +17,7 @@ import type {
     FilterEntry,
     FilterPredicate,
     FilterState,
-} from './types';
+} from './types.js';
 
 export const DATA_BROWSER_FILTER_STATE_KEY =
     'sight.dataBrowser.filterState';

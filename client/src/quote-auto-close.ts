@@ -10,7 +10,7 @@ import {
     WorkspaceEdit,
     commands,
 } from 'vscode';
-import { compute_quote_auto_close, compute_deletion_cleanup } from './quote-auto-close-core';
+import { compute_quote_auto_close, compute_deletion_cleanup } from './quote-auto-close-core.js';
 
 /**
  * Maximum characters to look at before/after cursor for context.

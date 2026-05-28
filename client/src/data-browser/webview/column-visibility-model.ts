@@ -1,4 +1,4 @@
-import type { BrowserGridColumn } from './grid-model';
+import type { BrowserGridColumn } from './grid-model.js';
 
 export type VisibleColumnMap = number[];
 

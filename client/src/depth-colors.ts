@@ -13,7 +13,7 @@ import {
     DARK_MACRO_COLORS,
     LIGHT_STRING_COLORS,
     LIGHT_MACRO_COLORS
-} from './depth-colors-core';
+} from './depth-colors-core.js';
 
 // Re-export core functions for convenience
 export {
@@ -26,7 +26,7 @@ export {
     mergeDepthColors,
     isDepthColorRule,
     removeSightOwnedDepthRules
-} from './depth-colors-core';
+} from './depth-colors-core.js';
 
 /**
  * Determines if the current theme is a dark theme.

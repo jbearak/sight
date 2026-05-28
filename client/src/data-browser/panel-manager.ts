@@ -7,22 +7,22 @@
  */
 
 import * as vscode from 'vscode';
-import { DataBrowserPanel } from './browser-panel';
-import type { DataBrowserColumnWidthStore } from './column-width-state';
-import type { DataBrowserColumnVisibilityStore } from './column-visibility-state';
-import type { DataBrowserSortStateStore } from './sort-state';
-import type { DataBrowserFilterStateStore } from './filter-state';
+import { DataBrowserPanel } from './browser-panel.js';
+import type { DataBrowserColumnWidthStore } from './column-width-state.js';
+import type { DataBrowserColumnVisibilityStore } from './column-visibility-state.js';
+import type { DataBrowserSortStateStore } from './sort-state.js';
+import type { DataBrowserFilterStateStore } from './filter-state.js';
 import {
     build_direct_open_sidecar,
     DATA_BROWSER_PANEL_VIEW_TYPE,
     expand_home_path,
-} from './opening';
+} from './opening.js';
 import {
     build_data_browser_html,
     generate_nonce,
-} from './webview-html';
-import type { VviewSidecar } from './types';
-import { applyViewerTabIcon } from '../viewer-tab-icon';
+} from './webview-html.js';
+import type { VviewSidecar } from './types.js';
+import { applyViewerTabIcon } from '../viewer-tab-icon.js';
 
 export class DataBrowserPanelManager
     implements vscode.Disposable {

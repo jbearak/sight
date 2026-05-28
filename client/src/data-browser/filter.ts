@@ -29,7 +29,7 @@
  */
 
 import { is_missing_value_object, type RowCell } from '@jbearak/dta-parser';
-import type { FilterEntry, FilterPredicate, FilterState } from './types';
+import type { FilterEntry, FilterPredicate, FilterState } from './types.js';
 
 export interface FilterColumn {
     values: readonly RowCell[];

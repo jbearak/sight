@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
-import type { VviewSidecar } from './types';
+import type { VviewSidecar } from './types.js';
 
 export const BROWSE_DIR = path.join(
     homedir(),

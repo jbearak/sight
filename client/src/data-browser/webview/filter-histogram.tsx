@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import type { HistogramBin } from '../types';
+import type { HistogramBin } from '../types.js';
 
 interface FilterHistogramProps {
     bins: HistogramBin[];

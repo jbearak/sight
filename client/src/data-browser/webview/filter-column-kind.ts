@@ -11,8 +11,8 @@
  * `classify_sort_kind` rather than duplicating the classification.
  */
 
-import { classify_sort_kind, type SortKind } from '../sort';
-import type { VariableDescription } from '../types';
+import { classify_sort_kind, type SortKind } from '../sort.js';
+import type { VariableDescription } from '../types.js';
 
 export type ColKind = SortKind;
 

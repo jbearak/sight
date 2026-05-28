@@ -7,9 +7,9 @@
  */
 
 import * as vscode from 'vscode';
-import { SmclPreviewPanel } from './preview-panel';
-import { LanguageClient } from 'vscode-languageclient/node';
-import { applyViewerTabIcon } from '../viewer-tab-icon';
+import { SmclPreviewPanel } from './preview-panel.js';
+import { LanguageClient } from 'vscode-languageclient/node.js';
+import { applyViewerTabIcon } from '../viewer-tab-icon.js';
 
 const VIEW_TYPE = 'sightSmclPreview';
 

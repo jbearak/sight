@@ -20,12 +20,12 @@ import type {
     SortState,
     SortStatusMessage,
     WebviewMessage,
-} from '../types';
-import { EMPTY_FILTER, EMPTY_SORT } from '../types';
+} from '../types.js';
+import { EMPTY_FILTER, EMPTY_SORT } from '../types.js';
 import {
     get_needed_page_starts,
     PAGE_SIZE,
-} from './grid-model';
+} from './grid-model.js';
 
 declare function acquireVsCodeApi(): {
     postMessage(message: WebviewMessage): void;

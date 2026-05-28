@@ -1,5 +1,5 @@
 import { useEffect, useRef, type MouseEvent } from 'react';
-import { use_dismiss } from './use-dismiss';
+import { use_dismiss } from './use-dismiss.js';
 
 /** Sort-related slice of the column context menu. Present only for
  *  column-header menus. */

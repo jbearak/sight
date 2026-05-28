@@ -3,8 +3,8 @@ import {
     useRef,
     useState,
 } from 'react';
-import type { VariableDescription } from '../types';
-import { use_dismiss } from './use-dismiss';
+import type { VariableDescription } from '../types.js';
+import { use_dismiss } from './use-dismiss.js';
 
 export interface ColumnVisibilityPopoverProps {
     variables: VariableDescription[];

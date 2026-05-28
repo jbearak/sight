@@ -34,14 +34,14 @@ import {
     type CSSProperties,
 } from 'react';
 import '../styles.css';
-import { ToolbarSortStrip } from '../sort-strip';
-import { ToolbarFilterStrip } from '../filter-strip';
-import { use_toolbar_wrap } from '../use-toolbar-wrap';
+import { ToolbarSortStrip } from '../sort-strip.js';
+import { ToolbarFilterStrip } from '../filter-strip.js';
+import { use_toolbar_wrap } from '../use-toolbar-wrap.js';
 import type {
     FilterState,
     SortKey,
     VariableDescription,
-} from '../../types';
+} from '../../types.js';
 
 // Injected by VS Code in the real webview. Declared module-scoped here
 // (not imported from use-row-loader, whose ambient declaration is also

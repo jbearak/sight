@@ -4,7 +4,7 @@ import {
     missing_type_to_label_key,
     type MissingValue,
 } from '@jbearak/dta-parser';
-import type { CellValue } from './types';
+import type { CellValue } from './types.js';
 
 export function build_cell_value(
     raw: number | string | MissingValue,

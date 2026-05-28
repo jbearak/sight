@@ -13,9 +13,9 @@
  */
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import type { FilterEntry, FilterState, VariableDescription } from '../types';
-import { summarize_predicate } from './predicate-summary';
-import { use_dismiss } from './use-dismiss';
+import type { FilterEntry, FilterState, VariableDescription } from '../types.js';
+import { summarize_predicate } from './predicate-summary.js';
+import { use_dismiss } from './use-dismiss.js';
 
 interface FilterStripProps {
     filter: FilterState;

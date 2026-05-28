@@ -10,18 +10,18 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { create_column_width_store } from './column-width-state';
-import { create_column_visibility_store } from './column-visibility-state';
-import { create_sort_state_store } from './sort-state';
-import { create_filter_state_store } from './filter-state';
-import { register_data_browser_custom_editor } from './custom-editor';
-import { DataBrowserPanelManager } from './panel-manager';
+import { create_column_width_store } from './column-width-state.js';
+import { create_column_visibility_store } from './column-visibility-state.js';
+import { create_sort_state_store } from './sort-state.js';
+import { create_filter_state_store } from './filter-state.js';
+import { register_data_browser_custom_editor } from './custom-editor.js';
+import { DataBrowserPanelManager } from './panel-manager.js';
 import {
     BROWSE_DIR,
     type ClaimDelayFn,
     prune_stale_browse_files,
     SignalWatcher,
-} from './signal-watcher';
+} from './signal-watcher.js';
 import {
     ensure_vview_ado_installed as ensure_vview_ado_installed_core,
     get_vview_install_state as get_vview_install_state_core,
@@ -33,8 +33,8 @@ import {
     type VviewInstallPromptChoice,
     type VviewInstallState,
     type VviewInstallStatus,
-} from './vview-install-core';
-import { resolve_personal_ado_dir } from './install-path';
+} from './vview-install-core.js';
+import { resolve_personal_ado_dir } from './install-path.js';
 
 const VVIEW_INSTALL_PERMISSION_KEY =
     'sight.vviewInstallPermission';

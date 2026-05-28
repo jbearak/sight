@@ -16,7 +16,7 @@
  */
 
 import * as vscode from 'vscode';
-import { meetsMinVersion } from './version-gate';
+import { meetsMinVersion } from './version-gate.js';
 
 /** First VSCode version whose runtime renders a `ThemeIcon` as a webview tab icon. */
 const THEME_ICON_TAB_MIN = { major: 1, minor: 110 } as const;

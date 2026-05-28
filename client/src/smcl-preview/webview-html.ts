@@ -6,7 +6,7 @@
  * client-side script for cross-reference navigation.
  */
 
-import { SmclHtmlResult } from './smcl-to-html';
+import { SmclHtmlResult } from './smcl-to-html.js';
 
 export function build_webview_html(
     result: SmclHtmlResult,

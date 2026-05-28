@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-        "module": "CommonJS",
+        "module": "nodenext",
         "target": "ES2022",
         "lib": [
             "ES2022",
@@ -13,7 +13,7 @@
         "esModuleInterop": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
-        "moduleResolution": "node",
+        "moduleResolution": "nodenext",
         "types": ["vscode", "node"]
     },
     "include": [

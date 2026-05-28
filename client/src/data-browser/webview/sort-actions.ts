@@ -3,7 +3,7 @@
  * webview. Kept separate from React so they can be unit-tested.
  */
 
-import type { SortKey } from '../types';
+import type { SortKey } from '../types.js';
 
 /**
  * Result of picking "Sort asc/desc" on a column header.

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { StataCommand, VALID_COMMANDS } from './index';
-import { detect_stata_cli, clear_stata_cli_cache } from './stata-cli-detector';
-import { wrap_path_for_stata_terminal } from './terminal';
+import { StataCommand, VALID_COMMANDS } from './index.js';
+import { detect_stata_cli, clear_stata_cli_cache } from './stata-cli-detector.js';
+import { wrap_path_for_stata_terminal } from './terminal.js';
 
 const PROFILE_ID = 'sight.stataTerminal';
 const TERMINAL_NAME = 'Stata';

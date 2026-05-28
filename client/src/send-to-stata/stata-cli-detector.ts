@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import * as fs from 'fs/promises';
 import { constants as fs_constants } from 'fs';
-import { StataVariant } from './index';
+import { StataVariant } from './index.js';
 
 /**
  * CLI binary names in priority order, per platform.

@@ -11,9 +11,9 @@
  */
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import type { SortKey } from '../types';
-import { flip_key, move_to_first, remove_key } from './sort-actions';
-import { use_dismiss } from './use-dismiss';
+import type { SortKey } from '../types.js';
+import { flip_key, move_to_first, remove_key } from './sort-actions.js';
+import { use_dismiss } from './use-dismiss.js';
 
 interface SortStripProps {
     keys: SortKey[];

@@ -1,5 +1,5 @@
 import { exec } from 'child_process';
-import { StataVariant, StataCommand } from './index';
+import { StataVariant, StataCommand } from './index.js';
 
 const VALID_STATA_APPS: readonly StataVariant[] = [
     'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'

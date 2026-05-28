@@ -14,36 +14,36 @@ import {
     type RowCell,
 } from '@jbearak/dta-parser';
 import { DtaFile } from '@jbearak/dta-parser/node';
-import { build_cell_value } from './cell-format';
+import { build_cell_value } from './cell-format.js';
 import {
     build_sort_column,
     classify_sort_kind,
     compute_permutation,
     type SortColumn,
-} from './sort';
+} from './sort.js';
 import {
     compose_effective,
     group_contiguous_runs,
     permuted_window_indices,
-} from './permuted-rows';
+} from './permuted-rows.js';
 import {
     compute_filtered_indices,
     type FilterColumn,
-} from './filter';
-import { compute_histogram } from './histograms';
+} from './filter.js';
+import { compute_histogram } from './histograms.js';
 import {
     build_dataset_key,
     build_dataset_key_aliases,
     type DataBrowserColumnWidthStore,
-} from './column-width-state';
+} from './column-width-state.js';
 import type {
     DataBrowserColumnVisibilityStore,
-} from './column-visibility-state';
-import type { DataBrowserSortStateStore } from './sort-state';
-import type { DataBrowserFilterStateStore } from './filter-state';
-import { should_unlink_data_browser_path } from './opening';
-import { RowCache } from './row-cache';
-import { schema_hash } from './schema-hash';
+} from './column-visibility-state.js';
+import type { DataBrowserSortStateStore } from './sort-state.js';
+import type { DataBrowserFilterStateStore } from './filter-state.js';
+import { should_unlink_data_browser_path } from './opening.js';
+import { RowCache } from './row-cache.js';
+import { schema_hash } from './schema-hash.js';
 import type {
     WebviewMessage,
     RowResponse,
@@ -63,8 +63,8 @@ import type {
     RequestHistogramMessage,
     HistogramDataMessage,
     HistogramBin,
-} from './types';
-import { EMPTY_SORT, EMPTY_FILTER } from './types';
+} from './types.js';
+import { EMPTY_SORT, EMPTY_FILTER } from './types.js';
 
 /** %tc / %tC store milliseconds since 1960; other date formats store
  *  days. Consulted when building a {@link FilterColumn} for date
@@ -1125,8 +1125,8 @@ export class DataBrowserPanel implements vscode.Disposable {
     ): CellValue[][] {
         const my_col_offset = col_start ?? 0;
 
-        return raw_rows.map(my_row =>
-            my_row.map((my_raw, my_idx) => {
+        return raw_rows.map((my_row: Row) =>
+            my_row.map((my_raw: RowCell, my_idx: number) => {
                 const my_var = this.dta_file!.variables[
                     my_col_offset + my_idx
                 ];

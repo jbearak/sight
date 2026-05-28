@@ -1,4 +1,4 @@
-import { WorkingDirectoryOption } from './commands';
+import { WorkingDirectoryOption } from './commands.js';
 
 /**
  * Escape a directory path for use in Stata cd command.

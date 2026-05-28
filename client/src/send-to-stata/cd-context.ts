@@ -1,20 +1,20 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { compute_cd_menu_visible, format_cd_command } from './cd-commands';
+import { compute_cd_menu_visible, format_cd_command } from './cd-commands.js';
 import {
     WorkingDirectoryOption,
     resolve_effective_target
-} from './commands';
+} from './commands.js';
 import {
     create_temp_file,
     schedule_temp_file_cleanup,
-} from './temp-file';
-import { detect_stata_app } from './stata-detector';
-import { send_to_stata_app } from './applescript';
-import { send_to_terminal } from './terminal';
+} from './temp-file.js';
+import { detect_stata_app } from './stata-detector.js';
+import { send_to_stata_app } from './applescript.js';
+import { send_to_terminal } from './terminal.js';
 import {
     send_to_stata_terminal
-} from './stata-terminal-manager';
+} from './stata-terminal-manager.js';
 
 const CONTEXT_KEY = 'sight.cdMenuVisible';
 
@@ -154,7 +154,7 @@ export async function execute_cd_command(
                 );
             } else if (process.platform === 'win32') {
                 const { send_to_stata_windows } =
-                    await import('./windows-sender');
+                    await import('./windows-sender.js');
                 await send_to_stata_windows(
                     'do', temp_file_path, context
                 );

@@ -37,7 +37,7 @@ import * as fs from 'fs';
 import { discover_stata_ado_paths } from './utils/stata-install-paths';
 
 // Import cache directly so it gets bundled into the binary
-import embedded_cache_raw from './command-database/caches/v18.json';
+import embedded_cache_raw from './command-database/caches/v18.json' with { type: 'json' };
 import type { CommandCache } from './command-database/types';
 const embedded_cache = embedded_cache_raw as CommandCache;
 
