@@ -6,12 +6,12 @@
 
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import pkg from '../package.json' with { type: 'json' };
+import package_json from '../package.json' with { type: 'json' };
 
 const __filename = fileURLToPath(import.meta.url);
 
 // Version is inlined from package.json at build time
-const VERSION = pkg.version;
+const VERSION = package_json.version;
 
 /**
  * Transport type for LSP communication.
