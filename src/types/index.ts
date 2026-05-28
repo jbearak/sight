@@ -669,6 +669,18 @@ export interface ResolvedScope {
   diagnostics: DirectiveDiagnostic[];
   has_directives: boolean;         // True if current file has directive comments (regardless of resolution)
   has_auto_parents: boolean;       // True if auto-discovered (not explicit directive) parents were used
+  /**
+   * Snapshot of `dependency_graph.is_scan_complete()` taken at the
+   * same moment as `has_auto_parents`. Diagnostic deferral must use
+   * THIS value, not a fresh `is_scan_complete()` read at publication
+   * time — otherwise a scan that completes between
+   * `get_effective_backward_directives` and the deferral check can
+   * make the LSP publish an undefined-symbol warning that gets cleared
+   * a moment later by the next re-validation. The user perceives that
+   * as a red-squiggly flicker. `undefined` means the resolver had no
+   * dependency graph attached (legacy/test path).
+   */
+  scan_complete_at_resolve_time?: boolean;
   inherited_working_directory?: string;  // Working directory inherited from parent files (if any)
   forward_call_symbols?: ForwardCallSite[];  // Symbols from current file's forward calls with visibility info
 }

@@ -797,6 +797,16 @@ export class ScopeResolver {
             my_config
         );
 
+        // Snapshot scan_complete at the SAME synchronous moment as
+        // has_auto_parents. Diagnostic deferral must use this snapshot,
+        // not a fresh `is_scan_complete()` read at publication time —
+        // otherwise the workspace scan completing between this point and
+        // the deferral check can make the LSP publish an undefined-symbol
+        // warning that the very next re-validation clears, which the user
+        // perceives as a red-squiggly flicker.
+        const scan_complete_at_resolve_time =
+            this.dependency_graph?.is_scan_complete();
+
         // Follow directive chain
         const normalized_directives = this.normalize_directives(
             effective_directives,
@@ -834,6 +844,7 @@ export class ScopeResolver {
                 diagnostics: [],
                 has_directives,
                 has_auto_parents,
+                scan_complete_at_resolve_time,
             };
         }
 
@@ -917,6 +928,7 @@ export class ScopeResolver {
             diagnostics: remapped_diagnostics,
             has_directives,
             has_auto_parents,
+            scan_complete_at_resolve_time,
             inherited_working_directory,
             forward_call_symbols,
         };

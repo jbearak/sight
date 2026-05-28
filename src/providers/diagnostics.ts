@@ -235,10 +235,25 @@ export class DiagnosticsProvider {
         // If workspace scan is not yet complete and the file has no explicit
         // directives or auto-discovered parents, defer undefined symbol
         // diagnostics to avoid false positives.
+        //
+        // Use `resolved_scope.scan_complete_at_resolve_time` — the snapshot
+        // taken at the same synchronous moment as `has_auto_parents` —
+        // instead of `dependency_graph.is_scan_complete()` here. The scan
+        // can transition false→true between scope resolution and this
+        // check: with a live read, that transition makes us think we're
+        // "done discovering parents" while `has_auto_parents` still
+        // reflects the empty pre-scan graph. We then publish an
+        // undefined-symbol warning that the very next re-validation
+        // clears — the user sees a red-squiggly flicker. The snapshot
+        // closes that race by keeping both signals consistent.
         const backward_dep_mode = config.cross_file?.backward_dependencies ?? 'auto';
+        const scan_complete_for_deferral =
+            resolved_scope?.scan_complete_at_resolve_time
+                ?? this.dependency_graph?.is_scan_complete()
+                ?? false;
         const defer_undefined_diagnostics = backward_dep_mode === 'auto' &&
             this.dependency_graph &&
-            !this.dependency_graph.is_scan_complete() &&
+            !scan_complete_for_deferral &&
             resolved_scope &&
             !resolved_scope.has_directives &&
             !resolved_scope.has_auto_parents;
