@@ -150,8 +150,7 @@ async function run() {
             async () => {
                 return the_created_panels.find(
                     (my_panel) =>
-                        my_panel.title
-                        === `Data: ${my_name}`
+                        my_panel.title === my_name
                 );
             },
             5000
@@ -160,7 +159,7 @@ async function run() {
 
         assert.strictEqual(
             my_panel_title.title,
-            `Data: ${my_name}`,
+            my_name,
             `Expected data browser panel. Panels: ${JSON.stringify(the_created_panels)}`
         );
     } finally {

@@ -22,6 +22,7 @@ import {
     generate_nonce,
 } from './webview-html';
 import type { VviewSidecar } from './types';
+import { applyViewerTabIcon } from '../viewer-tab-icon';
 
 export class DataBrowserPanelManager
     implements vscode.Disposable {
@@ -56,7 +57,7 @@ export class DataBrowserPanelManager
         const my_webview_panel =
             vscode.window.createWebviewPanel(
                 DATA_BROWSER_PANEL_VIEW_TYPE,
-                `Data: ${sidecar.name}`,
+                sidecar.name,
                 vscode.ViewColumn.Active,
                 {
                     enableScripts: true,
@@ -70,6 +71,7 @@ export class DataBrowserPanelManager
                     ],
                 }
             );
+        applyViewerTabIcon(my_webview_panel, 'table');
 
         const my_nonce = generate_nonce();
         const my_html = build_data_browser_html(
@@ -118,7 +120,7 @@ export class DataBrowserPanelManager
         const my_webview_panel =
             vscode.window.createWebviewPanel(
                 DATA_BROWSER_PANEL_VIEW_TYPE,
-                `Data: ${my_sidecar.name}`,
+                my_sidecar.name,
                 column,
                 {
                     enableScripts: true,
@@ -132,6 +134,7 @@ export class DataBrowserPanelManager
                     ],
                 }
             );
+        applyViewerTabIcon(my_webview_panel, 'table');
 
         const my_nonce = generate_nonce();
         const my_html = build_data_browser_html(

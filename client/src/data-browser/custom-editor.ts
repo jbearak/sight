@@ -12,6 +12,7 @@ import {
     build_data_browser_html,
     generate_nonce,
 } from './webview-html';
+import { applyViewerTabIcon } from '../viewer-tab-icon';
 
 class DataBrowserDocument
     implements vscode.CustomDocument {
@@ -49,7 +50,8 @@ export class DataBrowserReadonlyEditorProvider
         );
         const my_nonce = generate_nonce();
 
-        webview_panel.title = `Data: ${my_sidecar.name}`;
+        webview_panel.title = my_sidecar.name;
+        applyViewerTabIcon(webview_panel, 'table');
         webview_panel.webview.options = {
             enableScripts: true,
             localResourceRoots: [

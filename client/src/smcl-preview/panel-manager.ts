@@ -9,6 +9,7 @@
 import * as vscode from 'vscode';
 import { SmclPreviewPanel } from './preview-panel';
 import { LanguageClient } from 'vscode-languageclient/node';
+import { applyViewerTabIcon } from '../viewer-tab-icon';
 
 const VIEW_TYPE = 'sightSmclPreview';
 
@@ -39,13 +40,14 @@ export class SmclPanelManager implements vscode.Disposable {
         const my_name = source_uri.fsPath.split(/[\\/]/).pop() || 'SMCL';
         const my_panel = vscode.window.createWebviewPanel(
             VIEW_TYPE,
-            `Preview ${my_name}`,
+            my_name,
             column,
             {
                 enableScripts: true,
                 retainContextWhenHidden: true,
             }
         );
+        applyViewerTabIcon(my_panel, 'book');
 
         const my_preview = new SmclPreviewPanel(
             source_uri,
