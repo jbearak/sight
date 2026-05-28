@@ -1,6 +1,6 @@
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
-import { StataDiagnosticCode, StataLSPConfig, Token, StataAST, StataNode, ControlFlowNode, CommandNode } from '../types';
+import { StataDiagnosticCode, StataLSPConfig, Token, StataAST, StataNode } from '../types';
 
 /**
  * Suggestible pairs: spaced compound operators with a known intended form.

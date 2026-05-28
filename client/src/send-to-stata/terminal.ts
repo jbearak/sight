@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { StataCommand, VALID_COMMANDS } from './index';
+import { StataCommand, VALID_COMMANDS } from './index.js';
 
 /**
  * Wraps a file path in Stata compound string syntax for terminal commands.

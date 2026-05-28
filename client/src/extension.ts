@@ -11,7 +11,7 @@ import {
     LanguageClientOptions,
     ServerOptions,
     TransportKind
-} from 'vscode-languageclient/node';
+} from 'vscode-languageclient/node.js';
 import {
     configureDepthColors,
     disableDepthColors,
@@ -19,21 +19,21 @@ import {
     registerThemeChangeHandler,
     registerDepthColorsConfigHandler,
     isDepthColorsEnabled
-} from './depth-colors';
-import { register_quote_auto_close } from './quote-auto-close';
-import { ConflictDetector } from './conflict-detector';
-import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata, register_stata_terminal } from './send-to-stata';
-import { register_smcl_preview } from './smcl-preview';
-import { register_data_browser } from './data-browser';
-import { LanguageClientLifecycle } from './language-client-lifecycle';
+} from './depth-colors.js';
+import { register_quote_auto_close } from './quote-auto-close.js';
+import { ConflictDetector } from './conflict-detector.js';
+import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata, register_stata_terminal } from './send-to-stata/index.js';
+import { register_smcl_preview } from './smcl-preview/index.js';
+import { register_data_browser } from './data-browser/index.js';
+import { LanguageClientLifecycle } from './language-client-lifecycle.js';
 import {
     apply_language_configuration,
     read_line_comment_style,
-} from './language-config';
+} from './language-config.js';
 import {
     trust_hover,
     trust_completion_item,
-} from './help-link-middleware';
+} from './help-link-middleware.js';
 
 let client: LanguageClient | null = null;
 let output_channel: OutputChannel | null = window.createOutputChannel(
@@ -59,7 +59,7 @@ const client_lifecycle = new LanguageClientLifecycle<LanguageClient>(
     }
 );
 
-export function activate(context: ExtensionContext) {
+export function activate(context: ExtensionContext): void {
     if (!output_channel) {
         output_channel = window.createOutputChannel(
             'Sight Language Server'

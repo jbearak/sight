@@ -22,8 +22,6 @@ import {
     ArgumentSpec,
     OptionSpec,
     ProgramSignature,
-    MacroReference,
-    DeclarationDirective,
     ForwardCall,
     IdentifierNode,
 } from '../types';
@@ -852,13 +850,6 @@ export class SemanticAnalyzer {
             }
         }
 
-        // Store extracted macro references for later validation
-        if (node.extendedFunction?.macroRefs) {
-            for (const macro_ref of node.extendedFunction.macroRefs) {
-                // Store reference for validation - will be checked in detect_undefined_references
-                // The macro references are already extracted by the parser
-            }
-        }
     }
 
     /**
@@ -945,7 +936,7 @@ export class SemanticAnalyzer {
                 }
                 
                 // For weight types, also register 'exp' as implicit local
-                if (WEIGHT_TYPES.includes(arg.type as any)) {
+                if ((WEIGHT_TYPES as readonly string[]).includes(arg.type)) {
                     const existing_exp = symbols.localMacros.get('exp');
                     if (existing_exp) {
                         if (!existing_exp.additional_definitions) {
@@ -1018,7 +1009,7 @@ export class SemanticAnalyzer {
         }
         
         // Weight types all create a 'weight' implicit local
-        if (WEIGHT_TYPES.includes(arg.type as any)) {
+        if ((WEIGHT_TYPES as readonly string[]).includes(arg.type)) {
             return 'weight';
         }
         
@@ -1032,8 +1023,8 @@ export class SemanticAnalyzer {
     private extract_and_attach_signature(
         program_node: ProgramNode,
         program_symbol: ProgramSymbol,
-        program_scope: ScopeInfo,
-        symbols: SymbolTable
+        _program_scope: ScopeInfo,
+        _symbols: SymbolTable
     ): void {
         const syntax_nodes: SyntaxNode[] = [];
 

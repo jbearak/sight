@@ -32,16 +32,17 @@ import {
     useRef,
     useState,
     type CSSProperties,
+    type ReactElement,
 } from 'react';
 import '../styles.css';
-import { ToolbarSortStrip } from '../sort-strip';
-import { ToolbarFilterStrip } from '../filter-strip';
-import { use_toolbar_wrap } from '../use-toolbar-wrap';
+import { ToolbarSortStrip } from '../sort-strip.js';
+import { ToolbarFilterStrip } from '../filter-strip.js';
+import { use_toolbar_wrap } from '../use-toolbar-wrap.js';
 import type {
     FilterState,
     SortKey,
     VariableDescription,
-} from '../../types';
+} from '../../types.js';
 
 // Injected by VS Code in the real webview. Declared module-scoped here
 // (not imported from use-row-loader, whose ambient declaration is also
@@ -131,7 +132,7 @@ function plain_rect(element: Element | null): PlainRect | null {
     };
 }
 
-export function HarnessApp() {
+export function HarnessApp(): ReactElement {
     const [width_px, set_width_px] = useState<number | null>(null);
     const [sort_chip_count, set_sort_chip_count] = useState(0);
     const [filter_chip_count, set_filter_chip_count] = useState(0);

@@ -140,7 +140,7 @@ class Logger {
             const timestamp = new Date().toISOString();
             const level_upper = level.toUpperCase();
             return `[${timestamp}] [${level_upper}] ${message}`;
-        } catch (error) {
+        } catch {
             // Fallback if formatting fails
             return `[ERROR] Failed to format message: ${message}`;
         }

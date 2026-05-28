@@ -13,7 +13,7 @@
  */
 
 import type { ExtensionContext } from 'vscode';
-import type { SortKey, SortState } from './types';
+import type { SortKey, SortState } from './types.js';
 
 export const DATA_BROWSER_SORT_STATE_KEY =
     'sight.dataBrowser.sortState';

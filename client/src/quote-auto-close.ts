@@ -5,12 +5,18 @@ import {
     Selection,
     TextDocument,
     TextDocumentChangeEvent,
+    TextDocumentContentChangeEvent,
+    TextEditor,
     window,
     workspace,
     WorkspaceEdit,
     commands,
 } from 'vscode';
-import { compute_quote_auto_close, compute_deletion_cleanup } from './quote-auto-close-core';
+import {
+    compute_quote_auto_close,
+    compute_deletion_cleanup,
+    QuoteAutoCloseResult,
+} from './quote-auto-close-core.js';
 
 /**
  * Maximum characters to look at before/after cursor for context.
@@ -173,8 +179,8 @@ async function handle_document_change(my_event: TextDocumentChangeEvent): Promis
 
 async function handle_character_insertion(
     my_document: TextDocument,
-    my_change: any,
-    my_editor: any
+    my_change: TextDocumentContentChangeEvent,
+    my_editor: TextEditor
 ): Promise<void> {
     const my_typed = my_change.text;
 
@@ -212,8 +218,8 @@ async function handle_character_insertion(
 
 async function handle_character_deletion(
     my_document: TextDocument,
-    my_change: any,
-    my_editor: any
+    my_change: TextDocumentContentChangeEvent,
+    my_editor: TextEditor
 ): Promise<void> {
     // Only handle single cursor, empty selection
     if (my_editor.selections.length !== 1 || !my_editor.selection.isEmpty) {
@@ -261,9 +267,9 @@ async function handle_character_deletion(
 
 async function apply_auto_close_edit(
     my_document: TextDocument,
-    my_editor: any,
+    my_editor: TextEditor,
     my_cursor_pos: Position,
-    my_result: any,
+    my_result: QuoteAutoCloseResult,
     my_typed: string
 ): Promise<void> {
     // Apply the edit

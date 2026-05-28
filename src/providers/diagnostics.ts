@@ -1,6 +1,6 @@
 import { Diagnostic, DiagnosticSeverity, Connection, Position, CancellationToken, Range } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
-import { LanguageContext, ContextDiagnostic, ContextErrorCode } from '../context-tracker/types';
+import { LanguageContext, ContextDiagnostic, ContextRange } from '../context-tracker/types';
 import {
     LexerError,
     LexerErrorCode,
@@ -646,7 +646,7 @@ export class DiagnosticsProvider {
      */
     private convert_parser_error(
         error: ParseError,
-        config: StataLSPConfig
+        _config: StataLSPConfig
     ): Diagnostic | null {
         let severity: DiagnosticSeverity = DiagnosticSeverity.Error;
 
@@ -911,7 +911,7 @@ export class DiagnosticsProvider {
      */
     private is_in_embedded_context(
         position: Position,
-        context_ranges: any[]
+        context_ranges: ContextRange[]
     ): boolean {
         // Check if position is within any embedded context range
         for (const my_range of context_ranges) {

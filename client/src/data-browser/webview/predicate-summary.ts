@@ -10,7 +10,7 @@
  * kinds; sets are numeric codes resolved through `value_labels`).
  */
 
-import type { FilterPredicate } from '../types';
+import type { FilterPredicate } from '../types.js';
 
 const SET_TRUNCATE_AT = 4;
 

@@ -48,7 +48,6 @@ export class StataLexer {
     this.errors = [];
 
     while (!this.isAtEnd()) {
-      const startPos = this.position;
       const startLine = this.line;
       const startColumn = this.column;
 

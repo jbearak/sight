@@ -152,7 +152,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
  */
 export function create_initialize_handler(
     on_capabilities_detected?: (caps: ServerCapabilities) => void,
-    on_initialization_options_detected?: (options: any) => void,
+    on_initialization_options_detected?: (options: unknown) => void,
     on_root_uri_detected?: (root_uri: string | null) => void
 ): (params: InitializeParams) => InitializeResult {
     return (params: InitializeParams): InitializeResult => {
@@ -189,7 +189,7 @@ export function create_initialize_handler(
 
         // Capture initialization options for config precedence (init > file)
         if (on_initialization_options_detected) {
-            on_initialization_options_detected((params as any).initializationOptions);
+            on_initialization_options_detected(params.initializationOptions);
         }
 
         // Capture rootUri for fallback when workspaceFolders is unavailable.
@@ -817,9 +817,9 @@ export function create_did_open_text_document_handler(
  * @returns Handler function for execute command requests
  */
 export function create_execute_command_handler(
-    deps: HandlerDependencies
-): (command: string, args: any[]) => Promise<any> {
-    return async (command: string, args: any[]): Promise<any> => {
+    _deps: HandlerDependencies
+): (command: string, args: unknown[]) => Promise<unknown> {
+    return async (command: string, _args: unknown[]): Promise<unknown> => {
         // Handle comment toggle commands
         if (command === 'sight.toggleLineComment' || command === 'sight.toggleBlockComment') {
             // These commands are typically handled by the client

@@ -7,7 +7,6 @@
 
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { Token, LanguageContext, ContextRange } from '../types';
-import { Range } from 'vscode-languageserver-textdocument';
 
 /**
  * Represents the analysis of a single comment token.

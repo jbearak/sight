@@ -12,10 +12,10 @@
  * fixed-position, viewport-clamped popover pattern.
  */
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import type { FilterEntry, FilterState, VariableDescription } from '../types';
-import { summarize_predicate } from './predicate-summary';
-import { use_dismiss } from './use-dismiss';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import type { FilterEntry, FilterState, VariableDescription } from '../types.js';
+import { summarize_predicate } from './predicate-summary.js';
+import { use_dismiss } from './use-dismiss.js';
 
 interface FilterStripProps {
     filter: FilterState;
@@ -33,7 +33,7 @@ export function ToolbarFilterStrip({
     on_toggle_enabled,
     on_remove,
     on_clear_all,
-}: FilterStripProps) {
+}: FilterStripProps): ReactElement | null {
     if (filter.entries.length === 0) {
         return null;
     }

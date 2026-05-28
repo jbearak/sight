@@ -6,8 +6,8 @@
  */
 
 import * as vscode from 'vscode';
-import { LanguageClient } from 'vscode-languageclient/node';
-import { SmclPanelManager } from './panel-manager';
+import { LanguageClient } from 'vscode-languageclient/node.js';
+import { SmclPanelManager } from './panel-manager.js';
 
 /**
  * Resolve the source file URI from the command argument (explorer/title

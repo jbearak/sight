@@ -11,7 +11,7 @@
  * popover opens — see `requestHistogram` handling in browser-panel.
  */
 
-import type { HistogramBin } from './types';
+import type { HistogramBin } from './types.js';
 
 const BIN_COUNT = 50;
 

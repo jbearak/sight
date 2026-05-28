@@ -15,7 +15,7 @@
  * numbers and the free-text fallback parses codes into numbers.
  */
 
-import type { FilterPredicate } from '../types';
+import type { FilterPredicate } from '../types.js';
 
 type CompareOp = '=' | '!=' | '<' | '<=' | '>' | '>=';
 

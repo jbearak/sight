@@ -9,9 +9,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
-import { LanguageClient } from 'vscode-languageclient/node';
-import { smcl_to_html } from './smcl-to-html';
-import { build_webview_html } from './webview-html';
+import { LanguageClient } from 'vscode-languageclient/node.js';
+import { smcl_to_html } from './smcl-to-html.js';
+import { build_webview_html } from './webview-html.js';
 
 const UPDATE_DEBOUNCE_MS = 300;
 const SCROLL_SYNC_SUPPRESSION_MS = 80;

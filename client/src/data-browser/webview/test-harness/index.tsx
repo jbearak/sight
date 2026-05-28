@@ -5,7 +5,7 @@
  */
 
 import { createRoot } from 'react-dom/client';
-import { HarnessApp } from './harness-app';
+import { HarnessApp } from './harness-app.js';
 
 const my_container = document.getElementById('root');
 

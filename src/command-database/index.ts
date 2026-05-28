@@ -1,4 +1,4 @@
-import { CommandCache, CommandInfo, StataVersion, SubcommandInfo } from './types';
+import { CommandCache, CommandInfo } from './types';
 import { CommandInfo as ProviderCommandInfo, SubcommandInfo as ProviderSubcommandInfo } from '../types';
 import { get_command_priority } from './priority-tiers';
 import { ADDON_COMMANDS } from './addon-commands';

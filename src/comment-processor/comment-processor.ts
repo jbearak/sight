@@ -5,18 +5,16 @@
  */
 
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
-import { Token, ContextRange, LanguageContext } from '../types';
+import { Token, ContextRange } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
 import { logger } from '../utils/logger';
 import {
   CommentAnalysis,
   analyze_comment,
   extract_comment_content,
-  classify_comment_style,
   group_comments,
   CommentGroup,
   analyze_markdown,
-  is_markdown_sensitive_line,
 } from './comment-analysis';
 
 /**

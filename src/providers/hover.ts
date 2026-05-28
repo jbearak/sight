@@ -26,12 +26,10 @@ import * as path from 'path';
 import { DocumentState } from '../document-store';
 import { CommandDatabase } from '../command-database';
 import {
-    StataNode,
-    CommandNode,
-    MacroRefNode,
     SymbolTable,
+    ScalarSymbol,
+    MatrixSymbol,
     Token,
-    IdentifierNode,
     ProgramSignature,
     OptionSpec,
     ArgumentSpec,
@@ -509,7 +507,7 @@ export class HoverProvider {
     private get_reference_type_from_context(
         document: DocumentState,
         position: Position,
-        word: string
+        _word: string
     ): 'local_macro' | 'global_macro' | 'other' | null {
         // Check the characters before the word to determine reference type
         // Local macro: `word' (backtick before, single quote after)
@@ -1354,11 +1352,9 @@ export class HoverProvider {
         const skipped_by_prefix = the_statement_words
             .slice(0, command_word_index)
             .some(w => BY_PREFIXES.includes(w.value));
-        let found_colon = false;
         if (skipped_by_prefix) {
             for (let i = the_statement_words[command_word_index].index; i < hovered_token_index; i++) {
                 if (tokens[i].type === 'COLON') {
-                    found_colon = true;
                     // Find next WORD after colon
                     for (let j = i + 1; j <= hovered_token_index; j++) {
                         if (tokens[j].type === 'WORD') {
@@ -1763,9 +1759,9 @@ export class HoverProvider {
         resolved_scope?: ResolvedScope,
         workspace_root?: string
     ): MarkupContent | null {
-        const symbols: any = resolved_scope ? resolved_scope.symbols : (workspace_symbols || document.symbols);
-        const scalars: Map<string, any> = symbols.scalars instanceof Map ? symbols.scalars : new Map();
-        const matrices: Map<string, any> = symbols.matrices instanceof Map ? symbols.matrices : new Map();
+        const symbols: SymbolTable | undefined = resolved_scope ? resolved_scope.symbols : (workspace_symbols || document.symbols);
+        const scalars: Map<string, ScalarSymbol> = symbols?.scalars instanceof Map ? symbols.scalars : new Map();
+        const matrices: Map<string, MatrixSymbol> = symbols?.matrices instanceof Map ? symbols.matrices : new Map();
 
         const scalar = scalars.get(word);
         if (scalar) {
@@ -2270,8 +2266,6 @@ export class HoverProvider {
      */
     private format_argument_for_hover(arg: ArgumentSpec): string {
         const type_display = this.get_argument_type_display(arg.type);
-        const optional_marker = arg.isOptional ? '[]' : '';
-
         if (arg.isOptional) {
             return `[${type_display}]`;
         }

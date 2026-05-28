@@ -1,4 +1,4 @@
-import { SmclToken, SmclTokenType, SmclTokenizer } from './tokenizer.js';
+import { SmclToken, SmclTokenizer } from './tokenizer.js';
 
 export interface SmclDocument {
     directives: SmclDirective[];

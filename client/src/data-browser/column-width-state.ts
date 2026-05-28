@@ -1,6 +1,6 @@
 import * as path from 'path';
 import type { ExtensionContext } from 'vscode';
-import type { VviewSidecar } from './types';
+import type { VviewSidecar } from './types.js';
 
 export const DATA_BROWSER_COLUMN_WIDTHS_KEY =
     'sight.dataBrowser.columnWidths';

@@ -1,7 +1,7 @@
 import { homedir } from 'os';
 import * as path from 'path';
-import type { VviewSidecar } from './types';
-import { BROWSE_DIR } from './signal-watcher';
+import type { VviewSidecar } from './types.js';
+import { BROWSE_DIR } from './signal-watcher.js';
 
 export const DATA_BROWSER_PANEL_VIEW_TYPE =
     'sightDataBrowser';

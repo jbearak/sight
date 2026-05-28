@@ -24,19 +24,20 @@ import React, {
     useLayoutEffect,
     useRef,
     useState,
+    type ReactElement,
 } from 'react';
 import type {
     FilterEntry,
     HistogramBin,
     VariableDescription,
-} from '../types';
-import { use_dismiss } from './use-dismiss';
-import { FilterHistogram } from './filter-histogram';
+} from '../types.js';
+import { use_dismiss } from './use-dismiss.js';
+import { FilterHistogram } from './filter-histogram.js';
 import {
     col_kind,
     kind_options,
     labelled_choices,
-} from './filter-column-kind';
+} from './filter-column-kind.js';
 import {
     build_predicate,
     default_form_state,
@@ -49,7 +50,7 @@ import {
     type SetState,
     type StrRegexState,
     type StrState,
-} from './filter-popover-seed';
+} from './filter-popover-seed.js';
 
 /** A small uid helper that tolerates webview runtimes without
  *  crypto.randomUUID. */
@@ -88,7 +89,7 @@ export function FilterPopover({
     on_apply,
     on_cancel,
     anchor,
-}: FilterPopoverProps) {
+}: FilterPopoverProps): ReactElement {
     const my_kind = col_kind(column);
     const the_options = kind_options(my_kind);
 

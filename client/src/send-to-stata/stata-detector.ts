@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
-import { StataVariant } from './index';
+import { StataVariant } from './index.js';
 
 const VALID_VARIANTS: readonly StataVariant[] = [
     'StataMP', 'StataSE', 'StataIC', 'Stata'

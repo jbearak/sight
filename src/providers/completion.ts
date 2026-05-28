@@ -12,7 +12,6 @@ import {
     MarkupKind,
     Position,
     CancellationToken,
-    TextEdit,
     Range,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
@@ -22,7 +21,6 @@ import {
     SymbolTable,
     Token,
     StataNode,
-    CommandNode,
     OptionSpec,
     ResolvedScope,
     CompletionRankingFactors,
@@ -31,6 +29,9 @@ import {
     ProgramNode,
     ProgramSymbol,
     ScopeResolverConfig,
+    MacroSymbol,
+    ScalarSymbol,
+    MatrixSymbol,
 } from '../types';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
@@ -312,8 +313,8 @@ function detect_extended_macro_context(text_before_cursor: string, position: Pos
  */
 function detect_option_context(
     text_before_cursor: string,
-    document: DocumentState,
-    position: Position
+    _document: DocumentState,
+    _position: Position
 ): CompletionContext | null {
     // Find the last comma that's not inside quotes or parentheses
     let paren_depth = 0;
@@ -633,58 +634,6 @@ function is_variable_context(text_before_cursor: string): boolean {
 }
 
 /**
- * Find the command at the given position from the AST.
- */
-function find_command_at_position(document: DocumentState, position: Position): string | null {
-    if (!document.ast) {
-        return null;
-    }
-
-    // Search through AST nodes to find the command containing this position
-    for (const node of document.ast.nodes) {
-        const command_name = find_command_in_node(node, position);
-        if (command_name) {
-            return command_name;
-        }
-    }
-
-    return null;
-}
-
-/**
- * Recursively search for command in AST node.
- */
-function find_command_in_node(node: StataNode, position: Position): string | null {
-    // Check if position is within this node's range
-    if (!is_position_in_range(position, node.range)) {
-        return null;
-    }
-
-    if (node.type === 'command') {
-        return node.fullName || node.name;
-    }
-
-    // Recurse into nested structures
-    if (node.type === 'program') {
-        for (const child of node.body) {
-            const result = find_command_in_node(child, position);
-            if (result) return result;
-        }
-    }
-
-    if (node.type === 'if' || node.type === 'else' || 
-        node.type === 'foreach' || node.type === 'forvalues' || 
-        node.type === 'while') {
-        for (const child of node.body) {
-            const result = find_command_in_node(child, position);
-            if (result) return result;
-        }
-    }
-
-    return null;
-}
-
-/**
  * Check if a position is within a range.
  */
 function is_position_in_range(
@@ -710,7 +659,7 @@ export class CompletionProvider {
     private command_db: CommandDatabase;
     private client_capabilities: CompletionClientCapabilities;
     private context_tracker?: IContextTracker;
-    private prefix_cache: CompletionPrefixCache;
+    private prefix_cache: CompletionPrefixCache<CompletionItem>;
     private symbol_cache: SymbolIndexCache;
     
     // Merged symbol cache to avoid repetitive merging on every completion request
@@ -726,7 +675,7 @@ export class CompletionProvider {
         this.command_db = command_db || new CommandDatabase();
         this.client_capabilities = client_capabilities || { snippet_support: false };
         this.context_tracker = context_tracker;
-        this.prefix_cache = new CompletionPrefixCache(cache_size, prefix_max_items);
+        this.prefix_cache = new CompletionPrefixCache<CompletionItem>(cache_size, prefix_max_items);
         this.symbol_cache = new SymbolIndexCache();
     }
 
@@ -1070,7 +1019,7 @@ export class CompletionProvider {
                 // For backtick trigger, also add local macro completions
                 if (trigger_character === '`') {
                     // Create artificial local context for backtick trigger
-                    const local_context: any = {
+                    const local_context: MacroCompletionContext = {
                         type: 'macro',
                         scope: 'local',
                         form: 'local',
@@ -1114,7 +1063,7 @@ export class CompletionProvider {
 
                 case 'macro':
                     // Always provide macro completions (macros work in all contexts)
-                    return this.get_macro_completions(context as any, document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
+                    return this.get_macro_completions(context, document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
 
                 case 'variable':
                     // Suppress variable completions in embedded language contexts
@@ -1503,7 +1452,7 @@ export class CompletionProvider {
             
             // Fallback to document directory
             return path.dirname(file_path);
-        } catch (error) {
+        } catch {
             return null;
         }
     }
@@ -1698,7 +1647,7 @@ export class CompletionProvider {
         // CRITICAL FIX: Ensure 'symbols' actually has content and is a valid SymbolTable.
         // In unit tests, partial or mock objects might be passed.
         // Ensure we are accessing the Maps correctly and handling plain objects if necessary.
-        let the_macros: Map<string, any>;
+        let the_macros: Map<string, MacroSymbol>;
         if (scope === 'local') {
             const localMacros = symbols.localMacros;
             if (localMacros instanceof Map) {
@@ -1924,8 +1873,7 @@ export class CompletionProvider {
         const the_completions: CompletionItem[] = [];
         const seen_labels = new Set<string>();
 
-        // Compute word prefix and replacement range
-        const prefix = this.get_word_at_position(document, position);
+        // Compute replacement range
         let replacement_range: Range;
         
         if (position.line < get_line_count(document)) {
@@ -1988,7 +1936,7 @@ export class CompletionProvider {
         }
 
         // Scalars
-        const scalars: Map<string, any> = (symbols as any).scalars instanceof Map ? (symbols as any).scalars : new Map();
+        const scalars: Map<string, ScalarSymbol> = symbols.scalars instanceof Map ? symbols.scalars : new Map();
         for (const [name, scalar] of scalars) {
             const symbol_info = this.get_completion_symbol_provenance(
                 scalar,
@@ -2025,7 +1973,7 @@ export class CompletionProvider {
         }
 
         // Matrices
-        const matrices: Map<string, any> = (symbols as any).matrices instanceof Map ? (symbols as any).matrices : new Map();
+        const matrices: Map<string, MatrixSymbol> = symbols.matrices instanceof Map ? symbols.matrices : new Map();
         for (const [name, matrix] of matrices) {
             const symbol_info = this.get_completion_symbol_provenance(
                 matrix,
@@ -2814,7 +2762,7 @@ export class CompletionProvider {
     format_option_completion(
         option: OptionSpec,
         min_abbrev: string,
-        allows_arbitrary: boolean
+        _allows_arbitrary: boolean
     ): CompletionItem {
         // Generate description from type
         const my_description = this.generate_option_description(option);

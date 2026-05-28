@@ -5,7 +5,7 @@
  * Handles common SMCL directives and formatting.
  */
 
-import { SmclTokenizer, SmclToken, SmclTokenType } from './tokenizer';
+import { SmclTokenizer, SmclToken } from './tokenizer';
 
 export interface SmclPrettyPrinter {
     to_plain_text(smcl: string): string;

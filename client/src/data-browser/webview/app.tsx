@@ -3,6 +3,7 @@ import {
     useMemo,
     useRef,
     useState,
+    type ReactElement,
 } from 'react';
 import {
     DataEditor,
@@ -25,7 +26,7 @@ import {
     get_cell_display_value,
     get_variable_header_tooltip,
     merge_persisted_and_default_widths,
-} from './grid-model';
+} from './grid-model.js';
 import {
     build_visible_column_map,
     build_visible_grid_columns,
@@ -33,26 +34,26 @@ import {
     hide_all_columns,
     show_all_columns,
     toggle_column_hidden,
-} from './column-visibility-model';
+} from './column-visibility-model.js';
 import {
     create_empty_grid_selection,
     create_single_column_selection,
-} from './selection-model';
-import { use_row_loader } from './use-row-loader';
-import { use_toolbar_wrap } from './use-toolbar-wrap';
-import { ColumnContextMenu } from './column-context-menu';
-import { ColumnVisibilityPopover } from './column-visibility-popover';
-import { ToolbarSortStrip } from './sort-strip';
-import { ToolbarFilterStrip } from './filter-strip';
-import { FilterPopover } from './filter-popover';
-import { col_kind } from './filter-column-kind';
+} from './selection-model.js';
+import { use_row_loader } from './use-row-loader.js';
+import { use_toolbar_wrap } from './use-toolbar-wrap.js';
+import { ColumnContextMenu } from './column-context-menu.js';
+import { ColumnVisibilityPopover } from './column-visibility-popover.js';
+import { ToolbarSortStrip } from './sort-strip.js';
+import { ToolbarFilterStrip } from './filter-strip.js';
+import { FilterPopover } from './filter-popover.js';
+import { col_kind } from './filter-column-kind.js';
 import {
     active_direction,
     apply_sort_pick,
     describe_sort_keys,
     sort_priority_map,
-} from './sort-actions';
-import type { FilterEntry, SortKey } from '../types';
+} from './sort-actions.js';
+import type { FilterEntry, SortKey } from '../types.js';
 
 const HEADER_HEIGHT_PX = 40;
 
@@ -256,7 +257,7 @@ type FilterEditorState = {
     top_px: number;
 };
 
-export function App() {
+export function App(): ReactElement {
     const { grid: vscode_theme, missing_fg, missing_bg } =
         use_vscode_theme();
     const {
@@ -682,7 +683,6 @@ export function App() {
                 true
             );
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metadata, focused_var_index, sort, show_labels]);
 
     // Keyboard filter shortcuts: Shift+Alt+F opens the filter editor for
@@ -724,7 +724,6 @@ export function App() {
                 true
             );
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metadata, focused_var_index, filter, show_labels]);
 
     const draw_sort_glyph = (

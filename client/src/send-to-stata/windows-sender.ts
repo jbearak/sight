@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 import * as child_process from 'child_process';
-import { StataCommand } from './index';
+import { StataCommand } from './index.js';
 import { 
     get_executable_info, 
     prompt_download, 
     download_executable, 
     check_for_updates 
-} from './exe-downloader';
+} from './exe-downloader.js';
 
 export interface WindowsSendResult {
     success: boolean;

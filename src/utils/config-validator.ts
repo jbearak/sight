@@ -5,8 +5,10 @@
  * particularly for comment formatting configuration.
  */
 
-import { StataLSPConfig, CrossFileConfig } from '../types';
+import { StataLSPConfig } from '../types';
 import { DEFAULT_SETTINGS } from '../server-handlers';
+
+type CrossFileSeverityLevel = 'error' | 'warning' | 'information' | 'off';
 
 /**
  * Build a complete StataLSPConfig by validating a partial configuration, applying defaults for missing or invalid fields, and normalizing allowed values.
@@ -156,43 +158,43 @@ export function validate_comment_formatting_config(
                 diagnostics.severity.undefinedMacro &&
                 valid_severities.includes(diagnostics.severity.undefinedMacro)
             ) {
-                validated_config.diagnostics.severity.undefinedMacro = diagnostics.severity.undefinedMacro as any;
+                validated_config.diagnostics.severity.undefinedMacro = diagnostics.severity.undefinedMacro;
             }
             if (
                 diagnostics.severity.undefinedVariable &&
                 valid_severities.includes(diagnostics.severity.undefinedVariable)
             ) {
-                validated_config.diagnostics.severity.undefinedVariable = diagnostics.severity.undefinedVariable as any;
+                validated_config.diagnostics.severity.undefinedVariable = diagnostics.severity.undefinedVariable;
             }
             if (
                 diagnostics.severity.styleWarnings &&
                 valid_severities.includes(diagnostics.severity.styleWarnings)
             ) {
-                validated_config.diagnostics.severity.styleWarnings = diagnostics.severity.styleWarnings as any;
+                validated_config.diagnostics.severity.styleWarnings = diagnostics.severity.styleWarnings;
             }
             if (
                 diagnostics.severity.malformedOperator &&
                 valid_severities.includes(diagnostics.severity.malformedOperator)
             ) {
-                validated_config.diagnostics.severity.malformedOperator = diagnostics.severity.malformedOperator as any;
+                validated_config.diagnostics.severity.malformedOperator = diagnostics.severity.malformedOperator;
             }
             if (
                 diagnostics.severity.invalidOperatorSequence &&
                 valid_severities.includes(diagnostics.severity.invalidOperatorSequence)
             ) {
-                validated_config.diagnostics.severity.invalidOperatorSequence = diagnostics.severity.invalidOperatorSequence as any;
+                validated_config.diagnostics.severity.invalidOperatorSequence = diagnostics.severity.invalidOperatorSequence;
             }
             if (
                 diagnostics.severity.cStyleLogicalInControlFlow &&
                 valid_severities.includes(diagnostics.severity.cStyleLogicalInControlFlow)
             ) {
-                validated_config.diagnostics.severity.cStyleLogicalInControlFlow = diagnostics.severity.cStyleLogicalInControlFlow as any;
+                validated_config.diagnostics.severity.cStyleLogicalInControlFlow = diagnostics.severity.cStyleLogicalInControlFlow;
             }
             if (
                 diagnostics.severity.mixedLogicalOperators &&
                 valid_severities.includes(diagnostics.severity.mixedLogicalOperators)
             ) {
-                validated_config.diagnostics.severity.mixedLogicalOperators = diagnostics.severity.mixedLogicalOperators as any;
+                validated_config.diagnostics.severity.mixedLogicalOperators = diagnostics.severity.mixedLogicalOperators;
             }
         }
 
@@ -271,24 +273,25 @@ export function validate_comment_formatting_config(
 
         if (cross_file.diagnostics) {
             const valid_severities = ['error', 'warning', 'information', 'info', 'off'];
-            const normalize_sev = (s: string) => s === 'info' ? 'information' : s;
+            const normalize_sev = (s: string): CrossFileSeverityLevel =>
+                (s === 'info' ? 'information' : s) as CrossFileSeverityLevel;
             if (
                 cross_file.diagnostics.missing_file &&
                 valid_severities.includes(cross_file.diagnostics.missing_file)
             ) {
-                validated_config.cross_file.diagnostics.missing_file = normalize_sev(cross_file.diagnostics.missing_file) as any;
+                validated_config.cross_file.diagnostics.missing_file = normalize_sev(cross_file.diagnostics.missing_file);
             }
             if (
                 cross_file.diagnostics.max_depth &&
                 valid_severities.includes(cross_file.diagnostics.max_depth)
             ) {
-                validated_config.cross_file.diagnostics.max_depth = normalize_sev(cross_file.diagnostics.max_depth) as any;
+                validated_config.cross_file.diagnostics.max_depth = normalize_sev(cross_file.diagnostics.max_depth);
             }
             if (
                 cross_file.diagnostics.call_site_identification &&
                 valid_severities.includes(cross_file.diagnostics.call_site_identification)
             ) {
-                validated_config.cross_file.diagnostics.call_site_identification = normalize_sev(cross_file.diagnostics.call_site_identification) as any;
+                validated_config.cross_file.diagnostics.call_site_identification = normalize_sev(cross_file.diagnostics.call_site_identification);
             }
         }
     }
@@ -303,7 +306,7 @@ export function validate_comment_formatting_config(
  * @returns true if valid, false otherwise
  */
 export function is_valid_comment_style(
-    style: any
+    style: unknown
 ): style is 'line' | '//' | '*' | '/* */' {
     return style === 'line'
         || style === '//'
@@ -317,6 +320,6 @@ export function is_valid_comment_style(
  * @param width - The line width to validate
  * @returns true if valid, false otherwise
  */
-export function is_valid_comment_line_width(width: any): width is number {
+export function is_valid_comment_line_width(width: unknown): width is number {
     return typeof width === 'number' && width > 0;
 }

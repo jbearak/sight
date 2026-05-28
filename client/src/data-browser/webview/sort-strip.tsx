@@ -10,10 +10,10 @@
  * helpers and `use_dismiss`.
  */
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import type { SortKey } from '../types';
-import { flip_key, move_to_first, remove_key } from './sort-actions';
-import { use_dismiss } from './use-dismiss';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import type { SortKey } from '../types.js';
+import { flip_key, move_to_first, remove_key } from './sort-actions.js';
+import { use_dismiss } from './use-dismiss.js';
 
 interface SortStripProps {
     keys: SortKey[];
@@ -27,7 +27,7 @@ export function ToolbarSortStrip({
     column_names,
     on_change,
     on_clear_all,
-}: SortStripProps) {
+}: SortStripProps): ReactElement | null {
     if (keys.length === 0) {
         return null;
     }

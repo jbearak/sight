@@ -1,4 +1,4 @@
-import { SmclDocument, SmclDirective } from '../parser.js';
+import { SmclDocument } from '../parser.js';
 
 export interface CommandSyntax {
     pattern: string;

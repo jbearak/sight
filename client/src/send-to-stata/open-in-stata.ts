@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { execFile } from 'child_process';
-import { detect_stata_app } from './stata-detector';
-import { escape_for_applescript } from './applescript';
-import { StataVariant } from './index';
+import { detect_stata_app } from './stata-detector.js';
+import { escape_for_applescript } from './applescript.js';
+import { StataVariant } from './index.js';
 
 /**
  * Opens an SMCL or help file in Stata's viewer via AppleScript.

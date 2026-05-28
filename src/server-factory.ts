@@ -37,7 +37,7 @@ import * as fs from 'fs';
 import { discover_stata_ado_paths } from './utils/stata-install-paths';
 
 // Import cache directly so it gets bundled into the binary
-import embedded_cache_raw from './command-database/caches/v18.json';
+import embedded_cache_raw from './command-database/caches/v18.json' with { type: 'json' };
 import type { CommandCache } from './command-database/types';
 const embedded_cache = embedded_cache_raw as CommandCache;
 
@@ -163,28 +163,30 @@ export async function create_server(options: ServerOptions): Promise<void> {
             return base;
         }
         if (Array.isArray(overlay)) {
-            return overlay as any;
+            return overlay as T;
         }
         if (typeof overlay !== 'object') {
-            return overlay as any;
+            return overlay as T;
         }
 
         const overlay_obj = overlay as JsonObject;
-        const result: any = Array.isArray(base) ? [...(base as any)] : { ...(base as any) };
+        const result: JsonObject = Array.isArray(base)
+            ? ([...(base as unknown[])] as unknown as JsonObject)
+            : { ...(base as unknown as JsonObject) };
         for (const key of Object.keys(overlay_obj)) {
-            const base_value = (result as any)[key];
+            const base_value = result[key];
             const overlay_value = overlay_obj[key];
             if (
                 typeof base_value === 'object' && base_value !== null &&
                 typeof overlay_value === 'object' && overlay_value !== null &&
                 !Array.isArray(base_value) && !Array.isArray(overlay_value)
             ) {
-                (result as any)[key] = deep_merge(base_value, overlay_value);
+                result[key] = deep_merge(base_value, overlay_value);
             } else {
-                (result as any)[key] = overlay_value;
+                result[key] = overlay_value;
             }
         }
-        return result;
+        return result as T;
     }
 
     /**
@@ -204,8 +206,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 scopeUri: scope_uri,
                 section: 'sight',
             }).then((config) => {
-                let init_partial = (init_options_config as any)?.['sight'] ?? init_options_config;
-                if (init_partial && typeof init_partial === 'object' && (init_partial as any).crossFile) {
+                const init_record = (init_options_config && typeof init_options_config === 'object'
+                    ? (init_options_config as Record<string, unknown>)
+                    : undefined);
+                let init_partial: unknown = init_record?.['sight'] ?? init_options_config;
+                if (init_partial && typeof init_partial === 'object' && (init_partial as Record<string, unknown>).crossFile) {
                     init_partial = deep_merge({}, map_stata_lsp_json_to_partial_config(init_partial));
                 }
 
@@ -801,7 +806,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             (caps: ServerCapabilities) => {
                 server_capabilities = caps;
             },
-            (options: any) => {
+            (options: unknown) => {
                 init_options_config = options;
             },
             (root_uri: string | null) => {
@@ -1020,10 +1025,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
         if (server_capabilities.has_configuration_capability) {
             document_settings.clear();
         } else {
-            const init_partial = (init_options_config as any)?.['sight'] ?? init_options_config;
+            const init_record = (init_options_config && typeof init_options_config === 'object'
+                ? (init_options_config as Record<string, unknown>)
+                : undefined);
+            const init_partial = init_record?.['sight'] ?? init_options_config;
+            const change_settings = change.settings as Record<string, unknown> | undefined;
             const merged_partial = deep_merge(
                 deep_merge({}, workspace_file_config || {}),
-                deep_merge(init_partial || {}, (change.settings as any)?.['sight'] || {})
+                deep_merge(init_partial || {}, change_settings?.['sight'] || {})
             );
             global_settings = validate_comment_formatting_config(
                 merged_partial,

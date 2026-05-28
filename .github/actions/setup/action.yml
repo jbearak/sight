@@ -7,7 +7,7 @@ inputs:
   node-version:
     description: "Node.js version (LTS recommended for CI stability)"
     required: false
-    default: "22"
+    default: "24"
   registry-url:
     description: "Optional npm registry-url for publishing"
     required: false
