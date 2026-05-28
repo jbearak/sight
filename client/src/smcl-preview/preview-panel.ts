@@ -356,7 +356,7 @@ export class SmclPreviewPanel implements vscode.Disposable {
     private get_title(): string {
         const my_path = this.source_uri.fsPath;
         const my_name = my_path.split(/[\\/]/).pop() || 'SMCL Preview';
-        return `Preview ${my_name}`;
+        return my_name;
     }
 
     private get_current_topic(): string | undefined {

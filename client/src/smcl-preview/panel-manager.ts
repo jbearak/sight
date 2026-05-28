@@ -40,7 +40,7 @@ export class SmclPanelManager implements vscode.Disposable {
         const my_name = source_uri.fsPath.split(/[\\/]/).pop() || 'SMCL';
         const my_panel = vscode.window.createWebviewPanel(
             VIEW_TYPE,
-            `Preview ${my_name}`,
+            my_name,
             column,
             {
                 enableScripts: true,
