@@ -558,6 +558,52 @@ describe('Auto Backward Resolution', () => {
             expect(scope.has_directives).toBe(false);
         });
 
+        it('snapshots scan_complete at resolve time so a later mark_scan_complete cannot turn off deferral retroactively', async () => {
+            // Regression test for the cross-file flicker bug (PR #175).
+            //
+            // Scenario:
+            //   1. ScopeResolver.resolve() runs while the workspace scan
+            //      is still in progress. has_auto_parents is captured as
+            //      `false` (no parent edge yet) and scan_complete as
+            //      `false`.
+            //   2. The scan completes between resolve() returning and the
+            //      diagnostics provider deciding whether to defer.
+            //
+            // Without the snapshot, the diagnostics provider would read
+            // a fresh `is_scan_complete() === true` and stop deferring —
+            // it would then publish an "undefined local macro" warning
+            // that the next re-validation immediately clears, producing
+            // the user-visible red-squiggly flicker.
+            const child_path = write_file(tmp_dir, 'child.do', [
+                "display \"`fruit\'\"",
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            // Graph with NO parents and scan NOT complete.
+            const graph = new DependencyGraph();
+            expect(graph.is_scan_complete()).toBe(false);
+
+            const resolver = create_scope_resolver();
+            resolver.set_dependency_graph(graph);
+
+            const scope = await resolver.resolve(
+                child_uri,
+                child_content,
+                { backward_dependencies: 'auto' }
+            );
+
+            // Snapshot must match the graph state at resolve time
+            // (scan not yet complete), even after we flip it below.
+            expect(scope.scan_complete_at_resolve_time).toBe(false);
+
+            // Simulate the indexer finishing the scan AFTER resolve()
+            // returned. The snapshot must stay false.
+            graph.mark_scan_complete();
+            expect(graph.is_scan_complete()).toBe(true);
+            expect(scope.scan_complete_at_resolve_time).toBe(false);
+        });
+
         it('should set has_auto_parents when scan is incomplete but parents already discovered', async () => {
             const parent_path = write_file(tmp_dir, 'parent.do', [
                 'global from_parent "hello"',
