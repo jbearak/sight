@@ -47,6 +47,10 @@ const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
 const INDEX_DEBOUNCE_MS = 200;
 
+// Version-control metadata directories skipped during workspace scans.
+// They contain no Stata source and recursing them is wasted work.
+const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
+
 export interface IndexedFileData {
     uri: string;
     tokens: Token[];
@@ -303,6 +307,13 @@ export class WorkspaceIndexer {
                 const entry_path = path.join(dir_path, entry.name);
 
                 if (entry.isDirectory()) {
+                    // Skip version-control metadata directories. They hold no
+                    // Stata source, can be very large, and recursing them is
+                    // pure scan overhead — the standard convention for code
+                    // indexers and language servers.
+                    if (VCS_METADATA_DIRS.has(entry.name)) {
+                        continue;
+                    }
                     await this.scan_directory(entry_path);
                 } else if (entry.isFile()) {
                     if (

@@ -1079,17 +1079,31 @@ export async function create_server(options: ServerOptions): Promise<void> {
         if (scope_resolver) {
             scope_resolver.remove_caller_from_reverse_deps(e.document.uri);
         }
-        // Immediately clear stale in-memory graph edges on close.
-        // In-memory edits may have changed do/run/include edges that differ
-        // from the on-disk state; clearing them and cascade-invalidating
-        // ensures callees don't resolve against a stale parent set.
+        // On close, the buffer's in-memory edges/symbols are discarded, so
+        // callees that inherited from this file must re-resolve against its
+        // on-disk content. Revalidate the current callees with this file's
+        // parent edge still INTACT, then re-index from disk to correct any
+        // edges that existed only in the unsaved buffer.
+        //
+        // We deliberately do NOT clear this file's edges to empty first.
+        // Doing so makes callees momentarily resolve against an empty parent
+        // set and publish a false "undefined symbol" warning that the
+        // subsequent re-index immediately clears — the user perceives this
+        // as a red-squiggle flicker. The captured callee set is identical to
+        // what `update_caller(uri, [])` would report as changed (every
+        // callee), so revalidation coverage is unchanged; only the spurious
+        // empty-edge window is removed.
         if (dependency_graph) {
-            const graph_result = dependency_graph.update_caller(e.document.uri, []);
-            if (graph_result.changed_callees.size > 0) {
-                invalidate_and_revalidate_callees(graph_result.changed_callees);
+            const affected_callees = new Set(
+                dependency_graph.get_callees(e.document.uri)
+            );
+            if (affected_callees.size > 0) {
+                invalidate_and_revalidate_callees(affected_callees);
             }
         }
-        // Restore disk-state edges via re-indexing.
+        // Restore disk-state edges via re-indexing (corrects edges that were
+        // only present in the unsaved buffer; fires its own callee
+        // revalidation via on_graph_change if the edge set actually changed).
         if (dependency_graph && workspace_indexer) {
             workspace_indexer.schedule_update(
                 URI.parse(e.document.uri).fsPath
