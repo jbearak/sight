@@ -301,33 +301,25 @@ To format only a specific range:
 
 ## Best Practices
 
-### 1. Try It on a Small File First
+### 1. Commit Your Work Before Trying It
 
-Before turning normalization on across a large project:
-
-1. Create a test file with various comment styles
-2. Enable `normalizeCommentStyle` and set `preferredCommentStyle`
-3. Format and review the output
-4. Adjust settings if needed
-
-### 2. Review Changes Before Committing
-
-Always review the normalized output before committing to version control:
+Make sure your working tree is clean (or stash your changes) before enabling normalization. Then run the formatter, inspect the diff with `git diff`, and either commit the result or `git restore` to back out:
 
 ```bash
-git diff  # Review changes
-git add .
-git commit -m "Normalize comment style"
+git status            # confirm a clean tree
+# enable normalizeCommentStyle, then format
+git diff              # review the rewrite
+git commit -am "Normalize comment style"   # or: git restore .
 ```
 
-### 3. Choose a Consistent Style
+### 2. Choose a Consistent Style
 
 Pick one preferred style and stick with it across your team:
 
 - **Recommendation for new projects:** Use `//` (modern, widely recognized)
 - **Recommendation for existing projects:** Match your team's existing style
 
-### 4. Document Your Choice
+### 3. Document Your Choice
 
 Include your comment style preference in your project's coding standards:
 
@@ -339,7 +331,7 @@ Include your comment style preference in your project's coding standards:
 - Indentation: 4 spaces
 ```
 
-### 5. Use Format-on-Save Carefully
+### 4. Use Format-on-Save Carefully
 
 Enable `normalizeOnSave` only if:
 - Your entire team uses the same settings
