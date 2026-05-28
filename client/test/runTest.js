@@ -103,18 +103,69 @@ async function run_with_system_code(
     }
 }
 
+function parse_suite(argv) {
+    const my_index = argv.indexOf('--suite');
+    if (my_index >= 0 && argv[my_index + 1]) {
+        return argv[my_index + 1];
+    }
+    return 'smoke';
+}
+
 async function main() {
+    const my_suite = parse_suite(process.argv.slice(2));
+
     const extension_development_path = path.resolve(
         __dirname,
         '..'
     );
-    const extension_tests_path = path.resolve(
-        __dirname,
-        'extension-smoke.js'
-    );
     const workspace_path = path.resolve(
         extension_development_path,
         '..'
+    );
+
+    const launch_args = [
+        workspace_path,
+        '--disable-extensions',
+        '--skip-welcome',
+        '--skip-release-notes',
+    ];
+
+    if (my_suite === 'layout') {
+        // Escape hatch for sandboxes/CI that cannot run VS Code (e.g. a
+        // network reaching only github.com, while VS Code/Electron download
+        // from Microsoft CDNs): the real-layout assertion is the point, so by
+        // default an undownloadable binary fails — but this opts out cleanly.
+        if (process.env.SIGHT_SKIP_LAYOUT_TESTS === '1') {
+            console.log(
+                'SIGHT_SKIP_LAYOUT_TESTS=1: skipping the real-layout '
+                    + 'toolbar-wrap suite.'
+            );
+            return;
+        }
+
+        // The layout assertions only gate anything if the run BLOCKS and
+        // propagates the test exit code. The system `code` CLI does not: it
+        // launches a window and returns 0 immediately (a false pass). So this
+        // suite always uses @vscode/test-electron's blocking download path,
+        // on a modern VS Code — mocha 11 needs the extension host's Node >= 18
+        // (the smoke suite's 1.75.0 ships Node 16). VS Code is cached under
+        // .vscode-test after the first download. Override with VSCODE_VERSION.
+        await runTests({
+            version: process.env.VSCODE_VERSION || 'stable',
+            extensionDevelopmentPath: extension_development_path,
+            extensionTestsPath: path.resolve(
+                __dirname,
+                'toolbar-wrap-layout',
+                'index.js'
+            ),
+            launchArgs: launch_args,
+        });
+        return;
+    }
+
+    const extension_tests_path = path.resolve(
+        __dirname,
+        'extension-smoke.js'
     );
 
     const my_used_system_code = await run_with_system_code(
@@ -130,12 +181,7 @@ async function main() {
         version: '1.75.0',
         extensionDevelopmentPath: extension_development_path,
         extensionTestsPath: extension_tests_path,
-        launchArgs: [
-            workspace_path,
-            '--disable-extensions',
-            '--skip-welcome',
-            '--skip-release-notes',
-        ],
+        launchArgs: launch_args,
     });
 }
 

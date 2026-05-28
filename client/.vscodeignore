@@ -13,6 +13,11 @@ bun.lock
 **/*.test.ts
 **/*.spec.ts
 tests/**
+# Test runners/harness (extension-smoke, toolbar-wrap layout suite); only
+# used by `node ./test/runTest.js` during development, never at runtime.
+test/**
+# Real-layout test harness bundle (built by bun run bundle:webview-test)
+dist-test/**
 
 # Git
 .git/**
