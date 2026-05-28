@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { findConflictingExtensions, formatConflictMessage, formatConflictTooltip, isStataFile, getDisplayName, shouldPersistDismissal, ConflictingExtension } from './conflict-detector-core';
+import { applyViewerTabIcon } from './viewer-tab-icon';
 
 export { ConflictingExtension } from './conflict-detector-core';
 
@@ -154,6 +155,7 @@ export class ConflictDetector {
                 enableScripts: true
             }
         );
+        applyViewerTabIcon(panel, 'extensions');
 
         // Handle webview messages for command execution
         panel.webview.onDidReceiveMessage(async (message) => {
