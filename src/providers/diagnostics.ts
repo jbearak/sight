@@ -247,10 +247,14 @@ export class DiagnosticsProvider {
         // clears — the user sees a red-squiggly flicker. The snapshot
         // closes that race by keeping both signals consistent.
         const backward_dep_mode = config.cross_file?.backward_dependencies ?? 'auto';
+        // Always use the snapshot, never a live `is_scan_complete()` read. A
+        // live read is exactly what reintroduces the race (see comment above):
+        // it can observe a false→true transition that happened after
+        // `has_auto_parents` was captured. When the snapshot is absent (only
+        // possible if the resolver had no dependency graph), default to `false`
+        // (defer) rather than reading live state.
         const scan_complete_for_deferral =
-            resolved_scope?.scan_complete_at_resolve_time
-                ?? this.dependency_graph?.is_scan_complete()
-                ?? false;
+            resolved_scope?.scan_complete_at_resolve_time ?? false;
         const defer_undefined_diagnostics = backward_dep_mode === 'auto' &&
             this.dependency_graph &&
             !scan_complete_for_deferral &&
