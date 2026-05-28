@@ -34,10 +34,29 @@ body,
     padding: 6px 8px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
+    /* The toolbar is a grid item in `.browser-root` (a single auto-track
+       grid). Without this, its automatic minimum (`min-width: auto`)
+       resolves to the chips' content width and forces the grid track wider
+       than the viewport: the toolbar overflows, the action buttons are
+       pushed off-screen, and the chip strips never get narrow enough to
+       engage their own `overflow-x` scroll. `min-width: 0` lets the
+       toolbar shrink to the grid container so the chip row scrolls within
+       it instead. */
+    min-width: 0;
 }
 
 .row-count {
     opacity: 0.85;
+}
+
+/* Sort + filter chip strips. Sits between the row count and the action
+   buttons on a single row, and drops to its own full-width row (via the
+   .is-wrapped modifier below) when it would otherwise crowd the buttons. */
+.toolbar-chips {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
 }
 
 /* Action buttons (Labels / Formats / Columns) stay pinned to the right,
@@ -47,6 +66,20 @@ body,
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+/* When the chips don't fit beside the buttons, allow the toolbar to wrap
+   and push the chip group onto its own second row. Row-count and the
+   action buttons (order 0) stay on the top row; the chips (order 1,
+   full width) wrap below. Each strip then scrolls via its own
+   overflow-x. The wrap decision is driven by use-toolbar-wrap.ts. */
+.toolbar.is-wrapped {
+    flex-wrap: wrap;
+}
+
+.toolbar.is-wrapped .toolbar-chips {
+    order: 1;
+    flex-basis: 100%;
 }
 
 .toggle {

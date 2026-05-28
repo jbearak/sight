@@ -39,6 +39,7 @@ import {
     create_single_column_selection,
 } from './selection-model';
 import { use_row_loader } from './use-row-loader';
+import { use_toolbar_wrap } from './use-toolbar-wrap';
 import { ColumnContextMenu } from './column-context-menu';
 import { ColumnVisibilityPopover } from './column-visibility-popover';
 import { ToolbarSortStrip } from './sort-strip';
@@ -300,6 +301,10 @@ export function App() {
     const [filter_editor, set_filter_editor] =
         useState<FilterEditorState | null>(null);
     const grid_shell_ref = useRef<HTMLDivElement>(null);
+    const toolbar_ref = useRef<HTMLDivElement>(null);
+    const row_count_ref = useRef<HTMLSpanElement>(null);
+    const toolbar_chips_ref = useRef<HTMLDivElement>(null);
+    const toolbar_actions_ref = useRef<HTMLDivElement>(null);
     const last_mouse_ref = useRef<{
         x: number;
         y: number;
@@ -817,6 +822,20 @@ export function App() {
         )
         : 'Loading...';
 
+    // Drop the sort/filter chips onto their own row when they would
+    // otherwise crowd the action buttons off the toolbar. `hidden_columns.size`
+    // is a dependency because it drives the Columns button's count badge,
+    // which changes the action buttons' width.
+    const toolbar_chips_wrapped = use_toolbar_wrap(
+        {
+            toolbar: toolbar_ref,
+            lead: row_count_ref,
+            chips: toolbar_chips_ref,
+            actions: toolbar_actions_ref,
+        },
+        [sort.keys, filter.entries, row_count_text, hidden_columns.size]
+    );
+
     const hidden_count_text = describe_hidden_column_count(
         hidden_columns.size
     );
@@ -1041,27 +1060,36 @@ export function App() {
 
     return (
         <div className="browser-root">
-            <div className="toolbar">
-                <span className="row-count">{row_count_text}</span>
-                <ToolbarSortStrip
-                    keys={sort.keys}
-                    column_names={column_names}
-                    on_change={do_apply_sort}
-                    on_clear_all={() => do_apply_sort([])}
-                />
-                {metadata && (
-                    <ToolbarFilterStrip
-                        filter={filter}
-                        columns={metadata.variables}
-                        on_edit={my_entry =>
-                            open_filter_editor(my_entry.col_index)
-                        }
-                        on_toggle_enabled={toggle_filter_enabled}
-                        on_remove={remove_filter_entry}
-                        on_clear_all={() => do_apply_filter([])}
+            <div
+                className={
+                    toolbar_chips_wrapped ? 'toolbar is-wrapped' : 'toolbar'
+                }
+                ref={toolbar_ref}
+            >
+                <span className="row-count" ref={row_count_ref}>
+                    {row_count_text}
+                </span>
+                <div className="toolbar-chips" ref={toolbar_chips_ref}>
+                    <ToolbarSortStrip
+                        keys={sort.keys}
+                        column_names={column_names}
+                        on_change={do_apply_sort}
+                        on_clear_all={() => do_apply_sort([])}
                     />
-                )}
-                <div className="toolbar-actions">
+                    {metadata && (
+                        <ToolbarFilterStrip
+                            filter={filter}
+                            columns={metadata.variables}
+                            on_edit={my_entry =>
+                                open_filter_editor(my_entry.col_index)
+                            }
+                            on_toggle_enabled={toggle_filter_enabled}
+                            on_remove={remove_filter_entry}
+                            on_clear_all={() => do_apply_filter([])}
+                        />
+                    )}
+                </div>
+                <div className="toolbar-actions" ref={toolbar_actions_ref}>
                     <button
                         className={show_labels ? 'toggle active' : 'toggle'}
                         onClick={() => set_show_labels(!show_labels)}

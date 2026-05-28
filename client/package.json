@@ -368,7 +368,7 @@
         },
         "sight.dataBrowser.maxStoredLayouts": {
           "type": "number",
-          "default": 10000,
+          "default": 1e4,
           "minimum": 1,
           "description": "Maximum number of dataset layout entries (column widths and visibility) stored across all datasets. When the limit is reached, the least recently used entries are removed first. Each dataset may use multiple entries for alias keys."
         },
@@ -725,6 +725,7 @@
     "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server",
     "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --outfile=dist/extension.js --external:vscode --minify",
     "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
+    "bundle:webview-test": "bunx esbuild src/data-browser/webview/test-harness/index.tsx --bundle --platform=browser --format=iife --outfile=dist-test/toolbar-wrap-harness/index.js --loader:.css=css",
     "copy-vview-ado": "mkdir -p stata && cp ../stata/vview.ado stata/vview.ado",
     "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/",
     "compile": "bun run copy-vview-ado && bun run bundle && bun run bundle:webview",
@@ -733,6 +734,7 @@
     "lint": "eslint src --ext ts",
     "test": "node ./test/runTest.js",
     "test:extension": "node ./test/runTest.js",
+    "test:layout": "bun run bundle && bun run bundle:webview-test && node ./test/runTest.js --suite layout",
     "package": "vsce package --no-dependencies",
     "publish:vscode": "echo 'Internal-only: use the release workflow (vsce publish --packagePath client/*.vsix) for actual publishing.'",
     "publish:ovsx": "echo 'Internal-only: use the release workflow (ovsx publish client/*.vsix) for actual publishing.'",
@@ -747,6 +749,7 @@
     "vscode-languageclient": "^8.1.0"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^16.11.7",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
@@ -756,6 +759,7 @@
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
     "eslint": "^8.31.0",
+    "mocha": "^11.7.6",
     "ovsx": "^0.8.3",
     "typescript": "^4.9.4"
   }
