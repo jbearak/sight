@@ -4,10 +4,8 @@
  * Handles toggling comments on/off using the preferred comment style.
  */
 
-import { Range, Position } from 'vscode-languageserver-textdocument';
 import { Token, ContextRange, LanguageContext } from '../types';
-import { CommentProcessor } from './comment-processor';
-import { analyze_comment, extract_comment_content, classify_comment_style } from './comment-analysis';
+import { extract_comment_content, classify_comment_style } from './comment-analysis';
 
 /**
  * Represents a line toggle operation (comment or uncomment).
@@ -23,12 +21,6 @@ export interface LineToggleOperation {
  * Handles comment toggling operations.
  */
 export class CommentToggle {
-  private comment_processor: CommentProcessor;
-
-  constructor() {
-    this.comment_processor = new CommentProcessor();
-  }
-
   /**
    * Toggles comments on a range of lines.
    *

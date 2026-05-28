@@ -1014,37 +1014,6 @@ function check_line_has_prefix_command(line: string): boolean {
 }
 
 /**
- * Check if a {cmd:X} pattern at the given index appears in an option context.
- * Option contexts are within brackets [...] and typically after commas.
- */
-function is_in_option_context(text: string, match_index: number): boolean {
-    // Look backwards from the match to find the nearest bracket or start
-    let bracket_depth = 0;
-    let found_comma = false;
-
-    for (let i = match_index - 1; i >= 0; i--) {
-        const char = text[i];
-        if (char === ']') {
-            bracket_depth++;
-        } else if (char === '[') {
-            bracket_depth--;
-            if (bracket_depth < 0) {
-                // We're inside brackets
-                return true;
-            }
-        } else if (char === '}' && text.substring(i - 4, i + 1) === '{cmd:') {
-            // Check if this is {cmd:,} indicating an option separator
-            const prev_match = text.substring(i - 5, i + 1).match(/\{cmd:,\}$/);
-            if (prev_match) {
-                found_comma = true;
-            }
-        }
-    }
-
-    return found_comma;
-}
-
-/**
  * Extract a brief description from the SMCL content.
  *
  * Looks for the description in the title line or first paragraph.

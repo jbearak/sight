@@ -1163,7 +1163,7 @@ export class ScopeResolver {
                             my_fallback_path,
                             { request_cache }
                         );
-                    } catch (fallback_error) {
+                    } catch {
                         this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
                         continue;
                     }
@@ -1885,7 +1885,7 @@ export class ScopeResolver {
 
                     content = await this.content_provider.read_file(fallback_uri);
                     actual_uri = fallback_uri;
-                } catch (fallback_error) {
+                } catch {
                     // Both paths failed
                     this.file_cache.delete(cache_key);
                     this.cache_metrics.file.misses++;

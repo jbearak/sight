@@ -2,6 +2,7 @@ import {
     useEffect,
     useRef,
     useState,
+    type ReactElement,
 } from 'react';
 import type { VariableDescription } from '../types.js';
 import { use_dismiss } from './use-dismiss.js';
@@ -22,7 +23,7 @@ export function ColumnVisibilityPopover({
     on_show_all,
     on_hide_all,
     on_close,
-}: ColumnVisibilityPopoverProps) {
+}: ColumnVisibilityPopoverProps): ReactElement {
     const [filter_text, set_filter_text] = useState('');
     const popover_ref = useRef<HTMLDivElement>(null);
     const filter_ref = useRef<HTMLInputElement>(null);

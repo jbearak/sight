@@ -185,8 +185,8 @@ export class LRUCache<K, V> implements ILRUCache<K, V> {
  * - Workspace symbol version change (new .ado files indexed)
  * - Document version change (document symbols updated)
  */
-export class CompletionPrefixCache {
-    private cache: LRUCache<string, any[]>;
+export class CompletionPrefixCache<TItem = unknown> {
+    private cache: LRUCache<string, TItem[]>;
     private command_db_version: number = 0;
     private workspace_version: number = 0;
     private readonly top_n_threshold: number;
@@ -201,8 +201,8 @@ export class CompletionPrefixCache {
      * Format: "context:prefix:cmd_v:ws_v:doc_v"
      */
     private make_key(
-        prefix: string, 
-        context: string, 
+        prefix: string,
+        context: string,
         document_version: number = 0
     ): string {
         return `${context}:${prefix}:${this.command_db_version}:${this.workspace_version}:${document_version}`;
@@ -215,7 +215,7 @@ export class CompletionPrefixCache {
         prefix: string,
         context: string,
         document_version: number = 0
-    ): any[] | undefined {
+    ): TItem[] | undefined {
         return this.cache.get(this.make_key(prefix, context, document_version));
     }
 
@@ -225,9 +225,9 @@ export class CompletionPrefixCache {
     set_with_context(
         prefix: string,
         context: string,
-        value: any[],
+        value: TItem[],
         document_version: number = 0
-    ): any[] {
+    ): TItem[] {
         const trimmed_value = this.apply_limit(value);
         this.cache.set(this.make_key(prefix, context, document_version), trimmed_value);
         return trimmed_value;

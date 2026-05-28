@@ -15,7 +15,7 @@
  * Ported from Raven's filter-histogram.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type ReactElement } from 'react';
 import type { HistogramBin } from '../types.js';
 
 interface FilterHistogramProps {
@@ -63,7 +63,7 @@ export function FilterHistogram({
     lo,
     hi,
     on_change,
-}: FilterHistogramProps) {
+}: FilterHistogramProps): ReactElement | null {
     const svg_ref = useRef<SVGSVGElement>(null);
     const dragging = useRef<'lo' | 'hi' | null>(null);
 

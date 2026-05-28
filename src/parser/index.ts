@@ -3,17 +3,14 @@ import {
   Token,
   TokenType,
   StataNode,
-  StataAST,
   ParseResult,
   ParseError,
   ParseErrorCode,
   CommandNode,
   ProgramNode,
   MacroDefNode,
-  MacroRefNode,
   MacroReference,
   ControlFlowNode,
-  StringLiteralNode,
   DirectiveNode,
   TriviaNode,
   PrefixNode,
@@ -710,8 +707,6 @@ export class StataParser {
 
       prefixes.push(prefix);
     }
-
-    const peeked_token = this.peek();
 
     // Check if this is a syntax command after prefixes
     // (e.g., qui syntax anything [if] [in])

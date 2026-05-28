@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MouseEvent } from 'react';
+import { useEffect, useRef, type MouseEvent, type ReactElement } from 'react';
 import { use_dismiss } from './use-dismiss.js';
 
 /** Sort-related slice of the column context menu. Present only for
@@ -43,7 +43,7 @@ export function ColumnContextMenu({
     on_close,
     sort,
     filter,
-}: ColumnContextMenuProps) {
+}: ColumnContextMenuProps): ReactElement {
     const menu_ref = useRef<HTMLDivElement>(null);
 
     use_dismiss(menu_ref, on_close);

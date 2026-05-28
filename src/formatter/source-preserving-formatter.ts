@@ -1,6 +1,6 @@
 import { Token, StataAST } from '../types';
 import { logger } from '../utils/logger';
-import { IndentationAnalyzer, IndentationInfo } from './indentation-analyzer';
+import { IndentationAnalyzer } from './indentation-analyzer';
 import { TokenReconstructor, FormatterConfig } from './token-reconstructor';
 import { AlignmentDetector } from './alignment-detector';
 

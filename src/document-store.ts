@@ -1,16 +1,15 @@
 import { TextDocumentContentChangeEvent, Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import { StataAST, SymbolTable, Token, DocumentStoreMetrics, ForwardCall, WorkingDirectoryDirective, Directive } from './types';
+import { StataAST, SymbolTable, Token, DocumentStoreMetrics, ForwardCall, WorkingDirectoryDirective, Directive, LexerError, ParseError } from './types';
 import { StataLexer } from './lexer';
 import { StataParser } from './parser';
-import { SemanticAnalyzer } from './analyzer';
+import { SemanticAnalyzer, SemanticDiagnostic } from './analyzer';
 import { ContextTracker } from './context-tracker';
 import { ContextRange } from './context-tracker/types';
-import { with_parse_timeout, ParseResult } from './utils/parse-timeout';
+import { with_parse_timeout } from './utils/parse-timeout';
 import { DirectiveParser } from './directive-parser';
 import { ScopeResolver } from './scope-resolver';
 import { get_workspace_root_for_uri } from './utils/workspace-roots';
 
-import { URI } from 'vscode-uri';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -844,9 +843,9 @@ export class DocumentStore {
    * Build diagnostics from lexer, parser, and analyzer errors.
    */
   private build_diagnostics(
-    lexer_errors: any[],
-    parser_errors: any[],
-    analyzer_diagnostics: any[]
+    lexer_errors: LexerError[],
+    parser_errors: ParseError[],
+    analyzer_diagnostics: SemanticDiagnostic[]
   ): Diagnostic[] {
     return [
       // Convert lexer errors to diagnostics

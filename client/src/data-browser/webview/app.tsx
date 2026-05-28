@@ -3,6 +3,7 @@ import {
     useMemo,
     useRef,
     useState,
+    type ReactElement,
 } from 'react';
 import {
     DataEditor,
@@ -256,7 +257,7 @@ type FilterEditorState = {
     top_px: number;
 };
 
-export function App() {
+export function App(): ReactElement {
     const { grid: vscode_theme, missing_fg, missing_bg } =
         use_vscode_theme();
     const {

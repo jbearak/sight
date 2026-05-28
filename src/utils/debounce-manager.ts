@@ -152,8 +152,6 @@ export class DocumentDebounceManager implements DebounceManager {
     ): void {
         if (this.disposed) return;
 
-        // Track current version for staleness check
-        const prev_version = this.current_versions.get(uri);
         this.current_versions.set(uri, version);
 
         // If we're replacing a pending timer, count as merged

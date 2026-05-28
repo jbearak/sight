@@ -59,7 +59,7 @@ const client_lifecycle = new LanguageClientLifecycle<LanguageClient>(
     }
 );
 
-export function activate(context: ExtensionContext) {
+export function activate(context: ExtensionContext): void {
     if (!output_channel) {
         output_channel = window.createOutputChannel(
             'Sight Language Server'

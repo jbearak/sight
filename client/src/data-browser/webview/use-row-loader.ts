@@ -27,9 +27,29 @@ import {
     PAGE_SIZE,
 } from './grid-model.js';
 
-declare function acquireVsCodeApi(): {
+declare function acquireVsCodeApi(): VsCodeApi;
+
+interface VsCodeApi {
     postMessage(message: WebviewMessage): void;
-};
+}
+
+export interface UseRowLoaderResult {
+    metadata: MetadataMessage | null;
+    ensure_rows: (start_row: number, end_row: number) => void;
+    get_row: (row_index: number) => CellValue[] | undefined;
+    pages: Map<number, CellValue[][]>;
+    vscode_api: VsCodeApi;
+    sort: SortState;
+    sort_pending: boolean;
+    filter: FilterState;
+    filter_pending: boolean;
+    nobs_effective: number | undefined;
+    apply_sort: (keys: SortKey[], labels_on: boolean) => void;
+    apply_filter: (entries: FilterEntry[], labels_on: boolean) => void;
+    histograms: Map<number, HistogramBin[]>;
+    request_histogram: (col_index: number) => void;
+    update_viewport: (start_row: number, end_row: number) => void;
+}
 
 type IncomingMessage =
     | MetadataMessage
@@ -40,7 +60,7 @@ type IncomingMessage =
     | FilterStatusMessage
     | HistogramDataMessage;
 
-export function use_row_loader() {
+export function use_row_loader(): UseRowLoaderResult {
     const vscode_api = useMemo(() => acquireVsCodeApi(), []);
     const [metadata, set_metadata] = useState<MetadataMessage | null>(
         null

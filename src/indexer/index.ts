@@ -329,7 +329,6 @@ export class WorkspaceIndexer {
     private async process_files_with_pool(
         file_paths: string[]
     ): Promise<void> {
-        let active_workers = 0;
         let file_index = 0;
         const last_yield_time = { value: Date.now() };
 
@@ -728,7 +727,7 @@ export class WorkspaceIndexer {
     get_indexed_files(): Map<string, IndexedFileData> {
         const indexed_files = new Map<string, IndexedFileData>();
         
-        for (const [uri, entry] of this.symbol_index.entries()) {
+        for (const uri of this.symbol_index.keys()) {
             const tokens = this.token_index.get(uri) || [];
             const context_ranges = this.context_ranges_index.get(uri);
             indexed_files.set(uri, {

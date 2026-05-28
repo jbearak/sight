@@ -5,7 +5,7 @@ import {
   ContextDiagnostic,
   IContextTracker,
 } from './types';
-import { ContextErrorCode } from '../types';
+import { ContextErrorCode, Token } from '../types';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 
 /**
@@ -31,7 +31,7 @@ export class ContextTracker implements IContextTracker {
    * @param tokens - Pre-computed tokens from the lexer
    * @param document_content - Optional document content for validation
    */
-  initialize_from_tokens(tokens: any[], document_content?: string): void {
+  initialize_from_tokens(tokens: Token[], document_content?: string): void {
     // Store document content for validation if provided
     if (document_content !== undefined) {
       this.document_content = document_content;
@@ -556,7 +556,7 @@ export class ContextTracker implements IContextTracker {
    * Check if there is an LBRACE token on the same line as the given start index.
    * Used to detect brace-style embedded blocks (e.g., `mata { ... }`).
    */
-  private has_lbrace_on_same_line(tokens: any[], start_index: number, target_line: number): boolean {
+  private has_lbrace_on_same_line(tokens: Token[], start_index: number, target_line: number): boolean {
     for (let my_i = start_index + 1; my_i < tokens.length; my_i++) {
       const my_token = tokens[my_i];
       // Stop if we've moved past the target line
@@ -809,16 +809,14 @@ export class ContextTracker implements IContextTracker {
    */
   attempt_recovery_from_unclosed_block(
     start_line: number,
-    language: 'mata' | 'python'
+    _language: 'mata' | 'python'
   ): number | null {
     const my_doc = { content: this.document_content, line_offsets: compute_line_offsets(this.document_content) };
     const my_line_count = get_line_count(my_doc);
-    const my_end_keyword = 'end'; // Both mata and python blocks end with 'end'
 
     // Search forward from start_line for a likely end position
     for (let my_i = start_line + 1; my_i < my_line_count; my_i++) {
       const my_line = get_line_text(my_doc, my_i);
-      const my_trimmed = my_line.trim();
       const my_code_part = this.extract_code_before_comment(my_line);
       const my_code_trimmed = my_code_part.trim();
 

@@ -17,7 +17,6 @@ import { DocumentState } from '../document-store';
 import {
     SymbolTable,
     StataNode,
-    CommandNode,
     LanguageContext,
     ResolvedScope,
     MacroSymbol,
@@ -1340,11 +1339,11 @@ export class DefinitionProvider {
 
         // NOTE: Do this iteratively (not via a nested function) so TypeScript control-flow
         // analysis can see that best_node may be assigned.
-        const the_stack: any[] = [...document.ast.nodes];
+        const the_stack: StataNode[] = [...document.ast.nodes];
         let iteration_count = 0;
         while (the_stack.length > 0) {
             const node = the_stack.pop();
-            if (!node || typeof node !== 'object') {
+            if (!node) {
                 continue;
             }
 
@@ -1378,11 +1377,8 @@ export class DefinitionProvider {
                 node.type === 'forvalues' ||
                 node.type === 'while' ||
                 node.type === 'frame') {
-                const body = (node as any).body;
-                if (Array.isArray(body)) {
-                    for (let i = 0; i < body.length; i++) {
-                        the_stack.push(body[i]);
-                    }
+                for (let i = 0; i < node.body.length; i++) {
+                    the_stack.push(node.body[i]);
                 }
             }
         }

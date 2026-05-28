@@ -11,7 +11,6 @@ import {
     TriviaNode,
     PrefixNode,
     OptionNode,
-    IdentifierNode,
     EmbeddedLanguageBlockNode
 } from '../types';
 import { format_expression_spacing } from './expression-spacing';

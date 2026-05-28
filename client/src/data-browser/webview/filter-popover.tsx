@@ -24,6 +24,7 @@ import React, {
     useLayoutEffect,
     useRef,
     useState,
+    type ReactElement,
 } from 'react';
 import type {
     FilterEntry,
@@ -88,7 +89,7 @@ export function FilterPopover({
     on_apply,
     on_cancel,
     anchor,
-}: FilterPopoverProps) {
+}: FilterPopoverProps): ReactElement {
     const my_kind = col_kind(column);
     const the_options = kind_options(my_kind);
 

@@ -32,6 +32,7 @@ import {
     useRef,
     useState,
     type CSSProperties,
+    type ReactElement,
 } from 'react';
 import '../styles.css';
 import { ToolbarSortStrip } from '../sort-strip.js';
@@ -131,7 +132,7 @@ function plain_rect(element: Element | null): PlainRect | null {
     };
 }
 
-export function HarnessApp() {
+export function HarnessApp(): ReactElement {
     const [width_px, set_width_px] = useState<number | null>(null);
     const [sort_chip_count, set_sort_chip_count] = useState(0);
     const [filter_chip_count, set_filter_chip_count] = useState(0);

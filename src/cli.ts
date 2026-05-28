@@ -4,7 +4,6 @@
  * Supports stdio and Node IPC transports for standalone and VS Code usage.
  */
 
-import * as path from 'path';
 import { fileURLToPath } from 'url';
 import package_json from '../package.json' with { type: 'json' };
 
