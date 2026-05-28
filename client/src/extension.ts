@@ -37,7 +37,7 @@ import {
 
 let client: LanguageClient | null = null;
 let output_channel: OutputChannel | null = window.createOutputChannel(
-    'Sight Language Server'
+    'Sight Extension'
 );
 const DEACTIVATE_TIMEOUT_MS = 200;
 
@@ -62,7 +62,7 @@ const client_lifecycle = new LanguageClientLifecycle<LanguageClient>(
 export function activate(context: ExtensionContext): void {
     if (!output_channel) {
         output_channel = window.createOutputChannel(
-            'Sight Language Server'
+            'Sight Extension'
         );
     }
 
