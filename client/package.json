@@ -2,7 +2,7 @@
   "name": "sight",
   "displayName": "Sight - Stata Language Server",
   "description": "Stata language support: language server, syntax highlighting, and code execution",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "publisher": "jbearak",
   "icon": "icon.png",
   "repository": {
@@ -368,7 +368,7 @@
         },
         "sight.dataBrowser.maxStoredLayouts": {
           "type": "number",
-          "default": 1e4,
+          "default": 10000,
           "minimum": 1,
           "description": "Maximum number of dataset layout entries (column widths and visibility) stored across all datasets. When the limit is reached, the least recently used entries are removed first. Each dataset may use multiple entries for alias keys."
         },
