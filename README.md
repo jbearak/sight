@@ -8,8 +8,6 @@ An open source [Language Server Protocol (LSP)](https://github.com/Microsoft/lan
 
 > **Quick Start:** Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jbearak.sight) or [OpenVSX](https://open-vsx.org/extension/jbearak/sight), or download the `.vsix` from the [releases page](https://github.com/jbearak/sight/releases). See [Installation](#installation) for other methods.
 
-Sight provides Stata language support for VS Code, its forks (Antigravity, Cursor, Kiro, Positron, and Windsurf), and Zed. This repository, [Sight](https://github.com/jbearak/sight), contains the language server, editor extension, and TextMate grammar. The corresponding Zed extension is in [zed-stata](https://github.com/jbearak/zed-stata), and the tree-sitter grammar is in [tree-sitter-stata](https://github.com/jbearak/tree-sitter-stata). Like the language server, the grammar can be used in any editor.
-
 Sight's sister project [Raven](https://github.com/jbearak/raven) implements a language server for R. Together they bring cross-file navigation, error detection, and code intelligence to two languages widely used in social science research.
 
 ## Features
