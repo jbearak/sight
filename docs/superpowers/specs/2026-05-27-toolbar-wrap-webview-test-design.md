@@ -81,9 +81,21 @@ three `scrollWidth`s + one `clientWidth`, none of which need real data.
 
 Build a **minimal harness** that mounts ONLY the real toolbar markup with the
 **real** `use_toolbar_wrap` hook, the **real** `ToolbarSortStrip`/
-`ToolbarFilterStrip` components, and the **real** `styles.css`. No data layer, no
-grid. This is full layout fidelity (same hook, same CSS, real Chromium) at near
+`ToolbarFilterStrip` components, and the **real** `styles.css`. No data layer.
+This is full layout fidelity (same hook, same CSS, real Chromium) at near
 zero setup cost and with deterministic inputs.
+
+> **Correction (2026-05-27, follow-up bug):** the original harness also omitted
+> the real `.browser-root` **grid** and instead pinned the toolbar width with a
+> `display:block; overflow:hidden` wrapper. That masked a real bug: the toolbar
+> is a *grid item*, and its automatic minimum size (`min-width:auto`) let it
+> grow to the chips' content width and overflow `.browser-root` — pushing
+> Labels/Formats/Columns off-screen and defeating the chip strips' `overflow-x`
+> scroll. The harness now mounts the toolbar inside the real `.browser-root`
+> grid (the width-pinned `#harness-root` is only the viewport analog). The
+> "data layer" (glide-data-grid below the toolbar) stays omitted; the toolbar's
+> own *containing* grid is what matters and must be reproduced. Fix:
+> `min-width:0` on `.toolbar` (`styles.css`).
 
 ### 4.2 Deterministic width control **[DECIDED]**
 

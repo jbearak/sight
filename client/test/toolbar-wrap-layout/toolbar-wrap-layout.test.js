@@ -105,6 +105,26 @@ function assert_wrapped(snap) {
     );
 }
 
+// The toolbar lives in the production `.browser-root` grid, itself inside
+// the width-pinned `#harness-root` (the viewport analog, `overflow:hidden`
+// like the real `#root`). Nothing the user needs may sit past its right
+// edge — if the toolbar grows to its content's width and overflows the
+// grid container, the action buttons are clipped off-screen.
+function assert_within_viewport(snap) {
+    assert.ok(
+        snap.toolbar_rect.right <= snap.root_rect.right + 2,
+        'toolbar must not overflow the viewport '
+            + `(toolbar.right=${snap.toolbar_rect.right}, `
+            + `root.right=${snap.root_rect.right})`
+    );
+    assert.ok(
+        snap.actions_rect.right <= snap.root_rect.right + 2,
+        'action buttons must stay within the viewport '
+            + `(actions.right=${snap.actions_rect.right}, `
+            + `root.right=${snap.root_rect.right})`
+    );
+}
+
 function assert_actions_pinned_right(snap) {
     assert.ok(
         snap.actions_rect.right >= snap.toolbar_rect.right - 12,
@@ -234,6 +254,25 @@ describe('data-browser toolbar chip wrapping (real layout)', function () {
         );
     });
 
+    it('wrapped chips that overflow row 2 keep actions on-screen', async () => {
+        // The reported bug: with enough sort+filter chips at a narrow
+        // width, the toolbar grew to its content's width inside the
+        // `.browser-root` grid and overflowed, pushing Labels/Formats/
+        // Columns off-screen instead of constraining the chip row.
+        await harness.apply({ type: 'test:setWidth', width_px: NARROW_PX });
+        const snap = await harness.apply(
+            state({
+                sort_chip_count: MANY_CHIPS,
+                filter_chip_count: MANY_CHIPS,
+            }),
+            my_snap => my_snap.is_wrapped === true
+        );
+        assert_wrapped(snap);
+        assert_within_viewport(snap);
+        assert_actions_pinned_right(snap);
+        assert_actions_on_top_row(snap);
+    });
+
     it('overflowing chips on row 2 expose the scroll tier', async () => {
         // Many sort chips (only) at a mid width: even on its own full-width
         // row the strip overflows, so the strip is horizontally scrollable.
@@ -245,11 +284,24 @@ describe('data-browser toolbar chip wrapping (real layout)', function () {
             my_snap => my_snap.is_wrapped === true
         );
         assert_wrapped(snap);
+        // The strip must fit within the viewport so its scrollbar is
+        // reachable — not be sized to its content and clipped off-screen.
+        assert_within_viewport(snap);
         assert.ok(
-            snap.sort_strip_scroll_width > snap.chips_client_width,
-            'sort strip content should overflow the row (scrollable) '
-                + `(sort_strip_scroll_width=${snap.sort_strip_scroll_width}, `
-                + `chips_client_width=${snap.chips_client_width})`
+            snap.sort_strip_client_width <= snap.root_rect.width + 2,
+            'sort strip should fit within the viewport '
+                + `(sort_strip_client_width=${snap.sort_strip_client_width}, `
+                + `root.width=${snap.root_rect.width})`
+        );
+        // Genuine horizontal scroll: the strip's own content exceeds its
+        // own client width (scrollWidth vs the *strip's* clientWidth, not
+        // the chip container's — which is what made the prior assertion
+        // pass even when nothing actually scrolled).
+        assert.ok(
+            snap.sort_strip_scroll_width > snap.sort_strip_client_width,
+            'sort strip should be horizontally scrollable '
+                + `(scroll_width=${snap.sort_strip_scroll_width}, `
+                + `client_width=${snap.sort_strip_client_width})`
         );
     });
 

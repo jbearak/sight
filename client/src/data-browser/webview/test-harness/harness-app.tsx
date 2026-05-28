@@ -3,17 +3,23 @@
  *
  * Mounts the *production* toolbar markup — the real `.toolbar` structure
  * with the real `use_toolbar_wrap` hook, the real `ToolbarSortStrip` /
- * `ToolbarFilterStrip`, and the real `styles.css` — inside a
- * width-pinnable wrapper. Running in a real VS Code webview (real
- * Chromium), it measures its own layout and posts the numbers back to the
- * extension-host test, which asserts. This is the "self-measure" pattern:
- * the host cannot read the sandboxed webview's DOM, so the webview reads
- * itself and `postMessage`s the result.
+ * `ToolbarFilterStrip`, and the real `styles.css` — inside the real
+ * `.browser-root` grid (mirroring `app.tsx`), itself inside a
+ * width-pinnable `#harness-root` (the viewport analog). Running in a real
+ * VS Code webview (real Chromium), it measures its own layout and posts
+ * the numbers back to the extension-host test, which asserts. This is the
+ * "self-measure" pattern: the host cannot read the sandboxed webview's
+ * DOM, so the webview reads itself and `postMessage`s the result.
+ *
+ * Reproducing the real `.browser-root` grid is load-bearing: the toolbar
+ * is a grid item, and its automatic minimum size is what made it overflow
+ * the viewport (pushing the action buttons off-screen and defeating the
+ * chip strips' scroll). A plain width-pinned block wrapper would mask that.
  *
  * Deliberately NOT shipped: built to `dist-test/` and excluded from the
  * packaged extension via `.vscodeignore`. It imports neither
- * glide-data-grid nor `use-row-loader`, so there is no data/grid layer —
- * wrap behavior depends only on three `scrollWidth`s and one `clientWidth`.
+ * glide-data-grid nor `use-row-loader`: the grid below the toolbar (the
+ * data layer) is omitted; only the toolbar's own containing grid matters.
  *
  * See docs/superpowers/specs/2026-05-27-toolbar-wrap-webview-test-design.md.
  */
@@ -138,6 +144,7 @@ export function HarnessApp() {
     const [snapshot_request_counter, set_snapshot_request_counter] =
         useState(0);
 
+    const root_ref = useRef<HTMLDivElement>(null);
     const toolbar_ref = useRef<HTMLDivElement>(null);
     const row_count_ref = useRef<HTMLSpanElement>(null);
     const toolbar_chips_ref = useRef<HTMLDivElement>(null);
@@ -220,15 +227,35 @@ export function HarnessApp() {
             chips_rect: plain_rect(my_chips),
             actions_rect: plain_rect(toolbar_actions_ref.current),
             lead_rect: plain_rect(row_count_ref.current),
+            // The width-pinned viewport analog (mirrors the production
+            // `#root`): the toolbar and its action buttons must stay
+            // inside this box.
+            root_rect: plain_rect(root_ref.current),
             chips_scroll_width: my_chips.scrollWidth,
             chips_client_width: my_chips.clientWidth,
             sort_strip_scroll_width: my_sort_strip?.scrollWidth ?? 0,
+            // The strip's own client width: a strip is genuinely
+            // horizontally scrollable only when its scrollWidth exceeds
+            // *this* (not the chip container's width).
+            sort_strip_client_width:
+                (my_sort_strip as HTMLElement | null)?.clientWidth ?? 0,
             filter_strip_scroll_width: my_filter_strip?.scrollWidth ?? 0,
             toolbar_flex_wrap: my_toolbar_style.flexWrap,
             chips_order: my_chips_style.order,
             chips_flex_basis: my_chips_style.flexBasis,
         });
     }, []);
+
+    // Keep a ref to the latest `post_snapshot` so the message handler
+    // (subscribed once) can read the live DOM synchronously on an explicit
+    // `test:requestSnapshot`. The host only requests after its change has
+    // been applied, so a synchronous read is already settled — and it does
+    // NOT depend on `requestAnimationFrame` firing, which stalls when the
+    // webview panel is not actively painting (headless/backgrounded runs).
+    const post_snapshot_ref = useRef(post_snapshot);
+    useLayoutEffect(() => {
+        post_snapshot_ref.current = post_snapshot;
+    });
 
     // Emit a snapshot after each state/width change settles. A double
     // requestAnimationFrame lets the ResizeObserver callback →
@@ -305,6 +332,10 @@ export function HarnessApp() {
                     set_row_count_text(my_message.row_count_text);
                     break;
                 case 'test:requestSnapshot':
+                    // Read synchronously now (robust against stalled rAF),
+                    // and also bump the counter so the rAF-settled path
+                    // emits a follow-up snapshot.
+                    post_snapshot_ref.current();
                     set_snapshot_request_counter(c => c + 1);
                     break;
             }
@@ -313,10 +344,13 @@ export function HarnessApp() {
         return () => window.removeEventListener('message', on_message);
     }, []);
 
-    // `display: block` + `overflow: hidden` pins the toolbar's
-    // clientWidth to `width_px` (when set) and makes the real
-    // ResizeObserver fire on each width change. A null width leaves the
-    // wrapper at its natural full-webview width (used for the baseline).
+    // `#harness-root` is the viewport analog (mirrors the production
+    // `#root`): `display: block` + `overflow: hidden`, with a pinned
+    // `width_px`. The toolbar lives inside a real `.browser-root` grid
+    // (mirroring `app.tsx`) so the harness reproduces the production
+    // containing block — a single auto-track grid — not a width-pinned
+    // block. Setting the width here makes the real ResizeObserver fire on
+    // each change; a null width leaves the baseline at full-webview width.
     const wrapper_style: CSSProperties = {
         display: 'block',
         overflow: 'hidden',
@@ -324,51 +358,59 @@ export function HarnessApp() {
     };
 
     return (
-        <div id="harness-root" style={wrapper_style}>
-            <div
-                className={
-                    is_wrapped ? 'toolbar is-wrapped' : 'toolbar'
-                }
-                ref={toolbar_ref}
-            >
-                <span className="row-count" ref={row_count_ref}>
-                    {row_count_text}
-                </span>
-                <div className="toolbar-chips" ref={toolbar_chips_ref}>
-                    <ToolbarSortStrip
-                        keys={sort_keys}
-                        column_names={HARNESS_COLUMN_NAMES}
-                        on_change={noop}
-                        on_clear_all={noop}
-                    />
-                    <ToolbarFilterStrip
-                        filter={filter_state}
-                        columns={HARNESS_COLUMNS}
-                        on_edit={noop}
-                        on_toggle_enabled={noop}
-                        on_remove={noop}
-                        on_clear_all={noop}
-                    />
-                </div>
+        <div id="harness-root" ref={root_ref} style={wrapper_style}>
+            {/* Mirror the production container (`app.tsx`): the toolbar is
+                a grid item in `.browser-root`, not a child of a
+                width-pinned block. */}
+            <div className="browser-root">
                 <div
-                    className="toolbar-actions"
-                    ref={toolbar_actions_ref}
+                    className={
+                        is_wrapped ? 'toolbar is-wrapped' : 'toolbar'
+                    }
+                    ref={toolbar_ref}
                 >
-                    <button className="toggle" type="button">
-                        Labels
-                    </button>
-                    <button className="toggle" type="button">
-                        Formats
-                    </button>
-                    <div className="columns-popover-anchor">
+                    <span className="row-count" ref={row_count_ref}>
+                        {row_count_text}
+                    </span>
+                    <div
+                        className="toolbar-chips"
+                        ref={toolbar_chips_ref}
+                    >
+                        <ToolbarSortStrip
+                            keys={sort_keys}
+                            column_names={HARNESS_COLUMN_NAMES}
+                            on_change={noop}
+                            on_clear_all={noop}
+                        />
+                        <ToolbarFilterStrip
+                            filter={filter_state}
+                            columns={HARNESS_COLUMNS}
+                            on_edit={noop}
+                            on_toggle_enabled={noop}
+                            on_remove={noop}
+                            on_clear_all={noop}
+                        />
+                    </div>
+                    <div
+                        className="toolbar-actions"
+                        ref={toolbar_actions_ref}
+                    >
                         <button className="toggle" type="button">
-                            Columns
-                            {hidden_col_count > 0 && (
-                                <span className="hidden-count-badge">
-                                    {hidden_col_count}
-                                </span>
-                            )}
+                            Labels
                         </button>
+                        <button className="toggle" type="button">
+                            Formats
+                        </button>
+                        <div className="columns-popover-anchor">
+                            <button className="toggle" type="button">
+                                Columns
+                                {hidden_col_count > 0 && (
+                                    <span className="hidden-count-badge">
+                                        {hidden_col_count}
+                                    </span>
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

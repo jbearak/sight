@@ -34,6 +34,15 @@ body,
     padding: 6px 8px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
+    /* The toolbar is a grid item in `.browser-root` (a single auto-track
+       grid). Without this, its automatic minimum (`min-width: auto`)
+       resolves to the chips' content width and forces the grid track wider
+       than the viewport: the toolbar overflows, the action buttons are
+       pushed off-screen, and the chip strips never get narrow enough to
+       engage their own `overflow-x` scroll. `min-width: 0` lets the
+       toolbar shrink to the grid container so the chip row scrolls within
+       it instead. */
+    min-width: 0;
 }
 
 .row-count {
