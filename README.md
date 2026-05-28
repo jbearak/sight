@@ -4,7 +4,7 @@ An open source [Language Server Protocol (LSP)](https://github.com/Microsoft/lan
 
 > **tl;dr**: Sight brings **modern IDE superpowers** to Stata coding. It goes far beyond syntax highlighting, using **semantic analysis** to provide **workspace-wide symbol resolution** and **intelligent macro tracking**. With features like **Go-to-Definition**, **Autocomplete**, and **Real-time Diagnostics** that trace execution through `do` and `include` chains, Sight helps you catch errors *before* you run your code.
 
-> **Development Status:** Sight is an early-stage implementation. While functional, it requires substantial testing and code review. Contributions and feedback are welcome!
+> **Status:** Sight is under active development. It works well for day-to-day use but hasn't been widely announced yet. Bug reports and feedback are welcome!
 
 > **Quick Start:** Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jbearak.sight) or [OpenVSX](https://open-vsx.org/extension/jbearak/sight), or download the `.vsix` from the [releases page](https://github.com/jbearak/sight/releases). See [Installation](#installation) for other methods.
 
