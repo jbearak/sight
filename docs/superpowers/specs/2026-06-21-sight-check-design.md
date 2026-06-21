@@ -74,6 +74,20 @@ Defaults:
 `--config PATH` and `--no-config` conflict. Usage errors such as an unknown flag
 or a missing option value should print a concise error and exit `1`.
 
+The existing top-level `parse_args()` rejects non-flag positional tokens, so
+`src/cli.ts` must intercept `argv[0] === 'check'` before calling the existing
+transport parser. `sight check --help` should print check-specific help and
+exit `0`.
+
+Severity gating is strict. Use this ordering:
+
+```text
+off(0) < hint(1) < info(2) < warning(3) < error(4)
+```
+
+A run fails only when `diagnosticSeverity > maxSeverity`. Therefore the default
+`--max-severity info` fails warnings and errors, but not information or hints.
+
 ## Source Scope
 
 The checker reports the same source extensions the workspace indexer handles:
@@ -87,6 +101,10 @@ Extension matching should be case-insensitive for CLI filesystem friendliness.
 Directory walks should recurse and skip VCS metadata directories such as `.git`,
 `.hg`, and `.svn`. Existing non-source files passed as explicit paths are
 ignored. Missing explicit paths are operator errors.
+
+Resolve `--workspace`, `--config`, and every positional path from the invocation
+cwd before canonicalization. Do not resolve `--config` or positional paths
+relative to `--workspace`.
 
 The whole workspace is always indexed. `PATHS...` only decide which files are
 reported:
@@ -106,6 +124,10 @@ reported:
 
 Project config is merged over built-in defaults through the same merge semantics
 used by the LSP, then validated by the existing config validator.
+
+The CLI has no LSP client or initialization-options layer. Build its settings as
+`validate_comment_formatting_config(deep_merge_config(DEFAULT_SETTINGS,
+projectPartial || {}))`.
 
 Malformed or unreadable config is an operator error in `sight check` and exits
 `2`. This intentionally differs from the LSP, which logs the problem and starts
@@ -137,6 +159,20 @@ Suggested responsibilities:
 - `src/cli/source-files.ts`: supported source predicates, directory walking, and
   report-target collection.
 
+`DiagnosticsProvider` currently depends on the full
+`vscode-languageserver` `Connection` type even though it only uses
+`sendDiagnostics`. Before instantiating it from CLI code, introduce a narrow
+exported connection interface for diagnostics, for example:
+
+```typescript
+export interface DiagnosticsConnection {
+    sendDiagnostics(params: { uri: string; diagnostics: Diagnostic[] }): void;
+}
+```
+
+Then update `DiagnosticsProvider` to accept that interface. The LSP server still
+passes the real connection, and the CLI can pass a no-op implementation.
+
 The batch analysis context should own:
 
 - `DependencyGraph`
@@ -146,8 +182,9 @@ The batch analysis context should own:
 - `DocumentStore`
 - `DiagnosticsProvider`
 
-The CLI can provide a minimal mock `Connection` for `DiagnosticsProvider`
-because `get_diagnostics()` does not publish results.
+`ScopeResolver` logging callbacks in CLI mode must write warnings and debug logs
+to stderr or no-op based on config/debug mode. They must never write to stdout,
+because stdout carries JSON and SARIF machine output.
 
 ## Data Flow
 
@@ -158,18 +195,27 @@ because `get_diagnostics()` does not publish results.
    diagnostics provider.
 5. Configure the indexer from the validated config.
 6. Wire the graph and resolvers the same way the server does:
-   - indexer writes dependency edges to `DependencyGraph`;
+   - `workspace_indexer.set_dependency_graph(dependency_graph)`;
+   - `workspace_indexer.set_max_indexed_files(config.cross_file.max_indexed_files)`;
    - scope resolver reads from the dependency graph;
+   - `scope_resolver.set_dependency_graph(dependency_graph)`;
    - forward resolver is injected into scope resolver;
+   - `scope_resolver.set_forward_scope_resolver(forward_scope_resolver)`;
+   - `diagnostics_provider.set_dependency_graph(dependency_graph)`;
    - document store receives workspace roots and scope resolver.
 7. Run `WorkspaceIndexer.initialize([workspace], config.adoPaths)`.
 8. Collect report targets from `PATHS...`.
 9. For each target:
    - read source;
-   - open it in `DocumentStore` with a file URI;
+   - convert the filesystem path to a URI with `URI.file(path).toString()`;
+   - open it in `DocumentStore` with `await document_store.open(...)`;
+   - read the committed `DocumentState` with `document_store.get(uri)`;
    - collect diagnostics with `DiagnosticsProvider.get_diagnostics()`, passing
-     workspace symbols and the scope resolver;
-   - store `(path, diagnostic)` pairs.
+     `workspace_indexer.get_all_symbols()` and the scope resolver;
+   - store `(path, diagnostic)` pairs;
+   - close the document with `document_store.close(uri)` before moving to the
+     next target, so the CLI does not trip the store's LRU limits on large
+     workspaces.
 10. Render all diagnostics.
 11. Return the gated exit code.
 
@@ -186,6 +232,10 @@ unless normal logging is enabled. However, an explicitly reported source file
 that exceeds the configured size limit should produce an error diagnostic rather
 than silently passing. That diagnostic should point at `1:1` and explain the
 configured byte limit.
+
+If `cross_file.max_indexed_files` prevents the workspace scan from indexing an
+explicitly reported source file, produce an error diagnostic for that file rather
+than silently passing it.
 
 This keeps CI honest: when a user names a file, `sight check` either analyzes it
 or reports why it did not.
@@ -216,6 +266,15 @@ Rules:
 - the diagnostic code is included in brackets when present;
 - `--quiet` suppresses only the trailing text summary.
 
+Sort output deterministically by workspace-relative path, then start line, start
+column, severity, code, and message.
+
+The text summary should match this shape:
+
+```text
+N issues (E errors, W warnings, I infos, H hints, O notes)
+```
+
 JSON output should be an array:
 
 ```json
@@ -238,7 +297,9 @@ JSON output should be an array:
 
 SARIF output should emit SARIF 2.1.0 with diagnostic codes as rule IDs. A
 pragmatic v1 mapping is enough: `error` and `warning` map directly; information
-and hint map to SARIF `note`.
+and hint map to SARIF `note`. Rule IDs must be strings, using `SIGHT<code>` for
+numeric diagnostic codes. Include `tool.driver.name = "sight"` and the package
+version in `tool.driver.version`.
 
 Color applies only to text output. `--color auto` should respect terminal TTY
 status plus `NO_COLOR` and `FORCE_COLOR`. `--no-color` is an alias for
@@ -262,8 +323,11 @@ Unit and property tests:
 - parser rejects unknown flags, missing option values, bad enum values, and
   `--config` with `--no-config`;
 - severity ordering and `--max-severity` gating are deterministic;
+- `--max-severity info` does not fail information or hint diagnostics;
 - text, JSON, and SARIF render stable path, range, severity, message, source,
   and code data;
+- text output sorts diagnostics deterministically and prints the documented
+  summary;
 - color resolution follows explicit flag, `NO_COLOR`, `FORCE_COLOR`, and TTY
   precedence;
 - source discovery includes `.do`, `.ado`, `.doh`, and `.mata`;
@@ -285,6 +349,8 @@ Integration tests:
 - A malformed `sight.toml` exits `2`.
 - A missing explicit path exits `2`.
 - A large explicitly reported source file produces an error diagnostic.
+- A mis-encoded reported source file produces an error diagnostic with byte
+  offset information.
 - JSON output is parseable.
 - SARIF output has the required top-level 2.1.0 shape.
 
