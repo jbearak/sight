@@ -51,6 +51,7 @@ import * as fs from 'fs';
 import { expand_includes, IncludeResolver } from './utils/include-expander';
 import { extract_marker_names } from './utils/marker-scanner';
 import { resolve_help_topic } from './utils/help-resolver';
+import { is_project_config_event_path } from './config-file';
 
 /**
  * Interface defining all dependencies required by LSP handlers.
@@ -85,6 +86,7 @@ export interface ServerCapabilities {
     has_snippet_support: boolean;
     has_configuration_capability: boolean;
     has_workspace_folder_capability: boolean;
+    has_watched_files_dynamic_registration_capability: boolean;
     has_diagnostic_related_information_capability: boolean;
 }
 
@@ -165,6 +167,11 @@ export function create_initialize_handler(
         const has_workspace_folder_capability = !!(
             capabilities.workspace && !!capabilities.workspace.workspaceFolders
         );
+        const has_watched_files_dynamic_registration_capability = !!(
+            capabilities.workspace &&
+            capabilities.workspace.didChangeWatchedFiles &&
+            capabilities.workspace.didChangeWatchedFiles.dynamicRegistration
+        );
         const has_diagnostic_related_information_capability = !!(
             capabilities.textDocument &&
             capabilities.textDocument.publishDiagnostics &&
@@ -183,6 +190,7 @@ export function create_initialize_handler(
                 has_snippet_support,
                 has_configuration_capability,
                 has_workspace_folder_capability,
+                has_watched_files_dynamic_registration_capability,
                 has_diagnostic_related_information_capability,
             });
         }
@@ -694,11 +702,17 @@ export function create_exit_handler(
 export function create_did_change_watched_files_handler(
     deps: HandlerDependencies,
     parse_uri: (uri: string) => string,
-    on_file_changed?: (uri: string) => void  // New callback for caller revalidation
+    on_file_changed?: (uri: string) => void,
+    on_project_config_changed?: (uri: string) => void
 ): (params: DidChangeWatchedFilesParams) => void {
     return (params: DidChangeWatchedFilesParams): void => {
         for (const my_event of params.changes) {
             const file_path = parse_uri(my_event.uri);
+
+            if (is_project_config_event_path(file_path)) {
+                on_project_config_changed?.(my_event.uri);
+                continue;
+            }
             
             // Only process Stata-related files
             if (!(

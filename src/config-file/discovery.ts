@@ -75,3 +75,8 @@ export function find_project_config(
         warnings,
     };
 }
+
+export function is_project_config_event_path(file_path: string): boolean {
+    const base = path.basename(file_path);
+    return base === PROJECT_CONFIG_FILE || base === STALE_JSON_CONFIG_FILE;
+}

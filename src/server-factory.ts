@@ -8,7 +8,11 @@ import {
     TextDocuments,
     ProposedFeatures,
     DidChangeConfigurationNotification,
+    DidChangeWatchedFilesNotification,
     Connection,
+    WatchKind,
+    type Disposable,
+    type FileSystemWatcher,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -38,6 +42,7 @@ import { Logger } from './utils/logger';
 import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
+import * as path from 'path';
 import { discover_stata_ado_paths } from './utils/stata-install-paths';
 
 // Import cache directly so it gets bundled into the binary
@@ -143,6 +148,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         has_snippet_support: false,
         has_configuration_capability: false,
         has_workspace_folder_capability: false,
+        has_watched_files_dynamic_registration_capability: false,
         has_diagnostic_related_information_capability: false,
     };
 
@@ -155,6 +161,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let project_config_path: string | undefined = undefined;
     let project_config_candidate_dirs: string[] = [];
     let active_workspace_roots: string[] = [];
+    let project_config_watch_registration: Disposable | undefined = undefined;
 
     // Initialization options config
     let init_options_config: unknown = undefined;
@@ -184,6 +191,57 @@ export async function create_server(options: ServerOptions): Promise<void> {
             project_file_config = undefined;
             project_config_path = undefined;
         }
+    }
+
+    function project_config_watch_dirs(): string[] {
+        const dirs = new Set<string>();
+        for (const my_root of active_workspace_roots) {
+            dirs.add(my_root);
+        }
+        for (const my_dir of project_config_candidate_dirs) {
+            dirs.add(my_dir);
+        }
+        if (project_config_path) {
+            dirs.add(path.dirname(project_config_path));
+        }
+        return [...dirs];
+    }
+
+    function project_config_watchers_for_dirs(
+        dirs: string[]
+    ): FileSystemWatcher[] {
+        const watchers: FileSystemWatcher[] = [];
+        for (const my_dir of dirs) {
+            const baseUri = URI.file(my_dir).toString();
+            watchers.push({
+                globPattern: { baseUri, pattern: 'sight.toml' },
+                kind: WatchKind.Create | WatchKind.Change | WatchKind.Delete,
+            });
+            watchers.push({
+                globPattern: { baseUri, pattern: '.sight.json' },
+                kind: WatchKind.Create | WatchKind.Change | WatchKind.Delete,
+            });
+        }
+        return watchers;
+    }
+
+    async function refresh_project_config_watchers(): Promise<void> {
+        if (!server_capabilities
+            .has_watched_files_dynamic_registration_capability) {
+            return;
+        }
+        project_config_watch_registration?.dispose();
+        const watchers = project_config_watchers_for_dirs(
+            project_config_watch_dirs()
+        );
+        if (watchers.length === 0) {
+            project_config_watch_registration = undefined;
+            return;
+        }
+        project_config_watch_registration = await connection.client.register(
+            DidChangeWatchedFilesNotification.type,
+            { watchers }
+        );
     }
 
     /**
@@ -496,6 +554,37 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
     }
 
+    async function reload_project_config_from_active_root(): Promise<void> {
+        const active_root = active_workspace_roots[0];
+        if (!active_root) {
+            return;
+        }
+
+        apply_loaded_project_config(
+            discover_and_load_project_config(active_root)
+        );
+        document_settings.clear();
+
+        const settings = await get_document_settings('');
+        if (!server_capabilities.has_configuration_capability) {
+            global_settings = settings;
+        }
+
+        if (workspace_indexer) {
+            workspace_indexer.configure(settings);
+            workspace_indexer.set_max_indexed_files(
+                settings.cross_file?.max_indexed_files ?? 1000
+            );
+        }
+
+        await refresh_project_config_watchers();
+
+        for (const my_doc of documents.all()) {
+            diagnostics_provider?.clear_published_version(my_doc.uri);
+            void validate_text_document(my_doc, 0);
+        }
+    }
+
     /**
      * Refresh all workspace-wide state after folder changes.
      * Tears down stale caches, re-roots resolvers, re-reads config,
@@ -540,6 +629,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 forward_scope_resolver.set_workspace_roots([]);
             }
         }
+
+        await refresh_project_config_watchers();
 
         // --- Load settings and configure indexer ---
         const settings = await get_document_settings('');
@@ -1128,6 +1219,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         schedule_caller_revalidation(callers, uri, settings);
                     }
                 }
+            },
+            async () => {
+                await reload_project_config_from_active_root();
             }
         )
     );
