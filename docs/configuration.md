@@ -50,7 +50,7 @@ also suppressed.
 >
 > To enable indentation diagnostics:
 > - **VS Code**: Set `sight.diagnostics.indentation` to `true` in Settings
-> - **Project config**: Add `"diagnostics": { "indentation": true }` to `.sight.json`
+> - **Project config**: Add `[diagnostics] indentation = true` to `sight.toml`
 
 ### Forward Reference Detection
 
@@ -183,32 +183,81 @@ To use `*` for comment toggling instead of `//`:
 
 ## Project Configuration File
 
-You can also configure the LSP using a `.sight.json` file in your workspace root. This is useful for project-specific settings that should be shared with collaborators.
+Sight reads `sight.toml` as the portable project configuration file. The LSP
+discovers it by walking upward from the active workspace root; `sight check`
+will use the same discovery from `--workspace`.
 
-```json
-{
-  "diagnostics": {
-    "indentation": false
-  },
-  "crossFile": {
-    "backwardDependencies": "auto",
-    "indexWorkspace": true,
-    "maxIndexedFiles": 1000,
-    "maxBackwardDepth": 10,
-    "maxForwardDepth": 10,
-    "maxChainDepth": 20,
-    "assumeCallSite": "end",
-    "diagnostics": {
-      "missingFile": "warning",
-      "callSiteIdentification": "information"
-    }
-  }
-}
+Project config wins over client/editor settings per key. Keys omitted from
+`sight.toml` continue to come from editor settings or built-in defaults.
+
+`.sight.json` is no longer supported. Convert its contents to TOML syntax;
+renaming the file is not enough because JSON and TOML are different languages.
+
+```toml
+indexWorkspace = true
+adoPaths = []
+lineCommentStyle = "//"
+debug = false
+
+[diagnostics]
+enabled = true
+indentation = false
+
+[diagnostics.severity]
+undefinedMacro = "warning"
+undefinedVariable = "off"
+styleWarnings = "hint"
+malformedOperator = "warning"
+invalidOperatorSequence = "error"
+cStyleLogicalInControlFlow = "information"
+mixedLogicalOperators = "warning"
+
+[formatting]
+indentSize = 4
+indentStyle = "spaces"
+lineWidth = 80
+preferredCommentStyle = "line"
+normalizeCommentStyle = false
+commentLineWidth = 72
+mode = "source-preserving"
+preserveAlignment = true
+
+[completion]
+cacheSize = 200
+prefixMaxItems = 200
+
+[indexing]
+maxFileSizeBytes = 500000
+
+[crossFile]
+indexWorkspace = true
+maxIndexedFiles = 1000
+assumeCallSite = "end"
+backwardDependencies = "auto"
+maxBackwardDepth = 10
+maxForwardDepth = 10
+maxChainDepth = 20
+maxCalleeRevalidations = 10
+
+[crossFile.diagnostics]
+missingFile = "warning"
+maxDepth = "information"
+callSiteIdentification = "information"
 ```
 
 | Option                                  | Type                 | Default         | Description                                                             |
 | --------------------------------------- | -------------------- | --------------- | ----------------------------------------------------------------------- |
+| `indexWorkspace`                        | boolean              | `true`          | Global workspace-indexing switch                                        |
+| `adoPaths`                              | string array         | `[]`            | Additional ADO search paths                                             |
+| `lineCommentStyle`                      | `"//"` \| `"*"`      | `"//"`         | Line comment style used when formatting resolves `"line"`               |
+| `debug`                                 | boolean              | `false`         | Enable debug logging                                                    |
+| `diagnostics.enabled`                   | boolean              | `true`          | Enable diagnostics                                                      |
 | `diagnostics.indentation`               | boolean              | `false`         | Enable indentation diagnostics                                          |
+| `diagnostics.severity.*`                | severity             | varies          | Severity for diagnostic families                                        |
+| `formatting.*`                          | mixed                | varies          | Server formatting behavior                                              |
+| `completion.cacheSize`                  | number               | `200`           | Completion cache size                                                   |
+| `completion.prefixMaxItems`             | number               | `200`           | Maximum prefix-command completions                                      |
+| `indexing.maxFileSizeBytes`             | number               | `500000`        | Maximum indexed file size                                               |
 | `crossFile.backwardDependencies`        | `"auto"` \| `"explicit"` | `"auto"`    | `"auto"`: discover parents from workspace scan; `"explicit"`: require directives |
 | `crossFile.indexWorkspace`              | boolean              | `true`          | Enable workspace-wide file indexing                                     |
 | `crossFile.maxIndexedFiles`             | number               | `1000`          | Maximum files to index                                                  |
@@ -222,7 +271,9 @@ You can also configure the LSP using a `.sight.json` file in your workspace root
 
 Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias: `"info"` for `"information"`)
 
-VS Code settings take precedence over `.sight.json` when both are present.
+Both `indexWorkspace` and `crossFile.indexWorkspace` default to `true`.
+Workspace indexing runs only when both are enabled; setting either to `false`
+disables it.
 
 ## See Also
 

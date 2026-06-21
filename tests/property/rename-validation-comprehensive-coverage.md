@@ -42,16 +42,18 @@ This document outlines the comprehensive property-based tests created to verify 
 - Covers all diagnostic types (lexer, parser, semantic, context, directive, cross-file)
 - Verifies DiagnosticsProvider implementation consistency
 
-### Property 4: Config File Resolution Works with '.sight.json'
+### Property 4: Config File Resolution Works with `sight.toml`
 
 **Tests:**
-- `should verify workspace config uses .sight.json filename`
+- `should verify project config uses sight.toml filename`
 - `should verify workspace config file references in source code`
 - `should verify workspace config mapping function handles sight schema`
 - `should verify config file path construction uses sight naming`
 
 **Coverage:**
-- Validates workspace configuration file is named `.sight.json`
+- Validates project configuration file is named `sight.toml`
+- Validates `.sight.json` is only detected to warn users that JSON project
+  config is unsupported
 - Ensures no references to `.stata-lsp.json` remain
 - Verifies config mapping function handles sight schema correctly
 - Tests path construction and file resolution logic
@@ -108,7 +110,7 @@ This document outlines the comprehensive property-based tests created to verify 
 
 ### Server-Side Files
 - `src/server-handlers.ts` - Command registration and default settings
-- `src/utils/workspace-config.ts` - Configuration file handling
+- `src/config-file/` - Project configuration discovery, loading, and mapping
 - `src/providers/diagnostics.ts` - Diagnostic source attribution
 
 ### Documentation
