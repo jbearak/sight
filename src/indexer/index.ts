@@ -535,7 +535,7 @@ export class WorkspaceIndexer {
     private async index_mata_file(
         content: string,
         file_uri: string,
-        generation: number = this.scan_generation
+        generation: number
     ): Promise<void> {
         if (!this.is_active_generation(generation)) return;
 

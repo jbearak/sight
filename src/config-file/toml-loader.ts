@@ -3,6 +3,22 @@ import { parse } from 'smol-toml';
 import type { LoadedProjectConfig, ProjectConfigWarning } from './types';
 import { map_public_config_to_partial_config } from './schema';
 
+function load_failed(
+    path: string,
+    error: unknown,
+    warnings: ProjectConfigWarning[]
+): LoadedProjectConfig {
+    return {
+        kind: 'load-failed',
+        path,
+        error: `${path}: ${
+            error instanceof Error ? error.message : String(error)
+        }`,
+        warnings,
+        candidate_dirs: [],
+    };
+}
+
 export function load_toml_str(
     text: string,
     source_label: string
@@ -19,20 +35,10 @@ export function load_toml_str(
             path: source_label,
             partial_config,
             warnings,
-            stale_json_paths: [],
             candidate_dirs: [],
         };
     } catch (error) {
-        return {
-            kind: 'load-failed',
-            path: source_label,
-            error: `${source_label}: ${
-                error instanceof Error ? error.message : String(error)
-            }`,
-            warnings,
-            stale_json_paths: [],
-            candidate_dirs: [],
-        };
+        return load_failed(source_label, error, warnings);
     }
 }
 
@@ -40,15 +46,6 @@ export function load_toml_file(path: string): LoadedProjectConfig {
     try {
         return load_toml_str(fs.readFileSync(path, 'utf8'), path);
     } catch (error) {
-        return {
-            kind: 'load-failed',
-            path,
-            error: `${path}: ${
-                error instanceof Error ? error.message : String(error)
-            }`,
-            warnings: [],
-            stale_json_paths: [],
-            candidate_dirs: [],
-        };
+        return load_failed(path, error, []);
     }
 }

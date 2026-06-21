@@ -44,9 +44,9 @@ describe('find_project_config', () => {
         const result = find_project_config(child, { max_depth: 2 });
 
         expect(result.kind).toBe('none');
-        expect(result.stale_json_paths).toEqual([stale]);
         expect(result.warnings).toHaveLength(1);
         expect(result.warnings[0].code).toBe('stale-json-config');
+        expect(result.warnings[0].path).toBe(stale);
     });
 
     it('stops at max depth', () => {

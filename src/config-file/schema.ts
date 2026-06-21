@@ -23,6 +23,16 @@ const CROSS_FILE_SEVERITIES = new Set([
     'info',
 ]);
 
+const DIAGNOSTIC_SEVERITY_KEYS = [
+    'undefinedMacro',
+    'undefinedVariable',
+    'styleWarnings',
+    'malformedOperator',
+    'invalidOperatorSequence',
+    'cStyleLogicalInControlFlow',
+    'mixedLogicalOperators',
+] as const;
+
 const INDENT_STYLES = ['spaces', 'tabs'] as const;
 const FORMATTER_MODES = ['source-preserving', 'ast'] as const;
 const COMMENT_STYLES = ['line', '//', '*', '/* */'] as const;
@@ -64,38 +74,22 @@ function warn_unknown_key(
     });
 }
 
-function normalize_severity(
+function normalize_severity_value<T extends string>(
     value: unknown,
     key_path: string,
+    allowed: ReadonlySet<string>,
     warn?: WarningSink
-): Severity | undefined {
+): T | undefined {
     if (typeof value !== 'string') {
         warn_invalid_value(key_path, value, warn);
         return undefined;
     }
     const lower = value.toLowerCase();
-    if (!SEVERITIES.has(lower)) {
+    if (!allowed.has(lower)) {
         warn_invalid_value(key_path, value, warn);
         return undefined;
     }
-    return (lower === 'info' ? 'information' : lower) as Severity;
-}
-
-function normalize_cross_file_severity(
-    value: unknown,
-    key_path: string,
-    warn?: WarningSink
-): CrossFileSeverity | undefined {
-    if (typeof value !== 'string') {
-        warn_invalid_value(key_path, value, warn);
-        return undefined;
-    }
-    const lower = value.toLowerCase();
-    if (!CROSS_FILE_SEVERITIES.has(lower)) {
-        warn_invalid_value(key_path, value, warn);
-        return undefined;
-    }
-    return (lower === 'info' ? 'information' : lower) as CrossFileSeverity;
+    return (lower === 'info' ? 'information' : lower) as T;
 }
 
 function pick_key(
@@ -283,28 +277,12 @@ function map_diagnostics(
     if (severity) {
         warn_unknown_keys(
             severity,
-            [
-                'undefinedMacro',
-                'undefinedVariable',
-                'styleWarnings',
-                'malformedOperator',
-                'invalidOperatorSequence',
-                'cStyleLogicalInControlFlow',
-                'mixedLogicalOperators',
-            ],
+            DIAGNOSTIC_SEVERITY_KEYS,
             'diagnostics.severity',
             warn
         );
         const mapped_severity: JsonObject = {};
-        for (const my_key of [
-            'undefinedMacro',
-            'undefinedVariable',
-            'styleWarnings',
-            'malformedOperator',
-            'invalidOperatorSequence',
-            'cStyleLogicalInControlFlow',
-            'mixedLogicalOperators',
-        ]) {
+        for (const my_key of DIAGNOSTIC_SEVERITY_KEYS) {
             const value = pick_key(
                 severity,
                 my_key,
@@ -312,9 +290,10 @@ function map_diagnostics(
                 `diagnostics.severity.${my_key}`
             );
             if (value !== undefined) {
-                const normalized = normalize_severity(
+                const normalized = normalize_severity_value<Severity>(
                     value,
                     `diagnostics.severity.${my_key}`,
+                    SEVERITIES,
                     warn
                 );
                 if (normalized) {
@@ -560,9 +539,10 @@ function map_cross_file(
             const key_path = `crossFile.diagnostics.${public_key}`;
             const value = pick_key(diagnostics, public_key, warn, key_path);
             if (value !== undefined) {
-                const normalized = normalize_cross_file_severity(
+                const normalized = normalize_severity_value<CrossFileSeverity>(
                     value,
                     key_path,
+                    CROSS_FILE_SEVERITIES,
                     warn
                 );
                 if (normalized) {

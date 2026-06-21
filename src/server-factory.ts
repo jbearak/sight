@@ -42,7 +42,6 @@ import { Logger } from './utils/logger';
 import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
-import * as path from 'path';
 import { discover_stata_ado_paths } from './utils/stata-install-paths';
 
 // Import cache directly so it gets bundled into the binary
@@ -158,7 +157,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     // Shared project config loaded from sight.toml.
     let project_file_config: DeepPartial<StataLSPConfig> | undefined = undefined;
-    let project_config_path: string | undefined = undefined;
     let project_config_candidate_dirs: string[] = [];
     let active_workspace_roots: string[] = [];
     let project_config_watch_registration: Disposable | undefined = undefined;
@@ -186,10 +184,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
         project_config_candidate_dirs = loaded.candidate_dirs;
         if (loaded.kind === 'loaded') {
             project_file_config = loaded.partial_config;
-            project_config_path = loaded.path;
         } else {
             project_file_config = undefined;
-            project_config_path = undefined;
         }
     }
 
@@ -201,9 +197,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
         for (const my_dir of project_config_candidate_dirs) {
             dirs.add(my_dir);
         }
-        if (project_config_path) {
-            dirs.add(path.dirname(project_config_path));
-        }
         return [...dirs];
     }
 
@@ -213,14 +206,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
         const watchers: FileSystemWatcher[] = [];
         for (const my_dir of dirs) {
             const baseUri = URI.file(my_dir).toString();
-            watchers.push({
-                globPattern: { baseUri, pattern: 'sight.toml' },
-                kind: WatchKind.Create | WatchKind.Change | WatchKind.Delete,
-            });
-            watchers.push({
-                globPattern: { baseUri, pattern: '.sight.json' },
-                kind: WatchKind.Create | WatchKind.Change | WatchKind.Delete,
-            });
+            for (const my_pattern of ['sight.toml', '.sight.json']) {
+                watchers.push({
+                    globPattern: { baseUri, pattern: my_pattern },
+                    kind: WatchKind.Create | WatchKind.Change
+                        | WatchKind.Delete,
+                });
+            }
         }
         return watchers;
     }
@@ -670,7 +662,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
             active_workspace_roots = [];
             document_store.set_workspace_roots([]);
             project_file_config = undefined;
-            project_config_path = undefined;
             project_config_candidate_dirs = [];
             if (scope_resolver) {
                 scope_resolver.set_workspace_roots([]);

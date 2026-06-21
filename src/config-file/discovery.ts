@@ -43,7 +43,6 @@ export function find_project_config(
     options: DiscoveryOptions = {}
 ): DiscoveredConfig {
     const candidate_dirs: string[] = [];
-    const stale_json_paths: string[] = [];
     const warnings: ProjectConfigWarning[] = [];
     const max_depth = options.max_depth ?? MAX_DISCOVERY_DEPTH;
 
@@ -52,7 +51,6 @@ export function find_project_config(
 
         const stale_json_path = path.join(my_dir, STALE_JSON_CONFIG_FILE);
         if (fs.existsSync(stale_json_path)) {
-            stale_json_paths.push(stale_json_path);
             warnings.push(stale_json_warning(stale_json_path));
         }
 
@@ -62,7 +60,6 @@ export function find_project_config(
                 kind: 'sight-toml',
                 path: config_path,
                 candidate_dirs,
-                stale_json_paths,
                 warnings,
             };
         }
@@ -71,7 +68,6 @@ export function find_project_config(
     return {
         kind: 'none',
         candidate_dirs,
-        stale_json_paths,
         warnings,
     };
 }

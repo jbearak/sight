@@ -31,7 +31,6 @@ export interface DiscoveryOptions {
 
 export interface DiscoveredConfigBase {
     candidate_dirs: string[];
-    stale_json_paths: string[];
     warnings: ProjectConfigWarning[];
 }
 
@@ -50,7 +49,6 @@ export type LoadedProjectConfig =
         path: string;
         partial_config: DeepPartial<StataLSPConfig>;
         warnings: ProjectConfigWarning[];
-        stale_json_paths: string[];
         candidate_dirs: string[];
     }
     | {
@@ -58,12 +56,10 @@ export type LoadedProjectConfig =
         path: string;
         error: string;
         warnings: ProjectConfigWarning[];
-        stale_json_paths: string[];
         candidate_dirs: string[];
     }
     | {
         kind: 'none';
         warnings: ProjectConfigWarning[];
-        stale_json_paths: string[];
         candidate_dirs: string[];
     };
