@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
-import { map_stata_lsp_json_to_partial_config } from '../../src/utils/workspace-config';
+import { map_public_config_to_partial_config } from '../../src/config-file';
 
 describe('Rename Validation Property Tests', () => {
     describe('Property 1: Configuration keys use sight. prefix', () => {
@@ -167,14 +167,15 @@ describe('Rename Validation Property Tests', () => {
         });
     });
 
-    describe('Property 4: Config file resolution works with .sight.json', () => {
-        it('should verify workspace config uses .sight.json filename', () => {
-            // Property: Config file should be named .sight.json
+    describe('Property 4: Config file resolution works with sight.toml', () => {
+        it('should verify project config uses sight.toml filename', () => {
+            // Property: Active project config file should be named sight.toml.
             fc.assert(
                 fc.property(
-                    fc.constant('.sight.json'),
+                    fc.constant('sight.toml'),
                     (config_filename) => {
-                        expect(config_filename).toBe('.sight.json');
+                        expect(config_filename).toBe('sight.toml');
+                        expect(config_filename).not.toBe('.sight.json');
                         expect(config_filename).not.toBe('.stata-lsp.json');
                         expect(config_filename).not.toBe('.stataLSP.json');
                         return true;
@@ -197,7 +198,7 @@ describe('Rename Validation Property Tests', () => {
                         })
                     }),
                     (sight_config) => {
-                        const mapped = map_stata_lsp_json_to_partial_config(sight_config);
+                        const mapped = map_public_config_to_partial_config(sight_config);
                         
                         // Verify mapping preserves structure
                         if (sight_config.crossFile) {
@@ -233,11 +234,12 @@ describe('Rename Validation Property Tests', () => {
                 fc.property(
                     fc.string({ minLength: 1, maxLength: 50 }).filter(s => /^[a-zA-Z0-9_-]+$/.test(s)),
                     (workspace_name) => {
-                        const config_filename = '.sight.json';
+                        const config_filename = 'sight.toml';
                         const config_path = path.join(workspace_name, config_filename);
                         
-                        expect(path.basename(config_path)).toBe('.sight.json');
-                        expect(config_path).toContain('.sight.json');
+                        expect(path.basename(config_path)).toBe('sight.toml');
+                        expect(config_path).toContain('sight.toml');
+                        expect(config_path).not.toContain('.sight.json');
                         expect(config_path).not.toContain('.stata-lsp.json');
                         
                         return true;
@@ -253,7 +255,7 @@ describe('Rename Validation Property Tests', () => {
             const files_to_check = [
                 '../../client/package.json',
                 '../../src/server-handlers.ts',
-                '../../src/utils/workspace-config.ts'
+                '../../src/config-file/types.ts'
             ];
             
             fc.assert(
@@ -273,7 +275,8 @@ describe('Rename Validation Property Tests', () => {
                             if (file_path.includes('package.json') || file_path.includes('server-handlers.ts')) {
                                 expect(content).toContain('sight.');
                             }
-                            if (file_path.includes('workspace-config.ts')) {
+                            if (file_path.includes('config-file/types.ts')) {
+                                expect(content).toContain('sight.toml');
                                 expect(content).toContain('.sight.json');
                             }
                         }
@@ -293,14 +296,16 @@ describe('Rename Validation Property Tests', () => {
                         config_prefix: fc.constant('sight'),
                         command_prefix: fc.constant('sight'),
                         diagnostic_source: fc.constant('sight'),
-                        config_file: fc.constant('.sight.json')
+                        config_file: fc.constant('sight.toml'),
+                        stale_config_file: fc.constant('.sight.json')
                     }),
                     (naming_convention) => {
                         // Verify consistency
                         expect(naming_convention.config_prefix).toBe('sight');
                         expect(naming_convention.command_prefix).toBe('sight');
                         expect(naming_convention.diagnostic_source).toBe('sight');
-                        expect(naming_convention.config_file).toBe('.sight.json');
+                        expect(naming_convention.config_file).toBe('sight.toml');
+                        expect(naming_convention.stale_config_file).toBe('.sight.json');
                         
                         // Verify all use the same base name
                         const base_name = 'sight';
@@ -308,6 +313,7 @@ describe('Rename Validation Property Tests', () => {
                         expect(naming_convention.command_prefix).toBe(base_name);
                         expect(naming_convention.diagnostic_source).toBe(base_name);
                         expect(naming_convention.config_file).toContain(base_name);
+                        expect(naming_convention.stale_config_file).toContain(base_name);
                         
                         return true;
                     }
