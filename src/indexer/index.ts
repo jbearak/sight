@@ -485,6 +485,18 @@ export class WorkspaceIndexer {
             const context_ranges = context_tracker.get_all_context_ranges();
             if (!this.is_active_generation(generation)) return;
 
+            if (this.metrics.files_indexed >= this.max_indexed_files) {
+                if (!this.max_files_reached) {
+                    this.max_files_reached = true;
+                    logger.info(
+                        `Reached max_indexed_files limit (${this.max_indexed_files}). ` +
+                        `Skipping remaining files.`
+                    );
+                }
+                this.clear_stale_entry(file_uri);
+                return;
+            }
+
             // Combine forward calls from analyzer (command-detected)
             // and directive parser (directive-detected)
             let all_forward_calls = analyzeResult.forward_calls;
