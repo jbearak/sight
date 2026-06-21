@@ -14,9 +14,11 @@ import { join } from 'path';
 import {
     extract_response_bodies,
     frame_message,
+    get_smoke_spawn_options,
     get_windows_tree_kill_command,
     plan_smoke_protocol_writes,
     response_received,
+    write_child_stdin,
     terminate_child_process,
 } from '../../scripts/smoke-stdio-startup';
 
@@ -347,6 +349,51 @@ describe('stdio startup smoke framing helpers', () => {
             command: 'taskkill',
             args: ['/pid', '1234', '/t', '/f'],
         });
+    });
+
+    it('uses a direct spawn for explicit Windows executable paths', () => {
+        expect(get_smoke_spawn_options(
+            'bin/sight-windows-x64.exe',
+            'win32'
+        ).shell).toBe(false);
+        expect(get_smoke_spawn_options(
+            'C:\\tools\\sight-windows-x64.exe',
+            'win32'
+        ).shell).toBe(false);
+    });
+
+    it('uses a shell for bare Windows command names', () => {
+        expect(get_smoke_spawn_options('sight', 'win32').shell).toBe(true);
+        expect(get_smoke_spawn_options('sight-language-server', 'win32').shell)
+            .toBe(true);
+    });
+
+    it('reports stdin EPIPE writes without throwing', async () => {
+        const failed_stdin = {
+            write(
+                _chunk: Buffer,
+                callback?: (error?: Error | null) => void
+            ): boolean {
+                const error = new Error('broken pipe') as NodeJS.ErrnoException;
+
+                error.code = 'EPIPE';
+                callback?.(error);
+                return false;
+            },
+        };
+        const the_errors: Error[] = [];
+
+        write_child_stdin(
+            failed_stdin,
+            frame_json({ jsonrpc: '2.0', method: 'initialize' }),
+            (error) => {
+                the_errors.push(error);
+            }
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(the_errors).toHaveLength(1);
+        expect((the_errors[0] as NodeJS.ErrnoException).code).toBe('EPIPE');
     });
 
     it('falls back to child.kill when Windows process-tree kill fails',

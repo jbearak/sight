@@ -74,6 +74,50 @@ export interface TerminateChildProcessOptions {
     tree_kill_timeout_ms?: number;
 }
 
+export interface ChildStdinWriter {
+    write(
+        chunk: Buffer,
+        callback?: (error?: Error | null) => void
+    ): boolean;
+}
+
+function has_windows_executable_path(command: string): boolean {
+    return command.toLowerCase().endsWith('.exe');
+}
+
+export function get_smoke_spawn_options(
+    command: string,
+    platform: NodeJS.Platform = process.platform
+): SpawnOptions {
+    return {
+        stdio: 'pipe',
+        shell: platform === 'win32' && !has_windows_executable_path(command),
+    };
+}
+
+export function write_child_stdin(
+    child_stdin: ChildStdinWriter,
+    message: Buffer,
+    on_error: (error: Error) => void
+): void {
+    let error_reported = false;
+
+    function report_error(error?: Error | null): void {
+        if (!error || error_reported) {
+            return;
+        }
+
+        error_reported = true;
+        on_error(error);
+    }
+
+    try {
+        child_stdin.write(message, report_error);
+    } catch (error) {
+        report_error(error as Error);
+    }
+}
+
 export function get_windows_tree_kill_command(
     pid: number
 ): WindowsTreeKillCommand {
@@ -285,6 +329,14 @@ function get_timeout_ms(env_name: string, default_ms: number): number {
     return default_ms;
 }
 
+function format_stdin_write_error(command: string, error: Error): string {
+    const code = (error as NodeJS.ErrnoException).code;
+    const prefix = code ? `${code}: ` : '';
+
+    return `${command} closed stdin before startup smoke completed: ` +
+        `${prefix}${error.message}`;
+}
+
 function run_smoke(command: string): void {
     const framed_initialize_request = frame_message(initialize_request);
     const timeout_ms = get_timeout_ms(
@@ -300,10 +352,7 @@ function run_smoke(command: string): void {
         2000
     );
 
-    const spawn_options: SpawnOptions = {
-        stdio: 'pipe',
-        shell: process.platform === 'win32',
-    };
+    const spawn_options = get_smoke_spawn_options(command);
     const child: ChildProcess = spawn(
         command,
         ['--stdio', '--quiet'],
@@ -388,7 +437,11 @@ function run_smoke(command: string): void {
         exit_sent = write_plan.next_state.exit_sent;
 
         for (const my_message of write_plan.messages) {
-            child_stdin.write(my_message);
+            write_child_stdin(child_stdin, my_message, (error) => {
+                if (!settled) {
+                    void finish(1, format_stdin_write_error(command, error));
+                }
+            });
         }
 
         if (write_plan.shutdown_received && exit_sent && !post_exit_timeout) {
@@ -432,7 +485,17 @@ function run_smoke(command: string): void {
         void finish(1, `${command} failed to start: ${error.message}`);
     });
 
-    child_stdin.write(framed_initialize_request);
+    child_stdin.on('error', (error) => {
+        if (!settled) {
+            void finish(1, format_stdin_write_error(command, error));
+        }
+    });
+
+    write_child_stdin(child_stdin, framed_initialize_request, (error) => {
+        if (!settled) {
+            void finish(1, format_stdin_write_error(command, error));
+        }
+    });
 
     initialize_timeout = setTimeout(() => {
         void finish(
