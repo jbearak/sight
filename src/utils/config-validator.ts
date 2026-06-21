@@ -257,6 +257,14 @@ export function validate_comment_formatting_config(
             validated_config.cross_file.assume_call_site = cross_file.assume_call_site;
         }
 
+        if (
+            cross_file.backward_dependencies === 'auto' ||
+            cross_file.backward_dependencies === 'explicit'
+        ) {
+            validated_config.cross_file.backward_dependencies =
+                cross_file.backward_dependencies;
+        }
+
         if (typeof cross_file.max_backward_depth === 'number' && cross_file.max_backward_depth > 0) {
             validated_config.cross_file.max_backward_depth = cross_file.max_backward_depth;
         }

@@ -34,6 +34,30 @@ describe('sight.toml server config precedence', () => {
         expect(settings.formatting.indentSize).toBe(4);
     });
 
+    it('applies crossFile.backwardDependencies through load merge and validation', () => {
+        const root = make_temp_dir();
+        fs.writeFileSync(
+            path.join(root, 'sight.toml'),
+            '[crossFile]\nbackwardDependencies = "EXPLICIT"\n'
+        );
+
+        const client = {
+            cross_file: {
+                backward_dependencies: 'auto',
+            },
+        };
+        const loaded = discover_and_load_project_config(root);
+
+        expect(loaded.kind).toBe('loaded');
+        if (loaded.kind === 'loaded') {
+            const settings = validate_comment_formatting_config(
+                deep_merge_config(client, loaded.partial_config)
+            );
+
+            expect(settings.cross_file.backward_dependencies).toBe('explicit');
+        }
+    });
+
     it('malformed nearest sight.toml yields no project layer', () => {
         const root = make_temp_dir();
         fs.writeFileSync(path.join(root, 'sight.toml'), 'bad = = toml\n');
