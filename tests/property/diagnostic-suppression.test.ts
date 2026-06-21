@@ -487,13 +487,13 @@ describe('Diagnostic Suppression Property Tests', () => {
     /**
      * Property: 'off' settings are case-insensitive for cross-file diagnostics
      * 
-     * Note: Case-insensitivity is handled by the config mapping layer (normalize_severity
-     * in workspace-config.ts), not by the diagnostics provider. This test verifies that
-     * configs created via map_stata_lsp_json_to_partial_config properly normalize case variants.
+     * Note: Case-insensitivity is handled by the config-file mapping layer, not
+     * by the diagnostics provider. This test verifies that configs created via
+     * map_public_config_to_partial_config normalize case variants.
      */
     it('should handle case-insensitive off settings for cross-file diagnostics', async () => {
         // Import the config mapping function to test case normalization
-        const { map_stata_lsp_json_to_partial_config } = await import('../../src/utils/workspace-config');
+        const { map_public_config_to_partial_config } = await import('../../src/config-file');
         
         await fc.assert(
             fc.asyncProperty(
@@ -511,7 +511,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                             },
                         },
                     };
-                    const mapped = map_stata_lsp_json_to_partial_config(raw_config);
+                    const mapped = map_public_config_to_partial_config(raw_config);
                     
                     // Build config with normalized value from mapping layer
                     const my_case_config = {

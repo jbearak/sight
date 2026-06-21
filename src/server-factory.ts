@@ -22,13 +22,17 @@ import { SymbolProvider } from './providers/symbols';
 import { CodeFormatter } from './providers/formatter';
 import { command_database } from './command-database';
 import { StataLSPConfig } from './types';
-import type { DeepPartial } from './utils/workspace-config';
+import type { DeepPartial } from './config-file';
+import {
+    deep_merge_config,
+    discover_and_load_project_config,
+    type LoadedProjectConfig,
+} from './config-file';
 import { WorkspaceIndexer } from './indexer';
 import { ScopeResolver } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DocumentDebounceManager } from './utils/debounce-manager';
 import { validate_comment_formatting_config } from './utils/config-validator';
-import { read_workspace_file_config_from_root, map_stata_lsp_json_to_partial_config } from './utils/workspace-config';
 import { RenameHandler } from './utils/file-rename-handler';
 import { Logger } from './utils/logger';
 import { DependencyGraph } from './dependency-graph';
@@ -146,8 +150,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let global_settings: StataLSPConfig = DEFAULT_SETTINGS;
     const document_settings: Map<string, Thenable<StataLSPConfig>> = new Map();
 
-    // Workspace-root .sight.json config
-    let workspace_file_config: DeepPartial<StataLSPConfig> | undefined = undefined;
+    // Shared project config loaded from sight.toml.
+    let project_file_config: DeepPartial<StataLSPConfig> | undefined = undefined;
+    let project_config_path: string | undefined = undefined;
+    let project_config_candidate_dirs: string[] = [];
+    let active_workspace_roots: string[] = [];
 
     // Initialization options config
     let init_options_config: unknown = undefined;
@@ -156,37 +163,27 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // workspaceFolders support, e.g., Claude Code, Neovim single-file)
     let init_root_uri: string | null = null;
 
-    type JsonObject = Record<string, unknown>;
+    function log_project_config_warnings(loaded: LoadedProjectConfig): void {
+        for (const my_warning of loaded.warnings) {
+            connection.console.log(
+                `Project config warning: ${my_warning.message}`
+            );
+        }
+        if (loaded.kind === 'load-failed') {
+            connection.console.log(`Project config warning: ${loaded.error}`);
+        }
+    }
 
-    function deep_merge<T>(base: T, overlay: unknown): T {
-        if (overlay === null || overlay === undefined) {
-            return base;
+    function apply_loaded_project_config(loaded: LoadedProjectConfig): void {
+        log_project_config_warnings(loaded);
+        project_config_candidate_dirs = loaded.candidate_dirs;
+        if (loaded.kind === 'loaded') {
+            project_file_config = loaded.partial_config;
+            project_config_path = loaded.path;
+        } else {
+            project_file_config = undefined;
+            project_config_path = undefined;
         }
-        if (Array.isArray(overlay)) {
-            return overlay as T;
-        }
-        if (typeof overlay !== 'object') {
-            return overlay as T;
-        }
-
-        const overlay_obj = overlay as JsonObject;
-        const result: JsonObject = Array.isArray(base)
-            ? ([...(base as unknown[])] as unknown as JsonObject)
-            : { ...(base as unknown as JsonObject) };
-        for (const key of Object.keys(overlay_obj)) {
-            const base_value = result[key];
-            const overlay_value = overlay_obj[key];
-            if (
-                typeof base_value === 'object' && base_value !== null &&
-                typeof overlay_value === 'object' && overlay_value !== null &&
-                !Array.isArray(base_value) && !Array.isArray(overlay_value)
-            ) {
-                result[key] = deep_merge(base_value, overlay_value);
-            } else {
-                result[key] = overlay_value;
-            }
-        }
-        return result as T;
     }
 
     /**
@@ -209,17 +206,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 const init_record = (init_options_config && typeof init_options_config === 'object'
                     ? (init_options_config as Record<string, unknown>)
                     : undefined);
-                let init_partial: unknown = init_record?.['sight'] ?? init_options_config;
-                if (init_partial && typeof init_partial === 'object' && (init_partial as Record<string, unknown>).crossFile) {
-                    init_partial = deep_merge({}, map_stata_lsp_json_to_partial_config(init_partial));
-                }
-
-                const merged_partial = deep_merge(
-                    deep_merge(
-                        deep_merge({}, workspace_file_config || {}),
-                        init_partial || {}
-                    ),
-                    config || {}
+                const init_partial = init_record?.['sight'] ?? init_options_config;
+                const client_partial = deep_merge_config(init_partial || {}, config || {});
+                const merged_partial = deep_merge_config(
+                    client_partial,
+                    project_file_config || {}
                 );
 
                 return validate_comment_formatting_config(merged_partial, (msg) => {
@@ -524,6 +515,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
         // --- Update workspace roots ---
         if (folder_paths.length > 0) {
+            active_workspace_roots = [...folder_paths];
             document_store.set_workspace_roots(folder_paths);
             if (scope_resolver) {
                 scope_resolver.set_workspace_roots(folder_paths);
@@ -532,18 +524,15 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 forward_scope_resolver.set_workspace_roots(folder_paths);
             }
 
-            const loaded = read_workspace_file_config_from_root(
-                folder_paths[0]
+            apply_loaded_project_config(
+                discover_and_load_project_config(folder_paths[0])
             );
-            workspace_file_config = loaded.partial_config;
-            if (loaded.error) {
-                connection.console.log(
-                    `Error reading .sight.json: ${loaded.error}`
-                );
-            }
         } else {
+            active_workspace_roots = [];
             document_store.set_workspace_roots([]);
-            workspace_file_config = undefined;
+            project_file_config = undefined;
+            project_config_path = undefined;
+            project_config_candidate_dirs = [];
             if (scope_resolver) {
                 scope_resolver.set_workspace_roots([]);
             }
@@ -1030,9 +1019,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 : undefined);
             const init_partial = init_record?.['sight'] ?? init_options_config;
             const change_settings = change.settings as Record<string, unknown> | undefined;
-            const merged_partial = deep_merge(
-                deep_merge({}, workspace_file_config || {}),
-                deep_merge(init_partial || {}, change_settings?.['sight'] || {})
+            const client_partial = deep_merge_config(
+                init_partial || {},
+                change_settings?.['sight'] || {}
+            );
+            const merged_partial = deep_merge_config(
+                client_partial,
+                project_file_config || {}
             );
             global_settings = validate_comment_formatting_config(
                 merged_partial,
