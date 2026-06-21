@@ -15,6 +15,18 @@ describe('server-factory project config wiring', () => {
         expect(source).toContain('apply_loaded_project_config');
     });
 
+    it('refreshes workspace indexing when project config reloads', () => {
+        const source = fs.readFileSync(server_factory_path, 'utf8');
+
+        expect(source).toContain('function configure_workspace_indexing');
+        expect(source).toMatch(
+            /configure_workspace_indexing\(\s*settings,\s*active_workspace_roots,\s*true\s*\)/
+        );
+        expect(source).toMatch(/workspace_indexer\?\.reset\(\)/);
+        expect(source).toMatch(/dependency_graph\?\.reset\(\)/);
+        expect(source).toMatch(/workspace_indexer\.initialize\(/);
+    });
+
     it('merges client settings before project settings', () => {
         const source = fs.readFileSync(server_factory_path, 'utf8');
 

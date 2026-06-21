@@ -55,6 +55,40 @@ describe('CompletionProvider Cache', () => {
     });
 
     describe('merged symbol cache hits', () => {
+        it('reconfigures prefix cache limits and clears stale entries', () => {
+            const small_provider = new CompletionProvider(
+                command_db,
+                undefined,
+                undefined,
+                5,
+                3
+            );
+            const first_cache = (small_provider as any)
+                .prefix_cache as CompletionPrefixCache;
+            const items = Array.from({ length: 5 }, (_, i) => ({
+                label: `item${i}`,
+            }));
+
+            expect(
+                first_cache.set_with_context('x', 'command', items, 1)
+            ).toHaveLength(3);
+
+            small_provider.configure_completion({
+                cacheSize: 5,
+                prefixMaxItems: 1,
+            });
+
+            const second_cache = (small_provider as any)
+                .prefix_cache as CompletionPrefixCache;
+            expect(second_cache).not.toBe(first_cache);
+            expect(
+                second_cache.get_with_context('x', 'command', 1)
+            ).toBeUndefined();
+            expect(
+                second_cache.set_with_context('x', 'command', items, 1)
+            ).toHaveLength(1);
+        });
+
         it('should hit cache on second request (no merge_symbol_tables call)', async () => {
             const merge_spy = spyOn(analyzer, 'merge_symbol_tables');
             const position = Position.create(0, 10);

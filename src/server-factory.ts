@@ -554,6 +554,70 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
     }
 
+    function configure_completion_provider(settings: StataLSPConfig): void {
+        completion_provider?.configure_completion(settings.completion);
+    }
+
+    function reset_workspace_indexing_state(): void {
+        workspace_indexer?.reset();
+        dependency_graph?.reset();
+        scope_resolver?.clear_cache();
+        scope_resolver?.reset_reverse_deps();
+    }
+
+    function configure_workspace_indexing(
+        settings: StataLSPConfig,
+        folder_paths: string[],
+        reset_indexes: boolean
+    ): void {
+        if (reset_indexes) {
+            reset_workspace_indexing_state();
+        }
+
+        configure_completion_provider(settings);
+
+        if (workspace_indexer) {
+            workspace_indexer.configure(settings);
+            workspace_indexer.set_max_indexed_files(
+                settings.cross_file?.max_indexed_files ?? 1000
+            );
+        }
+
+        const indexing_enabled =
+            settings.indexWorkspace !== false &&
+            settings.cross_file?.index_workspace !== false;
+
+        if (indexing_enabled && workspace_indexer
+            && folder_paths.length > 0) {
+            workspace_indexer.initialize(
+                folder_paths,
+                settings.adoPaths || []
+            ).then(() => {
+                // Newly indexed files may satisfy previously-unresolvable
+                // sthlp topics. Drop the per-handler negative cache so
+                // those topics are re-probed.
+                resolve_sthlp_handler?.clear_negative_cache();
+                if (dependency_graph?.is_scan_complete()) {
+                    revalidate_all_open_docs();
+                }
+            }).catch((err) => {
+                connection.console.log(
+                    `[indexer] Workspace indexing failed: ${err}`
+                );
+            });
+        } else {
+            // No workspace folders open — still discover Stata install
+            // paths so the help viewer can resolve built-in topics.
+            if (workspace_indexer) {
+                workspace_indexer.set_help_search_paths(
+                    discover_stata_ado_paths()
+                );
+            }
+            dependency_graph?.mark_scan_complete();
+            revalidate_all_open_docs();
+        }
+    }
+
     async function reload_project_config_from_active_root(): Promise<void> {
         const active_root = active_workspace_roots[0];
         if (!active_root) {
@@ -570,19 +634,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
             global_settings = settings;
         }
 
-        if (workspace_indexer) {
-            workspace_indexer.configure(settings);
-            workspace_indexer.set_max_indexed_files(
-                settings.cross_file?.max_indexed_files ?? 1000
-            );
-        }
-
+        configure_workspace_indexing(settings, active_workspace_roots, true);
         await refresh_project_config_watchers();
-
-        for (const my_doc of documents.all()) {
-            diagnostics_provider?.clear_published_version(my_doc.uri);
-            void validate_text_document(my_doc, 0);
-        }
     }
 
     /**
@@ -596,10 +649,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         folder_paths: string[]
     ): Promise<void> {
         // --- Teardown stale state ---
-        workspace_indexer?.reset();
-        dependency_graph?.reset();
-        scope_resolver?.clear_cache();
-        scope_resolver?.reset_reverse_deps();
+        reset_workspace_indexing_state();
         document_settings.clear();
 
         // --- Update workspace roots ---
@@ -639,47 +689,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
             global_settings = settings;
         }
 
-        if (workspace_indexer) {
-            workspace_indexer.configure(settings);
-            workspace_indexer.set_max_indexed_files(
-                settings.cross_file?.max_indexed_files ?? 1000
-            );
-        }
-
         // --- Scan workspace or mark complete ---
-        const indexing_enabled =
-            settings.indexWorkspace !== false &&
-            settings.cross_file?.index_workspace !== false;
-
-        if (indexing_enabled && workspace_indexer
-            && folder_paths.length > 0) {
-            workspace_indexer.initialize(
-                folder_paths,
-                settings.adoPaths || []
-            ).then(() => {
-                // Newly indexed files may satisfy previously-unresolvable
-                // sthlp topics. Drop the per-handler negative cache so
-                // those topics are re-probed.
-                resolve_sthlp_handler?.clear_negative_cache();
-                if (dependency_graph?.is_scan_complete()) {
-                    revalidate_all_open_docs();
-                }
-            }).catch((err) => {
-                connection.console.log(
-                    `[indexer] Workspace indexing failed: ${err}`
-                );
-            });
-        } else {
-            // No workspace folders open — still discover Stata install
-            // paths so the help viewer can resolve built-in topics.
-            if (workspace_indexer) {
-                workspace_indexer.set_help_search_paths(
-                    discover_stata_ado_paths()
-                );
-            }
-            dependency_graph?.mark_scan_complete();
-            revalidate_all_open_docs();
-        }
+        configure_workspace_indexing(settings, folder_paths, false);
     }
 
     async function validate_text_document(
@@ -1104,6 +1115,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
     connection.onDidChangeConfiguration((change) => {
         if (server_capabilities.has_configuration_capability) {
             document_settings.clear();
+            void get_document_settings('').then((settings) => {
+                configure_completion_provider(settings);
+            }).catch((err) => {
+                connection.console.error(
+                    `Error refreshing completion config: ${err}`
+                );
+            });
         } else {
             const init_record = (init_options_config && typeof init_options_config === 'object'
                 ? (init_options_config as Record<string, unknown>)
@@ -1124,6 +1142,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     connection.console.log(`Configuration warning: ${msg}`);
                 }
             );
+            configure_completion_provider(global_settings);
         }
 
         // Clear published versions so diagnostics will be re-published
