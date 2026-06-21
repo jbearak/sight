@@ -46,10 +46,15 @@ import {
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
 const INDEX_DEBOUNCE_MS = 200;
+const SOURCE_EXTENSIONS = new Set(['.do', '.ado', '.doh', '.mata']);
 
 // Version-control metadata directories skipped during workspace scans.
 // They contain no Stata source and recursing them is wasted work.
 const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
+
+function is_stata_source_file(file_path: string): boolean {
+    return SOURCE_EXTENSIONS.has(path.extname(file_path).toLowerCase());
+}
 
 export interface IndexedFileData {
     uri: string;
@@ -330,15 +335,11 @@ export class WorkspaceIndexer {
                         continue;
                     }
                     await this.scan_directory(entry_path, generation);
-                } else if (entry.isFile()) {
-                    if (
-                        entry.name.endsWith('.do') ||
-                        entry.name.endsWith('.ado') ||
-                        entry.name.endsWith('.doh') ||
-                        entry.name.endsWith('.mata')
-                    ) {
-                        file_paths.push(entry_path);
-                    }
+                } else if (
+                    entry.isFile() &&
+                    is_stata_source_file(entry_path)
+                ) {
+                    file_paths.push(entry_path);
                 }
             }
 
@@ -457,7 +458,7 @@ export class WorkspaceIndexer {
             if (!this.is_active_generation(generation)) return;
 
             // Handle .mata files differently
-            if (file_path.endsWith('.mata')) {
+            if (path.extname(file_path).toLowerCase() === '.mata') {
                 await this.index_mata_file(content, file_uri, generation);
                 return;
             }

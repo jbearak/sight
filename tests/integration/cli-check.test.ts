@@ -73,6 +73,33 @@ describe('sight check integration', () => {
         expect(result.stdout).toBe('');
     });
 
+    it('canonicalizes symlinked workspace and explicit target paths', async () => {
+        const real_root = temp_dir();
+        const link_root = `${real_root}-link`;
+        fs.symlinkSync(real_root, link_root, 'dir');
+        fs.writeFileSync(path.join(real_root, 'parent.do'), 'global project_root /tmp\ndo child.do\n');
+        fs.writeFileSync(path.join(real_root, 'child.do'), 'display "$project_root"\n');
+
+        const result = await run_capture(
+            ['--workspace', link_root, path.join(real_root, 'child.do'), '--quiet'],
+            real_root
+        );
+
+        expect(result.code).toBe(EXIT_OK);
+        expect(result.stdout).toBe('');
+    });
+
+    it('indexes uppercase source extensions for cross-file scope', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, 'parent.DO'), 'global project_root /tmp\ndo child.do\n');
+        fs.writeFileSync(path.join(root, 'child.do'), 'display "$project_root"\n');
+
+        const result = await run_capture(['--workspace', root, 'child.do', '--quiet'], root);
+
+        expect(result.code).toBe(EXIT_OK);
+        expect(result.stdout).toBe('');
+    });
+
     it('reports malformed config as operator error', async () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, 'sight.toml'), 'bad = = toml\n');
@@ -90,6 +117,23 @@ describe('sight check integration', () => {
 
         expect(result.code).toBe(EXIT_OPERATOR_ERROR);
         expect(result.stderr).toContain('path does not exist');
+    });
+
+    it('reports unreadable report directories as operator errors', async () => {
+        const root = temp_dir();
+        const locked = path.join(root, 'locked');
+        fs.mkdirSync(locked);
+        fs.chmodSync(locked, 0);
+        try {
+            const result = await run_capture(['--workspace', root, 'locked'], root);
+
+            expect(result.code).toBe(EXIT_OPERATOR_ERROR);
+            expect(result.stderr).toContain('sight check:');
+            expect(result.stderr).toContain('permission denied');
+            expect(result.stderr).not.toContain(' at ');
+        } finally {
+            fs.chmodSync(locked, 0o700);
+        }
     });
 
     it('reports explicitly oversized source files as error diagnostics', async () => {

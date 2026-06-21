@@ -26,6 +26,10 @@ export function is_stata_source_path(file_path: string): boolean {
     return SOURCE_EXTENSIONS.has(path.extname(file_path).toLowerCase());
 }
 
+export function canonicalize_existing_path(file_path: string): string {
+    return fs.realpathSync.native(file_path);
+}
+
 export function relative_path(workspace_root: string, file_path: string): string {
     const relative = path.relative(workspace_root, file_path);
     return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
@@ -33,13 +37,30 @@ export function relative_path(workspace_root: string, file_path: string): string
         : file_path;
 }
 
-function walk_sources(dir_path: string, out: string[]): void {
-    const entries = fs.readdirSync(dir_path, { withFileTypes: true });
+function error_message(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function walk_sources(
+    dir_path: string,
+    out: string[],
+    operator_errors: string[]
+): void {
+    let entries: fs.Dirent[];
+    try {
+        entries = fs.readdirSync(dir_path, { withFileTypes: true });
+    } catch (error) {
+        operator_errors.push(
+            `cannot read directory: ${dir_path}: ${error_message(error)}`
+        );
+        return;
+    }
+
     for (const entry of entries) {
         const entry_path = path.join(dir_path, entry.name);
         if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
-            walk_sources(entry_path, out);
+            walk_sources(entry_path, out, operator_errors);
         } else if (entry.isFile() && is_stata_source_path(entry_path)) {
             out.push(entry_path);
         }
@@ -53,22 +74,45 @@ export function collect_report_targets(
 ): ReportTargetResult {
     const operator_errors: string[] = [];
     const source_paths: string[] = [];
-    const normalized_root = path.resolve(workspace_root);
+    let normalized_root = path.resolve(workspace_root);
+    try {
+        normalized_root = canonicalize_existing_path(normalized_root);
+    } catch {
+        // Workspace validation happens before target collection in check.ts.
+    }
     const has_explicit_paths = input_paths.length > 0;
     const paths_to_collect = input_paths.length > 0
         ? input_paths
         : [normalized_root];
 
     for (const input_path of paths_to_collect) {
-        const absolute_path = path.resolve(cwd, input_path);
-        if (!fs.existsSync(absolute_path)) {
+        const resolved_path = path.resolve(cwd, input_path);
+        if (!fs.existsSync(resolved_path)) {
             operator_errors.push(`path does not exist: ${input_path}`);
             continue;
         }
 
-        const stat = fs.statSync(absolute_path);
+        let absolute_path: string;
+        try {
+            absolute_path = canonicalize_existing_path(resolved_path);
+        } catch (error) {
+            operator_errors.push(
+                `cannot access path: ${input_path}: ${error_message(error)}`
+            );
+            continue;
+        }
+
+        let stat: fs.Stats;
+        try {
+            stat = fs.statSync(absolute_path);
+        } catch (error) {
+            operator_errors.push(
+                `cannot stat path: ${input_path}: ${error_message(error)}`
+            );
+            continue;
+        }
         if (stat.isDirectory()) {
-            walk_sources(absolute_path, source_paths);
+            walk_sources(absolute_path, source_paths, operator_errors);
         } else if (stat.isFile() && is_stata_source_path(absolute_path)) {
             source_paths.push(absolute_path);
         }

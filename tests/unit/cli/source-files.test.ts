@@ -54,7 +54,7 @@ describe('sight check source files', () => {
         );
 
         expect(result.targets.map((target) => target.path)).toEqual([
-            path.join(root, 'main.do'),
+            fs.realpathSync.native(path.join(root, 'main.do')),
         ]);
         expect(result.operator_errors).toHaveLength(1);
         expect(result.operator_errors[0]).toContain('missing.do');

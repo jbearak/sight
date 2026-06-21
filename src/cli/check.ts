@@ -20,6 +20,7 @@ import { StataLSPConfig } from '../types';
 import { validate_comment_formatting_config } from '../utils/config-validator';
 import { Logger } from '../utils/logger';
 import {
+    canonicalize_existing_path,
     collect_report_targets,
     index_limit_diagnostic,
     relative_path,
@@ -445,12 +446,28 @@ export async function run_check_with_cwd(
         return EXIT_OK;
     }
 
-    const workspace_root = path.resolve(cwd, result.args.workspace ?? '.');
+    const resolved_workspace_root = path.resolve(
+        cwd,
+        result.args.workspace ?? '.'
+    );
     if (
-        !fs.existsSync(workspace_root) ||
-        !fs.statSync(workspace_root).isDirectory()
+        !fs.existsSync(resolved_workspace_root) ||
+        !fs.statSync(resolved_workspace_root).isDirectory()
     ) {
-        output.stderr(`sight check: invalid workspace: ${workspace_root}\n`);
+        output.stderr(
+            `sight check: invalid workspace: ${resolved_workspace_root}\n`
+        );
+        return EXIT_OPERATOR_ERROR;
+    }
+    let workspace_root: string;
+    try {
+        workspace_root = canonicalize_existing_path(resolved_workspace_root);
+    } catch (error) {
+        output.stderr(
+            `sight check: invalid workspace: ${
+                error instanceof Error ? error.message : String(error)
+            }\n`
+        );
         return EXIT_OPERATOR_ERROR;
     }
 
