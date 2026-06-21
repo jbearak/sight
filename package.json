@@ -6,12 +6,13 @@
     "client"
   ],
   "description": "Language Server Protocol implementation for Stata",
-  "main": "dist/cli.js",
+  "main": "dist/sight-server.js",
   "bin": {
+    "sight": "dist/sight-server.js",
     "sight-language-server": "dist/sight-server.js"
   },
   "scripts": {
-    "build": "tsc && cp -r src/command-database/caches dist/command-database/ && cd client && npm run compile && npm run copy-server && cd ..",
+    "build": "tsc && cp -r src/command-database/caches dist/command-database/ && bun run build:bundle && cd client && npm run compile && npm run copy-server && cd ..",
     "build:bundle": "bun scripts/build-binary.ts bundle",
     "build:binary": "bun scripts/build-binary.ts binary",
     "build:current": "bun scripts/build-binary.ts current",

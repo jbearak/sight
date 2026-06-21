@@ -18,7 +18,7 @@ vim.filetype.add({
 if not configs.sight then
   configs.sight = {
     default_config = {
-      cmd = { 'sight-language-server', '--stdio' },
+      cmd = { 'sight', '--stdio' },
       filetypes = { 'stata' },
       root_dir = function(fname)
         return lspconfig.util.root_pattern('.sight.json', '.git')(fname)

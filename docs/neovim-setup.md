@@ -27,17 +27,14 @@ This guide explains how to configure Neovim to use the Sight language server and
 Install the Sight language server globally:
 
 ```bash
-# Using bun
-bun install -g github:jbearak/sight
-
-# Using npm
-npm install -g github:jbearak/sight
+# From a Sight checkout
+./scripts/setup.sh
 ```
 
 Verify the installation:
 
 ```bash
-sight-language-server --help
+sight --help
 ```
 
 ### LazyVim / lazy.nvim Configuration
@@ -172,7 +169,7 @@ All commands are available via `:Sight<Tab>`:
 
 ### LSP not starting
 
-- Ensure `sight-language-server` is in your PATH: `which sight-language-server`
+- Ensure `sight` is in your PATH: `which sight`
 - Check `:LspLog` for error messages
 - Verify the filetype is detected: `:set filetype?` should show `stata`
 

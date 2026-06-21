@@ -12,14 +12,20 @@ name: Release Publish
         required: false
         type: boolean
         default: false
+      build_run_id:
+        description: 'release-build workflow run ID containing artifacts'
+        required: true
+        type: string
 
 # Serialize by tag so retries/second runs don't collide.
 concurrency:
   group: release-publish-${{ inputs.tag }}
   cancel-in-progress: false
 
-# Default token permissions. We elevate for GitHub Release creation only.
+# Needs actions:read to find/download build artifacts, and contents:write to
+# create the GitHub release.
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -89,20 +95,8 @@ jobs:
           set -euo pipefail
 
           ARTIFACT_NAME="release-${{ inputs.tag }}"
-
-          # Find artifact by name (works for both tag-push and manual triggers)
-          ARTIFACT_INFO=$(gh api "repos/${{ github.repository }}/actions/artifacts" \
-            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" and .expired == false) | {id: .id, run_id: .workflow_run.id}" \
-            | head -1)
-
-          if [ -z "$ARTIFACT_INFO" ]; then
-            echo "ERROR: No artifact found named '$ARTIFACT_NAME'"
-            echo "Make sure release-build.yml completed successfully for ${{ inputs.tag }}"
-            exit 1
-          fi
-
-          BUILD_RUN_ID=$(echo "$ARTIFACT_INFO" | jq -r '.run_id')
-          echo "Found artifact in build run: $BUILD_RUN_ID"
+          BUILD_RUN_ID="${{ inputs.build_run_id }}"
+          echo "Downloading artifact from build run: $BUILD_RUN_ID"
           gh run download "$BUILD_RUN_ID" --name "$ARTIFACT_NAME"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

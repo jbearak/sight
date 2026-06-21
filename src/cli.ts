@@ -6,6 +6,11 @@
 
 import { fileURLToPath } from 'url';
 import package_json from '../package.json' with { type: 'json' };
+import {
+    CLI_HELP_BANNER,
+    LEGACY_BINARY_NAME,
+    PRIMARY_BINARY_NAME,
+} from './cli-binary-names';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -65,6 +70,10 @@ export function parse_args(argv: string[]): CLIParseResult {
         // Check for unknown flags
         if (arg.startsWith('-') && !KNOWN_FLAGS.has(arg)) {
             return { success: false, error: `Unknown flag: ${arg}` };
+        }
+
+        if (!arg.startsWith('-') && !KNOWN_FLAGS.has(arg)) {
+            return { success: false, error: `Unknown command: ${arg}` };
         }
 
         switch (arg) {
@@ -134,7 +143,7 @@ export function serialize_options(options: CLIOptions): string[] {
  */
 export function print_help(): void {
     const help_text = `
-Sight - Language Server Protocol implementation for Stata
+${CLI_HELP_BANNER}
 
 USAGE:
     sight [OPTIONS]
@@ -161,7 +170,7 @@ For more information, visit: https://github.com/jbearak/sight
  * Print version to stdout.
  */
 export function print_version(): void {
-    console.log(`sight ${VERSION}`);
+    console.log(`${PRIMARY_BINARY_NAME} ${VERSION}`);
 }
 
 /**
@@ -203,14 +212,34 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 0;
 }
 
-// Run main if this is the entry point
-// Use process.argv[1] check for Node.js ESM compatibility (import.meta.main is Bun-only)
-const is_main = process.argv[1] && (
-    process.argv[1] === __filename ||
-    process.argv[1].endsWith('/sight-server.js') ||
-    process.argv[1].endsWith('\\sight-server.js')
-);
-if (is_main) {
+/**
+ * Detect whether this module should run the CLI main entry point.
+ * Node invokes npm package bins through symlinks named after the command.
+ * Accept both the real bundle name and exposed command names.
+ */
+export function is_cli_entry_point(
+    script_path: string | undefined,
+    cli_filename: string = __filename
+): boolean {
+    if (!script_path) {
+        return false;
+    }
+
+    const normalized_script_path = script_path.replace(/\\/g, '/');
+
+    return (
+        script_path === cli_filename ||
+        normalized_script_path.endsWith(`/${PRIMARY_BINARY_NAME}`) ||
+        normalized_script_path.endsWith(`/${PRIMARY_BINARY_NAME}.exe`) ||
+        normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}`) ||
+        normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}.exe`) ||
+        normalized_script_path.endsWith('/sight-server.js')
+    );
+}
+
+// Run main if this is the entry point. Use process.argv[1] for
+// Node.js ESM compatibility because import.meta.main is Bun-only.
+if (is_cli_entry_point(process.argv[1])) {
     main().then((code) => {
         if (code !== 0) {
             process.exit(code);

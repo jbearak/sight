@@ -40,7 +40,7 @@ The editor extension enables language server features and further provides:
 ### Guides
 
 - [Configuration](docs/configuration.md) - All settings and options
-- [Standalone Installation](docs/standalone-installation.md) - CLI usage, npm/npx, build from source
+- [Standalone Installation](docs/standalone-installation.md) - CLI usage, release binary, build from source
 - [Editor Integrations](docs/editor-integrations.md) - Generic LSP clients, AI agents
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
 
@@ -83,7 +83,7 @@ Execute code in Stata directly from the editor.
 1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
 2. In VS Code:
   - Extensions → `...` menu → "Install from VSIX..."
-  - Or via CLI: `code --install-extension sight-client-<version>.vsix`
+  - Or via CLI: `code --install-extension sight-<version>.vsix`
 
 > **Note:** If you have other extensions installed that provide Stata syntax highlighting (e.g., `stata-enhanced` or `stata-language`), disable them to use Sight's syntax highlighting.
 

@@ -15,7 +15,7 @@ vim.api.nvim_create_autocmd("FileType", {
   callback = function()
     vim.lsp.start({
       name = "sight",
-      cmd = { "sight-language-server", "--stdio" },
+      cmd = { "sight", "--stdio" },
       root_dir = vim.fn.getcwd(),
     })
   end,

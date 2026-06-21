@@ -2,18 +2,32 @@
 /**
  * Install script for the Sight LSP binary.
  * 
- * Copies the appropriate platform binary to ~/bin/sight-language-server
- * and provides PATH setup instructions if needed.
+ * Copies the platform binary to ~/bin/sight and the legacy alias.
+ * Provides PATH setup instructions after install.
  * 
  * Usage:
  *   bun scripts/install.ts
- *   bun run install
+ *   bun run install:binary
  */
 
 import { homedir } from 'os';
 import { join, resolve } from 'path';
-import { existsSync, mkdirSync, copyFileSync, chmodSync } from 'fs';
+import {
+    chmodSync,
+    copyFileSync,
+    existsSync,
+    lstatSync,
+    mkdirSync,
+    unlinkSync,
+} from 'fs';
 import { detect_platform } from './build-binary';
+import {
+    get_binary_shadow_paths_to_check,
+    get_binary_paths_to_install,
+} from './binary-names';
+import { ensure_sight_binary_target } from './binary-ownership';
+
+export { get_binary_name } from './binary-names';
 
 /**
  * Installation result.
@@ -24,6 +38,17 @@ interface InstallResult {
     path_in_path: boolean;
 }
 
+interface ExistingTarget {
+    path: string;
+    exists_or_is_symlink: boolean;
+    is_symlink: boolean;
+}
+
+type ExistingTargetChecker = (
+    binary_path: string,
+    platform: NodeJS.Platform
+) => void;
+
 /**
  * Get the user's bin directory path.
  */
@@ -32,17 +57,106 @@ function get_user_bin_path(): string {
 }
 
 /**
- * Get the installed binary name (with .exe on Windows).
+ * Get all installed binary paths.
  */
-function get_binary_name(): string {
-    return process.platform === 'win32' ? 'sight-language-server.exe' : 'sight-language-server';
+export function get_installed_binary_paths(
+    user_bin_path: string = get_user_bin_path(),
+    platform: NodeJS.Platform = process.platform
+): string[] {
+    return get_binary_paths_to_install(user_bin_path, platform);
+}
+
+function get_existing_target(target_path: string): ExistingTarget {
+    try {
+        const target_stats = lstatSync(target_path);
+
+        return {
+            path: target_path,
+            exists_or_is_symlink: true,
+            is_symlink: target_stats.isSymbolicLink(),
+        };
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return {
+                path: target_path,
+                exists_or_is_symlink: false,
+                is_symlink: false,
+            };
+        }
+
+        throw error;
+    }
+}
+
+function ensure_existing_target_is_replaceable(
+    target: ExistingTarget,
+    platform: NodeJS.Platform,
+    check_existing_target: ExistingTargetChecker
+): void {
+    if (!target.exists_or_is_symlink) {
+        return;
+    }
+
+    if (target.is_symlink && !existsSync(target.path)) {
+        throw new Error(
+            `Refusing to overwrite ${target.path}; it is a dangling ` +
+            'symlink and cannot be verified as a Sight binary.'
+        );
+    }
+
+    check_existing_target(target.path, platform);
 }
 
 /**
- * Get the installed binary path.
+ * Copy the source binary to every supported command name.
  */
-function get_installed_binary_path(): string {
-    return join(get_user_bin_path(), get_binary_name());
+export function install_binary_files(
+    source_path: string,
+    user_bin_path: string,
+    platform: NodeJS.Platform = process.platform,
+    check_existing_target: ExistingTargetChecker = ensure_sight_binary_target
+): string[] {
+    const the_target_paths = get_installed_binary_paths(
+        user_bin_path,
+        platform
+    );
+    const the_existing_targets = the_target_paths.map(get_existing_target);
+    const the_existing_shadow_targets = get_binary_shadow_paths_to_check(
+        user_bin_path,
+        platform
+    ).map(get_existing_target);
+
+    for (const my_target of [
+        ...the_existing_targets,
+        ...the_existing_shadow_targets,
+    ]) {
+        ensure_existing_target_is_replaceable(
+            my_target,
+            platform,
+            check_existing_target
+        );
+    }
+
+    for (const my_target of the_existing_targets) {
+        if (
+            my_target.exists_or_is_symlink &&
+            my_target.is_symlink
+        ) {
+            unlinkSync(my_target.path);
+        }
+    }
+
+    for (const my_target of the_existing_shadow_targets) {
+        if (my_target.exists_or_is_symlink) {
+            unlinkSync(my_target.path);
+        }
+    }
+
+    for (const my_target_path of the_target_paths) {
+        copyFileSync(source_path, my_target_path);
+    }
+
+    return the_target_paths;
 }
 
 /**
@@ -116,7 +230,7 @@ function detect_shell(): string {
 }
 
 /**
- * Install the Sight binary to ~/bin/sight-language-server.
+ * Install the Sight binary to ~/bin command names.
  */
 async function install(): Promise<InstallResult> {
     // Detect platform
@@ -170,11 +284,13 @@ async function install(): Promise<InstallResult> {
         }
     }
 
-    // Copy the binary
-    const target_path = get_installed_binary_path();
+    // Copy the binary to the primary command and legacy alias.
+    let the_target_paths: string[] = [];
     try {
-        copyFileSync(source_path, target_path);
-        console.log(`Copied ${source_path} to ${target_path}`);
+        the_target_paths = install_binary_files(source_path, user_bin);
+        for (const my_target_path of the_target_paths) {
+            console.log(`Copied ${source_path} to ${my_target_path}`);
+        }
     } catch (error) {
         return {
             success: false,
@@ -185,10 +301,14 @@ async function install(): Promise<InstallResult> {
 
     // Set executable permissions (Unix only)
     if (process.platform !== 'win32') {
-        try {
-            chmodSync(target_path, 0o755);
-        } catch (error) {
-            console.warn(`Warning: Could not set executable permissions: ${error}`);
+        for (const my_target_path of the_target_paths) {
+            try {
+                chmodSync(my_target_path, 0o755);
+            } catch (error) {
+                console.warn(
+                    `Warning: Could not set executable permissions: ${error}`
+                );
+            }
         }
     }
 
@@ -197,7 +317,7 @@ async function install(): Promise<InstallResult> {
 
     return {
         success: true,
-        message: `Successfully installed to ${target_path}`,
+        message: `Successfully installed to ${the_target_paths.join(', ')}`,
         path_in_path,
     };
 }
@@ -227,7 +347,7 @@ async function main(): Promise<void> {
         console.log('Then restart your shell or run: source ~/.bashrc (or ~/.zshrc)');
     } else {
         console.log('\n✓ ~/bin is already in your PATH.');
-        console.log('\nYou can now use sight-language-server from any directory.');
+        console.log('\nYou can now use sight from any directory.');
     }
 }
 
