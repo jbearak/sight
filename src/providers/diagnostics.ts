@@ -1,4 +1,4 @@
-import { Diagnostic, DiagnosticSeverity, Connection, Position, CancellationToken, Range } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity, Position, CancellationToken, Range } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
 import { LanguageContext, ContextDiagnostic, ContextRange } from '../context-tracker/types';
 import {
@@ -37,6 +37,13 @@ type OutOfScopeRewriteMatch = {
     reason: OutOfScopeMessageReason;
 };
 
+export interface DiagnosticsConnection {
+    sendDiagnostics(params: {
+        uri: string;
+        diagnostics: Diagnostic[];
+    }): void;
+}
+
 /**
  * DiagnosticsProvider aggregates diagnostics from cached parse results.
  * 
@@ -57,7 +64,7 @@ type OutOfScopeRewriteMatch = {
  * - Context Tracker: unclosed mata/python blocks, mismatched delimiters
  */
 export class DiagnosticsProvider {
-    private connection: Connection;
+    private connection: DiagnosticsConnection;
     private debounce_manager: DocumentDebounceManager | null = null;
     private indentation_analyzer = new IndentationDiagnosticAnalyzer();
     private operator_sequence_analyzer = new OperatorSequenceAnalyzer();
@@ -70,7 +77,10 @@ export class DiagnosticsProvider {
     // Cache filtered diagnostics by (uri, version, config_hash)
     private filtered_cache: Map<string, Map<string, Diagnostic[]>> = new Map();
 
-    constructor(connection: Connection, debounce_manager?: DocumentDebounceManager) {
+    constructor(
+        connection: DiagnosticsConnection,
+        debounce_manager?: DocumentDebounceManager
+    ) {
         this.connection = connection;
         this.debounce_manager = debounce_manager || null;
     }
