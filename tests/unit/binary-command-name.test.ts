@@ -502,6 +502,35 @@ describe('binary command name', () => {
         }
     });
 
+    it('does not execute an existing command while checking ownership', () => {
+        const temp_root = make_temp_dir();
+        const binary_path = join(temp_root, 'sight');
+        const marker_path = join(temp_root, 'executed');
+
+        try {
+            writeFileSync(
+                binary_path,
+                [
+                    '#!/bin/sh',
+                    `printf ran > '${marker_path}'`,
+                    'case "$1" in',
+                    "  --version) printf 'sight 1.2.3\\n' ;;",
+                    "  --help) printf 'Sight - Language Server Protocol '",
+                    "          printf 'implementation for Stata\\n' ;;",
+                    '  *) exit 0 ;;',
+                    'esac',
+                    '',
+                ].join('\n')
+            );
+            chmodSync(binary_path, 0o755);
+
+            expect(is_sight_binary(binary_path, 'linux')).toBe(false);
+            expect(existsSync(marker_path)).toBe(false);
+        } finally {
+            rmSync(temp_root, { recursive: true, force: true });
+        }
+    });
+
     it('source install writes primary and legacy command names', () => {
         const temp_root = make_temp_dir();
         const source_path = join(temp_root, 'source-binary');
@@ -863,8 +892,9 @@ describe('binary command name', () => {
                 const result = uninstall_from_bin_dir(
                     user_bin_path,
                     'win32',
-                    (binary_path) => {
+                    (binary_path, platform) => {
                         the_checked_names.push(basename(binary_path));
+                        expect(platform).toBe('win32');
                         return true;
                     }
                 );
@@ -1290,6 +1320,23 @@ describe('binary command name', () => {
         expect(workflow_content).toContain(
             '-f build_run_id="$GITHUB_RUN_ID"'
         );
+        const workflow_header = workflow_content.split('\njobs:\n')[0];
+        expect(workflow_header).toContain('contents: read');
+        expect(workflow_header).not.toContain('actions: write');
+        for (const my_job_name of [
+            'package',
+            'linux-binaries',
+            'darwin-binaries',
+            'windows-binaries',
+            'assemble',
+        ]) {
+            expect(workflow_content).toContain(
+                `  ${my_job_name}:\n` +
+                '    permissions:\n' +
+                '      actions: write\n' +
+                '      contents: read'
+            );
+        }
         for (const my_binary_name of [
             'sight-darwin-arm64',
             'sight-linux-x64',
@@ -1314,7 +1361,22 @@ describe('binary command name', () => {
             'build_run_id:'
         );
         expect(workflow_content).toContain(
+            'if [[ ! "$the_build_run_id" =~ ^[0-9]+$ ]]; then'
+        );
+        expect(workflow_content).toContain(
+            'the_build_run_id="$BUILD_RUN_ID_INPUT"'
+        );
+        expect(workflow_content).toContain(
+            'ERROR: build_run_id must be numeric.'
+        );
+        expect(workflow_content).toContain(
+            'BUILD_RUN_ID="$the_build_run_id"'
+        );
+        expect(workflow_content).not.toContain(
             'BUILD_RUN_ID="${{ inputs.build_run_id }}"'
+        );
+        expect(workflow_content).toContain(
+            'BUILD_RUN_ID_INPUT: ${{ inputs.build_run_id }}'
         );
         expect(workflow_content).toContain(
             'gh run download "$BUILD_RUN_ID" --name "$ARTIFACT_NAME"'
@@ -1364,6 +1426,16 @@ describe('binary command name', () => {
         expect(the_attempted_targets).toEqual(
             get_build_targets().map((target) => target.output_name)
         );
+    });
+
+    it('returns independent build target objects', () => {
+        const first_targets = get_build_targets();
+        const second_targets = get_build_targets();
+
+        first_targets[0].output_name = 'mutated';
+
+        expect(second_targets[0].output_name).toBe('sight-darwin-arm64');
+        expect(get_build_targets()[0].output_name).toBe('sight-darwin-arm64');
     });
 
     it('keeps release docs on the release script path', () => {

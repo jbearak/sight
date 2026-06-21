@@ -64,7 +64,7 @@ export function get_binary_paths_to_install(
     platform: NodeJS.Platform = process.platform
 ): string[] {
     return get_binary_names_to_install(platform).map(
-        (binary_name) => join(user_bin_path, binary_name)
+        (my_binary_name) => join(user_bin_path, my_binary_name)
     );
 }
 
@@ -85,10 +85,10 @@ export function get_binary_shadow_paths_to_check(
     ];
     const the_extensions = ['', '.cmd', '.bat', '.ps1'];
 
-    return the_base_names.flatMap((binary_name) =>
-        the_extensions.map((extension) => join(
+    return the_base_names.flatMap((my_binary_name) =>
+        the_extensions.map((my_extension) => join(
             user_bin_path,
-            `${binary_name}${extension}`
+            `${my_binary_name}${my_extension}`
         ))
     );
 }
@@ -101,6 +101,6 @@ export function get_binary_paths_to_uninstall(
     platform: NodeJS.Platform = process.platform
 ): string[] {
     return get_binary_names_to_uninstall(platform).map(
-        (binary_name) => join(user_bin_path, binary_name)
+        (my_binary_name) => join(user_bin_path, my_binary_name)
     );
 }

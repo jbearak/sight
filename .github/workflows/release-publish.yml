@@ -95,11 +95,17 @@ jobs:
           set -euo pipefail
 
           ARTIFACT_NAME="release-${{ inputs.tag }}"
-          BUILD_RUN_ID="${{ inputs.build_run_id }}"
+          the_build_run_id="$BUILD_RUN_ID_INPUT"
+          if [[ ! "$the_build_run_id" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: build_run_id must be numeric. Got: $the_build_run_id" >&2
+            exit 1
+          fi
+          BUILD_RUN_ID="$the_build_run_id"
           echo "Downloading artifact from build run: $BUILD_RUN_ID"
           gh run download "$BUILD_RUN_ID" --name "$ARTIFACT_NAME"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_RUN_ID_INPUT: ${{ inputs.build_run_id }}
 
       - name: Verify checksums
         shell: bash

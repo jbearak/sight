@@ -12,6 +12,7 @@ import {
 
 const INITIALIZE_REQUEST_ID = 1;
 const SHUTDOWN_REQUEST_ID = 2;
+const MAX_STDOUT_BUFFER_BYTES = 1024 * 1024;
 const initialize_request = JSON.stringify({
     jsonrpc: '2.0',
     id: INITIALIZE_REQUEST_ID,
@@ -249,6 +250,17 @@ export function plan_smoke_protocol_writes(
     };
 }
 
+export function trim_stdout_buffer(
+    stdout_buffer: Buffer,
+    max_bytes: number = MAX_STDOUT_BUFFER_BYTES
+): Buffer {
+    if (stdout_buffer.length <= max_bytes) {
+        return stdout_buffer;
+    }
+
+    return stdout_buffer.subarray(stdout_buffer.length - max_bytes);
+}
+
 function wait_for_child_exit(
     child: ChildProcess,
     timeout_ms: number
@@ -362,34 +374,34 @@ function run_smoke(command: string): void {
     const child_stdout = child.stdout;
     const child_stderr = child.stderr;
 
-    let initialized_sent = false;
-    let shutdown_sent = false;
-    let exit_sent = false;
-    let stderr_text = '';
-    let stdout_buffer = Buffer.alloc(0);
-    let settled = false;
-    let initialize_timeout: ReturnType<typeof setTimeout> | undefined;
-    let shutdown_timeout: ReturnType<typeof setTimeout> | undefined;
-    let post_exit_timeout: ReturnType<typeof setTimeout> | undefined;
+    let my_initialized_sent = false;
+    let my_shutdown_sent = false;
+    let my_exit_sent = false;
+    let my_stderr_text = '';
+    let my_stdout_buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    let my_settled = false;
+    let my_initialize_timeout: ReturnType<typeof setTimeout> | undefined;
+    let my_shutdown_timeout: ReturnType<typeof setTimeout> | undefined;
+    let my_post_exit_timeout: ReturnType<typeof setTimeout> | undefined;
 
     async function finish(
         exit_code: number,
         message?: string,
         kill_child = true
     ): Promise<never> {
-        if (settled) {
+        if (my_settled) {
             process.exit(exit_code);
         }
 
-        settled = true;
-        if (initialize_timeout) {
-            clearTimeout(initialize_timeout);
+        my_settled = true;
+        if (my_initialize_timeout) {
+            clearTimeout(my_initialize_timeout);
         }
-        if (shutdown_timeout) {
-            clearTimeout(shutdown_timeout);
+        if (my_shutdown_timeout) {
+            clearTimeout(my_shutdown_timeout);
         }
-        if (post_exit_timeout) {
-            clearTimeout(post_exit_timeout);
+        if (my_post_exit_timeout) {
+            clearTimeout(my_post_exit_timeout);
         }
 
         if (kill_child) {
@@ -409,66 +421,72 @@ function run_smoke(command: string): void {
     }
 
     child_stdout.on('data', (chunk: Buffer) => {
-        stdout_buffer = Buffer.concat([stdout_buffer, chunk]);
-        const write_plan = plan_smoke_protocol_writes(stdout_buffer, {
-            initialized_sent,
-            shutdown_sent,
-            exit_sent,
+        my_stdout_buffer = trim_stdout_buffer(
+            Buffer.concat([my_stdout_buffer, chunk])
+        );
+        const write_plan = plan_smoke_protocol_writes(my_stdout_buffer, {
+            initialized_sent: my_initialized_sent,
+            shutdown_sent: my_shutdown_sent,
+            exit_sent: my_exit_sent,
         });
 
-        if (!initialized_sent && write_plan.initialize_received) {
-            if (initialize_timeout) {
-                clearTimeout(initialize_timeout);
-                initialize_timeout = undefined;
+        if (!my_initialized_sent && write_plan.initialize_received) {
+            if (my_initialize_timeout) {
+                clearTimeout(my_initialize_timeout);
+                my_initialize_timeout = undefined;
             }
-            if (!shutdown_timeout) {
-                shutdown_timeout = setTimeout(() => {
+            if (!my_shutdown_timeout) {
+                my_shutdown_timeout = setTimeout(() => {
                     void finish(
                         1,
                         `${command} did not answer shutdown within ` +
-                        `${shutdown_timeout_ms}ms\n${stderr_text}`
+                        `${shutdown_timeout_ms}ms\n${my_stderr_text}`
                     );
                 }, shutdown_timeout_ms);
             }
         }
 
-        initialized_sent = write_plan.next_state.initialized_sent;
-        shutdown_sent = write_plan.next_state.shutdown_sent;
-        exit_sent = write_plan.next_state.exit_sent;
+        my_initialized_sent = write_plan.next_state.initialized_sent;
+        my_shutdown_sent = write_plan.next_state.shutdown_sent;
+        my_exit_sent = write_plan.next_state.exit_sent;
 
         for (const my_message of write_plan.messages) {
             write_child_stdin(child_stdin, my_message, (error) => {
-                if (!settled) {
+                if (!my_settled) {
                     void finish(1, format_stdin_write_error(command, error));
                 }
             });
         }
 
-        if (write_plan.shutdown_received && exit_sent && !post_exit_timeout) {
-            if (shutdown_timeout) {
-                clearTimeout(shutdown_timeout);
-                shutdown_timeout = undefined;
+        if (
+            write_plan.shutdown_received &&
+            my_exit_sent &&
+            !my_post_exit_timeout
+        ) {
+            if (my_shutdown_timeout) {
+                clearTimeout(my_shutdown_timeout);
+                my_shutdown_timeout = undefined;
             }
-            post_exit_timeout = setTimeout(() => {
+            my_post_exit_timeout = setTimeout(() => {
                 void finish(
                     1,
                     `${command} did not exit cleanly after shutdown\n` +
-                    stderr_text
+                    my_stderr_text
                 );
             }, post_exit_timeout_ms);
         }
     });
 
     child_stderr.on('data', (chunk: Buffer) => {
-        stderr_text += chunk.toString('utf8');
+        my_stderr_text += chunk.toString('utf8');
     });
 
     child.on('exit', (code, signal) => {
-        if (settled) {
+        if (my_settled) {
             return;
         }
 
-        if (exit_sent && code === 0) {
+        if (my_exit_sent && code === 0) {
             void finish(0, undefined, false);
             return;
         }
@@ -476,7 +494,7 @@ function run_smoke(command: string): void {
         void finish(
             1,
             `${command} exited before startup smoke completed: ` +
-            `code=${code} signal=${signal}\n${stderr_text}`,
+            `code=${code} signal=${signal}\n${my_stderr_text}`,
             false
         );
     });
@@ -486,22 +504,22 @@ function run_smoke(command: string): void {
     });
 
     child_stdin.on('error', (error) => {
-        if (!settled) {
+        if (!my_settled) {
             void finish(1, format_stdin_write_error(command, error));
         }
     });
 
     write_child_stdin(child_stdin, framed_initialize_request, (error) => {
-        if (!settled) {
+        if (!my_settled) {
             void finish(1, format_stdin_write_error(command, error));
         }
     });
 
-    initialize_timeout = setTimeout(() => {
+    my_initialize_timeout = setTimeout(() => {
         void finish(
             1,
             `${command} did not answer initialize within ${timeout_ms}ms\n` +
-            stderr_text
+            my_stderr_text
         );
     }, timeout_ms);
 }

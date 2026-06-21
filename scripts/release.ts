@@ -48,10 +48,11 @@ async function create_tag(config: ReleaseConfig): Promise<void> {
  * Push the version bump commit before publishing the tag that triggers release.
  */
 async function push_version_commit(): Promise<void> {
-    const current_branch = (await $`git branch --show-current`.text()).trim();
-    const push_ref = get_branch_push_ref(current_branch);
+    const my_current_branch = (await $`git branch --show-current`.text())
+        .trim();
+    const my_push_ref = get_branch_push_ref(my_current_branch);
 
-    await $`git push origin ${push_ref}`;
+    await $`git push origin ${my_push_ref}`;
 }
 
 /**
@@ -60,11 +61,13 @@ async function push_version_commit(): Promise<void> {
 async function update_package_version(version: string): Promise<void> {
     console.log(`Updating package.json versions to ${version}...`);
 
-    const [script_path, version_arg, no_git_arg] = get_bump_version_args(
-        version
-    );
+    const [
+        my_script_path,
+        my_version_arg,
+        my_no_git_arg,
+    ] = get_bump_version_args(version);
 
-    await $`bun ${script_path} ${version_arg} ${no_git_arg}`;
+    await $`bun ${my_script_path} ${my_version_arg} ${my_no_git_arg}`;
 
     await $`git add package.json client/package.json`;
     await $`git commit -m "chore: bump version to ${version}"`;

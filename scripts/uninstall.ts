@@ -18,7 +18,10 @@ import {
     get_binary_paths_to_uninstall,
 } from './binary-names';
 
-type BinaryOwnershipChecker = (binary_path: string) => boolean;
+type BinaryOwnershipChecker = (
+    binary_path: string,
+    platform: NodeJS.Platform
+) => boolean;
 
 export {
     get_binary_names_to_uninstall,
@@ -84,7 +87,7 @@ export function uninstall_from_bin_dir(
     for (const my_target_path of the_existing_paths) {
         if (
             existsSync(my_target_path) &&
-            is_sight_binary_fn(my_target_path)
+            is_sight_binary_fn(my_target_path, platform)
         ) {
             the_sight_paths.push(my_target_path);
         } else {

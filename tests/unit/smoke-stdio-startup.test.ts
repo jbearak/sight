@@ -18,6 +18,7 @@ import {
     get_windows_tree_kill_command,
     plan_smoke_protocol_writes,
     response_received,
+    trim_stdout_buffer,
     write_child_stdin,
     terminate_child_process,
 } from '../../scripts/smoke-stdio-startup';
@@ -342,6 +343,17 @@ describe('stdio startup smoke framing helpers', () => {
             method: 'exit',
             params: {},
         }]);
+    });
+
+    it('keeps only the newest stdout bytes when the smoke buffer grows', () => {
+        const old_chunk = Buffer.from('old-output');
+        const new_chunk = Buffer.from('new-output');
+        const trimmed = trim_stdout_buffer(
+            Buffer.concat([old_chunk, new_chunk]),
+            new_chunk.length
+        );
+
+        expect(trimmed.toString('utf8')).toBe('new-output');
     });
 
     it('plans Windows process-tree termination with taskkill', () => {

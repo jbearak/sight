@@ -97,7 +97,6 @@ This will:
 > **Note:** Ensure `~/bin` is on your `PATH` so that `sight` is discoverable.
 > If it isn't, add `export PATH="$HOME/bin:$PATH"` to your shell profile
 > (e.g., `~/.zshrc` or `~/.bashrc`).
-
 > If setup.sh identifies conflicting syntax highlighting extensions, it will
 > ask you what to do (disable/uninstall/do nothing).
 
@@ -105,7 +104,7 @@ Requires [Bun](https://bun.sh) (`brew install bun` or see https://bun.sh).
 
 ## CLI Options
 
-```
+```bash
 sight [options]
 ```
 

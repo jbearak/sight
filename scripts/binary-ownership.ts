@@ -3,7 +3,6 @@
  */
 
 import {
-    spawnSync,
     type SpawnSyncOptionsWithStringEncoding,
 } from 'child_process';
 import { readFileSync } from 'fs';
@@ -12,11 +11,6 @@ import {
     CLI_HELP_BANNER,
     PRIMARY_BINARY_NAME,
 } from '../src/cli-binary-names';
-
-const VERSION_PATTERN = new RegExp(
-    `^${PRIMARY_BINARY_NAME} \\d+\\.\\d+\\.\\d+` +
-    '(?:-[0-9A-Za-z.-]+)?$'
-);
 
 interface BinarySpawnInvocation {
     command: string;
@@ -29,9 +23,16 @@ const BASE_SPAWN_OPTIONS: SpawnSyncOptionsWithStringEncoding = {
     timeout: 5000,
 };
 
-function has_sight_npm_shim_content(binary_path: string): boolean {
+function has_sight_npm_shim_content(
+    binary_path: string,
+    platform: NodeJS.Platform
+): boolean {
     const extension = extname(binary_path).toLowerCase();
-    if (!['', '.cmd', '.bat', '.ps1'].includes(extension)) {
+    const the_allowed_extensions = platform === 'win32'
+        ? ['', '.cmd', '.bat', '.ps1']
+        : [''];
+
+    if (!the_allowed_extensions.includes(extension)) {
         return false;
     }
 
@@ -65,6 +66,20 @@ function has_sight_npm_shim_content(binary_path: string): boolean {
         file_content.startsWith('#!/bin/sh') &&
         file_content.includes('basedir=$(dirname') &&
         file_content.includes('"$@"')
+    );
+}
+
+function has_static_sight_binary_markers(binary_path: string): boolean {
+    let file_content: Buffer;
+    try {
+        file_content = readFileSync(binary_path);
+    } catch {
+        return false;
+    }
+
+    return (
+        file_content.includes(Buffer.from(CLI_HELP_BANNER, 'utf8')) &&
+        file_content.includes(Buffer.from(PRIMARY_BINARY_NAME, 'utf8'))
     );
 }
 
@@ -117,45 +132,11 @@ export function is_sight_binary(
     binary_path: string,
     platform: NodeJS.Platform = process.platform
 ): boolean {
-    if (platform === 'win32' && has_sight_npm_shim_content(binary_path)) {
+    if (has_sight_npm_shim_content(binary_path, platform)) {
         return true;
     }
 
-    const version_invocation = get_sight_binary_spawn_invocation(
-        binary_path,
-        ['--version'],
-        platform
-    );
-    const version_result = spawnSync(
-        version_invocation.command,
-        version_invocation.args,
-        version_invocation.options
-    );
-
-    if (version_result.error || version_result.status !== 0) {
-        return false;
-    }
-
-    if (!VERSION_PATTERN.test(version_result.stdout.trim())) {
-        return false;
-    }
-
-    const help_invocation = get_sight_binary_spawn_invocation(
-        binary_path,
-        ['--help'],
-        platform
-    );
-    const help_result = spawnSync(
-        help_invocation.command,
-        help_invocation.args,
-        help_invocation.options
-    );
-
-    if (help_result.error || help_result.status !== 0) {
-        return false;
-    }
-
-    return help_result.stdout.includes(CLI_HELP_BANNER);
+    return has_static_sight_binary_markers(binary_path);
 }
 
 /**

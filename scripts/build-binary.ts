@@ -70,7 +70,7 @@ const TARGETS: BuildTarget[] = [
 ];
 
 export function get_build_targets(): BuildTarget[] {
-    return [...TARGETS];
+    return TARGETS.map((my_target) => ({ ...my_target }));
 }
 
 /**
@@ -206,12 +206,12 @@ export async function build_all_binaries(
     const failed_targets: string[] = [];
     
     // Build sequentially to avoid overwhelming the system
-    for (const target of TARGETS) {
+    for (const my_target of TARGETS) {
         try {
-            await build_one_binary(target);
+            await build_one_binary(my_target);
         } catch (error) {
-            failed_targets.push(target.output_name);
-            console.error(`Failed target ${target.output_name}:`, error);
+            failed_targets.push(my_target.output_name);
+            console.error(`Failed target ${my_target.output_name}:`, error);
         }
     }
 

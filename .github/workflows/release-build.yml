@@ -16,10 +16,7 @@ concurrency:
   group: release-build-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
-# We need actions:write to upload/download artifacts and dispatch the publish
-# workflow. We do not create releases in this workflow.
 permissions:
-  actions: write
   contents: read
 
 jobs:
@@ -54,6 +51,9 @@ jobs:
         run: bun test ./tests
 
   package:
+    permissions:
+      actions: write
+      contents: read
     needs: verify
     runs-on: ubuntu-latest
 
@@ -89,6 +89,9 @@ jobs:
             client/*.vsix
 
   linux-binaries:
+    permissions:
+      actions: write
+      contents: read
     needs: verify
     runs-on: ubuntu-latest
 
@@ -122,6 +125,9 @@ jobs:
             bin/sight-linux-arm64
 
   darwin-binaries:
+    permissions:
+      actions: write
+      contents: read
     needs: verify
     runs-on: macos-latest
 
@@ -154,6 +160,9 @@ jobs:
             bin/sight-darwin-arm64
 
   windows-binaries:
+    permissions:
+      actions: write
+      contents: read
     needs: verify
     runs-on: windows-latest
 
@@ -188,6 +197,9 @@ jobs:
             bin/sight-windows-arm64.exe
 
   assemble:
+    permissions:
+      actions: write
+      contents: read
     needs: [package, linux-binaries, darwin-binaries, windows-binaries]
     runs-on: ubuntu-latest
 
