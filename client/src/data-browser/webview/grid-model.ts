@@ -279,50 +279,30 @@ export function describe_visible_rows(
     return `Showing ${my_start.toLocaleString()}-${my_end.toLocaleString()} of ${nobs.toLocaleString()}`;
 }
 
-export function describe_status_summary(
+/** Toolbar subset banner, e.g. "Subsetted (vars: make, price; if
+ *  foreign == 1; in 1/10)". Returns null when the browse covers the
+ *  full dataset, so callers can skip rendering the row entirely. */
+export function describe_subset(
     metadata: MetadataMessage | null
-): string {
-    if (!metadata) {
-        return '';
+): string | null {
+    if (!metadata || !metadata.subsetted) {
+        return null;
     }
 
     const the_parts: string[] = [];
-    the_parts.push(metadata.name);
-
-    if (metadata.dataset_label) {
-        the_parts.push(metadata.dataset_label);
+    if (metadata.varlist && metadata.varlist.length > 0) {
+        the_parts.push(`vars: ${metadata.varlist.join(', ')}`);
     }
-    if (metadata.source) {
-        the_parts.push(metadata.source);
+    if (metadata.if_condition) {
+        the_parts.push(`if ${metadata.if_condition}`);
     }
-
-    if (metadata.subsetted) {
-        const the_subset_parts: string[] = [];
-        if (metadata.varlist && metadata.varlist.length > 0) {
-            the_subset_parts.push(
-                `vars: ${metadata.varlist.join(', ')}`
-            );
-        }
-        if (metadata.if_condition) {
-            the_subset_parts.push(
-                `if ${metadata.if_condition}`
-            );
-        }
-        if (metadata.in_condition) {
-            the_subset_parts.push(
-                `in ${metadata.in_condition}`
-            );
-        }
-        the_parts.push(
-            the_subset_parts.length > 0
-                ? `Subsetted (${the_subset_parts.join('; ')})`
-                : 'Subsetted'
-        );
-    } else {
-        the_parts.push('Full dataset');
+    if (metadata.in_condition) {
+        the_parts.push(`in ${metadata.in_condition}`);
     }
 
-    return the_parts.filter(Boolean).join(' | ');
+    return the_parts.length > 0
+        ? `Subsetted (${the_parts.join('; ')})`
+        : 'Subsetted';
 }
 
 export function get_needed_page_starts(

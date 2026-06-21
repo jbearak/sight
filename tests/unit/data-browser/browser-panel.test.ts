@@ -8,7 +8,7 @@ import {
     compute_default_column_width,
     compute_header_width_px,
     compute_sampled_value_width_px,
-    describe_status_summary,
+    describe_subset,
     describe_visible_rows,
     get_cell_display_value,
     get_variable_header_subtitle,
@@ -151,7 +151,6 @@ describe('grid-model helpers', () => {
                 label: 'Car origin',
                 has_value_labels: true,
             }],
-            dataset_label: '',
             name: 'auto',
             dataset_key: '/tmp/auto.dta',
         }, {})[0]?.variable_label).toBe('Car origin');
@@ -165,20 +164,46 @@ describe('grid-model helpers', () => {
         })).toBe('Car origin');
     });
 
-    it('builds subset-aware status summaries', () => {
-        expect(describe_status_summary({
+    it('returns null when metadata is missing or not subsetted', () => {
+        expect(describe_subset(null)).toBeNull();
+        expect(describe_subset({
             type: 'metadata',
             nobs: 10,
             variables: [],
-            dataset_label: 'Cars',
             name: 'auto',
             dataset_key: '/tmp/auto.dta',
-            source: '/tmp/auto.dta',
+            schema_hash: 'h',
+            subsetted: false,
+        })).toBeNull();
+    });
+
+    it('describes the subset conditions when subsetted', () => {
+        expect(describe_subset({
+            type: 'metadata',
+            nobs: 10,
+            variables: [],
+            name: 'auto',
+            dataset_key: '/tmp/auto.dta',
+            schema_hash: 'h',
             subsetted: true,
             varlist: ['make', 'price'],
             if_condition: 'foreign == 1',
             in_condition: '1/10',
-        })).toContain('Subsetted');
+        })).toBe(
+            'Subsetted (vars: make, price; if foreign == 1; in 1/10)'
+        );
+    });
+
+    it('falls back to a bare label when subsetted with no conditions', () => {
+        expect(describe_subset({
+            type: 'metadata',
+            nobs: 10,
+            variables: [],
+            name: 'auto',
+            dataset_key: '/tmp/auto.dta',
+            schema_hash: 'h',
+            subsetted: true,
+        })).toBe('Subsetted');
     });
 
     it('normalizes row requests to page starts', () => {
@@ -197,7 +222,6 @@ describe('grid-model helpers', () => {
                 label: 'Car origin',
                 has_value_labels: true,
             }],
-            dataset_label: '',
             name: 'auto',
             dataset_key: '/tmp/auto.dta',
         }, {
@@ -260,7 +284,6 @@ describe('grid-model helpers', () => {
                 label: 'Car origin',
                 has_value_labels: true,
             }],
-            dataset_label: '',
             name: 'auto',
             dataset_key: '/tmp/auto.dta',
         };
@@ -315,7 +338,6 @@ describe('grid-model helpers', () => {
                 label: '',
                 has_value_labels: false,
             }],
-            dataset_label: '',
             name: 'auto',
             dataset_key: '/tmp/auto.dta',
         };

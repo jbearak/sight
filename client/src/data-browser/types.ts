@@ -86,7 +86,6 @@ export interface MetadataMessage {
     type: 'metadata';
     nobs: number;
     variables: VariableDescription[];
-    dataset_label: string;
     name: string;
     dataset_key: string;
     schema_hash: string;
@@ -94,7 +93,6 @@ export interface MetadataMessage {
     stored_hidden_columns?: string[];
     stored_sort?: SortState;
     stored_filter?: FilterState;
-    source?: string;
     subsetted?: boolean;
     varlist?: string[];
     if_condition?: string;

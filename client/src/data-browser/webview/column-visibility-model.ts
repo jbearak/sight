@@ -48,15 +48,3 @@ export function hide_all_columns(
 export function show_all_columns(): Set<string> {
     return new Set();
 }
-
-export function describe_hidden_column_count(
-    hidden_count: number
-): string | null {
-    if (hidden_count <= 0) {
-        return null;
-    }
-    if (hidden_count === 1) {
-        return '1 column hidden';
-    }
-    return `${hidden_count} columns hidden`;
-}

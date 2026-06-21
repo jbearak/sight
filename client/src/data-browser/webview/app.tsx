@@ -21,7 +21,7 @@ import {
     clamp_column_width,
     collect_sampled_value_width_hints,
     type BrowserGridColumn,
-    describe_status_summary,
+    describe_subset,
     describe_visible_rows,
     get_cell_display_value,
     get_variable_header_tooltip,
@@ -30,7 +30,6 @@ import {
 import {
     build_visible_column_map,
     build_visible_grid_columns,
-    describe_hidden_column_count,
     hide_all_columns,
     show_all_columns,
     toggle_column_hidden,
@@ -50,7 +49,6 @@ import { col_kind } from './filter-column-kind.js';
 import {
     active_direction,
     apply_sort_pick,
-    describe_sort_keys,
     sort_priority_map,
 } from './sort-actions.js';
 import type { FilterEntry, SortKey } from '../types.js';
@@ -821,6 +819,15 @@ export function App(): ReactElement {
         )
         : 'Loading...';
 
+    const subset_text = describe_subset(metadata);
+    // Sort and filter are usually mutually exclusive, but both can be
+    // in flight at once; show every pending operation rather than
+    // letting one mask the other.
+    const the_progress_parts: string[] = [];
+    if (sort_pending) the_progress_parts.push('Sorting…');
+    if (filter_pending) the_progress_parts.push('Filtering…');
+    const sort_filter_progress_text = the_progress_parts.join(' · ');
+
     // Drop the sort/filter chips onto their own row when they would
     // otherwise crowd the action buttons off the toolbar. `hidden_columns.size`
     // is a dependency because it drives the Columns button's count badge,
@@ -834,36 +841,6 @@ export function App(): ReactElement {
         },
         [sort.keys, filter.entries, row_count_text, hidden_columns.size]
     );
-
-    const hidden_count_text = describe_hidden_column_count(
-        hidden_columns.size
-    );
-    const sort_status_text = sort_pending
-        ? 'Sorting…'
-        : sort.keys.length > 0
-            ? `sorted by ${describe_sort_keys(sort.keys, column_names)}`
-            : '';
-    const has_enabled_filter = filter.entries.some(
-        my_entry => my_entry.enabled
-    );
-    const filter_status_text = filter_pending
-        ? 'Filtering…'
-        : has_enabled_filter
-            && metadata
-            && nobs_effective !== undefined
-            ? `filtered to ${nobs_effective} of ${metadata.nobs}`
-                + ` (${metadata.nobs > 0
-                    ? Math.round(
-                        (100 * nobs_effective) / metadata.nobs
-                    )
-                    : 0}%)`
-            : '';
-    const status_text = [
-        describe_status_summary(metadata),
-        hidden_count_text,
-        sort_status_text,
-        filter_status_text,
-    ].filter(Boolean).join(' | ');
 
     const clamp_position = (
         left: number,
@@ -1150,6 +1127,14 @@ export function App(): ReactElement {
                     </div>
                 </div>
             </div>
+            {sort_filter_progress_text && (
+                <div className="toolbar-progress" role="status">
+                    {sort_filter_progress_text}
+                </div>
+            )}
+            {subset_text && (
+                <div className="toolbar-subset-row">{subset_text}</div>
+            )}
             <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
                     theme={vscode_theme}
@@ -1416,7 +1401,6 @@ export function App(): ReactElement {
                     />
                 )}
             </div>
-            <div className="status-bar">{status_text}</div>
         </div>
     );
 }
