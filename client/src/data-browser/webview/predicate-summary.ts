@@ -1,7 +1,7 @@
 /**
- * Pure summarizer for FilterPredicates. Used by chip labels, aria labels,
- * and the status bar. Output is short (chips have limited width) and uses
- * Unicode glyphs (≠, ≤, ∈, ∉) so a chip reads like math without CSS.
+ * Pure summarizer for FilterPredicates. Used by chip labels and aria
+ * labels. Output is short (chips have limited width) and uses Unicode
+ * glyphs (≠, ≤, ∈, ∉) so a chip reads like math without CSS.
  *
  * Set-membership summaries map numeric codes to value labels when the
  * column has a value-label table, and truncate after 4 values.

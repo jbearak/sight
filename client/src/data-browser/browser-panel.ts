@@ -367,7 +367,6 @@ export class DataBrowserPanel implements vscode.Disposable {
                 stored_filter: this.filter.entries.length > 0
                     ? this.filter
                     : undefined,
-                dataset_label: this.dta_file.dataset_label,
                 name: this.sidecar.name,
                 dataset_key: this.dataset_key,
                 stored_column_widths:
@@ -380,7 +379,6 @@ export class DataBrowserPanel implements vscode.Disposable {
                         this.dataset_key,
                         this.dataset_key_aliases
                     ),
-                source: this.sidecar.source,
                 subsetted: this.sidecar.subsetted,
                 varlist: this.sidecar.varlist,
                 if_condition: this.sidecar.if,
@@ -390,8 +388,8 @@ export class DataBrowserPanel implements vscode.Disposable {
             this.panel.webview.postMessage(my_metadata);
 
             // A restored filter changes the visible row count; the
-            // webview learns it from filterApplied (metadata.nobs stays
-            // the full dataset size for the status bar).
+            // webview learns the effective count from filterApplied
+            // (metadata.nobs stays the full dataset size).
             if (this.filtered_indices) {
                 this.post_filter_applied();
             }

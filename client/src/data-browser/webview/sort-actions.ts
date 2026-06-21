@@ -81,25 +81,6 @@ export function move_to_first(
     return my_next;
 }
 
-/** Compact status-bar summary, e.g. "mpg ▲, price ▼". Truncates after
- *  four keys with a "+N more" suffix. Empty string when no keys. */
-export function describe_sort_keys(
-    keys: readonly SortKey[],
-    names: readonly string[]
-): string {
-    if (keys.length === 0) return '';
-    const MAX = 4;
-    const the_visible = keys.slice(0, MAX).map(my_key => {
-        const my_name =
-            names[my_key.col_index] ?? `col ${my_key.col_index}`;
-        return `${my_name} ${my_key.direction === 'asc' ? '▲' : '▼'}`;
-    });
-    const my_text = the_visible.join(', ');
-    return keys.length > MAX
-        ? `${my_text}, +${keys.length - MAX} more`
-        : my_text;
-}
-
 /** Map each sorted column to its direction and 1-based priority. */
 export function sort_priority_map(
     keys: readonly SortKey[]

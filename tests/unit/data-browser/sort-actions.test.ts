@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import {
     active_direction,
     apply_sort_pick,
-    describe_sort_keys,
     flip_key,
     move_to_first,
     remove_key,
@@ -55,25 +54,6 @@ describe('data-browser sort key mutations', () => {
     it('move_to_first is a no-op at index 0', () => {
         expect(move_to_first([k(0), k(1)], 0))
             .toEqual([k(0), k(1)]);
-    });
-});
-
-describe('data-browser describe_sort_keys', () => {
-    const names = ['a', 'b', 'c', 'd', 'e', 'f'];
-    it('is empty when no keys', () => {
-        expect(describe_sort_keys([], names)).toBe('');
-    });
-    it('lists columns with direction arrows', () => {
-        expect(describe_sort_keys([k(0, 'asc'), k(1, 'desc')], names))
-            .toBe('a ▲, b ▼');
-    });
-    it('truncates after four keys', () => {
-        const keys = [k(0), k(1), k(2), k(3), k(4), k(5)];
-        expect(describe_sort_keys(keys, names))
-            .toBe('a ▲, b ▲, c ▲, d ▲, +2 more');
-    });
-    it('falls back to a column index label when name missing', () => {
-        expect(describe_sort_keys([k(9)], names)).toBe('col 9 ▲');
     });
 });
 
