@@ -40,6 +40,7 @@ The editor extension enables language server features and further provides:
 ### Guides
 
 - [Configuration](docs/configuration.md) - All settings and options
+- [CLI](docs/cli.md) - `sight check` for CI and command-line diagnostics
 - [Standalone Installation](docs/standalone-installation.md) - CLI usage, release binary, build from source
 - [Editor Integrations](docs/editor-integrations.md) - Generic LSP clients, AI agents
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
