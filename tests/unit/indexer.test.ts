@@ -300,6 +300,51 @@ describe('WorkspaceIndexer', () => {
             // Pending update should not have fired
             expect(indexer.get_all_symbols().programs.size).toBe(0);
         });
+
+        it('should ignore stale scan writes after reset', async () => {
+            const file_path = path.join(temp_dir, 'stale.do');
+            fs.writeFileSync(
+                file_path,
+                'program define stale_prog\nend'
+            );
+
+            const original_read_file = fs.promises.readFile;
+            let release_read!: () => void;
+            let mark_read_started!: () => void;
+            const read_started = new Promise<void>((resolve) => {
+                mark_read_started = resolve;
+            });
+            const release_read_promise = new Promise<void>((resolve) => {
+                release_read = resolve;
+            });
+
+            (fs.promises as unknown as {
+                readFile: typeof fs.promises.readFile;
+            }).readFile = (async (...args: Parameters<typeof original_read_file>) => {
+                if (args[0] === file_path) {
+                    mark_read_started();
+                    await release_read_promise;
+                }
+                return original_read_file.apply(fs.promises, args);
+            }) as typeof fs.promises.readFile;
+
+            try {
+                const index_promise = indexer.initialize([temp_dir]);
+                await read_started;
+
+                indexer.reset();
+                release_read();
+                await index_promise;
+
+                expect(indexer.get_all_symbols().programs.has('stale_prog'))
+                    .toBe(false);
+                expect(indexer.get_metrics().files_indexed).toBe(0);
+            } finally {
+                (fs.promises as unknown as {
+                    readFile: typeof fs.promises.readFile;
+                }).readFile = original_read_file;
+            }
+        });
     });
 
     it('should reflect unsaved backward directives in get_related_uris', async () => {

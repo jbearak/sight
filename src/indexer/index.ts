@@ -104,6 +104,7 @@ export class WorkspaceIndexer {
     private max_indexed_files: number = 1000;
     private max_files_reached = false;
     private version: number = 0;
+    private scan_generation: number = 0;
     
     // Debouncing state for file updates
     private pending_updates: Map<string, NodeJS.Timeout> = new Map();
@@ -248,6 +249,10 @@ export class WorkspaceIndexer {
         this.on_graph_change_callback = callback;
     }
 
+    private is_active_generation(generation: number): boolean {
+        return generation === this.scan_generation && !this.cancelled;
+    }
+
     /**
      * Initialize the indexer by scanning a list of folders.
      */
@@ -255,6 +260,9 @@ export class WorkspaceIndexer {
         workspace_folders: string[],
         ado_paths: string[] = []
     ): Promise<void> {
+        const generation = ++this.scan_generation;
+        this.cancelled = false;
+
         if (!this.enabled) {
             this.dependency_graph?.mark_scan_complete();
             return;
@@ -265,12 +273,15 @@ export class WorkspaceIndexer {
         // lookup. The discovery is cheap (a handful of `fs.statSync`
         // calls on well-known paths) and non-fatal if none exist.
         this.help_search_paths = discover_stata_ado_paths();
-        this.cancelled = false;
         const start_time = Date.now();
 
         for (const folder of [...workspace_folders, ...this.ado_paths]) {
-            if (this.cancelled) break;
-            await this.scan_directory(folder);
+            if (!this.is_active_generation(generation)) break;
+            await this.scan_directory(folder, generation);
+        }
+
+        if (!this.is_active_generation(generation)) {
+            return;
         }
 
         const elapsed_ms = Date.now() - start_time;
@@ -291,18 +302,22 @@ export class WorkspaceIndexer {
     /**
      * Scan a directory recursively for Stata files using async operations.
      */
-    private async scan_directory(dir_path: string): Promise<void> {
-        if (this.cancelled) return;
+    private async scan_directory(
+        dir_path: string,
+        generation: number
+    ): Promise<void> {
+        if (!this.is_active_generation(generation)) return;
 
         try {
             const entries = await fs.promises.readdir(dir_path, {
                 withFileTypes: true,
             });
+            if (!this.is_active_generation(generation)) return;
 
             const file_paths: string[] = [];
 
             for (const entry of entries) {
-                if (this.cancelled) break;
+                if (!this.is_active_generation(generation)) break;
 
                 const entry_path = path.join(dir_path, entry.name);
 
@@ -314,7 +329,7 @@ export class WorkspaceIndexer {
                     if (VCS_METADATA_DIRS.has(entry.name)) {
                         continue;
                     }
-                    await this.scan_directory(entry_path);
+                    await this.scan_directory(entry_path, generation);
                 } else if (entry.isFile()) {
                     if (
                         entry.name.endsWith('.do') ||
@@ -328,7 +343,7 @@ export class WorkspaceIndexer {
             }
 
             // Process files with worker pool
-            await this.process_files_with_pool(file_paths);
+            await this.process_files_with_pool(file_paths, generation);
         } catch (error) {
             logger.error(`Failed to scan directory ${dir_path}: ${error}`);
         }
@@ -338,17 +353,21 @@ export class WorkspaceIndexer {
      * Process files using a worker pool with concurrency control.
      */
     private async process_files_with_pool(
-        file_paths: string[]
+        file_paths: string[],
+        generation: number
     ): Promise<void> {
         let file_index = 0;
         const last_yield_time = { value: Date.now() };
 
         const process_next = async (): Promise<void> => {
-            while (file_index < file_paths.length && !this.cancelled) {
+            while (
+                file_index < file_paths.length &&
+                this.is_active_generation(generation)
+            ) {
                 const current_index = file_index++;
                 const file_path = file_paths[current_index];
 
-                await this.index_file(file_path);
+                await this.index_file(file_path, generation);
 
                 // Yield to event loop periodically
                 const now = Date.now();
@@ -394,8 +413,11 @@ export class WorkspaceIndexer {
     /**
      * Index a single file.
      */
-    async index_file(file_path: string): Promise<void> {
-        if (this.cancelled || !this.enabled) return;
+    async index_file(
+        file_path: string,
+        generation: number = this.scan_generation
+    ): Promise<void> {
+        if (!this.is_active_generation(generation) || !this.enabled) return;
         const file_uri = URI.file(file_path).toString();
 
         // Check max files limit
@@ -414,6 +436,8 @@ export class WorkspaceIndexer {
         try {
             // Check file size
             const stats = await fs.promises.stat(file_path);
+            if (!this.is_active_generation(generation)) return;
+
             if (stats.size > this.size_threshold_bytes) {
                 this.clear_stale_entry(file_uri);
                 logger.debug(
@@ -430,10 +454,11 @@ export class WorkspaceIndexer {
                 file_path,
                 'utf8'
             );
+            if (!this.is_active_generation(generation)) return;
 
             // Handle .mata files differently
             if (file_path.endsWith('.mata')) {
-                await this.index_mata_file(content, file_uri);
+                await this.index_mata_file(content, file_uri, generation);
                 return;
             }
 
@@ -458,6 +483,7 @@ export class WorkspaceIndexer {
             const context_tracker = new ContextTracker();
             context_tracker.initialize_from_tokens(lexResult.tokens, content);
             const context_ranges = context_tracker.get_all_context_ranges();
+            if (!this.is_active_generation(generation)) return;
 
             // Combine forward calls from analyzer (command-detected)
             // and directive parser (directive-detected)
@@ -496,6 +522,7 @@ export class WorkspaceIndexer {
             this.version++;
             this.metrics.files_indexed++;
         } catch (error) {
+            if (!this.is_active_generation(generation)) return;
             this.clear_stale_entry(file_uri);
             logger.error(`Failed to index file ${file_path}: ${error}`);
             this.metrics.files_skipped++;
@@ -505,7 +532,13 @@ export class WorkspaceIndexer {
     /**
      * Index a .mata file by extracting function definitions.
      */
-    private async index_mata_file(content: string, file_uri: string): Promise<void> {
+    private async index_mata_file(
+        content: string,
+        file_uri: string,
+        generation: number = this.scan_generation
+    ): Promise<void> {
+        if (!this.is_active_generation(generation)) return;
+
         const symbols: SymbolTable = create_empty_symbol_table();
 
         // Pre-compute line offsets for efficient line number lookups
@@ -607,16 +640,20 @@ export class WorkspaceIndexer {
         }
         
         this.is_processing_queue = true;
+        const generation = this.scan_generation;
         
         try {
-            while (this.update_queue.size > 0 && !this.cancelled) {
+            while (
+                this.update_queue.size > 0 &&
+                this.is_active_generation(generation)
+            ) {
                 // Get next file from queue
                 const file_path = this.update_queue.values().next().value;
                 if (!file_path) break;
                 this.update_queue.delete(file_path);
                 
                 // Index the file
-                await this.index_file(file_path);
+                await this.index_file(file_path, generation);
                 
                 // Yield to event loop to keep UI responsive
                 await new Promise(resolve => setImmediate(resolve));
@@ -630,6 +667,7 @@ export class WorkspaceIndexer {
      * Cancel ongoing indexing operations.
      */
     cancel(): void {
+        this.scan_generation++;
         this.cancelled = true;
         // Clear all pending updates
         for (const timer of this.pending_updates.values()) {
