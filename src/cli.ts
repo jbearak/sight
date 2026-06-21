@@ -186,6 +186,11 @@ export function print_error(message: string): void {
  * Parses arguments and starts the server or prints help/version.
  */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+    if (argv[0] === 'check') {
+        const { run_check } = await import('./cli/check');
+        return run_check(argv.slice(1));
+    }
+
     const result = parse_args(argv);
 
     if (!result.success) {
