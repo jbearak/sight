@@ -1,3 +1,21 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { URI } from 'vscode-uri';
+import {
+    deep_merge_config,
+    discover_and_load_project_config,
+    load_toml_file,
+    type ProjectConfigWarning,
+} from '../config-file';
+import { DependencyGraph } from '../dependency-graph';
+import { DocumentStore } from '../document-store';
+import { ForwardScopeResolver } from '../forward-scope-resolver';
+import { WorkspaceIndexer } from '../indexer';
+import { DiagnosticsProvider } from '../providers/diagnostics';
+import { ScopeResolver } from '../scope-resolver';
+import { DEFAULT_SETTINGS } from '../server-handlers';
+import { StataLSPConfig } from '../types';
+import { validate_comment_formatting_config } from '../utils/config-validator';
 import {
     ColorChoice,
     EXIT_OPERATOR_ERROR,
@@ -127,6 +145,128 @@ export function parse_check_args(argv: string[]): CheckParseResult {
     }
 
     return { success: true, args };
+}
+
+export type CheckConfigResult =
+    | {
+        kind: 'loaded';
+        config: StataLSPConfig;
+        warnings: ProjectConfigWarning[];
+        config_path?: string;
+    }
+    | { kind: 'operator-error'; message: string };
+
+export function load_check_config(options: {
+    cwd: string;
+    workspace_root: string;
+    config_path?: string;
+    no_config: boolean;
+}): CheckConfigResult {
+    if (options.no_config) {
+        return {
+            kind: 'loaded',
+            config: validate_comment_formatting_config(DEFAULT_SETTINGS),
+            warnings: [],
+        };
+    }
+
+    const loaded = options.config_path
+        ? load_toml_file(path.resolve(options.cwd, options.config_path))
+        : discover_and_load_project_config(options.workspace_root);
+
+    if (loaded.kind === 'load-failed') {
+        return {
+            kind: 'operator-error',
+            message: `failed to load ${loaded.path}: ${loaded.error}`,
+        };
+    }
+
+    if (loaded.kind === 'none') {
+        return {
+            kind: 'loaded',
+            config: validate_comment_formatting_config(DEFAULT_SETTINGS),
+            warnings: loaded.warnings,
+        };
+    }
+
+    return {
+        kind: 'loaded',
+        config: validate_comment_formatting_config(
+            deep_merge_config(DEFAULT_SETTINGS, loaded.partial_config)
+        ),
+        warnings: loaded.warnings,
+        config_path: loaded.path,
+    };
+}
+
+export interface CheckContext {
+    dependency_graph: DependencyGraph;
+    workspace_indexer: WorkspaceIndexer;
+    scope_resolver: ScopeResolver;
+    forward_scope_resolver: ForwardScopeResolver;
+    document_store: DocumentStore;
+    diagnostics_provider: DiagnosticsProvider;
+}
+
+export async function build_check_context(
+    workspace_root: string,
+    config: StataLSPConfig
+): Promise<CheckContext> {
+    const dependency_graph = new DependencyGraph();
+    const workspace_indexer = new WorkspaceIndexer();
+    const scope_resolver = new ScopeResolver({
+        log: (message) => {
+            if (config.debug === true) {
+                console.error(message);
+            }
+        },
+        warn: (message) => console.error(message),
+    }, {
+        read_file: async (uri: string) =>
+            fs.promises.readFile(URI.parse(uri).fsPath, 'utf8'),
+        exists: async (uri: string) => {
+            try {
+                await fs.promises.access(URI.parse(uri).fsPath);
+                return true;
+            } catch {
+                return false;
+            }
+        },
+    });
+    const forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+        max_forward_depth: config.cross_file.max_forward_depth,
+    });
+    const document_store = new DocumentStore();
+    const diagnostics_provider = new DiagnosticsProvider({
+        sendDiagnostics: () => undefined,
+    });
+
+    workspace_indexer.configure(config);
+    workspace_indexer.set_max_indexed_files(
+        config.cross_file.max_indexed_files
+    );
+    workspace_indexer.set_dependency_graph(dependency_graph);
+    scope_resolver.set_dependency_graph(dependency_graph);
+    scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+    diagnostics_provider.set_dependency_graph(dependency_graph);
+    scope_resolver.set_workspace_roots([workspace_root]);
+    forward_scope_resolver.set_workspace_roots([workspace_root]);
+    document_store.set_workspace_roots([workspace_root]);
+    document_store.set_scope_resolver(scope_resolver);
+    document_store.set_on_backward_directives_parsed((uri, directives) => {
+        workspace_indexer.set_buffer_directives(uri, directives);
+    });
+
+    await workspace_indexer.initialize([workspace_root], config.adoPaths);
+
+    return {
+        dependency_graph,
+        workspace_indexer,
+        scope_resolver,
+        forward_scope_resolver,
+        document_store,
+        diagnostics_provider,
+    };
 }
 
 export async function run_check(argv: string[]): Promise<number> {
