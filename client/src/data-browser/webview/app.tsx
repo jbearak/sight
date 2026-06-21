@@ -21,8 +21,8 @@ import {
     clamp_column_width,
     collect_sampled_value_width_hints,
     type BrowserGridColumn,
+    describe_browser_row_count,
     describe_subset,
-    describe_visible_rows,
     get_cell_display_value,
     get_variable_header_tooltip,
     merge_persisted_and_default_widths,
@@ -811,13 +811,12 @@ export function App(): ReactElement {
         }
     };
 
-    const row_count_text = metadata
-        ? describe_visible_rows(
-            nobs_effective ?? metadata.nobs,
-            first_visible_row,
-            visible_row_count
-        )
-        : 'Loading...';
+    const row_count_text = describe_browser_row_count(
+        metadata,
+        nobs_effective,
+        first_visible_row,
+        visible_row_count
+    );
 
     const subset_text = describe_subset(metadata);
     // Sort and filter are usually mutually exclusive, but both can be

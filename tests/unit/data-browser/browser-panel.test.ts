@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import { make_missing_value } from '@jbearak/dta-parser';
 import { build_cell_value } from '../../../client/src/data-browser/cell-format';
 import {
@@ -8,6 +8,7 @@ import {
     compute_default_column_width,
     compute_header_width_px,
     compute_sampled_value_width_px,
+    describe_browser_row_count,
     describe_subset,
     describe_visible_rows,
     get_cell_display_value,
@@ -130,6 +131,11 @@ describe('grid-model helpers', () => {
     it('formats visible row counts', () => {
         expect(describe_visible_rows(1000, 0, 50))
             .toBe('Showing 1-50 of 1,000');
+    });
+
+    it('routes missing metadata to the loading row-count label', () => {
+        expect(describe_browser_row_count(null, undefined, 0, 0))
+            .toBe('Loading…');
     });
 
     it('exposes variable labels for header subtitles', () => {
@@ -372,5 +378,202 @@ describe('grid-model helpers', () => {
 
         expect(compute_default_column_width(my_variable, []))
             .toBe(compute_header_width_px(my_variable));
+    });
+});
+
+mock.module('vscode', () => ({
+    workspace: {
+        getConfiguration: () => ({
+            get: (_key: string, default_value: unknown) => default_value,
+        }),
+    },
+    window: {
+        showErrorMessage: () => undefined,
+    },
+    env: {
+        clipboard: {
+            writeText: async () => undefined,
+        },
+    },
+}));
+
+type PostedMessage = {
+    type: string;
+    col_index?: number;
+    bins?: unknown[];
+};
+
+type HistogramPanelHarness = {
+    panel_like: any;
+    posted: PostedMessage[];
+    read_count: () => number;
+};
+
+async function make_histogram_panel(
+    variable: {
+        name: string;
+        type: string;
+        format: string;
+        value_label_name: string;
+    },
+    values_or_error: number[] | Error,
+    value_label_tables: Map<string, Map<number, string>> = new Map()
+): Promise<HistogramPanelHarness> {
+    const { DataBrowserPanel } = await import(
+        '../../../client/src/data-browser/browser-panel'
+    );
+    const posted: PostedMessage[] = [];
+    let read_count = 0;
+    const panel_like: any = Object.create(DataBrowserPanel.prototype);
+    panel_like.dta_file = {
+        nvar: 1,
+        variables: [variable],
+        value_label_tables,
+    };
+    panel_like.histogram_cache = new Map();
+    panel_like.panel = {
+        webview: {
+            postMessage: (message: PostedMessage) => {
+                posted.push(message);
+                return true;
+            },
+        },
+    };
+    panel_like.read_full_column = async () => {
+        read_count += 1;
+        if (values_or_error instanceof Error) {
+            throw values_or_error;
+        }
+        return values_or_error;
+    };
+
+    return {
+        panel_like,
+        posted,
+        read_count: () => read_count,
+    };
+}
+
+describe('DataBrowserPanel histogram requests', () => {
+    it('lazily computes and caches a numeric histogram on request', async () => {
+        const { panel_like, posted, read_count } =
+            await make_histogram_panel({
+                name: 'price',
+                type: 'double',
+                format: '%9.0g',
+                value_label_name: '',
+            }, [1, 2, 3, 4, 5]);
+
+        await panel_like.handle_request_histogram({
+            type: 'requestHistogram',
+            col_index: 0,
+        });
+        await panel_like.handle_request_histogram({
+            type: 'requestHistogram',
+            col_index: 0,
+        });
+
+        expect(read_count()).toBe(1);
+        expect(posted.length).toBe(2);
+        expect(posted[0]?.type).toBe('histogramData');
+        expect(posted[0]?.col_index).toBe(0);
+        expect(posted[0]?.bins?.length).toBe(50);
+        expect(posted[0]?.bins).toEqual(posted[1]?.bins);
+        expect(
+            (posted[0]?.bins ?? [])
+                .reduce((sum, bin: any) => sum + bin.count, 0)
+        ).toBe(5);
+    });
+
+    it('allows labelled numeric columns to use histogram brushes', async () => {
+        const the_labels = new Map<string, Map<number, string>>([
+            ['origin', new Map([
+                [0, 'Domestic'],
+                [1, 'Foreign'],
+            ])],
+        ]);
+        const { panel_like, posted, read_count } =
+            await make_histogram_panel({
+                name: 'foreign',
+                type: 'byte',
+                format: '%9.0g',
+                value_label_name: 'origin',
+            }, [0, 1, 1], the_labels);
+
+        await panel_like.handle_request_histogram({
+            type: 'requestHistogram',
+            col_index: 0,
+        });
+
+        expect(read_count()).toBe(1);
+        expect(posted[0]?.bins?.length).toBe(50);
+        expect(
+            (posted[0]?.bins ?? [])
+                .reduce((sum, bin: any) => sum + bin.count, 0)
+        ).toBe(3);
+    });
+
+    it('replies with empty bins for out-of-range histogram requests', async () => {
+        const { panel_like, posted, read_count } =
+            await make_histogram_panel({
+                name: 'price',
+                type: 'double',
+                format: '%9.0g',
+                value_label_name: '',
+            }, [1, 2, 3]);
+
+        await panel_like.handle_request_histogram({
+            type: 'requestHistogram',
+            col_index: 99,
+        });
+
+        expect(posted).toEqual([{
+            type: 'histogramData',
+            col_index: 99,
+            bins: [],
+        }]);
+        expect(read_count()).toBe(0);
+    });
+
+    it('does not scan non-numeric columns for histogram requests', async () => {
+        const { panel_like, posted, read_count } =
+            await make_histogram_panel({
+                name: 'make',
+                type: 'str18',
+                format: '%18s',
+                value_label_name: '',
+            }, [1, 2, 3]);
+
+        await panel_like.handle_request_histogram({
+            type: 'requestHistogram',
+            col_index: 0,
+        });
+
+        expect(read_count()).toBe(0);
+        expect(posted).toEqual([{
+            type: 'histogramData',
+            col_index: 0,
+            bins: [],
+        }]);
+    });
+
+    it('settles scan failures with an empty histogram reply', async () => {
+        const { panel_like, posted } = await make_histogram_panel({
+            name: 'price',
+            type: 'double',
+            format: '%9.0g',
+            value_label_name: '',
+        }, new Error('decode failed'));
+
+        await expect(panel_like.handle_request_histogram({
+            type: 'requestHistogram',
+            col_index: 0,
+        })).resolves.toBeUndefined();
+
+        expect(posted).toEqual([{
+            type: 'histogramData',
+            col_index: 0,
+            bins: [],
+        }]);
     });
 });

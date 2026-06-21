@@ -279,6 +279,22 @@ export function describe_visible_rows(
     return `Showing ${my_start.toLocaleString()}-${my_end.toLocaleString()} of ${nobs.toLocaleString()}`;
 }
 
+export function describe_browser_row_count(
+    metadata: MetadataMessage | null,
+    nobs_effective: number | undefined,
+    first_visible_row: number,
+    visible_row_count: number
+): string {
+    if (!metadata) {
+        return 'Loading…';
+    }
+    return describe_visible_rows(
+        nobs_effective ?? metadata.nobs,
+        first_visible_row,
+        visible_row_count
+    );
+}
+
 /** Toolbar subset banner, e.g. "Subsetted (vars: make, price; if
  *  foreign == 1; in 1/10)". Returns null when the browse covers the
  *  full dataset, so callers can skip rendering the row entirely. */

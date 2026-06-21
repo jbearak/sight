@@ -78,6 +78,25 @@ const MAX_CACHED_PAGES = 10;
 // Upper bound on value-label entries shipped per column to the webview.
 const MAX_SHIPPED_VALUE_LABELS = 10_000;
 
+function can_compute_histogram(
+    dta_file: DtaFile,
+    col_index: number
+): boolean {
+    const my_variable = dta_file.variables[col_index];
+    if (!my_variable) return false;
+    const my_has_value_labels =
+        my_variable.value_label_name !== ''
+        && dta_file.value_label_tables.has(
+            my_variable.value_label_name
+        );
+    const my_kind = classify_sort_kind({
+        type: my_variable.type,
+        format: my_variable.format,
+        has_value_labels: my_has_value_labels,
+    });
+    return my_kind === 'numeric' || my_kind === 'labelledNumeric';
+}
+
 export class DataBrowserPanel implements vscode.Disposable {
     private panel: vscode.WebviewPanel;
     private dta_file: DtaFile | null = null;
@@ -910,12 +929,21 @@ export class DataBrowserPanel implements vscode.Disposable {
     private async handle_request_histogram(
         msg: RequestHistogramMessage
     ): Promise<void> {
-        if (!this.dta_file) return;
+        const post_empty = () => this.post_histogram(
+            msg.col_index,
+            []
+        );
+        if (!this.dta_file) {
+            post_empty();
+            return;
+        }
         const my_col_index = msg.col_index;
         if (
             my_col_index < 0
             || my_col_index >= this.dta_file.nvar
+            || !can_compute_histogram(this.dta_file, my_col_index)
         ) {
+            post_empty();
             return;
         }
 
@@ -928,9 +956,15 @@ export class DataBrowserPanel implements vscode.Disposable {
             // and the webview, having marked the column requested, would
             // never see a brush.
             const my_file = this.dta_file;
-            const the_values = await this.read_full_column(
-                my_col_index
-            );
+            let the_values: RowCell[];
+            try {
+                the_values = await this.read_full_column(
+                    my_col_index
+                );
+            } catch {
+                post_empty();
+                return;
+            }
             if (this.dta_file !== my_file || !this.dta_file) {
                 return;
             }
@@ -946,10 +980,17 @@ export class DataBrowserPanel implements vscode.Disposable {
             this.histogram_cache.set(my_col_index, my_bins);
         }
 
+        this.post_histogram(my_col_index, my_bins);
+    }
+
+    private post_histogram(
+        col_index: number,
+        bins: HistogramBin[]
+    ): void {
         const my_msg: HistogramDataMessage = {
             type: 'histogramData',
-            col_index: my_col_index,
-            bins: my_bins,
+            col_index,
+            bins,
         };
         this.panel.webview.postMessage(my_msg);
     }
