@@ -226,6 +226,9 @@ export function is_cli_entry_point(
     }
 
     const normalized_script_path = script_path.replace(/\\/g, '/');
+    const script_filename = normalized_script_path.split('/').pop() ?? '';
+    const native_binary_pattern =
+        /^sight-(darwin|linux|windows)-(x64|arm64)(\.exe)?$/;
 
     return (
         script_path === cli_filename ||
@@ -233,7 +236,8 @@ export function is_cli_entry_point(
         normalized_script_path.endsWith(`/${PRIMARY_BINARY_NAME}.exe`) ||
         normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}`) ||
         normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}.exe`) ||
-        normalized_script_path.endsWith('/sight-server.js')
+        normalized_script_path.endsWith('/sight-server.js') ||
+        native_binary_pattern.test(script_filename)
     );
 }
 

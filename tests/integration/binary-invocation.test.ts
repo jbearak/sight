@@ -160,6 +160,21 @@ describe('CLI Entry Point Detection', () => {
                 bundle_path
             )
         ).toBe(true);
+        expect(is_cli_entry_point(
+            'D:\\a\\sight\\sight\\bin\\sight-windows-x64.exe',
+            bundle_path
+        ))
+            .toBe(true);
+        expect(is_cli_entry_point(
+            '/tmp/sight/bin/sight-darwin-arm64',
+            bundle_path
+        ))
+            .toBe(true);
+        expect(is_cli_entry_point(
+            '/tmp/sight/bin/sight-linux-arm64',
+            bundle_path
+        ))
+            .toBe(true);
     });
 
     it('rejects unrelated script paths', () => {
