@@ -156,6 +156,27 @@ export function build_non_capability_settings_from_sources(
 }
 
 /**
+ * Resolve effective settings for a single document scope from the live
+ * `workspace/configuration` (getConfiguration) result.
+ *
+ * The live result is the client layer: it is unwrapped (so a client that
+ * still wraps a `section: 'sight'` response as `{ sight: {...} }` is handled,
+ * a no-op for the spec-conformant bare subtree) and then mapped + merged with
+ * init options and project config via the shared builder. Extracted from the
+ * get_document_settings closure so the unwrap + public->internal mapping +
+ * precedence are behaviorally testable without a live server connection.
+ */
+export function resolve_scoped_client_settings(
+    live_config: unknown,
+    sources: Omit<NonCapabilitySettingsSources, 'last_client_settings'>
+): StataLSPConfig {
+    return build_non_capability_settings_from_sources({
+        ...sources,
+        last_client_settings: select_pushed_client_settings(live_config),
+    });
+}
+
+/**
  * Create and start the LSP server with the specified options.
  */
 export async function create_server(options: ServerOptions): Promise<void> {
@@ -355,22 +376,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 section: 'sight',
             }).then((config) => {
                 // The getConfiguration result is the live, per-scope `sight`
-                // tree in the public camelCase schema. Route it through the
-                // shared merge/validate pipeline as the client layer so this
-                // path and the global build_non_capability_settings stay in
+                // tree in the public camelCase schema. resolve_scoped_client_
+                // settings unwraps it and routes it through the shared
+                // merge/validate pipeline as the client layer, so this path
+                // and the global build_non_capability_settings stay in
                 // lockstep (precedence: init -> client -> project_file).
-                //
-                // select_pushed_client_settings is a defensive unwrap: a
-                // spec-conformant client answers a `section: 'sight'` query
-                // with the bare subtree (no `sight` wrapper), so it is a
-                // no-op there; for a client that still wraps the response as
-                // `{ sight: {...} }` it recovers the real tree. No `sight.*`
-                // config key exists, so the unwrap can never strip a real
-                // setting.
-                return build_non_capability_settings_from_sources({
+                return resolve_scoped_client_settings(config, {
                     init_options_config,
-                    last_client_settings:
-                        select_pushed_client_settings(config),
                     project_file_config,
                     log_warning: log_config_warning,
                 });

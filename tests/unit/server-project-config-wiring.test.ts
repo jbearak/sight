@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
     build_non_capability_settings_from_sources,
+    resolve_scoped_client_settings,
     select_pushed_client_settings,
 } from '../../src/server-factory';
 
@@ -55,6 +56,30 @@ describe('server-factory project config wiring', () => {
             },
         });
         expect(client_wins.cross_file.backward_dependencies).toBe('auto');
+    });
+
+    it('maps and unwraps the live per-scope getConfiguration result', () => {
+        // Exercises the exact transformation get_document_settings applies to
+        // the live getConfiguration result: a wrapped `{ sight: {...} }`
+        // response is unwrapped and its camelCase keys are mapped to the
+        // internal shape (the regression the deleted source-regex guard
+        // covered, now behavioral).
+        const wrapped = resolve_scoped_client_settings(
+            { sight: { crossFile: { backwardDependencies: 'explicit' } } },
+            {}
+        );
+        expect(wrapped.cross_file.backward_dependencies).toBe('explicit');
+
+        // The live client layer is still overridden by project config.
+        const project_wins = resolve_scoped_client_settings(
+            { crossFile: { backwardDependencies: 'auto' } },
+            {
+                project_file_config: {
+                    cross_file: { backward_dependencies: 'explicit' },
+                },
+            }
+        );
+        expect(project_wins.cross_file.backward_dependencies).toBe('explicit');
     });
 
     it('builds merged settings for clients without configuration capability', () => {
