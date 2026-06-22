@@ -53,36 +53,22 @@ describe('DocumentStore version guard', () => {
         expect(store.documents.get(uri)!.content).toBe('content v3 reparse');
     });
 
-    it('keeps newer content when concurrent updates commit out of order', async () => {
+    it('rejects a queued stale update and keeps the newer committed content', async () => {
         const document_store = new DocumentStore();
-        const store = document_store as unknown as InspectableDocumentStore;
         const uri = 'file:///version-guard-concurrent.do';
-        let release_v2_parse: (() => void) | undefined;
-        const v2_parse_can_finish = new Promise<void>(resolve => {
-            release_v2_parse = resolve;
-        });
-        const create_document_state = store.create_document_state.bind(store);
-
-        store.create_document_state = async (
-            state_uri: string,
-            content: string,
-            version: number
-        ) => {
-            const state = await create_document_state(state_uri, content, version);
-            if (version === 2) {
-                await v2_parse_can_finish;
-            }
-            return state;
-        };
 
         await document_store.open(uri, 'content v1', 1);
 
+        // A newer update (v3) and an older update (v2) are issued before the
+        // first settles. Per-URI serialization runs them in issue order, so
+        // the queued v2 sees the already-committed v3 and is rejected by the
+        // strict stale-version guard before it can reparse. (Genuine
+        // out-of-order parse completion is impossible by design: each update
+        // awaits the prior one, so parse order always matches issue order.)
         const update_v3 = document_store.update(uri, [{ text: 'content v3' }], 3);
         const update_v2 = document_store.update(uri, [{ text: 'content v2' }], 2);
 
-        await update_v3;
-        release_v2_parse!();
-        await update_v2;
+        await Promise.all([update_v3, update_v2]);
 
         const state = document_store.get(uri);
         expect(state).toBeDefined();

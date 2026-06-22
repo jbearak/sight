@@ -543,6 +543,7 @@ export class DocumentStore {
       if (oldest) {
         this.documents.delete(oldest);
         this.access_order.delete(oldest);
+        this.discard_generation_metadata(oldest);
         this.metrics.evictions++;
       } else {
         break; // Safety: prevent infinite loop if access_order is inconsistent
@@ -559,12 +560,26 @@ export class DocumentStore {
       if (oldest) {
         this.documents.delete(oldest);
         this.access_order.delete(oldest);
+        this.discard_generation_metadata(oldest);
         this.metrics.evictions++;
         total_bytes = this.estimate_total_bytes();
       } else {
         break; // Safety: prevent infinite loop if access_order is inconsistent
       }
     }
+  }
+
+  /**
+   * Drop per-URI generation bookkeeping for an evicted document.
+   * Eviction only targets URIs returned by find_oldest_uri (in-flight
+   * count zero), so no pending operation can still reference these
+   * generations. Mirrors the cleanup in decrement_in_flight/close so
+   * these maps do not grow unbounded across a long session.
+   */
+  private discard_generation_metadata(uri: string): void {
+    this.generations.delete(uri);
+    this.closed_generations.delete(uri);
+    this.committed_generations.delete(uri);
   }
 
   /**

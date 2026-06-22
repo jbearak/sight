@@ -95,6 +95,25 @@ describe('sight check args', () => {
         }
     });
 
+    it('rejects an inline value on a valueless flag', () => {
+        const the_cases = [
+            '--no-config=false',
+            '--quiet=1',
+            '--no-color=never',
+            '--help=please',
+        ];
+
+        for (const my_argv of the_cases) {
+            const flag = my_argv.split('=')[0];
+            const result = parse_check_args([my_argv]);
+
+            expect(result.success).toBe(false);
+            if (!result.success) {
+                expect(result.error).toBe(`${flag} does not take a value`);
+            }
+        }
+    });
+
     it('rejects --config with --no-config', () => {
         const result = parse_check_args(['--config', 'sight.toml', '--no-config']);
 

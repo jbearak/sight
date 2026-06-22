@@ -228,11 +228,11 @@ export class DiagnosticsProvider {
         // If scope_resolver is provided, check against cross-file scope first
         // Use the same filtered resolver config shape as other call sites so
         // cache keys stay aligned.
-        const resolve_config = scope_resolver_config_for(config);
+        const my_resolve_config = scope_resolver_config_for(config);
         const resolved_scope = scope_resolver ? await scope_resolver.resolve(
             document.uri,
             document.content,
-            resolve_config,
+            my_resolve_config,
             cancellation_token
         ) : undefined;
         

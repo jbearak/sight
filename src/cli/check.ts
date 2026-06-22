@@ -133,107 +133,131 @@ export function parse_check_args(argv: string[]): CheckParseResult {
     };
 
     for (let i = 0; i < argv.length; i++) {
-        const raw = argv[i];
+        const my_raw = argv[i];
         // Support both `--flag value` and `--flag=value`. Splitting on the
         // first '=' lets a value legally begin with '-' (e.g. an odd path).
-        let arg = raw;
-        let inline_value: string | undefined;
-        if (raw.startsWith('--')) {
-            const eq = raw.indexOf('=');
+        let my_arg = my_raw;
+        let my_inline_value: string | undefined;
+        if (my_raw.startsWith('--')) {
+            const eq = my_raw.indexOf('=');
             if (eq !== -1) {
-                arg = raw.slice(0, eq);
-                inline_value = raw.slice(eq + 1);
+                my_arg = my_raw.slice(0, eq);
+                my_inline_value = my_raw.slice(eq + 1);
             }
         }
-        switch (arg) {
+        switch (my_arg) {
             case '--workspace':
                 {
-                    const parsed = parse_required_option_value(
+                    const my_parsed = parse_required_option_value(
                         argv,
                         i,
                         '--workspace',
                         'a path',
-                        inline_value
+                        my_inline_value
                     );
-                    if (!parsed.success) return parsed;
-                    args.workspace = parsed.value;
-                    if (inline_value === undefined) i++;
+                    if (!my_parsed.success) return my_parsed;
+                    args.workspace = my_parsed.value;
+                    if (my_inline_value === undefined) i++;
                 }
                 break;
             case '--config':
                 {
-                    const parsed = parse_required_option_value(
+                    const my_parsed = parse_required_option_value(
                         argv,
                         i,
                         '--config',
                         'a path',
-                        inline_value
+                        my_inline_value
                     );
-                    if (!parsed.success) return parsed;
-                    args.config_path = parsed.value;
-                    if (inline_value === undefined) i++;
+                    if (!my_parsed.success) return my_parsed;
+                    args.config_path = my_parsed.value;
+                    if (my_inline_value === undefined) i++;
                 }
                 break;
             case '--no-config':
+                if (my_inline_value !== undefined) {
+                    return {
+                        success: false,
+                        error: `${my_arg} does not take a value`,
+                    };
+                }
                 args.no_config = true;
                 break;
             case '--format':
                 {
-                    const parsed = parse_enum_option(
+                    const my_parsed = parse_enum_option(
                         argv,
                         i,
                         '--format',
                         parse_output_format,
-                        inline_value
+                        my_inline_value
                     );
-                    if (!parsed.success) return parsed;
-                    args.format = parsed.value;
-                    if (inline_value === undefined) i++;
+                    if (!my_parsed.success) return my_parsed;
+                    args.format = my_parsed.value;
+                    if (my_inline_value === undefined) i++;
                 }
                 break;
             case '--max-severity':
                 {
-                    const parsed = parse_enum_option(
+                    const my_parsed = parse_enum_option(
                         argv,
                         i,
                         '--max-severity',
                         parse_severity_level,
-                        inline_value
+                        my_inline_value
                     );
-                    if (!parsed.success) return parsed;
-                    args.max_severity = parsed.value;
-                    if (inline_value === undefined) i++;
+                    if (!my_parsed.success) return my_parsed;
+                    args.max_severity = my_parsed.value;
+                    if (my_inline_value === undefined) i++;
                 }
                 break;
             case '--quiet':
+                if (my_inline_value !== undefined) {
+                    return {
+                        success: false,
+                        error: `${my_arg} does not take a value`,
+                    };
+                }
                 args.quiet = true;
                 break;
             case '--color':
                 {
-                    const parsed = parse_enum_option(
+                    const my_parsed = parse_enum_option(
                         argv,
                         i,
                         '--color',
                         parse_color_choice,
-                        inline_value
+                        my_inline_value
                     );
-                    if (!parsed.success) return parsed;
-                    args.color = parsed.value;
-                    if (inline_value === undefined) i++;
+                    if (!my_parsed.success) return my_parsed;
+                    args.color = my_parsed.value;
+                    if (my_inline_value === undefined) i++;
                 }
                 break;
             case '--no-color':
+                if (my_inline_value !== undefined) {
+                    return {
+                        success: false,
+                        error: `${my_arg} does not take a value`,
+                    };
+                }
                 args.color = ColorChoice.Never;
                 break;
             case '--help':
             case '-h':
+                if (my_inline_value !== undefined) {
+                    return {
+                        success: false,
+                        error: `${my_arg} does not take a value`,
+                    };
+                }
                 args.help = true;
                 break;
             default:
-                if (arg.startsWith('-')) {
-                    return { success: false, error: `Unknown flag: ${arg}` };
+                if (my_arg.startsWith('-')) {
+                    return { success: false, error: `Unknown flag: ${my_arg}` };
                 }
-                args.paths.push(arg);
+                args.paths.push(my_arg);
         }
     }
 

@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { URI } from 'vscode-uri';
 import { DocumentStore } from '../../src/document-store';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
@@ -89,7 +90,7 @@ describe('LSP Working Directory Option - Integration Tests', () => {
             // Create document with @lsp-cd directive
             const file_path = write_file('scripts/analysis.do', `// @lsp-cd: "../data"
 display "hello"`);
-            const uri = `file://${file_path}`;
+            const uri = URI.file(file_path).toString();
 
             // Open document in store
             const content = fs.readFileSync(file_path, 'utf-8');
@@ -108,7 +109,7 @@ display "hello"`);
         it('should return null for document without @lsp-cd directive', async () => {
             // Create document without @lsp-cd directive
             const file_path = write_file('scripts/simple.do', `display "hello"`);
-            const uri = `file://${file_path}`;
+            const uri = URI.file(file_path).toString();
 
             // Open document in store
             const content = fs.readFileSync(file_path, 'utf-8');
@@ -125,7 +126,7 @@ display "hello"`);
         });
 
         it('should return null for non-existent document', async () => {
-            const uri = `file://${test_dir}/nonexistent.do`;
+            const uri = URI.file(`${test_dir}/nonexistent.do`).toString();
 
             // Create handler and send request
             const deps = create_mock_dependencies(document_store);
@@ -145,7 +146,7 @@ display "hello"`);
             // Create document with @lsp-working-directory directive
             const file_path = write_file('scripts/report.do', `// @lsp-working-directory: "../output"
 display "generating report"`);
-            const uri = `file://${file_path}`;
+            const uri = URI.file(file_path).toString();
 
             // Open document in store
             const content = fs.readFileSync(file_path, 'utf-8');
@@ -169,7 +170,7 @@ display "generating report"`);
             // Create document with @lsp-wd directive
             const file_path = write_file('scripts/compute.do', `// @lsp-wd: "../results"
 gen x = 1`);
-            const uri = `file://${file_path}`;
+            const uri = URI.file(file_path).toString();
 
             // Open document in store
             const content = fs.readFileSync(file_path, 'utf-8');
@@ -206,7 +207,7 @@ do "child.do"`);
             // Create child.do with @lsp-done-by directive
             const child_path = write_file('scripts/child.do', `// @lsp-done-by: "parent.do"
 display \`myvar'`);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // Open child document in store
             const child_content = fs.readFileSync(child_path, 'utf-8');
@@ -240,7 +241,7 @@ include "helper.do"`);
             // Create helper.do with @lsp-included-by directive
             const helper_path = write_file('scripts/helper.do', `// @lsp-included-by: "main.do"
 display "helper"`);
-            const helper_uri = `file://${helper_path}`;
+            const helper_uri = URI.file(helper_path).toString();
 
             // Open helper document in store
             const helper_content = fs.readFileSync(helper_path, 'utf-8');
@@ -264,7 +265,7 @@ do "child.do"`);
             // Create child.do with @lsp-done-by directive
             const child_path = write_file('scripts/child.do', `// @lsp-done-by: "parent.do"
 display \`myvar'`);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // Open child document in store
             const child_content = fs.readFileSync(child_path, 'utf-8');
@@ -300,7 +301,7 @@ do "child.do"`);
 
                 const child_path = write_file('scripts/child.do',
                     'display "child"');
-                const child_uri = `file://${child_path}`;
+                const child_uri = URI.file(child_path).toString();
                 const child_content = fs.readFileSync(child_path, 'utf-8');
 
                 await index_workspace_for_auto_discovery();
@@ -326,7 +327,7 @@ do "child.do"`);
 
             const child_path = write_file('scripts/child.do',
                 'display "child"');
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
             const child_content = fs.readFileSync(child_path, 'utf-8');
 
             await index_workspace_for_auto_discovery();
@@ -353,7 +354,7 @@ do "child.do"`);
             const child_path = write_file('scripts/child.do',
                 `// @lsp-done-by: "parent.do"
 display "child"`);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
             const child_content = fs.readFileSync(child_path, 'utf-8');
 
             await index_workspace_for_auto_discovery();
@@ -380,7 +381,7 @@ do "child.do"`);
 
                 const child_path = write_file('scripts/child.do',
                     'display "child"');
-                const child_uri = `file://${child_path}`;
+                const child_uri = URI.file(child_path).toString();
                 const child_content = fs.readFileSync(child_path, 'utf-8');
 
                 await index_workspace_for_auto_discovery();

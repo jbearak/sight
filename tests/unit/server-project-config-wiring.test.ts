@@ -58,8 +58,9 @@ describe('server-factory project config wiring', () => {
             /init_partial\s*=\s*map_public_settings\(\s*\n?\s*init_record\?\.\['sight'\]\s*\?\?\s*init_options_config/
         );
         // The pushed client settings (didChangeConfiguration) are mapped too.
-        expect(source).toContain(
-            'map_public_settings(\n            sources.last_client_settings,'
+        // Whitespace-tolerant so reformatting the call does not break the guard.
+        expect(source).toMatch(
+            /map_public_settings\(\s*\n?\s*sources\.last_client_settings,/
         );
         expect(source).toContain('select_pushed_client_settings');
         // The live getConfiguration result is mapped, not merged raw.

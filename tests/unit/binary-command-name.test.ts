@@ -460,9 +460,9 @@ describe('binary command name', () => {
 
         for (const my_platform of SUPPORTED_BINARY_PLATFORMS) {
             for (const my_arch of SUPPORTED_BINARY_ARCHS) {
-                const suffix = my_platform === 'windows' ? '.exe' : '';
+                const my_suffix = my_platform === 'windows' ? '.exe' : '';
                 expect(NATIVE_BINARY_NAME_PATTERN.test(
-                    `sight-${my_platform}-${my_arch}${suffix}`
+                    `sight-${my_platform}-${my_arch}${my_suffix}`
                 )).toBe(true);
             }
         }
