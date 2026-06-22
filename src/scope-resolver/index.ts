@@ -101,7 +101,9 @@ export function scope_resolver_config_for(
     return build_scope_resolver_config({
         assume_call_site: config.cross_file?.assume_call_site,
         backward_dependencies: config.cross_file?.backward_dependencies,
+        max_backward_depth: config.cross_file?.max_backward_depth,
         max_forward_depth: config.cross_file?.max_forward_depth,
+        max_chain_depth: config.cross_file?.max_chain_depth,
         diagnostics: {
             max_depth: config.cross_file?.diagnostics?.max_depth,
             call_site_identification:

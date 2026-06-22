@@ -103,6 +103,58 @@ function create_transport_connection(transport: TransportType): Connection {
     }
 }
 
+export interface NonCapabilitySettingsSources {
+    init_options_config?: unknown;
+    last_client_settings?: unknown;
+    project_file_config?: DeepPartial<StataLSPConfig>;
+    log_warning?: (message: string) => void;
+}
+
+function map_public_settings(
+    raw: unknown,
+    log_warning?: (message: string) => void
+): DeepPartial<StataLSPConfig> {
+    return map_public_config_to_partial_config(raw, (warning) => {
+        log_warning?.(warning.message);
+    });
+}
+
+export function select_pushed_client_settings(settings: unknown): unknown {
+    const change_settings = settings && typeof settings === 'object'
+        ? settings as Record<string, unknown>
+        : undefined;
+    return change_settings?.['sight'] ?? settings;
+}
+
+export function build_non_capability_settings_from_sources(
+    sources: NonCapabilitySettingsSources
+): StataLSPConfig {
+    const init_options_config = sources.init_options_config;
+    const init_record = (init_options_config
+        && typeof init_options_config === 'object'
+        ? (init_options_config as Record<string, unknown>)
+        : undefined);
+    const init_partial = map_public_settings(
+        init_record?.['sight'] ?? init_options_config,
+        sources.log_warning
+    );
+    const client_partial = deep_merge_config(
+        init_partial,
+        map_public_settings(
+            sources.last_client_settings,
+            sources.log_warning
+        )
+    );
+    const merged_partial = deep_merge_config(
+        client_partial,
+        sources.project_file_config || {}
+    );
+    return validate_comment_formatting_config(
+        merged_partial,
+        sources.log_warning
+    );
+}
+
 /**
  * Create and start the LSP server with the specified options.
  */
@@ -176,6 +228,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Root URI from initialize params (fallback for clients without
     // workspaceFolders support, e.g., Claude Code, Neovim single-file)
     let init_root_uri: string | null = null;
+
+    const log_config_warning = (message: string): void => {
+        connection.console.log(`Configuration warning: ${message}`);
+    };
 
     function log_project_config_warnings(loaded: LoadedProjectConfig): void {
         for (const my_warning of loaded.warnings) {
@@ -266,22 +322,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
         previous_registration?.dispose();
     }
 
-    // Public settings arrive in the README camelCase schema — the same shape
-    // sight.toml uses — from every client entry point: initializationOptions,
-    // workspace/configuration (getConfiguration) results, and pushed
-    // didChangeConfiguration settings. Map them into the internal config shape
-    // the validator reads (crossFile -> cross_file, preserveAlignment ->
-    // preserve_alignment, ...). The mapper normalizes keys on `_` and case, so
-    // each public setting is accepted in either camelCase or snake_case;
-    // without this mapping those settings are silently dropped for clients
-    // (Neovim/Helix/Zed/Claude Code/VS Code) that send camelCase keys the
-    // hybrid internal shape does not match verbatim.
-    function map_public_settings(raw: unknown): DeepPartial<StataLSPConfig> {
-        return map_public_config_to_partial_config(raw, (warning) => {
-            connection.console.log(`Configuration warning: ${warning.message}`);
-        });
-    }
-
     // Build merged settings for clients WITHOUT `workspace/configuration`
     // capability. They cannot be queried per-document, so we fold the static
     // inputs ourselves: mapped initializationOptions, then the latest pushed
@@ -289,24 +329,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // this, init options and sight.toml are silently ignored until (and unless)
     // the client happens to send a didChangeConfiguration notification.
     function build_non_capability_settings(): StataLSPConfig {
-        const init_record = (init_options_config && typeof init_options_config === 'object'
-            ? (init_options_config as Record<string, unknown>)
-            : undefined);
-        const init_partial = map_public_settings(
-            init_record?.['sight'] ?? init_options_config
-        );
-        // Pushed client settings also arrive in the public camelCase shape, so
-        // map them too before merging into the internal partial.
-        const client_partial = deep_merge_config(
-            init_partial,
-            map_public_settings(last_client_settings)
-        );
-        const merged_partial = deep_merge_config(
-            client_partial,
-            project_file_config || {}
-        );
-        return validate_comment_formatting_config(merged_partial, (msg) => {
-            connection.console.log(`Configuration warning: ${msg}`);
+        return build_non_capability_settings_from_sources({
+            init_options_config,
+            last_client_settings,
+            project_file_config,
+            log_warning: log_config_warning,
         });
     }
 
@@ -331,7 +358,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     ? (init_options_config as Record<string, unknown>)
                     : undefined);
                 const init_partial = map_public_settings(
-                    init_record?.['sight'] ?? init_options_config
+                    init_record?.['sight'] ?? init_options_config,
+                    log_config_warning
                 );
                 // The getConfiguration result is the live `sight` tree in the
                 // public camelCase schema. Map it (not merge it raw) so its
@@ -340,7 +368,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 // dropped, e.g., crossFile.* and formatting.preserveAlignment.
                 const client_partial = deep_merge_config(
                     init_partial,
-                    map_public_settings(config)
+                    map_public_settings(config, log_config_warning)
                 );
                 const merged_partial = deep_merge_config(
                     client_partial,
@@ -348,7 +376,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 );
 
                 return validate_comment_formatting_config(merged_partial, (msg) => {
-                    connection.console.log(`Configuration warning: ${msg}`);
+                    log_config_warning(msg);
                 });
             });
             document_settings.set(resource, result);
@@ -1293,8 +1321,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 );
             });
         } else {
-            const change_settings = change.settings as Record<string, unknown> | undefined;
-            last_client_settings = change_settings?.['sight'];
+            last_client_settings = select_pushed_client_settings(
+                change.settings
+            );
             global_settings = build_non_capability_settings();
             configure_completion_provider(global_settings);
         }

@@ -103,7 +103,9 @@ describe('build_scope_resolver_config', () => {
                 ...DEFAULT_SETTINGS.cross_file,
                 assume_call_site: 'start' as const,
                 backward_dependencies: 'explicit' as const,
+                max_backward_depth: 3,
                 max_forward_depth: 4,
+                max_chain_depth: 7,
                 diagnostics: {
                     ...DEFAULT_SETTINGS.cross_file.diagnostics,
                     max_depth: 'error' as const,
@@ -115,7 +117,9 @@ describe('build_scope_resolver_config', () => {
         expect(scope_resolver_config_for(config)).toEqual({
             assume_call_site: 'start',
             backward_dependencies: 'explicit',
+            max_backward_depth: 3,
             max_forward_depth: 4,
+            max_chain_depth: 7,
             diagnostics: {
                 max_depth: 'error',
                 call_site_identification: 'off',

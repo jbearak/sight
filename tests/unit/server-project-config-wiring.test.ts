@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+    build_non_capability_settings_from_sources,
+    select_pushed_client_settings,
+} from '../../src/server-factory';
 
 describe('server-factory project config wiring', () => {
     const server_factory_path = path.join(
@@ -34,7 +38,7 @@ describe('server-factory project config wiring', () => {
         // before merging, so camelCase/snake_case aliases both reach the
         // internal shape; project config still wins as the final overlay.
         expect(source).toMatch(
-            /const\s+client_partial\s*=\s*deep_merge_config\(\s*\n?\s*init_partial,\s*\n?\s*map_public_settings\(config\)\s*\n?\s*\)/
+            /const\s+client_partial\s*=\s*deep_merge_config\(\s*\n?\s*init_partial,\s*\n?\s*map_public_settings\(config,\s*log_config_warning\)\s*\n?\s*\)/
         );
         expect(source).toMatch(
             /const\s+merged_partial\s*=\s*deep_merge_config\(\s*\n?\s*client_partial,\s*\n?\s*project_file_config\s*\|\|\s*\{\}\s*\n?\s*\)/
@@ -54,9 +58,14 @@ describe('server-factory project config wiring', () => {
             /init_partial\s*=\s*map_public_settings\(\s*\n?\s*init_record\?\.\['sight'\]\s*\?\?\s*init_options_config/
         );
         // The pushed client settings (didChangeConfiguration) are mapped too.
-        expect(source).toContain('map_public_settings(last_client_settings)');
+        expect(source).toContain(
+            'map_public_settings(\n            sources.last_client_settings,'
+        );
+        expect(source).toContain('select_pushed_client_settings');
         // The live getConfiguration result is mapped, not merged raw.
-        expect(source).toContain('map_public_settings(config)');
+        expect(source).toContain(
+            'map_public_settings(config, log_config_warning)'
+        );
     });
 
     it('builds merged settings for clients without configuration capability', () => {
@@ -71,5 +80,35 @@ describe('server-factory project config wiring', () => {
             /global_settings\s*=\s*build_non_capability_settings\(\)/g
         ) || [];
         expect(builder_uses.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('applies wrapped pushed settings for non-capability clients', () => {
+        const last_client_settings = select_pushed_client_settings({
+            sight: {
+                crossFile: {
+                    backwardDependencies: 'explicit',
+                },
+            },
+        });
+
+        const settings = build_non_capability_settings_from_sources({
+            last_client_settings,
+        });
+
+        expect(settings.cross_file.backward_dependencies).toBe('explicit');
+    });
+
+    it('applies unwrapped pushed settings for non-capability clients', () => {
+        const last_client_settings = select_pushed_client_settings({
+            crossFile: {
+                backwardDependencies: 'explicit',
+            },
+        });
+
+        const settings = build_non_capability_settings_from_sources({
+            last_client_settings,
+        });
+
+        expect(settings.cross_file.backward_dependencies).toBe('explicit');
     });
 });
