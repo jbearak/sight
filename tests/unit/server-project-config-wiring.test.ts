@@ -135,4 +135,15 @@ describe('server-factory project config wiring', () => {
 
         expect(settings.cross_file.backward_dependencies).toBe('explicit');
     });
+
+    it('unwraps an explicitly-undefined sight section to undefined', () => {
+        // A client answering the section query with `{ sight: undefined }`
+        // must unwrap to undefined, not fall back to the whole wrapper (which
+        // would trip an unknown-top-level-key warning in the mapper).
+        expect(select_pushed_client_settings({ sight: undefined }))
+            .toBeUndefined();
+        // No `sight` key at all still returns the bare tree unchanged.
+        const bare = { crossFile: { backwardDependencies: 'auto' } };
+        expect(select_pushed_client_settings(bare)).toBe(bare);
+    });
 });

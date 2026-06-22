@@ -123,7 +123,14 @@ export function select_pushed_client_settings(settings: unknown): unknown {
     const change_settings = settings && typeof settings === 'object'
         ? settings as Record<string, unknown>
         : undefined;
-    return change_settings?.['sight'] ?? settings;
+    // Unwrap a `sight` wrapper when the key is present (even if its
+    // value is undefined) rather than `?? settings`: for
+    // `{ sight: undefined }` the latter would feed the whole wrapper
+    // back to the mapper and trip an unknown-top-level-key warning.
+    if (change_settings && 'sight' in change_settings) {
+        return change_settings['sight'];
+    }
+    return settings;
 }
 
 export function build_non_capability_settings_from_sources(
@@ -385,12 +392,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     log_warning: log_config_warning,
                 });
             }).catch((error) => {
-                // On failure, cache the init+project fallback
-                // (resolved value, not a rejection) so a failing
-                // client isn't re-queried each request; refreshed
-                // on the next didChangeConfiguration clear. Live
-                // per-scope overrides can't apply — their fetch
-                // is what failed.
+                // On failure, cache the global merged fallback
+                // (build_non_capability_settings: init + pushed
+                // client + project) as a resolved value, not a
+                // rejection, so a failing client isn't re-queried
+                // each request; refreshed on the next
+                // didChangeConfiguration clear. The live per-scope
+                // result can't apply — its fetch is what failed.
                 log_config_warning(
                     `Failed to resolve settings for ${resource}: `
                     + (error instanceof Error ? error.message : String(error))
