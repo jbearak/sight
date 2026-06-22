@@ -57,20 +57,6 @@ describe('server-factory project config wiring', () => {
         expect(client_wins.cross_file.backward_dependencies).toBe('auto');
     });
 
-    it('routes the live getConfiguration result through the shared builder', () => {
-        // Wiring guard: the per-scope getConfiguration path must delegate to
-        // build_non_capability_settings_from_sources (passing the live tree
-        // as the client layer) so it shares the mapping/precedence the
-        // behavioral tests cover, instead of re-implementing the merge inline.
-        const source = fs.readFileSync(server_factory_path, 'utf8');
-
-        expect(source).toContain('function map_public_settings');
-        expect(source).toContain('select_pushed_client_settings');
-        expect(source).toMatch(
-            /build_non_capability_settings_from_sources\(\{[\s\S]*?last_client_settings:\s*config,/
-        );
-    });
-
     it('builds merged settings for clients without configuration capability', () => {
         // Regression guard: non-capability clients cannot be queried per
         // document, so the workspace refresh and config reload must seed

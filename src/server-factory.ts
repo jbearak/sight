@@ -354,33 +354,43 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 scopeUri: scope_uri,
                 section: 'sight',
             }).then((config) => {
-                // The getConfiguration result is the live, per-scope
-                // `sight` tree in the public camelCase schema. Route it
-                // through the shared merge/validate pipeline as the client
-                // layer so this path and the global
-                // build_non_capability_settings stay in lockstep
-                // (precedence: init -> client -> project_file).
+                // The getConfiguration result is the live, per-scope `sight`
+                // tree in the public camelCase schema. Route it through the
+                // shared merge/validate pipeline as the client layer so this
+                // path and the global build_non_capability_settings stay in
+                // lockstep (precedence: init -> client -> project_file).
                 //
-                // Unlike the push path (didChangeConfiguration), the result
-                // needs no `.sight` unwrap: the `section: 'sight'` query
-                // already returns the bare config subtree per the LSP spec.
+                // select_pushed_client_settings is a defensive unwrap: a
+                // spec-conformant client answers a `section: 'sight'` query
+                // with the bare subtree (no `sight` wrapper), so it is a
+                // no-op there; for a client that still wraps the response as
+                // `{ sight: {...} }` it recovers the real tree. No `sight.*`
+                // config key exists, so the unwrap can never strip a real
+                // setting.
                 return build_non_capability_settings_from_sources({
                     init_options_config,
-                    last_client_settings: config,
+                    last_client_settings:
+                        select_pushed_client_settings(config),
                     project_file_config,
                     log_warning: log_config_warning,
                 });
             }).catch((error) => {
                 // A transient getConfiguration rejection (or a throw while
                 // mapping the result) must not be cached as a poisoned
-                // promise: drop the entry so the next request retries, and
-                // fall back to global_settings meanwhile instead of failing
-                // every later completion/diagnostic for this document.
+                // promise. Drop only OUR entry (identity guard) so a config
+                // change that already replaced it via document_settings.clear()
+                // is not clobbered; the next request then retries. Fall back
+                // to the init + project merge (the live per-scope layer is
+                // what just failed) so sight.toml / initializationOptions
+                // still apply, rather than bare global_settings, which stays
+                // at DEFAULT_SETTINGS for configuration-capable clients.
                 log_config_warning(
                     `Failed to resolve settings for ${resource}: ${error}`
                 );
-                document_settings.delete(resource);
-                return global_settings;
+                if (document_settings.get(resource) === result) {
+                    document_settings.delete(resource);
+                }
+                return build_non_capability_settings();
             });
             document_settings.set(resource, result);
         }

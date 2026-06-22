@@ -636,8 +636,9 @@ export async function run_check_with_cwd(
         config_path: result.args.config_path,
         no_config: result.args.no_config,
     });
-    // Both result variants carry warnings (e.g. the stale-.sight.json
-    // migration hint); emit them once regardless of which branch follows.
+    // Both result variants carry a warnings array (auto-discovery may attach
+    // a stale-.sight.json migration hint to either), so emit them once here
+    // before branching on the result kind.
     for (const my_warning of config_result.warnings) {
         output.stderr(`sight check: ${my_warning.message}\n`);
     }
