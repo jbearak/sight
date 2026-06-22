@@ -5,8 +5,10 @@ import * as path from 'path';
 import {
     deep_merge_config,
     discover_and_load_project_config,
+    map_public_config_to_partial_config,
 } from '../../src/config-file';
 import { validate_comment_formatting_config } from '../../src/utils/config-validator';
+import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 
 function make_temp_dir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'sight-lsp-config-'));
@@ -56,6 +58,31 @@ describe('sight.toml server config precedence', () => {
 
             expect(settings.cross_file.backward_dependencies).toBe('explicit');
         }
+    });
+
+    it('maps camelCase initialization options into the internal config shape', () => {
+        // Regression: non-VS-Code clients (Neovim/Helix/Zed/Claude Code) pass
+        // config via LSP initializationOptions in the public camelCase schema.
+        // These must be mapped (crossFile -> cross_file, preserveAlignment ->
+        // preserve_alignment) or the validator silently drops them.
+        const init_options = {
+            crossFile: {
+                maxChainDepth: 5,
+                indexWorkspace: false,
+                backwardDependencies: 'explicit',
+            },
+            formatting: { preserveAlignment: true },
+        };
+
+        const mapped = map_public_config_to_partial_config(init_options);
+        const settings = validate_comment_formatting_config(
+            deep_merge_config(DEFAULT_SETTINGS, mapped)
+        );
+
+        expect(settings.cross_file.max_chain_depth).toBe(5);
+        expect(settings.cross_file.index_workspace).toBe(false);
+        expect(settings.cross_file.backward_dependencies).toBe('explicit');
+        expect(settings.formatting.preserve_alignment).toBe(true);
     });
 
     it('malformed nearest sight.toml yields no project layer', () => {

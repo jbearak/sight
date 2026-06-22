@@ -6,6 +6,7 @@
  */
 
 import { StataLSPConfig } from '../types';
+import type { DeepPartial } from '../config-file/types';
 import { DEFAULT_SETTINGS } from '../server-handlers';
 
 type CrossFileSeverityLevel = 'error' | 'warning' | 'information' | 'off';
@@ -18,7 +19,7 @@ type CrossFileSeverityLevel = 'error' | 'warning' | 'information' | 'off';
  * @returns A fully populated StataLSPConfig with validated values and defaults applied where necessary
  */
 export function validate_comment_formatting_config(
-    config: Partial<StataLSPConfig> | undefined,
+    config: DeepPartial<StataLSPConfig> | undefined,
     log_warning?: (message: string) => void
 ): StataLSPConfig {
     // Start with defaults
@@ -239,6 +240,10 @@ export function validate_comment_formatting_config(
 
     if (typeof config.indexWorkspace === 'boolean') {
         validated_config.indexWorkspace = config.indexWorkspace;
+    }
+
+    if (typeof config.debug === 'boolean') {
+        validated_config.debug = config.debug;
     }
 
     // Validate cross_file section

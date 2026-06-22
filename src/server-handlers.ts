@@ -42,7 +42,7 @@ import { CodeFormatter } from './providers/formatter';
 import { WorkspaceIndexer } from './indexer';
 import { StataLSPConfig } from './types';
 import { ContextTracker } from './context-tracker';
-import { ScopeResolver } from './scope-resolver';
+import { ScopeResolver, scope_resolver_config_for } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DependencyGraph } from './dependency-graph';
 import { RenameHandler } from './utils/file-rename-handler';
@@ -341,11 +341,7 @@ export function create_completion_handler(
                 trigger_character,
                 deps.scope_resolver || undefined,
                 workspace_symbols,
-                {
-                    assume_call_site: config.cross_file?.assume_call_site,
-                    backward_dependencies: config.cross_file?.backward_dependencies,
-                    max_forward_depth: config.cross_file?.max_forward_depth,
-                },
+                scope_resolver_config_for(config),
                 workspace_version,
                 token,
                 graph_version
@@ -414,11 +410,7 @@ export function create_hover_handler(
             params.position,
             workspace_symbols,
             deps.scope_resolver || undefined,
-            {
-                assume_call_site: config.cross_file?.assume_call_site,
-                backward_dependencies: config.cross_file?.backward_dependencies,
-                max_forward_depth: config.cross_file?.max_forward_depth,
-            },
+            scope_resolver_config_for(config),
             token,
             workspace_root,
             deps.workspace_indexer || undefined,
@@ -455,11 +447,7 @@ export function create_definition_handler(
             document_state.context_tracker,
             deps.scope_resolver || undefined,
             deps.workspace_indexer || undefined,
-            {
-                assume_call_site: config.cross_file?.assume_call_site,
-                backward_dependencies: config.cross_file?.backward_dependencies,
-                max_forward_depth: config.cross_file?.max_forward_depth,
-            },
+            scope_resolver_config_for(config),
             token
         );
     };
@@ -491,11 +479,7 @@ export function create_references_handler(
             deps.workspace_indexer || undefined,
             document_state.context_tracker,
             token,
-            {
-                assume_call_site: config.cross_file?.assume_call_site,
-                backward_dependencies: config.cross_file?.backward_dependencies,
-                max_forward_depth: config.cross_file?.max_forward_depth,
-            }
+            scope_resolver_config_for(config)
         );
     };
 }

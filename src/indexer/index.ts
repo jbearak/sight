@@ -42,14 +42,14 @@ import {
     FindaliasResolver,
     HelpAliasResolver,
 } from '../utils/findalias-resolver';
+import {
+    hasStataExtension,
+    VCS_METADATA_DIRS,
+} from '../utils/file-path-utils';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
 const INDEX_DEBOUNCE_MS = 200;
-
-// Version-control metadata directories skipped during workspace scans.
-// They contain no Stata source and recursing them is wasted work.
-const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
 
 export interface IndexedFileData {
     uri: string;
@@ -330,15 +330,11 @@ export class WorkspaceIndexer {
                         continue;
                     }
                     await this.scan_directory(entry_path, generation);
-                } else if (entry.isFile()) {
-                    if (
-                        entry.name.endsWith('.do') ||
-                        entry.name.endsWith('.ado') ||
-                        entry.name.endsWith('.doh') ||
-                        entry.name.endsWith('.mata')
-                    ) {
-                        file_paths.push(entry_path);
-                    }
+                } else if (
+                    entry.isFile() &&
+                    hasStataExtension(entry.name)
+                ) {
+                    file_paths.push(entry_path);
                 }
             }
 
@@ -404,10 +400,40 @@ export class WorkspaceIndexer {
         this.context_ranges_index.delete(file_uri);
         if (was_indexed) {
             this.version++;
+            // Evicting an already-counted file (size growth, re-index error,
+            // or removal) must drop the distinct-file count; otherwise
+            // files_indexed inflates over edits and trips max_indexed_files
+            // early, hiding genuinely-new files and emitting spurious
+            // SIGHT_FILE_NOT_INDEXED diagnostics.
+            this.metrics.files_indexed = Math.max(
+                0,
+                this.metrics.files_indexed - 1
+            );
         }
         if (graph_result && graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
             this.on_graph_change_callback(graph_result.changed_callees);
         }
+    }
+
+    private should_skip_for_max_indexed_files(file_uri: string): boolean {
+        if (this.metrics.files_indexed < this.max_indexed_files) {
+            return false;
+        }
+
+        if (!this.max_files_reached) {
+            this.max_files_reached = true;
+            logger.info(
+                `Reached max_indexed_files limit (${this.max_indexed_files}). ` +
+                `Skipping remaining files.`
+            );
+        }
+        // Only evict files that are new to the index. An already-indexed file
+        // re-indexed after the cap is reached should keep its existing entry
+        // (it is already counted toward the cap) rather than lose coverage.
+        if (!this.symbol_index.has(file_uri)) {
+            this.clear_stale_entry(file_uri);
+        }
+        return true;
     }
 
     /**
@@ -419,19 +445,15 @@ export class WorkspaceIndexer {
     ): Promise<void> {
         if (!this.is_active_generation(generation) || !this.enabled) return;
         const file_uri = URI.file(file_path).toString();
+        // Re-indexing a file already in the index does not grow the distinct-
+        // file count, so the cap must not block it; otherwise an edit to an
+        // already-indexed file is silently skipped once the cap is reached,
+        // leaving stale symbols. The cap gates only genuinely new files.
+        const already_indexed = this.symbol_index.has(file_uri);
 
-        // Check max files limit
-        if (this.metrics.files_indexed >= this.max_indexed_files) {
-            if (!this.max_files_reached) {
-                this.max_files_reached = true;
-                logger.info(
-                    `Reached max_indexed_files limit (${this.max_indexed_files}). ` +
-                    `Skipping remaining files.`
-                );
-            }
-            this.clear_stale_entry(file_uri);
-            return;
-        }
+        // Check max files limit (new files only)
+        if (!already_indexed
+            && this.should_skip_for_max_indexed_files(file_uri)) return;
 
         try {
             // Check file size
@@ -455,10 +477,17 @@ export class WorkspaceIndexer {
                 'utf8'
             );
             if (!this.is_active_generation(generation)) return;
+            if (!already_indexed
+                && this.should_skip_for_max_indexed_files(file_uri)) return;
 
             // Handle .mata files differently
-            if (file_path.endsWith('.mata')) {
-                await this.index_mata_file(content, file_uri, generation);
+            if (path.extname(file_path).toLowerCase() === '.mata') {
+                await this.index_mata_file(
+                    content,
+                    file_uri,
+                    generation,
+                    already_indexed
+                );
                 return;
             }
 
@@ -484,6 +513,9 @@ export class WorkspaceIndexer {
             context_tracker.initialize_from_tokens(lexResult.tokens, content);
             const context_ranges = context_tracker.get_all_context_ranges();
             if (!this.is_active_generation(generation)) return;
+
+            if (!already_indexed
+                && this.should_skip_for_max_indexed_files(file_uri)) return;
 
             // Combine forward calls from analyzer (command-detected)
             // and directive parser (directive-detected)
@@ -520,7 +552,7 @@ export class WorkspaceIndexer {
                 directives: directive_result.directives
             });
             this.version++;
-            this.metrics.files_indexed++;
+            if (!already_indexed) this.metrics.files_indexed++;
         } catch (error) {
             if (!this.is_active_generation(generation)) return;
             this.clear_stale_entry(file_uri);
@@ -535,7 +567,8 @@ export class WorkspaceIndexer {
     private async index_mata_file(
         content: string,
         file_uri: string,
-        generation: number
+        generation: number,
+        already_indexed: boolean = this.symbol_index.has(file_uri)
     ): Promise<void> {
         if (!this.is_active_generation(generation)) return;
 
@@ -582,7 +615,7 @@ export class WorkspaceIndexer {
             directives: []
         });
         this.version++;
-        this.metrics.files_indexed++;
+        if (!already_indexed) this.metrics.files_indexed++;
     }
 
 
@@ -785,8 +818,16 @@ export class WorkspaceIndexer {
                 context_ranges,
             });
         }
-        
+
         return indexed_files;
+    }
+
+    /**
+     * Whether a file URI has been indexed. Cheaper than get_indexed_files()
+     * when only membership is needed.
+     */
+    has_indexed_file(uri: string): boolean {
+        return this.symbol_index.has(uri);
     }
 
     /**

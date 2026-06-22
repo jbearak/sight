@@ -13,7 +13,11 @@ export * from './providers/formatter';
 export { CommandDatabase, command_database } from './command-database';
 export { ForwardScopeResolver } from './forward-scope-resolver';
 export type { ForwardScopeConfig } from './forward-scope-resolver';
-export { ScopeResolver, build_scope_resolver_config } from './scope-resolver';
+export {
+    ScopeResolver,
+    build_scope_resolver_config,
+    scope_resolver_config_for,
+} from './scope-resolver';
 export { DependencyGraph } from './dependency-graph';
 export type { AutoBackwardEdge, GraphUpdateResult } from './dependency-graph';
 

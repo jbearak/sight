@@ -190,8 +190,37 @@ will use the same discovery from `--workspace`.
 Project config wins over client/editor settings per key. Keys omitted from
 `sight.toml` continue to come from editor settings or built-in defaults.
 
+In a multi-root workspace, the project config is loaded only from the first
+workspace folder and applied to every document; a separate `sight.toml` in
+another folder is not resolved per-root. The server logs a note when it detects
+multiple folders. Open one project per window, or place a single `sight.toml`
+at a shared root, if you need distinct project settings.
+
 `.sight.json` is no longer supported. Convert its contents to TOML syntax;
 renaming the file is not enough because JSON and TOML are different languages.
+
+### Naming convention and case aliasing
+
+The canonical spelling for every setting is **camelCase** (e.g.
+`crossFile.maxChainDepth`, `formatting.preserveAlignment`,
+`diagnostics.severity.undefinedMacro`). This is the form used throughout this
+documentation and matches comparable tools (Pyright, rust-analyzer,
+typescript-language-server).
+
+As a permanent guarantee, **every setting also accepts its `snake_case`
+spelling as an equivalent alias, and vice-versa** — so you never have to
+remember which form a given setting uses. `crossFile.maxChainDepth` and
+`cross_file.max_chain_depth` are identical, as are `formatting.preserveAlignment`
+and `formatting.preserve_alignment`. Section names alias too
+(`crossFile` ≡ `cross_file`), and matching is case-insensitive overall
+(`CrossFile` also works). You may even mix conventions within a single config.
+
+This aliasing applies uniformly to **every** configuration entry point:
+`sight.toml`, editor `settings.json` (VS Code), and the `initializationOptions`
+non-VS-Code clients send (Neovim, Helix, Zed, Claude Code). When two spellings
+of the same key appear together and neither is the canonical camelCase form,
+both are ignored and a warning is emitted; when one of them is canonical, the
+canonical spelling wins.
 
 ```toml
 indexWorkspace = true

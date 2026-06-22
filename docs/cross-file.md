@@ -583,6 +583,10 @@ as it indicates a semantic issue that affects symbol inheritance.
 ## Configuration
 
 Cross-file resolution is configured via `sight.toml` in your project root.
+Setting names use camelCase by convention, but the `snake_case` spelling is a
+permanent equivalent alias for every key (e.g. `crossFile.maxChainDepth` ≡
+`cross_file.max_chain_depth`). See
+[Naming convention and case aliasing](configuration.md#naming-convention-and-case-aliasing).
 
 ```toml
 [crossFile]

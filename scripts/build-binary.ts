@@ -12,13 +12,17 @@
 import { $ } from 'bun';
 import * as fs from 'fs';
 import * as path from 'path';
+import type {
+    BinaryArch,
+    BinaryPlatform,
+} from '../src/cli-binary-names';
 
 /**
  * Build target configuration.
  */
 export interface BuildTarget {
-    platform: 'darwin' | 'linux' | 'windows';
-    arch: 'x64' | 'arm64';
+    platform: BinaryPlatform;
+    arch: BinaryArch;
     output_name: string;
 }
 
@@ -28,8 +32,8 @@ type BinaryBuilder = (target: BuildTarget) => Promise<void>;
  * Platform detection result.
  */
 export interface PlatformInfo {
-    platform: 'darwin' | 'linux' | 'windows';
-    arch: 'arm64' | 'x64';
+    platform: BinaryPlatform;
+    arch: BinaryArch;
     binary_name: string;
 }
 
@@ -60,6 +64,7 @@ export function detect_platform(): PlatformInfo | undefined {
 
 /**
  * All supported build targets.
+ * darwin-x64 is intentionally not built.
  */
 const TARGETS: BuildTarget[] = [
     { platform: 'darwin', arch: 'arm64', output_name: 'sight-darwin-arm64' },

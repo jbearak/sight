@@ -9,6 +9,7 @@ import package_json from '../package.json' with { type: 'json' };
 import {
     CLI_HELP_BANNER,
     LEGACY_BINARY_NAME,
+    NATIVE_BINARY_NAME_PATTERN,
     PRIMARY_BINARY_NAME,
 } from './cli-binary-names';
 
@@ -147,6 +148,11 @@ ${CLI_HELP_BANNER}
 
 USAGE:
     sight [OPTIONS]
+    sight check [OPTIONS] [PATHS...]
+
+COMMANDS:
+    check             Run full Stata diagnostics over a workspace (for CI).
+                      See "sight check --help" for its options.
 
 OPTIONS:
     -s, --stdio       Use stdio transport (default)
@@ -159,6 +165,7 @@ EXAMPLES:
     sight --stdio           Start server with stdio transport
     sight --node-ipc        Start server with Node IPC (VS Code)
     sight                   Start server with stdio (default)
+    sight check --help      Show options for the check command
 
 For more information, visit: https://github.com/jbearak/sight
 `.trim();
@@ -186,6 +193,11 @@ export function print_error(message: string): void {
  * Parses arguments and starts the server or prints help/version.
  */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+    if (argv[0] === 'check') {
+        const { run_check } = await import('./cli/check');
+        return run_check(argv.slice(1));
+    }
+
     const result = parse_args(argv);
 
     if (!result.success) {
@@ -227,8 +239,6 @@ export function is_cli_entry_point(
 
     const normalized_script_path = script_path.replace(/\\/g, '/');
     const script_filename = normalized_script_path.split('/').pop() ?? '';
-    const native_binary_pattern =
-        /^sight-(darwin|linux|windows)-(x64|arm64)(\.exe)?$/;
 
     return (
         script_path === cli_filename ||
@@ -237,7 +247,7 @@ export function is_cli_entry_point(
         normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}`) ||
         normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}.exe`) ||
         normalized_script_path.endsWith('/sight-server.js') ||
-        native_binary_pattern.test(script_filename)
+        NATIVE_BINARY_NAME_PATTERN.test(script_filename)
     );
 }
 

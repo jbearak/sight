@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import { parse } from 'smol-toml';
 import type { LoadedProjectConfig, ProjectConfigWarning } from './types';
 import { map_public_config_to_partial_config } from './schema';
+import { error_message } from '../utils/error-message';
 
 function load_failed(
     path: string,
@@ -11,9 +12,7 @@ function load_failed(
     return {
         kind: 'load-failed',
         path,
-        error: `${path}: ${
-            error instanceof Error ? error.message : String(error)
-        }`,
+        error: `${path}: ${error_message(error)}`,
         warnings,
         candidate_dirs: [],
     };
