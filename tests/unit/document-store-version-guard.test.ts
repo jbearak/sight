@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { DocumentState, DocumentStore } from '../../src/document-store';
+import { DependencyGraph } from '../../src/dependency-graph';
+import { WorkspaceIndexer } from '../../src/indexer';
+import { ScopeResolver } from '../../src/scope-resolver';
+import type { ContentProvider } from '../../src/types';
+import { URI } from 'vscode-uri';
 
 type InspectableDocumentStore = DocumentStore & {
     documents: Map<string, DocumentState>;
@@ -83,6 +88,71 @@ describe('DocumentStore version guard', () => {
         expect(state).toBeDefined();
         expect(state!.version).toBe(3);
         expect(state!.content).toBe('content v3');
+    });
+
+    it('keeps newer backward directive side effects after stale update', async () => {
+        const document_store = new DocumentStore();
+        const workspace_indexer = new WorkspaceIndexer();
+        const dependency_graph = new DependencyGraph();
+        const parent_path = '/tmp/sight-f8-parent.do';
+        const parent_uri = URI.file(parent_path).toString();
+        const child_uri = URI.file('/tmp/sight-f8-child.do').toString();
+        const content_by_uri = new Map<string, string>([
+            [parent_uri, 'display 0\n'],
+            [child_uri, 'display 1\n'],
+        ]);
+        const content_provider: ContentProvider = {
+            read_file: async (uri) => content_by_uri.get(uri) ?? '',
+            exists: async (uri) => content_by_uri.has(uri),
+            stat: async (uri) => {
+                const content = content_by_uri.get(uri);
+                return content === undefined
+                    ? undefined
+                    : { mtimeMs: 0, size: content.length };
+            },
+        };
+        const scope_resolver = new ScopeResolver(undefined, content_provider);
+
+        workspace_indexer.set_dependency_graph(dependency_graph);
+        scope_resolver.set_dependency_graph(dependency_graph);
+        document_store.set_scope_resolver(scope_resolver);
+        document_store.set_on_backward_directives_parsed((uri, directives) => {
+            workspace_indexer.set_buffer_directives(uri, directives);
+        });
+
+        await document_store.open(child_uri, 'display 1', 1);
+
+        const content_with_directive =
+            `// @lsp-done-by: "${parent_path}"\n` +
+            'display 3\n';
+        const content_without_directive = 'display 2\n';
+        content_by_uri.set(child_uri, content_with_directive);
+
+        const update_v3 = document_store.update(
+            child_uri,
+            [{ text: content_with_directive }],
+            3
+        );
+        const update_v2 = document_store.update(
+            child_uri,
+            [{ text: content_without_directive }],
+            2
+        );
+
+        await Promise.all([update_v3, update_v2]);
+
+        const state = document_store.get(child_uri);
+        expect(state).toBeDefined();
+        expect(state!.version).toBe(3);
+        expect(state!.content).toBe(content_with_directive);
+
+        const related_uris = workspace_indexer.get_related_uris(parent_uri);
+        expect(related_uris.has(child_uri)).toBe(true);
+        const directive_children =
+            scope_resolver.get_backward_directive_children(parent_uri);
+        expect(
+            directive_children.has(child_uri)
+        ).toBe(true);
     });
 
     it('rejects older-version updates even when scope config is present', async () => {

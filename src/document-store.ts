@@ -198,8 +198,22 @@ export class DocumentStore {
     const generation = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, generation);
     this.increment_in_flight(uri);
+    const prior = this.active_updates.get(uri);
 
     const operation = async () => {
+      // Per-URI serialization is the primary guarantee that newer state
+      // and cross-file side effects cannot be overwritten by a
+      // later-finishing older parse.
+      if (prior) {
+        try {
+          await prior;
+        } catch {
+          // A prior operation's failure must not block this one.
+        }
+      }
+      if (this.disposed) {
+        return;
+      }
       this.evict_if_needed(content.length);
       const state = await this.create_document_state(
         uri,
@@ -240,8 +254,22 @@ export class DocumentStore {
     const generation = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, generation);
     this.increment_in_flight(uri);
+    const prior = this.active_updates.get(uri);
 
     const operation = async () => {
+      // Per-URI serialization is the primary guarantee that newer state
+      // and cross-file side effects cannot be overwritten by a
+      // later-finishing older parse.
+      if (prior) {
+        try {
+          await prior;
+        } catch {
+          // A prior operation's failure must not block this one.
+        }
+      }
+      if (this.disposed) {
+        return;
+      }
       const state = this.documents.get(uri);
       if (!state) {
         return;
@@ -254,6 +282,9 @@ export class DocumentStore {
       // than by document version, so a later-but-older update could
       // otherwise overwrite newer state.
       if (state.version > version) {
+        // With per-URI serialization, chained stale updates stop here
+        // before create_document_state can apply stale cross-file
+        // directive side effects.
         this.metrics.cache_hits++;
         return;
       }
