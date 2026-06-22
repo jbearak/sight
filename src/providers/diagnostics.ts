@@ -1,4 +1,4 @@
-import { Diagnostic, DiagnosticSeverity, Connection, Position, CancellationToken, Range } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity, Position, CancellationToken, Range } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
 import { LanguageContext, ContextDiagnostic, ContextRange } from '../context-tracker/types';
 import {
@@ -12,7 +12,11 @@ import {
     ResolvedScope,
     DirectiveDiagnostic
 } from '../types';
-import { ScopeResolver, build_scope_resolver_config, get_visible_forward_call_sites } from '../scope-resolver';
+import {
+    ScopeResolver,
+    get_visible_forward_call_sites,
+    scope_resolver_config_for,
+} from '../scope-resolver';
 import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
@@ -37,6 +41,13 @@ type OutOfScopeRewriteMatch = {
     reason: OutOfScopeMessageReason;
 };
 
+export interface DiagnosticsConnection {
+    sendDiagnostics(params: {
+        uri: string;
+        diagnostics: Diagnostic[];
+    }): void;
+}
+
 /**
  * DiagnosticsProvider aggregates diagnostics from cached parse results.
  * 
@@ -57,7 +68,7 @@ type OutOfScopeRewriteMatch = {
  * - Context Tracker: unclosed mata/python blocks, mismatched delimiters
  */
 export class DiagnosticsProvider {
-    private connection: Connection;
+    private connection: DiagnosticsConnection;
     private debounce_manager: DocumentDebounceManager | null = null;
     private indentation_analyzer = new IndentationDiagnosticAnalyzer();
     private operator_sequence_analyzer = new OperatorSequenceAnalyzer();
@@ -70,7 +81,10 @@ export class DiagnosticsProvider {
     // Cache filtered diagnostics by (uri, version, config_hash)
     private filtered_cache: Map<string, Map<string, Diagnostic[]>> = new Map();
 
-    constructor(connection: Connection, debounce_manager?: DocumentDebounceManager) {
+    constructor(
+        connection: DiagnosticsConnection,
+        debounce_manager?: DocumentDebounceManager
+    ) {
         this.connection = connection;
         this.debounce_manager = debounce_manager || null;
     }
@@ -212,22 +226,13 @@ export class DiagnosticsProvider {
 
         // Add semantic diagnostics from cached analyzer results
         // If scope_resolver is provided, check against cross-file scope first
-        // Only pass config if assume_call_site is explicitly set to avoid
-        // overriding the default with undefined
-        const resolve_config = build_scope_resolver_config({
-            assume_call_site: config.cross_file?.assume_call_site,
-            backward_dependencies: config.cross_file?.backward_dependencies,
-            max_forward_depth: config.cross_file?.max_forward_depth,
-            diagnostics: {
-                max_depth: config.cross_file?.diagnostics?.max_depth,
-                call_site_identification:
-                    config.cross_file?.diagnostics?.call_site_identification,
-            },
-        });
+        // Use the same filtered resolver config shape as other call sites so
+        // cache keys stay aligned.
+        const my_resolve_config = scope_resolver_config_for(config);
         const resolved_scope = scope_resolver ? await scope_resolver.resolve(
             document.uri,
             document.content,
-            resolve_config,
+            my_resolve_config,
             cancellation_token
         ) : undefined;
         

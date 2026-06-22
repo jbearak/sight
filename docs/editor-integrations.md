@@ -62,7 +62,7 @@ Create `lsp.json` in your project root:
       "command": "sight",
       "args": ["--stdio"],
       "file_extensions": ["do", "ado", "doh", "mata"],
-      "project_patterns": [".sight.json"]
+      "project_patterns": ["sight.toml"]
     }
   }
 }

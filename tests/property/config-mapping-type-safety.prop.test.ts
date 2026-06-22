@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import {
-    map_stata_lsp_json_to_partial_config,
+    map_public_config_to_partial_config,
     DeepPartial,
-} from '../../src/utils/workspace-config';
+} from '../../src/config-file';
 import { StataLSPConfig } from '../../src/types';
 
 describe('Config Mapping Type Safety Property Tests', () => {
     /**
      * Property 2: Config Mapping Type Safety
      *
-     * For any valid JSON object representing a `.sight.json` configuration,
-     * the `map_stata_lsp_json_to_partial_config` function should return a value
+     * For any valid object representing a `sight.toml` configuration,
+     * the `map_public_config_to_partial_config` function should return a value
      * that conforms to `DeepPartial<StataLSPConfig>`, with all recognized fields
      * properly mapped from camelCase to snake_case.
      *
@@ -33,7 +33,7 @@ describe('Config Mapping Type Safety Property Tests', () => {
                         crossFile: my_cross_file_config,
                     };
 
-                    const my_result = map_stata_lsp_json_to_partial_config(my_raw);
+                    const my_result = map_public_config_to_partial_config(my_raw);
 
                     // Verify snake_case mapping
                     expect(my_result.cross_file).toBeDefined();
@@ -84,7 +84,7 @@ describe('Config Mapping Type Safety Property Tests', () => {
                         },
                     };
 
-                    const my_result = map_stata_lsp_json_to_partial_config(my_raw);
+                    const my_result = map_public_config_to_partial_config(my_raw);
 
                     // Verify nested snake_case mapping
                     expect(my_result.cross_file).toBeDefined();
@@ -119,7 +119,7 @@ describe('Config Mapping Type Safety Property Tests', () => {
             },
         };
 
-        const my_result = map_stata_lsp_json_to_partial_config(my_raw);
+        const my_result = map_public_config_to_partial_config(my_raw);
 
         expect(my_result.cross_file!.diagnostics!.missing_file).toBe('information');
         expect(my_result.cross_file!.diagnostics!.call_site_identification).toBe('information');
@@ -138,7 +138,7 @@ describe('Config Mapping Type Safety Property Tests', () => {
             },
         };
 
-        const my_result = map_stata_lsp_json_to_partial_config(my_raw);
+        const my_result = map_public_config_to_partial_config(my_raw);
 
         expect(my_result.cross_file).toBeDefined();
         expect(my_result.cross_file!.diagnostics).toBeDefined();
@@ -169,7 +169,7 @@ describe('Config Mapping Type Safety Property Tests', () => {
                     fc.constant({ notCrossFile: {} })
                 ),
                 (my_invalid_input) => {
-                    const my_result = map_stata_lsp_json_to_partial_config(my_invalid_input);
+                    const my_result = map_public_config_to_partial_config(my_invalid_input);
 
                     // Should return empty object for invalid inputs
                     expect(my_result).toEqual({});
@@ -207,7 +207,7 @@ describe('Config Mapping Type Safety Property Tests', () => {
                     }
 
                     const my_raw = { crossFile: my_cross_file };
-                    const my_result = map_stata_lsp_json_to_partial_config(my_raw);
+                    const my_result = map_public_config_to_partial_config(my_raw);
 
                     // Verify only present fields are mapped
                     if (my_flags.has_index_workspace) {
@@ -215,7 +215,7 @@ describe('Config Mapping Type Safety Property Tests', () => {
                             my_flags.index_workspace_value
                         );
                     } else {
-                        expect(my_result.cross_file!.index_workspace).toBeUndefined();
+                        expect(my_result.cross_file?.index_workspace).toBeUndefined();
                     }
 
                     if (my_flags.has_max_indexed_files) {
@@ -223,7 +223,7 @@ describe('Config Mapping Type Safety Property Tests', () => {
                             my_flags.max_indexed_files_value
                         );
                     } else {
-                        expect(my_result.cross_file!.max_indexed_files).toBeUndefined();
+                        expect(my_result.cross_file?.max_indexed_files).toBeUndefined();
                     }
                 }
             ),
@@ -263,12 +263,12 @@ describe('Config Mapping Type Safety Property Tests', () => {
                         crossFile: my_invalid_types,
                     };
 
-                    const my_result = map_stata_lsp_json_to_partial_config(my_raw);
+                    const my_result = map_public_config_to_partial_config(my_raw);
 
                     // Fields with wrong types should not be mapped
-                    expect(my_result.cross_file!.index_workspace).toBeUndefined();
-                    expect(my_result.cross_file!.max_indexed_files).toBeUndefined();
-                    expect(my_result.cross_file!.assume_call_site).toBeUndefined();
+                    expect(my_result.cross_file?.index_workspace).toBeUndefined();
+                    expect(my_result.cross_file?.max_indexed_files).toBeUndefined();
+                    expect(my_result.cross_file?.assume_call_site).toBeUndefined();
                 }
             ),
             { numRuns: 100 }

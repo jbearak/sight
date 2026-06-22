@@ -6,6 +6,7 @@
  */
 
 import { StataLSPConfig } from '../types';
+import type { DeepPartial } from '../config-file/types';
 import { DEFAULT_SETTINGS } from '../server-handlers';
 
 type CrossFileSeverityLevel = 'error' | 'warning' | 'information' | 'off';
@@ -18,7 +19,7 @@ type CrossFileSeverityLevel = 'error' | 'warning' | 'information' | 'off';
  * @returns A fully populated StataLSPConfig with validated values and defaults applied where necessary
  */
 export function validate_comment_formatting_config(
-    config: Partial<StataLSPConfig> | undefined,
+    config: DeepPartial<StataLSPConfig> | undefined,
     log_warning?: (message: string) => void
 ): StataLSPConfig {
     // Start with defaults
@@ -241,6 +242,10 @@ export function validate_comment_formatting_config(
         validated_config.indexWorkspace = config.indexWorkspace;
     }
 
+    if (typeof config.debug === 'boolean') {
+        validated_config.debug = config.debug;
+    }
+
     // Validate cross_file section
     if (config.cross_file) {
         const cross_file = config.cross_file;
@@ -255,6 +260,14 @@ export function validate_comment_formatting_config(
 
         if (cross_file.assume_call_site === 'end' || cross_file.assume_call_site === 'start') {
             validated_config.cross_file.assume_call_site = cross_file.assume_call_site;
+        }
+
+        if (
+            cross_file.backward_dependencies === 'auto' ||
+            cross_file.backward_dependencies === 'explicit'
+        ) {
+            validated_config.cross_file.backward_dependencies =
+                cross_file.backward_dependencies;
         }
 
         if (typeof cross_file.max_backward_depth === 'number' && cross_file.max_backward_depth > 0) {

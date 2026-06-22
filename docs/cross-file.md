@@ -63,15 +63,11 @@ completes, all open files are re-validated with the full dependency graph.
 
 If you prefer full manual control, set `crossFile.backwardDependencies` to
 `"explicit"`. You can set this globally via the VS Code setting
-`sight.crossFile.backwardDependencies`, or per-project by placing a
-`.sight.json` file in your project root:
+`sight.crossFile.backwardDependencies`, or per-project in `sight.toml`:
 
-```json
-{
-  "crossFile": {
-    "backwardDependencies": "explicit"
-  }
-}
+```toml
+[crossFile]
+backwardDependencies = "explicit"
 ```
 
 In this mode the LSP will not auto-discover parent files — you must add
@@ -102,8 +98,9 @@ tab removes that document from the open-document cache.
 Independently of which files are open, the LSP **scans your workspace folders
 on disk** and builds a workspace symbol index. This is enabled by default via
 the VS Code setting `sight.indexWorkspace: true`. If you are using a workspace
-`.sight.json`, cross-file indexing is controlled separately via
-`crossFile.indexWorkspace`.
+`sight.toml`, cross-file indexing is controlled separately via
+`crossFile.indexWorkspace`. Workspace indexing runs only when both
+`indexWorkspace` and `crossFile.indexWorkspace` are enabled.
 
 At startup (after the server is initialized), the indexer recursively scans the
 workspace folders for Stata-related files and reads them from disk to extract
@@ -585,7 +582,27 @@ as it indicates a semantic issue that affects symbol inheritance.
 
 ## Configuration
 
-Cross-file resolution is configured via `.sight.json` in your workspace root.
+Cross-file resolution is configured via `sight.toml` in your project root.
+Setting names use camelCase by convention, but the `snake_case` spelling is a
+permanent equivalent alias for every key (e.g. `crossFile.maxChainDepth` ≡
+`cross_file.max_chain_depth`). See
+[Naming convention and case aliasing](configuration.md#naming-convention-and-case-aliasing).
+
+```toml
+[crossFile]
+backwardDependencies = "auto"
+indexWorkspace = true
+maxIndexedFiles = 1000
+maxBackwardDepth = 10
+maxForwardDepth = 10
+maxChainDepth = 20
+maxCalleeRevalidations = 10
+assumeCallSite = "end"
+
+[crossFile.diagnostics]
+missingFile = "warning"
+callSiteIdentification = "information"
+```
 
 | Option                                        | Type     | Default         | Description                                            |
 | --------------------------------------------- | -------- | --------------- | ------------------------------------------------------ |

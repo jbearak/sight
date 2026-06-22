@@ -32,6 +32,7 @@ import {
     MacroSymbol,
     ScalarSymbol,
     MatrixSymbol,
+    StataLSPConfig,
 } from '../types';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
@@ -661,6 +662,8 @@ export class CompletionProvider {
     private context_tracker?: IContextTracker;
     private prefix_cache: CompletionPrefixCache<CompletionItem>;
     private symbol_cache: SymbolIndexCache;
+    private cache_size: number;
+    private prefix_max_items: number;
     
     // Merged symbol cache to avoid repetitive merging on every completion request
     private merged_cache: Map<string, { symbols: SymbolTable; doc_version: number; workspace_version: number }> = new Map();
@@ -675,7 +678,45 @@ export class CompletionProvider {
         this.command_db = command_db || new CommandDatabase();
         this.client_capabilities = client_capabilities || { snippet_support: false };
         this.context_tracker = context_tracker;
-        this.prefix_cache = new CompletionPrefixCache<CompletionItem>(cache_size, prefix_max_items);
+        this.cache_size = cache_size;
+        this.prefix_max_items = prefix_max_items;
+        this.prefix_cache = new CompletionPrefixCache<CompletionItem>(
+            this.cache_size,
+            this.prefix_max_items
+        );
+        this.symbol_cache = new SymbolIndexCache();
+    }
+
+    /**
+     * Reconfigure cache sizing after project or editor settings change.
+     */
+    configure_completion(
+        config: Partial<StataLSPConfig['completion']> | undefined
+    ): void {
+        const next_cache_size =
+            typeof config?.cacheSize === 'number' && config.cacheSize > 0
+                ? config.cacheSize
+                : this.cache_size;
+        const next_prefix_max_items =
+            typeof config?.prefixMaxItems === 'number' &&
+                config.prefixMaxItems > 0
+                ? config.prefixMaxItems
+                : this.prefix_max_items;
+
+        if (
+            next_cache_size === this.cache_size &&
+            next_prefix_max_items === this.prefix_max_items
+        ) {
+            return;
+        }
+
+        this.cache_size = next_cache_size;
+        this.prefix_max_items = next_prefix_max_items;
+        this.prefix_cache = new CompletionPrefixCache<CompletionItem>(
+            this.cache_size,
+            this.prefix_max_items
+        );
+        this.merged_cache.clear();
         this.symbol_cache = new SymbolIndexCache();
     }
 
@@ -1439,7 +1480,7 @@ export class CompletionProvider {
             
             while (current_dir !== path.dirname(current_dir)) {
                 // Check for common workspace markers
-                const markers = ['.git', '.sight.json', 'package.json', '.vscode'];
+                const markers = ['.git', 'sight.toml', '.sight.json', 'package.json', '.vscode'];
                 
                 for (const marker of markers) {
                     if (fs.existsSync(path.join(current_dir, marker))) {

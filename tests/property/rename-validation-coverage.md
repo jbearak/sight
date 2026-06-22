@@ -37,25 +37,26 @@ This document describes the comprehensive property-based tests created to valida
 - Verifies the DiagnosticsProvider uses the correct 'sight' source
 - Ensures no legacy 'stata-lsp' or 'stataLSP' sources remain
 
-### 4. Config File Resolution Works with '.sight.json'
+### 4. Config File Resolution Works with `sight.toml`
 
 **Property 4.1: Config Filename Validation**
-- Validates the workspace config uses `.sight.json` as the filename
+- Validates the active project config uses `sight.toml` as the filename
+- Validates `.sight.json` is only detected as an unsupported stale config
 - Ensures no legacy `.stata-lsp.json` references remain
 
 **Property 4.2: Config Mapping Function**
-- Tests the `map_stata_lsp_json_to_partial_config` function with sight schema
+- Tests the `map_public_config_to_partial_config` function with sight schema
 - Validates proper mapping of crossFile configuration properties
 - Uses property-based testing with generated valid configuration objects
 
 **Property 4.3: Config Path Construction**
 - Tests config file path construction uses sight naming convention
-- Validates path.join operations produce correct `.sight.json` paths
+- Validates path.join operations produce correct `sight.toml` paths
 
 ### 5. Comprehensive Rename Validation
 
 **Property 5.1: Legacy Reference Detection**
-- Scans key files (package.json, server-handlers.ts, workspace-config.ts) for legacy references
+- Scans key files (package.json, server-handlers.ts, config-file types) for legacy references
 - Ensures no `stata-lsp.`, `stataLSP.`, or `.stata-lsp.json` references remain
 - Validates presence of appropriate sight references
 

@@ -1,5 +1,16 @@
 import { TextDocumentContentChangeEvent, Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import { StataAST, SymbolTable, Token, DocumentStoreMetrics, ForwardCall, WorkingDirectoryDirective, Directive, LexerError, ParseError } from './types';
+import {
+  StataAST,
+  SymbolTable,
+  Token,
+  DocumentStoreMetrics,
+  ForwardCall,
+  WorkingDirectoryDirective,
+  Directive,
+  LexerError,
+  ParseError,
+  ScopeResolverConfig,
+} from './types';
 import { StataLexer } from './lexer';
 import { StataParser } from './parser';
 import { SemanticAnalyzer, SemanticDiagnostic } from './analyzer';
@@ -53,6 +64,7 @@ export class DocumentStore {
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
   private workspace_roots: string[] = [];
   private scope_resolver: ScopeResolver | undefined;
+  private scope_resolver_config: Partial<ScopeResolverConfig> = {};
   private on_backward_directives_parsed:
     | ((uri: string, directives: Directive[]) => void)
     | undefined;
@@ -60,6 +72,7 @@ export class DocumentStore {
 
   // Generation counters for close-vs-update safety (Req 16.1, 16.2)
   private generations: Map<string, number> = new Map();
+  private committed_generations: Map<string, number> = new Map();
   private closed_generations: Map<string, number> = new Map();
 
   private metrics: DocumentStoreMetrics = {
@@ -117,6 +130,12 @@ export class DocumentStore {
     }
   }
 
+  set_scope_resolver_config(
+    config: Partial<ScopeResolverConfig>
+  ): void {
+    this.scope_resolver_config = config;
+  }
+
   /**
    * Get the current scope resolver.
    */
@@ -167,16 +186,42 @@ export class DocumentStore {
    * Open a document and parse it.
    * Async to support parse timeout wrapper.
    */
-  async open(uri: string, content: string, version: number, workspace_symbols?: SymbolTable): Promise<void> {
+  async open(
+    uri: string,
+    content: string,
+    version: number,
+    workspace_symbols?: SymbolTable,
+    scope_resolver_config?: Partial<ScopeResolverConfig>
+  ): Promise<void> {
     this.check_disposed();
     // Capture generation at start of operation (Req 16.2)
     const generation = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, generation);
     this.increment_in_flight(uri);
+    const prior = this.active_updates.get(uri);
 
     const operation = async () => {
+      // Per-URI serialization is the primary guarantee that newer state
+      // and cross-file side effects cannot be overwritten by a
+      // later-finishing older parse.
+      if (prior) {
+        try {
+          await prior;
+        } catch {
+          // A prior operation's failure must not block this one.
+        }
+      }
+      if (this.disposed) {
+        return;
+      }
       this.evict_if_needed(content.length);
-      const state = await this.create_document_state(uri, content, version, workspace_symbols);
+      const state = await this.create_document_state(
+        uri,
+        content,
+        version,
+        workspace_symbols,
+        scope_resolver_config
+      );
       this.commit_state(uri, state, generation);
     };
 
@@ -201,22 +246,52 @@ export class DocumentStore {
     uri: string,
     changes: TextDocumentContentChangeEvent[],
     version: number,
-    workspace_symbols?: SymbolTable
+    workspace_symbols?: SymbolTable,
+    scope_resolver_config?: Partial<ScopeResolverConfig>
   ): Promise<void> {
     this.check_disposed();
     // Capture generation at start of operation (Req 16.2)
     const generation = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, generation);
     this.increment_in_flight(uri);
+    const prior = this.active_updates.get(uri);
 
     const operation = async () => {
+      // Per-URI serialization is the primary guarantee that newer state
+      // and cross-file side effects cannot be overwritten by a
+      // later-finishing older parse.
+      if (prior) {
+        try {
+          await prior;
+        } catch {
+          // A prior operation's failure must not block this one.
+        }
+      }
+      if (this.disposed) {
+        return;
+      }
       const state = this.documents.get(uri);
       if (!state) {
         return;
       }
+      const should_reparse_for_scope_config =
+        scope_resolver_config !== undefined;
 
-      // Skip if version hasn't changed (idempotent)
-      if (state.version >= version) {
+      // Strictly older snapshots are always stale. commit_state only
+      // guards by operation generation, which increments per call rather
+      // than by document version, so a later-but-older update could
+      // otherwise overwrite newer state.
+      if (state.version > version) {
+        // With per-URI serialization, chained stale updates stop here
+        // before create_document_state can apply stale cross-file
+        // directive side effects.
+        this.metrics.cache_hits++;
+        return;
+      }
+
+      // Same-version updates are idempotent unless scope config is
+      // provided, in which case config-derived state must be recomputed.
+      if (state.version === version && !should_reparse_for_scope_config) {
         this.metrics.cache_hits++;
         return;
       }
@@ -230,7 +305,7 @@ export class DocumentStore {
       // Safe to mutate in place: this path is synchronous (no await
       // between the .get() above and this mutation), so close()
       // cannot interleave.
-      if (new_content === state.content) {
+      if (new_content === state.content && !should_reparse_for_scope_config) {
         state.version = version;
         this.metrics.cache_hits++;
         return;
@@ -241,7 +316,8 @@ export class DocumentStore {
         uri,
         new_content,
         version,
-        workspace_symbols
+        workspace_symbols,
+        scope_resolver_config
       );
       this.commit_state(uri, new_state, generation);
     };
@@ -274,6 +350,7 @@ export class DocumentStore {
     const current = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, current);
     this.closed_generations.set(uri, current);
+    this.committed_generations.delete(uri);
     this.documents.delete(uri);
     this.access_order.delete(uri);
   }
@@ -314,12 +391,30 @@ export class DocumentStore {
     if (closed_gen !== undefined && generation <= closed_gen) {
       return; // Discard stale update (document closed)
     }
+    // Operation generations increment per call, not per document
+    // version. A later-started older-version update can therefore
+    // have a higher generation than a newer committed state; never
+    // let it overwrite that newer document version. Equal versions
+    // are allowed for same-version reparses such as scope config
+    // changes and error-state recovery.
+    const existing = this.documents.get(uri);
+    if (existing && existing.version > state.version) {
+      return;
+    }
+
     // Discard if a newer update has already committed (Req 16.2)
-    const current_gen = this.generations.get(uri) ?? 0;
-    if (generation < current_gen) {
+    const current_gen = this.committed_generations.get(uri) ?? 0;
+    if (
+      generation < current_gen &&
+      (!existing || existing.version >= state.version)
+    ) {
       return; // A newer update has already committed
     }
     this.documents.set(uri, state);
+    this.committed_generations.set(
+      uri,
+      Math.max(current_gen, generation)
+    );
     this.touch_access(uri);
   }
 
@@ -353,6 +448,7 @@ export class DocumentStore {
       if (!this.documents.has(uri)) {
         this.closed_generations.delete(uri);
         this.generations.delete(uri);
+        this.committed_generations.delete(uri);
       }
       return;
     }
@@ -361,6 +457,7 @@ export class DocumentStore {
       if (!this.documents.has(uri)) {
         this.closed_generations.delete(uri);
         this.generations.delete(uri);
+        this.committed_generations.delete(uri);
       }
     } else {
       this.in_flight_counts.set(uri, count);
@@ -446,6 +543,7 @@ export class DocumentStore {
       if (oldest) {
         this.documents.delete(oldest);
         this.access_order.delete(oldest);
+        this.discard_generation_metadata(oldest);
         this.metrics.evictions++;
       } else {
         break; // Safety: prevent infinite loop if access_order is inconsistent
@@ -462,6 +560,7 @@ export class DocumentStore {
       if (oldest) {
         this.documents.delete(oldest);
         this.access_order.delete(oldest);
+        this.discard_generation_metadata(oldest);
         this.metrics.evictions++;
         total_bytes = this.estimate_total_bytes();
       } else {
@@ -471,11 +570,28 @@ export class DocumentStore {
   }
 
   /**
-   * Find the URI with the oldest access (first in Map insertion order).
-   * O(1) - Map maintains insertion order, so first entry is oldest.
+   * Drop per-URI generation bookkeeping for an evicted document.
+   * Eviction only targets URIs returned by find_oldest_uri (in-flight
+   * count zero), so no pending operation can still reference these
+   * generations. Mirrors the cleanup in decrement_in_flight/close so
+   * these maps do not grow unbounded across a long session.
+   */
+  private discard_generation_metadata(uri: string): void {
+    this.generations.delete(uri);
+    this.closed_generations.delete(uri);
+    this.committed_generations.delete(uri);
+  }
+
+  /**
+   * Find the oldest URI that is not currently being updated.
    */
   private find_oldest_uri(): string | undefined {
-    return this.access_order.values().next().value;
+    for (const my_uri of this.access_order) {
+      if ((this.in_flight_counts.get(my_uri) ?? 0) === 0) {
+        return my_uri;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -499,7 +615,8 @@ export class DocumentStore {
     uri: string,
     content: string,
     version: number,
-    workspace_symbols?: SymbolTable
+    workspace_symbols?: SymbolTable,
+    scope_resolver_config?: Partial<ScopeResolverConfig>
   ): Promise<DocumentState> {
     const start_time = Date.now();
     this.metrics.parse_count++;
@@ -548,7 +665,18 @@ export class DocumentStore {
       );
     }
 
-    // Parse directives to get working_directory and check for backward directives
+    // Parse directives to get working_directory and check for backward directives.
+    //
+    // KNOWN LIMITATION (tracked in https://github.com/jbearak/sight/issues/184):
+    // these cross-file side effects are applied during the parse, before
+    // commit_state decides whether the parse is accepted. Per-URI serialization
+    // makes a stale out-of-order *update* hit the read-time version guard before
+    // this runs, but a `close()` racing an in-flight parse is not serialized, so
+    // a parse finishing after close can briefly leave a stale backward-directive
+    // relationship until the next reparse/reindex. The full fix is to stage these
+    // side effects and apply them only after commit_state's guards pass (issue
+    // #184); it is deferred because the correct rollback requires a transactional
+    // refactor (including a non-registering resolve() probe), not a coarse clear.
     const directive_parser = new DirectiveParser();
     let resolved_working_directory: string | undefined;
     try {
@@ -573,7 +701,13 @@ export class DocumentStore {
         // File has no own working directory. Try to inherit one from parent
         // files via ScopeResolver, including auto-discovered parents.
         try {
-          const scope_result = await this.scope_resolver.resolve(uri, content);
+          const effective_scope_resolver_config =
+            scope_resolver_config ?? this.scope_resolver_config;
+          const scope_result = await this.scope_resolver.resolve(
+            uri,
+            content,
+            effective_scope_resolver_config
+          );
           if (scope_result.inherited_working_directory) {
             resolved_working_directory = scope_result.inherited_working_directory;
           }

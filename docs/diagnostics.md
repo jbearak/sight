@@ -131,22 +131,21 @@ Diagnostics keys live under `sight.*` in VS Code's `settings.json`:
 }
 ```
 
-The workspace-root `.sight.json` file uses a separate, unprefixed
-schema and currently exposes only the indentation toggle for
-diagnostics:
+Project-wide diagnostic settings can also be stored in `sight.toml`:
 
-```json
-{
-  "diagnostics": {
-    "indentation": false
-  }
-}
+```toml
+[diagnostics]
+enabled = true
+indentation = false
+
+[diagnostics.severity]
+undefinedMacro = "warning"
+undefinedVariable = "off"
+styleWarnings = "hint"
 ```
 
-Severity keys are not yet recognized in `.sight.json` — set them in
-VS Code settings. See the
-[Project Configuration File](configuration.md#project-configuration-file)
-section for the full `.sight.json` schema.
+See the [Project Configuration File](configuration.md#project-configuration-file)
+section for the full `sight.toml` schema and precedence rules.
 
 Each severity key accepts `"error"`, `"warning"`, `"information"`,
 `"hint"`, or `"off"`. Notes:
