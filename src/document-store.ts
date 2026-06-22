@@ -248,8 +248,18 @@ export class DocumentStore {
       const should_reparse_for_scope_config =
         scope_resolver_config !== undefined;
 
-      // Skip if version hasn't changed (idempotent)
-      if (state.version >= version && !should_reparse_for_scope_config) {
+      // Strictly older snapshots are always stale. commit_state only
+      // guards by operation generation, which increments per call rather
+      // than by document version, so a later-but-older update could
+      // otherwise overwrite newer state.
+      if (state.version > version) {
+        this.metrics.cache_hits++;
+        return;
+      }
+
+      // Same-version updates are idempotent unless scope config is
+      // provided, in which case config-derived state must be recomputed.
+      if (state.version === version && !should_reparse_for_scope_config) {
         this.metrics.cache_hits++;
         return;
       }
