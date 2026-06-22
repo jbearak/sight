@@ -354,18 +354,19 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 scopeUri: scope_uri,
                 section: 'sight',
             }).then((config) => {
-                // The getConfiguration result is the live, per-scope `sight`
-                // tree in the public camelCase schema. Route it through the
-                // shared merge/validate pipeline as the client layer so this
-                // path and the global build_non_capability_settings stay in
-                // lockstep (precedence: init → client → project_file).
-                // select_pushed_client_settings keeps this symmetric with the
-                // push path: a no-op for spec-compliant clients (section
-                // 'sight' already returns the bare tree), but it unwraps a
-                // `{ sight: {...} }` response from clients that send one.
+                // The getConfiguration result is the live, per-scope
+                // `sight` tree in the public camelCase schema. Route it
+                // through the shared merge/validate pipeline as the client
+                // layer so this path and the global
+                // build_non_capability_settings stay in lockstep
+                // (precedence: init -> client -> project_file).
+                //
+                // Unlike the push path (didChangeConfiguration), the result
+                // needs no `.sight` unwrap: the `section: 'sight'` query
+                // already returns the bare config subtree per the LSP spec.
                 return build_non_capability_settings_from_sources({
                     init_options_config,
-                    last_client_settings: select_pushed_client_settings(config),
+                    last_client_settings: config,
                     project_file_config,
                     log_warning: log_config_warning,
                 });

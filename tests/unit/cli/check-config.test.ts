@@ -80,4 +80,24 @@ describe('sight check config loading', () => {
             expect(result.message).toContain('failed to load');
         }
     });
+
+    it('surfaces stale json warnings even when the config fails to parse', () => {
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, '.sight.json'), '{}\n');
+        fs.writeFileSync(path.join(root, 'sight.toml'), 'bad = = toml\n');
+
+        const result = load_check_config({
+            cwd: root,
+            workspace_root: root,
+            no_config: false,
+        });
+
+        expect(result.kind).toBe('operator-error');
+        if (result.kind === 'operator-error') {
+            expect(result.message).toContain('failed to load');
+            expect(result.warnings.some((warning) =>
+                warning.message.includes('.sight.json is no longer supported')
+            )).toBe(true);
+        }
+    });
 });

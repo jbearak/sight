@@ -31,46 +31,43 @@ describe('server-factory project config wiring', () => {
         expect(source).toMatch(/workspace_indexer\.initialize\(/);
     });
 
-    it('merges client settings before project settings', () => {
-        const source = fs.readFileSync(server_factory_path, 'utf8');
+    it('merges init, client, then project config in precedence order', () => {
+        // Behavioral guard for both the public->internal mapping and the
+        // precedence: every layer is mapped (so camelCase aliases like
+        // crossFile.* are not dropped), project config wins over client, and
+        // client wins over init options.
+        const project_wins = build_non_capability_settings_from_sources({
+            last_client_settings: {
+                crossFile: { backwardDependencies: 'auto' },
+            },
+            project_file_config: {
+                cross_file: { backward_dependencies: 'explicit' },
+            },
+        });
+        expect(project_wins.cross_file.backward_dependencies).toBe('explicit');
 
-        // The shared builder maps the client layer (not merged raw) before
-        // merging, so camelCase/snake_case aliases both reach the internal
-        // shape; project config still wins as the final overlay.
-        expect(source).toMatch(
-            /const\s+client_partial\s*=\s*deep_merge_config\(\s*\n?\s*init_partial,\s*\n?\s*map_public_settings\(\s*\n?\s*sources\.last_client_settings,/
-        );
-        expect(source).toMatch(
-            /const\s+merged_partial\s*=\s*deep_merge_config\(\s*\n?\s*client_partial,\s*\n?\s*sources\.project_file_config\s*\|\|\s*\{\}\s*\n?\s*\)/
-        );
+        const client_wins = build_non_capability_settings_from_sources({
+            init_options_config: {
+                sight: { crossFile: { backwardDependencies: 'explicit' } },
+            },
+            last_client_settings: {
+                crossFile: { backwardDependencies: 'auto' },
+            },
+        });
+        expect(client_wins.cross_file.backward_dependencies).toBe('auto');
     });
 
-    it('maps every public settings source into the internal shape', () => {
-        // Regression guard: initializationOptions, the live getConfiguration
-        // result, and pushed didChangeConfiguration settings must all run
-        // through the public->internal mapper. Otherwise camelCase keys like
-        // crossFile.* and formatting.preserveAlignment are silently dropped by
-        // the validator (which reads the hybrid internal shape).
+    it('routes the live getConfiguration result through the shared builder', () => {
+        // Wiring guard: the per-scope getConfiguration path must delegate to
+        // build_non_capability_settings_from_sources (passing the live tree
+        // as the client layer) so it shares the mapping/precedence the
+        // behavioral tests cover, instead of re-implementing the merge inline.
         const source = fs.readFileSync(server_factory_path, 'utf8');
 
         expect(source).toContain('function map_public_settings');
-        expect(source).toMatch(
-            /init_partial\s*=\s*map_public_settings\(\s*\n?\s*init_record\?\.\['sight'\]\s*\?\?\s*init_options_config/
-        );
-        // The pushed client settings (didChangeConfiguration) are mapped too.
-        // Whitespace-tolerant so reformatting the call does not break the guard.
-        expect(source).toMatch(
-            /map_public_settings\(\s*\n?\s*sources\.last_client_settings,/
-        );
         expect(source).toContain('select_pushed_client_settings');
-        // The live getConfiguration result flows through the shared builder
-        // as the client layer (last_client_settings), so it is mapped by the
-        // same map_public_settings(sources.last_client_settings, ...) call
-        // rather than merged raw. It is unwrapped via
-        // select_pushed_client_settings so a wrapped `{ sight: {...} }`
-        // response is handled the same way the push path handles it.
         expect(source).toMatch(
-            /build_non_capability_settings_from_sources\(\{[\s\S]*?last_client_settings:\s*select_pushed_client_settings\(config\),/
+            /build_non_capability_settings_from_sources\(\{[\s\S]*?last_client_settings:\s*config,/
         );
     });
 
