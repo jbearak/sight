@@ -650,7 +650,18 @@ export class DocumentStore {
       );
     }
 
-    // Parse directives to get working_directory and check for backward directives
+    // Parse directives to get working_directory and check for backward directives.
+    //
+    // KNOWN LIMITATION (tracked in https://github.com/jbearak/sight/issues/184):
+    // these cross-file side effects are applied during the parse, before
+    // commit_state decides whether the parse is accepted. Per-URI serialization
+    // makes a stale out-of-order *update* hit the read-time version guard before
+    // this runs, but a `close()` racing an in-flight parse is not serialized, so
+    // a parse finishing after close can briefly leave a stale backward-directive
+    // relationship until the next reparse/reindex. The full fix is to stage these
+    // side effects and apply them only after commit_state's guards pass (issue
+    // #184); it is deferred because the correct rollback requires a transactional
+    // refactor (including a non-registering resolve() probe), not a coarse clear.
     const directive_parser = new DirectiveParser();
     let resolved_working_directory: string | undefined;
     try {
