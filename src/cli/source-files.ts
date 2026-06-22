@@ -3,6 +3,7 @@ import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { hasStataExtension, VCS_METADATA_DIRS } from '../utils/file-path-utils';
+import { error_message } from './shared';
 
 export interface ReportTarget {
     path: string;
@@ -46,10 +47,6 @@ export function is_within_workspace(
 ): boolean {
     const { relative, inside } = workspace_relative(workspace_root, file_path);
     return relative === '' || (relative.length > 0 && inside);
-}
-
-function error_message(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function walk_sources(
@@ -140,38 +137,37 @@ export function collect_report_targets(
     return { targets, operator_errors };
 }
 
+function file_level_diagnostic(code: string, message: string): Diagnostic {
+    return {
+        range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 },
+        },
+        severity: DiagnosticSeverity.Error,
+        source: 'sight',
+        code,
+        message,
+    };
+}
+
 export function size_limit_diagnostic(
     file_path: string,
     actual_bytes: number,
     limit_bytes: number
 ): Diagnostic {
-    return {
-        range: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 0 },
-        },
-        severity: DiagnosticSeverity.Error,
-        source: 'sight',
-        code: 'SIGHT_FILE_TOO_LARGE',
-        message:
-            `${file_path} is ${actual_bytes} bytes, which exceeds ` +
-            `the configured limit of ${limit_bytes} bytes.`,
-    };
+    return file_level_diagnostic(
+        'SIGHT_FILE_TOO_LARGE',
+        `${file_path} is ${actual_bytes} bytes, which exceeds ` +
+        `the configured limit of ${limit_bytes} bytes.`
+    );
 }
 
 export function index_limit_diagnostic(file_path: string): Diagnostic {
-    return {
-        range: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 0 },
-        },
-        severity: DiagnosticSeverity.Error,
-        source: 'sight',
-        code: 'SIGHT_FILE_NOT_INDEXED',
-        message:
-            `${file_path} was not indexed before Sight reached ` +
-            'crossFile.maxIndexedFiles. Raise maxIndexedFiles or check fewer files.',
-    };
+    return file_level_diagnostic(
+        'SIGHT_FILE_NOT_INDEXED',
+        `${file_path} was not indexed before Sight reached ` +
+        'crossFile.maxIndexedFiles. Raise maxIndexedFiles or check fewer files.'
+    );
 }
 
 function utf8_error_offset(bytes: Buffer): number {
@@ -187,18 +183,11 @@ function utf8_error_offset(bytes: Buffer): number {
 }
 
 function decode_error_diagnostic(file_path: string, offset: number): Diagnostic {
-    return {
-        range: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 0 },
-        },
-        severity: DiagnosticSeverity.Error,
-        source: 'sight',
-        code: 'SIGHT_INVALID_ENCODING',
-        message:
-            `${file_path} is not valid UTF-8 at byte offset ${offset}. ` +
-            'Re-save the file as UTF-8.',
-    };
+    return file_level_diagnostic(
+        'SIGHT_INVALID_ENCODING',
+        `${file_path} is not valid UTF-8 at byte offset ${offset}. ` +
+        'Re-save the file as UTF-8.'
+    );
 }
 
 export function read_source_file(file_path: string): SourceReadResult {
@@ -208,9 +197,7 @@ export function read_source_file(file_path: string): SourceReadResult {
     } catch (error) {
         return {
             kind: 'read-error',
-            message: `${file_path}: ${
-                error instanceof Error ? error.message : String(error)
-            }`,
+            message: `${file_path}: ${error_message(error)}`,
         };
     }
 

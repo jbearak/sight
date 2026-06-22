@@ -30,6 +30,10 @@ export interface DiagnosticRecord {
     diagnostic: Diagnostic;
 }
 
+export function error_message(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
 export function parse_output_format(value: string): OutputFormat {
     switch (value) {
         case 'text':

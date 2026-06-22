@@ -37,6 +37,7 @@ import {
     OutputFormat,
     SeverityLevel,
     diagnostic_exceeds_threshold,
+    error_message,
     parse_color_choice,
     parse_output_format,
     parse_severity_level,
@@ -92,7 +93,7 @@ function parse_enum_option<T>(
     } catch (error) {
         return {
             success: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: error_message(error),
         };
     }
 }
@@ -485,9 +486,7 @@ export async function run_check_with_cwd(
         workspace_root = canonicalize_existing_path(resolved_workspace_root);
     } catch (error) {
         output.stderr(
-            `sight check: invalid workspace: ${
-                error instanceof Error ? error.message : String(error)
-            }\n`
+            `sight check: invalid workspace: ${error_message(error)}\n`
         );
         return EXIT_OPERATOR_ERROR;
     }
@@ -551,9 +550,7 @@ export async function run_check_with_cwd(
         return any_failure ? EXIT_CHECK_FAILED : EXIT_OK;
     } catch (error) {
         output.stderr(
-            `sight check: ${
-                error instanceof Error ? error.message : String(error)
-            }\n`
+            `sight check: ${error_message(error)}\n`
         );
         return EXIT_OPERATOR_ERROR;
     } finally {
