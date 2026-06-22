@@ -12,6 +12,18 @@ import {
     PRIMARY_BINARY_NAME,
 } from '../src/cli-binary-names';
 
+const BUNDLED_SERVER_ENTRYPOINT = 'sight-server.js';
+const LEGACY_CLI_HELP_BANNER =
+    'Sight - Language Server Protocol implementation for Stata';
+const CURRENT_STATIC_BINARY_MARKERS = [
+    CLI_DESCRIPTION,
+    PRIMARY_BINARY_NAME,
+].map((my_marker) => Buffer.from(my_marker, 'utf8'));
+const LEGACY_STATIC_BINARY_MARKERS = [
+    LEGACY_CLI_HELP_BANNER,
+    BUNDLED_SERVER_ENTRYPOINT,
+].map((my_marker) => Buffer.from(my_marker, 'utf8'));
+
 interface BinarySpawnInvocation {
     command: string;
     args: string[];
@@ -69,6 +81,13 @@ function has_sight_npm_shim_content(
     );
 }
 
+function includes_all_binary_markers(
+    file_content: Buffer,
+    markers: Buffer[]
+): boolean {
+    return markers.every((my_marker) => file_content.includes(my_marker));
+}
+
 function has_static_sight_binary_markers(binary_path: string): boolean {
     let file_content: Buffer;
     try {
@@ -78,8 +97,14 @@ function has_static_sight_binary_markers(binary_path: string): boolean {
     }
 
     return (
-        file_content.includes(Buffer.from(CLI_DESCRIPTION, 'utf8')) &&
-        file_content.includes(Buffer.from(PRIMARY_BINARY_NAME, 'utf8'))
+        includes_all_binary_markers(
+            file_content,
+            CURRENT_STATIC_BINARY_MARKERS
+        ) ||
+        includes_all_binary_markers(
+            file_content,
+            LEGACY_STATIC_BINARY_MARKERS
+        )
     );
 }
 

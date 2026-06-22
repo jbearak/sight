@@ -76,6 +76,17 @@ function write_sight_script(script_path: string, version_output: string): void {
     chmodSync(script_path, 0o755);
 }
 
+function write_legacy_sight_native_binary(binary_path: string): void {
+    writeFileSync(
+        binary_path,
+        [
+            'Sight - Language Server Protocol implementation for Stata',
+            'sight-server.js',
+        ].join('\0')
+    );
+    chmodSync(binary_path, 0o755);
+}
+
 function write_npm_shell_shim(script_path: string): void {
     writeFileSync(
         script_path,
@@ -556,6 +567,19 @@ describe('binary command name', () => {
         }
     });
 
+    it('recognizes legacy source-installed native binary markers', () => {
+        const temp_root = make_temp_dir();
+        const binary_path = join(temp_root, 'sight-language-server');
+
+        try {
+            write_legacy_sight_native_binary(binary_path);
+
+            expect(is_sight_binary(binary_path, 'linux')).toBe(true);
+        } finally {
+            rmSync(temp_root, { recursive: true, force: true });
+        }
+    });
+
     it('source install writes primary and legacy command names', () => {
         const temp_root = make_temp_dir();
         const source_path = join(temp_root, 'source-binary');
@@ -583,6 +607,27 @@ describe('binary command name', () => {
                 join(user_bin_path, 'sight-language-server'),
                 'utf8'
             )).toBe('new-binary');
+        } finally {
+            rmSync(temp_root, { recursive: true, force: true });
+        }
+    });
+
+    it('source install replaces legacy source-installed native binary', () => {
+        const temp_root = make_temp_dir();
+        const source_path = join(temp_root, 'source-binary');
+        const user_bin_path = join(temp_root, 'bin');
+        const legacy_path = join(user_bin_path, 'sight-language-server');
+
+        try {
+            writeFileSync(source_path, 'new-binary');
+            mkdirSync(user_bin_path, { recursive: true });
+            write_legacy_sight_native_binary(legacy_path);
+
+            install_binary_files(source_path, user_bin_path, 'linux');
+
+            expect(readFileSync(join(user_bin_path, 'sight'), 'utf8'))
+                .toBe('new-binary');
+            expect(readFileSync(legacy_path, 'utf8')).toBe('new-binary');
         } finally {
             rmSync(temp_root, { recursive: true, force: true });
         }
@@ -775,6 +820,24 @@ describe('binary command name', () => {
             expect(existsSync(
                 join(user_bin_path, 'sight-language-server')
             )).toBe(false);
+        } finally {
+            rmSync(temp_root, { recursive: true, force: true });
+        }
+    });
+
+    it('source uninstall removes legacy source-installed native binary', () => {
+        const temp_root = make_temp_dir();
+        const user_bin_path = join(temp_root, 'bin');
+        const legacy_path = join(user_bin_path, 'sight-language-server');
+
+        try {
+            mkdirSync(user_bin_path, { recursive: true });
+            write_legacy_sight_native_binary(legacy_path);
+
+            const result = uninstall_from_bin_dir(user_bin_path, 'linux');
+
+            expect(result.success).toBe(true);
+            expect(existsSync(legacy_path)).toBe(false);
         } finally {
             rmSync(temp_root, { recursive: true, force: true });
         }
