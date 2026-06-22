@@ -72,6 +72,7 @@ export class DocumentStore {
 
   // Generation counters for close-vs-update safety (Req 16.1, 16.2)
   private generations: Map<string, number> = new Map();
+  private committed_generations: Map<string, number> = new Map();
   private closed_generations: Map<string, number> = new Map();
 
   private metrics: DocumentStoreMetrics = {
@@ -318,6 +319,7 @@ export class DocumentStore {
     const current = (this.generations.get(uri) ?? 0) + 1;
     this.generations.set(uri, current);
     this.closed_generations.set(uri, current);
+    this.committed_generations.delete(uri);
     this.documents.delete(uri);
     this.access_order.delete(uri);
   }
@@ -358,12 +360,30 @@ export class DocumentStore {
     if (closed_gen !== undefined && generation <= closed_gen) {
       return; // Discard stale update (document closed)
     }
+    // Operation generations increment per call, not per document
+    // version. A later-started older-version update can therefore
+    // have a higher generation than a newer committed state; never
+    // let it overwrite that newer document version. Equal versions
+    // are allowed for same-version reparses such as scope config
+    // changes and error-state recovery.
+    const existing = this.documents.get(uri);
+    if (existing && existing.version > state.version) {
+      return;
+    }
+
     // Discard if a newer update has already committed (Req 16.2)
-    const current_gen = this.generations.get(uri) ?? 0;
-    if (generation < current_gen) {
+    const current_gen = this.committed_generations.get(uri) ?? 0;
+    if (
+      generation < current_gen &&
+      (!existing || existing.version >= state.version)
+    ) {
       return; // A newer update has already committed
     }
     this.documents.set(uri, state);
+    this.committed_generations.set(
+      uri,
+      Math.max(current_gen, generation)
+    );
     this.touch_access(uri);
   }
 
@@ -397,6 +417,7 @@ export class DocumentStore {
       if (!this.documents.has(uri)) {
         this.closed_generations.delete(uri);
         this.generations.delete(uri);
+        this.committed_generations.delete(uri);
       }
       return;
     }
@@ -405,6 +426,7 @@ export class DocumentStore {
       if (!this.documents.has(uri)) {
         this.closed_generations.delete(uri);
         this.generations.delete(uri);
+        this.committed_generations.delete(uri);
       }
     } else {
       this.in_flight_counts.set(uri, count);
