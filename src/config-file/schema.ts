@@ -40,6 +40,34 @@ const LINE_COMMENT_STYLES = ['//', '*'] as const;
 const ASSUME_CALL_SITE_VALUES = ['start', 'end'] as const;
 const BACKWARD_DEPENDENCY_VALUES = ['auto', 'explicit'] as const;
 
+// Server-side public settings the mapper understands and maps into the
+// internal StataLSPConfig. Both camelCase and snake_case spellings of each
+// are accepted (pick_key/normalize_name normalize on `_` and case), so every
+// public setting has a permanent equivalent alias in either form.
+const SERVER_TOP_LEVEL_KEYS = [
+    'indexWorkspace',
+    'adoPaths',
+    'lineCommentStyle',
+    'debug',
+    'diagnostics',
+    'formatting',
+    'completion',
+    'indexing',
+    'crossFile',
+] as const;
+
+// Top-level `sight.*` sections owned by the VS Code client, not the server.
+// They legitimately appear in a full `sight` settings tree pushed via
+// workspace/configuration or didChangeConfiguration, so the mapper recognizes
+// (and ignores) them rather than emitting a misleading "unknown key" warning.
+// The server never reads these; the client extension consumes them directly.
+const CLIENT_ONLY_TOP_LEVEL_KEYS = [
+    'sendToStata',
+    'dataBrowser',
+    'depthColors',
+    'personalAdoDir',
+] as const;
+
 function is_object(value: unknown): value is JsonObject {
     return typeof value === 'object'
         && value !== null
@@ -566,19 +594,12 @@ export function map_public_config_to_partial_config(
         return {};
     }
 
+    // Recognize both server-mapped keys and client-only sections so a full
+    // `sight` settings tree (which carries sendToStata/dataBrowser/... for the
+    // VS Code client) does not produce spurious unknown-key warnings.
     warn_unknown_keys(
         raw,
-        [
-            'indexWorkspace',
-            'adoPaths',
-            'lineCommentStyle',
-            'debug',
-            'diagnostics',
-            'formatting',
-            'completion',
-            'indexing',
-            'crossFile',
-        ],
+        [...SERVER_TOP_LEVEL_KEYS, ...CLIENT_ONLY_TOP_LEVEL_KEYS],
         'sight',
         warn
     );

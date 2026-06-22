@@ -30,24 +30,33 @@ describe('server-factory project config wiring', () => {
     it('merges client settings before project settings', () => {
         const source = fs.readFileSync(server_factory_path, 'utf8');
 
+        // The live getConfiguration result must be mapped (not merged raw)
+        // before merging, so camelCase/snake_case aliases both reach the
+        // internal shape; project config still wins as the final overlay.
         expect(source).toMatch(
-            /const\s+client_partial\s*=\s*deep_merge_config\(\s*init_partial\s*\|\|\s*\{\},\s*config\s*\|\|\s*\{\}\s*\)/
+            /const\s+client_partial\s*=\s*deep_merge_config\(\s*\n?\s*init_partial,\s*\n?\s*map_public_settings\(config\)\s*\n?\s*\)/
         );
         expect(source).toMatch(
-            /const\s+merged_partial\s*=\s*deep_merge_config\(\s*client_partial,\s*project_file_config\s*\|\|\s*\{\}\s*\)/
+            /const\s+merged_partial\s*=\s*deep_merge_config\(\s*\n?\s*client_partial,\s*\n?\s*project_file_config\s*\|\|\s*\{\}\s*\n?\s*\)/
         );
     });
 
-    it('maps camelCase initialization options into the internal shape', () => {
-        // Regression guard: initializationOptions must be run through the
-        // public->internal mapper, otherwise crossFile/preserveAlignment from
-        // non-VS-Code clients are silently dropped by the validator.
+    it('maps every public settings source into the internal shape', () => {
+        // Regression guard: initializationOptions, the live getConfiguration
+        // result, and pushed didChangeConfiguration settings must all run
+        // through the public->internal mapper. Otherwise camelCase keys like
+        // crossFile.* and formatting.preserveAlignment are silently dropped by
+        // the validator (which reads the hybrid internal shape).
         const source = fs.readFileSync(server_factory_path, 'utf8');
 
-        expect(source).toContain('function map_init_options');
+        expect(source).toContain('function map_public_settings');
         expect(source).toMatch(
-            /init_partial\s*=\s*map_init_options\(\s*\n?\s*init_record\?\.\['sight'\]\s*\?\?\s*init_options_config/
+            /init_partial\s*=\s*map_public_settings\(\s*\n?\s*init_record\?\.\['sight'\]\s*\?\?\s*init_options_config/
         );
+        // The pushed client settings (didChangeConfiguration) are mapped too.
+        expect(source).toContain('map_public_settings(last_client_settings)');
+        // The live getConfiguration result is mapped, not merged raw.
+        expect(source).toContain('map_public_settings(config)');
     });
 
     it('builds merged settings for clients without configuration capability', () => {

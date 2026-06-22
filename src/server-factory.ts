@@ -266,12 +266,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
         previous_registration?.dispose();
     }
 
-    // initializationOptions arrive in the public (README) camelCase schema —
-    // the same shape sight.toml uses. Map them into the internal config shape
+    // Public settings arrive in the README camelCase schema — the same shape
+    // sight.toml uses — from every client entry point: initializationOptions,
+    // workspace/configuration (getConfiguration) results, and pushed
+    // didChangeConfiguration settings. Map them into the internal config shape
     // the validator reads (crossFile -> cross_file, preserveAlignment ->
-    // preserve_alignment, ...); otherwise those settings are silently dropped
-    // for clients (Neovim/Helix/Zed/Claude Code) that configure this way.
-    function map_init_options(raw: unknown): DeepPartial<StataLSPConfig> {
+    // preserve_alignment, ...). The mapper normalizes keys on `_` and case, so
+    // each public setting is accepted in either camelCase or snake_case;
+    // without this mapping those settings are silently dropped for clients
+    // (Neovim/Helix/Zed/Claude Code/VS Code) that send camelCase keys the
+    // hybrid internal shape does not match verbatim.
+    function map_public_settings(raw: unknown): DeepPartial<StataLSPConfig> {
         return map_public_config_to_partial_config(raw, (warning) => {
             connection.console.log(`Configuration warning: ${warning.message}`);
         });
@@ -287,12 +292,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
         const init_record = (init_options_config && typeof init_options_config === 'object'
             ? (init_options_config as Record<string, unknown>)
             : undefined);
-        const init_partial = map_init_options(
+        const init_partial = map_public_settings(
             init_record?.['sight'] ?? init_options_config
         );
+        // Pushed client settings also arrive in the public camelCase shape, so
+        // map them too before merging into the internal partial.
         const client_partial = deep_merge_config(
             init_partial,
-            last_client_settings || {}
+            map_public_settings(last_client_settings)
         );
         const merged_partial = deep_merge_config(
             client_partial,
@@ -323,10 +330,18 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 const init_record = (init_options_config && typeof init_options_config === 'object'
                     ? (init_options_config as Record<string, unknown>)
                     : undefined);
-                const init_partial = map_init_options(
+                const init_partial = map_public_settings(
                     init_record?.['sight'] ?? init_options_config
                 );
-                const client_partial = deep_merge_config(init_partial || {}, config || {});
+                // The getConfiguration result is the live `sight` tree in the
+                // public camelCase schema. Map it (not merge it raw) so its
+                // settings reach the internal hybrid shape regardless of
+                // camelCase/snake_case spelling — the raw merge silently
+                // dropped, e.g., crossFile.* and formatting.preserveAlignment.
+                const client_partial = deep_merge_config(
+                    init_partial,
+                    map_public_settings(config)
+                );
                 const merged_partial = deep_merge_config(
                     client_partial,
                     project_file_config || {}
