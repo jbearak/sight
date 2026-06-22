@@ -278,7 +278,11 @@ export type CheckConfigResult =
         warnings: ProjectConfigWarning[];
         config_path?: string;
     }
-    | { kind: 'operator-error'; message: string };
+    | {
+        kind: 'operator-error';
+        message: string;
+        warnings: ProjectConfigWarning[];
+    };
 
 export function load_check_config(options: {
     cwd: string;
@@ -299,27 +303,36 @@ export function load_check_config(options: {
         : discover_and_load_project_config(options.workspace_root);
 
     if (loaded.kind === 'load-failed') {
+        // Surface any warnings collected before the parse failed (e.g. the
+        // stale-.sight.json migration hint from discovery) so the operator
+        // still gets the conversion guidance alongside the error.
         return {
             kind: 'operator-error',
             message: `failed to load ${loaded.path}: ${loaded.error}`,
-        };
-    }
-
-    if (loaded.kind === 'none') {
-        return {
-            kind: 'loaded',
-            config: validate_comment_formatting_config(DEFAULT_SETTINGS),
             warnings: loaded.warnings,
         };
     }
 
+    // Collect comment-formatting validation warnings (invalid indentSize,
+    // unknown comment style, etc.) the same way the LSP server logs them, so
+    // `sight check` does not silently swallow them.
+    const validation_warnings: ProjectConfigWarning[] = [];
+    const collect_validation_warning = (message: string): void => {
+        validation_warnings.push({ code: 'invalid-value', message });
+    };
+
+    const partial_config = loaded.kind === 'none'
+        ? undefined
+        : deep_merge_config(DEFAULT_SETTINGS, loaded.partial_config);
+
     return {
         kind: 'loaded',
         config: validate_comment_formatting_config(
-            deep_merge_config(DEFAULT_SETTINGS, loaded.partial_config)
+            partial_config ?? DEFAULT_SETTINGS,
+            collect_validation_warning
         ),
-        warnings: loaded.warnings,
-        config_path: loaded.path,
+        warnings: [...loaded.warnings, ...validation_warnings],
+        config_path: loaded.kind === 'none' ? undefined : loaded.path,
     };
 }
 
@@ -614,11 +627,14 @@ export async function run_check_with_cwd(
         no_config: result.args.no_config,
     });
     if (config_result.kind === 'operator-error') {
+        for (const my_warning of config_result.warnings) {
+            output.stderr(`sight check: ${my_warning.message}\n`);
+        }
         output.stderr(`sight check: ${config_result.message}\n`);
         return EXIT_OPERATOR_ERROR;
     }
-    for (const warning of config_result.warnings) {
-        output.stderr(`sight check: ${warning.message}\n`);
+    for (const my_warning of config_result.warnings) {
+        output.stderr(`sight check: ${my_warning.message}\n`);
     }
 
     const target_result = collect_report_targets(

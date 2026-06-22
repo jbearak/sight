@@ -354,29 +354,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 scopeUri: scope_uri,
                 section: 'sight',
             }).then((config) => {
-                const init_record = (init_options_config && typeof init_options_config === 'object'
-                    ? (init_options_config as Record<string, unknown>)
-                    : undefined);
-                const init_partial = map_public_settings(
-                    init_record?.['sight'] ?? init_options_config,
-                    log_config_warning
-                );
-                // The getConfiguration result is the live `sight` tree in the
-                // public camelCase schema. Map it (not merge it raw) so its
-                // settings reach the internal hybrid shape regardless of
-                // camelCase/snake_case spelling — the raw merge silently
-                // dropped, e.g., crossFile.* and formatting.preserveAlignment.
-                const client_partial = deep_merge_config(
-                    init_partial,
-                    map_public_settings(config, log_config_warning)
-                );
-                const merged_partial = deep_merge_config(
-                    client_partial,
-                    project_file_config || {}
-                );
-
-                return validate_comment_formatting_config(merged_partial, (msg) => {
-                    log_config_warning(msg);
+                // The getConfiguration result is the live, per-scope `sight`
+                // tree in the public camelCase schema. Route it through the
+                // shared merge/validate pipeline as the client layer so this
+                // path and the global build_non_capability_settings stay in
+                // lockstep (precedence: init → client → project_file).
+                return build_non_capability_settings_from_sources({
+                    init_options_config,
+                    last_client_settings: config,
+                    project_file_config,
+                    log_warning: log_config_warning,
                 });
             });
             document_settings.set(resource, result);

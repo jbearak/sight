@@ -34,14 +34,14 @@ describe('server-factory project config wiring', () => {
     it('merges client settings before project settings', () => {
         const source = fs.readFileSync(server_factory_path, 'utf8');
 
-        // The live getConfiguration result must be mapped (not merged raw)
-        // before merging, so camelCase/snake_case aliases both reach the
-        // internal shape; project config still wins as the final overlay.
+        // The shared builder maps the client layer (not merged raw) before
+        // merging, so camelCase/snake_case aliases both reach the internal
+        // shape; project config still wins as the final overlay.
         expect(source).toMatch(
-            /const\s+client_partial\s*=\s*deep_merge_config\(\s*\n?\s*init_partial,\s*\n?\s*map_public_settings\(config,\s*log_config_warning\)\s*\n?\s*\)/
+            /const\s+client_partial\s*=\s*deep_merge_config\(\s*\n?\s*init_partial,\s*\n?\s*map_public_settings\(\s*\n?\s*sources\.last_client_settings,/
         );
         expect(source).toMatch(
-            /const\s+merged_partial\s*=\s*deep_merge_config\(\s*\n?\s*client_partial,\s*\n?\s*project_file_config\s*\|\|\s*\{\}\s*\n?\s*\)/
+            /const\s+merged_partial\s*=\s*deep_merge_config\(\s*\n?\s*client_partial,\s*\n?\s*sources\.project_file_config\s*\|\|\s*\{\}\s*\n?\s*\)/
         );
     });
 
@@ -63,9 +63,12 @@ describe('server-factory project config wiring', () => {
             /map_public_settings\(\s*\n?\s*sources\.last_client_settings,/
         );
         expect(source).toContain('select_pushed_client_settings');
-        // The live getConfiguration result is mapped, not merged raw.
-        expect(source).toContain(
-            'map_public_settings(config, log_config_warning)'
+        // The live getConfiguration result flows through the shared builder
+        // as the client layer (last_client_settings), so it is mapped by the
+        // same map_public_settings(sources.last_client_settings, ...) call
+        // rather than merged raw.
+        expect(source).toMatch(
+            /build_non_capability_settings_from_sources\(\{[\s\S]*?last_client_settings:\s*config,/
         );
     });
 
