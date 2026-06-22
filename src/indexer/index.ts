@@ -790,8 +790,16 @@ export class WorkspaceIndexer {
                 context_ranges,
             });
         }
-        
+
         return indexed_files;
+    }
+
+    /**
+     * Whether a file URI has been indexed. Cheaper than get_indexed_files()
+     * when only membership is needed.
+     */
+    has_indexed_file(uri: string): boolean {
+        return this.symbol_index.has(uri);
     }
 
     /**

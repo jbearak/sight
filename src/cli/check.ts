@@ -351,7 +351,6 @@ export async function collect_check_diagnostics(
 ): Promise<DiagnosticRecord[]> {
     const records: DiagnosticRecord[] = [];
     const workspace_symbols = context.workspace_indexer.get_all_symbols();
-    const indexed_files = context.workspace_indexer.get_indexed_files();
     const files_indexed = context.workspace_indexer.get_metrics().files_indexed;
 
     for (const target of targets) {
@@ -374,7 +373,7 @@ export async function collect_check_diagnostics(
             target.explicit &&
             is_within_workspace(workspace_root, target.path) &&
             files_indexed >= config.cross_file.max_indexed_files &&
-            !indexed_files.has(uri)
+            !context.workspace_indexer.has_indexed_file(uri)
         ) {
             records.push(diagnostic_record(
                 target.relative_path,
