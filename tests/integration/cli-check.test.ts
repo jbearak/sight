@@ -179,6 +179,24 @@ describe('sight check integration', () => {
         expect(result.stdout).toContain('maxIndexedFiles');
     });
 
+    it('diagnoses explicit outside-workspace files after max indexed files is reached', async () => {
+        const root = temp_dir();
+        const outside = temp_dir();
+        fs.writeFileSync(path.join(root, 'sight.toml'), '[crossFile]\nmaxIndexedFiles = 1\n');
+        fs.writeFileSync(path.join(root, 'a.do'), 'display 1\n');
+        fs.writeFileSync(path.join(outside, 'b.do'), '}\n');
+
+        const result = await run_capture(
+            ['--workspace', root, path.join(outside, 'b.do'), '--quiet'],
+            root
+        );
+
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain('unexpected closing brace');
+        expect(result.stdout).not.toContain('maxIndexedFiles');
+        expect(result.stdout).not.toContain('was not indexed');
+    });
+
     it('reports invalid UTF-8 as an error diagnostic', async () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, 'bad.do'), Buffer.from([0x64, 0x80]));

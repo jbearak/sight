@@ -365,6 +365,14 @@ function diagnostic_record(
     };
 }
 
+function is_under_workspace(workspace_root: string, file_path: string): boolean {
+    const relative = path.relative(workspace_root, file_path);
+    return relative === ''
+        || (relative.length > 0 &&
+            !relative.startsWith('..') &&
+            !path.isAbsolute(relative));
+}
+
 export async function collect_check_diagnostics(
     context: CheckContext,
     workspace_root: string,
@@ -392,6 +400,7 @@ export async function collect_check_diagnostics(
         }
         if (
             target.explicit &&
+            is_under_workspace(workspace_root, target.path) &&
             context.workspace_indexer.get_metrics().files_indexed
                 >= config.cross_file.max_indexed_files &&
             !indexed_files.has(uri)
