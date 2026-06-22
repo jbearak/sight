@@ -1347,6 +1347,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
             document_settings.clear();
             void get_document_settings('').then((settings) => {
                 configure_completion_provider(settings);
+                // Propagate indexing-affecting settings (e.g.
+                // indexing.maxFileSizeBytes) so the indexer does not stay stale
+                // after a runtime configuration change.
+                workspace_indexer?.configure(settings);
             }).catch((err) => {
                 connection.console.error(
                     `Error refreshing completion config: ${err}`
@@ -1358,6 +1362,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             );
             global_settings = build_non_capability_settings();
             configure_completion_provider(global_settings);
+            workspace_indexer?.configure(global_settings);
         }
 
         // Clear published versions so diagnostics will be re-published

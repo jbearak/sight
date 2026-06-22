@@ -320,7 +320,7 @@ export function load_check_config(options: {
         // operator still gets conversion guidance with the error.
         return {
             kind: 'operator-error',
-            message: `failed to load ${loaded.path}: ${loaded.error}`,
+            message: `failed to load ${loaded.error}`,
             warnings: loaded.warnings,
         };
     }
@@ -612,10 +612,15 @@ export async function run_check_with_cwd(
         cwd,
         result.args.workspace ?? '.'
     );
-    if (
-        !fs.existsSync(resolved_workspace_root) ||
-        !fs.statSync(resolved_workspace_root).isDirectory()
-    ) {
+    let is_workspace_directory = false;
+    try {
+        // statSync throws if the path does not exist; catching it here avoids
+        // a TOCTOU race between a separate existsSync check and statSync.
+        is_workspace_directory = fs.statSync(resolved_workspace_root).isDirectory();
+    } catch {
+        is_workspace_directory = false;
+    }
+    if (!is_workspace_directory) {
         output.stderr(
             `sight check: invalid workspace: ${resolved_workspace_root}\n`
         );

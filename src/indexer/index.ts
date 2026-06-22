@@ -485,8 +485,7 @@ export class WorkspaceIndexer {
                 await this.index_mata_file(
                     content,
                     file_uri,
-                    generation,
-                    already_indexed
+                    generation
                 );
                 return;
             }
@@ -547,12 +546,16 @@ export class WorkspaceIndexer {
             // Store tokens, context ranges, and symbols
             this.token_index.set(file_uri, lexResult.tokens);
             this.context_ranges_index.set(file_uri, context_ranges);
+            // Recheck membership at commit time: `already_indexed` was sampled
+            // before the stat/readFile awaits, so a concurrent index/remove of
+            // the same URI could otherwise mis-count metrics.files_indexed.
+            const is_new_entry = !this.symbol_index.has(file_uri);
             this.symbol_index.set(file_uri, {
                 symbols: analyzeResult.symbols,
                 directives: directive_result.directives
             });
             this.version++;
-            if (!already_indexed) this.metrics.files_indexed++;
+            if (is_new_entry) this.metrics.files_indexed++;
         } catch (error) {
             if (!this.is_active_generation(generation)) return;
             this.clear_stale_entry(file_uri);
@@ -567,8 +570,7 @@ export class WorkspaceIndexer {
     private async index_mata_file(
         content: string,
         file_uri: string,
-        generation: number,
-        already_indexed: boolean = this.symbol_index.has(file_uri)
+        generation: number
     ): Promise<void> {
         if (!this.is_active_generation(generation)) return;
 
@@ -610,12 +612,15 @@ export class WorkspaceIndexer {
             });
         }
 
+        // Recheck membership at commit time (see index_file): the sampled
+        // `already_indexed` may be stale after the awaits above.
+        const is_new_entry = !this.symbol_index.has(file_uri);
         this.symbol_index.set(file_uri, {
             symbols,
             directives: []
         });
         this.version++;
-        if (!already_indexed) this.metrics.files_indexed++;
+        if (is_new_entry) this.metrics.files_indexed++;
     }
 
 

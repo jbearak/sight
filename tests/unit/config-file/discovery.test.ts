@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -8,9 +8,22 @@ import {
     STALE_JSON_CONFIG_FILE,
 } from '../../../src/config-file';
 
+const the_temp_dirs: string[] = [];
+
 function make_temp_dir(): string {
-    return fs.mkdtempSync(path.join(os.tmpdir(), 'sight-config-'));
+    const my_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-config-'));
+    the_temp_dirs.push(my_dir);
+    return my_dir;
 }
+
+afterEach(() => {
+    while (the_temp_dirs.length > 0) {
+        const my_dir = the_temp_dirs.pop();
+        if (my_dir) {
+            fs.rmSync(my_dir, { recursive: true, force: true });
+        }
+    }
+});
 
 describe('find_project_config', () => {
     it('finds the nearest sight.toml from a single search root', () => {

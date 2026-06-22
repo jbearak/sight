@@ -28,9 +28,14 @@ import { build_do_include_pattern } from '../utils/stata-call-patterns';
 // Accept both spec form with colon (@lsp-done-by:) and legacy form without colon.
 // Accept both quoted and unquoted paths.
 // @lsp-run-by is a synonym for @lsp-done-by (semantic clarity for files called via `run` command)
-const DIRECTIVE_PATTERN = /@lsp-(done-by|run-by|included-by):?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(.*))?$/;
+// The trailing params group uses `(?:\s+(\S.*)?)?$` rather than `(?:\s+(.*))?$`
+// to avoid polynomial backtracking (ReDoS): with `\s+(.*)`, a run of trailing
+// whitespace can be split between `\s+` and `.*` in many ways. Requiring the
+// captured params to start with `\S` fixes the boundary and is semantically
+// identical (the greedy `\s+` already ate all leading whitespace).
+const DIRECTIVE_PATTERN = /@lsp-(done-by|run-by|included-by):?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(\S.*)?)?$/;
 
-const FORWARD_CALL_DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(.*))?$/;
+const FORWARD_CALL_DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(\S.*)?)?$/;
 
 // Pattern for working directory directive with all synonyms
 // Matches: @lsp-working-directory, @lsp-working-dir, @lsp-current-directory, @lsp-current-dir, @lsp-cd, @lsp-wd
@@ -41,7 +46,7 @@ const PARAM_MATCH = /match="([^"]+)"/;
 
 // Pattern to match declaration directives: @lsp-(local|global|scalar|matrix|program)
 // Captures: [1] = directive type, [2] = rest of line after directive keyword
-const DECLARATION_DIRECTIVE_PATTERN = /@lsp-(local|global|scalar|matrix|program)(?:\s+(.*))?$/;
+const DECLARATION_DIRECTIVE_PATTERN = /@lsp-(local|global|scalar|matrix|program)(?:\s+(\S.*)?)?$/;
 
 // Shared pattern to match do/include/run statements with optional prefix commands.
 // Prefix alternatives live in utils/stata-call-patterns so this pattern and the

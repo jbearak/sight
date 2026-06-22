@@ -30,7 +30,13 @@ function workspace_relative(
     file_path: string
 ): { relative: string; inside: boolean } {
     const relative = path.relative(workspace_root, file_path);
-    const inside = !relative.startsWith('..') && !path.isAbsolute(relative);
+    // Only treat the path as outside the workspace when `..` is a real path
+    // component (`..` exactly, or `../` style). A leading `..` that is part of a
+    // filename (e.g. `..foo.do`) is still inside the workspace.
+    const inside =
+        relative !== '..' &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative);
     return { relative, inside };
 }
 
