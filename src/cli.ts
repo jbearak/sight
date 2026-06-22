@@ -7,7 +7,7 @@
 import { fileURLToPath } from 'url';
 import package_json from '../package.json' with { type: 'json' };
 import {
-    CLI_HELP_BANNER,
+    CLI_DESCRIPTION,
     LEGACY_BINARY_NAME,
     NATIVE_BINARY_NAME_PATTERN,
     PRIMARY_BINARY_NAME,
@@ -143,8 +143,9 @@ export function serialize_options(options: CLIOptions): string[] {
  * Print help message to stdout.
  */
 export function print_help(): void {
+    const banner = `${PRIMARY_BINARY_NAME} ${VERSION}, ${CLI_DESCRIPTION}`;
     const help_text = `
-${CLI_HELP_BANNER}
+${banner}
 
 USAGE:
     sight [OPTIONS]
@@ -192,10 +193,23 @@ export function print_error(message: string): void {
  * Main entry point for CLI.
  * Parses arguments and starts the server or prints help/version.
  */
-export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+export async function main(
+    argv: string[] = process.argv.slice(2),
+    deps: { is_tty?: boolean } = {}
+): Promise<number> {
     if (argv[0] === 'check') {
         const { run_check } = await import('./cli/check');
         return run_check(argv.slice(1));
+    }
+
+    // A bare `sight` (no arguments) would otherwise start the stdio server and
+    // block on stdin. In an interactive terminal that reads as a silent hang,
+    // so show help instead. When stdin is not a TTY — e.g. an editor spawning
+    // the server over a pipe — fall through and start the server as before.
+    const is_tty = deps.is_tty ?? Boolean(process.stdin.isTTY);
+    if (argv.length === 0 && is_tty) {
+        print_help();
+        return 0;
     }
 
     const result = parse_args(argv);

@@ -1,6 +1,6 @@
-# Sight - Language Server for Stata
+# Sight
 
-An open source [Language Server Protocol (LSP)](https://github.com/Microsoft/language-server-protocol) implementation for the Stata statistical programming language, with a corresponding extension for [VS Code](https://github.com/Microsoft/vscode).
+Sight is a static analyzer and language server for the Stata statistical programming language. It resolves what's in scope at each line — catching undefined macros and used-before-defined references even in a single script, and across files by following `do`/`run`/`include` chains — without running your code. Sight ships as an extension for [VS Code](https://github.com/Microsoft/vscode), bringing real-time diagnostics and code intelligence to your editor as you type; it also runs as a standalone [Language Server Protocol (LSP)](https://github.com/Microsoft/language-server-protocol) server for other editors and headlessly via `sight check` for automated checks in CI.
 
 > **tl;dr**: Sight brings **modern IDE superpowers** to Stata coding. It goes far beyond syntax highlighting, using **semantic analysis** to provide **workspace-wide symbol resolution** and **intelligent macro tracking**. With features like **Go-to-Definition**, **Autocomplete**, and **Real-time Diagnostics** that trace execution through `do` and `include` chains, Sight helps you catch errors *before* you run your code.
 

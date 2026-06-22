@@ -136,7 +136,7 @@ jobs:
           VERSION_PATTERN='^sight [0-9]+\.[0-9]+\.[0-9]+'
           VERSION_PATTERN+='(-[0-9A-Za-z.-]+)?$'
           sight --version | grep -E "$VERSION_PATTERN"
-          sight --help | grep 'Sight - Language Server Protocol'
+          sight --help | grep 'static analyzer and language server for Stata'
           sight-language-server --version | grep -E "$VERSION_PATTERN"
       - name: Test LSP stdio startup
         shell: bash

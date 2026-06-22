@@ -30,7 +30,7 @@ import {
     uninstall_from_bin_dir,
 } from '../../scripts/uninstall';
 import {
-    CLI_HELP_BANNER,
+    CLI_DESCRIPTION,
     NATIVE_BINARY_NAME_PATTERN,
     SUPPORTED_BINARY_ARCHS,
     SUPPORTED_BINARY_PLATFORMS,
@@ -67,7 +67,7 @@ function write_sight_script(script_path: string, version_output: string): void {
             '#!/bin/sh',
             'case "$1" in',
             `  --version) printf '%s\\n' '${version_output}' ;;`,
-            `  --help) printf '%s\\n' '${CLI_HELP_BANNER}' ;;`,
+            `  --help) printf '%s\\n' '${CLI_DESCRIPTION}' ;;`,
             '  *) exit 0 ;;',
             'esac',
             '',
@@ -540,8 +540,8 @@ describe('binary command name', () => {
                     `printf ran > '${marker_path}'`,
                     'case "$1" in',
                     "  --version) printf 'sight 1.2.3\\n' ;;",
-                    "  --help) printf 'Sight - Language Server Protocol '",
-                    "          printf 'implementation for Stata\\n' ;;",
+                    "  --help) printf 'a static analyzer '",
+                    "          printf 'and language server for Stata.\\n' ;;",
                     '  *) exit 0 ;;',
                     'esac',
                     '',
@@ -635,7 +635,7 @@ describe('binary command name', () => {
             expect(readFileSync(existing_sight_path, 'utf8'))
                 .toBe('new-binary');
             expect(readFileSync(managed_path, 'utf8'))
-                .toContain(CLI_HELP_BANNER);
+                .toContain(CLI_DESCRIPTION);
         } finally {
             rmSync(temp_root, { recursive: true, force: true });
         }
@@ -668,7 +668,7 @@ describe('binary command name', () => {
 
             expect(lstatSync(existing_sight_path).isSymbolicLink()).toBe(true);
             expect(readFileSync(existing_sight_path, 'utf8'))
-                .toContain(CLI_HELP_BANNER);
+                .toContain(CLI_DESCRIPTION);
             expect(readFileSync(legacy_path, 'utf8'))
                 .toContain('other 1.0.0');
         } finally {
@@ -1143,7 +1143,7 @@ describe('binary command name', () => {
             "sight --version | grep -E \"$VERSION_PATTERN\""
         );
         expect(workflow_content).toMatch(
-            /sight --help \| grep 'Sight - Language Server Protocol'/
+            /sight --help \| grep 'static analyzer and language server for Stata'/
         );
         expect(workflow_content).toContain(
             'sight-language-server --version | grep -E "$VERSION_PATTERN"'

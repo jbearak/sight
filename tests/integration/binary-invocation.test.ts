@@ -12,7 +12,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { detect_platform } from '../../scripts/build-binary';
 import { is_cli_entry_point } from '../../src/cli';
-import { CLI_HELP_BANNER } from '../../src/cli-binary-names';
+import { CLI_DESCRIPTION, PRIMARY_BINARY_NAME } from '../../src/cli-binary-names';
 
 const CLI_PATH = join(__dirname, '../../src/cli.ts');
 
@@ -96,8 +96,9 @@ describe('Binary Invocation', () => {
     it('should print help with --help flag', async () => {
         const result = await run_cli(['--help']);
         expect(result.exitCode).toBe(0);
-        expect(result.stdout.split('\n')[0]).toBe(CLI_HELP_BANNER);
-        expect(result.stdout).toContain('Sight - Language Server Protocol');
+        const first_line = result.stdout.split('\n')[0];
+        expect(first_line.startsWith(`${PRIMARY_BINARY_NAME} `)).toBe(true);
+        expect(first_line).toContain(CLI_DESCRIPTION);
         expect(result.stdout).toContain('--stdio');
         expect(result.stdout).toContain('--node-ipc');
         expect(result.stdout).toContain('--quiet');
@@ -213,7 +214,7 @@ describe('Compiled Binary Smoke Tests', () => {
     it.skipIf(!binary_is_functional)('compiled binary should print help', async () => {
         const result = await run_binary(binary_path!, ['--help']);
         expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain('Sight - Language Server Protocol');
+        expect(result.stdout).toContain(CLI_DESCRIPTION);
         expect(result.stdout).toContain('--stdio');
     });
 

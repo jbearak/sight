@@ -1,6 +1,6 @@
-# Stata - Stata Language Server
+# Sight
 
-Comprehensive language support for Stata: real-time diagnostics, completions, go-to-definition, find references, run code in Stata, syntax highlighting with nesting depth colors, code formatting, cross-file symbol resolution, and built-in viewers for datasets, logs, and help files.
+Sight is a static analyzer and language server for Stata, built for VS Code. It resolves what's in scope at each line — catching undefined macros and used-before-defined references within a script and across `do`/`run`/`include` chains, without running your code — and surfaces that as real-time diagnostics, completions, go-to-definition, and find-references as you type. It also runs your code in Stata and ships built-in viewers for datasets, logs, and help files.
 
 ## Features
 

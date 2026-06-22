@@ -4,8 +4,11 @@
 
 export const PRIMARY_BINARY_NAME = 'sight';
 export const LEGACY_BINARY_NAME = 'sight-language-server';
-export const CLI_HELP_BANNER =
-    'Sight - Language Server Protocol implementation for Stata';
+// Version-less tagline. The help banner composes this with the version
+// (`sight <version>, <description>`); keeping it version-less lets it double as
+// a stable identity marker for compiled binaries across releases.
+export const CLI_DESCRIPTION =
+    'a static analyzer and language server for Stata.';
 export const SUPPORTED_BINARY_PLATFORMS = [
     'darwin',
     'linux',

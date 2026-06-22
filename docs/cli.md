@@ -47,3 +47,22 @@ Example:
 `.mata` files are included as report targets because Sight indexes them for
 symbols, but v1 diagnostics for Mata are limited to what the current parser and
 diagnostic pipeline can produce.
+
+## Language server
+
+For editor integration, Sight runs as a Language Server Protocol server:
+
+```text
+sight --stdio      # LSP over stdin/stdout (default transport)
+sight --node-ipc   # LSP over Node IPC (used by the VS Code client)
+```
+
+Running `sight` with no subcommand starts the server. The transport defaults to
+stdio, so `sight --stdio` and a bare `sight` spawned by an editor are
+equivalent — both block while they speak the protocol over their input stream.
+
+One exception: a bare `sight` typed at an interactive terminal (a TTY with no
+arguments) prints this help instead of starting the server, so it does not look
+like a hang. Editors that spawn the server over a pipe are unaffected and still
+start the server; pass `--stdio` explicitly if you ever want the server in a
+terminal.

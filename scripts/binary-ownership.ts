@@ -8,7 +8,7 @@ import {
 import { readFileSync } from 'fs';
 import { extname } from 'path';
 import {
-    CLI_HELP_BANNER,
+    CLI_DESCRIPTION,
     PRIMARY_BINARY_NAME,
 } from '../src/cli-binary-names';
 
@@ -78,7 +78,7 @@ function has_static_sight_binary_markers(binary_path: string): boolean {
     }
 
     return (
-        file_content.includes(Buffer.from(CLI_HELP_BANNER, 'utf8')) &&
+        file_content.includes(Buffer.from(CLI_DESCRIPTION, 'utf8')) &&
         file_content.includes(Buffer.from(PRIMARY_BINARY_NAME, 'utf8'))
     );
 }
