@@ -1,5 +1,8 @@
 import { stdout } from 'process';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
+import { error_message } from '../utils/error-message';
+
+export { error_message };
 
 export const EXIT_OK = 0;
 export const EXIT_CHECK_FAILED = 1;
@@ -28,10 +31,6 @@ export enum SeverityLevel {
 export interface DiagnosticRecord {
     relative_path: string;
     diagnostic: Diagnostic;
-}
-
-export function error_message(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 export function parse_output_format(value: string): OutputFormat {

@@ -37,6 +37,7 @@ import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { logger } from '../utils/logger';
+import { error_message } from '../utils/error-message';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_uri } from '../utils/workspace-roots';
 import { build_do_include_pattern } from '../utils/stata-call-patterns';
@@ -1702,7 +1703,7 @@ export class ScopeResolver {
                 diagnostics: my_parse_result.diagnostics,
             };
         } catch (error) {
-            this.warn(`ScopeResolver: Parse error for ${uri}: ${error instanceof Error ? error.message : String(error)}`);
+            this.warn(`ScopeResolver: Parse error for ${uri}: ${error_message(error)}`);
 
             // Return empty results on parse failure
             const empty_symbols = create_empty_symbol_table();
@@ -1919,14 +1920,14 @@ export class ScopeResolver {
                     // Both paths failed
                     this.file_cache.delete(cache_key);
                     this.cache_metrics.file.misses++;
-                    const original_error = error instanceof Error ? error.message : String(error);
+                    const original_error = error_message(error);
                     return { error: `${original_error} (also tried ${fallback_path})` };
                 }
             } else {
                 // Original path ends in .do, no fallback to try
                 this.file_cache.delete(cache_key);
                 this.cache_metrics.file.misses++;
-                return { error: error instanceof Error ? error.message : String(error) };
+                return { error: error_message(error) };
             }
         }
 
@@ -1990,7 +1991,7 @@ export class ScopeResolver {
 
             return { content, ...parse_result };
         } catch (error) {
-            this.warn(`ScopeResolver: Parse error for ${actual_uri}: ${error instanceof Error ? error.message : String(error)}`);
+            this.warn(`ScopeResolver: Parse error for ${actual_uri}: ${error_message(error)}`);
 
             // Return empty results on parse failure
             const empty_symbols = create_empty_symbol_table();

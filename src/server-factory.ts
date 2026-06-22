@@ -40,6 +40,7 @@ import { ScopeResolver, scope_resolver_config_for } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DocumentDebounceManager } from './utils/debounce-manager';
 import { validate_comment_formatting_config } from './utils/config-validator';
+import { error_message } from './utils/error-message';
 import { RenameHandler } from './utils/file-rename-handler';
 import { Logger } from './utils/logger';
 import { DependencyGraph } from './dependency-graph';
@@ -402,8 +403,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 log_config_warning(
                     'Failed to resolve settings for '
                     + `${scope_uri ?? '(workspace root)'}: `
-                    + (error instanceof Error
-                        ? error.message : String(error))
+                    + error_message(error)
                 );
                 return build_non_capability_settings();
             });
