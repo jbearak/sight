@@ -190,6 +190,12 @@ will use the same discovery from `--workspace`.
 Project config wins over client/editor settings per key. Keys omitted from
 `sight.toml` continue to come from editor settings or built-in defaults.
 
+In a multi-root workspace, the project config is loaded only from the first
+workspace folder and applied to every document; a separate `sight.toml` in
+another folder is not resolved per-root. The server logs a note when it detects
+multiple folders. Open one project per window, or place a single `sight.toml`
+at a shared root, if you need distinct project settings.
+
 `.sight.json` is no longer supported. Convert its contents to TOML syntax;
 renaming the file is not enough because JSON and TOML are different languages.
 

@@ -820,6 +820,18 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 forward_scope_resolver.set_workspace_roots(folder_paths);
             }
 
+            // Single-root project config: sight.toml is discovered from the
+            // first workspace folder and applied to every document. Multi-root
+            // workspaces with a distinct sight.toml per root are not resolved
+            // per-root; warn once so the behavior is not silently surprising.
+            if (folder_paths.length > 1) {
+                connection.console.log(
+                    'Sight: multiple workspace folders detected; project ' +
+                    `config is loaded only from the first folder ` +
+                    `(${folder_paths[0]}). A sight.toml in another folder is ` +
+                    'not applied to its own documents.'
+                );
+            }
             apply_loaded_project_config(
                 discover_and_load_project_config(folder_paths[0])
             );
