@@ -326,7 +326,7 @@ async function install(): Promise<InstallResult> {
  * Main entry point.
  */
 async function main(): Promise<void> {
-    console.log('Installing Sight Language Server...\n');
+    console.log('Installing Sight...\n');
 
     const result = await install();
 
