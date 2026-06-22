@@ -4,6 +4,10 @@ description: |
   Checkout-independent setup: installs Bun, Node, and project dependencies
 
 inputs:
+  bun-version:
+    description: "Bun version used by CI and release builds"
+    required: false
+    default: "1.3.13"
   node-version:
     description: "Node.js version (LTS recommended for CI stability)"
     required: false
@@ -21,7 +25,7 @@ runs:
       # Tag v2.0.2 -> commit 735343b667d3e6f658f44d0eca948eb6282f2b76
       uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
       with:
-        bun-version: latest
+        bun-version: ${{ inputs.bun-version }}
 
     - name: Setup Node.js
       # Pinned action SHA for supply-chain safety.
@@ -43,10 +47,10 @@ runs:
           client/node_modules
           ~/.bun/install/cache
         key: >-
-          bun-${{ runner.os }}-${{ inputs.node-version }}-
+          bun-${{ runner.os }}-${{ inputs.node-version }}-${{ inputs.bun-version }}-
           ${{ hashFiles('bun.lock', 'client/bun.lock') }}
         restore-keys: |
-          bun-${{ runner.os }}-${{ inputs.node-version }}-
+          bun-${{ runner.os }}-${{ inputs.node-version }}-${{ inputs.bun-version }}-
           bun-${{ runner.os }}-
 
     - name: Install dependencies
