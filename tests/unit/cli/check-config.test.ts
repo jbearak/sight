@@ -105,7 +105,7 @@ describe('sight check config loading', () => {
         }
     });
 
-    it('surfaces stale json warnings even when the config fails to parse', () => {
+    it('surfaces stale json warnings when the config fails to parse', () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, '.sight.json'), '{}\n');
         fs.writeFileSync(path.join(root, 'sight.toml'), 'bad = = toml\n');
