@@ -411,6 +411,22 @@ export class WorkspaceIndexer {
         }
     }
 
+    private should_skip_for_max_indexed_files(file_uri: string): boolean {
+        if (this.metrics.files_indexed < this.max_indexed_files) {
+            return false;
+        }
+
+        if (!this.max_files_reached) {
+            this.max_files_reached = true;
+            logger.info(
+                `Reached max_indexed_files limit (${this.max_indexed_files}). ` +
+                `Skipping remaining files.`
+            );
+        }
+        this.clear_stale_entry(file_uri);
+        return true;
+    }
+
     /**
      * Index a single file.
      */
@@ -422,17 +438,7 @@ export class WorkspaceIndexer {
         const file_uri = URI.file(file_path).toString();
 
         // Check max files limit
-        if (this.metrics.files_indexed >= this.max_indexed_files) {
-            if (!this.max_files_reached) {
-                this.max_files_reached = true;
-                logger.info(
-                    `Reached max_indexed_files limit (${this.max_indexed_files}). ` +
-                    `Skipping remaining files.`
-                );
-            }
-            this.clear_stale_entry(file_uri);
-            return;
-        }
+        if (this.should_skip_for_max_indexed_files(file_uri)) return;
 
         try {
             // Check file size
@@ -456,6 +462,7 @@ export class WorkspaceIndexer {
                 'utf8'
             );
             if (!this.is_active_generation(generation)) return;
+            if (this.should_skip_for_max_indexed_files(file_uri)) return;
 
             // Handle .mata files differently
             if (path.extname(file_path).toLowerCase() === '.mata') {
@@ -486,17 +493,7 @@ export class WorkspaceIndexer {
             const context_ranges = context_tracker.get_all_context_ranges();
             if (!this.is_active_generation(generation)) return;
 
-            if (this.metrics.files_indexed >= this.max_indexed_files) {
-                if (!this.max_files_reached) {
-                    this.max_files_reached = true;
-                    logger.info(
-                        `Reached max_indexed_files limit (${this.max_indexed_files}). ` +
-                        `Skipping remaining files.`
-                    );
-                }
-                this.clear_stale_entry(file_uri);
-                return;
-            }
+            if (this.should_skip_for_max_indexed_files(file_uri)) return;
 
             // Combine forward calls from analyzer (command-detected)
             // and directive parser (directive-detected)

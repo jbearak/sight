@@ -163,6 +163,22 @@ describe('sight check integration', () => {
         expect(result.stdout).toContain('maxIndexedFiles');
     });
 
+    it('reports explicit .mata files skipped by max indexed files', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, 'sight.toml'), '[crossFile]\nmaxIndexedFiles = 1\n');
+        fs.writeFileSync(path.join(root, 'a.mata'), '// a\n');
+        fs.writeFileSync(path.join(root, 'b.mata'), '// b\n');
+
+        const result = await run_capture(
+            ['--workspace', root, 'a.mata', 'b.mata', '--quiet'],
+            root
+        );
+
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain('was not indexed');
+        expect(result.stdout).toContain('maxIndexedFiles');
+    });
+
     it('reports invalid UTF-8 as an error diagnostic', async () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, 'bad.do'), Buffer.from([0x64, 0x80]));

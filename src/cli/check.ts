@@ -62,6 +62,23 @@ export type CheckParseResult =
     | { success: true; args: CheckArgs }
     | { success: false; error: string };
 
+function parse_required_option_value(
+    argv: string[],
+    index: number,
+    flag: string,
+    value_kind: string
+): { success: true; value: string } | { success: false; error: string } {
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith('-')) {
+        return {
+            success: false,
+            error: `${flag} needs ${value_kind}`,
+        };
+    }
+
+    return { success: true, value };
+}
+
 export function parse_check_args(argv: string[]): CheckParseResult {
     const args: CheckArgs = {
         paths: [],
@@ -77,69 +94,101 @@ export function parse_check_args(argv: string[]): CheckParseResult {
         const arg = argv[i];
         switch (arg) {
             case '--workspace':
-                if (argv[i + 1] === undefined) {
-                    return { success: false, error: '--workspace needs a path' };
+                {
+                    const parsed = parse_required_option_value(
+                        argv,
+                        i,
+                        '--workspace',
+                        'a path'
+                    );
+                    if (!parsed.success) return parsed;
+                    args.workspace = parsed.value;
+                    i++;
                 }
-                args.workspace = argv[++i];
                 break;
             case '--config':
-                if (argv[i + 1] === undefined) {
-                    return { success: false, error: '--config needs a path' };
+                {
+                    const parsed = parse_required_option_value(
+                        argv,
+                        i,
+                        '--config',
+                        'a path'
+                    );
+                    if (!parsed.success) return parsed;
+                    args.config_path = parsed.value;
+                    i++;
                 }
-                args.config_path = argv[++i];
                 break;
             case '--no-config':
                 args.no_config = true;
                 break;
             case '--format':
-                if (argv[i + 1] === undefined) {
-                    return { success: false, error: '--format needs a value' };
-                }
-                try {
-                    args.format = parse_output_format(argv[++i]);
-                } catch (error) {
-                    return {
-                        success: false,
-                        error: error instanceof Error
-                            ? error.message
-                            : String(error),
-                    };
+                {
+                    const parsed = parse_required_option_value(
+                        argv,
+                        i,
+                        '--format',
+                        'a value'
+                    );
+                    if (!parsed.success) return parsed;
+                    try {
+                        args.format = parse_output_format(parsed.value);
+                        i++;
+                    } catch (error) {
+                        return {
+                            success: false,
+                            error: error instanceof Error
+                                ? error.message
+                                : String(error),
+                        };
+                    }
                 }
                 break;
             case '--max-severity':
-                if (argv[i + 1] === undefined) {
-                    return {
-                        success: false,
-                        error: '--max-severity needs a value',
-                    };
-                }
-                try {
-                    args.max_severity = parse_severity_level(argv[++i]);
-                } catch (error) {
-                    return {
-                        success: false,
-                        error: error instanceof Error
-                            ? error.message
-                            : String(error),
-                    };
+                {
+                    const parsed = parse_required_option_value(
+                        argv,
+                        i,
+                        '--max-severity',
+                        'a value'
+                    );
+                    if (!parsed.success) return parsed;
+                    try {
+                        args.max_severity = parse_severity_level(parsed.value);
+                        i++;
+                    } catch (error) {
+                        return {
+                            success: false,
+                            error: error instanceof Error
+                                ? error.message
+                                : String(error),
+                        };
+                    }
                 }
                 break;
             case '--quiet':
                 args.quiet = true;
                 break;
             case '--color':
-                if (argv[i + 1] === undefined) {
-                    return { success: false, error: '--color needs a value' };
-                }
-                try {
-                    args.color = parse_color_choice(argv[++i]);
-                } catch (error) {
-                    return {
-                        success: false,
-                        error: error instanceof Error
-                            ? error.message
-                            : String(error),
-                    };
+                {
+                    const parsed = parse_required_option_value(
+                        argv,
+                        i,
+                        '--color',
+                        'a value'
+                    );
+                    if (!parsed.success) return parsed;
+                    try {
+                        args.color = parse_color_choice(parsed.value);
+                        i++;
+                    } catch (error) {
+                        return {
+                            success: false,
+                            error: error instanceof Error
+                                ? error.message
+                                : String(error),
+                        };
+                    }
                 }
                 break;
             case '--no-color':

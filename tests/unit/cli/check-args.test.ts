@@ -75,6 +75,40 @@ describe('sight check args', () => {
             expect(workspace.error).toBe('--workspace needs a path');
         }
     });
+
+    it('rejects flags where option values are required', () => {
+        const the_cases = [
+            {
+                argv: ['--workspace', '--quiet'],
+                error: '--workspace needs a path',
+            },
+            {
+                argv: ['--config', '--no-config'],
+                error: '--config needs a path',
+            },
+            {
+                argv: ['--format', '--quiet'],
+                error: '--format needs a value',
+            },
+            {
+                argv: ['--max-severity', '--quiet'],
+                error: '--max-severity needs a value',
+            },
+            {
+                argv: ['--color', '--quiet'],
+                error: '--color needs a value',
+            },
+        ];
+
+        for (const my_case of the_cases) {
+            const result = parse_check_args(my_case.argv);
+
+            expect(result.success).toBe(false);
+            if (!result.success) {
+                expect(result.error).toBe(my_case.error);
+            }
+        }
+    });
 });
 
 describe('top-level parser remains transport-only', () => {
