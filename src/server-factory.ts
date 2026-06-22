@@ -387,21 +387,20 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     log_warning: log_config_warning,
                 });
             }).catch((error) => {
-                // A transient getConfiguration rejection (or a throw while
-                // mapping the result) must not be cached as a poisoned
-                // promise. Drop only OUR entry (identity guard) so a config
-                // change that already replaced it via document_settings.clear()
-                // is not clobbered; the next request then retries. Fall back
-                // to the init + project merge (the live per-scope layer is
-                // what just failed) so sight.toml / initializationOptions
-                // still apply, rather than bare global_settings, which stays
-                // at DEFAULT_SETTINGS for configuration-capable clients.
+                // getConfiguration rejected (or the mapper threw). Resolve to
+                // the init + project merge so sight.toml / initializationOptions
+                // still apply (bare global_settings stays at DEFAULT_SETTINGS
+                // for configuration-capable clients). This resolved value — not
+                // a rejection — is what stays cached, so a persistently-failing
+                // client is not re-queried on every request (no retry storm or
+                // log spam); the entry is refreshed on the next
+                // didChangeConfiguration, which clears document_settings.
+                //
+                // The live per-scope client overrides are necessarily absent
+                // here: the fetch that would have supplied them is what failed.
                 log_config_warning(
                     `Failed to resolve settings for ${resource}: ${error}`
                 );
-                if (document_settings.get(resource) === result) {
-                    document_settings.delete(resource);
-                }
                 return build_non_capability_settings();
             });
             document_settings.set(resource, result);

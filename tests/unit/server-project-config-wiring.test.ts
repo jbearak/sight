@@ -56,6 +56,16 @@ describe('server-factory project config wiring', () => {
             },
         });
         expect(client_wins.cross_file.backward_dependencies).toBe('auto');
+
+        // init options alone must apply, including the `{ sight: {...} }`
+        // wrapper unwrap that non-VS-Code clients send; without a client or
+        // project layer there is nothing else to mask a broken init mapping.
+        const init_only = build_non_capability_settings_from_sources({
+            init_options_config: {
+                sight: { crossFile: { backwardDependencies: 'explicit' } },
+            },
+        });
+        expect(init_only.cross_file.backward_dependencies).toBe('explicit');
     });
 
     it('maps and unwraps the live per-scope getConfiguration result', () => {
