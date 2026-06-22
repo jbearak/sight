@@ -50,7 +50,8 @@ export function isPathDirective(directive: string): boolean {
  * Check if a file has a Stata extension
  */
 export function hasStataExtension(filename: string): boolean {
-  return STATA_FILE_EXTENSIONS.some(ext => filename.toLowerCase().endsWith(ext));
+  const lower = filename.toLowerCase();
+  return STATA_FILE_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
 /**

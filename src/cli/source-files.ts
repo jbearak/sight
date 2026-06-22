@@ -72,7 +72,7 @@ function walk_sources(
         if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
             walk_sources(entry_path, out, operator_errors);
-        } else if (entry.isFile() && hasStataExtension(entry_path)) {
+        } else if (entry.isFile() && hasStataExtension(entry.name)) {
             out.push(entry_path);
         }
     }

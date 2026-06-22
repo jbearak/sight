@@ -332,7 +332,7 @@ export class WorkspaceIndexer {
                     await this.scan_directory(entry_path, generation);
                 } else if (
                     entry.isFile() &&
-                    hasStataExtension(entry_path)
+                    hasStataExtension(entry.name)
                 ) {
                     file_paths.push(entry_path);
                 }
