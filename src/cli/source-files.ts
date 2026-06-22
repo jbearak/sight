@@ -2,9 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import { hasStataExtension } from '../utils/file-path-utils';
-
-const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
+import { hasStataExtension, VCS_METADATA_DIRS } from '../utils/file-path-utils';
 
 export interface ReportTarget {
     path: string;
@@ -131,20 +129,15 @@ export function collect_report_targets(
         }
     }
 
-    const unique_sorted_paths = Array.from(new Set(source_paths))
-        .sort((a, b) =>
-            relative_path(normalized_root, a)
-                .localeCompare(relative_path(normalized_root, b))
-        );
-
-    return {
-        targets: unique_sorted_paths.map((file_path) => ({
+    const targets: ReportTarget[] = Array.from(new Set(source_paths))
+        .map((file_path) => ({
             path: file_path,
             relative_path: relative_path(normalized_root, file_path),
             explicit: has_explicit_paths,
-        })),
-        operator_errors,
-    };
+        }));
+    targets.sort((a, b) => a.relative_path.localeCompare(b.relative_path));
+
+    return { targets, operator_errors };
 }
 
 export function size_limit_diagnostic(

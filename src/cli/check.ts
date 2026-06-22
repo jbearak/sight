@@ -25,7 +25,6 @@ import {
     collect_report_targets,
     index_limit_diagnostic,
     is_within_workspace,
-    relative_path,
     read_source_file,
     size_limit_diagnostic,
 } from './source-files';
@@ -280,6 +279,8 @@ export async function build_check_context(
 
     const dependency_graph = new DependencyGraph();
     const workspace_indexer = new WorkspaceIndexer();
+    // ScopeResolver's default content provider already reads from disk
+    // (read_file/exists/stat via fsPath), which is exactly what the CLI needs.
     const scope_resolver = new ScopeResolver({
         log: (message) => {
             if (config.debug === true) {
@@ -287,17 +288,6 @@ export async function build_check_context(
             }
         },
         warn: (message) => console.error(message),
-    }, {
-        read_file: async (uri: string) =>
-            fs.promises.readFile(URI.parse(uri).fsPath, 'utf8'),
-        exists: async (uri: string) => {
-            try {
-                await fs.promises.access(URI.parse(uri).fsPath);
-                return true;
-            } catch {
-                return false;
-            }
-        },
     });
     const forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
         max_forward_depth: config.cross_file.max_forward_depth,
@@ -346,14 +336,10 @@ const DEFAULT_OUTPUT: CheckOutput = {
 };
 
 function diagnostic_record(
-    workspace_root: string,
-    file_path: string,
+    relative_path: string,
     diagnostic: Diagnostic
 ): DiagnosticRecord {
-    return {
-        relative_path: relative_path(workspace_root, file_path),
-        diagnostic,
-    };
+    return { relative_path, diagnostic };
 }
 
 export async function collect_check_diagnostics(
@@ -373,8 +359,7 @@ export async function collect_check_diagnostics(
             const stats = fs.statSync(target.path);
             if (stats.size > config.indexing.maxFileSizeBytes) {
                 records.push(diagnostic_record(
-                    workspace_root,
-                    target.path,
+                    target.relative_path,
                     size_limit_diagnostic(
                         target.path,
                         stats.size,
@@ -391,8 +376,7 @@ export async function collect_check_diagnostics(
             !indexed_files.has(uri)
         ) {
             records.push(diagnostic_record(
-                workspace_root,
-                target.path,
+                target.relative_path,
                 index_limit_diagnostic(target.path)
             ));
             continue;
@@ -404,8 +388,7 @@ export async function collect_check_diagnostics(
         }
         if (read_result.kind === 'decode-error') {
             records.push(diagnostic_record(
-                workspace_root,
-                target.path,
+                target.relative_path,
                 read_result.diagnostic
             ));
             continue;
@@ -434,8 +417,7 @@ export async function collect_check_diagnostics(
                 );
             for (const diagnostic of diagnostics) {
                 records.push(diagnostic_record(
-                    workspace_root,
-                    target.path,
+                    target.relative_path,
                     diagnostic
                 ));
             }

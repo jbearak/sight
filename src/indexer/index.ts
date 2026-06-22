@@ -42,15 +42,14 @@ import {
     FindaliasResolver,
     HelpAliasResolver,
 } from '../utils/findalias-resolver';
-import { hasStataExtension } from '../utils/file-path-utils';
+import {
+    hasStataExtension,
+    VCS_METADATA_DIRS,
+} from '../utils/file-path-utils';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
 const INDEX_DEBOUNCE_MS = 200;
-
-// Version-control metadata directories skipped during workspace scans.
-// They contain no Stata source and recursing them is wasted work.
-const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
 
 export interface IndexedFileData {
     uri: string;

@@ -28,6 +28,10 @@ export const PATH_DIRECTIVES = new Set([
 // Stata file extensions for completion filtering
 export const STATA_FILE_EXTENSIONS = ['.do', '.ado', '.doh', '.mata'];
 
+// Version-control metadata directories skipped during workspace scans.
+// They contain no Stata source and recursing them is wasted work.
+export const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
+
 /**
  * Check if a command accepts file paths as its first argument
  */
