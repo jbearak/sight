@@ -290,9 +290,10 @@ export function load_check_config(options: {
     config_path?: string;
     no_config: boolean;
 }): CheckConfigResult {
-    // Collect comment-formatting validation warnings (invalid indentSize,
-    // unknown comment style, etc.) the same way the LSP server logs them, so
-    // `sight check` does not silently swallow them on any config path.
+    // Collect comment-formatting validation warnings (invalid
+    // indentSize, unknown comment style, etc.) the same way the LSP
+    // server logs them, so `sight check` does not silently swallow them
+    // on any config path.
     const validation_warnings: ProjectConfigWarning[] = [];
     const collect_validation_warning = (message: string): void => {
         validation_warnings.push({ code: 'invalid-value', message });
@@ -314,9 +315,9 @@ export function load_check_config(options: {
         : discover_and_load_project_config(options.workspace_root);
 
     if (loaded.kind === 'load-failed') {
-        // Surface any warnings collected before the parse failed (e.g. the
-        // stale-.sight.json migration hint from discovery) so the operator
-        // still gets the conversion guidance alongside the error.
+        // Surface any warnings collected before the parse failed (e.g.
+        // the stale-.sight.json migration hint from discovery) so the
+        // operator still gets conversion guidance with the error.
         return {
             kind: 'operator-error',
             message: `failed to load ${loaded.path}: ${loaded.error}`,
@@ -636,9 +637,9 @@ export async function run_check_with_cwd(
         config_path: result.args.config_path,
         no_config: result.args.no_config,
     });
-    // Both result variants carry a warnings array (auto-discovery may attach
-    // a stale-.sight.json migration hint to either), so emit them once here
-    // before branching on the result kind.
+    // Both result variants carry a warnings array (auto-discovery may
+    // attach a stale-.sight.json migration hint to either), so emit
+    // them once here before branching on the result kind.
     for (const my_warning of config_result.warnings) {
         output.stderr(`sight check: ${my_warning.message}\n`);
     }

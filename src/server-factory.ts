@@ -159,12 +159,13 @@ export function build_non_capability_settings_from_sources(
  * Resolve effective settings for a single document scope from the live
  * `workspace/configuration` (getConfiguration) result.
  *
- * The live result is the client layer: it is unwrapped (so a client that
- * still wraps a `section: 'sight'` response as `{ sight: {...} }` is handled,
- * a no-op for the spec-conformant bare subtree) and then mapped + merged with
- * init options and project config via the shared builder. Extracted from the
- * get_document_settings closure so the unwrap + public->internal mapping +
- * precedence are behaviorally testable without a live server connection.
+ * The live result is the client layer: it is unwrapped (so a client
+ * that still wraps a `section: 'sight'` response as `{ sight: {...} }`
+ * is handled — a no-op for the spec-conformant bare subtree) and then
+ * mapped + merged with init options and project config via the shared
+ * builder. Extracted from the get_document_settings closure so the
+ * unwrap + public->internal mapping + precedence are behaviorally
+ * testable without a live server connection.
  */
 export function resolve_scoped_client_settings(
     live_config: unknown,
@@ -375,31 +376,24 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 scopeUri: scope_uri,
                 section: 'sight',
             }).then((config) => {
-                // The getConfiguration result is the live, per-scope `sight`
-                // tree in the public camelCase schema. resolve_scoped_client_
-                // settings unwraps it and routes it through the shared
-                // merge/validate pipeline as the client layer, so this path
-                // and the global build_non_capability_settings stay in
-                // lockstep (precedence: init -> client -> project_file).
+                // Live per-scope `sight` tree (public camelCase);
+                // resolve_scoped_client_settings unwraps + maps it
+                // as the client layer (init -> client -> project).
                 return resolve_scoped_client_settings(config, {
                     init_options_config,
                     project_file_config,
                     log_warning: log_config_warning,
                 });
             }).catch((error) => {
-                // getConfiguration rejected (or the mapper threw). Resolve to
-                // the init + project merge so sight.toml / initializationOptions
-                // still apply (bare global_settings stays at DEFAULT_SETTINGS
-                // for configuration-capable clients). This resolved value — not
-                // a rejection — is what stays cached, so a persistently-failing
-                // client is not re-queried on every request (no retry storm or
-                // log spam); the entry is refreshed on the next
-                // didChangeConfiguration, which clears document_settings.
-                //
-                // The live per-scope client overrides are necessarily absent
-                // here: the fetch that would have supplied them is what failed.
+                // On failure, cache the init+project fallback
+                // (resolved value, not a rejection) so a failing
+                // client isn't re-queried each request; refreshed
+                // on the next didChangeConfiguration clear. Live
+                // per-scope overrides can't apply — their fetch
+                // is what failed.
                 log_config_warning(
-                    `Failed to resolve settings for ${resource}: ${error}`
+                    `Failed to resolve settings for ${resource}: `
+                    + (error instanceof Error ? error.message : String(error))
                 );
                 return build_non_capability_settings();
             });
