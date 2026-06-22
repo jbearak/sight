@@ -237,6 +237,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Configuration settings
     let global_settings: StataLSPConfig = DEFAULT_SETTINGS;
     const document_settings: Map<string, Thenable<StataLSPConfig>> = new Map();
+    // Per-resource throttle for getConfiguration failure warnings: warn
+    // once per resource until it resolves successfully again, so a
+    // persistently-failing client does not log once per request.
+    const settings_failures_logged = new Set<string>();
 
     // Shared project config loaded from sight.toml.
     let project_file_config: DeepPartial<StataLSPConfig> | undefined = undefined;
@@ -385,23 +389,31 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 // Live per-scope `sight` tree (public camelCase);
                 // resolve_scoped_client_settings unwraps + maps it
                 // as the client layer (init -> client -> project).
+                settings_failures_logged.delete(resource);
                 return resolve_scoped_client_settings(config, {
                     init_options_config,
                     project_file_config,
                     log_warning: log_config_warning,
                 });
             }).catch((error) => {
-                // On failure, cache the global merged fallback
-                // (build_non_capability_settings: init + pushed
-                // client + project) as a resolved value, not a
-                // rejection, so a failing client isn't re-queried
-                // each request; refreshed on the next
-                // didChangeConfiguration clear. The live per-scope
-                // result can't apply — its fetch is what failed.
-                log_config_warning(
-                    `Failed to resolve settings for ${resource}: `
-                    + (error instanceof Error ? error.message : String(error))
-                );
+                // The live per-scope fetch failed. Drop our entry
+                // (identity-guarded) so the next request retries and
+                // per-scope overrides apply once the client recovers,
+                // instead of caching a stale fallback. Serve the global
+                // merged fallback meanwhile, and warn once per resource
+                // until it recovers (no per-request log spam).
+                if (!settings_failures_logged.has(resource)) {
+                    settings_failures_logged.add(resource);
+                    log_config_warning(
+                        'Failed to resolve settings for '
+                        + `${scope_uri ?? '(workspace root)'}: `
+                        + (error instanceof Error
+                            ? error.message : String(error))
+                    );
+                }
+                if (document_settings.get(resource) === result) {
+                    document_settings.delete(resource);
+                }
                 return build_non_capability_settings();
             });
             document_settings.set(resource, result);

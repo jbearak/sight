@@ -65,6 +65,30 @@ describe('sight check config loading', () => {
         }
     });
 
+    it('surfaces comment-formatting validation warnings', () => {
+        const root = temp_dir();
+        fs.writeFileSync(
+            path.join(root, 'sight.toml'),
+            '[formatting]\nindentSize = -4\n'
+        );
+
+        const result = load_check_config({
+            cwd: root,
+            workspace_root: root,
+            no_config: false,
+        });
+
+        expect(result.kind).toBe('loaded');
+        if (result.kind === 'loaded') {
+            // Invalid value is reported (not silently swallowed) and the
+            // default is applied.
+            expect(result.warnings.some((warning) =>
+                warning.message.includes('Invalid indentSize')
+            )).toBe(true);
+            expect(result.config.formatting.indentSize).toBe(4);
+        }
+    });
+
     it('returns operator error for malformed discovered config', () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, 'sight.toml'), 'bad = = toml\n');
