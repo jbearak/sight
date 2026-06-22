@@ -52,8 +52,15 @@ jobs:
             server:
               - 'package.json'
               - 'bun.lock'
+              - '.npmignore'
               - 'tsconfig*.json'
               - 'eslint.config.js'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/release-build.yml'
+              - '.github/workflows/release-publish.yml'
+              - 'README.md'
+              - 'DEVELOPMENT.md'
+              - 'docs/**'
               - 'src/**'
               - 'scripts/**'
               - 'tests/**'
@@ -61,6 +68,7 @@ jobs:
             # Client packaging depends on both client/ and the server bundle.
             client:
               - 'client/**'
+              - '.github/workflows/release-build.yml'
               - 'src/**'
               - 'package.json'
               - 'bun.lock'
@@ -69,17 +77,21 @@ jobs:
 
             # Binaries are built from the server source + binary build scripts.
             binaries:
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/release-build.yml'
               - 'src/**'
               - 'package.json'
               - 'bun.lock'
               - 'scripts/build-binary.ts'
+              - 'scripts/binary-names.ts'
+              - 'scripts/binary-ownership.ts'
               - 'scripts/install.ts'
+              - 'scripts/smoke-stdio-startup.ts'
               - 'scripts/uninstall.ts'
 
             formula:
               - 'Formula/**'
               - 'scripts/test-formula.ts'
-              - 'scripts/release.ts'
 
   verify:
     name: Verify (typecheck + tests)
@@ -103,7 +115,10 @@ jobs:
     name: NPM package
     needs: [changes, verify]
     if: needs.changes.outputs.server == 'true'
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Setup
@@ -115,16 +130,17 @@ jobs:
       - name: Test package creation
         run: npm pack --dry-run
       - name: Test global installation
-        run: |
-          npm install -g .
-          sight-language-server --version
-          sight-language-server --help
-      - name: Test LSP protocol
         shell: bash
         run: |
-          cat <<'EOF' | timeout 5s sight-language-server --stdio || true
-          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
-          EOF
+          npm install -g .
+          VERSION_PATTERN='^sight [0-9]+\.[0-9]+\.[0-9]+'
+          VERSION_PATTERN+='(-[0-9A-Za-z.-]+)?$'
+          sight --version | grep -E "$VERSION_PATTERN"
+          sight --help | grep 'static analyzer and language server for Stata'
+          sight-language-server --version | grep -E "$VERSION_PATTERN"
+      - name: Test LSP stdio startup
+        shell: bash
+        run: bun scripts/smoke-stdio-startup.ts sight
 
   vscode-extension:
     name: VS Code extension
@@ -208,7 +224,7 @@ jobs:
           chmod +x "$BINARY" 2>/dev/null || true
           "$BINARY" --version
           "$BINARY" --help
-      - name: Test LSP stdio
+      - name: Test LSP stdio startup
         shell: bash
         run: |
           case "${{ runner.os }}" in
@@ -217,9 +233,7 @@ jobs:
             *)       BINARY="bin/sight-linux-x64";;
           esac
 
-          cat <<'EOF' | timeout 5s "$BINARY" --stdio || true
-          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
-          EOF
+          bun scripts/smoke-stdio-startup.ts "$BINARY"
 
   homebrew:
     name: Homebrew formula

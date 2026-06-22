@@ -11,6 +11,8 @@ import { spawn, spawnSync } from 'child_process';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { detect_platform } from '../../scripts/build-binary';
+import { is_cli_entry_point } from '../../src/cli';
+import { CLI_DESCRIPTION, PRIMARY_BINARY_NAME } from '../../src/cli-binary-names';
 
 const CLI_PATH = join(__dirname, '../../src/cli.ts');
 
@@ -94,7 +96,9 @@ describe('Binary Invocation', () => {
     it('should print help with --help flag', async () => {
         const result = await run_cli(['--help']);
         expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain('Sight - Language Server Protocol');
+        const first_line = result.stdout.split('\n')[0];
+        expect(first_line.startsWith(`${PRIMARY_BINARY_NAME} `)).toBe(true);
+        expect(first_line).toContain(CLI_DESCRIPTION);
         expect(result.stdout).toContain('--stdio');
         expect(result.stdout).toContain('--node-ipc');
         expect(result.stdout).toContain('--quiet');
@@ -124,10 +128,61 @@ describe('Binary Invocation', () => {
         expect(result.stderr).toContain('Unknown flag');
     });
 
+    it('should reject unknown commands', async () => {
+        const result = await run_cli(['definitely-not-a-command']);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain('Unknown command');
+    });
+
     it('should reject conflicting transport flags', async () => {
         const result = await run_cli(['--stdio', '--node-ipc']);
         expect(result.exitCode).toBe(1);
         expect(result.stderr).toContain('Cannot specify both');
+    });
+});
+
+describe('CLI Entry Point Detection', () => {
+    it('recognizes npm bin symlink command names', () => {
+        const bundle_path = '/repo/dist/sight-server.js';
+
+        expect(is_cli_entry_point('/tmp/bin/sight', bundle_path)).toBe(true);
+        expect(is_cli_entry_point(
+            '/tmp/bin/sight-language-server',
+            bundle_path
+        ))
+            .toBe(true);
+        expect(is_cli_entry_point('/repo/dist/sight-server.js', bundle_path))
+            .toBe(true);
+        expect(is_cli_entry_point('C:\\Tools\\sight.exe', bundle_path))
+            .toBe(true);
+        expect(
+            is_cli_entry_point(
+                'C:\\Tools\\sight-language-server.exe',
+                bundle_path
+            )
+        ).toBe(true);
+        expect(is_cli_entry_point(
+            'D:\\a\\sight\\sight\\bin\\sight-windows-x64.exe',
+            bundle_path
+        ))
+            .toBe(true);
+        expect(is_cli_entry_point(
+            '/tmp/sight/bin/sight-darwin-arm64',
+            bundle_path
+        ))
+            .toBe(true);
+        expect(is_cli_entry_point(
+            '/tmp/sight/bin/sight-linux-arm64',
+            bundle_path
+        ))
+            .toBe(true);
+    });
+
+    it('rejects unrelated script paths', () => {
+        const bundle_path = '/repo/dist/sight-server.js';
+
+        expect(is_cli_entry_point('/tmp/bin/other', bundle_path)).toBe(false);
+        expect(is_cli_entry_point(undefined, bundle_path)).toBe(false);
     });
 });
 
@@ -159,7 +214,7 @@ describe('Compiled Binary Smoke Tests', () => {
     it.skipIf(!binary_is_functional)('compiled binary should print help', async () => {
         const result = await run_binary(binary_path!, ['--help']);
         expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain('Sight - Language Server Protocol');
+        expect(result.stdout).toContain(CLI_DESCRIPTION);
         expect(result.stdout).toContain('--stdio');
     });
 

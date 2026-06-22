@@ -8,7 +8,11 @@ import {
     TextDocuments,
     ProposedFeatures,
     DidChangeConfigurationNotification,
+    DidChangeWatchedFilesNotification,
     Connection,
+    WatchKind,
+    type Disposable,
+    type FileSystemWatcher,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -22,13 +26,21 @@ import { SymbolProvider } from './providers/symbols';
 import { CodeFormatter } from './providers/formatter';
 import { command_database } from './command-database';
 import { StataLSPConfig } from './types';
-import type { DeepPartial } from './utils/workspace-config';
+import type { DeepPartial } from './config-file';
+import {
+    deep_merge_config,
+    discover_and_load_project_config,
+    map_public_config_to_partial_config,
+    PROJECT_CONFIG_FILE,
+    STALE_JSON_CONFIG_FILE,
+    type LoadedProjectConfig,
+} from './config-file';
 import { WorkspaceIndexer } from './indexer';
-import { ScopeResolver } from './scope-resolver';
+import { ScopeResolver, scope_resolver_config_for } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DocumentDebounceManager } from './utils/debounce-manager';
 import { validate_comment_formatting_config } from './utils/config-validator';
-import { read_workspace_file_config_from_root, map_stata_lsp_json_to_partial_config } from './utils/workspace-config';
+import { error_message } from './utils/error-message';
 import { RenameHandler } from './utils/file-rename-handler';
 import { Logger } from './utils/logger';
 import { DependencyGraph } from './dependency-graph';
@@ -92,6 +104,86 @@ function create_transport_connection(transport: TransportType): Connection {
     }
 }
 
+export interface NonCapabilitySettingsSources {
+    init_options_config?: unknown;
+    last_client_settings?: unknown;
+    project_file_config?: DeepPartial<StataLSPConfig>;
+    log_warning?: (message: string) => void;
+}
+
+function map_public_settings(
+    raw: unknown,
+    log_warning?: (message: string) => void
+): DeepPartial<StataLSPConfig> {
+    return map_public_config_to_partial_config(raw, (warning) => {
+        log_warning?.(warning.message);
+    });
+}
+
+export function select_pushed_client_settings(settings: unknown): unknown {
+    const change_settings = settings && typeof settings === 'object'
+        ? settings as Record<string, unknown>
+        : undefined;
+    // Unwrap a `sight` wrapper when the key is present (even if its
+    // value is undefined) rather than `?? settings`: for
+    // `{ sight: undefined }` the latter would feed the whole wrapper
+    // back to the mapper and trip an unknown-top-level-key warning.
+    if (change_settings && 'sight' in change_settings) {
+        return change_settings['sight'];
+    }
+    return settings;
+}
+
+export function build_non_capability_settings_from_sources(
+    sources: NonCapabilitySettingsSources
+): StataLSPConfig {
+    // Unwrap a `{ sight: {...} }` wrapper from raw init options via the
+    // same helper the client layer's callers use, so the
+    // `{ sight: undefined }` edge has one implementation rather than a
+    // divergent inline `?? init_options_config`.
+    const init_partial = map_public_settings(
+        select_pushed_client_settings(sources.init_options_config),
+        sources.log_warning
+    );
+    const client_partial = deep_merge_config(
+        init_partial,
+        map_public_settings(
+            sources.last_client_settings,
+            sources.log_warning
+        )
+    );
+    const merged_partial = deep_merge_config(
+        client_partial,
+        sources.project_file_config || {}
+    );
+    return validate_comment_formatting_config(
+        merged_partial,
+        sources.log_warning
+    );
+}
+
+/**
+ * Resolve effective settings for a single document scope from the live
+ * `workspace/configuration` (getConfiguration) result.
+ *
+ * The live result is the client layer: it is unwrapped (so a client
+ * that still wraps a `section: 'sight'` response as `{ sight: {...} }`
+ * is handled — a no-op for the spec-conformant bare subtree) and then
+ * mapped + merged with init options and project config via the shared
+ * builder. Extracted from the get_document_settings closure so the
+ * unwrap + public->internal mapping + precedence are behaviorally
+ * testable without a live server connection.
+ */
+export function resolve_scoped_client_settings(
+    live_config: unknown,
+    sources: Omit<NonCapabilitySettingsSources, 'last_client_settings'>
+): StataLSPConfig {
+    return build_non_capability_settings_from_sources({
+        ...sources,
+        last_client_settings: select_pushed_client_settings(live_config),
+    });
+}
+
 /**
  * Create and start the LSP server with the specified options.
  */
@@ -139,6 +231,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         has_snippet_support: false,
         has_configuration_capability: false,
         has_workspace_folder_capability: false,
+        has_watched_files_dynamic_registration_capability: false,
         has_diagnostic_related_information_capability: false,
     };
 
@@ -146,47 +239,131 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let global_settings: StataLSPConfig = DEFAULT_SETTINGS;
     const document_settings: Map<string, Thenable<StataLSPConfig>> = new Map();
 
-    // Workspace-root .sight.json config
-    let workspace_file_config: DeepPartial<StataLSPConfig> | undefined = undefined;
+    // Shared project config loaded from sight.toml.
+    let project_file_config: DeepPartial<StataLSPConfig> | undefined = undefined;
+    let project_config_candidate_dirs: string[] = [];
+    let active_workspace_roots: string[] = [];
+    let project_config_watch_registration: Disposable | undefined = undefined;
 
     // Initialization options config
     let init_options_config: unknown = undefined;
+
+    // Most recent client-pushed `sight` settings from didChangeConfiguration,
+    // for clients without `workspace/configuration` capability. Retained so the
+    // merged global_settings can be rebuilt when project config or folders
+    // change without waiting for another didChangeConfiguration notification.
+    let last_client_settings: unknown = undefined;
 
     // Root URI from initialize params (fallback for clients without
     // workspaceFolders support, e.g., Claude Code, Neovim single-file)
     let init_root_uri: string | null = null;
 
-    type JsonObject = Record<string, unknown>;
+    const log_config_warning = (message: string): void => {
+        connection.console.log(`Configuration warning: ${message}`);
+    };
 
-    function deep_merge<T>(base: T, overlay: unknown): T {
-        if (overlay === null || overlay === undefined) {
-            return base;
+    function log_project_config_warnings(loaded: LoadedProjectConfig): void {
+        for (const my_warning of loaded.warnings) {
+            connection.console.log(
+                `Project config warning: ${my_warning.message}`
+            );
         }
-        if (Array.isArray(overlay)) {
-            return overlay as T;
+        if (loaded.kind === 'load-failed') {
+            connection.console.log(`Project config warning: ${loaded.error}`);
         }
-        if (typeof overlay !== 'object') {
-            return overlay as T;
-        }
+    }
 
-        const overlay_obj = overlay as JsonObject;
-        const result: JsonObject = Array.isArray(base)
-            ? ([...(base as unknown[])] as unknown as JsonObject)
-            : { ...(base as unknown as JsonObject) };
-        for (const key of Object.keys(overlay_obj)) {
-            const base_value = result[key];
-            const overlay_value = overlay_obj[key];
-            if (
-                typeof base_value === 'object' && base_value !== null &&
-                typeof overlay_value === 'object' && overlay_value !== null &&
-                !Array.isArray(base_value) && !Array.isArray(overlay_value)
-            ) {
-                result[key] = deep_merge(base_value, overlay_value);
-            } else {
-                result[key] = overlay_value;
+    function apply_loaded_project_config(loaded: LoadedProjectConfig): void {
+        log_project_config_warnings(loaded);
+        if (loaded.kind === 'none') {
+            // Config genuinely absent: drop any prior project layer. (When no
+            // config exists, candidate_dirs spans every ancestor up to
+            // MAX_DISCOVERY_DEPTH (~32); watching all of them would flood the
+            // client with ~64 watchers, so watch only the workspace roots,
+            // added in project_config_watch_dirs — a config later created at
+            // the root is still detected.)
+            project_config_candidate_dirs = [];
+            project_file_config = undefined;
+        } else if (loaded.kind === 'load-failed') {
+            // Transient parse error (e.g. a mid-edit save). Keep the last-
+            // known-good config rather than reverting the whole workspace to
+            // defaults; still watch the discovery walk so the fix triggers a
+            // reload. project_file_config is intentionally left unchanged.
+            project_config_candidate_dirs = loaded.candidate_dirs;
+        } else {
+            // Config found: watch the bounded discovery walk (workspace root up
+            // to the config directory) so a *nearer* sight.toml created in an
+            // intermediate directory fires an event and correctly wins, instead
+            // of the server staying on the stale ancestor config until restart.
+            project_config_candidate_dirs = loaded.candidate_dirs;
+            project_file_config = loaded.partial_config;
+        }
+    }
+
+    function project_config_watch_dirs(): string[] {
+        const dirs = new Set<string>();
+        for (const my_root of active_workspace_roots) {
+            dirs.add(my_root);
+        }
+        for (const my_dir of project_config_candidate_dirs) {
+            dirs.add(my_dir);
+        }
+        return [...dirs];
+    }
+
+    function project_config_watchers_for_dirs(
+        dirs: string[]
+    ): FileSystemWatcher[] {
+        const watchers: FileSystemWatcher[] = [];
+        for (const my_dir of dirs) {
+            const baseUri = URI.file(my_dir).toString();
+            for (const my_pattern of [PROJECT_CONFIG_FILE, STALE_JSON_CONFIG_FILE]) {
+                watchers.push({
+                    globPattern: { baseUri, pattern: my_pattern },
+                    kind: WatchKind.Create | WatchKind.Change
+                        | WatchKind.Delete,
+                });
             }
         }
-        return result as T;
+        return watchers;
+    }
+
+    async function refresh_project_config_watchers(): Promise<void> {
+        if (!server_capabilities
+            .has_watched_files_dynamic_registration_capability) {
+            return;
+        }
+        const previous_registration = project_config_watch_registration;
+        const watchers = project_config_watchers_for_dirs(
+            project_config_watch_dirs()
+        );
+        // Register the new watcher BEFORE disposing the old one so there is no
+        // window during which a config change goes unobserved. A brief overlap
+        // is harmless: duplicate events are coalesced by the reload serializer.
+        if (watchers.length === 0) {
+            project_config_watch_registration = undefined;
+        } else {
+            project_config_watch_registration = await connection.client.register(
+                DidChangeWatchedFilesNotification.type,
+                { watchers }
+            );
+        }
+        previous_registration?.dispose();
+    }
+
+    // Build merged settings for clients WITHOUT `workspace/configuration`
+    // capability. They cannot be queried per-document, so we fold the static
+    // inputs ourselves: mapped initializationOptions, then the latest pushed
+    // client settings, then project (sight.toml) config (which wins). Without
+    // this, init options and sight.toml are silently ignored until (and unless)
+    // the client happens to send a didChangeConfiguration notification.
+    function build_non_capability_settings(): StataLSPConfig {
+        return build_non_capability_settings_from_sources({
+            init_options_config,
+            last_client_settings,
+            project_file_config,
+            log_warning: log_config_warning,
+        });
     }
 
     /**
@@ -206,25 +383,29 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 scopeUri: scope_uri,
                 section: 'sight',
             }).then((config) => {
-                const init_record = (init_options_config && typeof init_options_config === 'object'
-                    ? (init_options_config as Record<string, unknown>)
-                    : undefined);
-                let init_partial: unknown = init_record?.['sight'] ?? init_options_config;
-                if (init_partial && typeof init_partial === 'object' && (init_partial as Record<string, unknown>).crossFile) {
-                    init_partial = deep_merge({}, map_stata_lsp_json_to_partial_config(init_partial));
-                }
-
-                const merged_partial = deep_merge(
-                    deep_merge(
-                        deep_merge({}, workspace_file_config || {}),
-                        init_partial || {}
-                    ),
-                    config || {}
-                );
-
-                return validate_comment_formatting_config(merged_partial, (msg) => {
-                    connection.console.log(`Configuration warning: ${msg}`);
+                // Live per-scope `sight` tree (public camelCase);
+                // resolve_scoped_client_settings unwraps + maps it
+                // as the client layer (init -> client -> project).
+                return resolve_scoped_client_settings(config, {
+                    init_options_config,
+                    project_file_config,
+                    log_warning: log_config_warning,
                 });
+            }).catch((error) => {
+                // Defensive fallback for the rare case where the
+                // per-scope getConfiguration rejects (or the mapper
+                // throws): resolve to — and cache — the global merged
+                // fallback, a resolved value (not a rejection), so the
+                // document isn't poisoned and isn't re-queried per
+                // request. Live per-scope overrides can't apply (their
+                // fetch failed); restored on the next
+                // didChangeConfiguration clear.
+                log_config_warning(
+                    'Failed to resolve settings for '
+                    + `${scope_uri ?? '(workspace root)'}: `
+                    + error_message(error)
+                );
+                return build_non_capability_settings();
             });
             document_settings.set(resource, result);
         }
@@ -505,59 +686,27 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
     }
 
-    /**
-     * Refresh all workspace-wide state after folder changes.
-     * Tears down stale caches, re-roots resolvers, re-reads config,
-     * and re-triggers the workspace scan and document revalidation.
-     *
-     * Called from both onInitialized and onDidChangeWorkspaceFolders.
-     */
-    async function refresh_workspace_state(
-        folder_paths: string[]
-    ): Promise<void> {
-        // --- Teardown stale state ---
+    function configure_completion_provider(settings: StataLSPConfig): void {
+        completion_provider?.configure_completion(settings.completion);
+    }
+
+    function reset_workspace_indexing_state(): void {
         workspace_indexer?.reset();
         dependency_graph?.reset();
         scope_resolver?.clear_cache();
         scope_resolver?.reset_reverse_deps();
-        document_settings.clear();
+    }
 
-        // --- Update workspace roots ---
-        if (folder_paths.length > 0) {
-            document_store.set_workspace_roots(folder_paths);
-            if (scope_resolver) {
-                scope_resolver.set_workspace_roots(folder_paths);
-            }
-            if (forward_scope_resolver) {
-                forward_scope_resolver.set_workspace_roots(folder_paths);
-            }
-
-            const loaded = read_workspace_file_config_from_root(
-                folder_paths[0]
-            );
-            workspace_file_config = loaded.partial_config;
-            if (loaded.error) {
-                connection.console.log(
-                    `Error reading .sight.json: ${loaded.error}`
-                );
-            }
-        } else {
-            document_store.set_workspace_roots([]);
-            workspace_file_config = undefined;
-            if (scope_resolver) {
-                scope_resolver.set_workspace_roots([]);
-            }
-            if (forward_scope_resolver) {
-                forward_scope_resolver.set_workspace_roots([]);
-            }
+    function configure_workspace_indexing(
+        settings: StataLSPConfig,
+        folder_paths: string[],
+        reset_indexes: boolean
+    ): void {
+        if (reset_indexes) {
+            reset_workspace_indexing_state();
         }
 
-        // --- Load settings and configure indexer ---
-        const settings = await get_document_settings('');
-
-        if (!server_capabilities.has_configuration_capability) {
-            global_settings = settings;
-        }
+        configure_completion_provider(settings);
 
         if (workspace_indexer) {
             workspace_indexer.configure(settings);
@@ -566,7 +715,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
             );
         }
 
-        // --- Scan workspace or mark complete ---
         const indexing_enabled =
             settings.indexWorkspace !== false &&
             settings.cross_file?.index_workspace !== false;
@@ -600,6 +748,175 @@ export async function create_server(options: ServerOptions): Promise<void> {
             dependency_graph?.mark_scan_complete();
             revalidate_all_open_docs();
         }
+    }
+
+    function same_string_set(a: string[], b: string[]): boolean {
+        if (a.length !== b.length) return false;
+        const set_a = new Set(a);
+        return b.every((value) => set_a.has(value));
+    }
+
+    // The project-config keys that change WHICH files are indexed (and thus
+    // require a full index teardown + re-scan). Everything else — severities,
+    // formatting, completion, resolution depths, debug — only affects how open
+    // documents are validated/resolved, which a revalidation pass handles
+    // without re-scanning the workspace. Client/init settings are constant
+    // across a config-file reload, so comparing this subset of project_file_config
+    // is sufficient to detect an effective indexing change.
+    function indexing_affecting_signature(
+        config: DeepPartial<StataLSPConfig> | undefined
+    ): string {
+        return JSON.stringify({
+            adoPaths: config?.adoPaths ?? null,
+            indexWorkspace: config?.indexWorkspace ?? null,
+            index_workspace: config?.cross_file?.index_workspace ?? null,
+            max_indexed_files: config?.cross_file?.max_indexed_files ?? null,
+            maxFileSizeBytes: config?.indexing?.maxFileSizeBytes ?? null,
+        });
+    }
+
+    async function reload_project_config_once(): Promise<void> {
+        const active_root = active_workspace_roots[0];
+        if (!active_root) {
+            return;
+        }
+
+        const previous_config_json = JSON.stringify(project_file_config ?? null);
+        const previous_indexing_signature =
+            indexing_affecting_signature(project_file_config);
+        const previous_watch_dirs = project_config_watch_dirs();
+
+        apply_loaded_project_config(
+            discover_and_load_project_config(active_root)
+        );
+
+        const config_changed =
+            JSON.stringify(project_file_config ?? null) !== previous_config_json;
+        if (!same_string_set(previous_watch_dirs, project_config_watch_dirs())) {
+            await refresh_project_config_watchers();
+        }
+        if (!config_changed) {
+            // A watched event fired (e.g. an edit to an unsupported .sight.json,
+            // or a no-op save) but the effective project config is unchanged,
+            // so skip the expensive full workspace reset and re-index.
+            return;
+        }
+
+        const indexing_changed =
+            indexing_affecting_signature(project_file_config) !==
+            previous_indexing_signature;
+
+        document_settings.clear();
+
+        if (!server_capabilities.has_configuration_capability) {
+            global_settings = build_non_capability_settings();
+        }
+        const settings = await get_document_settings('');
+
+        if (indexing_changed) {
+            configure_workspace_indexing(settings, active_workspace_roots, true);
+        } else {
+            // Only non-indexing config changed (severities, formatting,
+            // resolution depths, ...): keep the workspace index intact and just
+            // reconfigure providers and re-validate open documents so the new
+            // settings take effect, instead of tearing down and re-scanning the
+            // whole workspace for a cosmetic edit.
+            configure_completion_provider(settings);
+            workspace_indexer?.configure(settings);
+            revalidate_all_open_docs();
+        }
+    }
+
+    // Serialize reloads: a DidChangeWatchedFiles batch can deliver several
+    // config events at once (e.g. delete+create on save), and each would
+    // otherwise spawn a concurrent reload that disposes/re-registers watchers
+    // and re-indexes while another is mid-flight. Run one at a time and
+    // coalesce any overlapping requests into a single trailing run.
+    let project_config_reload_in_progress = false;
+    let project_config_reload_pending = false;
+
+    async function reload_project_config_from_active_root(): Promise<void> {
+        if (project_config_reload_in_progress) {
+            project_config_reload_pending = true;
+            return;
+        }
+        project_config_reload_in_progress = true;
+        try {
+            do {
+                project_config_reload_pending = false;
+                await reload_project_config_once();
+            } while (project_config_reload_pending);
+        } finally {
+            project_config_reload_in_progress = false;
+        }
+    }
+
+    /**
+     * Refresh all workspace-wide state after folder changes.
+     * Tears down stale caches, re-roots resolvers, re-reads config,
+     * and re-triggers the workspace scan and document revalidation.
+     *
+     * Called from both onInitialized and onDidChangeWorkspaceFolders.
+     */
+    async function refresh_workspace_state(
+        folder_paths: string[]
+    ): Promise<void> {
+        // --- Teardown stale state ---
+        reset_workspace_indexing_state();
+        document_settings.clear();
+
+        // --- Update workspace roots ---
+        if (folder_paths.length > 0) {
+            active_workspace_roots = [...folder_paths];
+            document_store.set_workspace_roots(folder_paths);
+            if (scope_resolver) {
+                scope_resolver.set_workspace_roots(folder_paths);
+            }
+            if (forward_scope_resolver) {
+                forward_scope_resolver.set_workspace_roots(folder_paths);
+            }
+
+            // Single-root project config: sight.toml is discovered from the
+            // first workspace folder and applied to every document. Multi-root
+            // workspaces with a distinct sight.toml per root are not resolved
+            // per-root; warn once so the behavior is not silently surprising.
+            if (folder_paths.length > 1) {
+                connection.console.log(
+                    'Sight: multiple workspace folders detected; project ' +
+                    `config is loaded only from the first folder ` +
+                    `(${folder_paths[0]}). A sight.toml in another folder is ` +
+                    'not applied to its own documents.'
+                );
+            }
+            apply_loaded_project_config(
+                discover_and_load_project_config(folder_paths[0])
+            );
+        } else {
+            active_workspace_roots = [];
+            document_store.set_workspace_roots([]);
+            project_file_config = undefined;
+            project_config_candidate_dirs = [];
+            if (scope_resolver) {
+                scope_resolver.set_workspace_roots([]);
+            }
+            if (forward_scope_resolver) {
+                forward_scope_resolver.set_workspace_roots([]);
+            }
+        }
+
+        await refresh_project_config_watchers();
+
+        // --- Load settings and configure indexer ---
+        // Non-capability clients can't be queried per-document, so build their
+        // merged global_settings from init options + project config here rather
+        // than reading back the (stale) cached value via get_document_settings.
+        if (!server_capabilities.has_configuration_capability) {
+            global_settings = build_non_capability_settings();
+        }
+        const settings = await get_document_settings('');
+
+        // --- Scan workspace or mark complete ---
+        configure_workspace_indexing(settings, folder_paths, false);
     }
 
     async function validate_text_document(
@@ -644,6 +961,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 // delaying the debounce timer start (Req 8.2, 8.3, 8.4)
                 const settings = await get_document_settings(snapshot_uri);
                 const is_debug = settings.debug === true;
+                const my_scope_resolver_config =
+                    scope_resolver_config_for(settings);
 
                 // --- Lex/parse/analyze inside debounce callback (Req 2.1, 2.2) ---
                 const workspace_symbols = workspace_indexer
@@ -655,14 +974,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         snapshot_uri,
                         [{ text: snapshot_content }],
                         snapshot_version,
-                        workspace_symbols
+                        workspace_symbols,
+                        my_scope_resolver_config
                     );
                 } else {
                     await document_store.open(
                         snapshot_uri,
                         snapshot_content,
                         snapshot_version,
-                        workspace_symbols
+                        workspace_symbols,
+                        my_scope_resolver_config
                     );
                 }
 
@@ -1024,22 +1345,24 @@ export async function create_server(options: ServerOptions): Promise<void> {
     connection.onDidChangeConfiguration((change) => {
         if (server_capabilities.has_configuration_capability) {
             document_settings.clear();
+            void get_document_settings('').then((settings) => {
+                configure_completion_provider(settings);
+                // Propagate indexing-affecting settings (e.g.
+                // indexing.maxFileSizeBytes) so the indexer does not stay stale
+                // after a runtime configuration change.
+                workspace_indexer?.configure(settings);
+            }).catch((err) => {
+                connection.console.error(
+                    `Error refreshing completion config: ${err}`
+                );
+            });
         } else {
-            const init_record = (init_options_config && typeof init_options_config === 'object'
-                ? (init_options_config as Record<string, unknown>)
-                : undefined);
-            const init_partial = init_record?.['sight'] ?? init_options_config;
-            const change_settings = change.settings as Record<string, unknown> | undefined;
-            const merged_partial = deep_merge(
-                deep_merge({}, workspace_file_config || {}),
-                deep_merge(init_partial || {}, change_settings?.['sight'] || {})
+            last_client_settings = select_pushed_client_settings(
+                change.settings
             );
-            global_settings = validate_comment_formatting_config(
-                merged_partial,
-                (msg) => {
-                    connection.console.log(`Configuration warning: ${msg}`);
-                }
-            );
+            global_settings = build_non_capability_settings();
+            configure_completion_provider(global_settings);
+            workspace_indexer?.configure(global_settings);
         }
 
         // Clear published versions so diagnostics will be re-published
@@ -1135,6 +1458,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         schedule_caller_revalidation(callers, uri, settings);
                     }
                 }
+            },
+            async () => {
+                await reload_project_config_from_active_root();
             }
         )
     );

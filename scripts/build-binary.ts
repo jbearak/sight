@@ -12,22 +12,28 @@
 import { $ } from 'bun';
 import * as fs from 'fs';
 import * as path from 'path';
+import type {
+    BinaryArch,
+    BinaryPlatform,
+} from '../src/cli-binary-names';
 
 /**
  * Build target configuration.
  */
-interface BuildTarget {
-    platform: 'darwin' | 'linux' | 'windows';
-    arch: 'x64' | 'arm64';
+export interface BuildTarget {
+    platform: BinaryPlatform;
+    arch: BinaryArch;
     output_name: string;
 }
+
+type BinaryBuilder = (target: BuildTarget) => Promise<void>;
 
 /**
  * Platform detection result.
  */
 export interface PlatformInfo {
-    platform: 'darwin' | 'linux' | 'windows';
-    arch: 'arm64' | 'x64';
+    platform: BinaryPlatform;
+    arch: BinaryArch;
     binary_name: string;
 }
 
@@ -58,6 +64,7 @@ export function detect_platform(): PlatformInfo | undefined {
 
 /**
  * All supported build targets.
+ * darwin-x64 is intentionally not built.
  */
 const TARGETS: BuildTarget[] = [
     { platform: 'darwin', arch: 'arm64', output_name: 'sight-darwin-arm64' },
@@ -66,6 +73,10 @@ const TARGETS: BuildTarget[] = [
     { platform: 'windows', arch: 'x64', output_name: 'sight-windows-x64.exe' },
     { platform: 'windows', arch: 'arm64', output_name: 'sight-windows-arm64.exe' },
 ];
+
+export function get_build_targets(): BuildTarget[] {
+    return TARGETS.map((my_target) => ({ ...my_target }));
+}
 
 /**
  * Paths configuration.
@@ -158,7 +169,7 @@ function get_current_target(): BuildTarget | undefined {
 /**
  * Build a native binary for a specific target using Bun compile.
  */
-async function build_binary(target: BuildTarget): Promise<void> {
+export async function build_binary(target: BuildTarget): Promise<void> {
     console.log(`Building binary for ${target.platform}-${target.arch}...`);
     
     ensure_dir(PATHS.bin);
@@ -193,19 +204,47 @@ async function build_binary(target: BuildTarget): Promise<void> {
 /**
  * Build binaries for all supported platforms.
  */
-async function build_all_binaries(): Promise<void> {
+export async function build_all_binaries(
+    build_one_binary: BinaryBuilder = build_binary
+): Promise<void> {
     console.log('Building binaries for all platforms...');
+    const failed_targets: string[] = [];
     
     // Build sequentially to avoid overwhelming the system
-    for (const target of TARGETS) {
+    for (const my_target of TARGETS) {
         try {
-            await build_binary(target);
+            await build_one_binary(my_target);
         } catch (error) {
-            console.error(`Skipping ${target.output_name} due to error`);
+            failed_targets.push(my_target.output_name);
+            console.error(`Failed target ${my_target.output_name}:`, error);
         }
+    }
+
+    if (failed_targets.length > 0) {
+        throw new Error(
+            `Failed to build targets: ${failed_targets.join(', ')}`
+        );
     }
     
     console.log('All binaries built.');
+}
+
+export async function build_binary_by_output_name(
+    output_name: string,
+    build_one_binary: BinaryBuilder = build_binary
+): Promise<void> {
+    const target = TARGETS.find(
+        (my_target) => my_target.output_name === output_name
+    );
+
+    if (!target) {
+        throw new Error(
+            `Unknown binary target: ${output_name}. Expected one of: ` +
+            TARGETS.map((my_target) => my_target.output_name).join(', ')
+        );
+    }
+
+    await build_one_binary(target);
 }
 
 /**
@@ -242,12 +281,14 @@ Usage: bun scripts/build-binary.ts <command>
 Commands:
   bundle   Create bundled JavaScript file (dist/sight-server.js)
   binary   Create native binaries for all platforms (bin/)
+  target   Create one named binary target
   current  Create binary for current platform only
   all      Create both bundle and all binaries
 
 Examples:
   bun scripts/build-binary.ts bundle
   bun scripts/build-binary.ts binary
+  bun scripts/build-binary.ts target sight-linux-x64
   bun scripts/build-binary.ts all
 `.trim());
 }
@@ -264,6 +305,14 @@ async function main(): Promise<void> {
             break;
         case 'binary':
             await build_all_binaries();
+            break;
+        case 'target':
+            if (!process.argv[3]) {
+                console.error('Missing binary target name.');
+                print_usage();
+                process.exit(1);
+            }
+            await build_binary_by_output_name(process.argv[3]);
             break;
         case 'current':
             await build_current_binary();

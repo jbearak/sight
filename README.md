@@ -1,6 +1,6 @@
-# Sight - Language Server for Stata
+# Sight
 
-An open source [Language Server Protocol (LSP)](https://github.com/Microsoft/language-server-protocol) implementation for the Stata statistical programming language, with a corresponding extension for [VS Code](https://github.com/Microsoft/vscode).
+Sight is a static analyzer and language server for the Stata statistical programming language. It resolves what's in scope at each line — catching undefined macros and used-before-defined references even in a single script, and across files by following `do`/`run`/`include` chains — without running your code. Sight ships as an extension for [VS Code](https://github.com/Microsoft/vscode), bringing real-time diagnostics and code intelligence to your editor as you type; it also runs as a standalone [Language Server Protocol (LSP)](https://github.com/Microsoft/language-server-protocol) server for other editors and headlessly via `sight check` for automated checks in CI.
 
 > **tl;dr**: Sight brings **modern IDE superpowers** to Stata coding. It goes far beyond syntax highlighting, using **semantic analysis** to provide **workspace-wide symbol resolution** and **intelligent macro tracking**. With features like **Go-to-Definition**, **Autocomplete**, and **Real-time Diagnostics** that trace execution through `do` and `include` chains, Sight helps you catch errors *before* you run your code.
 
@@ -40,7 +40,8 @@ The editor extension enables language server features and further provides:
 ### Guides
 
 - [Configuration](docs/configuration.md) - All settings and options
-- [Standalone Installation](docs/standalone-installation.md) - CLI usage, npm/npx, build from source
+- [CLI](docs/cli.md) - `sight check` for CI and command-line diagnostics
+- [Standalone Installation](docs/standalone-installation.md) - CLI usage, release binary, build from source
 - [Editor Integrations](docs/editor-integrations.md) - Generic LSP clients, AI agents
 - [Neovim Setup](docs/neovim-setup.md) - Configure Sight for Neovim
 
@@ -83,7 +84,7 @@ Execute code in Stata directly from the editor.
 1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
 2. In VS Code:
   - Extensions → `...` menu → "Install from VSIX..."
-  - Or via CLI: `code --install-extension sight-client-<version>.vsix`
+  - Or via CLI: `code --install-extension sight-<version>.vsix`
 
 > **Note:** If you have other extensions installed that provide Stata syntax highlighting (e.g., `stata-enhanced` or `stata-language`), disable them to use Sight's syntax highlighting.
 

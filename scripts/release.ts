@@ -16,6 +16,18 @@ interface ReleaseConfig {
     tag: string;
 }
 
+export function get_bump_version_args(version: string): string[] {
+    return ['scripts/bump-version.ts', version, '--no-git'];
+}
+
+export function get_branch_push_ref(current_branch: string): string {
+    if (!current_branch) {
+        throw new Error('Cannot release from a detached HEAD');
+    }
+
+    return `HEAD:${current_branch}`;
+}
+
 /**
  * Create and push git tag.
  */
@@ -33,12 +45,29 @@ async function create_tag(config: ReleaseConfig): Promise<void> {
 }
 
 /**
+ * Push the version bump commit before publishing the tag that triggers release.
+ */
+async function push_version_commit(): Promise<void> {
+    const my_current_branch = (await $`git branch --show-current`.text())
+        .trim();
+    const my_push_ref = get_branch_push_ref(my_current_branch);
+
+    await $`git push origin ${my_push_ref}`;
+}
+
+/**
  * Update package.json version.
  */
 async function update_package_version(version: string): Promise<void> {
     console.log(`Updating package.json versions to ${version}...`);
 
-    await $`bun scripts/bump-version.ts ${version}`;
+    const [
+        my_script_path,
+        my_version_arg,
+        my_no_git_arg,
+    ] = get_bump_version_args(version);
+
+    await $`bun ${my_script_path} ${my_version_arg} ${my_no_git_arg}`;
 
     await $`git add package.json client/package.json`;
     await $`git commit -m "chore: bump version to ${version}"`;
@@ -57,13 +86,14 @@ Examples:
 
 This script will:
 1. Update package.json versions (main + client)
-2. Create and push git tag
-3. Trigger GitHub Action to build and publish
+2. Push the version bump commit
+3. Create and push git tag
+4. Trigger GitHub Action to build release artifacts
 
 Distribution Channels:
-🎨 VS Code Marketplace    - VS Code extension
-🌐 OpenVSX Registry       - VSCodium, Kiro, Cursor, etc.
 🚀 GitHub Releases        - Direct binary downloads
+🎨 VS Code Marketplace    - Published only when RELEASE_PUBLISH_VSCODE=true
+🌐 OpenVSX Registry       - Published only when RELEASE_PUBLISH_VSCODE=true
 
 Make sure you have committed all changes before running this script.
 `.trim());
@@ -104,6 +134,9 @@ async function main(): Promise<void> {
         
         // Update package version
         await update_package_version(version);
+
+        // Push version bump commit before the tag makes the release public.
+        await push_version_commit();
         
         // Create and push tag (triggers GitHub Action)
         await create_tag(config);
@@ -113,13 +146,13 @@ async function main(): Promise<void> {
 
 What happens next:
 1. 🚀 GitHub Action builds all artifacts and creates release
-2. 📦 GitHub Action publishes to VS Code Marketplace + OpenVSX
+2. 📦 If RELEASE_PUBLISH_VSCODE=true, it publishes extension registry artifacts
 
 Next steps:
 1. Check GitHub Actions: https://github.com/jbearak/sight/actions
 2. Once release is created, test installations:
-   - VS Code: Search for "jbearak.sight-language-server" in Extensions
-   - npm: npm install -g github:jbearak/sight
+   - VS Code: Search for "jbearak.sight" in Extensions
+   - Standalone: Download the matching sight-* release binary
 `);
         
     } catch (error) {

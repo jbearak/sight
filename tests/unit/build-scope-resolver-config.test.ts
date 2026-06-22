@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'bun:test';
-import { build_scope_resolver_config } from '../../src/scope-resolver';
+import {
+    build_scope_resolver_config,
+    scope_resolver_config_for,
+} from '../../src/scope-resolver';
+import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 
 describe('build_scope_resolver_config', () => {
     it('returns empty object for undefined input', () => {
@@ -89,6 +93,37 @@ describe('build_scope_resolver_config', () => {
             assume_call_site: 'end',
             backward_dependencies: 'explicit',
             diagnostics: { max_depth: 'warning' },
+        });
+    });
+
+    it('builds diagnostic scope config from full LSP config', () => {
+        const config = {
+            ...DEFAULT_SETTINGS,
+            cross_file: {
+                ...DEFAULT_SETTINGS.cross_file,
+                assume_call_site: 'start' as const,
+                backward_dependencies: 'explicit' as const,
+                max_backward_depth: 3,
+                max_forward_depth: 4,
+                max_chain_depth: 7,
+                diagnostics: {
+                    ...DEFAULT_SETTINGS.cross_file.diagnostics,
+                    max_depth: 'error' as const,
+                    call_site_identification: 'off' as const,
+                },
+            },
+        };
+
+        expect(scope_resolver_config_for(config)).toEqual({
+            assume_call_site: 'start',
+            backward_dependencies: 'explicit',
+            max_backward_depth: 3,
+            max_forward_depth: 4,
+            max_chain_depth: 7,
+            diagnostics: {
+                max_depth: 'error',
+                call_site_identification: 'off',
+            },
         });
     });
 });

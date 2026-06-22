@@ -5,9 +5,11 @@
 # then installs the standalone binary.
 #
 # USAGE:
-#   ./setup.sh                    # Interactive mode (prompts for conflicts)
-#   ./setup.sh --yes              # Automated mode (auto-disables conflicts)
-#   ./setup.sh -y                 # Automated mode (short form)
+#   ./scripts/setup.sh
+#       Interactive mode. Prompts for conflicts.
+#   ./scripts/setup.sh --yes
+#       Automated mode. Auto-disables conflicts.
+#   ./scripts/setup.sh -y         # Automated mode (short form)
 #
 # INTERACTIVE MODE (default):
 #   When the script detects incompatible Stata extensions (e.g.,
@@ -23,8 +25,8 @@
 #   When the --yes or -y flag is provided, the script will automatically
 #   disable any incompatible extensions without prompting.
 #
-#   Example: ./setup.sh --yes
-#   Example: ./setup.sh -y
+#   Example: ./scripts/setup.sh --yes
+#   Example: ./scripts/setup.sh -y
 #
 # REQUIREMENTS:
 #   - bun (JavaScript runtime and package manager)

@@ -2,64 +2,144 @@
 /**
  * Uninstall script for the Sight LSP binary.
  * 
- * Removes ~/bin/sight-language-server if it exists.
+ * Removes Sight-owned ~/bin/sight command names.
+ * Leaves unrelated files with the same names in place.
  * 
  * Usage:
  *   bun scripts/uninstall.ts
- *   bun run uninstall
+ *   bun run uninstall:binary
  */
 
 import { homedir } from 'os';
 import { join } from 'path';
-import { existsSync, unlinkSync } from 'fs';
+import { existsSync, lstatSync, unlinkSync } from 'fs';
+import { is_sight_binary } from './binary-ownership';
+import {
+    get_binary_paths_to_uninstall,
+} from './binary-names';
+
+type BinaryOwnershipChecker = (
+    binary_path: string,
+    platform: NodeJS.Platform
+) => boolean;
+
+export {
+    get_binary_names_to_uninstall,
+} from './binary-names';
 
 /**
  * Uninstallation result.
  */
-interface UninstallResult {
+export interface UninstallResult {
     success: boolean;
     message: string;
 }
 
 /**
- * Get the installed binary name (with .exe on Windows).
+ * Get the installed binary paths.
  */
-function get_binary_name(): string {
-    return process.platform === 'win32' ? 'sight-language-server.exe' : 'sight-language-server';
+export function get_installed_binary_paths(
+    user_bin_path: string = join(homedir(), 'bin'),
+    platform: NodeJS.Platform = process.platform
+): string[] {
+    return get_binary_paths_to_uninstall(user_bin_path, platform);
+}
+
+function exists_or_is_symlink(target_path: string): boolean {
+    try {
+        lstatSync(target_path);
+        return true;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return false;
+        }
+
+        throw error;
+    }
 }
 
 /**
- * Get the installed binary path.
+ * Uninstall Sight binaries from a bin directory.
  */
-function get_installed_binary_path(): string {
-    return join(homedir(), 'bin', get_binary_name());
+export function uninstall_from_bin_dir(
+    user_bin_path: string,
+    platform: NodeJS.Platform = process.platform,
+    is_sight_binary_fn: BinaryOwnershipChecker = is_sight_binary
+): UninstallResult {
+    const the_target_paths = get_installed_binary_paths(
+        user_bin_path,
+        platform
+    );
+    const the_existing_paths = the_target_paths.filter(
+        (target_path) => exists_or_is_symlink(target_path)
+    );
+
+    if (the_existing_paths.length === 0) {
+        return {
+            success: true,
+            message: 'Nothing to uninstall. sight is not installed.',
+        };
+    }
+
+    const the_sight_paths: string[] = [];
+    const the_skipped_paths: string[] = [];
+
+    for (const my_target_path of the_existing_paths) {
+        if (
+            existsSync(my_target_path) &&
+            is_sight_binary_fn(my_target_path, platform)
+        ) {
+            the_sight_paths.push(my_target_path);
+        } else {
+            the_skipped_paths.push(my_target_path);
+        }
+    }
+
+    if (the_sight_paths.length === 0) {
+        return {
+            success: true,
+            message:
+                'No Sight-owned binaries found. Skipped existing files: ' +
+                the_skipped_paths.join(', '),
+        };
+    }
+
+    const removed_paths: string[] = [];
+
+    for (const my_target_path of the_sight_paths) {
+        try {
+            unlinkSync(my_target_path);
+            removed_paths.push(my_target_path);
+        } catch (error) {
+            return {
+                success: false,
+                message: `Failed to remove ${my_target_path}: ${error}`,
+            };
+        }
+    }
+
+    if (the_skipped_paths.length > 0) {
+        return {
+            success: true,
+            message:
+                `Successfully removed ${removed_paths.join(', ')}. ` +
+                `Skipped existing non-Sight files: ${
+                    the_skipped_paths.join(', ')
+                }`,
+        };
+    }
+
+    return {
+        success: true,
+        message: `Successfully removed ${removed_paths.join(', ')}`,
+    };
 }
 
 /**
- * Uninstall the Sight binary from ~/bin/sight-language-server.
+ * Uninstall Sight binaries from ~/bin.
  */
 async function uninstall(): Promise<UninstallResult> {
-    const target_path = get_installed_binary_path();
-
-    if (!existsSync(target_path)) {
-        return {
-            success: true,
-            message: 'Nothing to uninstall. sight-language-server is not installed.',
-        };
-    }
-
-    try {
-        unlinkSync(target_path);
-        return {
-            success: true,
-            message: `Successfully removed ${target_path}`,
-        };
-    } catch (error) {
-        return {
-            success: false,
-            message: `Failed to remove ${target_path}: ${error}`,
-        };
-    }
+    return uninstall_from_bin_dir(join(homedir(), 'bin'));
 }
 
 /**

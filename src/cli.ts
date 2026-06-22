@@ -6,6 +6,12 @@
 
 import { fileURLToPath } from 'url';
 import package_json from '../package.json' with { type: 'json' };
+import {
+    CLI_DESCRIPTION,
+    LEGACY_BINARY_NAME,
+    NATIVE_BINARY_NAME_PATTERN,
+    PRIMARY_BINARY_NAME,
+} from './cli-binary-names';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -65,6 +71,10 @@ export function parse_args(argv: string[]): CLIParseResult {
         // Check for unknown flags
         if (arg.startsWith('-') && !KNOWN_FLAGS.has(arg)) {
             return { success: false, error: `Unknown flag: ${arg}` };
+        }
+
+        if (!arg.startsWith('-') && !KNOWN_FLAGS.has(arg)) {
+            return { success: false, error: `Unknown command: ${arg}` };
         }
 
         switch (arg) {
@@ -133,11 +143,17 @@ export function serialize_options(options: CLIOptions): string[] {
  * Print help message to stdout.
  */
 export function print_help(): void {
+    const banner = `${PRIMARY_BINARY_NAME} ${VERSION}, ${CLI_DESCRIPTION}`;
     const help_text = `
-Sight - Language Server Protocol implementation for Stata
+${banner}
 
 USAGE:
     sight [OPTIONS]
+    sight check [OPTIONS] [PATHS...]
+
+COMMANDS:
+    check             Run full Stata diagnostics over a workspace (for CI).
+                      See "sight check --help" for its options.
 
 OPTIONS:
     -s, --stdio       Use stdio transport (default)
@@ -150,8 +166,9 @@ EXAMPLES:
     sight --stdio           Start server with stdio transport
     sight --node-ipc        Start server with Node IPC (VS Code)
     sight                   Start server with stdio (default)
+    sight check --help      Show options for the check command
 
-For more information, visit: https://github.com/jbearak/sight
+Docs: https://github.com/jbearak/sight
 `.trim();
 
     console.log(help_text);
@@ -161,7 +178,7 @@ For more information, visit: https://github.com/jbearak/sight
  * Print version to stdout.
  */
 export function print_version(): void {
-    console.log(`sight ${VERSION}`);
+    console.log(`${PRIMARY_BINARY_NAME} ${VERSION}`);
 }
 
 /**
@@ -176,7 +193,25 @@ export function print_error(message: string): void {
  * Main entry point for CLI.
  * Parses arguments and starts the server or prints help/version.
  */
-export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+export async function main(
+    argv: string[] = process.argv.slice(2),
+    deps: { is_tty?: boolean } = {}
+): Promise<number> {
+    if (argv[0] === 'check') {
+        const { run_check } = await import('./cli/check');
+        return run_check(argv.slice(1));
+    }
+
+    // A bare `sight` (no arguments) would otherwise start the stdio server and
+    // block on stdin. In an interactive terminal that reads as a silent hang,
+    // so show help instead. When stdin is not a TTY — e.g. an editor spawning
+    // the server over a pipe — fall through and start the server as before.
+    const is_tty = deps.is_tty ?? Boolean(process.stdin.isTTY);
+    if (argv.length === 0 && is_tty) {
+        print_help();
+        return 0;
+    }
+
     const result = parse_args(argv);
 
     if (!result.success) {
@@ -203,14 +238,36 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 0;
 }
 
-// Run main if this is the entry point
-// Use process.argv[1] check for Node.js ESM compatibility (import.meta.main is Bun-only)
-const is_main = process.argv[1] && (
-    process.argv[1] === __filename ||
-    process.argv[1].endsWith('/sight-server.js') ||
-    process.argv[1].endsWith('\\sight-server.js')
-);
-if (is_main) {
+/**
+ * Detect whether this module should run the CLI main entry point.
+ * Node invokes npm package bins through symlinks named after the command.
+ * Accept both the real bundle name and exposed command names.
+ */
+export function is_cli_entry_point(
+    script_path: string | undefined,
+    cli_filename: string = __filename
+): boolean {
+    if (!script_path) {
+        return false;
+    }
+
+    const normalized_script_path = script_path.replace(/\\/g, '/');
+    const script_filename = normalized_script_path.split('/').pop() ?? '';
+
+    return (
+        script_path === cli_filename ||
+        normalized_script_path.endsWith(`/${PRIMARY_BINARY_NAME}`) ||
+        normalized_script_path.endsWith(`/${PRIMARY_BINARY_NAME}.exe`) ||
+        normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}`) ||
+        normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}.exe`) ||
+        normalized_script_path.endsWith('/sight-server.js') ||
+        NATIVE_BINARY_NAME_PATTERN.test(script_filename)
+    );
+}
+
+// Run main if this is the entry point. Use process.argv[1] for
+// Node.js ESM compatibility because import.meta.main is Bun-only.
+if (is_cli_entry_point(process.argv[1])) {
     main().then((code) => {
         if (code !== 0) {
             process.exit(code);

@@ -28,9 +28,15 @@ import { build_do_include_pattern } from '../utils/stata-call-patterns';
 // Accept both spec form with colon (@lsp-done-by:) and legacy form without colon.
 // Accept both quoted and unquoted paths.
 // @lsp-run-by is a synonym for @lsp-done-by (semantic clarity for files called via `run` command)
-const DIRECTIVE_PATTERN = /@lsp-(done-by|run-by|included-by):?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(.*))?$/;
+// These patterns match only the directive head (keyword + path). They do NOT
+// anchor to end-of-line or capture a trailing params group: an unanchored
+// `@lsp-...` prefix combined with a trailing `(?:\s+(.*))?$` triggers a
+// CodeQL polynomial-ReDoS finding (each `@lsp-` start position can drive an
+// O(n) scan to `$`). Any call-site params after the path are extracted by
+// slicing the remainder of the line (see parse()/parse_forward_call_directives).
+const DIRECTIVE_PATTERN = /@lsp-(done-by|run-by|included-by):?\s+(?:"([^"]+)"|([^\s]+))/;
 
-const FORWARD_CALL_DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(.*))?$/;
+const FORWARD_CALL_DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/;
 
 // Pattern for working directory directive with all synonyms
 // Matches: @lsp-working-directory, @lsp-working-dir, @lsp-current-directory, @lsp-current-dir, @lsp-cd, @lsp-wd
@@ -40,8 +46,11 @@ const PARAM_LINE = /line=(\d+)/;
 const PARAM_MATCH = /match="([^"]+)"/;
 
 // Pattern to match declaration directives: @lsp-(local|global|scalar|matrix|program)
-// Captures: [1] = directive type, [2] = rest of line after directive keyword
-const DECLARATION_DIRECTIVE_PATTERN = /@lsp-(local|global|scalar|matrix|program)(?:\s+(.*))?$/;
+// Captures: [1] = directive type. The declared names (rest of line) are sliced
+// from the remainder after the match. A `(?=\s|$)` lookahead keeps the keyword a
+// whole word (so `@lsp-localx` is not matched) without a trailing `.*$` group,
+// which would otherwise trigger a CodeQL polynomial-ReDoS finding.
+const DECLARATION_DIRECTIVE_PATTERN = /@lsp-(local|global|scalar|matrix|program)(?=\s|$)/;
 
 // Shared pattern to match do/include/run statements with optional prefix commands.
 // Prefix alternatives live in utils/stata-call-patterns so this pattern and the
@@ -149,7 +158,9 @@ export class DirectiveParser {
                 const my_quoted_path = my_match[2] as string | undefined;
                 const my_unquoted_path = my_match[3] as string | undefined;
                 const my_raw_path = (my_quoted_path || my_unquoted_path) as string;
-                const my_params = my_match[4] || '';
+                const my_params = my_trimmed
+                    .slice((my_match.index ?? 0) + my_match[0].length)
+                    .trim();
 
                 // If the path is unquoted, require that it resembles a path token.
                 // This keeps malformed cases like "@lsp-done-by missing-quotes" from being
@@ -302,7 +313,9 @@ export class DirectiveParser {
                 const my_quoted_path = my_match[2];
                 const my_unquoted_path = my_match[3];
                 const my_raw_path = my_quoted_path || my_unquoted_path;
-                const my_params = my_match[4] || '';
+                const my_params = my_trimmed
+                    .slice((my_match.index ?? 0) + my_match[0].length)
+                    .trim();
 
                 if (!my_raw_path) {
                     the_diagnostics.push({
@@ -405,7 +418,9 @@ export class DirectiveParser {
             const my_match = my_trimmed.match(DECLARATION_DIRECTIVE_PATTERN);
             if (my_match) {
                 const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
-                const my_rest = my_match[2]?.trim() || '';
+                const my_rest = my_trimmed
+                    .slice((my_match.index ?? 0) + my_match[0].length)
+                    .trim();
 
                 const my_range: Range = {
                     start: { line: i, character: 0 },

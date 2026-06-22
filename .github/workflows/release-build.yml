@@ -16,14 +16,11 @@ concurrency:
   group: release-build-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
-# Default token permissions: read-only. We do not publish and do not create
-# releases in this workflow.
 permissions:
-  actions: write
   contents: read
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
 
     steps:
@@ -50,15 +47,212 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      # Build once, publish many.
-      - name: Build binaries
-        run: bun run build:binary
+      - name: Test
+        run: bun test ./tests
+
+  package:
+    permissions:
+      actions: write
+      contents: read
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Setup
+        uses: ./.github/actions/setup
 
       - name: Build bundle for npm
         run: bun run build:npm
 
       - name: Build VS Code extension
         run: bun run package
+
+      - name: Validate bundle artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun scripts/smoke-stdio-startup.ts ./dist/sight-server.js
+
+      - name: Upload package artifacts
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-package
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            dist/sight-server.js
+            client/*.vsix
+
+  linux-binaries:
+    permissions:
+      actions: write
+      contents: read
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build Linux binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun scripts/build-binary.ts target sight-linux-x64
+          bun scripts/build-binary.ts target sight-linux-arm64
+
+      - name: Smoke-test Linux x64 binary
+        run: bun scripts/smoke-stdio-startup.ts ./bin/sight-linux-x64
+
+      - name: Upload Linux binaries
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-linux
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            bin/sight-linux-x64
+            bin/sight-linux-arm64
+
+  darwin-binaries:
+    permissions:
+      actions: write
+      contents: read
+    needs: verify
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build macOS binary
+        run: bun scripts/build-binary.ts target sight-darwin-arm64
+
+      - name: Validate macOS binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          codesign --verify --verbose ./bin/sight-darwin-arm64
+          bun scripts/smoke-stdio-startup.ts ./bin/sight-darwin-arm64
+
+      - name: Upload macOS binary
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-darwin
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            bin/sight-darwin-arm64
+
+  windows-binaries:
+    permissions:
+      actions: write
+      contents: read
+    needs: verify
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build Windows binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun scripts/build-binary.ts target sight-windows-x64.exe
+          bun scripts/build-binary.ts target sight-windows-arm64.exe
+
+      - name: Smoke-test Windows x64 binary
+        shell: bash
+        run: bun scripts/smoke-stdio-startup.ts ./bin/sight-windows-x64.exe
+
+      - name: Upload Windows binaries
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-windows
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            bin/sight-windows-x64.exe
+            bin/sight-windows-arm64.exe
+
+  assemble:
+    permissions:
+      actions: write
+      contents: read
+    needs: [package, linux-binaries, darwin-binaries, windows-binaries]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Download package artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$GITHUB_RUN_ID" --name release-package --dir .
+
+      - name: Download Linux binaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$GITHUB_RUN_ID" --name release-linux --dir bin
+
+      - name: Download macOS binary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$GITHUB_RUN_ID" --name release-darwin --dir bin
+
+      - name: Download Windows binaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$GITHUB_RUN_ID" --name release-windows --dir bin
+
+      - name: Validate release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_binaries=(
+            sight-darwin-arm64
+            sight-linux-x64
+            sight-linux-arm64
+            sight-windows-x64.exe
+            sight-windows-arm64.exe
+          )
+          for binary_name in "${expected_binaries[@]}"; do
+            test -s "bin/$binary_name"
+          done
+          test -s dist/sight-server.js
+          shopt -s nullglob
+          vsix_files=( client/*.vsix )
+          test "${#vsix_files[@]}" -eq 1
+          chmod +x dist/sight-server.js
+          chmod +x bin/sight-darwin-arm64 bin/sight-linux-x64 bin/sight-linux-arm64
+          bun scripts/smoke-stdio-startup.ts ./dist/sight-server.js
+          bun scripts/smoke-stdio-startup.ts ./bin/sight-linux-x64
 
       - name: Calculate checksums
         run: |
@@ -97,3 +291,4 @@ jobs:
           --ref "${{ github.event.repository.default_branch }}"
           -f tag="$the_tag"
           -f publish_vscode="$the_publish_vscode"
+          -f build_run_id="$GITHUB_RUN_ID"

@@ -12,27 +12,25 @@ For editor-specific guides:
 Any LSP client that supports stdio transport can use the Sight server:
 
 ```bash
-sight-language-server --stdio
+sight --stdio
 ```
 
 Configure your editor's LSP client to run this command for `.do`, `.ado`, and `.mata` files.
 
-See [Standalone Installation](standalone-installation.md) for installation options (npm, npx, build from source).
+See [Standalone Installation](standalone-installation.md) for installation
+options.
 
 ## Agent Integration
 
-Each tool below requires `sight-language-server` to be installed
+Each tool below requires `sight` to be installed
 globally and available on your `PATH`. The VS Code extension bundles
 its own copy of the server that is only accessible to VS Code — it
 does not make the binary available to other tools. Install it
-separately using bun or npm:
+separately from source or a release binary:
 
 ```bash
-# bun
-bun install -g github:jbearak/sight
-
-# npm
-npm install -g github:jbearak/sight
+# From a Sight checkout
+./scripts/setup.sh
 ```
 
 See [Standalone Installation](standalone-installation.md) for
@@ -60,11 +58,11 @@ Create `lsp.json` in your project root:
 {
   "languages": {
     "stata": {
-      "name": "sight-language-server",
-      "command": "sight-language-server",
+      "name": "sight",
+      "command": "sight",
       "args": ["--stdio"],
       "file_extensions": ["do", "ado", "doh", "mata"],
-      "project_patterns": [".sight.json"]
+      "project_patterns": ["sight.toml"]
     }
   }
 }
@@ -79,7 +77,7 @@ Create an `opencode.json` file in your project root:
   "$schema": "https://opencode.ai/config.json",
   "lsp": {
     "stata": {
-      "command": ["sight-language-server", "--stdio"],
+      "command": ["sight", "--stdio"],
       "extensions": [".do", ".ado", ".doh", ".mata"]
     }
   }
@@ -95,7 +93,7 @@ Create a `crush.json` file in your project root:
   "$schema": "https://charm.land/crush.json",
   "lsp": {
     "stata": {
-      "command": "sight-language-server",
+      "command": "sight",
       "args": ["--stdio"],
       "extensions": [".do", ".ado", ".doh", ".mata"]
     }
@@ -105,6 +103,7 @@ Create a `crush.json` file in your project root:
 
 ## Troubleshooting
 
-- **Server not found**: Ensure `sight-language-server` is on your PATH. See [Standalone Installation](standalone-installation.md) for install options.
+- **Server not found**: Ensure `sight` is on your PATH. See
+  [Standalone Installation](standalone-installation.md) for install options.
 - **No diagnostics**: Check that files have a `.do`, `.ado`, `.doh`, or `.mata` extension.
 - **Logs**: Run with `SIGHT_TEST_LOG=1` environment variable for verbose output.

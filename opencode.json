@@ -2,7 +2,7 @@
   "$schema": "https://opencode.ai/config.json",
   "lsp": {
     "stata": {
-      "command": ["sight-language-server", "--stdio"],
+      "command": ["sight", "--stdio"],
       "extensions": [".do", ".ado", ".doh", ".mata"]
     },
     "typescript": {

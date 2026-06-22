@@ -30,11 +30,12 @@ To create a `.vsix` file for distribution or manual installation:
 bun run package
 ```
 
-This builds the project and creates a `sight-client-<version>.vsix` file in the `client/` directory.
+This builds the project and creates a `sight-<version>.vsix` file in the
+`client/` directory.
 
 To install the VSIX manually in VS Code:
 - Open VS Code → Extensions → `...` menu → "Install from VSIX..."
-- Or run: `code --install-extension client/sight-client-<version>.vsix`
+- Or run: `code --install-extension client/sight-<version>.vsix`
 
 ## Standalone Binary
 
@@ -82,7 +83,7 @@ After building, you can install the binary to `~/bin` for easy access from any p
 # Build for your current platform
 bun run build:current
 
-# Install to ~/bin/sight-language-server
+# Install to ~/bin/sight
 bun run install:binary
 
 # Uninstall when no longer needed
@@ -121,58 +122,51 @@ bun scripts/bump-version.ts major   # 0.1.0 → 1.0.0
 # Or specify an explicit version
 bun scripts/bump-version.ts 0.1.19
 
-# Also push commits and tags to remote
-bun scripts/bump-version.ts 0.1.19 --push
-
 # Only update version files, skip git operations
 bun scripts/bump-version.ts 0.1.19 --no-git
 ```
+
+Do not use `bump-version --push` for releases; use
+`bun scripts/release.ts x.y.z` so the release workflow gates run.
 
 ## Releasing
 
 ### Via GitHub Actions (recommended)
 
 ```bash
-bun scripts/release.ts x.y.z 
+bun scripts/release.ts x.y.z
 ```
 
-This bumps versions, commits, creates a tag, and pushes. GitHub Actions then builds all artifacts and you manually trigger the publish workflow.
+This bumps versions, commits, creates a tag, and pushes. GitHub Actions then
+builds all artifacts and dispatches the publish workflow. The publish workflow
+always creates the GitHub Release, and publishes VS Code/OpenVSX artifacts only
+when `RELEASE_PUBLISH_VSCODE=true`.
 
-### Dry Run (test CI without publishing)
+### Dry Run (build locally without publishing)
 
 ```bash
-# Create a test tag
-git tag v0.0.0-test
-git push origin v0.0.0-test
-
-# This triggers release-build.yml (builds everything, doesn't publish)
-# Check results at: https://github.com/jbearak/sight/actions
-
-# Clean up after
-git push origin --delete v0.0.0-test
-git tag -d v0.0.0-test
+bun run build:npm
+bun run build:current
+bun run package
 ```
 
-### Local Release (manual)
+Do not push a test release tag for a dry run. Release tags dispatch the publish
+workflow, which creates the GitHub Release after validating that the tag matches
+`package.json`.
+
+### Local Artifact Build (manual)
 
 ```bash
 # Build everything
 bun run build:bundle      # JS bundle
-bun run build:binary      # Native binaries (current platform only)
+bun run build:binary      # Native binaries for all supported platforms
+bun run build:current     # Native binary for the current platform only
 bun run package           # VSIX
-
-# Publish VS Code extension
-cd client
-npx vsce publish --pat $VSCE_TOKEN
-npx ovsx publish --pat $OVSX_TOKEN
-cd ..
-
-# Create GitHub release with binaries
-gh release create vx.y.z \
-  bin/sight-* \
-  dist/sight-server.js \
-  client/*.vsix
 ```
+
+Use the GitHub Actions release path for publishing. Direct `vsce`, `ovsx`, or
+`gh release create` commands bypass the release workflow gates and should be
+reserved for emergency recovery only.
 
 ## Project Structure
 

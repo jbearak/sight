@@ -16,6 +16,7 @@ bun.lock
 
 # Build artifacts (keep only bundled server)
 bin/
+dist/*.js
 dist/*.d.ts
 dist/*.d.ts.map
 dist/*.js.map
