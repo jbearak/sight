@@ -370,6 +370,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     project_file_config,
                     log_warning: log_config_warning,
                 });
+            }).catch((error) => {
+                // A transient getConfiguration rejection (or a throw while
+                // mapping the result) must not be cached as a poisoned
+                // promise: drop the entry so the next request retries, and
+                // fall back to global_settings meanwhile instead of failing
+                // every later completion/diagnostic for this document.
+                log_config_warning(
+                    `Failed to resolve settings for ${resource}: ${error}`
+                );
+                document_settings.delete(resource);
+                return global_settings;
             });
             document_settings.set(resource, result);
         }

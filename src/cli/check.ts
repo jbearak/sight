@@ -290,11 +290,22 @@ export function load_check_config(options: {
     config_path?: string;
     no_config: boolean;
 }): CheckConfigResult {
+    // Collect comment-formatting validation warnings (invalid indentSize,
+    // unknown comment style, etc.) the same way the LSP server logs them, so
+    // `sight check` does not silently swallow them on any config path.
+    const validation_warnings: ProjectConfigWarning[] = [];
+    const collect_validation_warning = (message: string): void => {
+        validation_warnings.push({ code: 'invalid-value', message });
+    };
+
     if (options.no_config) {
         return {
             kind: 'loaded',
-            config: validate_comment_formatting_config(DEFAULT_SETTINGS),
-            warnings: [],
+            config: validate_comment_formatting_config(
+                DEFAULT_SETTINGS,
+                collect_validation_warning
+            ),
+            warnings: validation_warnings,
         };
     }
 
@@ -313,26 +324,25 @@ export function load_check_config(options: {
         };
     }
 
-    // Collect comment-formatting validation warnings (invalid indentSize,
-    // unknown comment style, etc.) the same way the LSP server logs them, so
-    // `sight check` does not silently swallow them.
-    const validation_warnings: ProjectConfigWarning[] = [];
-    const collect_validation_warning = (message: string): void => {
-        validation_warnings.push({ code: 'invalid-value', message });
-    };
-
-    const partial_config = loaded.kind === 'none'
-        ? undefined
-        : deep_merge_config(DEFAULT_SETTINGS, loaded.partial_config);
+    if (loaded.kind === 'none') {
+        return {
+            kind: 'loaded',
+            config: validate_comment_formatting_config(
+                DEFAULT_SETTINGS,
+                collect_validation_warning
+            ),
+            warnings: [...loaded.warnings, ...validation_warnings],
+        };
+    }
 
     return {
         kind: 'loaded',
         config: validate_comment_formatting_config(
-            partial_config ?? DEFAULT_SETTINGS,
+            deep_merge_config(DEFAULT_SETTINGS, loaded.partial_config),
             collect_validation_warning
         ),
         warnings: [...loaded.warnings, ...validation_warnings],
-        config_path: loaded.kind === 'none' ? undefined : loaded.path,
+        config_path: loaded.path,
     };
 }
 
