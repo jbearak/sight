@@ -110,6 +110,36 @@ describe('sight check source files', () => {
         }
     });
 
+    it('points at the START of a truncated multi-byte sequence', () => {
+        const root = temp_dir();
+        const bad = path.join(root, 'bad.do');
+        // "a" then lead byte 0xC3 with no continuation byte (truncated at EOF).
+        // The offset must be the lead byte (1), not the trailing byte.
+        fs.writeFileSync(bad, Buffer.from([0x61, 0xC3]));
+
+        const result = read_source_file(bad);
+
+        expect(result.kind).toBe('decode-error');
+        if (result.kind === 'decode-error') {
+            expect(result.diagnostic.message).toContain('offset 1');
+        }
+    });
+
+    it('points at the START of a sequence with an invalid continuation', () => {
+        const root = temp_dir();
+        const bad = path.join(root, 'bad.do');
+        // 0xE2 expects two continuation bytes; 0x28 '(' is not one, so the bad
+        // sequence begins at the lead byte (index 1), not at the 0x28.
+        fs.writeFileSync(bad, Buffer.from([0x61, 0xE2, 0x28, 0xA1]));
+
+        const result = read_source_file(bad);
+
+        expect(result.kind).toBe('decode-error');
+        if (result.kind === 'decode-error') {
+            expect(result.diagnostic.message).toContain('offset 1');
+        }
+    });
+
     it('locates the bad byte offset in a large file without quadratic cost', () => {
         const root = temp_dir();
         const bad = path.join(root, 'big.do');

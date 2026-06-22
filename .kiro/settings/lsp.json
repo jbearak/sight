@@ -5,7 +5,7 @@
       "command": "sight",
       "args": ["--stdio"],
       "file_extensions": ["do", "ado", "doh", "mata"],
-      "project_patterns": [".sight.json"],
+      "project_patterns": ["sight.toml", ".sight.json"],
       "exclude_patterns": ["**/node_modules/**", "**/dist/**"],
       "multi_workspace": false
     }

@@ -436,9 +436,15 @@ export class WorkspaceIndexer {
     ): Promise<void> {
         if (!this.is_active_generation(generation) || !this.enabled) return;
         const file_uri = URI.file(file_path).toString();
+        // Re-indexing a file already in the index does not grow the distinct-
+        // file count, so the cap must not block it; otherwise an edit to an
+        // already-indexed file is silently skipped once the cap is reached,
+        // leaving stale symbols. The cap gates only genuinely new files.
+        const already_indexed = this.symbol_index.has(file_uri);
 
-        // Check max files limit
-        if (this.should_skip_for_max_indexed_files(file_uri)) return;
+        // Check max files limit (new files only)
+        if (!already_indexed
+            && this.should_skip_for_max_indexed_files(file_uri)) return;
 
         try {
             // Check file size
@@ -462,11 +468,17 @@ export class WorkspaceIndexer {
                 'utf8'
             );
             if (!this.is_active_generation(generation)) return;
-            if (this.should_skip_for_max_indexed_files(file_uri)) return;
+            if (!already_indexed
+                && this.should_skip_for_max_indexed_files(file_uri)) return;
 
             // Handle .mata files differently
             if (path.extname(file_path).toLowerCase() === '.mata') {
-                await this.index_mata_file(content, file_uri, generation);
+                await this.index_mata_file(
+                    content,
+                    file_uri,
+                    generation,
+                    already_indexed
+                );
                 return;
             }
 
@@ -493,7 +505,8 @@ export class WorkspaceIndexer {
             const context_ranges = context_tracker.get_all_context_ranges();
             if (!this.is_active_generation(generation)) return;
 
-            if (this.should_skip_for_max_indexed_files(file_uri)) return;
+            if (!already_indexed
+                && this.should_skip_for_max_indexed_files(file_uri)) return;
 
             // Combine forward calls from analyzer (command-detected)
             // and directive parser (directive-detected)
@@ -530,7 +543,7 @@ export class WorkspaceIndexer {
                 directives: directive_result.directives
             });
             this.version++;
-            this.metrics.files_indexed++;
+            if (!already_indexed) this.metrics.files_indexed++;
         } catch (error) {
             if (!this.is_active_generation(generation)) return;
             this.clear_stale_entry(file_uri);
@@ -545,7 +558,8 @@ export class WorkspaceIndexer {
     private async index_mata_file(
         content: string,
         file_uri: string,
-        generation: number
+        generation: number,
+        already_indexed: boolean = this.symbol_index.has(file_uri)
     ): Promise<void> {
         if (!this.is_active_generation(generation)) return;
 
@@ -592,7 +606,7 @@ export class WorkspaceIndexer {
             directives: []
         });
         this.version++;
-        this.metrics.files_indexed++;
+        if (!already_indexed) this.metrics.files_indexed++;
     }
 
 

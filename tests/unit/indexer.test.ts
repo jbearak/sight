@@ -443,6 +443,41 @@ describe('WorkspaceIndexer', () => {
         expect(the_related).toContain(my_postest_path);
     });
 
+    it('re-indexes an already-indexed file after the cap is reached', async () => {
+        indexer.set_max_indexed_files(1);
+        const file_path = path.join(temp_dir, 'a.do');
+        fs.writeFileSync(file_path, 'program define first_prog\nend');
+
+        await indexer.index_file(file_path);
+        expect(indexer.get_all_symbols().programs.has('first_prog')).toBe(true);
+        expect(indexer.get_metrics().files_indexed).toBe(1);
+
+        // The cap is now reached (files_indexed == max == 1). Editing an
+        // already-indexed file must still refresh its symbols rather than
+        // silently keep the stale entry, and must not re-increment the count.
+        fs.writeFileSync(file_path, 'program define second_prog\nend');
+        await indexer.index_file(file_path);
+
+        expect(indexer.get_all_symbols().programs.has('second_prog')).toBe(true);
+        expect(indexer.get_all_symbols().programs.has('first_prog')).toBe(false);
+        expect(indexer.get_metrics().files_indexed).toBe(1);
+    });
+
+    it('still skips a genuinely new file once the cap is reached', async () => {
+        indexer.set_max_indexed_files(1);
+        const a_path = path.join(temp_dir, 'a.do');
+        const b_path = path.join(temp_dir, 'b.do');
+        fs.writeFileSync(a_path, 'program define prog_a\nend');
+        fs.writeFileSync(b_path, 'program define prog_b\nend');
+
+        await indexer.index_file(a_path);
+        await indexer.index_file(b_path);
+
+        expect(indexer.get_all_symbols().programs.has('prog_a')).toBe(true);
+        expect(indexer.get_all_symbols().programs.has('prog_b')).toBe(false);
+        expect(indexer.get_metrics().files_indexed).toBe(1);
+    });
+
     it('should debounce rapid file updates', async () => {
         const file_path = path.join(temp_dir, 'debounce.do');
         fs.writeFileSync(file_path, 'program define prog1\nend');

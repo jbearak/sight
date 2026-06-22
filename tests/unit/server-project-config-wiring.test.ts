@@ -37,4 +37,16 @@ describe('server-factory project config wiring', () => {
             /const\s+merged_partial\s*=\s*deep_merge_config\(\s*client_partial,\s*project_file_config\s*\|\|\s*\{\}\s*\)/
         );
     });
+
+    it('maps camelCase initialization options into the internal shape', () => {
+        // Regression guard: initializationOptions must be run through the
+        // public->internal mapper, otherwise crossFile/preserveAlignment from
+        // non-VS-Code clients are silently dropped by the validator.
+        const source = fs.readFileSync(server_factory_path, 'utf8');
+
+        expect(source).toContain('function map_init_options');
+        expect(source).toMatch(
+            /init_partial\s*=\s*map_init_options\(\s*\n?\s*init_record\?\.\['sight'\]\s*\?\?\s*init_options_config/
+        );
+    });
 });

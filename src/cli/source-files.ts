@@ -170,25 +170,69 @@ export function index_limit_diagnostic(file_path: string): Diagnostic {
     );
 }
 
+// Per-file diagnostic for a target that cannot be stat-ed or read (e.g. it was
+// deleted or its permissions changed after discovery). Reported per file so a
+// benign race does not abort the whole check batch.
+export function unreadable_diagnostic(message: string): Diagnostic {
+    return file_level_diagnostic(
+        'SIGHT_UNREADABLE',
+        `Could not read file: ${message}`
+    );
+}
+
 function utf8_error_offset(bytes: Buffer): number {
-    // Feed bytes incrementally so each step is O(1) — re-decoding a growing
-    // prefix every iteration would be O(n^2) on large files. Valid multi-byte
-    // sequences are buffered across stream chunks, so only a genuinely invalid
-    // byte throws.
-    const decoder = new TextDecoder('utf-8', { fatal: true });
-    for (let i = 0; i < bytes.length; i++) {
-        try {
-            decoder.decode(bytes.subarray(i, i + 1), { stream: true });
-        } catch {
+    // Return the byte offset where the first invalid UTF-8 sequence BEGINS
+    // (its lead byte), not the trailing byte that proved it invalid, so the
+    // diagnostic points a user at the actual start of the bad bytes. Single
+    // O(n) pass validating lead/continuation bytes and the tightened ranges
+    // that reject overlong encodings, surrogates, and out-of-range code points.
+    const length = bytes.length;
+    let i = 0;
+    while (i < length) {
+        const lead = bytes[i];
+        if (lead <= 0x7f) {
+            i++;
+            continue;
+        }
+
+        let extra: number;
+        let lower = 0x80;
+        let upper = 0xbf;
+        if (lead >= 0xc2 && lead <= 0xdf) {
+            extra = 1;
+        } else if (lead >= 0xe0 && lead <= 0xef) {
+            extra = 2;
+            if (lead === 0xe0) lower = 0xa0;       // reject overlong
+            else if (lead === 0xed) upper = 0x9f;  // reject surrogates
+        } else if (lead >= 0xf0 && lead <= 0xf4) {
+            extra = 3;
+            if (lead === 0xf0) lower = 0x90;       // reject overlong
+            else if (lead === 0xf4) upper = 0x8f;  // reject > U+10FFFF
+        } else {
+            // Invalid lead byte: lone continuation, 0xc0/0xc1, or 0xf5..0xff.
             return i;
         }
+
+        if (i + extra >= length) {
+            return i; // truncated multi-byte sequence at end of input
+        }
+        // The first continuation byte uses the tightened [lower, upper] range;
+        // remaining continuations only need to be 0x80..0xbf.
+        if (bytes[i + 1] < lower || bytes[i + 1] > upper) {
+            return i;
+        }
+        for (let k = 2; k <= extra; k++) {
+            if (bytes[i + k] < 0x80 || bytes[i + k] > 0xbf) {
+                return i;
+            }
+        }
+
+        i += extra + 1;
     }
-    try {
-        decoder.decode(); // flush: throws on a trailing incomplete sequence
-    } catch {
-        return Math.max(0, bytes.length - 1);
-    }
-    return 0;
+
+    // Only reached if the caller's decode error was spurious; fall back to the
+    // final byte rather than claiming offset 0.
+    return Math.max(0, length - 1);
 }
 
 function decode_error_diagnostic(file_path: string, offset: number): Diagnostic {

@@ -7,7 +7,7 @@ import {
     OutputFormat,
     SeverityLevel,
 } from '../../../src/cli/shared';
-import { parse_args } from '../../../src/cli';
+import { parse_args, print_help } from '../../../src/cli';
 
 describe('sight check args', () => {
     it('uses Raven-parity defaults', () => {
@@ -56,6 +56,43 @@ describe('sight check args', () => {
 
         expect(first.success && first.args.color).toBe(ColorChoice.Always);
         expect(second.success && second.args.color).toBe(ColorChoice.Never);
+    });
+
+    it('supports --flag=value, allowing values that begin with a dash', () => {
+        const result = parse_check_args([
+            '--workspace=analysis',
+            '--config=-odd-name.toml',
+            '--format=json',
+            '--max-severity=warning',
+            '--color=always',
+        ]);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.args.workspace).toBe('analysis');
+            expect(result.args.config_path).toBe('-odd-name.toml');
+            expect(result.args.format).toBe(OutputFormat.Json);
+            expect(result.args.max_severity).toBe(SeverityLevel.Warning);
+            expect(result.args.color).toBe(ColorChoice.Always);
+        }
+    });
+
+    it('rejects an empty --flag= value', () => {
+        const result = parse_check_args(['--workspace=']);
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+            expect(result.error).toBe('--workspace needs a path');
+        }
+    });
+
+    it('rejects an unknown --flag=value flag by its flag name', () => {
+        const result = parse_check_args(['--bogus=1']);
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+            expect(result.error).toBe('Unknown flag: --bogus');
+        }
     });
 
     it('rejects --config with --no-config', () => {
@@ -116,5 +153,22 @@ describe('top-level parser remains transport-only', () => {
         const result = parse_args(['check']);
 
         expect(result.success).toBe(false);
+    });
+
+    it('top-level help advertises the check subcommand', () => {
+        const lines: string[] = [];
+        const original_log = console.log;
+        console.log = (message?: unknown) => {
+            lines.push(String(message));
+        };
+        try {
+            print_help();
+        } finally {
+            console.log = original_log;
+        }
+
+        const text = lines.join('\n');
+        expect(text).toContain('check');
+        expect(text).toContain('sight check --help');
     });
 });

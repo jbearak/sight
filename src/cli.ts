@@ -147,6 +147,11 @@ ${CLI_HELP_BANNER}
 
 USAGE:
     sight [OPTIONS]
+    sight check [OPTIONS] [PATHS...]
+
+COMMANDS:
+    check             Run full Stata diagnostics over a workspace (for CI).
+                      See "sight check --help" for its options.
 
 OPTIONS:
     -s, --stdio       Use stdio transport (default)
@@ -159,6 +164,7 @@ EXAMPLES:
     sight --stdio           Start server with stdio transport
     sight --node-ipc        Start server with Node IPC (VS Code)
     sight                   Start server with stdio (default)
+    sight check --help      Show options for the check command
 
 For more information, visit: https://github.com/jbearak/sight
 `.trim();

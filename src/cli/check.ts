@@ -27,6 +27,7 @@ import {
     is_within_workspace,
     read_source_file,
     size_limit_diagnostic,
+    unreadable_diagnostic,
 } from './source-files';
 import {
     ColorChoice,
@@ -67,8 +68,20 @@ function parse_required_option_value(
     argv: string[],
     index: number,
     flag: string,
-    value_kind: string
+    value_kind: string,
+    inline_value: string | undefined
 ): { success: true; value: string } | { success: false; error: string } {
+    // `--flag=value` form: the value travels with the flag, so it may legally
+    // begin with '-' (e.g. a path like `-odd-name.toml`).
+    if (inline_value !== undefined) {
+        if (inline_value.length === 0) {
+            return { success: false, error: `${flag} needs ${value_kind}` };
+        }
+        return { success: true, value: inline_value };
+    }
+
+    // `--flag value` form: a following token that begins with '-' is treated
+    // as the next flag, i.e. this flag is missing its value.
     const value = argv[index + 1];
     if (value === undefined || value.startsWith('-')) {
         return {
@@ -84,9 +97,16 @@ function parse_enum_option<T>(
     argv: string[],
     index: number,
     flag: string,
-    parse: (value: string) => T
+    parse: (value: string) => T,
+    inline_value: string | undefined
 ): { success: true; value: T } | { success: false; error: string } {
-    const parsed = parse_required_option_value(argv, index, flag, 'a value');
+    const parsed = parse_required_option_value(
+        argv,
+        index,
+        flag,
+        'a value',
+        inline_value
+    );
     if (!parsed.success) return parsed;
     try {
         return { success: true, value: parse(parsed.value) };
@@ -110,7 +130,18 @@ export function parse_check_args(argv: string[]): CheckParseResult {
     };
 
     for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i];
+        const raw = argv[i];
+        // Support both `--flag value` and `--flag=value`. Splitting on the
+        // first '=' lets a value legally begin with '-' (e.g. an odd path).
+        let arg = raw;
+        let inline_value: string | undefined;
+        if (raw.startsWith('--')) {
+            const eq = raw.indexOf('=');
+            if (eq !== -1) {
+                arg = raw.slice(0, eq);
+                inline_value = raw.slice(eq + 1);
+            }
+        }
         switch (arg) {
             case '--workspace':
                 {
@@ -118,11 +149,12 @@ export function parse_check_args(argv: string[]): CheckParseResult {
                         argv,
                         i,
                         '--workspace',
-                        'a path'
+                        'a path',
+                        inline_value
                     );
                     if (!parsed.success) return parsed;
                     args.workspace = parsed.value;
-                    i++;
+                    if (inline_value === undefined) i++;
                 }
                 break;
             case '--config':
@@ -131,11 +163,12 @@ export function parse_check_args(argv: string[]): CheckParseResult {
                         argv,
                         i,
                         '--config',
-                        'a path'
+                        'a path',
+                        inline_value
                     );
                     if (!parsed.success) return parsed;
                     args.config_path = parsed.value;
-                    i++;
+                    if (inline_value === undefined) i++;
                 }
                 break;
             case '--no-config':
@@ -147,11 +180,12 @@ export function parse_check_args(argv: string[]): CheckParseResult {
                         argv,
                         i,
                         '--format',
-                        parse_output_format
+                        parse_output_format,
+                        inline_value
                     );
                     if (!parsed.success) return parsed;
                     args.format = parsed.value;
-                    i++;
+                    if (inline_value === undefined) i++;
                 }
                 break;
             case '--max-severity':
@@ -160,11 +194,12 @@ export function parse_check_args(argv: string[]): CheckParseResult {
                         argv,
                         i,
                         '--max-severity',
-                        parse_severity_level
+                        parse_severity_level,
+                        inline_value
                     );
                     if (!parsed.success) return parsed;
                     args.max_severity = parsed.value;
-                    i++;
+                    if (inline_value === undefined) i++;
                 }
                 break;
             case '--quiet':
@@ -176,11 +211,12 @@ export function parse_check_args(argv: string[]): CheckParseResult {
                         argv,
                         i,
                         '--color',
-                        parse_color_choice
+                        parse_color_choice,
+                        inline_value
                     );
                     if (!parsed.success) return parsed;
                     args.color = parsed.value;
-                    i++;
+                    if (inline_value === undefined) i++;
                 }
                 break;
             case '--no-color':
@@ -355,9 +391,26 @@ export async function collect_check_diagnostics(
 
     for (const target of targets) {
         const uri = URI.file(target.path).toString();
-        if (target.explicit) {
-            const stats = fs.statSync(target.path);
-            if (stats.size > config.indexing.maxFileSizeBytes) {
+
+        // Size guard runs for every target, not just explicit ones: a
+        // directory-walked oversized file would otherwise be read and analyzed
+        // whole (OOM risk). statSync is guarded so a file removed after
+        // discovery becomes a per-file diagnostic, not a whole-batch abort.
+        let stats: fs.Stats;
+        try {
+            stats = fs.statSync(target.path);
+        } catch (error) {
+            records.push(diagnostic_record(
+                target.relative_path,
+                unreadable_diagnostic(`${target.path}: ${error_message(error)}`)
+            ));
+            continue;
+        }
+        if (stats.size > config.indexing.maxFileSizeBytes) {
+            // Explicit targets get a visible diagnostic so the user learns why
+            // a file they named was skipped; walked targets are skipped
+            // silently, matching the indexer's own size handling.
+            if (target.explicit) {
                 records.push(diagnostic_record(
                     target.relative_path,
                     size_limit_diagnostic(
@@ -366,8 +419,8 @@ export async function collect_check_diagnostics(
                         config.indexing.maxFileSizeBytes
                     )
                 ));
-                continue;
             }
+            continue;
         }
         if (
             target.explicit &&
@@ -384,7 +437,13 @@ export async function collect_check_diagnostics(
 
         const read_result = read_source_file(target.path);
         if (read_result.kind === 'read-error') {
-            throw new Error(read_result.message);
+            // Per-file failure (e.g. file vanished or permissions changed after
+            // discovery) is reported rather than aborting the whole batch.
+            records.push(diagnostic_record(
+                target.relative_path,
+                unreadable_diagnostic(read_result.message)
+            ));
+            continue;
         }
         if (read_result.kind === 'decode-error') {
             records.push(diagnostic_record(

@@ -189,18 +189,27 @@ function colorize(word: string, use_color: boolean): string {
     }
 }
 
+// Locale-independent code-unit ordering. localeCompare's order depends on the
+// runtime's default ICU locale (LANG/LC_*), which would make report output
+// differ across machines and break golden/snapshot comparisons in CI.
+function compare_strings(a: string, b: string): number {
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export function compare_diagnostic_records(
     a: DiagnosticRecord,
     b: DiagnosticRecord
 ): number {
-    return a.relative_path.localeCompare(b.relative_path)
+    return compare_strings(a.relative_path, b.relative_path)
         || a.diagnostic.range.start.line - b.diagnostic.range.start.line
         || a.diagnostic.range.start.character -
             b.diagnostic.range.start.character
         || severity_level(b.diagnostic) - severity_level(a.diagnostic)
-        || code_text(a.diagnostic.code)
-            .localeCompare(code_text(b.diagnostic.code))
-        || a.diagnostic.message.localeCompare(b.diagnostic.message);
+        || compare_strings(
+            code_text(a.diagnostic.code),
+            code_text(b.diagnostic.code)
+        )
+        || compare_strings(a.diagnostic.message, b.diagnostic.message);
 }
 
 function sorted_records(records: DiagnosticRecord[]): DiagnosticRecord[] {

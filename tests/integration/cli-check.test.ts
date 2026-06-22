@@ -3,8 +3,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
+    build_check_context,
+    collect_check_diagnostics,
+    load_check_config,
     run_check_with_cwd,
 } from '../../src/cli/check';
+import { collect_report_targets } from '../../src/cli/source-files';
 import {
     EXIT_CHECK_FAILED,
     EXIT_OK,
@@ -195,6 +199,60 @@ describe('sight check integration', () => {
         expect(result.stdout).toContain('unexpected closing brace');
         expect(result.stdout).not.toContain('maxIndexedFiles');
         expect(result.stdout).not.toContain('was not indexed');
+    });
+
+    it('reports a target removed after discovery as a per-file diagnostic, not a batch abort', async () => {
+        const root = fs.realpathSync.native(temp_dir());
+        const vanishing = path.join(root, 'vanishing.do');
+        fs.writeFileSync(vanishing, 'display 1\n');
+        fs.writeFileSync(path.join(root, 'main.do'), "display \"`missing'\"\n");
+
+        const config_result = load_check_config({
+            cwd: root,
+            workspace_root: root,
+            no_config: true,
+        });
+        expect(config_result.kind).toBe('loaded');
+        if (config_result.kind !== 'loaded') return;
+
+        const targets = collect_report_targets([], root, root);
+        const context = await build_check_context(root, config_result.config);
+        try {
+            // Simulate the race: the file existed at discovery (and indexing)
+            // but is gone by the time diagnostics are collected.
+            fs.unlinkSync(vanishing);
+
+            const records = await collect_check_diagnostics(
+                context,
+                root,
+                config_result.config,
+                targets.targets
+            );
+
+            // The vanished file is reported per-file; the batch still analyzes
+            // main.do rather than throwing and aborting everything.
+            expect(
+                records.some((r) => r.diagnostic.code === 'SIGHT_UNREADABLE')
+            ).toBe(true);
+            expect(records.some((r) => r.relative_path === 'main.do')).toBe(true);
+        } finally {
+            await context.document_store.dispose();
+        }
+    });
+
+    it('skips oversized directory-walked files instead of analyzing them', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, 'sight.toml'), '[indexing]\nmaxFileSizeBytes = 4\n');
+        // Larger than the 4-byte limit; would otherwise be read+analyzed.
+        fs.writeFileSync(path.join(root, 'big.do'), "display \"`missing'\"\n");
+
+        const result = await run_capture(['--workspace', root], root);
+
+        // Walked (non-explicit) oversized files are skipped silently: no
+        // diagnostics, and no SIGHT_FILE_TOO_LARGE noise.
+        expect(result.code).toBe(EXIT_OK);
+        expect(result.stdout).not.toContain('big.do');
+        expect(result.stdout).not.toContain('exceeds the configured limit');
     });
 
     it('reports invalid UTF-8 as an error diagnostic', async () => {

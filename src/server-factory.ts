@@ -15,6 +15,7 @@ import {
     type FileSystemWatcher,
 } from 'vscode-languageserver/node';
 
+import * as path from 'path';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DocumentStore } from './document-store';
 import { DiagnosticsProvider } from './providers/diagnostics';
@@ -30,6 +31,7 @@ import type { DeepPartial } from './config-file';
 import {
     deep_merge_config,
     discover_and_load_project_config,
+    map_public_config_to_partial_config,
     type LoadedProjectConfig,
 } from './config-file';
 import { WorkspaceIndexer } from './indexer';
@@ -181,11 +183,20 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     function apply_loaded_project_config(loaded: LoadedProjectConfig): void {
         log_project_config_warnings(loaded);
-        project_config_candidate_dirs = loaded.candidate_dirs;
-        if (loaded.kind === 'loaded') {
-            project_file_config = loaded.partial_config;
-        } else {
+        // Watch only the directory that actually holds the resolved config
+        // (plus the workspace roots, added in project_config_watch_dirs). When
+        // no config exists, candidate_dirs spans every ancestor up to
+        // MAX_DISCOVERY_DEPTH (~32); registering watchers for all of them (×2
+        // patterns) would flood the client with ~64 watchers for a project
+        // that has no config at all. The workspace-root watcher still catches a
+        // config later created at the root.
+        if (loaded.kind === 'none') {
+            project_config_candidate_dirs = [];
             project_file_config = undefined;
+        } else {
+            project_config_candidate_dirs = [path.dirname(loaded.path)];
+            project_file_config =
+                loaded.kind === 'loaded' ? loaded.partial_config : undefined;
         }
     }
 
@@ -236,6 +247,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
         );
     }
 
+    // initializationOptions arrive in the public (README) camelCase schema —
+    // the same shape sight.toml uses. Map them into the internal config shape
+    // the validator reads (crossFile -> cross_file, preserveAlignment ->
+    // preserve_alignment, ...); otherwise those settings are silently dropped
+    // for clients (Neovim/Helix/Zed/Claude Code) that configure this way.
+    function map_init_options(raw: unknown): DeepPartial<StataLSPConfig> {
+        return map_public_config_to_partial_config(raw, (warning) => {
+            connection.console.log(`Configuration warning: ${warning.message}`);
+        });
+    }
+
     /**
      * Get document-specific settings or fall back to global settings.
      */
@@ -256,7 +278,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 const init_record = (init_options_config && typeof init_options_config === 'object'
                     ? (init_options_config as Record<string, unknown>)
                     : undefined);
-                const init_partial = init_record?.['sight'] ?? init_options_config;
+                const init_partial = map_init_options(
+                    init_record?.['sight'] ?? init_options_config
+                );
                 const client_partial = deep_merge_config(init_partial || {}, config || {});
                 const merged_partial = deep_merge_config(
                     client_partial,
@@ -610,15 +634,37 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
     }
 
-    async function reload_project_config_from_active_root(): Promise<void> {
+    function same_string_set(a: string[], b: string[]): boolean {
+        if (a.length !== b.length) return false;
+        const set_a = new Set(a);
+        return b.every((value) => set_a.has(value));
+    }
+
+    async function reload_project_config_once(): Promise<void> {
         const active_root = active_workspace_roots[0];
         if (!active_root) {
             return;
         }
 
+        const previous_config_json = JSON.stringify(project_file_config ?? null);
+        const previous_watch_dirs = project_config_watch_dirs();
+
         apply_loaded_project_config(
             discover_and_load_project_config(active_root)
         );
+
+        const config_changed =
+            JSON.stringify(project_file_config ?? null) !== previous_config_json;
+        if (!same_string_set(previous_watch_dirs, project_config_watch_dirs())) {
+            await refresh_project_config_watchers();
+        }
+        if (!config_changed) {
+            // A watched event fired (e.g. an edit to an unsupported .sight.json,
+            // or a no-op save) but the effective project config is unchanged,
+            // so skip the expensive full workspace reset and re-index.
+            return;
+        }
+
         document_settings.clear();
 
         const settings = await get_document_settings('');
@@ -627,7 +673,30 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
 
         configure_workspace_indexing(settings, active_workspace_roots, true);
-        await refresh_project_config_watchers();
+    }
+
+    // Serialize reloads: a DidChangeWatchedFiles batch can deliver several
+    // config events at once (e.g. delete+create on save), and each would
+    // otherwise spawn a concurrent reload that disposes/re-registers watchers
+    // and re-indexes while another is mid-flight. Run one at a time and
+    // coalesce any overlapping requests into a single trailing run.
+    let project_config_reload_in_progress = false;
+    let project_config_reload_pending = false;
+
+    async function reload_project_config_from_active_root(): Promise<void> {
+        if (project_config_reload_in_progress) {
+            project_config_reload_pending = true;
+            return;
+        }
+        project_config_reload_in_progress = true;
+        try {
+            do {
+                project_config_reload_pending = false;
+                await reload_project_config_once();
+            } while (project_config_reload_pending);
+        } finally {
+            project_config_reload_in_progress = false;
+        }
     }
 
     /**
@@ -1117,10 +1186,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
             const init_record = (init_options_config && typeof init_options_config === 'object'
                 ? (init_options_config as Record<string, unknown>)
                 : undefined);
-            const init_partial = init_record?.['sight'] ?? init_options_config;
+            const init_partial = map_init_options(
+                init_record?.['sight'] ?? init_options_config
+            );
             const change_settings = change.settings as Record<string, unknown> | undefined;
             const client_partial = deep_merge_config(
-                init_partial || {},
+                init_partial,
                 change_settings?.['sight'] || {}
             );
             const merged_partial = deep_merge_config(

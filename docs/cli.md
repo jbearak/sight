@@ -33,9 +33,9 @@ Options:
 Exit codes:
 
 - `0`: no diagnostic exceeded `--max-severity`.
-- `1`: at least one diagnostic exceeded `--max-severity`, or a usage error.
-- `2`: operator error, such as invalid workspace, missing explicit path, or
-  malformed config.
+- `1`: at least one diagnostic exceeded `--max-severity`.
+- `2`: operator or usage error, such as an unknown or malformed flag, invalid
+  workspace, missing explicit path, or malformed config.
 
 Example:
 

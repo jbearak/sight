@@ -1480,7 +1480,7 @@ export class CompletionProvider {
             
             while (current_dir !== path.dirname(current_dir)) {
                 // Check for common workspace markers
-                const markers = ['.git', 'sight.toml', 'package.json', '.vscode'];
+                const markers = ['.git', 'sight.toml', '.sight.json', 'package.json', '.vscode'];
                 
                 for (const marker of markers) {
                     if (fs.existsSync(path.join(current_dir, marker))) {
