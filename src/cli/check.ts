@@ -626,15 +626,14 @@ export async function run_check_with_cwd(
         config_path: result.args.config_path,
         no_config: result.args.no_config,
     });
-    if (config_result.kind === 'operator-error') {
-        for (const my_warning of config_result.warnings) {
-            output.stderr(`sight check: ${my_warning.message}\n`);
-        }
-        output.stderr(`sight check: ${config_result.message}\n`);
-        return EXIT_OPERATOR_ERROR;
-    }
+    // Both result variants carry warnings (e.g. the stale-.sight.json
+    // migration hint); emit them once regardless of which branch follows.
     for (const my_warning of config_result.warnings) {
         output.stderr(`sight check: ${my_warning.message}\n`);
+    }
+    if (config_result.kind === 'operator-error') {
+        output.stderr(`sight check: ${config_result.message}\n`);
+        return EXIT_OPERATOR_ERROR;
     }
 
     const target_result = collect_report_targets(

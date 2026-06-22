@@ -66,9 +66,11 @@ describe('server-factory project config wiring', () => {
         // The live getConfiguration result flows through the shared builder
         // as the client layer (last_client_settings), so it is mapped by the
         // same map_public_settings(sources.last_client_settings, ...) call
-        // rather than merged raw.
+        // rather than merged raw. It is unwrapped via
+        // select_pushed_client_settings so a wrapped `{ sight: {...} }`
+        // response is handled the same way the push path handles it.
         expect(source).toMatch(
-            /build_non_capability_settings_from_sources\(\{[\s\S]*?last_client_settings:\s*config,/
+            /build_non_capability_settings_from_sources\(\{[\s\S]*?last_client_settings:\s*select_pushed_client_settings\(config\),/
         );
     });
 
