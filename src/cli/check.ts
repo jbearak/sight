@@ -460,7 +460,7 @@ export async function run_check_with_cwd(
     const result = parse_check_args(argv);
     if (!result.success) {
         output.stderr(`sight check: ${result.error}\n`);
-        return EXIT_CHECK_FAILED;
+        return EXIT_OPERATOR_ERROR;
     }
     if (result.args.help) {
         output.stdout(`${check_help_text()}\n`);

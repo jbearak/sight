@@ -8,6 +8,8 @@ import {
     SeverityLevel,
     compare_diagnostic_records,
     diagnostic_exceeds_threshold,
+    env_flag_is_set,
+    force_color_is_enabled,
     parse_color_choice,
     parse_output_format,
     parse_severity_level,
@@ -106,6 +108,27 @@ describe('cli shared color resolution', () => {
         expect(resolve_color(ColorChoice.Auto, false, true, false)).toBe(true);
         expect(resolve_color(ColorChoice.Auto, false, false, true)).toBe(true);
         expect(resolve_color(ColorChoice.Auto, false, false, false)).toBe(false);
+    });
+});
+
+describe('cli shared color env flags', () => {
+    it('treats NO_COLOR as set for any non-empty value (no-color spec)', () => {
+        expect(env_flag_is_set('0')).toBe(true);
+        expect(env_flag_is_set('false')).toBe(true);
+        expect(env_flag_is_set('1')).toBe(true);
+        expect(env_flag_is_set('')).toBe(false);
+        expect(env_flag_is_set(undefined)).toBe(false);
+    });
+
+    it('treats FORCE_COLOR=0/false/off as disabled, else enabled', () => {
+        expect(force_color_is_enabled('0')).toBe(false);
+        expect(force_color_is_enabled('false')).toBe(false);
+        expect(force_color_is_enabled('FALSE')).toBe(false);
+        expect(force_color_is_enabled('off')).toBe(false);
+        expect(force_color_is_enabled('1')).toBe(true);
+        expect(force_color_is_enabled('true')).toBe(true);
+        expect(force_color_is_enabled('')).toBe(false);
+        expect(force_color_is_enabled(undefined)).toBe(false);
     });
 });
 

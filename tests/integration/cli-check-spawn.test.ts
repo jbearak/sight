@@ -40,4 +40,15 @@ describe('sight check spawned CLI', () => {
         expect(result.stdout).toContain('Undefined');
         expect(result.stdout).toContain('macro');
     });
+
+    it('returns exit 2 for an unknown flag (operator error)', () => {
+        const result = spawnSync(
+            'bun',
+            ['src/cli.ts', 'check', '--bogus'],
+            { cwd: repo_root, encoding: 'utf8' }
+        );
+
+        expect(result.status).toBe(2);
+        expect(result.stderr).toContain('Unknown flag: --bogus');
+    });
 });

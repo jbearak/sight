@@ -418,7 +418,12 @@ export class WorkspaceIndexer {
                 `Skipping remaining files.`
             );
         }
-        this.clear_stale_entry(file_uri);
+        // Only evict files that are new to the index. An already-indexed file
+        // re-indexed after the cap is reached should keep its existing entry
+        // (it is already counted toward the cap) rather than lose coverage.
+        if (!this.symbol_index.has(file_uri)) {
+            this.clear_stale_entry(file_uri);
+        }
         return true;
     }
 

@@ -99,8 +99,19 @@ export function diagnostic_exceeds_threshold(
     return severity_level(diagnostic) > max_severity;
 }
 
+// NO_COLOR semantics (https://no-color.org): present and non-empty disables
+// color regardless of the value, so "0"/"false" still count as set here.
 export function env_flag_is_set(value: string | undefined): boolean {
     return value !== undefined && value.length > 0;
+}
+
+// FORCE_COLOR semantics (de-facto, per supports-color): "0"/"false"/"off"
+// explicitly disable forced color; any other non-empty value enables it.
+const FORCE_COLOR_DISABLED_VALUES = new Set(['0', 'false', 'off']);
+
+export function force_color_is_enabled(value: string | undefined): boolean {
+    if (value === undefined || value.length === 0) return false;
+    return !FORCE_COLOR_DISABLED_VALUES.has(value.trim().toLowerCase());
 }
 
 export function resolve_color(
@@ -120,7 +131,7 @@ export function resolve_color_from_env(choice: ColorChoice): boolean {
     return resolve_color(
         choice,
         env_flag_is_set(process.env.NO_COLOR),
-        env_flag_is_set(process.env.FORCE_COLOR),
+        force_color_is_enabled(process.env.FORCE_COLOR),
         stdout.isTTY === true
     );
 }
