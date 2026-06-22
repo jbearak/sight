@@ -185,7 +185,13 @@ export class DocumentStore {
    * Open a document and parse it.
    * Async to support parse timeout wrapper.
    */
-  async open(uri: string, content: string, version: number, workspace_symbols?: SymbolTable): Promise<void> {
+  async open(
+    uri: string,
+    content: string,
+    version: number,
+    workspace_symbols?: SymbolTable,
+    scope_resolver_config?: Partial<ScopeResolverConfig>
+  ): Promise<void> {
     this.check_disposed();
     // Capture generation at start of operation (Req 16.2)
     const generation = (this.generations.get(uri) ?? 0) + 1;
@@ -194,7 +200,13 @@ export class DocumentStore {
 
     const operation = async () => {
       this.evict_if_needed(content.length);
-      const state = await this.create_document_state(uri, content, version, workspace_symbols);
+      const state = await this.create_document_state(
+        uri,
+        content,
+        version,
+        workspace_symbols,
+        scope_resolver_config
+      );
       this.commit_state(uri, state, generation);
     };
 
@@ -219,7 +231,8 @@ export class DocumentStore {
     uri: string,
     changes: TextDocumentContentChangeEvent[],
     version: number,
-    workspace_symbols?: SymbolTable
+    workspace_symbols?: SymbolTable,
+    scope_resolver_config?: Partial<ScopeResolverConfig>
   ): Promise<void> {
     this.check_disposed();
     // Capture generation at start of operation (Req 16.2)
@@ -232,9 +245,11 @@ export class DocumentStore {
       if (!state) {
         return;
       }
+      const should_reparse_for_scope_config =
+        scope_resolver_config !== undefined;
 
       // Skip if version hasn't changed (idempotent)
-      if (state.version >= version) {
+      if (state.version >= version && !should_reparse_for_scope_config) {
         this.metrics.cache_hits++;
         return;
       }
@@ -248,7 +263,7 @@ export class DocumentStore {
       // Safe to mutate in place: this path is synchronous (no await
       // between the .get() above and this mutation), so close()
       // cannot interleave.
-      if (new_content === state.content) {
+      if (new_content === state.content && !should_reparse_for_scope_config) {
         state.version = version;
         this.metrics.cache_hits++;
         return;
@@ -259,7 +274,8 @@ export class DocumentStore {
         uri,
         new_content,
         version,
-        workspace_symbols
+        workspace_symbols,
+        scope_resolver_config
       );
       this.commit_state(uri, new_state, generation);
     };
@@ -521,7 +537,8 @@ export class DocumentStore {
     uri: string,
     content: string,
     version: number,
-    workspace_symbols?: SymbolTable
+    workspace_symbols?: SymbolTable,
+    scope_resolver_config?: Partial<ScopeResolverConfig>
   ): Promise<DocumentState> {
     const start_time = Date.now();
     this.metrics.parse_count++;
@@ -595,10 +612,12 @@ export class DocumentStore {
         // File has no own working directory. Try to inherit one from parent
         // files via ScopeResolver, including auto-discovered parents.
         try {
+          const effective_scope_resolver_config =
+            scope_resolver_config ?? this.scope_resolver_config;
           const scope_result = await this.scope_resolver.resolve(
             uri,
             content,
-            this.scope_resolver_config
+            effective_scope_resolver_config
           );
           if (scope_result.inherited_working_directory) {
             resolved_working_directory = scope_result.inherited_working_directory;

@@ -12,6 +12,8 @@ import * as os from 'os';
 import { DocumentStore } from '../../src/document-store';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
+import { DependencyGraph } from '../../src/dependency-graph';
+import { WorkspaceIndexer } from '../../src/indexer';
 import {
     create_get_working_directory_handler,
     HandlerDependencies,
@@ -277,5 +279,129 @@ display \`myvar'`);
             // Should return null since parent has no working directory
             expect(result.workingDirectory).toBeNull();
         });
+    });
+
+    describe('cross-file dependency mode', () => {
+        async function index_workspace_for_auto_discovery(): Promise<void> {
+            const graph = new DependencyGraph();
+            const indexer = new WorkspaceIndexer();
+            indexer.set_dependency_graph(graph);
+            await indexer.initialize([test_dir]);
+            scope_resolver.set_dependency_graph(graph);
+        }
+
+        it('does not inherit auto-discovered parent cd in explicit mode',
+            async () => {
+                const data_dir = path.join(test_dir, 'data');
+                fs.mkdirSync(data_dir, { recursive: true });
+
+                write_file('scripts/parent.do', `// @lsp-cd: "../data"
+do "child.do"`);
+
+                const child_path = write_file('scripts/child.do',
+                    'display "child"');
+                const child_uri = `file://${child_path}`;
+                const child_content = fs.readFileSync(child_path, 'utf-8');
+
+                await index_workspace_for_auto_discovery();
+                await document_store.open(
+                    child_uri,
+                    child_content,
+                    1,
+                    undefined,
+                    { backward_dependencies: 'explicit' }
+                );
+
+                const document_state = document_store.get(child_uri);
+                expect(document_state).toBeDefined();
+                expect(document_state!.working_directory).toBeUndefined();
+            });
+
+        it('inherits auto-discovered parent cd in auto mode', async () => {
+            const data_dir = path.join(test_dir, 'data');
+            fs.mkdirSync(data_dir, { recursive: true });
+
+            write_file('scripts/parent.do', `// @lsp-cd: "../data"
+do "child.do"`);
+
+            const child_path = write_file('scripts/child.do',
+                'display "child"');
+            const child_uri = `file://${child_path}`;
+            const child_content = fs.readFileSync(child_path, 'utf-8');
+
+            await index_workspace_for_auto_discovery();
+            await document_store.open(
+                child_uri,
+                child_content,
+                1,
+                undefined,
+                { backward_dependencies: 'auto' }
+            );
+
+            const document_state = document_store.get(child_uri);
+            expect(document_state).toBeDefined();
+            expect(document_state!.working_directory).toBe(data_dir);
+        });
+
+        it('inherits explicit parent cd in explicit mode', async () => {
+            const data_dir = path.join(test_dir, 'data');
+            fs.mkdirSync(data_dir, { recursive: true });
+
+            write_file('scripts/parent.do', `// @lsp-cd: "../data"
+do "child.do"`);
+
+            const child_path = write_file('scripts/child.do',
+                `// @lsp-done-by: "parent.do"
+display "child"`);
+            const child_uri = `file://${child_path}`;
+            const child_content = fs.readFileSync(child_path, 'utf-8');
+
+            await index_workspace_for_auto_discovery();
+            await document_store.open(
+                child_uri,
+                child_content,
+                1,
+                undefined,
+                { backward_dependencies: 'explicit' }
+            );
+
+            const document_state = document_store.get(child_uri);
+            expect(document_state).toBeDefined();
+            expect(document_state!.working_directory).toBe(data_dir);
+        });
+
+        it('recomputes inherited cd on same-content config update',
+            async () => {
+                const data_dir = path.join(test_dir, 'data');
+                fs.mkdirSync(data_dir, { recursive: true });
+
+                write_file('scripts/parent.do', `// @lsp-cd: "../data"
+do "child.do"`);
+
+                const child_path = write_file('scripts/child.do',
+                    'display "child"');
+                const child_uri = `file://${child_path}`;
+                const child_content = fs.readFileSync(child_path, 'utf-8');
+
+                await index_workspace_for_auto_discovery();
+                await document_store.open(
+                    child_uri,
+                    child_content,
+                    1,
+                    undefined,
+                    { backward_dependencies: 'auto' }
+                );
+                await document_store.update(
+                    child_uri,
+                    [{ text: child_content }],
+                    2,
+                    undefined,
+                    { backward_dependencies: 'explicit' }
+                );
+
+                const document_state = document_store.get(child_uri);
+                expect(document_state).toBeDefined();
+                expect(document_state!.working_directory).toBeUndefined();
+            });
     });
 });

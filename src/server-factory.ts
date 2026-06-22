@@ -36,7 +36,7 @@ import {
     type LoadedProjectConfig,
 } from './config-file';
 import { WorkspaceIndexer } from './indexer';
-import { ScopeResolver } from './scope-resolver';
+import { ScopeResolver, scope_resolver_config_for } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DocumentDebounceManager } from './utils/debounce-manager';
 import { validate_comment_formatting_config } from './utils/config-validator';
@@ -933,6 +933,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 // delaying the debounce timer start (Req 8.2, 8.3, 8.4)
                 const settings = await get_document_settings(snapshot_uri);
                 const is_debug = settings.debug === true;
+                const my_scope_resolver_config =
+                    scope_resolver_config_for(settings);
 
                 // --- Lex/parse/analyze inside debounce callback (Req 2.1, 2.2) ---
                 const workspace_symbols = workspace_indexer
@@ -944,14 +946,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         snapshot_uri,
                         [{ text: snapshot_content }],
                         snapshot_version,
-                        workspace_symbols
+                        workspace_symbols,
+                        my_scope_resolver_config
                     );
                 } else {
                     await document_store.open(
                         snapshot_uri,
                         snapshot_content,
                         snapshot_version,
-                        workspace_symbols
+                        workspace_symbols,
+                        my_scope_resolver_config
                     );
                 }
 
