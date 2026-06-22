@@ -29,6 +29,7 @@ import {
     CallEdgeDiff,
     ContentProvider,
     WorkingDirectoryDirective,
+    StataLSPConfig,
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
 import { DirectiveParser } from '../directive-parser';
@@ -92,6 +93,21 @@ export function build_scope_resolver_config(
         }
     }
     return result;
+}
+
+export function scope_resolver_config_for(
+    config: StataLSPConfig
+): Partial<ScopeResolverConfig> {
+    return build_scope_resolver_config({
+        assume_call_site: config.cross_file?.assume_call_site,
+        backward_dependencies: config.cross_file?.backward_dependencies,
+        max_forward_depth: config.cross_file?.max_forward_depth,
+        diagnostics: {
+            max_depth: config.cross_file?.diagnostics?.max_depth,
+            call_site_identification:
+                config.cross_file?.diagnostics?.call_site_identification,
+        },
+    });
 }
 
 /**

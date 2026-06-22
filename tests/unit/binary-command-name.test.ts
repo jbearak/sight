@@ -31,6 +31,9 @@ import {
 } from '../../scripts/uninstall';
 import {
     CLI_HELP_BANNER,
+    NATIVE_BINARY_NAME_PATTERN,
+    SUPPORTED_BINARY_ARCHS,
+    SUPPORTED_BINARY_PLATFORMS,
 } from '../../src/cli-binary-names';
 import {
     build_all_binaries,
@@ -445,6 +448,28 @@ describe('binary command name', () => {
         for (const [my_platform, expected_command_name] of the_cases) {
             expect(get_binary_name(my_platform)).toBe(expected_command_name);
         }
+    });
+
+    it('defines native binary names from shared platform and arch lists', () => {
+        expect(SUPPORTED_BINARY_PLATFORMS).toEqual([
+            'darwin',
+            'linux',
+            'windows',
+        ]);
+        expect(SUPPORTED_BINARY_ARCHS).toEqual(['x64', 'arm64']);
+
+        for (const my_platform of SUPPORTED_BINARY_PLATFORMS) {
+            for (const my_arch of SUPPORTED_BINARY_ARCHS) {
+                const suffix = my_platform === 'windows' ? '.exe' : '';
+                expect(NATIVE_BINARY_NAME_PATTERN.test(
+                    `sight-${my_platform}-${my_arch}${suffix}`
+                )).toBe(true);
+            }
+        }
+
+        expect(NATIVE_BINARY_NAME_PATTERN.source).toBe(
+            '^sight-(darwin|linux|windows)-(x64|arm64)(\\.exe)?$'
+        );
     });
 
     it('uses Windows-aware spawn modes for command shims', () => {

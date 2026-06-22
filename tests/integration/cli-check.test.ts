@@ -2,18 +2,21 @@ import { describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { DiagnosticSeverity } from 'vscode-languageserver';
 import {
     build_check_context,
     collect_check_diagnostics,
     load_check_config,
     run_check_with_cwd,
 } from '../../src/cli/check';
+import type { CheckContext } from '../../src/cli/check';
 import { collect_report_targets } from '../../src/cli/source-files';
 import {
     EXIT_CHECK_FAILED,
     EXIT_OK,
     EXIT_OPERATOR_ERROR,
 } from '../../src/cli/shared';
+import { create_empty_symbol_table } from '../../src/analyzer';
 
 function temp_dir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'sight-check-integration-'));
@@ -280,5 +283,112 @@ describe('sight check integration', () => {
         expect(result.code).toBe(EXIT_CHECK_FAILED);
         expect(result.stdout).toContain('not valid UTF-8');
         expect(result.stdout).toContain('byte offset');
+    });
+
+    it('reuses the document-store scope resolve cache in diagnostics', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(
+            path.join(root, 'sight.toml'),
+            '[crossFile]\nmaxForwardDepth = 4\n'
+        );
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+
+        const config_result = load_check_config({
+            cwd: root,
+            workspace_root: root,
+            no_config: false,
+        });
+        expect(config_result.kind).toBe('loaded');
+        if (config_result.kind !== 'loaded') return;
+
+        const targets = collect_report_targets(['main.do'], root, root);
+        const context = await build_check_context(root, config_result.config);
+        try {
+            context.scope_resolver.reset_cache_metrics();
+
+            await collect_check_diagnostics(
+                context,
+                root,
+                config_result.config,
+                targets.targets
+            );
+
+            const metrics = context.scope_resolver.get_cache_metrics();
+            expect(metrics.scope.misses).toBe(1);
+            expect(metrics.scope.hits).toBe(1);
+        } finally {
+            await context.document_store.dispose();
+        }
+    });
+
+    it('processes report targets concurrently while preserving output order', async () => {
+        const root = temp_dir();
+        const targets = ['a.do', 'b.do', 'c.do', 'd.do', 'e.do'].map(
+            (file_name) => {
+                const file_path = path.join(root, file_name);
+                fs.writeFileSync(file_path, 'display 1\n');
+                return {
+                    path: file_path,
+                    relative_path: file_name,
+                    explicit: true,
+                };
+            }
+        );
+
+        let active_opens = 0;
+        let max_active_opens = 0;
+
+        const context = {
+            workspace_indexer: {
+                get_all_symbols: () => create_empty_symbol_table(),
+                get_metrics: () => ({ files_indexed: targets.length }),
+                has_indexed_file: () => true,
+            },
+            document_store: {
+                open: async () => {
+                    active_opens++;
+                    max_active_opens = Math.max(
+                        max_active_opens,
+                        active_opens
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                    active_opens--;
+                },
+                get: (uri: string) => ({ uri }),
+                close: () => undefined,
+            },
+            diagnostics_provider: {
+                get_diagnostics: async (state: { uri: string }) => [{
+                    severity: DiagnosticSeverity.Warning,
+                    message: path.basename(new URL(state.uri).pathname),
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 1 },
+                    },
+                    source: 'sight',
+                }],
+            },
+            scope_resolver: {},
+        } as unknown as CheckContext;
+
+        const config_result = load_check_config({
+            cwd: root,
+            workspace_root: root,
+            no_config: true,
+        });
+        expect(config_result.kind).toBe('loaded');
+        if (config_result.kind !== 'loaded') return;
+
+        const records = await collect_check_diagnostics(
+            context,
+            root,
+            config_result.config,
+            targets
+        );
+
+        expect(max_active_opens).toBeGreaterThan(1);
+        expect(records.map((record) => record.relative_path)).toEqual(
+            targets.map((target) => target.relative_path)
+        );
     });
 });

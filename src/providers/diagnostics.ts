@@ -12,7 +12,11 @@ import {
     ResolvedScope,
     DirectiveDiagnostic
 } from '../types';
-import { ScopeResolver, build_scope_resolver_config, get_visible_forward_call_sites } from '../scope-resolver';
+import {
+    ScopeResolver,
+    get_visible_forward_call_sites,
+    scope_resolver_config_for,
+} from '../scope-resolver';
 import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
@@ -222,18 +226,9 @@ export class DiagnosticsProvider {
 
         // Add semantic diagnostics from cached analyzer results
         // If scope_resolver is provided, check against cross-file scope first
-        // Only pass config if assume_call_site is explicitly set to avoid
-        // overriding the default with undefined
-        const resolve_config = build_scope_resolver_config({
-            assume_call_site: config.cross_file?.assume_call_site,
-            backward_dependencies: config.cross_file?.backward_dependencies,
-            max_forward_depth: config.cross_file?.max_forward_depth,
-            diagnostics: {
-                max_depth: config.cross_file?.diagnostics?.max_depth,
-                call_site_identification:
-                    config.cross_file?.diagnostics?.call_site_identification,
-            },
-        });
+        // Use the same filtered resolver config shape as other call sites so
+        // cache keys stay aligned.
+        const resolve_config = scope_resolver_config_for(config);
         const resolved_scope = scope_resolver ? await scope_resolver.resolve(
             document.uri,
             document.content,

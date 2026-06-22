@@ -14,7 +14,7 @@ import { DocumentStore } from '../document-store';
 import { ForwardScopeResolver } from '../forward-scope-resolver';
 import { WorkspaceIndexer } from '../indexer';
 import { DiagnosticsProvider } from '../providers/diagnostics';
-import { ScopeResolver } from '../scope-resolver';
+import { ScopeResolver, scope_resolver_config_for } from '../scope-resolver';
 import { DEFAULT_SETTINGS } from '../server-handlers';
 import { StataLSPConfig } from '../types';
 import { validate_comment_formatting_config } from '../utils/config-validator';
@@ -48,6 +48,8 @@ import {
     render_text,
     resolve_color_from_env,
 } from './shared';
+
+const CHECK_MAX_PARALLEL = 4;
 
 export interface CheckArgs {
     paths: string[];
@@ -347,6 +349,9 @@ export async function build_check_context(
     forward_scope_resolver.set_workspace_roots([workspace_root]);
     document_store.set_workspace_roots([workspace_root]);
     document_store.set_scope_resolver(scope_resolver);
+    document_store.set_scope_resolver_config(
+        scope_resolver_config_for(config)
+    );
     document_store.set_on_backward_directives_parsed((uri, directives) => {
         workspace_indexer.set_buffer_directives(uri, directives);
     });
@@ -386,11 +391,14 @@ export async function collect_check_diagnostics(
     config: StataLSPConfig,
     targets: ReportTarget[]
 ): Promise<DiagnosticRecord[]> {
-    const records: DiagnosticRecord[] = [];
     const workspace_symbols = context.workspace_indexer.get_all_symbols();
     const files_indexed = context.workspace_indexer.get_metrics().files_indexed;
+    const the_slots: DiagnosticRecord[][] = new Array(targets.length);
 
-    for (const target of targets) {
+    async function collect_target_diagnostics(
+        target: ReportTarget
+    ): Promise<DiagnosticRecord[]> {
+        const records: DiagnosticRecord[] = [];
         const uri = URI.file(target.path).toString();
 
         // Size guard runs for every target, not just explicit ones: a
@@ -405,7 +413,7 @@ export async function collect_check_diagnostics(
                 target.relative_path,
                 unreadable_diagnostic(read_error_detail(error))
             ));
-            continue;
+            return records;
         }
         if (stats.size > config.indexing.maxFileSizeBytes) {
             // Explicit targets get a visible diagnostic so the user learns why
@@ -420,7 +428,7 @@ export async function collect_check_diagnostics(
                     )
                 ));
             }
-            continue;
+            return records;
         }
         // Once the index cap is reached, an in-workspace target that never made
         // it into the index would be analyzed against an incomplete cross-file
@@ -437,7 +445,7 @@ export async function collect_check_diagnostics(
                 target.relative_path,
                 index_limit_diagnostic()
             ));
-            continue;
+            return records;
         }
 
         const read_result = read_source_file(target.path);
@@ -448,14 +456,14 @@ export async function collect_check_diagnostics(
                 target.relative_path,
                 unreadable_diagnostic(read_result.message)
             ));
-            continue;
+            return records;
         }
         if (read_result.kind === 'decode-error') {
             records.push(diagnostic_record(
                 target.relative_path,
                 read_result.diagnostic
             ));
-            continue;
+            return records;
         }
 
         let opened = false;
@@ -490,9 +498,30 @@ export async function collect_check_diagnostics(
                 context.document_store.close(uri);
             }
         }
+
+        return records;
     }
 
-    return records;
+    let file_index = 0;
+    const worker_count = Math.min(CHECK_MAX_PARALLEL, targets.length);
+    const the_workers = Array.from(
+        { length: worker_count },
+        async () => {
+            while (true) {
+                const my_index = file_index++;
+                if (my_index >= targets.length) {
+                    break;
+                }
+                the_slots[my_index] = await collect_target_diagnostics(
+                    targets[my_index]
+                );
+            }
+        }
+    );
+
+    await Promise.all(the_workers);
+
+    return the_slots.flat();
 }
 
 function check_help_text(): string {

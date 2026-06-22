@@ -1,5 +1,16 @@
 import { TextDocumentContentChangeEvent, Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import { StataAST, SymbolTable, Token, DocumentStoreMetrics, ForwardCall, WorkingDirectoryDirective, Directive, LexerError, ParseError } from './types';
+import {
+  StataAST,
+  SymbolTable,
+  Token,
+  DocumentStoreMetrics,
+  ForwardCall,
+  WorkingDirectoryDirective,
+  Directive,
+  LexerError,
+  ParseError,
+  ScopeResolverConfig,
+} from './types';
 import { StataLexer } from './lexer';
 import { StataParser } from './parser';
 import { SemanticAnalyzer, SemanticDiagnostic } from './analyzer';
@@ -53,6 +64,7 @@ export class DocumentStore {
   private readonly MAX_TOKEN_BYTES = 100 * 1024 * 1024; // 100MB
   private workspace_roots: string[] = [];
   private scope_resolver: ScopeResolver | undefined;
+  private scope_resolver_config: Partial<ScopeResolverConfig> = {};
   private on_backward_directives_parsed:
     | ((uri: string, directives: Directive[]) => void)
     | undefined;
@@ -115,6 +127,12 @@ export class DocumentStore {
         }
       }
     }
+  }
+
+  set_scope_resolver_config(
+    config: Partial<ScopeResolverConfig>
+  ): void {
+    this.scope_resolver_config = config;
   }
 
   /**
@@ -471,11 +489,15 @@ export class DocumentStore {
   }
 
   /**
-   * Find the URI with the oldest access (first in Map insertion order).
-   * O(1) - Map maintains insertion order, so first entry is oldest.
+   * Find the oldest URI that is not currently being updated.
    */
   private find_oldest_uri(): string | undefined {
-    return this.access_order.values().next().value;
+    for (const my_uri of this.access_order) {
+      if ((this.in_flight_counts.get(my_uri) ?? 0) === 0) {
+        return my_uri;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -573,7 +595,11 @@ export class DocumentStore {
         // File has no own working directory. Try to inherit one from parent
         // files via ScopeResolver, including auto-discovered parents.
         try {
-          const scope_result = await this.scope_resolver.resolve(uri, content);
+          const scope_result = await this.scope_resolver.resolve(
+            uri,
+            content,
+            this.scope_resolver_config
+          );
           if (scope_result.inherited_working_directory) {
             resolved_working_directory = scope_result.inherited_working_directory;
           }
