@@ -168,7 +168,7 @@ EXAMPLES:
     sight                   Start server with stdio (default)
     sight check --help      Show options for the check command
 
-For more information, visit: https://github.com/jbearak/sight
+Docs: https://github.com/jbearak/sight
 `.trim();
 
     console.log(help_text);
