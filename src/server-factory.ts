@@ -136,13 +136,12 @@ export function select_pushed_client_settings(settings: unknown): unknown {
 export function build_non_capability_settings_from_sources(
     sources: NonCapabilitySettingsSources
 ): StataLSPConfig {
-    const init_options_config = sources.init_options_config;
-    const init_record = (init_options_config
-        && typeof init_options_config === 'object'
-        ? (init_options_config as Record<string, unknown>)
-        : undefined);
+    // Unwrap a `{ sight: {...} }` wrapper from raw init options via the
+    // same helper the client layer's callers use, so the
+    // `{ sight: undefined }` edge has one implementation rather than a
+    // divergent inline `?? init_options_config`.
     const init_partial = map_public_settings(
-        init_record?.['sight'] ?? init_options_config,
+        select_pushed_client_settings(sources.init_options_config),
         sources.log_warning
     );
     const client_partial = deep_merge_config(
