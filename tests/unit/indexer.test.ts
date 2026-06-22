@@ -443,6 +443,21 @@ describe('WorkspaceIndexer', () => {
         expect(the_related).toContain(my_postest_path);
     });
 
+    it('decrements files_indexed when an already-indexed file is evicted', async () => {
+        const file_path = path.join(temp_dir, 'a.do');
+        fs.writeFileSync(file_path, 'program define p\nend');
+        await indexer.index_file(file_path);
+        expect(indexer.get_metrics().files_indexed).toBe(1);
+
+        // Grow the file past the size threshold; re-indexing evicts it, and
+        // the distinct-file count must drop rather than stay inflated.
+        fs.writeFileSync(file_path, 'a'.repeat(600 * 1024));
+        await indexer.index_file(file_path);
+
+        expect(indexer.get_metrics().files_indexed).toBe(0);
+        expect(indexer.get_metrics().files_skipped).toBeGreaterThan(0);
+    });
+
     it('re-indexes an already-indexed file after the cap is reached', async () => {
         indexer.set_max_indexed_files(1);
         const file_path = path.join(temp_dir, 'a.do');

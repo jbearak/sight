@@ -71,12 +71,15 @@ describe('sight check source files', () => {
     });
 
     it('turns oversize explicit targets into error diagnostics', () => {
-        const diagnostic = size_limit_diagnostic('/x/main.do', 11, 10);
+        const diagnostic = size_limit_diagnostic(11, 10);
 
         expect(diagnostic.severity).toBe(DiagnosticSeverity.Error);
         expect(diagnostic.range.start).toEqual({ line: 0, character: 0 });
         expect(diagnostic.message).toContain('exceeds');
         expect(diagnostic.message).toContain('10 bytes');
+        // The message must not embed an absolute path (machine-specific, breaks
+        // golden comparisons); the renderer shows the relative location.
+        expect(diagnostic.message).not.toContain('/');
     });
 
     it('reads UTF-8 and reports invalid UTF-8 as a diagnostic input error', () => {

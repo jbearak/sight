@@ -25,6 +25,7 @@ import {
     collect_report_targets,
     index_limit_diagnostic,
     is_within_workspace,
+    read_error_detail,
     read_source_file,
     size_limit_diagnostic,
     unreadable_diagnostic,
@@ -402,7 +403,7 @@ export async function collect_check_diagnostics(
         } catch (error) {
             records.push(diagnostic_record(
                 target.relative_path,
-                unreadable_diagnostic(`${target.path}: ${error_message(error)}`)
+                unreadable_diagnostic(read_error_detail(error))
             ));
             continue;
         }
@@ -414,7 +415,6 @@ export async function collect_check_diagnostics(
                 records.push(diagnostic_record(
                     target.relative_path,
                     size_limit_diagnostic(
-                        target.path,
                         stats.size,
                         config.indexing.maxFileSizeBytes
                     )
@@ -422,15 +422,20 @@ export async function collect_check_diagnostics(
             }
             continue;
         }
+        // Once the index cap is reached, an in-workspace target that never made
+        // it into the index would be analyzed against an incomplete cross-file
+        // graph, yielding unreliable diagnostics with no signal in CI. Report
+        // it for every in-workspace target (not just explicit ones, so the
+        // default `sight check .` surfaces the problem too) rather than emitting
+        // silently-wrong results.
         if (
-            target.explicit &&
             is_within_workspace(workspace_root, target.path) &&
             files_indexed >= config.cross_file.max_indexed_files &&
             !context.workspace_indexer.has_indexed_file(uri)
         ) {
             records.push(diagnostic_record(
                 target.relative_path,
-                index_limit_diagnostic(target.path)
+                index_limit_diagnostic()
             ));
             continue;
         }

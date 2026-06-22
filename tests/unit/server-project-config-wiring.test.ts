@@ -49,4 +49,18 @@ describe('server-factory project config wiring', () => {
             /init_partial\s*=\s*map_init_options\(\s*\n?\s*init_record\?\.\['sight'\]\s*\?\?\s*init_options_config/
         );
     });
+
+    it('builds merged settings for clients without configuration capability', () => {
+        // Regression guard: non-capability clients cannot be queried per
+        // document, so the workspace refresh and config reload must seed
+        // global_settings from the builder (init options + sight.toml), not
+        // read back the stale cached value via get_document_settings.
+        const source = fs.readFileSync(server_factory_path, 'utf8');
+
+        expect(source).toContain('function build_non_capability_settings');
+        const builder_uses = source.match(
+            /global_settings\s*=\s*build_non_capability_settings\(\)/g
+        ) || [];
+        expect(builder_uses.length).toBeGreaterThanOrEqual(2);
+    });
 });

@@ -400,6 +400,15 @@ export class WorkspaceIndexer {
         this.context_ranges_index.delete(file_uri);
         if (was_indexed) {
             this.version++;
+            // Evicting an already-counted file (size growth, re-index error,
+            // or removal) must drop the distinct-file count; otherwise
+            // files_indexed inflates over edits and trips max_indexed_files
+            // early, hiding genuinely-new files and emitting spurious
+            // SIGHT_FILE_NOT_INDEXED diagnostics.
+            this.metrics.files_indexed = Math.max(
+                0,
+                this.metrics.files_indexed - 1
+            );
         }
         if (graph_result && graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
             this.on_graph_change_callback(graph_result.changed_callees);

@@ -242,6 +242,10 @@ export function validate_comment_formatting_config(
         validated_config.indexWorkspace = config.indexWorkspace;
     }
 
+    if (typeof config.debug === 'boolean') {
+        validated_config.debug = config.debug;
+    }
+
     // Validate cross_file section
     if (config.cross_file) {
         const cross_file = config.cross_file;

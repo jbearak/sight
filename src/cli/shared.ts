@@ -192,7 +192,7 @@ function colorize(word: string, use_color: boolean): string {
 // Locale-independent code-unit ordering. localeCompare's order depends on the
 // runtime's default ICU locale (LANG/LC_*), which would make report output
 // differ across machines and break golden/snapshot comparisons in CI.
-function compare_strings(a: string, b: string): number {
+export function compare_strings(a: string, b: string): number {
     return a < b ? -1 : a > b ? 1 : 0;
 }
 

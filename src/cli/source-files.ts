@@ -3,7 +3,7 @@ import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { hasStataExtension, VCS_METADATA_DIRS } from '../utils/file-path-utils';
-import { error_message } from './shared';
+import { compare_strings, error_message } from './shared';
 
 export interface ReportTarget {
     path: string;
@@ -35,10 +35,19 @@ function workspace_relative(
 }
 
 export function relative_path(workspace_root: string, file_path: string): string {
-    const { relative, inside } = workspace_relative(workspace_root, file_path);
-    return relative && inside
-        ? relative.split(path.sep).join('/')
-        : file_path;
+    const { relative } = workspace_relative(workspace_root, file_path);
+    if (relative === '') {
+        return '.';
+    }
+    // Emit a workspace-relative path even for out-of-workspace targets (a
+    // `../`-prefixed path) so report output is deterministic and free of the
+    // absolute, machine-specific prefix that would otherwise leak into JSON /
+    // SARIF and break golden-file comparisons across machines. Only a path that
+    // cannot be made relative (e.g. a different Windows drive, where
+    // path.relative returns an absolute path) falls back to the absolute path.
+    return path.isAbsolute(relative)
+        ? file_path
+        : relative.split(path.sep).join('/');
 }
 
 export function is_within_workspace(
@@ -132,7 +141,7 @@ export function collect_report_targets(
             relative_path: relative_path(normalized_root, file_path),
             explicit: has_explicit_paths,
         }));
-    targets.sort((a, b) => a.relative_path.localeCompare(b.relative_path));
+    targets.sort((a, b) => compare_strings(a.relative_path, b.relative_path));
 
     return { targets, operator_errors };
 }
@@ -150,33 +159,45 @@ function file_level_diagnostic(code: string, message: string): Diagnostic {
     };
 }
 
+// File-level diagnostic messages deliberately omit the file path: the renderer
+// already prefixes each diagnostic with its (workspace-relative) location, so
+// repeating an absolute path in the message body is both redundant and
+// machine-specific (it would break golden/snapshot comparisons in CI and leak
+// the filesystem layout).
 export function size_limit_diagnostic(
-    file_path: string,
     actual_bytes: number,
     limit_bytes: number
 ): Diagnostic {
     return file_level_diagnostic(
         'SIGHT_FILE_TOO_LARGE',
-        `${file_path} is ${actual_bytes} bytes, which exceeds ` +
+        `File is ${actual_bytes} bytes, which exceeds ` +
         `the configured limit of ${limit_bytes} bytes.`
     );
 }
 
-export function index_limit_diagnostic(file_path: string): Diagnostic {
+export function index_limit_diagnostic(): Diagnostic {
     return file_level_diagnostic(
         'SIGHT_FILE_NOT_INDEXED',
-        `${file_path} was not indexed before Sight reached ` +
+        'File was not indexed before Sight reached ' +
         'crossFile.maxIndexedFiles. Raise maxIndexedFiles or check fewer files.'
     );
+}
+
+// Deterministic detail for a read/stat failure: the errno code (ENOENT,
+// EACCES, ...) when present, else the error message. The OS error message
+// embeds an absolute path, so prefer the code to keep output reproducible.
+export function read_error_detail(error: unknown): string {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    return typeof code === 'string' ? code : error_message(error);
 }
 
 // Per-file diagnostic for a target that cannot be stat-ed or read (e.g. it was
 // deleted or its permissions changed after discovery). Reported per file so a
 // benign race does not abort the whole check batch.
-export function unreadable_diagnostic(message: string): Diagnostic {
+export function unreadable_diagnostic(detail: string): Diagnostic {
     return file_level_diagnostic(
         'SIGHT_UNREADABLE',
-        `Could not read file: ${message}`
+        `File could not be read: ${detail}`
     );
 }
 
@@ -235,10 +256,10 @@ function utf8_error_offset(bytes: Buffer): number {
     return Math.max(0, length - 1);
 }
 
-function decode_error_diagnostic(file_path: string, offset: number): Diagnostic {
+function decode_error_diagnostic(offset: number): Diagnostic {
     return file_level_diagnostic(
         'SIGHT_INVALID_ENCODING',
-        `${file_path} is not valid UTF-8 at byte offset ${offset}. ` +
+        `File is not valid UTF-8 at byte offset ${offset}. ` +
         'Re-save the file as UTF-8.'
     );
 }
@@ -250,7 +271,7 @@ export function read_source_file(file_path: string): SourceReadResult {
     } catch (error) {
         return {
             kind: 'read-error',
-            message: `${file_path}: ${error_message(error)}`,
+            message: read_error_detail(error),
         };
     }
 
@@ -262,10 +283,7 @@ export function read_source_file(file_path: string): SourceReadResult {
     } catch {
         return {
             kind: 'decode-error',
-            diagnostic: decode_error_diagnostic(
-                file_path,
-                utf8_error_offset(bytes)
-            ),
+            diagnostic: decode_error_diagnostic(utf8_error_offset(bytes)),
         };
     }
 }

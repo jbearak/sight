@@ -183,6 +183,22 @@ describe('sight check integration', () => {
         expect(result.stdout).toContain('maxIndexedFiles');
     });
 
+    it('reports walked files skipped by max indexed files on default invocation', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, 'sight.toml'), '[crossFile]\nmaxIndexedFiles = 1\n');
+        fs.writeFileSync(path.join(root, 'a.do'), 'display 1\n');
+        fs.writeFileSync(path.join(root, 'b.do'), 'display 2\n');
+
+        // No explicit paths: the whole workspace is walked. The file that did
+        // not fit under the cap must still be reported, not silently analyzed
+        // against an incomplete index.
+        const result = await run_capture(['--workspace', root, '--quiet'], root);
+
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain('was not indexed');
+        expect(result.stdout).toContain('maxIndexedFiles');
+    });
+
     it('diagnoses explicit outside-workspace files after max indexed files is reached', async () => {
         const root = temp_dir();
         const outside = temp_dir();
