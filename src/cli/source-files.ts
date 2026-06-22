@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
+import { hasStataExtension } from '../utils/file-path-utils';
 
-const SOURCE_EXTENSIONS = new Set(['.do', '.ado', '.doh', '.mata']);
 const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
 
 export interface ReportTarget {
@@ -22,19 +22,32 @@ export type SourceReadResult =
     | { kind: 'decode-error'; diagnostic: Diagnostic }
     | { kind: 'read-error'; message: string };
 
-export function is_stata_source_path(file_path: string): boolean {
-    return SOURCE_EXTENSIONS.has(path.extname(file_path).toLowerCase());
-}
-
 export function canonicalize_existing_path(file_path: string): string {
     return fs.realpathSync.native(file_path);
 }
 
-export function relative_path(workspace_root: string, file_path: string): string {
+function workspace_relative(
+    workspace_root: string,
+    file_path: string
+): { relative: string; inside: boolean } {
     const relative = path.relative(workspace_root, file_path);
-    return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+    const inside = !relative.startsWith('..') && !path.isAbsolute(relative);
+    return { relative, inside };
+}
+
+export function relative_path(workspace_root: string, file_path: string): string {
+    const { relative, inside } = workspace_relative(workspace_root, file_path);
+    return relative && inside
         ? relative.split(path.sep).join('/')
         : file_path;
+}
+
+export function is_within_workspace(
+    workspace_root: string,
+    file_path: string
+): boolean {
+    const { relative, inside } = workspace_relative(workspace_root, file_path);
+    return relative === '' || (relative.length > 0 && inside);
 }
 
 function error_message(error: unknown): string {
@@ -61,7 +74,7 @@ function walk_sources(
         if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
             walk_sources(entry_path, out, operator_errors);
-        } else if (entry.isFile() && is_stata_source_path(entry_path)) {
+        } else if (entry.isFile() && hasStataExtension(entry_path)) {
             out.push(entry_path);
         }
     }
@@ -113,7 +126,7 @@ export function collect_report_targets(
         }
         if (stat.isDirectory()) {
             walk_sources(absolute_path, source_paths, operator_errors);
-        } else if (stat.isFile() && is_stata_source_path(absolute_path)) {
+        } else if (stat.isFile() && hasStataExtension(absolute_path)) {
             source_paths.push(absolute_path);
         }
     }

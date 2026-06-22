@@ -26,7 +26,6 @@ export enum SeverityLevel {
 }
 
 export interface DiagnosticRecord {
-    path: string;
     relative_path: string;
     diagnostic: Diagnostic;
 }
@@ -246,8 +245,9 @@ export function render_sarif(
     records: DiagnosticRecord[],
     version: string
 ): string {
+    const sorted = sorted_records(records);
     const rule_ids = Array.from(
-        new Set(sorted_records(records).map((record) =>
+        new Set(sorted.map((record) =>
             sarif_rule_id(record.diagnostic.code)
         ))
     ).sort();
@@ -267,7 +267,7 @@ export function render_sarif(
                     })),
                 },
             },
-            results: sorted_records(records).map((record) => ({
+            results: sorted.map((record) => ({
                 ruleId: sarif_rule_id(record.diagnostic.code),
                 level: sarif_level(record.diagnostic),
                 message: { text: record.diagnostic.message },

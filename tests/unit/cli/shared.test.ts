@@ -112,12 +112,10 @@ describe('cli shared color resolution', () => {
 describe('cli shared renderers', () => {
     const records = [
         {
-            path: '/repo/b.do',
             relative_path: 'b.do',
             diagnostic: diag(DiagnosticSeverity.Warning, 2, 4, 'B warning', 2001),
         },
         {
-            path: '/repo/a.do',
             relative_path: 'a.do',
             diagnostic: diag(DiagnosticSeverity.Error, 0, 1, 'A error', 3000),
         },

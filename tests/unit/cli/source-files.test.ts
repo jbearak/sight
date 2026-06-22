@@ -5,10 +5,10 @@ import * as path from 'path';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import {
     collect_report_targets,
-    is_stata_source_path,
     read_source_file,
     size_limit_diagnostic,
 } from '../../../src/cli/source-files';
+import { hasStataExtension } from '../../../src/utils/file-path-utils';
 
 function temp_dir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'sight-check-source-'));
@@ -16,12 +16,12 @@ function temp_dir(): string {
 
 describe('sight check source files', () => {
     it('recognizes Stata source extensions case-insensitively', () => {
-        expect(is_stata_source_path('/x/a.do')).toBe(true);
-        expect(is_stata_source_path('/x/a.DO')).toBe(true);
-        expect(is_stata_source_path('/x/a.ado')).toBe(true);
-        expect(is_stata_source_path('/x/a.doh')).toBe(true);
-        expect(is_stata_source_path('/x/a.mata')).toBe(true);
-        expect(is_stata_source_path('/x/a.txt')).toBe(false);
+        expect(hasStataExtension('/x/a.do')).toBe(true);
+        expect(hasStataExtension('/x/a.DO')).toBe(true);
+        expect(hasStataExtension('/x/a.ado')).toBe(true);
+        expect(hasStataExtension('/x/a.doh')).toBe(true);
+        expect(hasStataExtension('/x/a.mata')).toBe(true);
+        expect(hasStataExtension('/x/a.txt')).toBe(false);
     });
 
     it('collects supported source files from directories and skips VCS dirs', () => {

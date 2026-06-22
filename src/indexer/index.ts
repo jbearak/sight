@@ -42,19 +42,15 @@ import {
     FindaliasResolver,
     HelpAliasResolver,
 } from '../utils/findalias-resolver';
+import { hasStataExtension } from '../utils/file-path-utils';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
 const INDEX_DEBOUNCE_MS = 200;
-const SOURCE_EXTENSIONS = new Set(['.do', '.ado', '.doh', '.mata']);
 
 // Version-control metadata directories skipped during workspace scans.
 // They contain no Stata source and recursing them is wasted work.
 const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
-
-function is_stata_source_file(file_path: string): boolean {
-    return SOURCE_EXTENSIONS.has(path.extname(file_path).toLowerCase());
-}
 
 export interface IndexedFileData {
     uri: string;
@@ -337,7 +333,7 @@ export class WorkspaceIndexer {
                     await this.scan_directory(entry_path, generation);
                 } else if (
                     entry.isFile() &&
-                    is_stata_source_file(entry_path)
+                    hasStataExtension(entry_path)
                 ) {
                     file_paths.push(entry_path);
                 }

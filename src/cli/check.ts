@@ -20,9 +20,11 @@ import { StataLSPConfig } from '../types';
 import { validate_comment_formatting_config } from '../utils/config-validator';
 import { Logger } from '../utils/logger';
 import {
+    ReportTarget,
     canonicalize_existing_path,
     collect_report_targets,
     index_limit_diagnostic,
+    is_within_workspace,
     relative_path,
     read_source_file,
     size_limit_diagnostic,
@@ -35,7 +37,6 @@ import {
     EXIT_OPERATOR_ERROR,
     OutputFormat,
     SeverityLevel,
-    compare_diagnostic_records,
     diagnostic_exceeds_threshold,
     parse_color_choice,
     parse_output_format,
@@ -77,6 +78,24 @@ function parse_required_option_value(
     }
 
     return { success: true, value };
+}
+
+function parse_enum_option<T>(
+    argv: string[],
+    index: number,
+    flag: string,
+    parse: (value: string) => T
+): { success: true; value: T } | { success: false; error: string } {
+    const parsed = parse_required_option_value(argv, index, flag, 'a value');
+    if (!parsed.success) return parsed;
+    try {
+        return { success: true, value: parse(parsed.value) };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
 }
 
 export function parse_check_args(argv: string[]): CheckParseResult {
@@ -124,46 +143,28 @@ export function parse_check_args(argv: string[]): CheckParseResult {
                 break;
             case '--format':
                 {
-                    const parsed = parse_required_option_value(
+                    const parsed = parse_enum_option(
                         argv,
                         i,
                         '--format',
-                        'a value'
+                        parse_output_format
                     );
                     if (!parsed.success) return parsed;
-                    try {
-                        args.format = parse_output_format(parsed.value);
-                        i++;
-                    } catch (error) {
-                        return {
-                            success: false,
-                            error: error instanceof Error
-                                ? error.message
-                                : String(error),
-                        };
-                    }
+                    args.format = parsed.value;
+                    i++;
                 }
                 break;
             case '--max-severity':
                 {
-                    const parsed = parse_required_option_value(
+                    const parsed = parse_enum_option(
                         argv,
                         i,
                         '--max-severity',
-                        'a value'
+                        parse_severity_level
                     );
                     if (!parsed.success) return parsed;
-                    try {
-                        args.max_severity = parse_severity_level(parsed.value);
-                        i++;
-                    } catch (error) {
-                        return {
-                            success: false,
-                            error: error instanceof Error
-                                ? error.message
-                                : String(error),
-                        };
-                    }
+                    args.max_severity = parsed.value;
+                    i++;
                 }
                 break;
             case '--quiet':
@@ -171,24 +172,15 @@ export function parse_check_args(argv: string[]): CheckParseResult {
                 break;
             case '--color':
                 {
-                    const parsed = parse_required_option_value(
+                    const parsed = parse_enum_option(
                         argv,
                         i,
                         '--color',
-                        'a value'
+                        parse_color_choice
                     );
                     if (!parsed.success) return parsed;
-                    try {
-                        args.color = parse_color_choice(parsed.value);
-                        i++;
-                    } catch (error) {
-                        return {
-                            success: false,
-                            error: error instanceof Error
-                                ? error.message
-                                : String(error),
-                        };
-                    }
+                    args.color = parsed.value;
+                    i++;
                 }
                 break;
             case '--no-color':
@@ -359,50 +351,43 @@ function diagnostic_record(
     diagnostic: Diagnostic
 ): DiagnosticRecord {
     return {
-        path: file_path,
         relative_path: relative_path(workspace_root, file_path),
         diagnostic,
     };
-}
-
-function is_under_workspace(workspace_root: string, file_path: string): boolean {
-    const relative = path.relative(workspace_root, file_path);
-    return relative === ''
-        || (relative.length > 0 &&
-            !relative.startsWith('..') &&
-            !path.isAbsolute(relative));
 }
 
 export async function collect_check_diagnostics(
     context: CheckContext,
     workspace_root: string,
     config: StataLSPConfig,
-    targets: Array<{ path: string; relative_path: string; explicit: boolean }>
+    targets: ReportTarget[]
 ): Promise<DiagnosticRecord[]> {
     const records: DiagnosticRecord[] = [];
     const workspace_symbols = context.workspace_indexer.get_all_symbols();
     const indexed_files = context.workspace_indexer.get_indexed_files();
+    const files_indexed = context.workspace_indexer.get_metrics().files_indexed;
 
     for (const target of targets) {
-        const stats = fs.statSync(target.path);
         const uri = URI.file(target.path).toString();
-        if (target.explicit && stats.size > config.indexing.maxFileSizeBytes) {
-            records.push(diagnostic_record(
-                workspace_root,
-                target.path,
-                size_limit_diagnostic(
+        if (target.explicit) {
+            const stats = fs.statSync(target.path);
+            if (stats.size > config.indexing.maxFileSizeBytes) {
+                records.push(diagnostic_record(
+                    workspace_root,
                     target.path,
-                    stats.size,
-                    config.indexing.maxFileSizeBytes
-                )
-            ));
-            continue;
+                    size_limit_diagnostic(
+                        target.path,
+                        stats.size,
+                        config.indexing.maxFileSizeBytes
+                    )
+                ));
+                continue;
+            }
         }
         if (
             target.explicit &&
-            is_under_workspace(workspace_root, target.path) &&
-            context.workspace_indexer.get_metrics().files_indexed
-                >= config.cross_file.max_indexed_files &&
+            is_within_workspace(workspace_root, target.path) &&
+            files_indexed >= config.cross_file.max_indexed_files &&
             !indexed_files.has(uri)
         ) {
             records.push(diagnostic_record(
@@ -461,7 +446,7 @@ export async function collect_check_diagnostics(
         }
     }
 
-    return records.sort(compare_diagnostic_records);
+    return records;
 }
 
 function check_help_text(): string {
@@ -483,10 +468,6 @@ OPTIONS:
     --no-color                  Alias for --color never
     -h, --help                  Show this help message
 `.trim();
-}
-
-export function print_check_help(): void {
-    console.log(check_help_text());
 }
 
 export async function run_check_with_cwd(
