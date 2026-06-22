@@ -95,4 +95,37 @@ describe('sight check source files', () => {
             expect(result.diagnostic.severity).toBe(DiagnosticSeverity.Error);
         }
     });
+
+    it('reports the bad byte offset after valid multi-byte sequences', () => {
+        const root = temp_dir();
+        const bad = path.join(root, 'bad.do');
+        // "d" + "é" (0xC3 0xA9) + lone continuation byte 0x80 at index 3.
+        fs.writeFileSync(bad, Buffer.from([0x64, 0xC3, 0xA9, 0x80]));
+
+        const result = read_source_file(bad);
+
+        expect(result.kind).toBe('decode-error');
+        if (result.kind === 'decode-error') {
+            expect(result.diagnostic.message).toContain('offset 3');
+        }
+    });
+
+    it('locates the bad byte offset in a large file without quadratic cost', () => {
+        const root = temp_dir();
+        const bad = path.join(root, 'big.do');
+        // 500k valid ASCII bytes then one invalid byte: an O(n^2) scan would
+        // stall here, so this doubles as a performance regression guard.
+        const bytes = Buffer.concat([
+            Buffer.alloc(500_000, 0x61),
+            Buffer.from([0x80]),
+        ]);
+        fs.writeFileSync(bad, bytes);
+
+        const result = read_source_file(bad);
+
+        expect(result.kind).toBe('decode-error');
+        if (result.kind === 'decode-error') {
+            expect(result.diagnostic.message).toContain('offset 500000');
+        }
+    });
 });

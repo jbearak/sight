@@ -171,13 +171,22 @@ export function index_limit_diagnostic(file_path: string): Diagnostic {
 }
 
 function utf8_error_offset(bytes: Buffer): number {
+    // Feed bytes incrementally so each step is O(1) — re-decoding a growing
+    // prefix every iteration would be O(n^2) on large files. Valid multi-byte
+    // sequences are buffered across stream chunks, so only a genuinely invalid
+    // byte throws.
     const decoder = new TextDecoder('utf-8', { fatal: true });
-    for (let i = 0; i <= bytes.length; i++) {
+    for (let i = 0; i < bytes.length; i++) {
         try {
-            decoder.decode(bytes.subarray(0, i));
+            decoder.decode(bytes.subarray(i, i + 1), { stream: true });
         } catch {
-            return Math.max(0, i - 1);
+            return i;
         }
+    }
+    try {
+        decoder.decode(); // flush: throws on a trailing incomplete sequence
+    } catch {
+        return Math.max(0, bytes.length - 1);
     }
     return 0;
 }
