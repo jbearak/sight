@@ -113,6 +113,9 @@ jobs:
       - name: Smoke-test Linux x64 binary
         run: bun scripts/smoke-stdio-startup.ts ./bin/sight-linux-x64
 
+      - name: Build Windows ARM64 binary
+        run: bun scripts/build-binary.ts target sight-windows-arm64.exe
+
       - name: Upload Linux binaries
         # Pinned action SHA for supply-chain safety (see note above).
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -123,6 +126,16 @@ jobs:
           path: |
             bin/sight-linux-x64
             bin/sight-linux-arm64
+
+      - name: Upload Windows ARM64 binary
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-windows-arm64
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            bin/sight-windows-arm64.exe
 
   darwin-binaries:
     permissions:
@@ -149,9 +162,6 @@ jobs:
           codesign --verify --verbose ./bin/sight-darwin-arm64
           bun scripts/smoke-stdio-startup.ts ./bin/sight-darwin-arm64
 
-      - name: Build Windows ARM64 binary
-        run: bun scripts/build-binary.ts target sight-windows-arm64.exe
-
       - name: Upload macOS binary
         # Pinned action SHA for supply-chain safety (see note above).
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -162,15 +172,6 @@ jobs:
           path: |
             bin/sight-darwin-arm64
 
-      - name: Upload Windows ARM64 binary
-        # Pinned action SHA for supply-chain safety (see note above).
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-windows-arm64
-          if-no-files-found: error
-          retention-days: 30
-          path: |
-            bin/sight-windows-arm64.exe
 
   windows-binaries:
     permissions:
