@@ -149,6 +149,9 @@ jobs:
           codesign --verify --verbose ./bin/sight-darwin-arm64
           bun scripts/smoke-stdio-startup.ts ./bin/sight-darwin-arm64
 
+      - name: Build Windows ARM64 binary
+        run: bun scripts/build-binary.ts target sight-windows-arm64.exe
+
       - name: Upload macOS binary
         # Pinned action SHA for supply-chain safety (see note above).
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -158,6 +161,16 @@ jobs:
           retention-days: 30
           path: |
             bin/sight-darwin-arm64
+
+      - name: Upload Windows ARM64 binary
+        # Pinned action SHA for supply-chain safety (see note above).
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-windows-arm64
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            bin/sight-windows-arm64.exe
 
   windows-binaries:
     permissions:
@@ -174,27 +187,25 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Build Windows binaries
+      - name: Build Windows x64 binary
         shell: bash
         run: |
           set -euo pipefail
           bun scripts/build-binary.ts target sight-windows-x64.exe
-          bun scripts/build-binary.ts target sight-windows-arm64.exe
 
       - name: Smoke-test Windows x64 binary
         shell: bash
         run: bun scripts/smoke-stdio-startup.ts ./bin/sight-windows-x64.exe
 
-      - name: Upload Windows binaries
+      - name: Upload Windows x64 binary
         # Pinned action SHA for supply-chain safety (see note above).
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-windows
+          name: release-windows-x64
           if-no-files-found: error
           retention-days: 30
           path: |
             bin/sight-windows-x64.exe
-            bin/sight-windows-arm64.exe
 
   assemble:
     permissions:
@@ -226,10 +237,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh run download "$GITHUB_RUN_ID" --name release-darwin --dir bin
 
-      - name: Download Windows binaries
+      - name: Download Windows x64 binary
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh run download "$GITHUB_RUN_ID" --name release-windows --dir bin
+        run: gh run download "$GITHUB_RUN_ID" --name release-windows-x64 --dir bin
+
+      - name: Download Windows ARM64 binary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$GITHUB_RUN_ID" --name release-windows-arm64 --dir bin
 
       - name: Validate release artifacts
         shell: bash
