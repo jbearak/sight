@@ -1368,7 +1368,10 @@ describe('binary command name', () => {
             'gh run download "$GITHUB_RUN_ID" --name release-darwin --dir bin'
         );
         expect(workflow_content).toContain(
-            'gh run download "$GITHUB_RUN_ID" --name release-windows --dir bin'
+            'gh run download "$GITHUB_RUN_ID" --name release-windows-x64 --dir bin'
+        );
+        expect(workflow_content).toContain(
+            'gh run download "$GITHUB_RUN_ID" --name release-windows-arm64 --dir bin'
         );
         expect(get_upload_artifact_paths(
             workflow_content,
@@ -1386,9 +1389,15 @@ describe('binary command name', () => {
         expect(get_upload_artifact_paths(
             workflow_content,
             'windows-binaries',
-            'Upload Windows binaries'
+            'Upload Windows x64 binary'
         )).toEqual([
             'bin/sight-windows-x64.exe',
+        ]);
+        expect(get_upload_artifact_paths(
+            workflow_content,
+            'linux-binaries',
+            'Upload Windows ARM64 binary'
+        )).toEqual([
             'bin/sight-windows-arm64.exe',
         ]);
         expect(get_upload_artifact_paths(
