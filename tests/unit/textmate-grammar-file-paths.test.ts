@@ -356,3 +356,197 @@ describe('TextMate Grammar - filename arguments (#187)', () => {
         });
     });
 });
+
+describe('TextMate Grammar - import/export filename stems (#188)', () => {
+    describe('a command-name stem in the filename is inert', () => {
+        it('import/export <subcommand> <stem-named-as-command>', async () => {
+            // [line, stem-word]. The stem matches a command name; on the
+            // pre-#188 grammar it is split out and command-scoped, so this is
+            // a non-vacuous check.
+            for (const [my_line, my_stem] of [
+                ['import delimited table.csv', 'table'],
+                ['export delimited do.csv', 'do'],
+                ['import excel list.xlsx', 'list'],
+            ] as const) {
+                const tokens = await tokenize_stata(my_line);
+                expect(
+                    exact_token_has_command_scope(tokens, my_stem),
+                    `${my_line}: stem "${my_stem}" should be inert`
+                ).toBe(false);
+                expect(
+                    any_command_scope_on(
+                        tokens,
+                        my_line.split(' ').at(-1) as string
+                    ),
+                    `${my_line}: whole filename should be inert`
+                ).toBe(false);
+            }
+        });
+    });
+
+    describe('options after the filename still highlight', () => {
+        it('import delimited x.csv, clear → clear kept', async () => {
+            const tokens = await tokenize_stata('import delimited x.csv, clear');
+            expect(has_scope(find_token(tokens, 'clear'), DATA_CMD)).toBe(true);
+        });
+    });
+
+    describe('filename shapes the single-token region must consume whole', () => {
+        it('no-extension command-name stem is inert', async () => {
+            const tokens = await tokenize_stata('import delimited table');
+            expect(
+                exact_token_has_command_scope(tokens, 'table'),
+                'bare "table" filename should be inert'
+            ).toBe(false);
+        });
+
+        it('multi-dot filename is not split into a command stem', async () => {
+            const tokens = await tokenize_stata('import delimited list.tar.gz');
+            expect(
+                exact_token_has_command_scope(tokens, 'list'),
+                'list.tar.gz stem should be inert'
+            ).toBe(false);
+        });
+
+        it('quoted path keeps string scope (region includes #strings)', async () => {
+            const tokens = await tokenize_stata(
+                'import delimited "my save.csv"'
+            );
+            expect(
+                tokens.some((t) => t.scopes.some((s) => s.startsWith('string'))),
+                'quoted import path should be a string'
+            ).toBe(true);
+        });
+    });
+
+    describe('regression guards', () => {
+        it('import delimited using i.dta → i. inert, using kept', async () => {
+            const tokens = await tokenize_stata('import delimited using i.dta');
+            expect(factor_texts(tokens)).toEqual([]);
+            expect(has_scope(find_token(tokens, 'using'), OTHER_KW)).toBe(true);
+        });
+
+        it('import delimited i.csv → i. inert (no #187 regression)', async () => {
+            const tokens = await tokenize_stata('import delimited i.csv');
+            expect(factor_texts(tokens)).toEqual([]);
+        });
+
+        it('import command word still carries its data-command scope', async () => {
+            for (const my_line of [
+                'import delimited table.csv',
+                'import delimited using i.dta',
+            ]) {
+                const tokens = await tokenize_stata(my_line);
+                expect(
+                    has_scope(find_token(tokens, 'import'), DATA_CMD),
+                    `${my_line}: import kept`
+                ).toBe(true);
+            }
+        });
+    });
+
+    describe('insheet/infile/outsheet (full handling)', () => {
+        it('post-using filename stem is inert, using kept', async () => {
+            for (const [my_line, my_stem] of [
+                ['insheet using table.csv', 'table'],
+                ['outsheet using list.csv', 'list'],
+            ] as const) {
+                const tokens = await tokenize_stata(my_line);
+                expect(
+                    exact_token_has_command_scope(tokens, my_stem),
+                    `${my_line}: stem "${my_stem}" should be inert`
+                ).toBe(false);
+                expect(
+                    has_scope(find_token(tokens, 'using'), OTHER_KW),
+                    `${my_line}: using kept`
+                ).toBe(true);
+            }
+        });
+
+        it('a varlist before using keeps the post-using filename inert', async () => {
+            // Non-vacuous: `list` is a command name, so the post-`using`
+            // filename stem would be command-tinted if the fall-through to
+            // #path-after-using did not fire.
+            const tokens = await tokenize_stata(
+                'infile var1 var2 using list.csv'
+            );
+            expect(
+                exact_token_has_command_scope(tokens, 'list'),
+                'list.csv stem should be inert'
+            ).toBe(false);
+            expect(has_scope(find_token(tokens, 'using'), OTHER_KW)).toBe(true);
+        });
+    });
+
+    describe('filenames whose stem is the literal word "using"', () => {
+        // A real file can be named `using.dta`. The standalone-`using` guard
+        // must fire ONLY for `using` as a separate token (`... using file`),
+        // not for a path whose first component happens to be `using`. (Codex
+        // adversarial review, #188.)
+        // These assert OTHER_KW is absent ENTIRELY rather than probing for a
+        // `using` token by exact text: a broken guard splits `using` into its
+        // own keyword token, making OTHER_KW non-empty, so the check is
+        // non-vacuous regardless of how the filename is tokenized.
+        it('use/save using.dta → no spurious using keyword', async () => {
+            for (const my_line of ['use using.dta', 'save using.dta']) {
+                const tokens = await tokenize_stata(my_line);
+                expect(
+                    texts_with_scope(tokens, OTHER_KW),
+                    `${my_line}: "using" stem must not be the using keyword`
+                ).toEqual([]);
+            }
+        });
+
+        it('import delimited using.csv / using/file.csv → inert path', async () => {
+            for (const my_line of [
+                'import delimited using.csv',
+                'import delimited using/file.csv',
+            ]) {
+                const tokens = await tokenize_stata(my_line);
+                expect(
+                    texts_with_scope(tokens, OTHER_KW),
+                    `${my_line}: "using" stem must not be the using keyword`
+                ).toEqual([]);
+            }
+        });
+
+        it('using/file.csv keeps its command-named component inert', async () => {
+            // `file` is itself a command name; if the path were split on `/`
+            // the `file` component would be command-tinted. (Non-vacuous.)
+            const tokens = await tokenize_stata(
+                'import delimited using/file.csv'
+            );
+            expect(exact_token_has_command_scope(tokens, 'file')).toBe(false);
+        });
+
+        it('`using` is never swallowed as the import subcommand', async () => {
+            // `import using x` is not valid Stata, but the subcommand slot
+            // must not consume `using` — it stays the keyword. (Finder C, #188.)
+            const tokens = await tokenize_stata('import using x.csv');
+            expect(has_scope(find_token(tokens, 'using'), OTHER_KW)).toBe(true);
+        });
+
+        it('standalone `using` is still highlighted (guard is precise)', async () => {
+            const tokens = await tokenize_stata('import delimited using x.csv');
+            expect(has_scope(find_token(tokens, 'using'), OTHER_KW)).toBe(true);
+            expect(factor_texts(tokens)).toEqual([]);
+        });
+    });
+
+    describe('documented residual: a comment before the filename', () => {
+        it('import/export behaves identically to use/save', async () => {
+            // A `/* */` comment between the command and the filename ends the
+            // single-token path region early, so the filename is re-scanned by
+            // the top-level rules and a factor-letter stem re-tints. This is a
+            // shared limitation of ALL single-token path rules (introduced in
+            // #187, not by #188). #188 makes import/export CONSISTENT with
+            // use/save here rather than fixing it (the fix is a cross-cutting
+            // change to every path rule, out of scope). Asserting equality —
+            // not a specific scope — tracks the residual and ensures a future
+            // fix flips both together. (Codex adversarial review, #188.)
+            const io = await tokenize_stata('import delimited /* c */ i.csv');
+            const data = await tokenize_stata('use /* c */ i.dta');
+            expect(factor_texts(io)).toEqual(factor_texts(data));
+        });
+    });
+});

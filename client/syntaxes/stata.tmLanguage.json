@@ -7,7 +7,7 @@
         { "include": "#macros" },
         { "include": "#mata-inline" },
         { "include": "#mata-block" },
-        { "include": "#io-statement" },
+        { "include": "#path-after-io-command" },
         { "include": "#path-after-control-command" },
         { "include": "#path-after-data-command" },
         { "include": "#path-after-using" },
@@ -34,17 +34,15 @@
                 { "include": "#numbers" }
             ]
         },
-        "io-statement": {
-            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(import|export|insheet|infile|outsheet)\\b",
+        "path-after-io-command": {
+            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(import|export)\\b\\s+(?!using(?=\\s|[,;]|/[/*]|$))\\w+\\s+(?!using(?=\\s|[,;]|/[/*]|$))",
             "beginCaptures": {
                 "1": { "name": "keyword.functions.data.stata" }
             },
-            "end": "(?=[;]|$)",
+            "end": "(?=\\s|[,;]|/[/*]|$)",
             "patterns": [
-                { "include": "#comments" },
                 { "include": "#strings" },
-                { "include": "#macros" },
-                { "include": "#statement-content" }
+                { "include": "#macros" }
             ]
         },
         "path-after-control-command": {
@@ -59,7 +57,7 @@
             ]
         },
         "path-after-data-command": {
-            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(u(s(e)?)?|sa(v(e)?)?|saveold)\\b\\s+",
+            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(u(s(e)?)?|sa(v(e)?)?|saveold|insheet|infile|outsheet)\\b\\s+(?!using(?=\\s|[,;]|/[/*]|$))",
             "beginCaptures": {
                 "1": { "name": "keyword.functions.data.stata" }
             },
