@@ -13,6 +13,7 @@ import {
     tokenize_stata,
     find_token,
     has_scope,
+    texts_with_scope,
     type ScopedToken,
 } from './helpers/textmate-tokenizer';
 
@@ -30,9 +31,7 @@ function expect_factor(the_tokens: ScopedToken[], text: string): void {
 
 // All token texts that carry the factor scope, in source order.
 function factor_token_texts(the_tokens: ScopedToken[]): string[] {
-    return the_tokens
-        .filter((my_token) => has_scope(my_token, FACTOR))
-        .map((my_token) => my_token.text);
+    return texts_with_scope(the_tokens, FACTOR);
 }
 
 describe('TextMate Grammar - Factor Variables (tokenizer)', () => {
