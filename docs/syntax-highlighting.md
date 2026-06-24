@@ -47,6 +47,8 @@ The LSP provides comprehensive syntax highlighting through TextMate grammar scop
 |               | `keyword.operator.comparison.stata` | `==`, `!=`, `<`, `>` |
 |               | `keyword.operator.logical.stata`    | `&`, `\|`, `!`       |
 |               | `keyword.operator.assignment.stata` | `=`                  |
+|               | `keyword.operator.interaction.stata` | `#`                 |
+|               | `keyword.operator.factor.stata`     | `i.`, `c.`, `o.`, `b2.`, `ibn.`, `i(1/3).` |
 | **Programs**  | `storage.type.function.stata`       | `program` keyword    |
 |               | `entity.name.function.stata`        | Program names        |
 

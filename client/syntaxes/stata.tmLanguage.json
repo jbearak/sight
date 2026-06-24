@@ -7,6 +7,7 @@
         { "include": "#macros" },
         { "include": "#mata-inline" },
         { "include": "#mata-block" },
+        { "include": "#factor-variables" },
         { "include": "#program-definition" },
         { "include": "#keywords" },
         { "include": "#commands-file-execution" },
@@ -25,11 +26,7 @@
     "repository": {
         "comments": {
             "patterns": [
-                {
-                    "begin": "/\\*",
-                    "end": "\\*/",
-                    "name": "comment.block.stata"
-                },
+                { "include": "#block-comment" },
                 {
                     "match": "^\\s*\\*.*$",
                     "name": "comment.line.star.stata"
@@ -43,6 +40,18 @@
                     "name": "comment.line.double-slash.stata"
                 }
             ]
+        },
+        "block-comment": {
+            "begin": "/\\*",
+            "end": "\\*/",
+            "name": "comment.block.stata",
+            "patterns": [
+                { "include": "#block-comment" }
+            ]
+        },
+        "factor-variables": {
+            "match": "(?<![A-Za-z0-9_.])(ibn|ib|bn|i|c|o|b)(\\d+|\\((?:[0-9 ,/]+|first|last|freq|#\\d+)\\))?\\.(?=[A-Za-z_(])",
+            "name": "keyword.operator.factor.stata"
         },
         "strings": {
             "patterns": [
