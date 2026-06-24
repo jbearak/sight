@@ -23,6 +23,7 @@ import {
     tokenize_stata,
     find_token,
     has_scope,
+    texts_with_scope,
     type ScopedToken,
 } from './helpers/textmate-tokenizer';
 
@@ -33,9 +34,7 @@ const OTHER_KW = 'keyword.other.stata';
 
 // All token texts carrying the factor-operator scope, in source order.
 function factor_texts(the_tokens: ScopedToken[]): string[] {
-    return the_tokens
-        .filter((my_token) => my_token.scopes.includes(FACTOR))
-        .map((my_token) => my_token.text);
+    return texts_with_scope(the_tokens, FACTOR);
 }
 
 // Does ANY token carry one of the "command-ish" scopes the bugs produced?

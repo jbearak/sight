@@ -139,3 +139,15 @@ export function has_scope(
 ): boolean {
     return !!token && token.scopes.includes(scope);
 }
+
+/**
+ * Convenience: the texts of all tokens carrying `scope`, in source order.
+ */
+export function texts_with_scope(
+    the_tokens: ScopedToken[],
+    scope: string
+): string[] {
+    return the_tokens
+        .filter((my_token) => my_token.scopes.includes(scope))
+        .map((my_token) => my_token.text);
+}
