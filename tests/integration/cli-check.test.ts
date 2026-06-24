@@ -63,7 +63,10 @@ describe('sight check integration', () => {
         );
         fs.writeFileSync(path.join(root, 'main.do'), "display \"`missing'\"\n");
 
-        const result = await run_capture(['--workspace', root, '--max-severity', 'info'], root);
+        const result = await run_capture(
+            ['--workspace', root, '--max-severity', 'info', '--no-color'],
+            root
+        );
 
         expect(result.code).toBe(EXIT_OK);
         expect(result.stdout).toContain('info:');
