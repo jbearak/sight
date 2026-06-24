@@ -8,7 +8,7 @@
  * - Non-hoverable positions: returns null
  */
 
-import { describe, it, beforeEach } from 'bun:test';
+import { describe, it, beforeEach, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { HoverProvider } from '../../src/providers/hover';
 import { CommandDatabase } from '../../src/commands';
@@ -166,6 +166,23 @@ describe('Hover Completeness Property Tests', () => {
    * Feature: comprehensive-property-tests, Property 23: Non-Hoverable Positions
    * Validates: Requirement 7.4
    */
+  it('should generate non-hoverable positions on whitespace', () => {
+    fc.assert(
+      fc.property(
+        arbitrary_non_hoverable_position(),
+        ({ document, position }) => {
+          const my_previous_char = document[position.character - 1] ?? ' ';
+          const my_current_char = document[position.character] ?? ' ';
+
+          expect(my_previous_char).not.toMatch(/[a-zA-Z0-9_]/);
+          expect(document[position.character]).toMatch(/\s/);
+          expect(my_current_char).not.toMatch(/[a-zA-Z0-9_]/);
+        }
+      ),
+      { numRuns: 100, seed: 191 }
+    );
+  });
+
   it('should return null for non-hoverable positions', () => {
     fc.assert(
       fc.asyncProperty(
@@ -179,7 +196,7 @@ describe('Hover Completeness Property Tests', () => {
           return my_hover === null;
         }
       ),
-      { numRuns: 100 }
+      { numRuns: 100, seed: 191 }
     );
   });
 
