@@ -11,6 +11,7 @@
         { "include": "#path-after-control-command" },
         { "include": "#path-after-data-command" },
         { "include": "#path-after-using" },
+        { "include": "#path-after-fs-command" },
         { "include": "#factor-variables" },
         { "include": "#statement-content" }
     ],
@@ -34,7 +35,7 @@
             ]
         },
         "io-statement": {
-            "begin": "(?:^|[;:])\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(import|export|insheet|infile|outsheet)\\b",
+            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(import|export|insheet|infile|outsheet)\\b",
             "beginCaptures": {
                 "1": { "name": "keyword.functions.data.stata" }
             },
@@ -47,22 +48,22 @@
             ]
         },
         "path-after-control-command": {
-            "begin": "(?:^|[;:])\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(do|run|include)\\b\\s+",
+            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(do|run|include)\\b\\s+",
             "beginCaptures": {
                 "1": { "name": "keyword.control.flow.stata" }
             },
-            "end": "(?=\\s|[,;]|//|$)",
+            "end": "(?=\\s|[,;]|/[/*]|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
             ]
         },
         "path-after-data-command": {
-            "begin": "(?:^|[;:])\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(u(s(e)?)?|sa(v(e)?)?|saveold)\\b\\s+",
+            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(u(s(e)?)?|sa(v(e)?)?|saveold)\\b\\s+",
             "beginCaptures": {
                 "1": { "name": "keyword.functions.data.stata" }
             },
-            "end": "(?=\\s|[,;]|//|$)",
+            "end": "(?=\\s|[,;]|/[/*]|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -73,7 +74,18 @@
             "beginCaptures": {
                 "1": { "name": "keyword.other.stata" }
             },
-            "end": "(?=\\s|[,;]|//|$)",
+            "end": "(?=\\s|[,;]|/[/*]|$)",
+            "patterns": [
+                { "include": "#strings" },
+                { "include": "#macros" }
+            ]
+        },
+        "path-after-fs-command": {
+            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(cd|erase|mkdir|rmdir|copy|dir|ls|shell|type)\\b\\s+",
+            "beginCaptures": {
+                "1": { "name": "keyword.other.command.stata" }
+            },
+            "end": "(?=\\s|[,;]|/[/*]|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }

@@ -167,6 +167,14 @@ describe('TextMate Grammar - filename arguments (#187)', () => {
             }
         });
 
+        it('stops at a /* block comment with no leading space', async () => {
+            const tokens = await tokenize_stata('use i.dta/* c */');
+            expect(factor_texts(tokens)).toEqual([]);
+            expect(
+                tokens.some((t) => t.scopes.some((s) => s.startsWith('comment.block')))
+            ).toBe(true);
+        });
+
         it('does not swallow a following `;`-separated statement', async () => {
             // delimit-style two statements on one physical line: the factor in
             // the SECOND statement must remain tinted.
@@ -174,6 +182,56 @@ describe('TextMate Grammar - filename arguments (#187)', () => {
                 'import delimited i.csv; regress y i.x'
             );
             expect(factor_texts(tokens)).toEqual(['i.']);
+        });
+    });
+
+    describe('direct filesystem commands', () => {
+        it('cd/erase/mkdir/rmdir/dir/ls/shell/type stems are inert', async () => {
+            for (const my_line of [
+                'cd i.dir',
+                'erase i.do',
+                'mkdir i.foo',
+                'rmdir o.bar',
+                'ls i.x',
+                'dir i.x',
+                'shell i.x',
+                'type i.do',
+            ]) {
+                expect(factor_texts(await tokenize_stata(my_line)), my_line).toEqual([]);
+            }
+        });
+
+        it('copy fixes the first path; the second is a documented residual', async () => {
+            // copy takes TWO paths; the single-token anchor neutralizes the
+            // first, so only the second stem tints (see spec §6).
+            const tokens = await tokenize_stata('copy i.do c.do');
+            expect(factor_texts(tokens)).toEqual(['c.']);
+        });
+
+        it('does NOT fire on extended macro functions (: type / : copy / : dir)', async () => {
+            // These share a name with fs commands but are macro extended
+            // functions after `:`; the anchor excludes `:` so the extended-fn
+            // rule still wins (the fs command rule must NOT have fired and
+            // re-scoped the keyword as a command).
+            const EXT_FN = 'keyword.macro.extendedfcn.stata';
+            const FS_CMD = 'keyword.other.command.stata';
+            for (const my_line of [
+                'local x : type price',
+                'local x : copy price',
+                'local x : dir',
+            ]) {
+                const tokens = await tokenize_stata(my_line);
+                // extended-fn rule recognized it...
+                expect(
+                    tokens.some((t) => t.scopes.includes(EXT_FN)),
+                    `${my_line}: extended fn should be recognized`
+                ).toBe(true);
+                // ...and it was NOT re-scoped as an fs command.
+                expect(
+                    tokens.some((t) => t.scopes.includes(FS_CMD)),
+                    `${my_line}: must not be scoped as a command`
+                ).toBe(false);
+            }
         });
     });
 

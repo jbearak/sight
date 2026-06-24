@@ -86,12 +86,17 @@ describe('TextMate Grammar - Star Comment Patterns', () => {
             const comment_index = top_patterns.findIndex(
                 (p: { include?: string }) => p.include === '#comments'
             );
-            // Find first command-related pattern. Command rules may be
-            // included directly (#commands-*) or via the #statement-content
-            // group that houses them after the #187 file-path refactor.
+            // Find the first command-consuming pattern. Command rules may be
+            // included directly (#commands-*), via the #statement-content group
+            // that houses them after the #187 file-path refactor, or via the
+            // file-path/io rules (#io-statement, #path-after-*) that consume
+            // command keywords and their arguments. Comments must precede ALL
+            // of these so a `* ...` / `// ...` line is never mis-tokenized.
             const command_index = top_patterns.findIndex(
                 (p: { include?: string }) =>
                     p.include?.startsWith('#commands') ||
+                    p.include?.startsWith('#path-after') ||
+                    p.include === '#io-statement' ||
                     p.include === '#statement-content'
             );
 
