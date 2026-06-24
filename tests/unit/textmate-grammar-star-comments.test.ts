@@ -52,10 +52,7 @@ describe('TextMate Grammar - Star Comment Patterns', () => {
             const my_source = 'display * expr';
             // The pattern should not match because * is not at start of line
             const my_match = my_source.match(pattern);
-            // If there's a match, it should not include the * after display
-            if (my_match) {
-                expect(my_match[0]).not.toContain('display');
-            }
+            expect(my_match).toBeNull();
         });
         
         it('should match * on new line inside braces', () => {
@@ -72,10 +69,8 @@ describe('TextMate Grammar - Star Comment Patterns', () => {
             const my_lines = my_source.split('\n');
             for (const my_line of my_lines) {
                 const my_match = my_line.match(pattern);
-                if (my_match) {
-                    // If there's a match, it should be a line that starts with *
-                    expect(my_match[0].trim().startsWith('*')).toBe(true);
-                }
+                // No line starts with * so none should match the pattern
+                expect(my_match).toBeNull();
             }
         });
     });
