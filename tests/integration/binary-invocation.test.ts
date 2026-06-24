@@ -92,6 +92,23 @@ function run_binary(
     });
 }
 
+type BinaryHelpResult = {
+    status: number | null;
+    stdout: Buffer | string | null;
+};
+
+function binary_help_matches_current_source(result: BinaryHelpResult): boolean {
+    if (result.status !== 0) {
+        return false;
+    }
+
+    const stdout = result.stdout?.toString() ?? '';
+    const first_line = stdout.split('\n')[0] ?? '';
+
+    return first_line.startsWith(`${PRIMARY_BINARY_NAME} `)
+        && first_line.includes(CLI_DESCRIPTION);
+}
+
 describe('Binary Invocation', () => {
     it('should print help with --help flag', async () => {
         const result = await run_cli(['--help']);
@@ -186,6 +203,48 @@ describe('CLI Entry Point Detection', () => {
     });
 });
 
+describe('Compiled Binary Freshness Detection', () => {
+    it('rejects stale binaries whose help text does not match current source', () => {
+        const stale_result = {
+            status: 0,
+            stdout: Buffer.from(
+                'Sight - Language Server Protocol implementation for Stata\n' +
+                '\nUSAGE:\n  sight [options]\n\n  --stdio\n'
+            ),
+        };
+
+        expect(binary_help_matches_current_source(stale_result)).toBe(false);
+    });
+
+    it('accepts binaries whose help text matches current source', () => {
+        const fresh_result = {
+            status: 0,
+            stdout: Buffer.from(
+                `${PRIMARY_BINARY_NAME} 1.2.3, ${CLI_DESCRIPTION}\n` +
+                '\nUSAGE:\n  sight [options]\n\n  --stdio\n'
+            ),
+        };
+
+        expect(binary_help_matches_current_source(fresh_result)).toBe(true);
+    });
+
+    it('does not use smoke-test assertions for freshness detection', () => {
+        const fresh_result_with_help_regression = {
+            status: 0,
+            stdout: Buffer.from(
+                `${PRIMARY_BINARY_NAME} 1.2.3, ${CLI_DESCRIPTION}\n` +
+                '\nUSAGE:\n  sight [options]\n\n'
+            ),
+        };
+
+        expect(
+            binary_help_matches_current_source(
+                fresh_result_with_help_regression
+            )
+        ).toBe(true);
+    });
+});
+
 
 /**
  * Smoke tests for the compiled binary.
@@ -199,13 +258,14 @@ describe('Compiled Binary Smoke Tests', () => {
         : null;
     const binary_file_exists = binary_path && existsSync(binary_path);
     
-    // Check if binary is actually runnable (not just present on disk)
-    // The binary may exist but crash on startup due to bundling issues
+    // Check if binary is runnable and was built from current source metadata.
+    // A stale local artifact can execute successfully but report old help text.
     let binary_is_functional = false;
     if (binary_file_exists && binary_path) {
         try {
             const result = spawnSync(binary_path, ['--help'], { timeout: 5000 });
-            binary_is_functional = result.status === 0;
+            binary_is_functional =
+                binary_help_matches_current_source(result);
         } catch {
             binary_is_functional = false;
         }
