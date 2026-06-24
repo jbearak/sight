@@ -425,12 +425,15 @@ export function arbitrary_non_hoverable_position(): fc.Arbitrary<{
   document: string;
   position: { line: number; character: number };
 }> {
-  return fc
-    .tuple(arbitrary_command_name(), fc.integer({ min: 0, max: 5 }))
-    .map(([my_cmd, my_offset]) => ({
-      document: `  ${my_cmd}  `,
-      position: { line: 0, character: my_offset },
-    }));
+  return arbitrary_command_name().chain((my_cmd) => {
+    const my_document = `  ${my_cmd}  `;
+    return fc
+      .constantFrom(0, 1, my_cmd.length + 3)
+      .map((my_character) => ({
+        document: my_document,
+        position: { line: 0, character: my_character },
+      }));
+  });
 }
 
 /**
@@ -489,6 +492,4 @@ export function arbitrary_document_with_mixed_symbols(): fc.Arbitrary<{
       return { document: my_document, expected_symbols: my_symbols };
     });
 }
-
-
 
