@@ -106,8 +106,7 @@ function binary_help_matches_current_source(result: BinaryHelpResult): boolean {
     const first_line = stdout.split('\n')[0] ?? '';
 
     return first_line.startsWith(`${PRIMARY_BINARY_NAME} `)
-        && first_line.includes(CLI_DESCRIPTION)
-        && stdout.includes('--stdio');
+        && first_line.includes(CLI_DESCRIPTION);
 }
 
 describe('Binary Invocation', () => {
@@ -227,6 +226,22 @@ describe('Compiled Binary Freshness Detection', () => {
         };
 
         expect(binary_help_matches_current_source(fresh_result)).toBe(true);
+    });
+
+    it('does not use smoke-test assertions for freshness detection', () => {
+        const fresh_result_with_help_regression = {
+            status: 0,
+            stdout: Buffer.from(
+                `${PRIMARY_BINARY_NAME} 1.2.3, ${CLI_DESCRIPTION}\n` +
+                '\nUSAGE:\n  sight [options]\n\n'
+            ),
+        };
+
+        expect(
+            binary_help_matches_current_source(
+                fresh_result_with_help_regression
+            )
+        ).toBe(true);
     });
 });
 
