@@ -51,7 +51,7 @@ jobs:
         #       # if object.type == "tag":
         #       gh api repos/<OWNER>/<REPO>/git/tags/<SHA_FROM_REF>
         #  3) Replace the SHA in the uses: line; keep the trailing "# vX" comment.
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ inputs.tag }}
 
@@ -141,8 +141,8 @@ jobs:
 
       - name: Create GitHub Release
         # Pinned action SHA for supply-chain safety.
-        # Tag v2.5.0 -> commit a06a81a03ee405af7f2048a818ed3f03bbf83c7b
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        # Tag v3.0.1 -> commit 2bb465e97f322d3cb2a965294d483e0d26a67aa9
+        uses: softprops/action-gh-release@2bb465e97f322d3cb2a965294d483e0d26a67aa9 # v3.0.1
         with:
           tag_name: ${{ inputs.tag }}
           name: Release ${{ inputs.tag }}
