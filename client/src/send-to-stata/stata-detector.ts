@@ -22,8 +22,9 @@ export async function detect_stata_app(): Promise<StataVariant | null> {
     const setting_value = config.get<string>('stataApp');
     
     // Validate setting_value against allowed variants before using it
-    if (setting_value && VALID_VARIANTS.includes(setting_value as StataVariant)) {
-        return setting_value as StataVariant;
+    const my_setting = setting_value as StataVariant;
+    if (setting_value && VALID_VARIANTS.includes(my_setting)) {
+        return my_setting;
     }
     // If setting_value is invalid, fall through to auto-detection
     
