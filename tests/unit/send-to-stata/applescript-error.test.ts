@@ -11,7 +11,10 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { friendly_applescript_error } from '../../../client/src/send-to-stata/applescript';
+import {
+    friendly_applescript_error,
+    settle_osascript_result,
+} from '../../../client/src/send-to-stata/applescript';
 
 describe('friendly_applescript_error', () => {
     const not_permitted =
@@ -43,7 +46,58 @@ describe('friendly_applescript_error', () => {
         expect(friendly_applescript_error(my_other, 'StataSE')).toBe(my_other);
     });
 
+    it('does not fire on a bare -1743 substring outside the code', () => {
+        // A path or value containing "-1743" must not be mistaken for the
+        // canonical "(-1743)" Apple Events permission code.
+        const my_unrelated =
+            '0:0: execution error: cannot read ' +
+            '/Users/me/project-1743/data.dta. (-43)';
+        expect(friendly_applescript_error(my_unrelated, 'StataSE'))
+            .toBe(my_unrelated);
+    });
+
     it('passes an empty message through unchanged', () => {
         expect(friendly_applescript_error('', 'Stata')).toBe('');
+    });
+});
+
+describe('settle_osascript_result', () => {
+    // Guards the wiring shared by the exec/execFile call sites: the
+    // friendly translation must be applied on the reject path, so the
+    // helper cannot be silently unwired without failing a test.
+    it('resolves when there is no error', () => {
+        let resolved = false;
+        settle_osascript_result(
+            null,
+            'StataSE',
+            () => { resolved = true; },
+            () => { throw new Error('should not reject on success'); }
+        );
+        expect(resolved).toBe(true);
+    });
+
+    it('rejects with friendly guidance on a -1743 failure', () => {
+        let my_reason: Error | undefined;
+        settle_osascript_result(
+            new Error('execution error: Not authorized ... (-1743)'),
+            'StataMP',
+            () => { throw new Error('should not resolve on failure'); },
+            (reason) => { my_reason = reason; }
+        );
+        expect(my_reason?.message).toContain('Automation permission');
+        expect(my_reason?.message).toContain('StataMP');
+        expect(my_reason?.message).not.toContain('-1743');
+    });
+
+    it('rejects with the raw message on unrelated failures', () => {
+        const raw_message = 'execution error: not running. (-600)';
+        let my_reason: Error | undefined;
+        settle_osascript_result(
+            new Error(raw_message),
+            'StataSE',
+            () => { throw new Error('should not resolve on failure'); },
+            (reason) => { my_reason = reason; }
+        );
+        expect(my_reason?.message).toBe(raw_message);
     });
 });

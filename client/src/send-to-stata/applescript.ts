@@ -7,11 +7,14 @@ const VALID_STATA_APPS: readonly StataVariant[] = [
 const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
 
 /**
- * macOS Apple Events permission error code (errAEEventNotPermitted).
- * Raised when the editor has not been granted Automation access to the
- * target app under System Settings → Privacy & Security → Automation.
+ * macOS Apple Events permission error (errAEEventNotPermitted).
+ * Raised when the editor has not been granted Automation access to
+ * the target app under System Settings → Privacy & Security →
+ * Automation. We match the code in its canonical parenthesized form
+ * so a bare `-1743` elsewhere in the message (e.g. a file path) does
+ * not trigger a false positive.
  */
-const APPLE_EVENTS_NOT_PERMITTED_CODE = '-1743';
+const APPLE_EVENTS_NOT_PERMITTED_TOKEN = '(-1743)';
 
 /**
  * Translate a raw `osascript` failure message into actionable guidance.
@@ -27,7 +30,7 @@ export function friendly_applescript_error(
     raw_message: string,
     stata_app: StataVariant
 ): string {
-    if (raw_message.includes(APPLE_EVENTS_NOT_PERMITTED_CODE)) {
+    if (raw_message.includes(APPLE_EVENTS_NOT_PERMITTED_TOKEN)) {
         return (
             `macOS blocked your editor from controlling ${stata_app} ` +
             `(Automation permission). Open System Settings → Privacy & ` +
@@ -39,6 +42,28 @@ export function friendly_applescript_error(
         );
     }
     return raw_message;
+}
+
+/**
+ * Settles an `osascript` Promise from a Node child-process callback.
+ *
+ * Shared by the `exec`/`execFile` call sites so the friendly-error
+ * translation is wired in exactly one place: on failure it rejects with
+ * the translated message; on success it resolves.
+ */
+export function settle_osascript_result(
+    error: Error | null | undefined,
+    stata_app: StataVariant,
+    resolve: () => void,
+    reject: (reason: Error) => void
+): void {
+    if (error) {
+        reject(new Error(
+            friendly_applescript_error(error.message, stata_app)
+        ));
+    } else {
+        resolve();
+    }
 }
 
 /**
@@ -91,13 +116,7 @@ export function send_to_stata_app(
         // preventing any shell interpretation of special characters.
         const shell_safe_cmd = applescript_cmd.replace(/'/g, "'\\''");
         exec(`osascript -e '${shell_safe_cmd}'`, (error) => {
-            if (error) {
-                reject(new Error(
-                    friendly_applescript_error(error.message, stata_app)
-                ));
-            } else {
-                resolve();
-            }
+            settle_osascript_result(error, stata_app, resolve, reject);
         });
     });
 }
