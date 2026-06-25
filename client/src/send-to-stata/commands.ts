@@ -11,7 +11,10 @@ import {
     create_temp_file,
     schedule_temp_file_cleanup
 } from './temp-file.js';
-import { detect_stata_app } from './stata-detector.js';
+import {
+    detect_stata_app,
+    STATA_APP_NOT_FOUND_MESSAGE
+} from './stata-detector.js';
 import { send_to_stata_app } from './applescript.js';
 import { send_to_terminal } from './terminal.js';
 import {
@@ -271,12 +274,7 @@ async function handle_send_command(
                     const my_stata_app = await detect_stata_app();
                     if (!my_stata_app) {
                         vscode.window.showErrorMessage(
-                            'Stata not found. Install Stata in ' +
-                            '/Applications/Stata/ or ' +
-                            '/Applications/StataNow/, or set ' +
-                            'sight.sendToStata.stataApp to a variant ' +
-                            'name (StataMP, StataSE, StataBE, StataIC, ' +
-                            'or Stata).');
+                            STATA_APP_NOT_FOUND_MESSAGE);
                         return;
                     }
 

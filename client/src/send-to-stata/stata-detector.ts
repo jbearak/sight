@@ -10,6 +10,16 @@ const VALID_VARIANTS: readonly StataVariant[] = [
     'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'
 ];
 
+/**
+ * User-facing message shown when no Stata GUI app can be located on
+ * macOS. Shared by the send and cd command handlers so the wording and
+ * install-path guidance live in one place.
+ */
+export const STATA_APP_NOT_FOUND_MESSAGE =
+    'Stata not found. Install Stata in /Applications/Stata/ or ' +
+    '/Applications/StataNow/, or set sight.sendToStata.stataApp to a ' +
+    'variant name (StataMP, StataSE, StataBE, StataIC, or Stata).';
+
 let cached_stata_app: StataVariant | null | undefined = undefined;
 
 export async function detect_stata_app(): Promise<StataVariant | null> {
