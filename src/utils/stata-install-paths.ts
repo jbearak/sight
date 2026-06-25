@@ -35,6 +35,9 @@ const WINDOWS_VARIANT_DIRS = ['Stata'];
 // `/Applications/StataNow/` rather than `/Applications/Stata/` (the .app
 // bundle inside is still named by flavour, e.g. `StataSE.app`). We probe
 // both roots so ado/help discovery works regardless of channel.
+// NOTE: the VS Code extension keeps a parallel macOS root list in
+// `client/src/send-to-stata/stata-install-roots.ts`; the two are separate
+// build units, so keep the StataNow entry in sync across both.
 const MAC_VARIANT_DIRS = [
     'Stata', 'StataMP', 'StataSE', 'StataBE', 'StataIC', 'StataNow',
 ];

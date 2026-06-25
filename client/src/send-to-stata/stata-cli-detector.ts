@@ -9,10 +9,13 @@ import { macos_cli_candidate_paths } from './stata-install-roots.js';
  * CLI binary names in priority order, per platform.
  * Windows uses PascalCase names; Unix uses lowercase with hyphens.
  */
+// Edition priority order (most capable first), matching the GUI
+// detector's VALID_VARIANTS so app sends and terminal sends pick the
+// same edition when several are installed.
 const UNIX_CLI_BINARIES: readonly string[] =
-    ['stata-mp', 'stata-se', 'stata-ic', 'stata-be', 'stata'];
+    ['stata-mp', 'stata-se', 'stata-be', 'stata-ic', 'stata'];
 const WIN_CLI_BINARIES: readonly string[] =
-    ['StataMP', 'StataSE', 'StataIC', 'StataBE', 'Stata'];
+    ['StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'];
 
 function get_cli_binaries(): readonly string[] {
     return process.platform === 'win32'

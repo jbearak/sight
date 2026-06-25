@@ -18,8 +18,10 @@ const VARIANTS: readonly StataVariant[] = [
     'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata',
 ];
 
-function make_exists(the_present: string[]): (p: string) => Promise<boolean> {
-    const the_set = new Set(the_present);
+function make_exists(
+    the_present_paths: string[]
+): (p: string) => Promise<boolean> {
+    const the_set = new Set(the_present_paths);
     return (p: string) => Promise.resolve(the_set.has(p));
 }
 
@@ -77,6 +79,20 @@ describe('find_installed_variant', () => {
             ])
         );
         expect(the_result).toBe('StataSE');
+    });
+
+    it('prefers the higher edition across channels (edition before channel)', async () => {
+        // Perpetual SE vs StataNow MP: the more capable edition (MP)
+        // wins regardless of which channel it lives in.
+        const the_result = await find_installed_variant(
+            MAC_APP_INSTALL_ROOTS,
+            VARIANTS,
+            make_exists([
+                '/Applications/Stata/StataSE.app',
+                '/Applications/StataNow/StataMP.app',
+            ])
+        );
+        expect(the_result).toBe('StataMP');
     });
 });
 

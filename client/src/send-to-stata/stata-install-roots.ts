@@ -8,13 +8,21 @@
  * In both cases the `.app` bundle inside is named by edition (e.g.
  * `StataSE.app`, `StataMP.app`), so only the install root differs. We
  * probe both roots so detection works regardless of channel (#200).
+ *
+ * NOTE: the server (`src/utils/stata-install-paths.ts`) keeps its own
+ * macOS root list for ado/help discovery. That is deliberate: the server
+ * is a separate build unit (CommonJS LSP bundle) with no import path to
+ * `client/src`, and it works in terms of variant *directories* under
+ * `/Applications` rather than full `.app` roots. Keep the StataNow entry
+ * in both in sync.
  */
 import type { StataVariant } from './index.js';
 
 /**
- * macOS install roots to probe, in priority order. A perpetual install
- * is preferred over StataNow when both are present; within each root,
- * the caller's variant priority applies.
+ * macOS install roots to probe. When the same edition exists under both
+ * roots, the perpetual `/Applications/Stata/` install is preferred over
+ * StataNow (it appears first). Edition priority outranks channel — see
+ * `find_installed_variant`.
  */
 export const MAC_APP_INSTALL_ROOTS: readonly string[] = [
     '/Applications/Stata',
@@ -22,20 +30,22 @@ export const MAC_APP_INSTALL_ROOTS: readonly string[] = [
 ];
 
 /**
- * Find the first installed Stata GUI variant by probing
- * `<root>/<variant>.app` across the given roots. Roots are tried in
- * order, and within each root the variants are tried in order, so the
- * result reflects root priority first, then variant priority.
+ * Find the best installed Stata GUI variant by probing
+ * `<root>/<variant>.app`. Variants are tried in order (outer loop) and,
+ * for each, the roots are tried in order (inner loop), so the result
+ * reflects edition priority first, then channel/root priority. This
+ * matches the CLI detector's edition-first fallback: a user who has a
+ * more capable edition installed gets it regardless of channel.
  *
  * `exists` must resolve true when the candidate `.app` bundle is present.
  */
 export async function find_installed_variant(
-    roots: readonly string[],
-    variants: readonly StataVariant[],
+    the_roots: readonly string[],
+    the_variants: readonly StataVariant[],
     exists: (app_path: string) => Promise<boolean>
 ): Promise<StataVariant | null> {
-    for (const my_root of roots) {
-        for (const my_variant of variants) {
+    for (const my_variant of the_variants) {
+        for (const my_root of the_roots) {
             if (await exists(`${my_root}/${my_variant}.app`)) {
                 return my_variant;
             }
