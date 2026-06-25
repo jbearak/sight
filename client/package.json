@@ -313,7 +313,7 @@
         "sight.sendToStata.stataApp": {
           "type": "string",
           "default": "",
-          "description": "Override Stata application name (macOS only). Leave empty for auto-detection. Options: StataMP, StataSE, StataBE, StataIC, Stata"
+          "description": "Override Stata application name (macOS only). Leave empty for auto-detection, which scans /Applications/Stata and /Applications/StataNow. Options: StataMP, StataSE, StataBE, StataIC, Stata"
         },
         "sight.sendToStata.focusStataWindow": {
           "type": "boolean",

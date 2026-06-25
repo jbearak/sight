@@ -272,8 +272,9 @@ async function handle_send_command(
                     if (!my_stata_app) {
                         vscode.window.showErrorMessage(
                             'Stata not found. Install Stata in ' +
-                            '/Applications/Stata/ or configure ' +
-                            'sight.sendToStata.stataApp setting.');
+                            '/Applications/Stata/ or /Applications/StataNow/, ' +
+                            'or configure the sight.sendToStata.stataApp ' +
+                            'setting.');
                         return;
                     }
 

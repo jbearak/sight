@@ -31,7 +31,12 @@ import * as path from 'path';
 const STATA_MAJOR_VERSIONS = [20, 19, 18, 17, 16, 15, 14, 13];
 
 const WINDOWS_VARIANT_DIRS = ['Stata'];
-const MAC_VARIANT_DIRS = ['Stata', 'StataMP', 'StataSE', 'StataBE', 'StataIC'];
+// "StataNow" is the directory the subscription edition installs into
+// (alongside the classic "/Applications/Stata"); its ado tree lives at
+// "/Applications/StataNow/ado/...".
+const MAC_VARIANT_DIRS = [
+    'Stata', 'StataNow', 'StataMP', 'StataSE', 'StataBE', 'StataIC',
+];
 
 // Drive letters to probe for drive-root installs like `C:\Stata18` or
 // `D:\Stata18`. Many institutional and lab-image Windows machines put

@@ -74,6 +74,20 @@ describe('discover_stata_ado_paths', () => {
             expect(the_paths).toEqual(the_present);
         });
 
+        it('picks up the StataNow install dir', () => {
+            const the_present = [
+                '/Applications/StataNow/ado/base',
+                '/Applications/StataNow/ado/updates',
+            ];
+            const the_paths = discover_stata_ado_paths({
+                home: '/Users/me',
+                platform: 'darwin',
+                exists: make_exists(the_present),
+                env: {},
+            });
+            expect(the_paths).toEqual(the_present);
+        });
+
         it('considers Stata variants like StataMP and StataSE', () => {
             const the_present = [
                 '/Applications/StataMP/ado/base',
