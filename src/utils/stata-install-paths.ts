@@ -31,7 +31,16 @@ import * as path from 'path';
 const STATA_MAJOR_VERSIONS = [20, 19, 18, 17, 16, 15, 14, 13];
 
 const WINDOWS_VARIANT_DIRS = ['Stata'];
-const MAC_VARIANT_DIRS = ['Stata', 'StataMP', 'StataSE', 'StataBE', 'StataIC'];
+// StataNow is Stata's subscription release channel; it installs under
+// `/Applications/StataNow/` rather than `/Applications/Stata/` (the .app
+// bundle inside is still named by flavour, e.g. `StataSE.app`). We probe
+// both roots so ado/help discovery works regardless of channel.
+// NOTE: the VS Code extension keeps a parallel macOS root list in
+// `client/src/send-to-stata/stata-install-roots.ts`; the two are separate
+// build units, so keep the StataNow entry in sync across both.
+const MAC_VARIANT_DIRS = [
+    'Stata', 'StataMP', 'StataSE', 'StataBE', 'StataIC', 'StataNow',
+];
 
 // Drive letters to probe for drive-root installs like `C:\Stata18` or
 // `D:\Stata18`. Many institutional and lab-image Windows machines put

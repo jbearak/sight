@@ -370,6 +370,7 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
         mock.module(STATA_DETECTOR_MODULE_URL, () => ({
             detect_stata_app: async () => 'StataMP',
             clear_stata_cache: () => {},
+            STATA_APP_NOT_FOUND_MESSAGE: 'Stata not found.',
         }));
 
         mock.module(STATA_CLI_DETECTOR_MODULE_URL, () => ({

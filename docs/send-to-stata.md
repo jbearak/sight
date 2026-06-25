@@ -30,8 +30,8 @@ When the integrated terminal is selected (directly or via auto-detection), the e
 
 The extension adds a "Stata" terminal profile to VS Code's terminal dropdown (not shown on native Windows, where Stata has no interactive CLI). You can open a Stata terminal manually from the terminal profile picker at any time. The Stata CLI binary is detected automatically:
 
-1. Checks your PATH for `stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata` (in priority order)
-2. On macOS, falls back to checking inside `/Applications/Stata/*.app/Contents/MacOS/`
+1. Checks your PATH for `stata-mp`, `stata-se`, `stata-be`, `stata-ic`, or `stata` (in priority order)
+2. On macOS, falls back to checking inside `/Applications/Stata/*.app/Contents/MacOS/` and `/Applications/StataNow/*.app/Contents/MacOS/` (StataNow installs under `/Applications/StataNow/`)
 3. If `sight.sendToStata.stataApp` is set, that variant is checked first
 
 ## Keyboard Shortcuts
