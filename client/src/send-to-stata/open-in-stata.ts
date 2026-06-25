@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import { detect_stata_app } from './stata-detector.js';
-import { escape_for_applescript } from './applescript.js';
+import {
+    escape_for_applescript,
+    settle_osascript_result,
+} from './applescript.js';
 import { StataVariant } from './index.js';
 
 /**
@@ -20,11 +23,7 @@ function open_in_stata_app(
             `\ntell application "${stata_app}" to activate`;
 
         execFile('osascript', ['-e', applescript_cmd], (error) => {
-            if (error) {
-                reject(error);
-            } else {
-                resolve();
-            }
+            settle_osascript_result(error, stata_app, resolve, reject);
         });
     });
 }
