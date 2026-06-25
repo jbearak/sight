@@ -47,11 +47,20 @@ describe('friendly_applescript_error', () => {
     });
 
     it('does not fire on a bare -1743 substring outside the code', () => {
-        // A path or value containing "-1743" must not be mistaken for the
-        // canonical "(-1743)" Apple Events permission code.
+        // A path or value containing "-1743" must not be mistaken
+        // for the canonical "(-1743)" Apple Events permission code.
         const my_unrelated =
             '0:0: execution error: cannot read ' +
             '/Users/me/project-1743/data.dta. (-43)';
+        expect(friendly_applescript_error(my_unrelated, 'StataSE'))
+            .toBe(my_unrelated);
+    });
+
+    it('does not fire when (-1743) is mid-message but not the code', () => {
+        // The real code is (-43); the anchored match must ignore a
+        // "(-1743)" that appears earlier in the message (e.g. a path).
+        const my_unrelated =
+            'cannot read /Users/me/project(-1743)/data.dta. (-43)';
         expect(friendly_applescript_error(my_unrelated, 'StataSE'))
             .toBe(my_unrelated);
     });

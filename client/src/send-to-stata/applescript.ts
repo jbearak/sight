@@ -10,11 +10,12 @@ const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
  * macOS Apple Events permission error (errAEEventNotPermitted).
  * Raised when the editor has not been granted Automation access to
  * the target app under System Settings → Privacy & Security →
- * Automation. We match the code in its canonical parenthesized form
- * so a bare `-1743` elsewhere in the message (e.g. a file path) does
+ * Automation. osascript appends the code in parentheses at the end of
+ * the message, so we anchor the match there: a `(-1743)` mid-message
+ * (e.g. inside a file path) when the real code is something else does
  * not trigger a false positive.
  */
-const APPLE_EVENTS_NOT_PERMITTED_TOKEN = '(-1743)';
+const APPLE_EVENTS_NOT_PERMITTED_RE = /\(-1743\)\s*$/;
 
 /**
  * Translate a raw `osascript` failure message into actionable guidance.
@@ -30,7 +31,7 @@ export function friendly_applescript_error(
     raw_message: string,
     stata_app: StataVariant
 ): string {
-    if (raw_message.includes(APPLE_EVENTS_NOT_PERMITTED_TOKEN)) {
+    if (APPLE_EVENTS_NOT_PERMITTED_RE.test(raw_message)) {
         return (
             `macOS blocked your editor from controlling ${stata_app} ` +
             `(Automation permission). Open System Settings → Privacy & ` +
