@@ -3,6 +3,7 @@ import { execFile } from 'child_process';
 import * as fs from 'fs/promises';
 import { constants as fs_constants } from 'fs';
 import { StataVariant } from './index.js';
+import { macos_cli_candidate_paths } from './stata-install-roots.js';
 
 /**
  * CLI binary names in priority order, per platform.
@@ -44,18 +45,6 @@ function get_variant_to_cli(): Record<StataVariant, string> {
         ? WIN_VARIANT_TO_CLI
         : UNIX_VARIANT_TO_CLI;
 }
-
-/**
- * Maps CLI binary names to macOS .app bundle paths.
- * Fallback when the binary is not on PATH.
- */
-const CLI_TO_MACOS_PATH: Record<string, string> = {
-    'stata-mp': '/Applications/Stata/StataMP.app/Contents/MacOS/stata-mp',
-    'stata-se': '/Applications/Stata/StataSE.app/Contents/MacOS/stata-se',
-    'stata-ic': '/Applications/Stata/StataIC.app/Contents/MacOS/stata-ic',
-    'stata-be': '/Applications/Stata/StataBE.app/Contents/MacOS/stata-be',
-    'stata': '/Applications/Stata/Stata.app/Contents/MacOS/stata',
-};
 
 let cached_stata_cli: string | null | undefined = undefined;
 
@@ -118,11 +107,12 @@ export async function detect_stata_cli(): Promise<string | null> {
         }
     }
 
-    // macOS .app fallback
+    // macOS .app fallback. Each binary may live under either the
+    // perpetual `/Applications/Stata/` root or the StataNow root, so we
+    // probe every candidate path the install-roots helper produces.
     if (process.platform === 'darwin') {
         for (const my_binary of the_binaries) {
-            const my_path = CLI_TO_MACOS_PATH[my_binary];
-            if (my_path) {
+            for (const my_path of macos_cli_candidate_paths(my_binary)) {
                 try {
                     await fs.access(my_path, fs_constants.X_OK);
                     cached_stata_cli = my_path;

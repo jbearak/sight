@@ -1,9 +1,13 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { StataVariant } from './index.js';
+import {
+    MAC_APP_INSTALL_ROOTS,
+    find_installed_variant
+} from './stata-install-roots.js';
 
 const VALID_VARIANTS: readonly StataVariant[] = [
-    'StataMP', 'StataSE', 'StataIC', 'Stata'
+    'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'
 ];
 
 let cached_stata_app: StataVariant | null | undefined = undefined;
@@ -27,18 +31,21 @@ export async function detect_stata_app(): Promise<StataVariant | null> {
         return cached_stata_app;
     }
     
-    for (const my_variant of VALID_VARIANTS) {
-        try {
-            await fs.access(`/Applications/Stata/${my_variant}.app`);
-            cached_stata_app = my_variant;
-            return my_variant;
-        } catch {
-            continue;
+    const my_variant = await find_installed_variant(
+        MAC_APP_INSTALL_ROOTS,
+        VALID_VARIANTS,
+        async (app_path: string) => {
+            try {
+                await fs.access(app_path);
+                return true;
+            } catch {
+                return false;
+            }
         }
-    }
-    
-    cached_stata_app = null;
-    return null;
+    );
+
+    cached_stata_app = my_variant;
+    return my_variant;
 }
 
 export function clear_stata_cache(): void {
