@@ -1,10 +1,24 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { StataVariant } from './index.js';
+import {
+    MAC_APP_INSTALL_ROOTS,
+    find_installed_variant
+} from './stata-install-roots.js';
 
 const VALID_VARIANTS: readonly StataVariant[] = [
-    'StataMP', 'StataSE', 'StataIC', 'Stata'
+    'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'
 ];
+
+/**
+ * User-facing message shown when no Stata GUI app can be located on
+ * macOS. Shared by the send and cd command handlers so the wording and
+ * install-path guidance live in one place.
+ */
+export const STATA_APP_NOT_FOUND_MESSAGE =
+    'Stata not found. Install Stata in /Applications/Stata/ or ' +
+    '/Applications/StataNow/, or set sight.sendToStata.stataApp to a ' +
+    'variant name (StataMP, StataSE, StataBE, StataIC, or Stata).';
 
 let cached_stata_app: StataVariant | null | undefined = undefined;
 
@@ -18,8 +32,9 @@ export async function detect_stata_app(): Promise<StataVariant | null> {
     const setting_value = config.get<string>('stataApp');
     
     // Validate setting_value against allowed variants before using it
-    if (setting_value && VALID_VARIANTS.includes(setting_value as StataVariant)) {
-        return setting_value as StataVariant;
+    const my_setting = setting_value as StataVariant;
+    if (setting_value && VALID_VARIANTS.includes(my_setting)) {
+        return my_setting;
     }
     // If setting_value is invalid, fall through to auto-detection
     
@@ -27,18 +42,21 @@ export async function detect_stata_app(): Promise<StataVariant | null> {
         return cached_stata_app;
     }
     
-    for (const my_variant of VALID_VARIANTS) {
-        try {
-            await fs.access(`/Applications/Stata/${my_variant}.app`);
-            cached_stata_app = my_variant;
-            return my_variant;
-        } catch {
-            continue;
+    const my_variant = await find_installed_variant(
+        MAC_APP_INSTALL_ROOTS,
+        VALID_VARIANTS,
+        async (app_path: string) => {
+            try {
+                await fs.access(app_path);
+                return true;
+            } catch {
+                return false;
+            }
         }
-    }
-    
-    cached_stata_app = null;
-    return null;
+    );
+
+    cached_stata_app = my_variant;
+    return my_variant;
 }
 
 export function clear_stata_cache(): void {

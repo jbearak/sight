@@ -88,6 +88,21 @@ describe('discover_stata_ado_paths', () => {
             expect(the_paths).toContain('/Applications/StataMP/ado/base');
             expect(the_paths).toContain('/Applications/StataSE/ado/base');
         });
+
+        it('discovers StataNow installs under /Applications/StataNow', () => {
+            const the_present = [
+                '/Applications/StataNow/ado/base',
+                '/Applications/StataNow/ado/site',
+                '/Applications/StataNow/ado/updates',
+            ];
+            const the_paths = discover_stata_ado_paths({
+                home: '/Users/me',
+                platform: 'darwin',
+                exists: make_exists(the_present),
+                env: {},
+            });
+            expect(the_paths).toEqual(the_present);
+        });
     });
 
     describe('Linux', () => {

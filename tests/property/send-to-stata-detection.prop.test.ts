@@ -14,8 +14,10 @@ import { StataVariant } from '../../client/src/send-to-stata/index';
  * function is tested via integration tests.
  */
 
-// Simulate the detection order logic
-const DETECTION_ORDER: StataVariant[] = ['StataMP', 'StataSE', 'StataIC', 'Stata'];
+// Simulate the detection order logic. Mirrors VALID_VARIANTS in
+// stata-detector.ts (edition priority, most capable first); keep in sync.
+const DETECTION_ORDER: StataVariant[] =
+    ['StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'];
 
 function simulate_detection(
     installed_variants: Set<StataVariant>,
@@ -39,11 +41,11 @@ function simulate_detection(
 describe('Feature: send-to-stata - Stata Detection Properties', () => {
     // Generator for Stata variants
     const variant_gen = fc.constantFrom<StataVariant>(
-        'StataMP', 'StataSE', 'StataIC', 'Stata'
+        'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'
     );
 
     // Generator for set of installed variants
-    const installed_variants_gen = fc.array(variant_gen, { minLength: 0, maxLength: 4 })
+    const installed_variants_gen = fc.array(variant_gen, { minLength: 0, maxLength: 5 })
         .map(arr => new Set(arr));
 
     test('Property 7: Setting always takes precedence over detection', () => {
@@ -57,7 +59,7 @@ describe('Feature: send-to-stata - Stata Detection Properties', () => {
         ), { numRuns: 100 });
     });
 
-    test('Property 7: Detection order is StataMP > StataSE > StataIC > Stata', () => {
+    test('Property 7: Detection order is StataMP > StataSE > StataBE > StataIC > Stata', () => {
         fc.assert(fc.property(
             installed_variants_gen,
             (installed) => {
@@ -86,10 +88,16 @@ describe('Feature: send-to-stata - Stata Detection Properties', () => {
 
     test('Property 7: StataMP is preferred when all variants installed', () => {
         const all_installed = new Set<StataVariant>([
-            'StataMP', 'StataSE', 'StataIC', 'Stata'
+            'StataMP', 'StataSE', 'StataBE', 'StataIC', 'Stata'
         ]);
         const result = simulate_detection(all_installed);
         expect(result).toBe('StataMP');
+    });
+
+    test('Property 7: StataBE is preferred over StataIC when both installed', () => {
+        const installed = new Set<StataVariant>(['StataBE', 'StataIC']);
+        const result = simulate_detection(installed);
+        expect(result).toBe('StataBE');
     });
 
     test('Property 7: StataSE is returned when only SE and IC installed', () => {
