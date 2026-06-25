@@ -157,3 +157,91 @@ jobs:
             client/*.vsix.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Homebrew tap bump ───────────────────────────────────────────────
+  # After the release is published, open a PR against the Homebrew tap
+  # (jbearak/homebrew-sight) bumping the formula to this version, with the
+  # Apple Silicon checksum recomputed from the same build artifact this run
+  # published (no dependence on release-CDN propagation). The tap's own CI
+  # (brew audit / install / test) gates that PR, and auto-merge lands it once
+  # green — so a broken formula never reaches users. The formula edit lives in
+  # the tap repo (bin/update-formula.sh), the single source of truth.
+  #
+  # Setup (one-time), then this job activates itself:
+  #   gh secret   set HOMEBREW_TAP_TOKEN   -R jbearak/sight   # paste token
+  #   gh variable set ENABLE_HOMEBREW_BUMP -R jbearak/sight --body true
+  # HOMEBREW_TAP_TOKEN: a GitHub App installation token or fine-grained PAT
+  # scoped to jbearak/homebrew-sight with Contents:write + Pull requests:write.
+  bump-homebrew:
+    needs: publish
+    if: vars.ENABLE_HOMEBREW_BUMP == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download the macOS arm64 binary from the build run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          TAG: ${{ inputs.tag }}
+        run: gh run download "$BUILD_RUN_ID" --name "release-$TAG" --dir art
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          repository: jbearak/homebrew-sight
+          # Public repo: no token needed to clone, and persist-credentials:false
+          # keeps any credential out of tap/.git/config. The tap PAT is supplied
+          # only at push time (below), never persisted to disk.
+          persist-credentials: false
+          path: tap
+
+      - name: Bump formula
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          tap/bin/update-formula.sh "$VERSION" art/bin/sight-darwin-arm64
+
+      - name: Open bump PR + enable auto-merge
+        working-directory: tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          if git diff --quiet; then
+            echo "Formula already at $VERSION — nothing to do."
+            exit 0
+          fi
+          BRANCH="bump-sight-$VERSION"
+          git config user.name "sight-release-bot"
+          git config user.email "sight-release-bot@users.noreply.github.com"
+          # Only this job ever writes bump-sight-*, so reset the branch from
+          # HEAD and force-push. No remote-tracking ref / pre-fetch needed, so
+          # reruns can't fail on a stale lease.
+          git checkout -B "$BRANCH"
+          git add Formula/sight.rb
+          git commit -m "sight $VERSION"
+          # Authenticate the push with the tap token only here, via an HTTPS
+          # basic-auth header (the actions/checkout mechanism). The token is
+          # never written to .git/config.
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c http.extraheader="$AUTH_HEADER" push --force origin "HEAD:$BRANCH"
+          # Create the PR. Tolerate ONLY the "PR already exists" case (rerun);
+          # let auth/permission/API errors fail the job.
+          if ! gh pr create --base main --head "$BRANCH" \
+                --title "sight $VERSION" \
+                --body "Automated formula bump for [sight $VERSION](https://github.com/jbearak/sight/releases/tag/$TAG). Checksum recomputed from the release artifact."; then
+            if gh pr view "$BRANCH" --json url >/dev/null 2>&1; then
+              echo "PR for $BRANCH already exists; the force-push updated it."
+            else
+              echo "::error::gh pr create failed for $BRANCH" >&2
+              exit 1
+            fi
+          fi
+          # Auto-merge once the tap's required `test` check passes (branch
+          # protection makes it wait rather than merge immediately).
+          gh pr merge "$BRANCH" --auto --squash \
+            || echo "::warning::could not enable auto-merge; merge $BRANCH manually."
