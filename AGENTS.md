@@ -387,7 +387,7 @@ conflicts with other extensions. Features:
 
 - **terminal.ts**: Sends commands to VS Code's active integrated terminal. Reveals terminal pane without stealing focus.
 
-- **stata-detector.ts**: Auto-detects installed Stata variant on macOS by checking `/Applications/Stata/` for StataMP, StataSE, StataIC, or Stata (in priority order). Results are cached.
+- **stata-detector.ts**: Auto-detects installed Stata variant on macOS by checking `/Applications/Stata/` and `/Applications/StataNow/` (the StataNow subscription channel) for StataMP, StataSE, StataBE, StataIC, or Stata (in priority order). Results are cached.
 
 - **temp-file.ts**: Creates temporary `.do` files in system temp directory with unique names. Required to support `///` continuation markers which Stata only recognizes in do-files.
 
