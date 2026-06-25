@@ -7,6 +7,41 @@ const VALID_STATA_APPS: readonly StataVariant[] = [
 const VALID_COMMANDS: readonly StataCommand[] = ['do', 'include'];
 
 /**
+ * macOS Apple Events permission error code (errAEEventNotPermitted).
+ * Raised when the editor has not been granted Automation access to the
+ * target app under System Settings → Privacy & Security → Automation.
+ */
+const APPLE_EVENTS_NOT_PERMITTED_CODE = '-1743';
+
+/**
+ * Translate a raw `osascript` failure message into actionable guidance.
+ *
+ * The common, confusing case is errAEEventNotPermitted (-1743): macOS
+ * blocks the editor from controlling Stata until the user grants
+ * Automation permission. The raw message (e.g. `... execution error:
+ * Not authorized to send Apple events to StataSE. (-1743)`) is opaque,
+ * so we replace it with the steps to fix it. Other failures pass
+ * through unchanged.
+ */
+export function friendly_applescript_error(
+    raw_message: string,
+    stata_app: StataVariant
+): string {
+    if (raw_message.includes(APPLE_EVENTS_NOT_PERMITTED_CODE)) {
+        return (
+            `macOS blocked your editor from controlling ${stata_app} ` +
+            `(Automation permission). Open System Settings → Privacy & ` +
+            `Security → Automation, find your editor (e.g. Visual Studio ` +
+            `Code), and enable the checkbox for ${stata_app}, then try ` +
+            `again. If your editor is not listed, quit and reopen it from ` +
+            `Finder (not from a terminal) and send again to trigger the ` +
+            `permission prompt.`
+        );
+    }
+    return raw_message;
+}
+
+/**
  * Escapes a path for use in AppleScript string.
  */
 export function escape_for_applescript(path: string): string {
@@ -57,7 +92,9 @@ export function send_to_stata_app(
         const shell_safe_cmd = applescript_cmd.replace(/'/g, "'\\''");
         exec(`osascript -e '${shell_safe_cmd}'`, (error) => {
             if (error) {
-                reject(error);
+                reject(new Error(
+                    friendly_applescript_error(error.message, stata_app)
+                ));
             } else {
                 resolve();
             }
