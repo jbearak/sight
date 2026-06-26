@@ -3,12 +3,15 @@ import { init_tracker_from_source } from '../test-context-helper';
  * Unit tests for the Completion Provider
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Position } from 'vscode-languageserver';
-import { 
-    CompletionProvider, 
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import {
+    CompletionProvider,
     detect_completion_context,
-    CompletionContext 
+    CompletionContext
 } from '../../src/providers/completion';
 import { CommandDatabase } from '../../src/commands';
 import { DocumentState } from '../../src/document-store';
@@ -2016,5 +2019,103 @@ describe('partition_symbols_for_completion: resolved_scope out-of-scope filterin
         // unrelated_cfg is NOT in resolved_scope.out_of_scope_symbols, so it
         // should still surface through the workspace out-of-scope bucket.
         expect(result.globalMacros.has('unrelated_cfg')).toBe(true);
+    });
+});
+
+// ─── Regression guard: path completion preserves on-disk casing ───────────────
+// Spec consumer #5 (2026-06-26-case-only-path-mismatch-design.md):
+// Path completion lists real directory entries from disk, so it inherently
+// presents correct casing. This block guards that no future refactor
+// accidentally lowercases entry names before returning them.
+describe('Path completion preserves on-disk casing', () => {
+    let temp_dir: string;
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        // Create a workspace with a .git marker so get_workspace_root finds it.
+        temp_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-path-casing-'));
+        fs.mkdirSync(path.join(temp_dir, '.git'));
+        // Mixed-case subdirectory and file names.
+        fs.mkdirSync(path.join(temp_dir, 'Helpers'));
+        fs.writeFileSync(path.join(temp_dir, 'Helpers', 'Clean.do'), '');
+        fs.writeFileSync(path.join(temp_dir, 'Helpers', 'loadData.do'), '');
+        fs.writeFileSync(path.join(temp_dir, 'analysis.do'), '');
+
+        provider = new CompletionProvider(new CommandDatabase());
+    });
+
+    afterEach(() => {
+        fs.rmSync(temp_dir, { recursive: true, force: true });
+    });
+
+    /**
+     * Build a minimal DocumentState whose URI lives inside the temp workspace.
+     */
+    function make_doc(content: string): DocumentState {
+        const file_uri = `file://${path.join(temp_dir, 'main.do')}`;
+        return {
+            uri: file_uri,
+            version: 1,
+            content,
+            tokens: [],
+            ast: null,
+            symbols: {
+                programs: new Map(),
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                variables: new Map(),
+                scalars: new Map(),
+                matrices: new Map(),
+            },
+            diagnostics: [],
+            context_ranges: [],
+            // context_tracker, forward_calls, etc. not needed for path
+            // completion (the switch hits command_path before using them).
+        } as unknown as DocumentState;
+    }
+
+    it('command_path (do): lists mixed-case files with real on-disk names', async () => {
+        // Cursor is at end of "do Helpers/" — the provider should list
+        // the real entries Clean.do and loadData.do, not lowercase them.
+        const content = 'do Helpers/';
+        const doc = make_doc(content);
+        const position = Position.create(0, content.length);
+
+        const completions = await provider.get_completions(doc, position);
+
+        const the_labels = completions.map(c => c.label);
+        expect(the_labels).toContain('Clean.do');
+        expect(the_labels).toContain('loadData.do');
+        // Guard: none of the labels should be lowercased versions
+        expect(the_labels).not.toContain('clean.do');
+        expect(the_labels).not.toContain('loaddata.do');
+    });
+
+    it('command_path (do): lists mixed-case directory with real on-disk name', async () => {
+        // Typing "do " at root — should see Helpers/ not helpers/
+        const content = 'do ';
+        const doc = make_doc(content);
+        const position = Position.create(0, content.length);
+
+        const completions = await provider.get_completions(doc, position);
+
+        const the_labels = completions.map(c => c.label);
+        expect(the_labels).toContain('Helpers/');
+        expect(the_labels).not.toContain('helpers/');
+    });
+
+    it('directive_path (@lsp-done-by): lists files with real on-disk casing', async () => {
+        // Directive path context — same filesystem read, must preserve casing.
+        const content = '// @lsp-done-by: Helpers/';
+        const doc = make_doc(content);
+        const position = Position.create(0, content.length);
+
+        const completions = await provider.get_completions(doc, position);
+
+        const the_labels = completions.map(c => c.label);
+        expect(the_labels).toContain('Clean.do');
+        expect(the_labels).toContain('loadData.do');
+        expect(the_labels).not.toContain('clean.do');
+        expect(the_labels).not.toContain('loaddata.do');
     });
 });
