@@ -250,12 +250,11 @@ describe('ForwardCall context — scope-resolver parse_content producer', () => 
         // We verify via get_forward_calls_for_uri which reads the file cache.
         const the_calls = scope_resolver.get_forward_calls_for_uri(caller_uri);
         expect(the_calls).toBeDefined();
-        if (the_calls && the_calls.length > 0) {
-            const my_call = the_calls[0];
-            expect(my_call.caller_uri).toBe(caller_uri);
-            // WD should equal the resolved wd_path (workspace_root + 'data')
-            expect(my_call.working_directory).toBe(wd_path);
-        }
+        expect(the_calls!.length).toBeGreaterThanOrEqual(1);
+        const my_call = the_calls![0];
+        expect(my_call.caller_uri).toBe(caller_uri);
+        // WD should equal the resolved wd_path (workspace_root + 'data')
+        expect(my_call.working_directory).toBe(wd_path);
 
         // The resolve() itself must not throw
         expect(the_resolved).toBeDefined();
@@ -269,12 +268,12 @@ describe('ForwardCall context — scope-resolver parse_content producer', () => 
         await scope_resolver.resolve(caller_uri, caller_content);
 
         const the_calls = scope_resolver.get_forward_calls_for_uri(caller_uri);
-        if (the_calls && the_calls.length > 0) {
-            const my_call = the_calls[0];
-            expect(my_call.caller_uri).toBe(caller_uri);
-            expect(Object.prototype.hasOwnProperty.call(my_call, 'working_directory'))
-                .toBe(true);
-            expect(my_call.working_directory).toBeUndefined();
-        }
+        expect(the_calls).toBeDefined();
+        expect(the_calls!.length).toBeGreaterThanOrEqual(1);
+        const my_call = the_calls![0];
+        expect(my_call.caller_uri).toBe(caller_uri);
+        expect(Object.prototype.hasOwnProperty.call(my_call, 'working_directory'))
+            .toBe(true);
+        expect(my_call.working_directory).toBeUndefined();
     });
 });
