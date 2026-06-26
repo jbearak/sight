@@ -699,7 +699,7 @@ callSiteIdentification = "information"
 | `crossFile.assumeCallSite`                    | string   | `"end"`         | Where to assume call site when inference fails (`"end"` or `"start"`) |
 | `crossFile.diagnostics.missingFile`           | severity | `"warning"`     | Severity for missing directive file diagnostics        |
 | `crossFile.diagnostics.callSiteIdentification`| severity | `"information"` | Severity for call site identification diagnostics      |
-| `crossFile.diagnostics.caseMismatch`          | severity | `"auto"`        | Severity for case-only path mismatch diagnostics. `"auto"`: `information` on case-insensitive filesystems (macOS/Windows), `"warning"` on case-sensitive (Linux/CI) |
+| `crossFile.diagnostics.caseMismatch`          | severity or `"auto"` | `"auto"`        | Severity for case-only path mismatch diagnostics. `"auto"`: `information` on case-insensitive filesystems (macOS/Windows), `"warning"` on case-sensitive (Linux/CI) |
 
 Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias:
 `"info"` for `"information"`). `crossFile.diagnostics.caseMismatch` also
