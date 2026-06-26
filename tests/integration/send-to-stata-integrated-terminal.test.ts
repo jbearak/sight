@@ -52,8 +52,15 @@ interface MockTerminal {
     sendText: (text: string) => void;
 }
 
+interface CreateTerminalOptions {
+    name?: string;
+    shellPath?: string;
+    shellArgs?: string[];
+}
+
 interface VscodeMockState {
     create_terminal_calls: number;
+    the_create_options: CreateTerminalOptions[];
     the_close_listeners: Array<(terminal: MockTerminal) => void>;
     the_send_calls: string[];
     the_show_calls: boolean[];
@@ -108,6 +115,7 @@ function create_vscode_mock_state(
 
     return {
         create_terminal_calls: 0,
+        the_create_options: [],
         the_close_listeners,
         the_send_calls,
         the_show_calls,
@@ -162,9 +170,12 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
                 getWorkspaceFolder: () => null,
             },
             window: {
-                createTerminal: () => {
+                createTerminal: (options?: CreateTerminalOptions) => {
                     if (current_vscode_state) {
                         current_vscode_state.create_terminal_calls += 1;
+                        current_vscode_state.the_create_options.push(
+                            options ?? {}
+                        );
                         return current_vscode_state.terminal;
                     }
                     const shared_state = get_shared_vscode_test_state();
@@ -280,7 +291,7 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
         mock.restore();
     });
 
-    test('waits for a new terminal to become ready before sending', async () => {
+    test('bakes the first command into shellArgs and does not type it', async () => {
         const process_id_deferred = create_deferred<number | undefined>();
         const vscode_state = create_vscode_mock_state(
             process_id_deferred.promise
@@ -300,14 +311,19 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
 
         expect(vscode_state.create_terminal_calls).toBe(1);
         expect(vscode_state.the_show_calls).toEqual([true]);
+        // The first command runs via launch args, so Stata executes it
+        // itself after init -- it is never typed into the racing REPL.
+        expect(vscode_state.the_create_options[0].shellArgs).toEqual([
+            'do',
+            "`\"/tmp/first.do\"'",
+        ]);
         expect(vscode_state.the_send_calls).toEqual([]);
 
         process_id_deferred.resolve(1234);
         await send_promise;
 
-        expect(vscode_state.the_send_calls).toEqual([
-            "do `\"/tmp/first.do\"'",
-        ]);
+        // Still no sendText for the baked first command.
+        expect(vscode_state.the_send_calls).toEqual([]);
     });
 
     test('reuses an existing managed terminal without another readiness wait', async () => {
@@ -326,15 +342,22 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
         process_id_deferred.resolve(1234);
         await first_send;
 
+        // First command was baked into shellArgs, not typed.
+        expect(vscode_state.the_send_calls).toEqual([]);
+
         const second_send = terminal_manager.send_to_stata_terminal(
             'include',
             '/tmp/second.do'
         );
         await second_send;
 
+        // Reused terminal: subsequent command IS typed (Stata is ready).
         expect(vscode_state.create_terminal_calls).toBe(1);
+        expect(vscode_state.the_create_options[0].shellArgs).toEqual([
+            'do',
+            "`\"/tmp/first.do\"'",
+        ]);
         expect(vscode_state.the_send_calls).toEqual([
-            "do `\"/tmp/first.do\"'",
             "include `\"/tmp/second.do\"'",
         ]);
     });
@@ -367,8 +390,14 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
         process_id_deferred.resolve(1234);
         await Promise.all([first_send, second_send]);
 
+        // One terminal: the initiating send is baked into shellArgs; the
+        // send that joins the in-flight creation is typed after readiness.
+        expect(vscode_state.create_terminal_calls).toBe(1);
+        expect(vscode_state.the_create_options[0].shellArgs).toEqual([
+            'do',
+            "`\"/tmp/first.do\"'",
+        ]);
         expect(vscode_state.the_send_calls).toEqual([
-            "do `\"/tmp/first.do\"'",
             "include `\"/tmp/second.do\"'",
         ]);
     });
@@ -391,6 +420,74 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
             return vscode_state.create_terminal_calls === 1;
         });
 
+        for (const my_listener of vscode_state.the_close_listeners) {
+            my_listener(vscode_state.terminal);
+        }
+
+        await expect(send_promise).rejects.toThrow(
+            'closed before it was ready'
+        );
+        expect(vscode_state.the_send_calls).toEqual([]);
+    });
+
+    test('waits for readiness before the first send to a profile-opened terminal', async () => {
+        const process_id_deferred = create_deferred<number | undefined>();
+        const vscode_state = create_vscode_mock_state(
+            process_id_deferred.promise
+        );
+        const terminal_manager = await import_terminal_manager_module(
+            vscode_state
+        );
+
+        // Simulate the user opening a "Stata" terminal from the dropdown:
+        // VS Code creates it and fires onDidOpenTerminal, which makes it
+        // the active managed terminal. We did NOT create it, so its first
+        // command cannot be baked into launch args -- it must be typed.
+        terminal_manager.simulate_profile_terminal_opened_for_tests(
+            vscode_state.terminal
+        );
+
+        // Send while Stata is still starting (processId unresolved).
+        const send_promise = terminal_manager.send_to_stata_terminal(
+            'do',
+            '/tmp/first.do'
+        );
+        await wait_for_condition(() => {
+            return vscode_state.the_show_calls.length === 1;
+        });
+
+        // Must NOT type into the still-starting Stata yet.
+        expect(vscode_state.the_send_calls).toEqual([]);
+
+        process_id_deferred.resolve(1234);
+        await send_promise;
+
+        expect(vscode_state.the_send_calls).toEqual([
+            "do `\"/tmp/first.do\"'",
+        ]);
+        // No new terminal was created; we reused the profile terminal.
+        expect(vscode_state.create_terminal_calls).toBe(0);
+    });
+
+    test('rejects a send to a profile terminal that closes before ready', async () => {
+        const process_id_deferred = create_deferred<number | undefined>();
+        const vscode_state = create_vscode_mock_state(
+            process_id_deferred.promise
+        );
+        const terminal_manager = await import_terminal_manager_module(
+            vscode_state
+        );
+
+        terminal_manager.simulate_profile_terminal_opened_for_tests(
+            vscode_state.terminal
+        );
+
+        const send_promise = terminal_manager.send_to_stata_terminal(
+            'do',
+            '/tmp/first.do'
+        );
+
+        // Terminal dies during startup, before processId resolves.
         for (const my_listener of vscode_state.the_close_listeners) {
             my_listener(vscode_state.terminal);
         }
