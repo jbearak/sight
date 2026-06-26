@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { init_tracker_from_source } from '../test-context-helper';
 import { Position } from 'vscode-languageserver';
+import { URI } from 'vscode-uri';
 import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
 import { SymbolTable, MacroSymbol } from '../../src/types';
@@ -26,7 +27,7 @@ function create_test_document(
     const my_lexer = new StataLexer();
     const my_lex_result = my_lexer.tokenize(content);
     return {
-        uri: uri || `file://${process.cwd()}/test.do`,
+        uri: uri || URI.file(`${process.cwd()}/test.do`).toString(),
         version: 1,
         content,
         tokens: my_lex_result.tokens,
@@ -1049,7 +1050,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
             
             const my_content = 'do "helper"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1066,7 +1067,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(script_path, '// Script file');
             
             const my_content = 'run "script"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1083,7 +1084,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
             
             const my_content = 'include helper';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1100,7 +1101,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
             
             const my_content = '// @lsp-done-by: "helper"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1117,7 +1118,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(script_path, '// Script file');
             
             const my_content = '// @lsp-included-by: "script"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1134,7 +1135,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
 
             const my_content = '// @lsp-do: "helper"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
 
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1150,7 +1151,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
 
             const my_content = 'mata\n// @lsp-do: "helper"\nend';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             init_tracker_from_source(context_tracker, my_content);
 
             // Position on "helper" on line 1 (inside the mata block)
@@ -1173,7 +1174,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(script_exact_path, '// Exact script file');
             
             const my_content = 'do "script.do"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1186,7 +1187,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
 
         it('should return null when neither exact path nor .do fallback exists', async () => {
             const my_content = 'do "nonexistent"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
 
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1206,7 +1207,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             init_tracker_from_source(context_tracker, my_content);
 
@@ -1229,7 +1230,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             init_tracker_from_source(context_tracker, my_content);
 
@@ -1264,7 +1265,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             init_tracker_from_source(context_tracker, my_content);
 
@@ -1304,7 +1305,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
                 const my_doc = create_test_document(
                     my_content,
                     undefined,
-                    `file://${path.join(temp_dir, 'test.do')}`
+                    URI.file(path.join(temp_dir, 'test.do')).toString()
                 );
                 init_tracker_from_source(context_tracker, my_content);
 
@@ -1343,7 +1344,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
 
             const my_definition = await definition_provider.get_definition(
@@ -1368,7 +1369,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
 
             // Cursor inside "helpers/parent" (quoted path area)
@@ -1392,7 +1393,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
 
             const my_definition = await definition_provider.get_definition(
@@ -1410,7 +1411,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
 
             const my_definition = await definition_provider.get_definition(
@@ -1453,7 +1454,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
                 const my_doc = create_test_document(
                     my_content,
                     undefined,
-                    `file://${path.join(temp_dir, 'test.do')}`
+                    URI.file(path.join(temp_dir, 'test.do')).toString()
                 );
 
                 const my_definition = await definition_provider.get_definition(
@@ -1476,7 +1477,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
                 const my_doc = create_test_document(
                     my_content,
                     undefined,
-                    `file://${path.join(temp_dir, 'test.do')}`
+                    URI.file(path.join(temp_dir, 'test.do')).toString()
                 );
 
                 const my_definition = await definition_provider.get_definition(
@@ -1514,7 +1515,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
                 const my_doc = create_test_document(
                     my_content,
                     undefined,
-                    `file://${path.join(sub_dir, 'main.do')}`
+                    URI.file(path.join(sub_dir, 'main.do')).toString()
                 );
 
                 // Set the workspace root so the provider can reach ../shared/
@@ -1553,7 +1554,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
                 const my_doc = create_test_document(
                     my_content,
                     undefined,
-                    `file://${path.join(temp_dir, 'test.do')}`
+                    URI.file(path.join(temp_dir, 'test.do')).toString()
                 );
 
                 // No workspace roots set (empty by default)

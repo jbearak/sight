@@ -550,7 +550,7 @@ case-sensitive systems and shows the as-written path alongside the
 on-disk spelling. For example, `do helpers/clean` resolving on-disk
 `helpers/Clean.do` produces:
 
-```
+```text
 Path "helpers/clean" does not match the file on disk
 "helpers/Clean.do"; Stata will not find it on case-sensitive
 filesystems (Linux). Update the path to match.
@@ -570,7 +570,7 @@ never used them). The message makes no Stata-execution claim because
 backward directives are not Stata commands; it simply asks you to fix
 the directive casing:
 
-```
+```text
 Directive path "parent" does not match the file on disk
 "Parent.do"; update the directive to match the file's casing.
 ```

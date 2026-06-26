@@ -374,9 +374,9 @@ describe('ForwardCall context — scope-resolver parse_content producer', () => 
         sr: ScopeResolver,
         uri: string,
     ): ForwardCall[] | undefined {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const the_cache: Map<string, { forward_calls: ForwardCall[] }> =
-            (sr as any).file_cache;
+        const the_cache = (sr as unknown as {
+            file_cache: Map<string, { forward_calls: ForwardCall[] }>;
+        }).file_cache;
         for (const [my_key, my_entry] of the_cache) {
             if (my_key === uri || my_key.startsWith(`${uri}|`)) {
                 return my_entry.forward_calls;

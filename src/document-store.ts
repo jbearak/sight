@@ -25,7 +25,6 @@ import {
   resolve_working_directory_directive,
 } from './utils/workspace-roots';
 
-import * as path from 'path';
 import * as fs from 'fs';
 
 export interface DocumentState {

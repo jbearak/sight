@@ -136,7 +136,7 @@ spelling.
 directives): notes that Stata will not find the file on case-sensitive
 filesystems and shows both spellings:
 
-```
+```text
 Path "helpers/clean" does not match the file on disk
 "helpers/Clean.do"; Stata will not find it on case-sensitive
 filesystems (Linux). Update the path to match.
@@ -146,7 +146,7 @@ filesystems (Linux). Update the path to match.
 `@lsp-included-by`): backward directives are not Stata commands, so the
 message makes no execution claim:
 
-```
+```text
 Directive path "parent" does not match the file on disk
 "Parent.do"; update the directive to match the file's casing.
 ```
