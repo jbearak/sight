@@ -493,6 +493,9 @@ export enum StataDiagnosticCode {
   INVALID_OPERATOR_SEQUENCE = 6002,
   CSTYLE_LOGICAL_IN_CONTROL_FLOW = 6003,
   MIXED_LOGICAL_OPERATORS = 6004,
+
+  // Cross-file diagnostics
+  PATH_CASE_MISMATCH = 7001,
 }
 
 // Structured payload carried on a diagnostic's `data` field for undefined-symbol
@@ -624,6 +627,18 @@ export interface DirectiveDiagnostic {
   range: Range;
   severity: 'error' | 'warning' | 'information';
   source?: DiagnosticSource;  // Source attribution for diagnostics from parent files
+  /** Structured discriminator for severity routing. */
+  kind?: 'missing_file' | 'path_case_mismatch';
+  /** Stable code included on the emitted LSP Diagnostic (e.g. PATH_CASE_MISMATCH). */
+  code?: StataDiagnosticCode;
+  /**
+   * Real existing directory used to probe host case-sensitivity when
+   * `config.cross_file.diagnostics.case_mismatch === 'auto'`.
+   * Typically the workspace root that contains the mismatched path.
+   * When absent and severity is 'auto', the converter treats the host
+   * as case-sensitive (Warning) as a conservative fallback.
+   */
+  case_mismatch_seed_dir?: string;
 }
 
 export interface ScalarSymbol {
@@ -728,6 +743,15 @@ export interface ScopeCacheMetrics {
   readonly invalidations: number; // alias for scope.invalidations
 }
 
+/**
+ * Severity for case-mismatch diagnostics.
+ * Extends the standard severity union with 'auto', which maps to 'warning'
+ * on case-sensitive hosts and 'information' on case-insensitive hosts.
+ * 'auto' is valid ONLY for case_mismatch, not for other cross-file severities.
+ */
+export type CrossFileCaseMismatchSeverity =
+    'auto' | 'error' | 'warning' | 'information' | 'off';
+
 export interface CrossFileConfig {
   index_workspace: boolean;
   max_indexed_files: number;
@@ -742,6 +766,8 @@ export interface CrossFileConfig {
     max_depth: 'error' | 'warning' | 'information' | 'off';
     // Severity for call site identification diagnostics
     call_site_identification?: 'error' | 'warning' | 'information' | 'off';
+    // Severity for case-mismatch diagnostics; 'auto' chooses based on host FS
+    case_mismatch?: CrossFileCaseMismatchSeverity;
   };
 }
 
