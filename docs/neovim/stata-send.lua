@@ -11,8 +11,11 @@ local stata_apps = { "StataMP", "StataSE", "StataBE", "StataIC", "Stata" }
 -- install to different roots: perpetual-license editions under
 -- /Applications/Stata/ and the StataNow subscription channel under
 -- /Applications/StataNow/. The .app bundle inside each is named by
--- edition (e.g. StataSE.app), so only the root differs. The perpetual
--- root is listed first so it wins when an edition exists in both.
+-- edition (e.g. StataSE.app), so only the root differs; we probe both
+-- so detection works regardless of channel. The perpetual root is
+-- listed first only so it is the one we detect first -- the launch is
+-- by edition name (see send_to_stata), so the root a match came from
+-- does not change which app AppleScript opens.
 local stata_app_roots = { "/Applications/Stata/", "/Applications/StataNow/" }
 
 -- Shown when no Stata GUI app can be located. Kept in one place so the
@@ -20,9 +23,11 @@ local stata_app_roots = { "/Applications/Stata/", "/Applications/StataNow/" }
 local STATA_NOT_FOUND_MESSAGE =
   "Stata not found in /Applications/Stata/ or /Applications/StataNow/"
 
--- Find the first available Stata application. Variants are tried in
--- order (outer loop) and, for each, the roots are tried in order (inner
--- loop), so the result reflects edition priority first, then channel.
+-- Find the first available Stata application and return its edition
+-- name. Variants are tried in order (outer loop) and, for each, both
+-- roots are probed (inner loop), so a more capable edition wins
+-- regardless of channel. The return value is the edition name because
+-- AppleScript launches Stata by name, not by bundle path.
 local function find_stata_app()
   for _, app in ipairs(stata_apps) do
     for _, root in ipairs(stata_app_roots) do
