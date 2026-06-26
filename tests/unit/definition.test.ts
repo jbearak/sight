@@ -10,6 +10,7 @@ import { DocumentState } from '../../src/document-store';
 import { SymbolTable, MacroSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
 import { StataLexer } from '../../src/lexer';
+import { host_is_case_sensitive } from '../../src/utils/file-path-utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -1418,6 +1419,74 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             );
 
             expect(my_definition).toBeNull();
+        });
+
+        it('returns null for ambiguous path (two ci-matches, case-sensitive host only)', async () => {
+            // This scenario requires a case-sensitive filesystem: two files
+            // whose names differ only in ASCII case (Clean.do and CLEAN.do)
+            // both ci-match the reference `do helpers/clean`.  resolve_path_rich
+            // classifies this as `ambiguous` and definition should return null.
+            //
+            // On a case-insensitive host (macOS HFS+) it is impossible to
+            // create both files; the second write silently overwrites the first,
+            // yielding a single match (`case_only`) rather than `ambiguous`.
+            // Guard the meaningful assertions behind the host probe.
+            const helpers_dir = path.join(temp_dir, 'helpers');
+            fs.mkdirSync(helpers_dir, { recursive: true });
+
+            const the_is_sensitive = host_is_case_sensitive(helpers_dir);
+
+            if (the_is_sensitive) {
+                // Case-sensitive host: create two files differing only by case.
+                fs.writeFileSync(
+                    path.join(helpers_dir, 'Clean.do'),
+                    '// Clean.do',
+                );
+                fs.writeFileSync(
+                    path.join(helpers_dir, 'CLEAN.do'),
+                    '// CLEAN.do',
+                );
+
+                // Both files are now present on disk.  A reference with a
+                // third casing (clean.do) is a ci-match for both → ambiguous.
+                const my_content = 'do helpers/clean';
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    `file://${path.join(temp_dir, 'test.do')}`
+                );
+
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: 8 }
+                );
+
+                // ambiguous → no navigation
+                expect(my_definition).toBeNull();
+            } else {
+                // Case-insensitive host: the ambiguous scenario cannot be
+                // constructed.  Write only one file so the test exercises the
+                // case-insensitive code path without vacuously passing.
+                fs.writeFileSync(
+                    path.join(helpers_dir, 'Clean.do'),
+                    '// Clean.do',
+                );
+
+                const my_content = 'do helpers/clean';
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    `file://${path.join(temp_dir, 'test.do')}`
+                );
+
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: 8 }
+                );
+
+                // On ci host a single ci-match resolves normally (case_only).
+                expect(my_definition).not.toBeNull();
+            }
         });
     });
 

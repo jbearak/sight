@@ -1567,8 +1567,7 @@ export class DefinitionProvider {
         const resolved_path = path.resolve(current_dir, file_path);
 
         // Use current_dir as the workspace root so the walk is bounded and
-        // symlink-safe. Paths outside current_dir fall back to plain
-        // existence semantics (existing behavior).
+        // symlink-safe (avoids /tmp → /private/tmp false-negatives on macOS).
         const outcome = resolve_path_rich(resolved_path, {
             workspace_roots: [current_dir],
         });
