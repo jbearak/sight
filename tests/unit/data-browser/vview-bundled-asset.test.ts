@@ -271,19 +271,19 @@ describe('bundled ado set reconciliation', () => {
             .filter((my_name) => my_name.endsWith('.ado'))
             .sort();
 
-    const the_def_names = ADO_ASSET_DEFS.map(
+    const expected_ado_names = ADO_ASSET_DEFS.map(
         (my_def) => my_def.name
     ).sort();
 
     it('matches the canonical stata/ directory', () => {
         expect(
             list_ados(path.join(REPO_ROOT, 'stata'))
-        ).toEqual(the_def_names);
+        ).toEqual(expected_ado_names);
     });
 
     it('matches the bundled client/stata/ directory', () => {
         expect(
             list_ados(path.join(REPO_ROOT, 'client', 'stata'))
-        ).toEqual(the_def_names);
+        ).toEqual(expected_ado_names);
     });
 });
