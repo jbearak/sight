@@ -148,10 +148,66 @@ describe('resolve_path_rich', () => {
         ).toBe('missing');
     });
 
-    it('no workspace_roots: walks from fs root for case-only resolution', () => {
-        // In-memory fs: /ws exists as a directory containing Clean.do
-        const fs = make_fs({ '/': [['ws', false]], '/ws': [['Clean.do', true]] });
-        const out = resolve_path_rich('/ws/clean', { fs });
+    it('outside workspace roots: .do fallback applied (F4)', () => {
+        // Roots supplied but path is outside them; the .do fallback should
+        // still apply for plain-existence semantics.
+        const the_file_set = new Set(['/other/script.do']);
+        const the_dir_set = new Set(['/other']);
+        const fs = {
+            existsSync: (p: string) =>
+                the_file_set.has(p) || the_dir_set.has(p),
+            readdirSync: (_p: string, _opts: { withFileTypes: true }) => [],
+        };
+        const out = resolve_path_rich('/other/script', {
+            workspace_roots: roots,
+            fs,
+        });
+        expect(out.kind).toBe('exact');
+        if (out.kind === 'exact') {
+            expect(out.path).toBe('/other/script.do');
+        }
+    });
+
+    it('no workspace_roots: plain existence — exact if file present', () => {
+        // No roots supplied → plain-existence semantics (no directory scan).
+        // The requested path exists exactly → exact.
+        const fs = make_fs({ '/ws': [['clean.do', true]] });
+        const out = resolve_path_rich('/ws/clean.do', { fs });
+        expect(out.kind).toBe('exact');
+        if (out.kind === 'exact') {
+            expect(out.path).toBe('/ws/clean.do');
+        }
+    });
+
+    it('no workspace_roots: plain existence — missing when absent', () => {
+        const fs = make_fs({ '/ws': [['other.do', true]] });
+        expect(resolve_path_rich('/ws/clean.do', { fs }).kind).toBe('missing');
+    });
+
+    it('no workspace_roots: .do fallback applied (plain existence)', () => {
+        // existsSync returns true only for the .do-suffixed path
+        const the_file_set = new Set(['/ws/Clean.do']);
+        const the_dir_set = new Set(['/ws']);
+        const fs = {
+            existsSync: (p: string) =>
+                the_file_set.has(p) || the_dir_set.has(p),
+            readdirSync: (_p: string, _opts: { withFileTypes: true }) => [],
+        };
+        const out = resolve_path_rich('/ws/Clean', { fs });
+        // No case scanning; the .do path exists exactly → exact
+        expect(out.kind).toBe('exact');
+        if (out.kind === 'exact') {
+            expect(out.path).toBe('/ws/Clean.do');
+        }
+    });
+
+    it('workspace_roots supplied: case-only resolution still works', () => {
+        // When a root is passed, case-insensitive scanning applies.
+        const fs = make_fs({ '/ws': [['Clean.do', true]] });
+        const out = resolve_path_rich('/ws/clean', {
+            workspace_roots: ['/ws'],
+            fs,
+        });
         expect(out.kind).toBe('case_only');
         if (out.kind === 'case_only') {
             expect(out.path).toBe('/ws/Clean.do');

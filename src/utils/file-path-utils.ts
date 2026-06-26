@@ -192,12 +192,12 @@ function has_extension(name: string): boolean {
  * directory listings at every component (never trusting `existsSync` for
  * casing).
  *
- * Paths outside every `workspace_roots` entry fall back to plain existence
- * semantics: `exact` if the file exists today, `missing` otherwise. When
- * `workspace_roots` is empty/undefined the walk starts from the path's
- * filesystem root (POSIX `/`, or the Windows drive/UNC root), enabling
- * case-only resolution without explicit roots (useful for tests and
- * standalone usage).
+ * Paths outside every `workspace_roots` entry (or when no roots are
+ * supplied) fall back to plain existence semantics: `exact` if the file
+ * exists (with `.do` fallback when `try_do_fallback` is true and the final
+ * component has no extension), `missing` otherwise. Case-insensitive
+ * resolution is workspace-bounded; callers should pass the analyzed file's
+ * own root as a `workspace_roots` entry to enable case handling.
  */
 export function resolve_path_rich(
     resolved_fs_path: string,
@@ -232,23 +232,27 @@ export function resolve_path_rich(
         }
     }
 
-    // ── Outside all workspace roots ───────────────────────────────────────────
+    // ── Outside all workspace roots (or no roots supplied) ───────────────────
+    // Plain-existence semantics: no directory enumeration, no case handling.
+    // Case-insensitive resolution is workspace-bounded; callers should pass
+    // the analyzed file's own root as a workspace_roots entry when they want
+    // case handling. Without roots we cannot know which volume to probe.
     if (chosen_root === null) {
-        if (the_roots.length > 0) {
-            // Roots were supplied but path is outside all of them.
-            // Return plain existence — no case-handling enumeration.
-            if (the_fs.existsSync(norm_path)) {
-                return { kind: 'exact', path: norm_path };
-            }
-            return { kind: 'missing', requested: resolved_fs_path };
+        // Try exact path first.
+        if (the_fs.existsSync(norm_path)) {
+            return { kind: 'exact', path: norm_path };
         }
-        // No roots supplied at all → treat the filesystem root as the
-        // walk start (POSIX "/" or Windows drive root such as "C:/").
-        // This enables case-only resolution in tests and standalone usage.
-        const my_fs_root = norm_path.startsWith('/')
-            ? '/'
-            : norm_path.replace(/^([A-Za-z]:[\\/]).*$/, '$1');
-        chosen_root = my_fs_root.replace(/[\\/]$/, '') || '/';
+        // Apply .do fallback when the final component has no extension.
+        if (try_do_fallback) {
+            const my_final = norm_path.split(sep).at(-1) ?? '';
+            if (!has_extension(my_final)) {
+                const my_do_path = norm_path + '.do';
+                if (the_fs.existsSync(my_do_path)) {
+                    return { kind: 'exact', path: my_do_path };
+                }
+            }
+        }
+        return { kind: 'missing', requested: resolved_fs_path };
     }
 
     // ── Confirm the root itself exists ───────────────────────────────────────
@@ -439,35 +443,58 @@ export function host_is_case_sensitive(
 }
 
 /**
- * Core logic: flip the case of the first ASCII letter and check if the
- * flipped path exists.
+ * Flip the case of a single ASCII letter in `char` (A–Z ↔ a–z).
+ * Returns the flipped character, or `null` if `char` is not an ASCII letter.
+ */
+function flip_ascii_case(char: string): string | null {
+    const code = char.charCodeAt(0);
+    if (code >= 65 && code <= 90) return String.fromCharCode(code + 32);
+    if (code >= 97 && code <= 122) return String.fromCharCode(code - 32);
+    return null;
+}
+
+/**
+ * Core logic: flip the case of the first ASCII letter found in the leaf
+ * (last path segment) of `seed_existing_dir` and check if the flipped path
+ * exists. This ensures the probe is on the same filesystem volume as the
+ * seed, rather than reflecting a parent directory on a different mount.
+ *
+ * If the leaf has no ASCII letter, walk up to the nearest ancestor segment
+ * that does. If no ASCII letter exists anywhere, assume case-sensitive.
  */
 function check_case_sensitivity(
     seed_existing_dir: string,
     fs: { existsSync(p: string): boolean },
 ): boolean {
-    // Find the first ASCII letter in the path
-    for (let i = 0; i < seed_existing_dir.length; i++) {
-        const my_char = seed_existing_dir[i]!;
-        const code = my_char.charCodeAt(0);
-        // A–Z: 65–90 or a–z: 97–122
-        if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
-            // Found an ASCII letter; flip its case
-            let flipped_char: string;
-            if (code >= 65 && code <= 90) {
-                // A–Z → a–z
-                flipped_char = String.fromCharCode(code + 32);
-            } else {
-                // a–z → A–Z
-                flipped_char = String.fromCharCode(code - 32);
-            }
-            // Build the flipped path
-            const flipped_path =
-                seed_existing_dir.slice(0, i) +
-                flipped_char +
-                seed_existing_dir.slice(i + 1);
+    const sep = '/';
+    // Normalise Windows separators before splitting
+    const norm_seed = seed_existing_dir.replace(/\\/g, sep);
+    // Split into segments; filter empty strings from leading '/'
+    const the_segments = norm_seed.split(sep);
 
-            // Check if the flipped path exists
+    // Walk segments from leaf to root looking for one that has an ASCII letter
+    for (let seg_idx = the_segments.length - 1; seg_idx >= 0; seg_idx--) {
+        const my_seg = the_segments[seg_idx]!;
+        // Find the first ASCII letter within this segment
+        for (let char_idx = 0; char_idx < my_seg.length; char_idx++) {
+            const my_char = my_seg[char_idx]!;
+            const my_flipped = flip_ascii_case(my_char);
+            if (my_flipped === null) continue;
+
+            // Build the flipped segment
+            const my_flipped_seg =
+                my_seg.slice(0, char_idx) +
+                my_flipped +
+                my_seg.slice(char_idx + 1);
+
+            // Reconstruct the path with the flipped segment
+            const the_flipped_parts = [
+                ...the_segments.slice(0, seg_idx),
+                my_flipped_seg,
+                ...the_segments.slice(seg_idx + 1),
+            ];
+            const flipped_path = the_flipped_parts.join(sep);
+
             if (fs.existsSync(flipped_path)) {
                 return false; // case-insensitive
             }
@@ -475,7 +502,7 @@ function check_case_sensitivity(
         }
     }
 
-    // No ASCII letter found; assume case-sensitive
+    // No ASCII letter anywhere in path; assume case-sensitive
     return true;
 }
 
