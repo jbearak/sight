@@ -147,4 +147,14 @@ describe('resolve_path_rich', () => {
             }).kind,
         ).toBe('missing');
     });
+
+    it('no workspace_roots: walks from fs root for case-only resolution', () => {
+        // In-memory fs: /ws exists as a directory containing Clean.do
+        const fs = make_fs({ '/': [['ws', false]], '/ws': [['Clean.do', true]] });
+        const out = resolve_path_rich('/ws/clean', { fs });
+        expect(out.kind).toBe('case_only');
+        if (out.kind === 'case_only') {
+            expect(out.path).toBe('/ws/Clean.do');
+        }
+    });
 });

@@ -2,6 +2,8 @@
  * File path utilities for Sight
  */
 
+import * as node_fs from 'fs';
+
 // Commands that accept file paths as their first argument
 export const FILE_COMMANDS = new Set([
   'do', 'run', 'include',
@@ -59,23 +61,23 @@ export function hasStataExtension(filename: string): boolean {
  * Returns the path that exists, trying original path first, then with .do extension
  */
 export function resolvePathWithDoFallback(
-    fs_path: string,
-    fs: { existsSync: (path: string) => boolean },
+  fs_path: string,
+  fs: { existsSync: (path: string) => boolean },
 ): string | null {
-    // Try original path first
-    if (fs.existsSync(fs_path)) {
-        return fs_path;
-    }
+  // Try original path first
+  if (fs.existsSync(fs_path)) {
+    return fs_path;
+  }
 
-    // Try .do fallback if original path doesn't end in .do
-    if (!fs_path.endsWith('.do')) {
-        const fallback_path = fs_path + '.do';
-        if (fs.existsSync(fallback_path)) {
-            return fallback_path;
-        }
+  // Try .do fallback if original path doesn't end in .do
+  if (!fs_path.endsWith('.do')) {
+    const fallback_path = fs_path + '.do';
+    if (fs.existsSync(fallback_path)) {
+      return fallback_path;
     }
+  }
 
-    return null;
+  return null;
 }
 
 // ─── Rich path resolver ───────────────────────────────────────────────────────
@@ -126,17 +128,17 @@ export interface RichResolveOptions {
 
 /**
  * Build a production `RichResolveFs` backed by the real Node `fs` module.
- * Called lazily — no top-level `import * as fs from 'fs'` — so it doesn't
- * add a spurious TS2591 in the shared typecheck environment where the Node
- * type lib is absent. Tests always inject `options.fs` and never hit this.
+ * Tests always inject `options.fs` and never hit this path.
  */
 function make_default_fs(): RichResolveFs {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const real_fs: any = (globalThis as any)['require']('fs');
     return {
         readdirSync: (p: string, opts: { withFileTypes: true }) =>
-            real_fs.readdirSync(p, opts),
-        existsSync: (p: string) => real_fs.existsSync(p),
+            node_fs.readdirSync(p, opts) as Array<{
+                name: string;
+                isFile(): boolean;
+                isDirectory(): boolean;
+            }>,
+        existsSync: (p: string) => node_fs.existsSync(p),
     };
 }
 
@@ -189,9 +191,12 @@ function has_extension(name: string): boolean {
  * directory listings at every component (never trusting `existsSync` for
  * casing).
  *
- * Paths outside every `workspace_roots` entry (or when no roots supplied and
- * the path is outside the analyzed tree) fall back to plain existence
- * semantics: `exact` if the file exists today, `missing` otherwise.
+ * Paths outside every `workspace_roots` entry fall back to plain existence
+ * semantics: `exact` if the file exists today, `missing` otherwise. When
+ * `workspace_roots` is empty/undefined the walk starts from the path's
+ * filesystem root (POSIX `/`, or the Windows drive/UNC root), enabling
+ * case-only resolution without explicit roots (useful for tests and
+ * standalone usage).
  */
 export function resolve_path_rich(
     resolved_fs_path: string,
@@ -226,14 +231,23 @@ export function resolve_path_rich(
         }
     }
 
-    // ── Outside all workspace roots → plain existence (no case handling) ─────
+    // ── Outside all workspace roots ───────────────────────────────────────────
     if (chosen_root === null) {
-        // If no roots were supplied, we cannot do case handling either:
-        // return plain existence.
-        if (the_fs.existsSync(norm_path)) {
-            return { kind: 'exact', path: norm_path };
+        if (the_roots.length > 0) {
+            // Roots were supplied but path is outside all of them.
+            // Return plain existence — no case-handling enumeration.
+            if (the_fs.existsSync(norm_path)) {
+                return { kind: 'exact', path: norm_path };
+            }
+            return { kind: 'missing', requested: resolved_fs_path };
         }
-        return { kind: 'missing', requested: resolved_fs_path };
+        // No roots supplied at all → treat the filesystem root as the
+        // walk start (POSIX "/" or Windows drive root such as "C:/").
+        // This enables case-only resolution in tests and standalone usage.
+        const my_fs_root = norm_path.startsWith('/')
+            ? '/'
+            : norm_path.replace(/^([A-Za-z]:[\\/]).*$/, '$1');
+        chosen_root = my_fs_root.replace(/[\\/]$/, '') || '/';
     }
 
     // ── Confirm the root itself exists ───────────────────────────────────────
@@ -259,6 +273,11 @@ export function resolve_path_rich(
     // Track whether any component needed ci-resolution (makes result case_only)
     let had_case_mismatch = false;
 
+    // Join a directory path and a single component, avoiding double separators
+    // when current_dir is the filesystem root (e.g. "/" → "/ws", not "//ws").
+    const join_path = (dir: string, name: string): string =>
+        dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
+
     for (let comp_idx = 0; comp_idx < the_components.length; comp_idx++) {
         const my_component = the_components[comp_idx]!;
         const my_is_final = comp_idx === the_components.length - 1;
@@ -282,7 +301,7 @@ export function resolve_path_rich(
                 e => e.name === my_component && e.isDirectory(),
             );
             if (my_exact !== undefined) {
-                current_dir = `${current_dir}${sep}${my_exact.name}`;
+                current_dir = join_path(current_dir, my_exact.name);
                 continue;
             }
             // Case-insensitive directory matches
@@ -291,7 +310,7 @@ export function resolve_path_rich(
             );
             if (the_ci_dirs.length === 1) {
                 had_case_mismatch = true;
-                current_dir = `${current_dir}${sep}${the_ci_dirs[0]!.name}`;
+                current_dir = join_path(current_dir, the_ci_dirs[0]!.name);
                 continue;
             }
             if (the_ci_dirs.length > 1) {
@@ -299,7 +318,7 @@ export function resolve_path_rich(
                     kind: 'ambiguous',
                     requested: resolved_fs_path,
                     matches: the_ci_dirs.map(
-                        e => `${current_dir}${sep}${e.name}`,
+                        e => join_path(current_dir, e.name),
                     ),
                 };
             }
@@ -321,7 +340,7 @@ export function resolve_path_rich(
                 e => e.name === my_cand && e.isFile(),
             );
             if (my_exact_file !== undefined) {
-                const my_full = `${current_dir}${sep}${my_exact_file.name}`;
+                const my_full = join_path(current_dir, my_exact_file.name);
                 if (had_case_mismatch) {
                     return {
                         kind: 'case_only',
@@ -346,7 +365,7 @@ export function resolve_path_rich(
                 ) {
                     seen_names.add(my_entry.name);
                     the_ci_files.push(
-                        `${current_dir}${sep}${my_entry.name}`,
+                        join_path(current_dir, my_entry.name),
                     );
                 }
             }
