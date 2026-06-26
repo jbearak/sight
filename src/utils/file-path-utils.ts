@@ -202,9 +202,9 @@ export function resolve_path_rich(
     resolved_fs_path: string,
     options?: RichResolveOptions,
 ): PathCaseOutcome {
-    // Lazy-load Node fs to avoid a top-level import (which adds typecheck
-    // errors in the shared environment). Tests always inject `options.fs`,
-    // so this code path only runs in production where `fs` is available.
+    // Tests inject `options.fs`; otherwise fall back to the Node `fs`
+    // default. The default reads the real filesystem, so it only runs in
+    // production / integration paths, never in the injected-fs unit tests.
     const the_fs: RichResolveFs = options?.fs ?? make_default_fs();
     const try_do_fallback = options?.try_do_fallback ?? true;
     const the_roots = options?.workspace_roots ?? [];
