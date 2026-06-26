@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
+import { StataDiagnosticCode } from '../../src/types';
 
 describe('gegen.ado reproduction', () => {
     const gegen_code = `*/
@@ -53,11 +54,13 @@ end
         const analysis = analyzer.analyze(result.ast, lexer_result.tokens);
 
         // Check for undefined macro warnings for weight and exp
-        const weight_warning = analysis.diagnostics.find(d => 
-            d.message.includes('weight') && d.message.includes('Undefined')
+        const weight_warning = analysis.diagnostics.find(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            && d.message.includes('weight')
         );
-        const exp_warning = analysis.diagnostics.find(d => 
-            d.message.includes('exp') && d.message.includes('Undefined')
+        const exp_warning = analysis.diagnostics.find(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            && d.message.includes('exp')
         );
 
         expect(weight_warning).toBeUndefined();

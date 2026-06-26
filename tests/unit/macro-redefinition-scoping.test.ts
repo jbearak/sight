@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { SemanticAnalyzer } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
+import { StataDiagnosticCode } from '../../src/types';
 
 describe('Macro Redefinition Scoping', () => {
     it('should not report undefined local macro after first levelsof definition', () => {
@@ -21,7 +22,7 @@ di \`merp'`;
         
         // Should not have any "Undefined local macro" diagnostics
         const undefinedMacroDiagnostics = result.diagnostics.filter(
-            d => d.message.includes('Undefined local macro')
+            d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
         );
         
         expect(undefinedMacroDiagnostics).toHaveLength(0);
@@ -52,7 +53,7 @@ di \`foo'`;
         
         // Should not have any "Undefined local macro" diagnostics
         const undefinedMacroDiagnostics = result.diagnostics.filter(
-            d => d.message.includes('Undefined local macro')
+            d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
         );
         
         expect(undefinedMacroDiagnostics).toHaveLength(0);
@@ -84,7 +85,7 @@ di \`x'`;
         
         // Should not have any "Undefined local macro" diagnostics
         const undefinedMacroDiagnostics = result.diagnostics.filter(
-            d => d.message.includes('Undefined local macro')
+            d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
         );
         
         expect(undefinedMacroDiagnostics).toHaveLength(0);
