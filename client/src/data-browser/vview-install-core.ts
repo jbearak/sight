@@ -134,7 +134,7 @@ export interface VviewInstallHooks<
         permission: VviewInstallPermission | undefined
     ) => Promise<void>;
     prompt_for_install?: (
-        target_dir: string
+        status: BundleInstallStatus
     ) => Promise<VviewInstallPromptChoice>;
     install_bundle?: (
         status: BundleInstallStatus,
@@ -409,6 +409,45 @@ export function uninstall_bundle(
     return my_all_ok;
 }
 
+// Build the install-permission prompt text, tailored to what is
+// already on disk. When vview.ado is already installed (up to date),
+// re-offering "vview" confuses a user who installed it before the
+// browse bundle existed, so the prompt instead frames the fresh
+// consent as *adding the console `browse` alias* (and its
+// abbreviations). When vview is not yet present, the full bundle is
+// offered. Either way the install location is named.
+export function build_install_prompt_message(
+    status: BundleInstallStatus
+): string {
+    const my_vview = status.assets.find(
+        (my_asset) => my_asset.name === 'vview.ado'
+    );
+    const vview_already_installed =
+        my_vview?.state === 'up_to_date';
+
+    if (vview_already_installed) {
+        return (
+            'vview is already installed. Would you like Sight to '
+            + 'also add the console "browse" command (and its '
+            + 'abbreviations "brows", "brow", "bro", "br") as an '
+            + 'alias for vview? In console Stata they open datasets '
+            + 'in VS Code; the GUI built-in "browse" is unaffected.'
+            + '\n\n'
+            + `Install location: ${status.target_dir}`
+        );
+    }
+
+    return (
+        'Would you like to add Sight\'s Stata commands '
+        + '("vview" and "browse") to Stata?\n\n'
+        + '"vview" opens datasets in VS Code; in console '
+        + 'Stata, "browse" (and its abbreviations "brows", '
+        + '"brow", "bro", "br") becomes an alias for it (the '
+        + 'GUI built-in "browse" is unaffected).\n\n'
+        + `Install location: ${status.target_dir}`
+    );
+}
+
 export function get_install_permission<
     TContext extends VviewInstallContextLike
 >(
@@ -527,7 +566,7 @@ export async function ensure_bundle_installed<
 
     log('Stata commands: prompting for install permission');
     const my_choice = await hooks.prompt_for_install(
-        my_status.target_dir
+        my_status
     );
     if (my_choice === 'dismissed') {
         log('Stata commands: prompt dismissed');
