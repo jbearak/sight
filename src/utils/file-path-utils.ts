@@ -4,6 +4,10 @@
 
 import * as node_fs from 'fs';
 import * as node_path from 'path';
+import {
+    entry_is_directory_sync,
+    entry_is_file_sync,
+} from './symlink-aware-entry';
 
 // Commands that accept file paths as their first argument
 export const FILE_COMMANDS = new Set([
@@ -191,57 +195,15 @@ function has_extension(name: string): boolean {
 }
 
 // ─── Symlink-aware entry helpers ──────────────────────────────────────────────
+//
+// The symlink-aware classification logic lives in `./symlink-aware-entry` so
+// it is shared with the indexer, `sight check` source discovery, and path
+// completion (issue #219). `RichResolveFs.statSync` satisfies the shared
+// `StatSyncFs` seam, so these thin aliases keep the resolver's existing call
+// sites unchanged.
 
-/**
- * True when `entry` is a directory (direct or via symlink).
- *
- * Fast path: `entry.isDirectory()` (no extra syscall for non-symlinks).
- * Symlink path: `fs.statSync(full_path).isDirectory()` which follows the
- * link. A dangling symlink causes `statSync` to throw; we catch and return
- * false so a broken link is silently skipped rather than crashing the
- * resolver.
- */
-function entry_is_dir(
-    entry: {
-        isDirectory(): boolean;
-        isSymbolicLink(): boolean;
-    },
-    full_path: string,
-    fs: RichResolveFs,
-): boolean {
-    if (entry.isDirectory()) return true;
-    if (!entry.isSymbolicLink()) return false;
-    try {
-        return fs.statSync(full_path).isDirectory();
-    } catch {
-        return false; // dangling symlink — treat as non-matching
-    }
-}
-
-/**
- * True when `entry` is a file (direct or via symlink).
- *
- * Fast path: `entry.isFile()` (no extra syscall for non-symlinks).
- * Symlink path: `fs.statSync(full_path).isFile()` which follows the link.
- * A dangling symlink causes `statSync` to throw; we catch and return false
- * so a broken link is silently skipped rather than crashing the resolver.
- */
-function entry_is_file(
-    entry: {
-        isFile(): boolean;
-        isSymbolicLink(): boolean;
-    },
-    full_path: string,
-    fs: RichResolveFs,
-): boolean {
-    if (entry.isFile()) return true;
-    if (!entry.isSymbolicLink()) return false;
-    try {
-        return fs.statSync(full_path).isFile();
-    } catch {
-        return false; // dangling symlink — treat as non-matching
-    }
-}
+const entry_is_dir = entry_is_directory_sync;
+const entry_is_file = entry_is_file_sync;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
