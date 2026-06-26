@@ -868,7 +868,16 @@ export interface ForwardResolveContext {
   depth: number;
   diagnostics: DirectiveDiagnostic[];
   working_directory?: string;  // Inherited working directory for path resolution
-  call_chain?: string[];       // Call chain for diagnostic messages (e.g., ["parent.do", "child.do"])
+  call_chain?: string[];       // Call chain for diagnostic messages
+  /**
+   * URI of the file whose diagnostics are being collected in this
+   * resolution pass. Only path_case_mismatch diagnostics for forward
+   * calls written directly in this file (current_file_uri ===
+   * diagnostic_owner_uri && depth === 0) are emitted. Nested callee
+   * resolution and ancestor-scope builds resolve leniently but suppress
+   * the diagnostic to avoid cascade / double-emit.
+   */
+  diagnostic_owner_uri?: string;
 }
 
 export interface ForwardCallSite {

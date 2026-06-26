@@ -19,9 +19,15 @@ import {
     DuplicateCallDecision,
     DirectiveDiagnostic,
     MacroSymbol,
+    StataDiagnosticCode,
 } from '../types';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { ScopeResolver } from '../scope-resolver';
+import {
+    resolve_path_rich,
+    compute_forward_call_join,
+    type RichResolveFs,
+} from '../utils/file-path-utils';
 
 export interface ForwardScopeConfig {
     max_forward_depth: number;
@@ -38,6 +44,9 @@ export class ForwardScopeResolver {
     private scope_resolver: ScopeResolver;
     private default_config: ForwardScopeConfig;
     private workspace_roots: string[] = [];
+    // Injected filesystem for resolve_path_rich (for tests only).
+    // When undefined, resolve_path_rich uses the real Node fs.
+    private resolve_fs?: RichResolveFs;
 
     constructor(scope_resolver: ScopeResolver, config: Partial<ForwardScopeConfig> = {}) {
         this.scope_resolver = scope_resolver;
@@ -52,6 +61,15 @@ export class ForwardScopeResolver {
     }
 
     /**
+     * Inject a filesystem implementation for `resolve_path_rich`.
+     * For testing only — production code leaves this undefined so
+     * `resolve_path_rich` uses the real Node `fs`.
+     */
+    set_resolve_fs(injected_fs: RichResolveFs): void {
+        this.resolve_fs = injected_fs;
+    }
+
+    /**
      * Check if a filesystem path is within any workspace root.
      */
     private is_within_workspace_roots(fs_path: string): boolean {
@@ -63,65 +81,211 @@ export class ForwardScopeResolver {
     }
 
     /**
-     * Re-resolve a forward call path using the working directory context.
-     * If working_directory is set and the raw_path is relative, resolve relative to it.
-     * Otherwise, use the original resolved path.
-     * 
-     * Only re-resolves if the original path doesn't exist and the working directory
-     * would produce a valid path.
+     * Re-resolve a forward call path using the working directory context
+     * and the rich path resolver for case-insensitive fallback.
+     *
+     * Replaces the former ad-hoc `existsSync` + `.do` chain.  The
+     * joined path is computed via `compute_forward_call_join` (same logic
+     * as the dependency graph) and classified by `resolve_path_rich`.
+     *
+     * Returns `{ resolved_path, outcome_kind, ... }`:
+     * - `exact`     → use `resolved_path`; no diagnostic needed.
+     * - `case_only` → use `resolved_path` (real-cased); caller should
+     *                 emit a `path_case_mismatch` diagnostic.
+     * - `ambiguous` / `missing` → `resolved_path` is the as-joined
+     *   path; `get_callee_scope` will return an error and the caller
+     *   emits the existing "Cannot read file" diagnostic.
      */
     private resolve_call_path(
         raw_path: string,
         original_resolved_path: string,
         _caller_uri: string,
-        working_directory?: string
+        working_directory?: string,
+    ): {
+        resolved_path: string;
+        outcome_kind: 'exact' | 'case_only' | 'ambiguous' | 'missing';
+        requested_path?: string;
+        seed_dir?: string;
+    } {
+        // Compute the joined absolute path (WD-priority for relative paths)
+        const my_joined = compute_forward_call_join(
+            raw_path,
+            original_resolved_path,
+            working_directory,
+        );
+
+        const my_rich_opts = {
+            try_do_fallback: true,
+            workspace_roots: this.workspace_roots.length > 0
+                ? this.workspace_roots
+                : undefined,
+            fs: this.resolve_fs,
+        };
+
+        // Classify the WD-priority join via resolve_path_rich
+        const my_outcome = resolve_path_rich(my_joined, my_rich_opts);
+
+        if (my_outcome.kind === 'exact') {
+            return {
+                resolved_path: my_outcome.path,
+                outcome_kind: 'exact',
+            };
+        }
+
+        if (my_outcome.kind === 'case_only') {
+            // Find the containing workspace root to seed the host probe
+            const my_seed = this.find_seed_dir(my_outcome.path);
+            return {
+                resolved_path: my_outcome.path,
+                outcome_kind: 'case_only',
+                requested_path: my_outcome.requested,
+                seed_dir: my_seed,
+            };
+        }
+
+        // WD-priority join was missing or ambiguous. Try the original
+        // (script-relative) resolved path as a fallback — only when it
+        // differs from the WD join (avoids a redundant second resolve call).
+        // This preserves backward compatibility: when the analyzer's
+        // existing path join already found the correct file (e.g. when no
+        // WD context applies or when WD points to a non-existent directory),
+        // the forward resolver still succeeds rather than emitting a
+        // spurious "Cannot read file" diagnostic.
+        // The dep-graph does NOT apply this fallback (it keys by WD join
+        // exclusively), so in a non-WD scenario both agree on the joined
+        // path; in a WD-but-invalid scenario the dep-graph edge may be
+        // missing, but the forward diagnostic guard (depth > 0 or
+        // different owner) prevents spurious cascades.
+        if (my_joined !== original_resolved_path) {
+            if (this.workspace_roots.length > 0) {
+                // With workspace roots, use resolve_path_rich on the
+                // original path for proper case-only detection.
+                const my_fallback = resolve_path_rich(
+                    original_resolved_path,
+                    my_rich_opts,
+                );
+                if (my_fallback.kind === 'exact') {
+                    return {
+                        resolved_path: my_fallback.path,
+                        outcome_kind: 'exact',
+                    };
+                }
+                if (my_fallback.kind === 'case_only') {
+                    const my_seed = this.find_seed_dir(my_fallback.path);
+                    return {
+                        resolved_path: my_fallback.path,
+                        outcome_kind: 'case_only',
+                        requested_path: my_fallback.requested,
+                        seed_dir: my_seed,
+                    };
+                }
+            } else {
+                // Without workspace roots (e.g. early startup, test
+                // harnesses), resolve_path_rich's walk-from-root can fail
+                // in sandbox/restricted environments. Fall back to the
+                // original existsSync approach for backward compatibility.
+                if (fs.existsSync(original_resolved_path)) {
+                    return {
+                        resolved_path: original_resolved_path,
+                        outcome_kind: 'exact',
+                    };
+                }
+                if (
+                    !original_resolved_path.endsWith('.do') &&
+                    fs.existsSync(original_resolved_path + '.do')
+                ) {
+                    return {
+                        resolved_path: original_resolved_path + '.do',
+                        outcome_kind: 'exact',
+                    };
+                }
+            }
+        }
+
+        // Both join attempts failed: return the WD-priority outcome so
+        // the caller can report accordingly.
+        return {
+            resolved_path: my_joined,
+            outcome_kind: my_outcome.kind,
+        };
+    }
+
+    /**
+     * Find the workspace root that contains `fs_path` (the deepest one).
+     * Returns it as the seed directory for the host case-sensitivity probe.
+     * Falls back to the file's own directory if no workspace root matches.
+     */
+    private find_seed_dir(fs_path: string): string {
+        const my_norm = fs_path.replace(/\\/g, '/');
+        let my_best: string | undefined;
+        let my_best_len = -1;
+        for (const my_root of this.workspace_roots) {
+            const my_root_norm = my_root.replace(/\\/g, '/');
+            const my_prefix = my_root_norm.endsWith('/')
+                ? my_root_norm
+                : my_root_norm + '/';
+            if (
+                my_norm.startsWith(my_prefix) &&
+                my_root.length > my_best_len
+            ) {
+                my_best = my_root;
+                my_best_len = my_root.length;
+            }
+        }
+        return my_best ?? path.dirname(fs_path);
+    }
+
+    /**
+     * Simple path resolver used by
+     * `compute_effective_end_state_locals`.  This helper only needs a
+     * best-effort path (for reading the file); it does NOT emit
+     * diagnostics, so the rich `resolve_path_rich`-based classification
+     * is unnecessary overhead.  It replicates the original ad-hoc
+     * existsSync + .do chain so that `compute_effective_end_state_locals`
+     * continues to work correctly in all environments (including sandbox
+     * environments where `readdirSync('/')` may not list all directories).
+     *
+     * Returns the best path found, or `original_resolved_path` if
+     * nothing else works.
+     */
+    private resolve_call_path_simple(
+        raw_path: string,
+        original_resolved_path: string,
+        working_directory?: string,
     ): string {
-        // If original path exists, use it
-        if (fs.existsSync(original_resolved_path)) {
-            return original_resolved_path;
+        // Try the joined path (WD-priority)
+        const my_joined = compute_forward_call_join(
+            raw_path,
+            original_resolved_path,
+            working_directory,
+        );
+
+        if (fs.existsSync(my_joined)) return my_joined;
+        if (!my_joined.endsWith('.do')) {
+            const my_with_do = my_joined + '.do';
+            if (fs.existsSync(my_with_do)) return my_with_do;
         }
-        
-        // Try .do fallback on original path
-        if (!original_resolved_path.endsWith('.do')) {
-            const with_do = original_resolved_path + '.do';
-            if (fs.existsSync(with_do)) {
-                return with_do;
-            }
-        }
-        
-        // If no working directory or path is absolute, use original
-        if (!working_directory) {
-            return original_resolved_path;
-        }
-        
-        const normalized = raw_path.replace(/\\/g, '/');
-        if (path.isAbsolute(normalized) || /^[a-zA-Z]:\//.test(normalized)) {
-            return original_resolved_path;
-        }
-        
-        // Resolve relative to working directory
-        let resolved = path.normalize(path.join(working_directory, normalized));
-        
-        // Check if working directory resolution produces a valid path
-        if (fs.existsSync(resolved)) {
-            return resolved;
-        }
-        
-        // Try .do fallback
-        if (!resolved.endsWith('.do')) {
-            const with_do = resolved + '.do';
-            if (fs.existsSync(with_do)) {
-                return with_do;
-            }
-        }
-        
-        // Fall back to original path (will produce diagnostic later)
+
+        // Fall back to original (will produce an error in get_callee_scope)
         return original_resolved_path;
     }
 
     /**
      * Resolve forward scope for a file.
-     * @param config - Per-call config (e.g., max_forward_depth). Merged with defaults.
+     *
+     * @param config               - Per-call config (max_forward_depth etc).
+     *                               Merged with defaults.
+     * @param diagnostic_owner_uri - URI of the file whose diagnostics are
+     *                               being collected.  Only
+     *                               `path_case_mismatch` diagnostics for
+     *                               forward calls written directly in this
+     *                               file (file_uri === diagnostic_owner_uri
+     *                               at depth 0) are emitted.  Nested callee
+     *                               resolution resolves leniently but
+     *                               suppresses the diagnostic.  Pass
+     *                               `undefined` to suppress all
+     *                               path_case_mismatch emission (e.g., when
+     *                               building an ancestor's inherited scope).
      */
     async resolve(
         file_uri: string,
@@ -130,7 +294,8 @@ export class ForwardScopeResolver {
         context?: ForwardResolveContext,
         recursion_stack?: Set<string>,
         token?: CancellationToken,
-        config?: Partial<ForwardScopeConfig>
+        config?: Partial<ForwardScopeConfig>,
+        diagnostic_owner_uri?: string,
     ): Promise<ForwardResolvedScope> {
         const resolved_config = { ...this.default_config, ...config };
         // Check cancellation at entry
@@ -138,6 +303,9 @@ export class ForwardScopeResolver {
             return { symbols: create_empty_symbol_table(), call_sites: [], diagnostics: [] };
         }
 
+        // At the entry point (no incoming context) set diagnostic_owner_uri.
+        // When a context is passed in (recursive call), the owner is already
+        // set and must be preserved unchanged.
         const my_context: ForwardResolveContext = context ?? {
             visited: new Map(),
             effective_call_type,
@@ -145,6 +313,7 @@ export class ForwardScopeResolver {
             diagnostics: [],
             working_directory: undefined,
             call_chain: [],
+            diagnostic_owner_uri,
         };
         
         // Track current recursion stack for cycle detection
@@ -201,22 +370,91 @@ export class ForwardScopeResolver {
                 my_context.effective_call_type
             );
 
-            // Re-resolve the path using working directory if available
-            // The original path may have been resolved without working directory context
-            const resolved_path = this.resolve_call_path(
+            // Re-resolve the path using the rich resolver (handles WD,
+            // .do fallback, and case-only mismatches uniformly).
+            const my_path_result = this.resolve_call_path(
                 my_call.raw_path,
                 my_call.path,
                 file_uri,
-                my_context.working_directory
+                my_context.working_directory,
             );
+            const resolved_path = my_path_result.resolved_path;
             const callee_uri = URI.file(resolved_path).toString();
+
+            // Single-emission guard: emit path_case_mismatch only when
+            // this file_uri is the diagnosed file (depth 0 in the
+            // diagnostic_owner_uri's own resolve() pass).
+            if (
+                my_path_result.outcome_kind === 'case_only' &&
+                my_context.diagnostic_owner_uri !== undefined &&
+                file_uri === my_context.diagnostic_owner_uri &&
+                my_context.depth === 0
+            ) {
+                const my_requested = my_path_result.requested_path ??
+                    my_call.raw_path;
+                const my_real = my_path_result.resolved_path;
+                // Show relative paths in the message when possible
+                const my_req_disp = path.relative(
+                    path.dirname(URI.parse(file_uri).fsPath),
+                    my_requested,
+                ).replace(/\\/g, '/') || my_requested;
+                const my_real_disp = path.relative(
+                    path.dirname(URI.parse(file_uri).fsPath),
+                    my_real,
+                ).replace(/\\/g, '/') || my_real;
+                my_context.diagnostics.push({
+                    message:
+                        `Path "${my_req_disp}" does not match the file ` +
+                        `on disk "${my_real_disp}"; Stata will not find ` +
+                        `it on case-sensitive filesystems (Linux). ` +
+                        `Update the path to match.`,
+                    range: my_call.range,
+                    severity: 'warning',
+                    kind: 'path_case_mismatch',
+                    code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+                    case_mismatch_seed_dir: my_path_result.seed_dir,
+                    source: {
+                        source_file: path.basename(
+                            URI.parse(file_uri).fsPath,
+                        ),
+                        source_line: my_call.call_site_line,
+                        original_range: my_call.range,
+                    },
+                });
+            }
             
+            // For ambiguous outcome, emit "Cannot read file" and skip.
+            // We must NOT call get_callee_scope for ambiguous paths: on a
+            // case-insensitive host, existsSync would pick one of the two
+            // ci matches and succeed, masking the ambiguity.
+            if (my_path_result.outcome_kind === 'ambiguous') {
+                const my_source_filename = path.basename(
+                    URI.parse(file_uri).fsPath,
+                );
+                my_context.diagnostics.push({
+                    message:
+                        `${source_prefix}Cannot read file: ` +
+                        `${my_call.raw_path}`,
+                    range: my_call.range,
+                    severity: 'warning',
+                    source: {
+                        source_file: my_source_filename,
+                        source_line: my_call.call_site_line,
+                        original_range: my_call.range,
+                    },
+                });
+                continue;
+            }
+
+            // For missing outcome, fall through to get_callee_scope so
+            // the existing "tried:" message is preserved (backward compat).
+
             // Check for cycle in current recursion stack
             if (my_stack.has(callee_uri)) {
                 // Skip this call to prevent infinite recursion, but don't emit diagnostic
                 continue;
             }
-            
+
             const decision = this.should_process_call(callee_uri, my_call.type, my_context.visited);
 
             if (decision.action === 'skip') {
@@ -372,10 +610,16 @@ export class ForwardScopeResolver {
                         diagnostics: my_context.diagnostics,
                         working_directory: callee_result.working_directory ?? my_context.working_directory,
                         call_chain: [...(my_context.call_chain ?? []), my_call.raw_path],
+                        // Pass the original owner through unchanged so the
+                        // single-emission guard remains correct: nested
+                        // callee calls are at depth > 0 relative to the
+                        // owner and therefore suppress their own
+                        // path_case_mismatch emission.
+                        diagnostic_owner_uri: my_context.diagnostic_owner_uri,
                     },
                     my_stack,
                     token,
-                    resolved_config
+                    resolved_config,
                 );
 
                 // Check cancellation after recursive call
@@ -645,10 +889,13 @@ export class ForwardScopeResolver {
                 if (my_event.kind === 'local') {
                     the_effective.set(my_event.name, my_event.symbol);
                 } else {
-                    const nested_resolved = this.resolve_call_path(
+                    // Use the simple resolver here: compute_effective_end_state_locals
+                    // does not emit diagnostics, so the rich resolve_path_rich
+                    // classification is unnecessary and its walk-from-root
+                    // behavior can fail in sandbox environments.
+                    const nested_resolved = this.resolve_call_path_simple(
                         my_event.call.raw_path,
                         my_event.call.path,
-                        callee_uri,
                         nested_working_dir,
                     );
                     const nested_uri = URI.file(nested_resolved).toString();
