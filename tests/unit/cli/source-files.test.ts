@@ -162,3 +162,76 @@ describe('sight check source files', () => {
         }
     });
 });
+
+/**
+ * `sight check` source discovery must follow symlinked directories and
+ * symlinked source files (issue #219), while terminating on cycles and not
+ * escaping the scan root.
+ */
+function try_symlink(target: string, link_path: string): boolean {
+    try {
+        fs.symlinkSync(target, link_path);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+describe('sight check follows symlinks safely (#219)', () => {
+    it('discovers a symlinked source file', () => {
+        const root = temp_dir();
+        const real = path.join(root, 'real.do');
+        fs.writeFileSync(real, 'display 1\n');
+        if (!try_symlink(real, path.join(root, 'aliased.do'))) return;
+
+        const result = collect_report_targets([], root, root);
+        const rels = result.targets.map((t) => t.relative_path);
+        expect(rels).toContain('aliased.do');
+        expect(rels).toContain('real.do');
+    });
+
+    it('discovers files inside a symlinked subtree', () => {
+        const root = temp_dir();
+        const real_dir = path.join(root, 'realdir');
+        fs.mkdirSync(real_dir);
+        fs.writeFileSync(path.join(real_dir, 'inner.do'), 'display 1\n');
+        if (!try_symlink(real_dir, path.join(root, 'linkdir'))) return;
+
+        const result = collect_report_targets([], root, root);
+        // Followed once (visited set dedupes by physical dir): inner.do shows
+        // up under exactly one of realdir/ or linkdir/.
+        const inner = result.targets.filter((t) =>
+            t.relative_path.endsWith('inner.do'),
+        );
+        expect(inner).toHaveLength(1);
+        expect(result.operator_errors).toEqual([]);
+    });
+
+    it('terminates on a directory symlink cycle', () => {
+        const root = temp_dir();
+        const sub = path.join(root, 'sub');
+        fs.mkdirSync(sub);
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+        if (!try_symlink(root, path.join(sub, 'loop'))) return;
+
+        // Must not hang; main.do discovered exactly once.
+        const result = collect_report_targets([], root, root);
+        const mains = result.targets.filter((t) =>
+            t.relative_path.endsWith('main.do'),
+        );
+        expect(mains).toHaveLength(1);
+    });
+
+    it('does NOT follow a symlink that escapes the scan root', () => {
+        const root = temp_dir();
+        const external = temp_dir();
+        fs.writeFileSync(path.join(root, 'inside.do'), 'display 1\n');
+        fs.writeFileSync(path.join(external, 'outside.do'), 'display 1\n');
+        if (!try_symlink(external, path.join(root, 'escape'))) return;
+
+        const result = collect_report_targets([], root, root);
+        const rels = result.targets.map((t) => t.relative_path);
+        expect(rels).toContain('inside.do');
+        expect(rels.some((r) => r.endsWith('outside.do'))).toBe(false);
+    });
+});

@@ -48,7 +48,9 @@ import {
 import {
     hasStataExtension,
     VCS_METADATA_DIRS,
+    is_within_any_root,
 } from '../utils/file-path-utils';
+import { classify_entry_async } from '../utils/symlink-aware-entry';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
@@ -278,9 +280,32 @@ export class WorkspaceIndexer {
         this.help_search_paths = discover_stata_ado_paths();
         const start_time = Date.now();
 
-        for (const folder of [...workspace_folders, ...this.ado_paths]) {
+        // Scan-root boundary for symlinked-directory traversal: a symlinked
+        // dir is followed only when its physical target stays within one of
+        // the declared roots, so a symlink cannot escape into an arbitrary
+        // external tree (issue #219). Canonicalize each declared root once;
+        // fall back to the resolved path if it cannot be canonicalized.
+        const the_declared_roots = [...workspace_folders, ...this.ado_paths];
+        const boundary_roots: string[] = [];
+        for (const my_root of the_declared_roots) {
+            try {
+                boundary_roots.push(await fs.promises.realpath(my_root));
+            } catch {
+                boundary_roots.push(path.resolve(my_root));
+            }
+        }
+        // One visited set shared across all declared roots so a physical dir
+        // reachable from two roots (or via a symlink) is walked once.
+        const visited_real_dirs = new Set<string>();
+
+        for (const folder of the_declared_roots) {
             if (!this.is_active_generation(generation)) break;
-            await this.scan_directory(folder, generation);
+            await this.scan_directory(
+                folder,
+                generation,
+                boundary_roots,
+                visited_real_dirs
+            );
         }
 
         if (!this.is_active_generation(generation)) {
@@ -307,9 +332,26 @@ export class WorkspaceIndexer {
      */
     private async scan_directory(
         dir_path: string,
-        generation: number
+        generation: number,
+        boundary_roots: string[],
+        visited_real_dirs: Set<string>
     ): Promise<void> {
         if (!this.is_active_generation(generation)) return;
+
+        // Canonicalize the directory and dedupe by physical identity. This
+        // terminates symlink cycles and avoids walking/indexing the same
+        // physical dir twice when it is reachable through a symlink (#219).
+        // realpath is one syscall per directory entered, not per file. On
+        // failure, fall back to the lexical path so readdir below still
+        // surfaces the real error (preserving the prior error-log behavior).
+        let canonical_dir: string;
+        try {
+            canonical_dir = await fs.promises.realpath(dir_path);
+        } catch {
+            canonical_dir = dir_path;
+        }
+        if (visited_real_dirs.has(canonical_dir)) return;
+        visited_real_dirs.add(canonical_dir);
 
         try {
             const entries = await fs.promises.readdir(dir_path, {
@@ -323,8 +365,16 @@ export class WorkspaceIndexer {
                 if (!this.is_active_generation(generation)) break;
 
                 const entry_path = path.join(dir_path, entry.name);
+                // Symlink-aware, single stat: a symlinked dir/file would
+                // otherwise be neither isDirectory() nor isFile() and be
+                // silently skipped (#219).
+                const entry_kind = await classify_entry_async(
+                    entry,
+                    entry_path,
+                    fs.promises
+                );
 
-                if (entry.isDirectory()) {
+                if (entry_kind === 'directory') {
                     // Skip version-control metadata directories. They hold no
                     // Stata source, can be very large, and recursing them is
                     // pure scan overhead — the standard convention for code
@@ -332,9 +382,28 @@ export class WorkspaceIndexer {
                     if (VCS_METADATA_DIRS.has(entry.name)) {
                         continue;
                     }
-                    await this.scan_directory(entry_path, generation);
+                    // Follow a symlinked directory only when its physical
+                    // target stays within a declared scan root, so a symlink
+                    // cannot make the indexer crawl an arbitrary external tree.
+                    if (entry.isSymbolicLink()) {
+                        let target: string;
+                        try {
+                            target = await fs.promises.realpath(entry_path);
+                        } catch {
+                            continue; // dangling symlink — skip
+                        }
+                        if (!is_within_any_root(target, boundary_roots)) {
+                            continue;
+                        }
+                    }
+                    await this.scan_directory(
+                        entry_path,
+                        generation,
+                        boundary_roots,
+                        visited_real_dirs
+                    );
                 } else if (
-                    entry.isFile() &&
+                    entry_kind === 'file' &&
                     hasStataExtension(entry.name)
                 ) {
                     file_paths.push(entry_path);
@@ -1299,6 +1368,17 @@ export class WorkspaceIndexer {
         root_dir: string,
         basename: string
     ): Promise<string | null> {
+        // Boundary for symlinked-dir traversal + a canonical visited set so a
+        // symlink cycle cannot re-walk the same physical dirs within the depth
+        // cap (the depth cap alone bounds depth, not repeated traversal) (#219).
+        let boundary_root: string;
+        try {
+            boundary_root = await fs.promises.realpath(root_dir);
+        } catch {
+            boundary_root = root_dir;
+        }
+        const visited_real_dirs = new Set<string>();
+
         const the_dirs: Array<{ path: string; depth: number }> = [
             { path: root_dir, depth: 0 },
         ];
@@ -1308,6 +1388,15 @@ export class WorkspaceIndexer {
             if (my_entry.depth >= WorkspaceIndexer.MAX_STHLP_SEARCH_DEPTH) {
                 continue;
             }
+
+            let canonical_dir: string;
+            try {
+                canonical_dir = await fs.promises.realpath(my_entry.path);
+            } catch {
+                canonical_dir = my_entry.path;
+            }
+            if (visited_real_dirs.has(canonical_dir)) continue;
+            visited_real_dirs.add(canonical_dir);
 
             let the_entries: fs.Dirent[];
             try {
@@ -1320,19 +1409,37 @@ export class WorkspaceIndexer {
 
             for (const my_dirent of the_entries) {
                 const my_path = path.join(my_entry.path, my_dirent.name);
-                if (my_dirent.isDirectory()) {
-                    if (!WorkspaceIndexer.EXCLUDED_DIRS.has(my_dirent.name)) {
-                        the_dirs.push({
-                            path: my_path,
-                            depth: my_entry.depth + 1,
-                        });
+                // Symlink-aware classification so a symlinked subdir is
+                // descended and a symlinked `.sthlp` is matched (#219).
+                const my_kind = await classify_entry_async(
+                    my_dirent,
+                    my_path,
+                    fs.promises
+                );
+                if (my_kind === 'directory') {
+                    if (WorkspaceIndexer.EXCLUDED_DIRS.has(my_dirent.name)) {
+                        continue;
                     }
+                    // Follow a symlinked dir only if its target stays within
+                    // the search root.
+                    if (my_dirent.isSymbolicLink()) {
+                        let target: string;
+                        try {
+                            target = await fs.promises.realpath(my_path);
+                        } catch {
+                            continue; // dangling symlink — skip
+                        }
+                        if (!is_within_any_root(target, [boundary_root])) {
+                            continue;
+                        }
+                    }
+                    the_dirs.push({
+                        path: my_path,
+                        depth: my_entry.depth + 1,
+                    });
                     continue;
                 }
-                if (
-                    my_dirent.isFile() &&
-                    my_dirent.name === basename
-                ) {
+                if (my_kind === 'file' && my_dirent.name === basename) {
                     return my_path;
                 }
             }

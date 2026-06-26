@@ -46,6 +46,7 @@ import {
 } from '../scope-resolver';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
+import { classify_entry_sync } from '../utils/symlink-aware-entry';
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1436,7 +1437,19 @@ export class CompletionProvider {
                     continue;
                 }
 
-                if (entry.isDirectory()) {
+                // Classify symlink-aware: a symlinked directory/file would
+                // otherwise be `other` (isDirectory()/isFile() both false) and
+                // silently dropped from completions (issue #219). One stat,
+                // and only for symlink entries. No recursion here, so no
+                // cycle/boundary guard is needed — listing a symlinked dir the
+                // user navigates into re-lists that one level next request.
+                const entry_kind = classify_entry_sync(
+                    entry,
+                    path.join(base_dir, entry.name),
+                    fs,
+                );
+
+                if (entry_kind === 'directory') {
                     // Always include directories
                     completions.push({
                         label: entry.name + '/',
@@ -1445,7 +1458,7 @@ export class CompletionProvider {
                         insertText: entry.name + '/',
                         sortText: `0_${entry.name}` // Directories first
                     });
-                } else if (!directories_only && entry.isFile()) {
+                } else if (!directories_only && entry_kind === 'file') {
                     // Include files only if not directories_only
                     const is_stata_file = hasStataExtension(entry.name);
                     

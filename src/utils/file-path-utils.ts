@@ -40,6 +40,30 @@ export const STATA_FILE_EXTENSIONS = ['.do', '.ado', '.doh', '.mata'];
 export const VCS_METADATA_DIRS = new Set(['.git', '.hg', '.svn']);
 
 /**
+ * True when `the_path` is equal to, or nested under, at least one of `the_roots`
+ * (separator-aware so `/ws-other` is NOT within `/ws`). Used as the scan-root
+ * boundary for recursive directory walks: a symlinked directory is followed
+ * only when its canonicalized target stays within a declared root, so a symlink
+ * cannot make a walk escape into an arbitrary external tree (issue #219).
+ *
+ * Callers should pass already-canonicalized (`realpath`) paths so the boundary
+ * compares physical locations, not symlink aliases.
+ */
+export function is_within_any_root(
+  the_path: string,
+  the_roots: string[],
+): boolean {
+  const norm_path = the_path.split('\\').join('/');
+  for (const my_root of the_roots) {
+    const norm_root = my_root.split('\\').join('/');
+    if (norm_path === norm_root) return true;
+    const my_prefix = norm_root.endsWith('/') ? norm_root : norm_root + '/';
+    if (norm_path.startsWith(my_prefix)) return true;
+  }
+  return false;
+}
+
+/**
  * Check if a command accepts file paths as its first argument
  */
 export function isFileCommand(command: string): boolean {
