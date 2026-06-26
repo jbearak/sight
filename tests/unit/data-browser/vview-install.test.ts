@@ -87,6 +87,7 @@ function build_bundle(
     const make = (
         name: string,
         marker: string,
+        protect_foreign: boolean,
         content: string,
         extra: Partial<AdoAssetStatus>
     ): AdoAssetStatus => {
@@ -96,6 +97,7 @@ function build_bundle(
             bundled_path: path.join('/bundle', name),
             bundled_content: content,
             marker,
+            protect_foreign,
         };
         return {
             ...my_asset,
@@ -110,12 +112,14 @@ function build_bundle(
         make(
             'vview.ado',
             VVIEW_MARKER,
+            ADO_ASSET_DEFS[0].protect_foreign,
             `${VVIEW_MARKER}\nprogram define vview\nend\n`,
             overrides.vview ?? {}
         ),
         make(
             'browse.ado',
             BROWSE_MARKER,
+            ADO_ASSET_DEFS[1].protect_foreign,
             `${BROWSE_MARKER}\nprogram define browse\nvview \`0'\nend\n`,
             overrides.browse ?? {}
         ),
@@ -206,6 +210,7 @@ describe('ado asset classification', () => {
             bundled_path: '/bundle/browse.ado',
             bundled_content: 'content',
             marker: BROWSE_MARKER,
+            protect_foreign: true,
         };
 
         expect(classify_ado_asset(my_asset, () => {})).toBe(
@@ -226,6 +231,7 @@ describe('ado asset classification', () => {
                     bundled_path: '/bundle/browse.ado',
                     bundled_content: 'content',
                     marker: BROWSE_MARKER,
+                    protect_foreign: true,
                 },
                 () => {}
             )
@@ -245,6 +251,7 @@ describe('ado asset classification', () => {
                     bundled_path: '/bundle/browse.ado',
                     bundled_content: `${BROWSE_MARKER}\nnew\n`,
                     marker: BROWSE_MARKER,
+                    protect_foreign: true,
                 },
                 () => {}
             )
@@ -267,6 +274,7 @@ describe('ado asset classification', () => {
                     bundled_path: '/bundle/browse.ado',
                     bundled_content: `${BROWSE_MARKER}\nx\n`,
                     marker: BROWSE_MARKER,
+                    protect_foreign: true,
                 },
                 () => {}
             )
@@ -286,10 +294,37 @@ describe('ado asset classification', () => {
                     bundled_path: '/bundle/browse.ado',
                     bundled_content: undefined,
                     marker: BROWSE_MARKER,
+                    protect_foreign: true,
                 },
                 () => {}
             )
         ).toBe('error');
+    });
+
+    it('returns outdated (not foreign) for an unowned file of a Sight-owned name', () => {
+        // vview is Sight's own command name (protect_foreign: false):
+        // a differing, non-Sight vview.ado is overwritten, never left
+        // as a foreign file — otherwise browse could alias it.
+        const my_dir = create_temp_dir();
+        const my_path = path.join(my_dir, 'vview.ado');
+        fs.writeFileSync(
+            my_path,
+            '*! someone else\nprogram define vview\nend\n'
+        );
+
+        expect(
+            classify_ado_asset(
+                {
+                    name: 'vview.ado',
+                    target_path: my_path,
+                    bundled_path: '/bundle/vview.ado',
+                    bundled_content: `${VVIEW_MARKER}\nx\n`,
+                    marker: VVIEW_MARKER,
+                    protect_foreign: false,
+                },
+                () => {}
+            )
+        ).toBe('outdated');
     });
 });
 
@@ -655,6 +690,37 @@ describe('bundle file installation', () => {
         ).toBe(my_foreign);
         expect(
             fs.existsSync(path.join(my_dir, 'vview.ado'))
+        ).toBe(true);
+    });
+
+    it('installs Sight vview over a foreign vview so browse aliases Sight (not the foreign vview)', () => {
+        const my_dir = create_temp_dir();
+        // User has their own vview.ado; browse.ado is absent.
+        fs.writeFileSync(
+            path.join(my_dir, 'vview.ado'),
+            '*! someone else\nprogram define vview\nend\n'
+        );
+
+        const my_bundle = build_bundle(my_dir);
+        // vview is a Sight-owned name → reinstalled, not protected.
+        expect(my_bundle.assets[0].state).toBe('outdated');
+        expect(my_bundle.assets[1].state).toBe('missing');
+
+        const my_result = install_bundle(
+            my_bundle,
+            () => {}
+        );
+
+        expect(my_result).toBe(true);
+        // Sight's vview now in place, and browse is installed.
+        expect(
+            fs.readFileSync(
+                path.join(my_dir, 'vview.ado'),
+                'utf-8'
+            )
+        ).toBe(my_bundle.assets[0].bundled_content);
+        expect(
+            fs.existsSync(path.join(my_dir, 'browse.ado'))
         ).toBe(true);
     });
 

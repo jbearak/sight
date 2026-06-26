@@ -33,6 +33,14 @@ export interface AdoAssetDef {
     // ownership detection is precise and never misclassifies a user's
     // own same-named file (e.g. a personal browse.ado).
     marker: string;
+    // When true, a differing same-named file that is NOT Sight-owned is
+    // left untouched (classified 'foreign'). When false, Sight owns the
+    // command name and installs/updates its own copy regardless. `vview`
+    // is Sight's own command, so it is always installed — otherwise a
+    // user's unrelated vview.ado could leave `browse` aliasing a
+    // non-Sight vview. `browse` is a generic Stata built-in name, so a
+    // user's own browse.ado must be protected.
+    protect_foreign: boolean;
 }
 
 // Single source of truth for the bundled ado files and their ownership
@@ -43,11 +51,13 @@ export const ADO_ASSET_DEFS: AdoAssetDef[] = [
         name: 'vview.ado',
         marker:
             '*! vview.ado — Open dataset in Sight Data Browser',
+        protect_foreign: false,
     },
     {
         name: 'browse.ado',
         marker:
             '*! browse.ado — CLI alias for vview (Sight Data Browser)',
+        protect_foreign: true,
     },
 ];
 
@@ -155,9 +165,12 @@ export function classify_ado_asset(
     if (my_existing === asset.bundled_content) {
         return 'up_to_date';
     }
-    return is_sight_owned(my_existing, asset.marker)
-        ? 'outdated'
-        : 'foreign';
+    if (is_sight_owned(my_existing, asset.marker)) {
+        return 'outdated';
+    }
+    // A differing, non-Sight file. Protect it only when the name is not
+    // Sight-owned; otherwise treat it as outdated and overwrite it.
+    return asset.protect_foreign ? 'foreign' : 'outdated';
 }
 
 export function aggregate_bundle_state(
@@ -205,45 +218,54 @@ export function install_ado_asset(
         return false;
     }
 
-    // Final ownership re-check: the classification was captured during
-    // inspection, possibly before a permission prompt. Guard against a
-    // foreign file appearing at the target in that window (TOCTOU) so
-    // we never overwrite a user's own same-named file.
-    try {
-        const my_current = fs.readFileSync(
-            asset.target_path,
-            'utf-8'
-        );
-        if (!is_sight_owned(my_current, asset.marker)) {
-            log(
-                asset.name
-                + ': a non-Sight file now occupies '
-                + asset.target_path
-                + '; leaving it untouched'
+    // For a protected (generic-named) asset, do a final ownership
+    // re-check: the classification was captured during inspection,
+    // possibly before a permission prompt. Guard against a foreign file
+    // appearing at the target in that window (TOCTOU) so we never
+    // overwrite a user's own same-named file. Sight-owned names
+    // (protect_foreign === false) are always installed, so they skip
+    // this and overwrite unconditionally.
+    if (asset.protect_foreign) {
+        try {
+            const my_current = fs.readFileSync(
+                asset.target_path,
+                'utf-8'
             );
-            return true;
+            if (!is_sight_owned(my_current, asset.marker)) {
+                log(
+                    asset.name
+                    + ': a non-Sight file now occupies '
+                    + asset.target_path
+                    + '; leaving it untouched'
+                );
+                return true;
+            }
+        } catch (my_err) {
+            const my_node_error =
+                my_err as NodeJS.ErrnoException;
+            if (my_node_error.code !== 'ENOENT') {
+                log(
+                    asset.name
+                    + ': failed to re-check before install: '
+                    + String(my_err)
+                );
+                return false;
+            }
+            // ENOENT: nothing at the target, safe to create.
         }
-    } catch (my_err) {
-        const my_node_error = my_err as NodeJS.ErrnoException;
-        if (my_node_error.code !== 'ENOENT') {
-            log(
-                asset.name
-                + ': failed to re-check before install: '
-                + String(my_err)
-            );
-            return false;
-        }
-        // ENOENT: nothing at the target, safe to create.
     }
 
     try {
         fs.mkdirSync(target_dir, { recursive: true });
-        // For a missing target, create exclusively ('wx') so that a
-        // foreign file racing in between the re-check above and this
-        // write is not clobbered (EEXIST → leave it). For an update of
-        // our own file, overwrite ('w').
+        // For a protected, missing target, create exclusively ('wx') so
+        // that a foreign file racing in between the re-check above and
+        // this write is not clobbered (EEXIST → leave it). Otherwise
+        // overwrite ('w'): updating our own file, or installing a
+        // Sight-owned name we always own.
         const my_flag =
-            asset.state === 'missing' ? 'wx' : 'w';
+            asset.protect_foreign && asset.state === 'missing'
+                ? 'wx'
+                : 'w';
         fs.writeFileSync(
             asset.target_path,
             asset.bundled_content,

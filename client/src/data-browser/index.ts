@@ -381,6 +381,7 @@ function inspect_bundle_installation(
                 bundled_path: my_bundled_path,
                 bundled_content: my_bundled_content,
                 marker: my_def.marker,
+                protect_foreign: my_def.protect_foreign,
             };
 
             return {

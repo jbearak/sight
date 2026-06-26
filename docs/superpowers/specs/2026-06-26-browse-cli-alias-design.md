@@ -111,9 +111,21 @@ For each bundled asset, classify the on-disk target:
   treat it as "satisfied/blocked" for aggregate-state purposes so it does not
   re-prompt forever.
 
-`vview.ado` retains its established behavior in practice (its banner is the
-Sight marker, and the name does not collide), but it flows through the same
-ownership check for consistency.
+**Per-file policy differs by name (`protect_foreign`).** `vview` is Sight's
+own command name; `browse` is a generic Stata built-in name. A `protect_foreign`
+flag on each asset encodes this:
+
+- `vview.ado` (`protect_foreign: false`): Sight owns the name and always
+  installs/updates its own copy — a differing, non-Sight `vview.ado` is
+  classified `outdated` and overwritten (matching pre-feature behavior).
+  Otherwise a user's unrelated `vview.ado` would be left in place and the
+  installed `browse.ado` would alias *that* vview instead of Sight's,
+  breaking the feature contract.
+- `browse.ado` (`protect_foreign: true`): a differing, non-Sight `browse.ado`
+  is classified `foreign` and never overwritten or deleted.
+
+Uninstall always uses the ownership check regardless of `protect_foreign`, so
+it never deletes a non-Sight file.
 
 ### Aggregate state
 
