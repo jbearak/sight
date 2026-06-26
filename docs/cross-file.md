@@ -114,11 +114,16 @@ The indexer is *best-effort* and intentionally bounded:
 
 #### Symlinks
 
-A **symlinked source file** (a symlink that resolves to a `.do`, `.ado`,
-`.doh`, or `.mata` file) is indexed normally — its target may live anywhere.
-It is indexed under the symlink's own path; if the symlink and its target are
-both inside the workspace, the file is indexed under both paths (a harmless
-over-count — both paths resolve to the same content).
+A **symlinked source file** is indexed when the symlink's **own name** has a
+Stata source extension (`.do`, `.ado`, `.doh`, `.mata`) and its target is a
+regular file (the target may live anywhere). Detection is by the link name —
+the same rule used for regular files — so `analysis.do -> …/analysis.do` is
+indexed, but a link whose name lacks a Stata extension is not, even if its
+target is a `.do` file. It is indexed under the symlink's own path; if the
+symlink and its target are both inside the workspace, the same content is
+indexed under two separate URIs, and each counts toward
+`crossFile.maxIndexedFiles` — so near that cap a duplicate symlink can crowd
+out another file.
 
 A **symlinked directory** is *not* recursively scanned. If its target is
 inside your workspace, those files are already indexed via the directory's

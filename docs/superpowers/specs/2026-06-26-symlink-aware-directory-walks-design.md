@@ -142,9 +142,13 @@ direct scan of its real location already indexes those files; if the target is
   scope here.)
 - **Follow symlinked source FILES.** A `readdir` entry for a symlinked file is
   neither `isFile()` nor `isDirectory()`, so the old code dropped it — this is
-  the actual #219 bug. Replace the file test with the symlink-aware
-  `entry_is_file_*` so a symlinked `.do`/`.ado`/`.sthlp` (target anywhere) is
-  recognized.
+  the actual #219 bug. Each walk keeps its existing **name-based** match
+  (`hasStataExtension(entry.name)`, or `name === basename` for `.sthlp`) and
+  adds the symlink-aware `entry_is_file_*` to confirm the target is a regular
+  file. Detection is therefore by the link's own name (matching how regular
+  files are matched): a link named `analysis.do` is followed (target may live
+  anywhere), while a link whose name lacks a Stata extension is not, even if
+  its target is a `.do`.
 
 This is the conscious scope decision: **symlinked source files are followed
 everywhere; symlinked directories are not recursively crawled.** A user who
@@ -156,10 +160,12 @@ navigable folder (see §3) because listing is not recursion.
 A symlinked source file is indexed under the path at which it is encountered
 (the symlink path), matching how every other entry is indexed by traversal
 path. If such a symlink and its real target are *both* inside the workspace,
-the same physical file is indexed under both URIs — a benign best-effort-index
-over-count (both paths are valid and resolve to the same content), not a
-correctness issue. De-duplicating by canonical path would reintroduce the
-realpath machinery this design deliberately removes, so it is left as-is.
+the same content is indexed under two separate URIs. Each URI counts toward
+`crossFile.maxIndexedFiles`, so the duplicate consumes a slot and could, near
+the cap, crowd out another file — it is a best-effort-index over-count, not a
+correctness bug, but not strictly free. De-duplicating by canonical path would
+reintroduce the realpath machinery this design deliberately removes, so it is
+left as-is and documented (see `docs/cross-file.md`).
 
 ### 3. Per-site changes
 
