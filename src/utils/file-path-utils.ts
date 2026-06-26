@@ -196,11 +196,11 @@ function has_extension(name: string): boolean {
 
 // ─── Symlink-aware entry helpers ──────────────────────────────────────────────
 //
-// The symlink-aware classification logic lives in `./symlink-aware-entry` so
-// it is shared with the indexer, `sight check` source discovery, and path
-// completion (issue #219). `RichResolveFs.statSync` satisfies the shared
-// `StatSyncFs` seam, so these thin aliases keep the resolver's existing call
-// sites unchanged.
+// The symlink-aware classification logic lives in
+// `./symlink-aware-entry` so it is shared with the indexer, `sight
+// check` source discovery, and path completion (issue #219).
+// `RichResolveFs.statSync` satisfies the shared `StatSyncFs` seam, so
+// these thin aliases keep the resolver's existing call sites unchanged.
 
 const entry_is_dir = entry_is_directory_sync;
 const entry_is_file = entry_is_file_sync;

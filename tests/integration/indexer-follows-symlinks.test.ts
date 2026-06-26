@@ -84,6 +84,27 @@ describe('indexer follows symlinks safely (#219)', () => {
         expect(indexed.includes(URI.file(link).toString())).toBe(true);
     });
 
+    it('does not index a symlinked non-Stata file', async () => {
+        // The cheap extension filter must gate the symlink stat: a
+        // symlink whose name is not a Stata source extension is never
+        // followed and never indexed (issue #219 review).
+        const real = path.join(tmp_dir, 'notes.txt');
+        fs.writeFileSync(real, 'not stata\n');
+        if (!try_symlink(real, path.join(tmp_dir, 'aliased.txt'))) return;
+        // Also a dangling non-Stata symlink must not break the scan.
+        try_symlink(
+            path.join(tmp_dir, 'missing-target'),
+            path.join(tmp_dir, 'broken.txt'),
+        );
+        fs.writeFileSync(path.join(tmp_dir, 'real.do'), 'display 1\n');
+
+        const indexed = await index(tmp_dir);
+        expect(indexed).toContain(
+            URI.file(path.join(tmp_dir, 'real.do')).toString(),
+        );
+        expect(indexed.some((u) => u.endsWith('.txt'))).toBe(false);
+    });
+
     it('indexes a symlinked-dir target via its real in-workspace location', async () => {
         const real_dir = path.join(tmp_dir, 'realdir');
         fs.mkdirSync(real_dir);

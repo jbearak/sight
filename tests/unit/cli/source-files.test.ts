@@ -191,6 +191,21 @@ describe('sight check follows symlinked files, not symlinked dirs (#219)', () =>
         expect(rels).toContain('real.do');
     });
 
+    it('does not discover a symlinked non-source file', () => {
+        // The extension filter gates the symlink stat: a non-source
+        // symlink name is never followed (issue #219 review).
+        const root = temp_dir();
+        const real = path.join(root, 'notes.txt');
+        fs.writeFileSync(real, 'not stata\n');
+        if (!try_symlink(real, path.join(root, 'aliased.txt'))) return;
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+
+        const result = collect_report_targets([], root, root);
+        const rels = result.targets.map((t) => t.relative_path);
+        expect(rels).toContain('main.do');
+        expect(rels.some((r) => r.endsWith('.txt'))).toBe(false);
+    });
+
     it('discovers a symlinked-dir target via its real in-workspace location', () => {
         const root = temp_dir();
         const real_dir = path.join(root, 'realdir');

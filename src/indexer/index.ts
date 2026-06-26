@@ -325,12 +325,12 @@ export class WorkspaceIndexer {
 
                 const entry_path = path.join(dir_path, entry.name);
 
-                // Recurse into real subdirectories only. Symlinked directories
-                // are deliberately NOT descended: an in-workspace target is
-                // already covered by the direct scan of its real location, and
-                // following an out-of-workspace target would crawl an arbitrary
-                // external tree (issue #219). This keeps the walk a finite real
-                // tree, so no cycle/boundary guard is needed.
+                // Recurse into real subdirectories only. Symlinked dirs
+                // are NOT descended: an in-workspace target is already
+                // covered by the direct scan of its real location, and
+                // an external target would crawl an arbitrary tree
+                // (#219). The walk stays a finite real tree, so no
+                // cycle/boundary guard is needed.
                 if (entry.isDirectory()) {
                     // Skip version-control metadata directories. They hold no
                     // Stata source, can be very large, and recursing them is
@@ -341,15 +341,17 @@ export class WorkspaceIndexer {
                     }
                     await this.scan_directory(entry_path, generation);
                 } else if (
-                    // A symlinked source FILE is followed (its target may live
-                    // anywhere): without this it is neither isFile() nor
-                    // isDirectory() and was silently skipped (#219).
+                    // A symlinked source FILE is followed (target may
+                    // live anywhere): without this it is neither
+                    // isFile() nor isDirectory() and was silently
+                    // skipped (#219). The cheap extension check gates
+                    // the (possibly stat-ing) helper.
+                    hasStataExtension(entry.name) &&
                     (await entry_is_file_async(
                         entry,
                         entry_path,
                         fs.promises
-                    )) &&
-                    hasStataExtension(entry.name)
+                    ))
                 ) {
                     file_paths.push(entry_path);
                 }
@@ -1334,8 +1336,9 @@ export class WorkspaceIndexer {
 
             for (const my_dirent of the_entries) {
                 const my_path = path.join(my_entry.path, my_dirent.name);
-                // Recurse into real subdirectories only; symlinked directories
-                // are not descended (avoids cycles / external crawl, #219).
+                // Recurse into real subdirectories only; symlinked
+                // dirs are not descended (avoids cycles / external
+                // crawl, #219).
                 if (my_dirent.isDirectory()) {
                     if (!WorkspaceIndexer.EXCLUDED_DIRS.has(my_dirent.name)) {
                         the_dirs.push({
@@ -1345,7 +1348,7 @@ export class WorkspaceIndexer {
                     }
                     continue;
                 }
-                // A symlinked `.sthlp` file IS matched (its target may live
+                // A symlinked `.sthlp` file IS matched (target may live
                 // anywhere): without this it is neither isFile() nor
                 // isDirectory() and was silently skipped (#219).
                 if (

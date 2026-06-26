@@ -1437,12 +1437,12 @@ export class CompletionProvider {
                     continue;
                 }
 
-                // Classify symlink-aware: a symlinked directory/file would
-                // otherwise be `other` (isDirectory()/isFile() both false) and
-                // silently dropped from completions (issue #219). One stat,
-                // and only for symlink entries. No recursion here, so no
-                // cycle/boundary guard is needed — listing a symlinked dir the
-                // user navigates into re-lists that one level next request.
+                // Classify symlink-aware: a symlinked directory/file
+                // would otherwise be `other` (isDirectory()/isFile()
+                // both false) and silently dropped from completions
+                // (issue #219). One stat, only for symlink entries. No
+                // recursion here, so no cycle/boundary guard is needed:
+                // navigating into a symlinked dir re-lists one level.
                 const entry_kind = classify_entry_sync(
                     entry,
                     path.join(base_dir, entry.name),

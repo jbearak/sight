@@ -82,20 +82,23 @@ function walk_sources(
 
     for (const entry of entries) {
         const entry_path = path.join(dir_path, entry.name);
-        // Recurse into real subdirectories only. Symlinked directories are not
-        // descended: an in-workspace target is already covered by the direct
-        // scan of its real location, and an out-of-workspace target would crawl
-        // an arbitrary external tree (issue #219). This keeps the walk a finite
-        // real tree, so no cycle/boundary guard is needed.
+        // Recurse into real subdirectories only. Symlinked dirs are not
+        // descended: an in-workspace target is already covered by the
+        // direct scan of its real location, and an external target
+        // would crawl an arbitrary tree (issue #219). The walk stays a
+        // finite real tree, so no cycle/boundary guard is needed.
         if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
             walk_sources(entry_path, out, operator_errors);
         } else if (
-            // A symlinked source FILE is followed (its target may live
-            // anywhere): without this it is neither isFile() nor isDirectory()
-            // and was silently skipped (#219).
-            entry_is_file_sync(entry, entry_path, fs) &&
-            hasStataExtension(entry.name)
+            // A symlinked source FILE is followed (target may live
+            // anywhere): without this it is neither isFile() nor
+            // isDirectory() and was silently skipped (#219). The cheap
+            // extension check gates the (possibly stat-ing) helper so
+            // irrelevant symlinks (e.g. to a slow/blocked target) are
+            // never followed.
+            hasStataExtension(entry.name) &&
+            entry_is_file_sync(entry, entry_path, fs)
         ) {
             out.push(entry_path);
         }

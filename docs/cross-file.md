@@ -112,6 +112,21 @@ The indexer is *best-effort* and intentionally bounded:
 - It stops after `crossFile.maxIndexedFiles` (default 1000)
 - It updates the index when files change on disk (via the VS Code file watcher)
 
+#### Symlinks
+
+A **symlinked source file** (a symlink that resolves to a `.do`, `.ado`,
+`.doh`, or `.mata` file) is indexed normally — its target may live anywhere.
+
+A **symlinked directory** is *not* recursively scanned. If its target is
+inside your workspace, those files are already indexed via the directory's
+real location, so nothing is lost. If its target is *outside* your workspace
+(for example a symlink to a shared library elsewhere on disk), its contents
+are **not** indexed — add that location as a workspace folder (or, for `.ado`
+help/programs, an ado-path) to have it scanned directly. This keeps a stray
+symlink from making the indexer crawl an arbitrary external tree. The same
+applies to `sight check` source discovery. Path completion still *offers*
+symlinked directories for navigation (listing one level is not recursion).
+
 ### Cross-file scope resolution
 
 Cross-file *scope* (which symbols are considered "in scope" at a particular
