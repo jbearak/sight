@@ -188,8 +188,14 @@ A cached host-filesystem helper (in `src/utils/file-path-utils.ts` or a small
 export function host_is_case_sensitive(
   seed_existing_dir: string,                      // a real, existing directory
   fs?: { existsSync(p: string): boolean },        // injected for tests
-): boolean;   // result cached per process after first probe
+): boolean;   // result cached per seed directory (see below)
 ```
+
+Cache **per seed directory** (keyed by the seed path), not once per process:
+case sensitivity is a property of a filesystem/volume, and a workspace can span
+mounts with different behavior (e.g. a case-insensitive macOS boot volume with a
+case-sensitive mounted volume). Seeding from the workspace root that contains the
+mismatched path means the probe reflects the volume that file actually lives on.
 
 The probe takes a **known-existing directory the resolver already has on hand**
 — a workspace root (or the analyzed file's own directory) — rather than deriving
@@ -199,9 +205,10 @@ of the filesystem, not of any particular path, so any real existing directory
 with an ASCII letter works as the seed. Flip the case of its first ASCII letter
 and test `existsSync` of the flipped variant. If the flipped path does **not**
 exist → case-sensitive. If no ASCII letter to flip → assume case-sensitive
-(conservative: surfaces the warning). The result is cached at module scope; the
-optional `fs` injection is for tests only and bypasses the cache. If a caller
-ever has no real directory on hand, `process.cwd()` is an acceptable seed.
+(conservative: surfaces the warning). The result is cached per seed directory
+(see above); the optional `fs` injection is for tests only and bypasses the
+cache. If a caller ever has no real directory on hand, `process.cwd()` is an
+acceptable seed.
 
 `auto` maps to **`information`** on a case-insensitive host and **`warning`** on
 a case-sensitive host. Because `sight check --max-severity` defaults to `Info`
@@ -341,6 +348,15 @@ the producer, never left to a downstream default that guesses the base.
    (no real-file edge). The dep-graph build emits **no** diagnostic (diagnostics
    belong to the resolver phase); it only needs the corrected URI so reverse
    lookup works.
+
+   `DependencyGraph` currently has no workspace-root context, and the graph is
+   updated from **two** places — the indexer during the scan and
+   `server-factory.ts` (~:1012) on open-document changes. Add
+   `DependencyGraph.set_workspace_roots(roots)` (or pass `workspace_roots` into
+   `update_caller`); the server, CLI, and indexer must set/sync it **before**
+   any graph update so both update paths resolve casing against the same roots.
+   When roots are unset (e.g. early startup), fall back to today's behavior (no
+   case normalization) rather than guessing.
 2. **Forward scope resolver** — `src/forward-scope-resolver/index.ts`
    `resolve_call_path` (~:80) and `get_callee_scope` (~:691). Replace the
    ad-hoc `existsSync` + `.do` chain with `resolve_path_rich`. On `case_only`,
@@ -361,9 +377,14 @@ the producer, never left to a downstream default that guesses the base.
    `depth === 0`** — i.e. the mismatch is on a forward call written directly in
    the diagnosed file. Every other resolution (nested callee, ancestor/parent
    inheritance) still resolves scope with case leniency but **suppresses** the
-   diagnostic. Each file emits its own mismatches when it is itself the diagnosed
-   file, so a case-only `do` in file A is reported exactly once — on A — whether
-   A is analyzed as a root or pulled in as someone's ancestor.
+   diagnostic. A forward-call mismatch is published **only when the file
+   containing that call is itself being diagnosed**; traversal for another
+   file's inherited scope resolves leniently but publishes nothing for the
+   traversed file. This matches Sight's per-document diagnostic model: in the
+   LSP an unopened transitive dependency is not reported until it is opened, and
+   `sight check` reports it only when it is among the collected targets — which,
+   for a project check, is every file. (Intentional: a diagnostic is owned by
+   the file whose source contains the typo.)
 3. **Scope resolver** — `src/scope-resolver/index.ts`: **explicit backward
    directive** resolution (`follow_directives`, ~:1324). Backward
    `Directive.path` may already be transformed by the directive parser; build
@@ -475,7 +496,8 @@ existing file-path-utils tests), with `fs` injected:
 - multi-component directory case-only; ambiguous mid-path.
 - ASCII-only (non-ASCII byte differences are not folded).
 - exact-before-case (sibling with exact casing wins).
-- workspace-boundary: outside-root component requires exact.
+- workspace-boundary: paths outside all workspace roots get no case handling
+  (no enumeration, no `path_case_mismatch`) — existing exact/missing behavior.
 - `host_is_case_sensitive()` true/false via injected `fs`.
 
 **Host-regime-gated assertions:** a shared `host_is_case_sensitive()` probe
