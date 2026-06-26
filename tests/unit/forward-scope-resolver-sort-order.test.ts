@@ -97,11 +97,11 @@ describe('compute_effective_end_state_locals sort order', () => {
             }
             throw new Error('unexpected uri: ' + uri);
         };
-        // Also need resolve_call_path to return the defs fs path unchanged.
-        (forward_resolver as any).resolve_call_path = (
-            _raw: string,
-            resolved: string,
-        ) => ({ resolved_path: resolved, outcome_kind: 'exact' as const });
+        // Stub resolve_call_path_simple: return the raw path as-is (the
+        // fake defs fs path) so the mocked get_callee_scope is reached.
+        (forward_resolver as any).resolve_call_path_simple = (
+            raw: string,
+        ): string | null => raw;
         const result = await (forward_resolver as any).compute_effective_end_state_locals(
             callee_uri,
             '/stub/callee.do',
@@ -144,10 +144,11 @@ describe('compute_effective_end_state_locals sort order', () => {
             }
             throw new Error('unexpected uri: ' + uri);
         };
-        (forward_resolver as any).resolve_call_path = (
-            _raw: string,
-            resolved: string,
-        ) => ({ resolved_path: resolved, outcome_kind: 'exact' as const });
+        // Stub resolve_call_path_simple: return the raw path as-is (the
+        // fake defs fs path) so the mocked get_callee_scope is reached.
+        (forward_resolver as any).resolve_call_path_simple = (
+            raw: string,
+        ): string | null => raw;
         const result = await (forward_resolver as any).compute_effective_end_state_locals(
             callee_uri,
             '/stub/callee2.do',

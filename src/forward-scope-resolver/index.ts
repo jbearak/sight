@@ -173,15 +173,16 @@ export class ForwardScopeResolver {
      * and the dependency graph.  Does NOT emit diagnostics; the returned
      * path is used only to read the file for end-state computation.
      *
-     * Returns the real-cased path for exact/case_only outcomes, the
-     * as-joined path for ambiguous/missing (which will produce an error in
-     * `get_callee_scope`, matching today's behavior).
+     * Returns the real-cased path for exact/case_only outcomes, null for
+     * ambiguous (two or more case-insensitive matches — no safe concrete
+     * parent can be chosen) and missing (file not found).  Callers MUST
+     * skip `get_callee_scope` when null is returned.
      */
     private resolve_call_path_simple(
         raw_path: string,
         caller_uri: string,
         working_directory?: string,
-    ): string {
+    ): string | null {
         const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
         const my_outcome = resolve_forward_call_rich(
             raw_path,
@@ -202,9 +203,11 @@ export class ForwardScopeResolver {
             return my_outcome.path;
         }
 
-        // ambiguous or missing: fall through; get_callee_scope will error.
-        // Both variants have `requested: string` — return it directly.
-        return my_outcome.requested;
+        // Ambiguous: two or more case-insensitive matches — no concrete
+        // parent can be chosen safely on any host.
+        // Missing: file not found — nothing to read.
+        // Both return null; the caller must skip get_callee_scope.
+        return null;
     }
 
     /**
@@ -837,6 +840,11 @@ export class ForwardScopeResolver {
                         callee_uri,
                         nested_working_dir,
                     );
+                    // null → ambiguous or missing; the nested callee is
+                    // unresolved so it contributes nothing to end-state locals.
+                    if (nested_resolved === null) {
+                        continue;
+                    }
                     const nested_uri = URI.file(nested_resolved).toString();
                     const nested_effective = await this.compute_effective_end_state_locals(
                         nested_uri,

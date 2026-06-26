@@ -986,6 +986,11 @@ export class ScopeResolver {
             const my_real = this.compute_directive_real_path(
                 my_directive, file_uri,
             );
+            // Ambiguous outcome → two or more case-insensitive matches on
+            // disk; no concrete parent can be chosen, so skip registration.
+            if (my_real.outcome_kind === 'ambiguous') {
+                continue;
+            }
             const my_parent_uri = URI.file(my_real.real_path).toString();
             this.register_backward_directive_dependency(file_uri, my_parent_uri);
         }
@@ -1475,6 +1480,15 @@ export class ScopeResolver {
             const my_rich = this.compute_directive_real_path(
                 my_directive, current_uri,
             );
+
+            // Ambiguous outcome → two or more case-insensitive matches on
+            // disk; no concrete parent can be chosen.  Skip this directive
+            // entirely (no registration, no parsing) so an arbitrary-cased
+            // parent is never picked on a case-insensitive host.
+            if (my_rich.outcome_kind === 'ambiguous') {
+                continue;
+            }
+
             const my_real_fs_path = my_rich.real_path;
             const my_parent_uri = URI.file(my_real_fs_path).toString();
 
@@ -3065,6 +3079,10 @@ export class ScopeResolver {
             const my_real = this.compute_directive_real_path(
                 my_directive, child_uri,
             );
+            // Ambiguous outcome → no concrete parent to register.
+            if (my_real.outcome_kind === 'ambiguous') {
+                continue;
+            }
             const my_parent_uri = URI.file(my_real.real_path).toString();
             this.register_backward_directive_dependency(child_uri, my_parent_uri);
         }

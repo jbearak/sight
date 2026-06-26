@@ -228,6 +228,19 @@ describe(
                         // Shows both raw and real-cased paths
                         expect(the_case_diags[0]!.message).toContain('Lib.do');
                         expect(the_case_diags[0]!.message).toContain('lib.do');
+
+                        // The parent (lib.do) must be connected: its entry
+                        // appears in the chain and its local macro is visible.
+                        const the_parent_uri = to_uri(parent_path);
+                        const the_parent_entry = result.chain.find(
+                            e => e.uri === the_parent_uri,
+                        );
+                        expect(the_parent_entry).toBeDefined();
+                        // included-by inherits locals — from_lib must be in
+                        // the merged symbol table.
+                        expect(
+                            result.symbols.localMacros.has('from_lib'),
+                        ).toBe(true);
                     },
                 );
 
@@ -270,13 +283,23 @@ describe(
                 it(
                     'emits no path_case_mismatch when two ci matches exist',
                     async () => {
-                        // Two files that would both be matched by "helper.do"
-                        // case-insensitively.
-                        write_file('helper.do', 'global a = 1\n');
-                        write_file('Helper.do', 'global a = 2\n');
+                        // Two files whose names both case-insensitively match
+                        // the directive path "HELPER.do" (but neither matches
+                        // it exactly), forcing resolve_path_rich to return
+                        // 'ambiguous'.
+                        const helper_lower_path = write_file(
+                            'helper.do',
+                            'global a = 1\n',
+                        );
+                        const helper_upper_path = write_file(
+                            'Helper.do',
+                            'global a = 2\n',
+                        );
 
+                        // Directive uses "HELPER.do" — no exact match in the
+                        // injected listing, so two ci matches → ambiguous.
                         const child_content =
-                            '// @lsp-done-by: "helper.do"\n' +
+                            '// @lsp-done-by: "HELPER.do"\n' +
                             'display $a\n';
                         const child_path = write_file(
                             'child.do',
@@ -309,6 +332,24 @@ describe(
                         );
                         // Ambiguous → no path_case_mismatch
                         expect(the_case_diags).toHaveLength(0);
+
+                        // Regression for CodeRabbit #6 / #10:
+                        // Ambiguous → neither candidate must be selected as
+                        // parent.  The chain must NOT include either helper.do
+                        // or Helper.do, and 'a' (defined only in those files)
+                        // must NOT appear in the merged symbol table.
+                        const the_helper_lower_uri = to_uri(helper_lower_path);
+                        const the_helper_upper_uri = to_uri(helper_upper_path);
+                        const the_chain_uris = result.chain.map(e => e.uri);
+                        expect(the_chain_uris).not.toContain(
+                            the_helper_lower_uri,
+                        );
+                        expect(the_chain_uris).not.toContain(
+                            the_helper_upper_uri,
+                        );
+                        expect(result.symbols.globalMacros.has('a')).toBe(
+                            false,
+                        );
                     },
                 );
             },
