@@ -2644,32 +2644,40 @@ export class ScopeResolver {
     }
 
     /**
-     * Compute the diff between old and new forward calls.
+     * Compute the diff between old and new forward calls, operating on
+     * pre-resolved `{call, resolved_uri}` pairs so that each callee URI is
+     * computed ONCE and shared between the diff logic and the map mutations.
+     *
+     * Accepting pre-resolved pairs satisfies the single-resolved-URI
+     * invariant: the same URI used to key `caller_to_callees` /
+     * `callee_to_callers` is stored in `last_forward_calls`, with no
+     * secondary filesystem resolution for either old or new entries.
      */
     private compute_call_edge_diff(
-        old_calls: ForwardCall[],
-        new_calls: ForwardCall[],
-        caller_uri_override?: string,
+        old_stored: Array<{ call: ForwardCall; resolved_uri: string }>,
+        new_stored: Array<{ call: ForwardCall; resolved_uri: string }>,
     ): CallEdgeDiff {
         const old_by_callee = new Map<string, CallEdge[]>();
         const new_by_callee = new Map<string, CallEdge[]>();
 
-        // Group old calls by callee URI (real-cased, matching dep-graph keys)
-        for (const my_call of old_calls) {
-            if (!my_call.is_static || !my_call.path) continue;
-            const my_uri = this.resolve_callee_uri(my_call, caller_uri_override);
-            const edges = old_by_callee.get(my_uri) ?? [];
-            edges.push({ call_type: my_call.type, call_site_line: my_call.call_site_line });
-            old_by_callee.set(my_uri, edges);
+        // Group old entries by their pre-resolved callee URI.
+        for (const my_entry of old_stored) {
+            const edges = old_by_callee.get(my_entry.resolved_uri) ?? [];
+            edges.push({
+                call_type: my_entry.call.type,
+                call_site_line: my_entry.call.call_site_line,
+            });
+            old_by_callee.set(my_entry.resolved_uri, edges);
         }
 
-        // Group new calls by callee URI (real-cased, matching dep-graph keys)
-        for (const my_call of new_calls) {
-            if (!my_call.is_static || !my_call.path) continue;
-            const my_uri = this.resolve_callee_uri(my_call, caller_uri_override);
-            const edges = new_by_callee.get(my_uri) ?? [];
-            edges.push({ call_type: my_call.type, call_site_line: my_call.call_site_line });
-            new_by_callee.set(my_uri, edges);
+        // Group new entries by their pre-resolved callee URI.
+        for (const my_entry of new_stored) {
+            const edges = new_by_callee.get(my_entry.resolved_uri) ?? [];
+            edges.push({
+                call_type: my_entry.call.type,
+                call_site_line: my_entry.call.call_site_line,
+            });
+            new_by_callee.set(my_entry.resolved_uri, edges);
         }
 
         const diff: CallEdgeDiff = {
@@ -2723,22 +2731,28 @@ export class ScopeResolver {
         new_forward_calls: ForwardCall[],
         new_symbols: SymbolTable
     ): { affected_callees: Set<string>; interface_changed: boolean } {
-        // Get old forward calls from reverse_deps cache (extract the raw
-        // ForwardCall objects; resolved_uri is only needed for deletion).
-        const old_stored = this.reverse_deps.last_forward_calls.get(caller_uri) ?? [];
-        const old_forward_calls = old_stored.map(e => e.call);
+        // old_stored carries the pre-resolved callee URIs from the previous
+        // registration — use them as-is so we NEVER re-resolve old calls from
+        // the filesystem (the callee may already be deleted or renamed).
+        const old_stored =
+            this.reverse_deps.last_forward_calls.get(caller_uri) ?? [];
 
-        // Compute diff
-        const diff = this.compute_call_edge_diff(old_forward_calls, new_forward_calls, caller_uri);
+        // Precompute new_stored ONCE (resolve each new call exactly once),
+        // before diffing, so the same URI is used in both the diff and
+        // the map mutations and last_forward_calls write.
+        const new_stored: Array<{ call: ForwardCall; resolved_uri: string }> =
+            new_forward_calls
+                .filter(c => c.is_static && c.path)
+                .map(c => ({
+                    call: c,
+                    resolved_uri: this.resolve_callee_uri(c, caller_uri),
+                }));
 
-        // Store new forward calls paired with their resolved URIs (computed
-        // now, while the callee files still exist on disk).
-        const new_stored = new_forward_calls
-            .filter(c => c.is_static && c.path)
-            .map(c => ({
-                call: c,
-                resolved_uri: this.resolve_callee_uri(c, caller_uri),
-            }));
+        // Compute diff using pre-resolved pairs — no secondary filesystem
+        // resolution for either old or new entries.
+        const diff = this.compute_call_edge_diff(old_stored, new_stored);
+
+        // Commit the new stored list.
         this.reverse_deps.last_forward_calls.set(caller_uri, new_stored);
 
         // Compute dual interface hashes

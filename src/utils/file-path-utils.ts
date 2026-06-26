@@ -493,9 +493,9 @@ function check_case_sensitivity(
                 my_flipped_seg,
                 ...the_segments.slice(seg_idx + 1),
             ];
-            const flipped_path = the_flipped_parts.join(sep);
+            const my_flipped_path = the_flipped_parts.join(sep);
 
-            if (fs.existsSync(flipped_path)) {
+            if (fs.existsSync(my_flipped_path)) {
                 return false; // case-insensitive
             }
             return true; // case-sensitive

@@ -609,6 +609,137 @@ describe(
                 );
 
                 it(
+                    // RD1: when a caller removes a case-only forward call via
+                    // update_reverse_dependencies (live-edit path), the diff
+                    // uses the stored resolved_uri — not a re-resolve from the
+                    // filesystem — so callee_to_callers and last_forward_calls
+                    // are both cleaned up correctly even after the file is gone.
+                    'removing a case-only forward call via ' +
+                        'update_reverse_dependencies cleans up maps using ' +
+                        'stored resolved URI (no re-resolve of old call)',
+                    async () => {
+                        // On-disk: helpers/Clean.do; source: do helpers/clean
+                        write_file('helpers/Clean.do', 'global g = 1\n');
+                        const helpers_dir = path.join(temp_dir, 'helpers');
+                        const caller_path = write_file('main.do', '');
+                        const caller_uri = to_uri(caller_path);
+                        const real_callee_path = path.join(
+                            temp_dir, 'helpers', 'Clean.do',
+                        );
+                        const real_callee_uri = to_uri(real_callee_path);
+                        const wrong_callee_path = path.join(
+                            temp_dir, 'helpers', 'clean.do',
+                        );
+
+                        // Inject fs so resolve_path_rich maps clean.do →
+                        // Clean.do (case-only resolution).
+                        const the_overrides = new Map<
+                            string,
+                            Array<{ name: string; is_file: boolean }>
+                        >();
+                        the_overrides.set(helpers_dir, [
+                            { name: 'Clean.do', is_file: true },
+                        ]);
+                        const my_patched_fs = make_patched_fs(the_overrides);
+                        scope_resolver.set_resolve_fs(my_patched_fs);
+                        scope_resolver.set_workspace_roots([temp_dir]);
+
+                        const { Range } = await import(
+                            'vscode-languageserver'
+                        );
+                        // ForwardCall with wrong-cased pre-joined path (as the
+                        // analyzer produces): raw_path is source-typed,
+                        // path is the script-relative pre-join.
+                        const my_forward_call = {
+                            path: wrong_callee_path,
+                            raw_path: 'helpers/clean',
+                            is_static: true,
+                            type: 'do' as const,
+                            call_site_line: 0,
+                            range: Range.create(0, 0, 0, 14),
+                            source: 'command' as const,
+                        };
+                        const the_empty_symbols = {
+                            programs: new Map(),
+                            localMacros: new Map(),
+                            globalMacros: new Map(),
+                            variables: new Map(),
+                            scalars: new Map(),
+                            matrices: new Map(),
+                        };
+
+                        // Step 1: register the forward call while callee exists.
+                        // This stores the real-cased URI in last_forward_calls.
+                        scope_resolver.update_reverse_dependencies(
+                            caller_uri,
+                            [my_forward_call],
+                            the_empty_symbols,
+                        );
+
+                        // Confirm callee_to_callers is keyed by real-cased URI.
+                        const the_callers_before =
+                            scope_resolver.get_callers_for_callee(
+                                real_callee_uri,
+                            );
+                        expect(the_callers_before.has(caller_uri)).toBe(true);
+
+                        // Confirm last_forward_calls carries the real-cased URI.
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const the_rdeps = (scope_resolver as any).reverse_deps;
+                        const pre_stored: Array<{
+                            call: unknown;
+                            resolved_uri: string;
+                        }> = the_rdeps.last_forward_calls.get(caller_uri) ?? [];
+                        expect(
+                            pre_stored.some(
+                                e => e.resolved_uri === real_callee_uri,
+                            ),
+                        ).toBe(true);
+
+                        // Step 2: simulate the callee file being deleted from
+                        // disk so that any re-resolve attempt returns the wrong-
+                        // cased URI (or an unresolved path).
+                        the_overrides.set(helpers_dir, []);
+
+                        // Step 3: caller is edited to REMOVE the forward call
+                        // (new_forward_calls is empty). update_reverse_dependencies
+                        // must use the stored resolved_uri for the old entry, NOT
+                        // re-resolve from the now-empty filesystem.
+                        scope_resolver.update_reverse_dependencies(
+                            caller_uri,
+                            [],  // call dropped from source
+                            the_empty_symbols,
+                        );
+
+                        // callee_to_callers must no longer list this caller.
+                        const the_callers_after =
+                            scope_resolver.get_callers_for_callee(
+                                real_callee_uri,
+                            );
+                        expect(the_callers_after.has(caller_uri)).toBe(false);
+
+                        // last_forward_calls must be empty (no stale entry).
+                        const post_stored: Array<{
+                            call: unknown;
+                            resolved_uri: string;
+                        }> = the_rdeps.last_forward_calls.get(caller_uri) ?? [];
+                        expect(post_stored).toHaveLength(0);
+
+                        // caller_to_callees must also have no entry for this
+                        // callee (no stale edge under any casing).
+                        const callee_map = the_rdeps.caller_to_callees.get(
+                            caller_uri,
+                        );
+                        const has_real = callee_map?.has(real_callee_uri) ?? false;
+                        const has_wrong = callee_map?.has(
+                            to_uri(wrong_callee_path),
+                        ) ?? false;
+                        expect(has_real).toBe(false);
+                        expect(has_wrong).toBe(false);
+                    },
+                );
+
+                it(
                     'invalidating by real-cased callee URI removes dependent ' +
                         'scope-cache entries (cascade via dependent_uris)',
                     async () => {
