@@ -502,6 +502,113 @@ describe(
                 );
 
                 it(
+                    // RB2: stored resolved_uri at registration time is used
+                    // for deletion cleanup so a case-only callee is removed
+                    // from last_forward_calls even after the file is deleted
+                    // (when the filesystem can no longer re-resolve it).
+                    'deleting a case-only callee removes its entry from ' +
+                        'last_forward_calls (uses stored resolved URI)',
+                    async () => {
+                        // On-disk: helpers/Clean.do; source: do helpers/clean
+                        write_file('helpers/Clean.do', 'global g = 1\n');
+                        const helpers_dir = path.join(temp_dir, 'helpers');
+                        const caller_path = write_file('main.do', '');
+                        const caller_uri = to_uri(caller_path);
+                        const real_callee_path = path.join(
+                            temp_dir, 'helpers', 'Clean.do',
+                        );
+                        const real_callee_uri = to_uri(real_callee_path);
+                        const wrong_callee_path = path.join(
+                            temp_dir, 'helpers', 'clean.do',
+                        );
+
+                        // Inject fs so resolve_path_rich maps clean.do →
+                        // Clean.do (case-only resolution).
+                        const the_overrides = new Map<
+                            string,
+                            Array<{ name: string; is_file: boolean }>
+                        >();
+                        the_overrides.set(helpers_dir, [
+                            { name: 'Clean.do', is_file: true },
+                        ]);
+                        const my_patched_fs = make_patched_fs(the_overrides);
+                        scope_resolver.set_resolve_fs(my_patched_fs);
+                        scope_resolver.set_workspace_roots([temp_dir]);
+
+                        const { Range } = await import(
+                            'vscode-languageserver'
+                        );
+                        // ForwardCall with wrong-cased pre-joined path (as the
+                        // analyzer produces): raw_path is source-typed,
+                        // path is the script-relative pre-join.
+                        const my_forward_call = {
+                            path: wrong_callee_path,
+                            raw_path: 'helpers/clean',
+                            is_static: true,
+                            type: 'do' as const,
+                            call_site_line: 0,
+                            range: Range.create(0, 0, 0, 14),
+                            source: 'command' as const,
+                        };
+                        const the_symbols = {
+                            programs: new Map(),
+                            localMacros: new Map(),
+                            globalMacros: new Map(),
+                            variables: new Map(),
+                            scalars: new Map(),
+                            matrices: new Map(),
+                        };
+
+                        // Register via register_forward_call_relationships_from_cache
+                        // (same path the server takes after parsing a file from disk).
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (scope_resolver as any)
+                            .register_forward_call_relationships_from_cache(
+                                caller_uri,
+                                [my_forward_call],
+                                the_symbols,
+                            );
+
+                        // Verify that last_forward_calls was stored with the
+                        // real-cased resolved URI (not the wrong-cased path).
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const the_rdeps = (scope_resolver as any).reverse_deps;
+                        const pre_stored: Array<{
+                            call: unknown;
+                            resolved_uri: string;
+                        }> = the_rdeps.last_forward_calls.get(caller_uri) ?? [];
+                        expect(pre_stored.length).toBeGreaterThanOrEqual(1);
+                        const pre_entry = pre_stored.find(
+                            e => e.resolved_uri === real_callee_uri,
+                        );
+                        expect(pre_entry).toBeDefined();
+
+                        // Now simulate callee deletion: override fs to return
+                        // no entries for helpers_dir (file is gone from disk).
+                        // A re-resolve via the filesystem would now fail to
+                        // find 'Clean.do' and return the wrong-cased URI.
+                        the_overrides.set(helpers_dir, []);
+
+                        scope_resolver.remove_uri_from_reverse_deps(
+                            real_callee_uri,
+                        );
+
+                        // After deletion cleanup, last_forward_calls must NOT
+                        // contain a stale entry for the deleted callee — it
+                        // must have been matched by the stored resolved_uri,
+                        // NOT re-resolved from the now-empty filesystem.
+                        const post_stored: Array<{
+                            call: unknown;
+                            resolved_uri: string;
+                        }> = the_rdeps.last_forward_calls.get(caller_uri) ?? [];
+                        const stale_entry = post_stored.find(
+                            e => e.resolved_uri === real_callee_uri,
+                        );
+                        expect(stale_entry).toBeUndefined();
+                    },
+                );
+
+                it(
                     'invalidating by real-cased callee URI removes dependent ' +
                         'scope-cache entries (cascade via dependent_uris)',
                     async () => {

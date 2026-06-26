@@ -219,6 +219,34 @@ describe('resolve_path_rich', () => {
 });
 
 describe('resolve_forward_call_rich', () => {
+    // RB1: script-relative miss falls back to workspace-root-relative hit.
+    // Scenario: no WD, caller is in /ws/sub, raw_path is helpers/setup.
+    // /ws/sub/helpers/setup.do does NOT exist (script-relative miss).
+    // /ws/helpers/setup.do DOES exist (workspace-root-relative hit).
+    it('no-WD script-relative miss falls back to workspace-root-relative hit', () => {
+        const the_fs = make_fs({
+            '/ws':          [['sub', false], ['helpers', false]],
+            '/ws/sub':      [], // no helpers/ here — script-relative misses
+            '/ws/helpers':  [['setup.do', true]], // workspace-root hit
+        });
+
+        const my_outcome = resolve_forward_call_rich(
+            'helpers/setup',
+            '/ws/sub',      // caller_dir
+            undefined,      // no working_directory
+            {
+                workspace_roots: ['/ws'],
+                fs: the_fs,
+            },
+        );
+
+        // Should resolve to the workspace-root-relative path (exact match).
+        expect(my_outcome.kind).toBe('exact');
+        expect((my_outcome as { kind: 'exact'; path: string }).path).toBe(
+            '/ws/helpers/setup.do',
+        );
+    });
+
     // Scenario: WD-join produces AMBIGUOUS, script-relative is clean.
     // The function MUST stay ambiguous — it must NOT fall back to the
     // clean script-relative path.

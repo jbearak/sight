@@ -2723,14 +2723,23 @@ export class ScopeResolver {
         new_forward_calls: ForwardCall[],
         new_symbols: SymbolTable
     ): { affected_callees: Set<string>; interface_changed: boolean } {
-        // Get old forward calls from reverse_deps cache
-        const old_forward_calls = this.reverse_deps.last_forward_calls.get(caller_uri) ?? [];
+        // Get old forward calls from reverse_deps cache (extract the raw
+        // ForwardCall objects; resolved_uri is only needed for deletion).
+        const old_stored = this.reverse_deps.last_forward_calls.get(caller_uri) ?? [];
+        const old_forward_calls = old_stored.map(e => e.call);
 
         // Compute diff
         const diff = this.compute_call_edge_diff(old_forward_calls, new_forward_calls, caller_uri);
 
-        // Store new forward calls for next diff computation
-        this.reverse_deps.last_forward_calls.set(caller_uri, new_forward_calls);
+        // Store new forward calls paired with their resolved URIs (computed
+        // now, while the callee files still exist on disk).
+        const new_stored = new_forward_calls
+            .filter(c => c.is_static && c.path)
+            .map(c => ({
+                call: c,
+                resolved_uri: this.resolve_callee_uri(c, caller_uri),
+            }));
+        this.reverse_deps.last_forward_calls.set(caller_uri, new_stored);
 
         // Compute dual interface hashes
         const old_hashes = this.reverse_deps.interface_hashes.get(caller_uri);
@@ -2907,18 +2916,21 @@ export class ScopeResolver {
                     }
                 }
                 // Also update last_forward_calls to remove calls to the
-                // deleted file. Compare using the real-cased URI from
-                // resolve_callee_uri, which is the same key used when the
-                // entry was registered — a plain URI.file(call.path) would
-                // miss case-only mismatches and leave a stale entry.
-                const last_calls = this.reverse_deps.last_forward_calls.get(my_caller_uri);
-                if (last_calls) {
-                    const filtered_calls = last_calls.filter(call => {
-                        const call_uri = this.resolve_callee_uri(call, my_caller_uri);
-                        return call_uri !== uri;
-                    });
-                    if (filtered_calls.length !== last_calls.length) {
-                        this.reverse_deps.last_forward_calls.set(my_caller_uri, filtered_calls);
+                // deleted file. Use the stored resolved_uri (recorded at
+                // registration time, while the callee still existed on disk)
+                // rather than re-resolving via the filesystem — the file is
+                // now gone so re-resolution would return the wrong-cased URI
+                // and leave a stale entry.
+                const last_stored = this.reverse_deps.last_forward_calls.get(my_caller_uri);
+                if (last_stored) {
+                    const filtered_stored = last_stored.filter(
+                        e => e.resolved_uri !== uri,
+                    );
+                    if (filtered_stored.length !== last_stored.length) {
+                        this.reverse_deps.last_forward_calls.set(
+                            my_caller_uri,
+                            filtered_stored,
+                        );
                     }
                 }
             }
@@ -3196,8 +3208,16 @@ export class ScopeResolver {
             this.reverse_deps.forward_caller_to_callees.set(caller_uri, my_callees);
         }
 
-        // Store forward_calls for diff computation (spec 5.4)
-        this.reverse_deps.last_forward_calls.set(caller_uri, forward_calls);
+        // Store forward_calls for diff computation (spec 5.4), paired with
+        // the resolved callee URI so deletion cleanup doesn't need to re-
+        // resolve from a filesystem that may no longer contain the file.
+        const the_stored = forward_calls
+            .filter(c => c.is_static && c.path)
+            .map(c => ({
+                call: c,
+                resolved_uri: this.resolve_callee_uri(c, caller_uri),
+            }));
+        this.reverse_deps.last_forward_calls.set(caller_uri, the_stored);
 
         // Compute and store interface hash
         const interface_hash = this.compute_dual_interface_hash(symbols);

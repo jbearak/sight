@@ -807,9 +807,15 @@ export interface ReverseDependencyIndex {
   // Cache of the last known interface hashes for each file (dual hashing)
   interface_hashes: Map<string, DualInterfaceHash>;
 
-  // Cache of the last known forward calls for each caller URI
-  // Used to compute diffs when update_reverse_dependencies is called
-  last_forward_calls: Map<string, ForwardCall[]>;
+  // Cache of the last known forward calls for each caller URI, paired with
+  // the resolved callee URI computed at registration time (while the callee
+  // file still exists on disk). The stored URI is used during deletion
+  // cleanup so we do NOT re-resolve from the filesystem after the file is
+  // gone (which would produce the wrong-cased URI and leave a stale entry).
+  last_forward_calls: Map<string, Array<{
+    call: ForwardCall;
+    resolved_uri: string;
+  }>>;
 }
 
 export interface CallEdgeDiff {
