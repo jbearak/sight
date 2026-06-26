@@ -1,4 +1,4 @@
-import type { StataLSPConfig } from '../types';
+import type { StataLSPConfig, CrossFileCaseMismatchSeverity } from '../types';
 import type { DeepPartial, ProjectConfigWarning } from './types';
 
 type WarningSink = (warning: ProjectConfigWarning) => void;
@@ -16,6 +16,17 @@ const SEVERITIES = new Set([
     'info',
 ]);
 const CROSS_FILE_SEVERITIES = new Set([
+    'error',
+    'warning',
+    'information',
+    'off',
+    'info',
+]);
+// 'auto' is only valid for case_mismatch — keep it separate from
+// CROSS_FILE_SEVERITIES so other cross-file severity fields cannot
+// accidentally accept it.
+const CROSS_FILE_CASE_MISMATCH_SEVERITIES = new Set([
+    'auto',
     'error',
     'warning',
     'information',
@@ -554,7 +565,7 @@ function map_cross_file(
     if (diagnostics) {
         warn_unknown_keys(
             diagnostics,
-            ['missingFile', 'maxDepth', 'callSiteIdentification'],
+            ['missingFile', 'maxDepth', 'callSiteIdentification', 'caseMismatch'],
             'crossFile.diagnostics',
             warn
         );
@@ -576,6 +587,25 @@ function map_cross_file(
                 if (normalized) {
                     mapped_diagnostics[internal_key] = normalized;
                 }
+            }
+        }
+        // caseMismatch accepts 'auto' in addition to the standard severities
+        const case_mismatch_key_path = 'crossFile.diagnostics.caseMismatch';
+        const case_mismatch_value = pick_key(
+            diagnostics,
+            'caseMismatch',
+            warn,
+            case_mismatch_key_path
+        );
+        if (case_mismatch_value !== undefined) {
+            const normalized = normalize_severity_value<CrossFileCaseMismatchSeverity>(
+                case_mismatch_value,
+                case_mismatch_key_path,
+                CROSS_FILE_CASE_MISMATCH_SEVERITIES,
+                warn
+            );
+            if (normalized) {
+                mapped_diagnostics['case_mismatch'] = normalized;
             }
         }
         maybe_assign_object(mapped, 'diagnostics', mapped_diagnostics);

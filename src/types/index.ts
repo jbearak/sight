@@ -728,6 +728,9 @@ export interface ScopeCacheMetrics {
   readonly invalidations: number; // alias for scope.invalidations
 }
 
+export type CrossFileCaseMismatchSeverity =
+    'auto' | 'error' | 'warning' | 'information' | 'off';
+
 export interface CrossFileConfig {
   index_workspace: boolean;
   max_indexed_files: number;
@@ -742,6 +745,8 @@ export interface CrossFileConfig {
     max_depth: 'error' | 'warning' | 'information' | 'off';
     // Severity for call site identification diagnostics
     call_site_identification?: 'error' | 'warning' | 'information' | 'off';
+    // Severity for case-mismatch diagnostics; 'auto' means the server chooses
+    case_mismatch?: CrossFileCaseMismatchSeverity;
   };
 }
 

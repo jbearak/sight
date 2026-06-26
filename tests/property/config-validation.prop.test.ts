@@ -386,3 +386,75 @@ describe('Configuration Validation Property Tests', () => {
         );
     });
 });
+
+describe('validate_comment_formatting_config — cross_file.diagnostics.case_mismatch', () => {
+    it('defaults case_mismatch to "auto" when absent', () => {
+        const my_validated = validate_comment_formatting_config({});
+        expect(my_validated.cross_file.diagnostics.case_mismatch).toBe('auto');
+    });
+
+    it('accepts "auto" for case_mismatch', () => {
+        const my_validated = validate_comment_formatting_config({
+            cross_file: {
+                diagnostics: { case_mismatch: 'auto' },
+            } as any,
+        });
+        expect(my_validated.cross_file.diagnostics.case_mismatch).toBe('auto');
+    });
+
+    it('accepts all valid case_mismatch severities', () => {
+        const the_valid_values = [
+            'error', 'warning', 'information', 'off',
+        ] as const;
+        for (const my_value of the_valid_values) {
+            const my_validated = validate_comment_formatting_config({
+                cross_file: {
+                    diagnostics: { case_mismatch: my_value },
+                } as any,
+            });
+            expect(my_validated.cross_file.diagnostics.case_mismatch).toBe(
+                my_value
+            );
+        }
+    });
+
+    it('normalizes "info" alias to "information" for case_mismatch', () => {
+        const my_validated = validate_comment_formatting_config({
+            cross_file: {
+                diagnostics: { case_mismatch: 'info' as any },
+            } as any,
+        });
+        expect(my_validated.cross_file.diagnostics.case_mismatch).toBe(
+            'information'
+        );
+    });
+
+    it('falls back to "auto" and warns on invalid case_mismatch', () => {
+        const the_warnings: string[] = [];
+        const my_validated = validate_comment_formatting_config(
+            {
+                cross_file: {
+                    diagnostics: { case_mismatch: 'bogus' as any },
+                } as any,
+            },
+            (msg) => the_warnings.push(msg)
+        );
+        expect(my_validated.cross_file.diagnostics.case_mismatch).toBe('auto');
+        expect(the_warnings.length).toBeGreaterThan(0);
+    });
+
+    it('"auto" is NOT accepted as a valid missing_file severity', () => {
+        // "auto" is only valid for case_mismatch, not for the other
+        // cross-file severity fields. The validator must keep them separate.
+        const my_validated = validate_comment_formatting_config(
+            {
+                cross_file: {
+                    diagnostics: { missing_file: 'auto' as any },
+                } as any,
+            }
+        );
+        // missing_file must not be set to 'auto'; default 'warning' is kept
+        expect(my_validated.cross_file.diagnostics.missing_file).toBe('warning');
+        expect(my_validated.cross_file.diagnostics.missing_file).not.toBe('auto');
+    });
+});
