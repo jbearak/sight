@@ -1326,6 +1326,101 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
         }
     });
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Case-only (ci) path resolution via resolve_path_rich
+    // ────────────────────────────────────────────────────────────────────────
+    describe('Case-only path resolution (resolve_path_rich)', () => {
+        it('navigates do command with wrong-cased path to real-cased file', async () => {
+            // Create subdirectory + file with specific casing
+            const helpers_dir = path.join(temp_dir, 'helpers');
+            fs.mkdirSync(helpers_dir, { recursive: true });
+            const real_path = path.join(helpers_dir, 'Clean.do');
+            fs.writeFileSync(real_path, '// Helper file');
+
+            // Reference uses wrong case for both directory and filename
+            const my_content = 'do helpers/clean';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                `file://${path.join(temp_dir, 'test.do')}`
+            );
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                // Position inside "helpers/clean" (character 8 is inside the path)
+                { line: 0, character: 8 }
+            );
+
+            expect(my_definition).not.toBeNull();
+            const single = my_definition as { uri: string };
+            // Must navigate to the real-cased file, not the as-typed path
+            expect(single.uri).toContain('Clean.do');
+        });
+
+        it('navigates @lsp-done-by directive with wrong-cased path', async () => {
+            const helpers_dir = path.join(temp_dir, 'helpers');
+            fs.mkdirSync(helpers_dir, { recursive: true });
+            const real_path = path.join(helpers_dir, 'Parent.do');
+            fs.writeFileSync(real_path, '// Parent file');
+
+            const my_content = '// @lsp-done-by: "helpers/parent"';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                `file://${path.join(temp_dir, 'test.do')}`
+            );
+
+            // Cursor inside "helpers/parent" (quoted path area)
+            const path_char = my_content.indexOf('helpers/parent') + 4;
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: path_char }
+            );
+
+            expect(my_definition).not.toBeNull();
+            const single = my_definition as { uri: string };
+            expect(single.uri).toContain('Parent.do');
+        });
+
+        it('still resolves exact-cased path (regression)', async () => {
+            // Exact casing must still work after the change
+            const helper_path = path.join(temp_dir, 'exact.do');
+            fs.writeFileSync(helper_path, '// Exact file');
+
+            const my_content = 'do exact';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                `file://${path.join(temp_dir, 'test.do')}`
+            );
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 5 }
+            );
+
+            expect(my_definition).not.toBeNull();
+            const single = my_definition as { uri: string };
+            expect(single.uri).toContain('exact.do');
+        });
+
+        it('returns null for missing path (no file at all)', async () => {
+            const my_content = 'do totally_nonexistent_file';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                `file://${path.join(temp_dir, 'test.do')}`
+            );
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 8 }
+            );
+
+            expect(my_definition).toBeNull();
+        });
+    });
+
     describe('DefinitionProvider - Symbol Precedence', () => {
         it('should prioritize document symbols over workspace symbols', async () => {
             // Create document with a local symbol
