@@ -5,6 +5,7 @@ import { Connection } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
 import { ContextTracker } from '../../src/context-tracker';
 import { SemanticAnalyzer } from '../../src/analyzer';
+import { undefined_symbol_data_fields } from '../../src/utils/undefined-symbol-diagnostic';
 import { DocumentState, DocumentStore } from '../../src/document-store';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
@@ -137,15 +138,7 @@ describe('Out-of-scope diagnostic cleanup integration', () => {
                 severity: 1,
                 code: my_diag.code,
                 source: 'sight',
-                ...(my_diag.symbol_name !== undefined
-                    || my_diag.reference_kind !== undefined
-                    ? {
-                        data: {
-                            symbol_name: my_diag.symbol_name,
-                            reference_kind: my_diag.reference_kind,
-                        },
-                    }
-                    : {}),
+                ...undefined_symbol_data_fields(my_diag),
             })),
             context_ranges: context_tracker.get_all_context_ranges(),
             context_tracker,

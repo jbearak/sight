@@ -103,6 +103,9 @@ di "\`orange'"`;
     );
     
     expect(undefinedMacroDiagnostics).toHaveLength(1);
-    expect(undefinedMacroDiagnostics[0].message).toContain('undefined_global');
+    // Verify the global distinction structurally (reference_kind) and via the
+    // $ sigil in the message, since the wording no longer says "global".
+    expect(undefinedMacroDiagnostics[0].reference_kind).toBe('global');
+    expect(undefinedMacroDiagnostics[0].message).toContain('$undefined_global');
   });
 });

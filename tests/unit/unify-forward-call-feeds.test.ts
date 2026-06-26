@@ -14,6 +14,7 @@ import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer, create_empty_symbol_table } from '../../src/analyzer';
+import { undefined_symbol_data_fields } from '../../src/utils/undefined-symbol-diagnostic';
 import { ContextTracker } from '../../src/context-tracker';
 import { DocumentState, StataDiagnosticCode, StataLSPConfig, ResolvedScope } from '../../src/types';
 import { DiagnosticSeverity } from 'vscode-languageserver';
@@ -87,9 +88,7 @@ function create_document_state(content: string, uri: string): DocumentState {
             : DiagnosticSeverity.Hint,
         code: diag.code,
         source: 'sight',
-        ...(diag.symbol_name !== undefined || diag.reference_kind !== undefined
-            ? { data: { symbol_name: diag.symbol_name, reference_kind: diag.reference_kind } }
-            : {}),
+        ...undefined_symbol_data_fields(diag),
     }));
 
     return {

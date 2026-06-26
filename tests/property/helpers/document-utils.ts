@@ -9,6 +9,7 @@ import { StataParser } from '../../../src/index';
 import { SemanticAnalyzer } from '../../../src/index';
 import { ContextTracker } from '../../../src/context-tracker';
 import { Token, TriviaNode } from '../../../src/types';
+import { undefined_symbol_data_fields } from '../../../src/utils/undefined-symbol-diagnostic';
 import { Position, Range } from 'vscode-languageserver-textdocument';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 
@@ -82,9 +83,7 @@ export function create_document_state(my_source: string): DocumentState {
               DiagnosticSeverity.Hint,
     code: diag.code,
     source: 'sight',
-    ...(diag.symbol_name !== undefined || diag.reference_kind !== undefined
-      ? { data: { symbol_name: diag.symbol_name, reference_kind: diag.reference_kind } }
-      : {}),
+    ...undefined_symbol_data_fields(diag),
   }));
 
   // Combine all diagnostics

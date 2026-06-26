@@ -6,7 +6,7 @@ import { get_line_text, get_line_count, compute_line_offsets } from '../utils/li
 import {
     format_undefined_macro_message,
     format_undefined_variable_message,
-} from '../utils/undefined-symbol-message';
+} from '../utils/undefined-symbol-diagnostic';
 import {
     StataAST,
     StataNode,

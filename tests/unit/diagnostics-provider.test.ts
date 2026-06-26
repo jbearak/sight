@@ -1,6 +1,7 @@
 import { init_tracker_from_source } from '../test-context-helper';
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
+import { undefined_symbol_data_fields } from '../../src/utils/undefined-symbol-diagnostic';
 import { DocumentState } from '../../src/document-store';
 import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope } from '../../src/types';
 import { DiagnosticSeverity } from 'vscode-languageserver';
@@ -164,9 +165,7 @@ function create_real_document_state(content: string, version: number = 1): Docum
             : DiagnosticSeverity.Hint,
         code: diag.code,
         source: 'sight',
-        ...(diag.symbol_name !== undefined || diag.reference_kind !== undefined
-            ? { data: { symbol_name: diag.symbol_name, reference_kind: diag.reference_kind } }
-            : {}),
+        ...undefined_symbol_data_fields(diag),
     }));
 
     return {
@@ -1151,10 +1150,13 @@ display \`result'
                     start: { line: 0, character: 0 },
                     end: { line: 0, character: 13 },
                 },
-                message: 'Potentially undefined variable: age',
+                message: 'age may not be defined',
                 severity: DiagnosticSeverity.Warning,
                 code: StataDiagnosticCode.UNDEFINED_VARIABLE,
                 source: 'sight',
+                // Exercise the real structured-data path: the provider recovers
+                // the symbol from `data`, not the message prose.
+                data: { symbol_name: 'age', reference_kind: 'variable' },
             }];
             document.symbols = create_empty_symbol_table();
 

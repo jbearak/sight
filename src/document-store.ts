@@ -10,8 +10,8 @@ import {
   LexerError,
   ParseError,
   ScopeResolverConfig,
-  UndefinedSymbolDiagnosticData,
 } from './types';
+import { undefined_symbol_data_fields } from './utils/undefined-symbol-diagnostic';
 import { StataLexer } from './lexer';
 import { StataParser } from './parser';
 import { SemanticAnalyzer, SemanticDiagnostic } from './analyzer';
@@ -1015,14 +1015,7 @@ export class DocumentStore {
                 : DiagnosticSeverity.Hint,
         code: diag.code,
         source: 'sight',
-        ...(diag.symbol_name !== undefined || diag.reference_kind !== undefined
-          ? {
-              data: {
-                symbol_name: diag.symbol_name,
-                reference_kind: diag.reference_kind,
-              } satisfies UndefinedSymbolDiagnosticData,
-            }
-          : {}),
+        ...undefined_symbol_data_fields(diag),
       })),
     ];
   }

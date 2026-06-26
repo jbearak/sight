@@ -26,6 +26,7 @@ import {
     OutOfScopeReason as OutOfScopeMessageReason,
     OutOfScopeSymbolKind,
 } from '../utils/out-of-scope-message';
+import { undefined_symbol_data_fields } from '../utils/undefined-symbol-diagnostic';
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
@@ -783,6 +784,10 @@ export class DiagnosticsProvider {
             severity,
             code: diagnostic.code,
             source: 'sight',
+            // Propagate the structured payload so the diagnostic published to
+            // the client carries symbol_name/reference_kind too (omitted when
+            // absent, e.g. out-of-scope rewrites).
+            ...undefined_symbol_data_fields(diagnostic),
         };
     }
 
