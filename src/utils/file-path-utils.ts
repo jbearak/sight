@@ -391,3 +391,89 @@ export function resolve_path_rich(
     // Should be unreachable (the_components is non-empty), but satisfy TS
     return { kind: 'missing', requested: resolved_fs_path };
 }
+
+// ─── Host filesystem case-sensitivity detection ──────────────────────────────
+
+/**
+ * Cache for host case-sensitivity results, keyed by seed path.
+ * Used only when `fs` is not injected; injected-fs tests bypass the cache
+ * for determinism.
+ */
+const case_sensitivity_cache = new Map<string, boolean>();
+
+/**
+ * Detect whether the host filesystem is case-sensitive by flipping the case
+ * of the first ASCII letter in the seed path and checking if the flipped path
+ * exists.
+ *
+ * Returns:
+ * - true (case-sensitive) if flipped path does NOT exist, or if no ASCII
+ *   letter can be flipped (assume case-sensitive as default)
+ * - false (case-insensitive) if flipped path DOES exist
+ *
+ * Results are cached per seed path when `fs` is not injected.
+ * When `fs` is injected (for testing), the cache is bypassed for determinism.
+ */
+export function host_is_case_sensitive(
+    seed_existing_dir: string,
+    fs?: { existsSync(p: string): boolean },
+): boolean {
+    // If fs is injected, bypass the cache for determinism in tests
+    if (fs !== undefined) {
+        return check_case_sensitivity(seed_existing_dir, fs);
+    }
+
+    // Check the cache
+    const cached = case_sensitivity_cache.get(seed_existing_dir);
+    if (cached !== undefined) {
+        return cached;
+    }
+
+    // Compute and cache the result
+    const result = check_case_sensitivity(seed_existing_dir, {
+        existsSync: p => node_fs.existsSync(p),
+    });
+    case_sensitivity_cache.set(seed_existing_dir, result);
+    return result;
+}
+
+/**
+ * Core logic: flip the case of the first ASCII letter and check if the
+ * flipped path exists.
+ */
+function check_case_sensitivity(
+    seed_existing_dir: string,
+    fs: { existsSync(p: string): boolean },
+): boolean {
+    // Find the first ASCII letter in the path
+    for (let i = 0; i < seed_existing_dir.length; i++) {
+        const my_char = seed_existing_dir[i]!;
+        const code = my_char.charCodeAt(0);
+        // A–Z: 65–90 or a–z: 97–122
+        if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+            // Found an ASCII letter; flip its case
+            let flipped_char: string;
+            if (code >= 65 && code <= 90) {
+                // A–Z → a–z
+                flipped_char = String.fromCharCode(code + 32);
+            } else {
+                // a–z → A–Z
+                flipped_char = String.fromCharCode(code - 32);
+            }
+            // Build the flipped path
+            const flipped_path =
+                seed_existing_dir.slice(0, i) +
+                flipped_char +
+                seed_existing_dir.slice(i + 1);
+
+            // Check if the flipped path exists
+            if (fs.existsSync(flipped_path)) {
+                return false; // case-insensitive
+            }
+            return true; // case-sensitive
+        }
+    }
+
+    // No ASCII letter found; assume case-sensitive
+    return true;
+}
