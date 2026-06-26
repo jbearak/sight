@@ -23,21 +23,43 @@ import {
     SignalWatcher,
 } from './signal-watcher.js';
 import {
-    ensure_vview_ado_installed as ensure_vview_ado_installed_core,
-    get_vview_install_state as get_vview_install_state_core,
-    install_vview_ado as install_vview_ado_core,
-    install_vview_ado_manually as install_vview_ado_manually_core,
-    reset_vview_install_permission as reset_vview_install_permission_core,
+    classify_ado_asset,
+    aggregate_bundle_state,
+    ensure_bundle_installed as ensure_bundle_installed_core,
+    install_bundle_manually as install_bundle_manually_core,
+    reset_install_permission as reset_install_permission_core,
+    uninstall_bundle_and_reset as uninstall_bundle_and_reset_core,
+    type AdoAssetStatus,
+    type BundleInstallStatus,
     type VviewInstallHooks as CoreVviewInstallHooks,
     type VviewInstallPermission,
     type VviewInstallPromptChoice,
-    type VviewInstallState,
-    type VviewInstallStatus,
 } from './vview-install-core.js';
 import { resolve_personal_ado_dir } from './install-path.js';
 
-const VVIEW_INSTALL_PERMISSION_KEY =
-    'sight.vviewInstallPermission';
+// Versioned key: the bundle adds a command named after a Stata
+// built-in (`browse`), a broader action than the original vview-only
+// install, so existing users get one fresh consent decision rather
+// than a silently-expanded grant. The old key
+// ('sight.vviewInstallPermission') is intentionally not reused.
+const STATA_COMMANDS_INSTALL_PERMISSION_KEY =
+    'sight.stataCommandsInstallPermission';
+
+// Bundled ado files installed together into the personal ado dir.
+// `marker` is the stable leading-banner prefix used to recognize a
+// Sight-shipped copy (so we never clobber a user's own same-named
+// file). These markers MUST match the first banner line of each ado.
+const ADO_ASSETS: { name: string; marker: string }[] = [
+    {
+        name: 'vview.ado',
+        marker: '*! vview.ado — Open dataset in Sight Data Browser',
+    },
+    {
+        name: 'browse.ado',
+        marker: '*! browse.ado — CLI alias for vview',
+    },
+];
+
 const INSTALL_BUTTON = 'Install';
 const NOT_NOW_BUTTON = 'Not now';
 const VVIEW_INSTALL_PROMPT_DELAY_MS = 1500;
@@ -224,13 +246,13 @@ function register_vview_install_commands(
                     );
                 if (my_installed) {
                     void vscode.window.showInformationMessage(
-                        'vview.ado is installed and ready for Sight Data Browser.'
+                        'Sight\'s Stata commands (vview, browse) are installed and ready.'
                     );
                     return;
                 }
 
                 void vscode.window.showErrorMessage(
-                    'Failed to install vview.ado. See the Sight output channel for details.'
+                    'Failed to install Sight\'s Stata commands. See the Sight output channel for details.'
                 );
             }
         )
@@ -245,7 +267,30 @@ function register_vview_install_commands(
                     log
                 );
                 void vscode.window.showInformationMessage(
-                    'Sight vview.ado install permission has been reset.'
+                    'Sight Stata commands install permission has been reset.'
+                );
+            }
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'sight.uninstallStataCommands',
+            async () => {
+                const my_ok =
+                    await uninstall_stata_commands(
+                        context,
+                        log
+                    );
+                if (my_ok) {
+                    void vscode.window.showInformationMessage(
+                        'Sight\'s Stata commands (vview, browse) were removed (Sight-owned files only).'
+                    );
+                    return;
+                }
+
+                void vscode.window.showErrorMessage(
+                    'Some Sight Stata command files could not be removed. See the Sight output channel for details.'
                 );
             }
         )
@@ -266,23 +311,24 @@ function schedule_vview_install_check(
 }
 
 // -----------------------------------------------------------
-// vview.ado installation
+// Stata commands (vview + browse) installation
 // -----------------------------------------------------------
 
-function get_bundled_vview_path(
-    context: vscode.ExtensionContext
+function get_bundled_ado_path(
+    context: vscode.ExtensionContext,
+    name: string
 ): string {
     const the_candidate_paths = [
         vscode.Uri.joinPath(
             context.extensionUri,
             'stata',
-            'vview.ado'
+            name
         ).fsPath,
         path.resolve(
             context.extensionUri.fsPath,
             '..',
             'stata',
-            'vview.ado'
+            name
         ),
     ];
 
@@ -295,8 +341,9 @@ function get_bundled_vview_path(
     return the_candidate_paths[0];
 }
 
-export function read_bundled_vview_content(
+export function read_bundled_ado_content(
     bundled_path: string,
+    name: string,
     log: (msg: string) => void
 ): string | null {
     try {
@@ -306,80 +353,81 @@ export function read_bundled_vview_content(
         );
     } catch (my_err) {
         log(
-            'vview.ado: failed to read bundled file: '
+            name
+            + ': failed to read bundled file: '
             + String(my_err)
         );
         return null;
     }
 }
 
-export function get_vview_install_state(
-    target_path: string,
-    bundled_content: string,
-    log: (msg: string) => void
-): VviewInstallState {
-    return get_vview_install_state_core(
-        target_path,
-        bundled_content,
-        log
-    );
-}
-
-function inspect_vview_installation(
+function inspect_bundle_installation(
     context: vscode.ExtensionContext,
     log: (msg: string) => void
-): VviewInstallStatus {
+): BundleInstallStatus {
     const my_target_dir = get_personal_ado_dir();
-    const my_target_path = path.join(
-        my_target_dir,
-        'vview.ado'
-    );
-    const my_bundled_path = get_bundled_vview_path(context);
-    const my_bundled_content = read_bundled_vview_content(
-        my_bundled_path,
-        log
-    );
 
-    if (my_bundled_content === null) {
-        return {
-            state: 'error',
-            target_dir: my_target_dir,
-            target_path: my_target_path,
-            bundled_path: my_bundled_path,
-            error: 'Failed to read bundled vview.ado',
-        };
-    }
+    const the_assets: AdoAssetStatus[] = ADO_ASSETS.map(
+        (my_def) => {
+            const my_target_path = path.join(
+                my_target_dir,
+                my_def.name
+            );
+            const my_bundled_path = get_bundled_ado_path(
+                context,
+                my_def.name
+            );
+            const my_bundled_content =
+                read_bundled_ado_content(
+                    my_bundled_path,
+                    my_def.name,
+                    log
+                ) ?? undefined;
+
+            const my_asset = {
+                name: my_def.name,
+                target_path: my_target_path,
+                bundled_path: my_bundled_path,
+                bundled_content: my_bundled_content,
+                marker: my_def.marker,
+            };
+
+            return {
+                ...my_asset,
+                state: classify_ado_asset(my_asset, log),
+            };
+        }
+    );
 
     return {
-        state: get_vview_install_state(
-            my_target_path,
-            my_bundled_content,
-            log
+        state: aggregate_bundle_state(
+            the_assets.map((my_asset) => my_asset.state)
         ),
         target_dir: my_target_dir,
-        target_path: my_target_path,
-        bundled_path: my_bundled_path,
-        bundled_content: my_bundled_content,
+        assets: the_assets,
     };
 }
 
-async function set_vview_install_permission(
+async function set_stata_commands_install_permission(
     context: vscode.ExtensionContext,
     permission: VviewInstallPermission | undefined
 ): Promise<void> {
     await context.globalState.update(
-        VVIEW_INSTALL_PERMISSION_KEY,
+        STATA_COMMANDS_INSTALL_PERMISSION_KEY,
         permission
     );
 }
 
-export async function prompt_for_vview_install(
+export async function prompt_for_stata_commands_install(
     target_dir: string
 ): Promise<VviewInstallPromptChoice> {
     const my_result =
         await vscode.window.showInformationMessage(
-            'Would you like to add "vview.ado" to Stata?\n\n'
-            + 'This works like "browse", but with VS Code.\n\n'
+            'Would you like to add Sight\'s Stata commands '
+            + '("vview" and "browse") to Stata?\n\n'
+            + '"vview" opens datasets in VS Code; in console '
+            + 'Stata, "browse" becomes an alias for it (the GUI '
+            + 'built-in "browse" is unaffected).\n\n'
             + `Install location: ${target_dir}`,
             INSTALL_BUTTON,
             NOT_NOW_BUTTON
@@ -392,36 +440,27 @@ export async function prompt_for_vview_install(
         : 'dismissed';
 }
 
-export function install_vview_ado(
-    status: VviewInstallStatus,
-    log: (msg: string) => void
-): boolean {
-    return install_vview_ado_core(status, log);
-}
-
 export async function ensure_vview_ado_installed(
     context: vscode.ExtensionContext,
     log: (msg: string) => void,
     hooks: VviewInstallHooks = {}
 ): Promise<boolean> {
-    return ensure_vview_ado_installed_core(
+    return ensure_bundle_installed_core(
         context,
         log,
-        VVIEW_INSTALL_PERMISSION_KEY,
+        STATA_COMMANDS_INSTALL_PERMISSION_KEY,
         {
             inspect_installation:
                 hooks.inspect_installation
-                ?? inspect_vview_installation,
+                ?? inspect_bundle_installation,
             get_permission: hooks.get_permission,
             set_permission:
                 hooks.set_permission
-                ?? set_vview_install_permission,
-            prompt_for_vview_install:
-                hooks.prompt_for_vview_install
-                ?? prompt_for_vview_install,
-            install_vview_ado:
-                hooks.install_vview_ado
-                ?? install_vview_ado,
+                ?? set_stata_commands_install_permission,
+            prompt_for_install:
+                hooks.prompt_for_install
+                ?? prompt_for_stata_commands_install,
+            install_bundle: hooks.install_bundle,
         }
     );
 }
@@ -431,20 +470,39 @@ export async function install_vview_ado_manually(
     log: (msg: string) => void,
     hooks: VviewInstallHooks = {}
 ): Promise<boolean> {
-    return install_vview_ado_manually_core(
+    return install_bundle_manually_core(
         context,
         log,
-        VVIEW_INSTALL_PERMISSION_KEY,
+        STATA_COMMANDS_INSTALL_PERMISSION_KEY,
         {
             inspect_installation:
                 hooks.inspect_installation
-                ?? inspect_vview_installation,
+                ?? inspect_bundle_installation,
             set_permission:
                 hooks.set_permission
-                ?? set_vview_install_permission,
-            install_vview_ado:
-                hooks.install_vview_ado
-                ?? install_vview_ado,
+                ?? set_stata_commands_install_permission,
+            install_bundle: hooks.install_bundle,
+        }
+    );
+}
+
+export async function uninstall_stata_commands(
+    context: vscode.ExtensionContext,
+    log: (msg: string) => void,
+    hooks: VviewInstallHooks = {}
+): Promise<boolean> {
+    return uninstall_bundle_and_reset_core(
+        context,
+        log,
+        STATA_COMMANDS_INSTALL_PERMISSION_KEY,
+        {
+            inspect_installation:
+                hooks.inspect_installation
+                ?? inspect_bundle_installation,
+            set_permission:
+                hooks.set_permission
+                ?? set_stata_commands_install_permission,
+            uninstall_bundle: hooks.uninstall_bundle,
         }
     );
 }
@@ -454,14 +512,14 @@ export async function reset_vview_install_permission(
     log: (msg: string) => void,
     hooks: Pick<VviewInstallHooks, 'set_permission'> = {}
 ): Promise<void> {
-    await reset_vview_install_permission_core(
+    await reset_install_permission_core(
         context,
         log,
-        VVIEW_INSTALL_PERMISSION_KEY,
+        STATA_COMMANDS_INSTALL_PERMISSION_KEY,
         {
             set_permission:
                 hooks.set_permission
-                ?? set_vview_install_permission,
+                ?? set_stata_commands_install_permission,
         }
     );
 }

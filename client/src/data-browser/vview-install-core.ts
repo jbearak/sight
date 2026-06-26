@@ -4,7 +4,16 @@ export type VviewInstallPermission =
     | 'granted'
     | 'declined';
 
-export type VviewInstallState =
+// Per-file install state for a single bundled ado.
+export type AdoAssetState =
+    | 'missing'      // no file at the target path
+    | 'up_to_date'   // target content equals bundled content
+    | 'outdated'     // a Sight-owned file differs from bundled content
+    | 'foreign'      // a non-Sight file occupies the target path
+    | 'error';       // bundled content unavailable / read failure
+
+// Aggregate state across the whole bundle.
+export type BundleInstallState =
     | 'missing'
     | 'up_to_date'
     | 'outdated'
@@ -15,13 +24,26 @@ export type VviewInstallPromptChoice =
     | 'not_now'
     | 'dismissed';
 
-export interface VviewInstallStatus {
-    state: VviewInstallState;
-    target_dir: string;
+// Description of one bundled ado file.
+export interface AdoAsset {
+    name: string;
     target_path: string;
     bundled_path: string;
     bundled_content?: string;
-    error?: string;
+    // Stable leading-banner prefix that identifies a Sight-shipped
+    // copy of this file. Used to avoid clobbering a user's own file
+    // that happens to share the name (e.g. a personal browse.ado).
+    marker: string;
+}
+
+export interface AdoAssetStatus extends AdoAsset {
+    state: AdoAssetState;
+}
+
+export interface BundleInstallStatus {
+    state: BundleInstallState;
+    target_dir: string;
+    assets: AdoAssetStatus[];
 }
 
 export interface VviewInstallContextLike {
@@ -43,7 +65,7 @@ export interface VviewInstallHooks<
     inspect_installation?: (
         context: TContext,
         log: (msg: string) => void
-    ) => VviewInstallStatus;
+    ) => BundleInstallStatus;
     get_permission?: (
         context: TContext
     ) => VviewInstallPermission | undefined;
@@ -51,74 +73,216 @@ export interface VviewInstallHooks<
         context: TContext,
         permission: VviewInstallPermission | undefined
     ) => Promise<void>;
-    prompt_for_vview_install?: (
+    prompt_for_install?: (
         target_dir: string
     ) => Promise<VviewInstallPromptChoice>;
-    install_vview_ado?: (
-        status: VviewInstallStatus,
+    install_bundle?: (
+        status: BundleInstallStatus,
+        log: (msg: string) => void
+    ) => boolean;
+    uninstall_bundle?: (
+        status: BundleInstallStatus,
         log: (msg: string) => void
     ) => boolean;
 }
 
-export function get_vview_install_state(
-    target_path: string,
-    bundled_content: string,
+// True when `content` looks like the Sight-shipped copy of an ado
+// (its leading banner begins with the asset's ownership marker).
+export function is_sight_owned(
+    content: string,
+    marker: string
+): boolean {
+    const my_first_line = content.split('\n', 1)[0].trim();
+    return my_first_line.startsWith(marker);
+}
+
+export function classify_ado_asset(
+    asset: AdoAsset,
     log: (msg: string) => void
-): VviewInstallState {
+): AdoAssetState {
+    if (asset.bundled_content === undefined) {
+        return 'error';
+    }
+
+    let my_existing: string;
     try {
-        const my_existing = fs.readFileSync(
-            target_path,
+        my_existing = fs.readFileSync(
+            asset.target_path,
             'utf-8'
         );
-        return my_existing === bundled_content
-            ? 'up_to_date'
-            : 'outdated';
     } catch (my_err) {
         const my_node_error = my_err as NodeJS.ErrnoException;
         if (my_node_error.code === 'ENOENT') {
             return 'missing';
         }
-
         log(
-            'vview.ado: failed to inspect existing install: '
+            asset.name
+            + ': failed to inspect existing install: '
             + String(my_err)
         );
         return 'error';
     }
+
+    if (my_existing === asset.bundled_content) {
+        return 'up_to_date';
+    }
+    return is_sight_owned(my_existing, asset.marker)
+        ? 'outdated'
+        : 'foreign';
 }
 
-export function install_vview_ado(
-    status: VviewInstallStatus,
+export function aggregate_bundle_state(
+    the_states: AdoAssetState[]
+): BundleInstallState {
+    if (the_states.includes('error')) {
+        return 'error';
+    }
+    if (the_states.includes('missing')) {
+        return 'missing';
+    }
+    if (the_states.includes('outdated')) {
+        return 'outdated';
+    }
+    // 'up_to_date' and 'foreign' both count as satisfied: a foreign
+    // file is intentionally left alone, so it must not re-prompt.
+    return 'up_to_date';
+}
+
+// Install a single asset, honoring its classified state. A foreign
+// file is left untouched (reported as success: blocked, not failed).
+export function install_ado_asset(
+    asset: AdoAssetStatus,
+    target_dir: string,
     log: (msg: string) => void
 ): boolean {
-    if (status.bundled_content === undefined) {
+    if (asset.state === 'foreign') {
         log(
-            'vview.ado: failed to install: bundled content is unavailable'
+            asset.name
+            + ': leaving existing non-Sight file untouched at '
+            + asset.target_path
+        );
+        return true;
+    }
+
+    if (asset.state === 'up_to_date') {
+        return true;
+    }
+
+    if (asset.bundled_content === undefined) {
+        log(
+            asset.name
+            + ': failed to install: bundled content is unavailable'
         );
         return false;
     }
 
     try {
-        fs.mkdirSync(status.target_dir, { recursive: true });
+        fs.mkdirSync(target_dir, { recursive: true });
         fs.writeFileSync(
-            status.target_path,
-            status.bundled_content
+            asset.target_path,
+            asset.bundled_content
         );
         log(
-            'vview.ado: installed to '
-            + status.target_path
+            asset.name
+            + ': installed to '
+            + asset.target_path
         );
         return true;
     } catch (my_err) {
         log(
-            'vview.ado: failed to install: '
+            asset.name
+            + ': failed to install: '
             + String(my_err)
         );
         return false;
     }
 }
 
-export function get_vview_install_permission<
+// Best-effort install of the whole bundle. A write failure for one
+// asset does not abort the others; the aggregate result is false if
+// any required write failed.
+export function install_bundle(
+    status: BundleInstallStatus,
+    log: (msg: string) => void
+): boolean {
+    if (status.state === 'error') {
+        log(
+            'Stata commands: cannot install; bundled content is unavailable'
+        );
+        return false;
+    }
+
+    let my_all_ok = true;
+    for (const my_asset of status.assets) {
+        const my_ok = install_ado_asset(
+            my_asset,
+            status.target_dir,
+            log
+        );
+        if (!my_ok) {
+            my_all_ok = false;
+        }
+    }
+    return my_all_ok;
+}
+
+// Remove each target only if it is Sight-owned; never delete a
+// foreign file that happens to share the name.
+export function uninstall_bundle(
+    status: BundleInstallStatus,
+    log: (msg: string) => void
+): boolean {
+    let my_all_ok = true;
+    for (const my_asset of status.assets) {
+        let my_existing: string;
+        try {
+            my_existing = fs.readFileSync(
+                my_asset.target_path,
+                'utf-8'
+            );
+        } catch (my_err) {
+            const my_node_error =
+                my_err as NodeJS.ErrnoException;
+            if (my_node_error.code === 'ENOENT') {
+                continue;
+            }
+            log(
+                my_asset.name
+                + ': failed to inspect before uninstall: '
+                + String(my_err)
+            );
+            my_all_ok = false;
+            continue;
+        }
+
+        if (!is_sight_owned(my_existing, my_asset.marker)) {
+            log(
+                my_asset.name
+                + ': not Sight-owned; leaving in place'
+            );
+            continue;
+        }
+
+        try {
+            fs.rmSync(my_asset.target_path, { force: true });
+            log(
+                my_asset.name
+                + ': removed '
+                + my_asset.target_path
+            );
+        } catch (my_err) {
+            log(
+                my_asset.name
+                + ': failed to remove: '
+                + String(my_err)
+            );
+            my_all_ok = false;
+        }
+    }
+    return my_all_ok;
+}
+
+export function get_install_permission<
     TContext extends VviewInstallContextLike
 >(
     context: TContext,
@@ -129,7 +293,7 @@ export function get_vview_install_permission<
     >(state_key);
 }
 
-export async function set_vview_install_permission<
+export async function set_install_permission<
     TContext extends VviewInstallContextLike
 >(
     context: TContext,
@@ -142,7 +306,36 @@ export async function set_vview_install_permission<
     );
 }
 
-export async function ensure_vview_ado_installed<
+function resolve_get_permission<
+    TContext extends VviewInstallContextLike
+>(
+    hooks: VviewInstallHooks<TContext>,
+    state_key: string
+): (context: TContext) => VviewInstallPermission | undefined {
+    return hooks.get_permission
+        ?? ((my_context) =>
+            get_install_permission(my_context, state_key));
+}
+
+function resolve_set_permission<
+    TContext extends VviewInstallContextLike
+>(
+    hooks: VviewInstallHooks<TContext>,
+    state_key: string
+): (
+    context: TContext,
+    permission: VviewInstallPermission | undefined
+) => Promise<void> {
+    return hooks.set_permission
+        ?? ((my_context, my_permission) =>
+            set_install_permission(
+                my_context,
+                state_key,
+                my_permission
+            ));
+}
+
+export async function ensure_bundle_installed<
     TContext extends VviewInstallContextLike
 >(
     context: TContext,
@@ -155,34 +348,28 @@ export async function ensure_vview_ado_installed<
             'inspect_installation hook is required'
         );
     }
-    if (!hooks.prompt_for_vview_install) {
+    if (!hooks.prompt_for_install) {
         throw new Error(
-            'prompt_for_vview_install hook is required'
+            'prompt_for_install hook is required'
         );
     }
 
-    const my_get_permission = hooks.get_permission
-        ?? ((my_context) =>
-            get_vview_install_permission(
-                my_context,
-                state_key
-            ));
-    const my_set_permission = hooks.set_permission
-        ?? ((my_context, my_permission) =>
-            set_vview_install_permission(
-                my_context,
-                state_key,
-                my_permission
-            ));
-    const my_install = hooks.install_vview_ado
-        ?? install_vview_ado;
+    const my_get_permission = resolve_get_permission(
+        hooks,
+        state_key
+    );
+    const my_set_permission = resolve_set_permission(
+        hooks,
+        state_key
+    );
+    const my_install = hooks.install_bundle ?? install_bundle;
 
     const my_status = hooks.inspect_installation(
         context,
         log
     );
     log(
-        'vview.ado: install check -> '
+        'Stata commands: install check -> '
         + my_status.state
     );
 
@@ -191,37 +378,36 @@ export async function ensure_vview_ado_installed<
     }
 
     if (my_status.state === 'up_to_date') {
-        log('vview.ado: already up to date');
+        log('Stata commands: already up to date');
         return true;
     }
 
     const my_permission = my_get_permission(context);
     if (my_permission === 'granted') {
         log(
-            'vview.ado: permission previously granted; installing without prompt'
+            'Stata commands: permission previously granted; installing without prompt'
         );
         return my_install(my_status, log);
     }
 
     if (my_permission === 'declined') {
         log(
-            'vview.ado: permission previously declined; skipping install'
+            'Stata commands: permission previously declined; skipping install'
         );
         return false;
     }
 
-    log('vview.ado: prompting for install permission');
-    const my_choice =
-        await hooks.prompt_for_vview_install(
-            my_status.target_dir
-        );
+    log('Stata commands: prompting for install permission');
+    const my_choice = await hooks.prompt_for_install(
+        my_status.target_dir
+    );
     if (my_choice === 'dismissed') {
-        log('vview.ado: prompt dismissed');
+        log('Stata commands: prompt dismissed');
         return false;
     }
 
     if (my_choice === 'not_now') {
-        log('vview.ado: install deferred by user');
+        log('Stata commands: install deferred by user');
         return false;
     }
 
@@ -235,11 +421,11 @@ export async function ensure_vview_ado_installed<
     }
 
     await my_set_permission(context, 'granted');
-    log('vview.ado: permission granted');
+    log('Stata commands: permission granted');
     return true;
 }
 
-export async function install_vview_ado_manually<
+export async function install_bundle_manually<
     TContext extends VviewInstallContextLike
 >(
     context: TContext,
@@ -253,22 +439,18 @@ export async function install_vview_ado_manually<
         );
     }
 
-    const my_set_permission = hooks.set_permission
-        ?? ((my_context, my_permission) =>
-            set_vview_install_permission(
-                my_context,
-                state_key,
-                my_permission
-            ));
-    const my_install = hooks.install_vview_ado
-        ?? install_vview_ado;
+    const my_set_permission = resolve_set_permission(
+        hooks,
+        state_key
+    );
+    const my_install = hooks.install_bundle ?? install_bundle;
+
     const my_status = hooks.inspect_installation(
         context,
         log
     );
-
     log(
-        'vview.ado: manual install check -> '
+        'Stata commands: manual install check -> '
         + my_status.state
     );
 
@@ -278,7 +460,7 @@ export async function install_vview_ado_manually<
 
     if (my_status.state === 'up_to_date') {
         await my_set_permission(context, 'granted');
-        log('vview.ado: already up to date');
+        log('Stata commands: already up to date');
         return true;
     }
 
@@ -288,11 +470,43 @@ export async function install_vview_ado_manually<
     }
 
     await my_set_permission(context, 'granted');
-    log('vview.ado: permission granted');
+    log('Stata commands: permission granted');
     return true;
 }
 
-export async function reset_vview_install_permission<
+// Remove Sight-owned ado files and clear the remembered permission.
+export async function uninstall_bundle_and_reset<
+    TContext extends VviewInstallContextLike
+>(
+    context: TContext,
+    log: (msg: string) => void,
+    state_key: string,
+    hooks: VviewInstallHooks<TContext> = {}
+): Promise<boolean> {
+    if (!hooks.inspect_installation) {
+        throw new Error(
+            'inspect_installation hook is required'
+        );
+    }
+
+    const my_set_permission = resolve_set_permission(
+        hooks,
+        state_key
+    );
+    const my_uninstall =
+        hooks.uninstall_bundle ?? uninstall_bundle;
+
+    const my_status = hooks.inspect_installation(
+        context,
+        log
+    );
+    const my_ok = my_uninstall(my_status, log);
+    await my_set_permission(context, undefined);
+    log('Stata commands: install permission reset');
+    return my_ok;
+}
+
+export async function reset_install_permission<
     TContext extends VviewInstallContextLike
 >(
     context: TContext,
@@ -303,14 +517,11 @@ export async function reset_vview_install_permission<
         'set_permission'
     > = {}
 ): Promise<void> {
-    const my_set_permission = hooks.set_permission
-        ?? ((my_context, my_permission) =>
-            set_vview_install_permission(
-                my_context,
-                state_key,
-                my_permission
-            ));
+    const my_set_permission = resolve_set_permission(
+        hooks,
+        state_key
+    );
 
     await my_set_permission(context, undefined);
-    log('vview.ado: install permission reset');
+    log('Stata commands: install permission reset');
 }

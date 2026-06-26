@@ -30,7 +30,7 @@ The editor extension enables language server features and further provides:
 - **[Run Code](docs/send-to-stata.md)**: Execute code in the Stata application or terminal with intelligent statement detection and working directory management
 - **[Syntax Highlighting](docs/syntax-highlighting.md)**: Rich syntax highlighting with unique features like macro/string nesting depth coloring
 - **[Auto-Closing Pairs](docs/quote-auto-close.md)**: Intelligently handles Stata's unique conventions for nested macros and compound strings
-- **[Data Browser](docs/data-browser.md)**: Open `.dta` files directly in VS Code, or call `vview` from Stata to send the current dataset to the editor — features a virtualized grid with column resizing/hiding and value labels
+- **[Data Browser](docs/data-browser.md)**: Open `.dta` files directly in VS Code, or call `vview` from Stata to send the current dataset to the editor — features a virtualized grid with column resizing/hiding and value labels. In console Stata, `browse` works as an alias for `vview` (the GUI's built-in `browse` is unaffected)
 - **[Log Viewer](docs/log-viewer.md)**: Render Stata log files (`.smcl`) with formatted output directly in VS Code
 - **[Help Viewer](docs/help-viewer.md)**: Read Stata help files (`.sthlp`) directly in VS Code with clickable help-topic links
 - **[Code Formatting](docs/formatting.md)** (experimental): Format `.do` files and normalize comment styles
