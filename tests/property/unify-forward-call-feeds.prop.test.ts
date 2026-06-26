@@ -192,7 +192,7 @@ describe('Feature: unify-forward-call-feeds', () => {
 
                         const has_undefined_warning = diagnostics.some(d => 
                             d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                            d.message.includes(symbol_name)
+                            (d.data as { symbol_name?: string } | undefined)?.symbol_name === symbol_name
                         );
 
                         // Symbol should suppress warning if and only if reference is STRICTLY after call site
@@ -277,7 +277,7 @@ describe('Feature: unify-forward-call-feeds', () => {
 
                         const has_undefined_warning = diagnostics.some(d => 
                             d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                            d.message.includes(symbol_name)
+                            (d.data as { symbol_name?: string } | undefined)?.symbol_name === symbol_name
                         );
 
                         // Determine expected behavior

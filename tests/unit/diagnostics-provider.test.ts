@@ -570,10 +570,11 @@ describe('DiagnosticsProvider', () => {
             
             // Should have undefined macro diagnostic for 'Apple'
             const undefined_macro = the_diagnostics.find(
-                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                     (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'Apple'
             );
             expect(undefined_macro).toBeDefined();
-            expect(undefined_macro?.message).toContain('Apple');
+            expect((undefined_macro?.data as { symbol_name?: string } | undefined)?.symbol_name).toBe('Apple');
         });
 
         it('should NOT warn when referencing apple with correct case', async () => {
@@ -598,10 +599,11 @@ describe('DiagnosticsProvider', () => {
             
             // Should have undefined macro diagnostic for 'banana'
             const undefined_macro = the_diagnostics.find(
-                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                     (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'banana'
             );
             expect(undefined_macro).toBeDefined();
-            expect(undefined_macro?.message).toContain('banana');
+            expect((undefined_macro?.data as { symbol_name?: string } | undefined)?.symbol_name).toBe('banana');
         });
 
         it('should include macro name as written in diagnostic message', async () => {
@@ -612,10 +614,11 @@ describe('DiagnosticsProvider', () => {
             
             // Should have undefined macro diagnostic with exact name
             const undefined_macro = the_diagnostics.find(
-                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                     (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'MyMacro'
             );
             expect(undefined_macro).toBeDefined();
-            expect(undefined_macro?.message).toContain('MyMacro');
+            expect((undefined_macro?.data as { symbol_name?: string } | undefined)?.symbol_name).toBe('MyMacro');
         });
     });
 

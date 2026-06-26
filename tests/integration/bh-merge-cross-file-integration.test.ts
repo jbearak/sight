@@ -104,8 +104,8 @@ di "Final: \`final_vars'"`;
             // Filter for undefined macro warnings about the c_local macros
             const c_local_warnings = analysis_result.diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                (d.message.includes('bh_merge_bh_vars_renamed') || 
-                 d.message.includes('bh_merge_bh_vars_final'))
+                (d.symbol_name === 'bh_merge_bh_vars_renamed' ||
+                 d.symbol_name === 'bh_merge_bh_vars_final')
             );
 
             // c_local macros should be registered when calling the program,
@@ -163,7 +163,7 @@ di \`result_macro'`;
 
             const result_warnings = analysis_result.diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                d.message.includes('result_macro')
+                d.symbol_name === 'result_macro'
             );
 
             // Should have exactly 1 warning for the reference BEFORE the call
@@ -274,9 +274,9 @@ di "BH variables after merge: \`raw_vars_bh'"`;
             );
 
             // Filter for undefined macro warnings about bh_merge_bh_vars_final
-            const bh_vars_final_warnings = diagnostics.filter(d => 
+            const bh_vars_final_warnings = diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                d.message.includes('bh_merge_bh_vars_final')
+                (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'bh_merge_bh_vars_final'
             );
 
             // c_local macros should be registered when calling bh_merge,
@@ -327,10 +327,10 @@ di "Final: \`final_vars'"`;
                 DEFAULT_CONFIG
             );
 
-            const undefined_warnings = diagnostics.filter(d => 
+            const undefined_warnings = diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                (d.message.includes('bh_merge_bh_vars_renamed') || 
-                 d.message.includes('bh_merge_bh_vars_final'))
+                ((d.data as { symbol_name?: string } | undefined)?.symbol_name === 'bh_merge_bh_vars_renamed' ||
+                 (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'bh_merge_bh_vars_final')
             );
 
             // Both c_local macros should be resolved without warnings

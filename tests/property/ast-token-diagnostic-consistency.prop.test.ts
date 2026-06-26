@@ -314,7 +314,7 @@ display \${${my_global_name}}`;
                         const my_undefined_errors = my_result.diagnostics.filter(
                             (my_diag) =>
                                 my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                                my_diag.message.includes(my_macro_name)
+                                my_diag.symbol_name === my_macro_name
                         );
 
                         // All messages for the same macro should be identical
@@ -390,7 +390,7 @@ local ${my_macro_name} "value"`;
                         const my_undefined_errors = my_result.diagnostics.filter(
                             (my_diag) =>
                                 my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                                my_diag.message.includes(my_macro_name)
+                                my_diag.symbol_name === my_macro_name
                         );
 
                         // Should have exactly one diagnostic (forward reference)
@@ -425,7 +425,7 @@ global ${my_macro_name} "value"`;
                         const my_undefined_errors = my_result.diagnostics.filter(
                             (my_diag) =>
                                 my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                                my_diag.message.includes(my_macro_name)
+                                my_diag.symbol_name === my_macro_name
                         );
 
                         // Should have exactly one diagnostic (forward reference)

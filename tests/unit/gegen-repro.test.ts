@@ -56,11 +56,11 @@ end
         // Check for undefined macro warnings for weight and exp
         const weight_warning = analysis.diagnostics.find(d =>
             d.code === StataDiagnosticCode.UNDEFINED_MACRO
-            && d.message.includes('weight')
+            && d.symbol_name === 'weight'
         );
         const exp_warning = analysis.diagnostics.find(d =>
             d.code === StataDiagnosticCode.UNDEFINED_MACRO
-            && d.message.includes('exp')
+            && d.symbol_name === 'exp'
         );
 
         expect(weight_warning).toBeUndefined();
