@@ -66,6 +66,10 @@ export class DependencyGraph {
         this.workspace_roots = roots.map(r => node_path.resolve(r));
     }
 
+    get_workspace_roots(): string[] {
+        return [...this.workspace_roots];
+    }
+
     /**
      * Inject a filesystem implementation for `resolve_path_rich`.
      * For testing only — production code leaves this undefined so

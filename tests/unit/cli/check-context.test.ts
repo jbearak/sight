@@ -27,6 +27,11 @@ describe('sight check batch context', () => {
         const context = await build_check_context(root, config_result.config);
 
         expect(context.dependency_graph.is_scan_complete()).toBe(true);
+        // Workspace root must be set on the dependency graph so case-only
+        // paths are normalised to real-cased URIs (#205).
+        expect(
+            context.dependency_graph.get_workspace_roots()
+        ).toContain(root);
         expect(context.workspace_indexer.get_all_symbols().globalMacros.has('g')).toBe(true);
         expect(context.scope_resolver).toBeDefined();
         await context.document_store.dispose();
