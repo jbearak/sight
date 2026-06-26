@@ -81,13 +81,36 @@ function make_mock_fs(
                 throw new Error(`ENOENT: no such directory: ${norm}`);
             }
             return the_entries.map(e => ({
-                name: e.name,
-                isFile: () => e.is_file,
-                isDirectory: () => !e.is_file,
+                name:           e.name,
+                isFile:         () => e.is_file,
+                isDirectory:    () => !e.is_file,
+                isSymbolicLink: () => false,
             }));
         },
         existsSync(p: string): boolean {
             return known_paths.has(p.replace(/\\/g, '/'));
+        },
+        statSync(p: string): { isFile(): boolean; isDirectory(): boolean } {
+            const my_norm = p.replace(/\\/g, '/');
+            // Derive the parent dir and entry name
+            const my_last_slash = my_norm.lastIndexOf('/');
+            const my_dir  = my_last_slash >= 0
+                ? my_norm.slice(0, my_last_slash)
+                : my_norm;
+            const my_name = my_last_slash >= 0
+                ? my_norm.slice(my_last_slash + 1)
+                : '';
+            const the_entries = dir_entries.get(my_dir);
+            const my_entry = the_entries?.find(e => e.name === my_name);
+            if (my_entry === undefined) {
+                throw new Error(
+                    `ENOENT: no such file or directory, stat '${p}'`,
+                );
+            }
+            return {
+                isFile:      () => my_entry.is_file,
+                isDirectory: () => !my_entry.is_file,
+            };
         },
     };
 }

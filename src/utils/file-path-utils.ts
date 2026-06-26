@@ -107,8 +107,15 @@ export interface RichResolveFs {
     readdirSync(
         p: string,
         opts: { withFileTypes: true },
-    ): Array<{ name: string; isFile(): boolean; isDirectory(): boolean }>;
+    ): Array<{
+        name: string;
+        isFile(): boolean;
+        isDirectory(): boolean;
+        isSymbolicLink(): boolean;
+    }>;
     existsSync(p: string): boolean;
+    /** Stat a path, following symlinks. Throws on dangling symlinks. */
+    statSync(p: string): { isFile(): boolean; isDirectory(): boolean };
 }
 
 export interface RichResolveOptions {
@@ -138,8 +145,10 @@ function make_default_fs(): RichResolveFs {
                 name: string;
                 isFile(): boolean;
                 isDirectory(): boolean;
+                isSymbolicLink(): boolean;
             }>,
         existsSync: (p: string) => node_fs.existsSync(p),
+        statSync: (p: string) => node_fs.statSync(p),
     };
 }
 
@@ -179,6 +188,59 @@ function ascii_ci_equal(a: string, b: string): boolean {
 function has_extension(name: string): boolean {
     const dot_idx = name.lastIndexOf('.');
     return dot_idx > 0; // dot_idx === 0 means hidden file like ".gitignore"
+}
+
+// ─── Symlink-aware entry helpers ──────────────────────────────────────────────
+
+/**
+ * True when `entry` is a directory (direct or via symlink).
+ *
+ * Fast path: `entry.isDirectory()` (no extra syscall for non-symlinks).
+ * Symlink path: `fs.statSync(full_path).isDirectory()` which follows the
+ * link. A dangling symlink causes `statSync` to throw; we catch and return
+ * false so a broken link is silently skipped rather than crashing the
+ * resolver.
+ */
+function entry_is_dir(
+    entry: {
+        isDirectory(): boolean;
+        isSymbolicLink(): boolean;
+    },
+    full_path: string,
+    fs: RichResolveFs,
+): boolean {
+    if (entry.isDirectory()) return true;
+    if (!entry.isSymbolicLink()) return false;
+    try {
+        return fs.statSync(full_path).isDirectory();
+    } catch {
+        return false; // dangling symlink — treat as non-matching
+    }
+}
+
+/**
+ * True when `entry` is a file (direct or via symlink).
+ *
+ * Fast path: `entry.isFile()` (no extra syscall for non-symlinks).
+ * Symlink path: `fs.statSync(full_path).isFile()` which follows the link.
+ * A dangling symlink causes `statSync` to throw; we catch and return false
+ * so a broken link is silently skipped rather than crashing the resolver.
+ */
+function entry_is_file(
+    entry: {
+        isFile(): boolean;
+        isSymbolicLink(): boolean;
+    },
+    full_path: string,
+    fs: RichResolveFs,
+): boolean {
+    if (entry.isFile()) return true;
+    if (!entry.isSymbolicLink()) return false;
+    try {
+        return fs.statSync(full_path).isFile();
+    } catch {
+        return false; // dangling symlink — treat as non-matching
+    }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -290,6 +352,7 @@ export function resolve_path_rich(
             name: string;
             isFile(): boolean;
             isDirectory(): boolean;
+            isSymbolicLink(): boolean;
         }>;
         try {
             my_entries = the_fs.readdirSync(current_dir, {
@@ -301,17 +364,20 @@ export function resolve_path_rich(
 
         if (!my_is_final) {
             // ── Non-final: must find a directory ─────────────────────────────
-            // Exact-before-case priority
+            // Exact-before-case priority; symlinks are followed via
+            // entry_is_dir so a symlinked directory is treated as a directory.
             const my_exact = my_entries.find(
-                e => e.name === my_component && e.isDirectory(),
+                e => e.name === my_component &&
+                    entry_is_dir(e, join_path(current_dir, e.name), the_fs),
             );
             if (my_exact !== undefined) {
                 current_dir = join_path(current_dir, my_exact.name);
                 continue;
             }
-            // Case-insensitive directory matches
+            // Case-insensitive directory matches (symlinks followed)
             const the_ci_dirs = my_entries.filter(
-                e => e.isDirectory() && ascii_ci_equal(e.name, my_component),
+                e => ascii_ci_equal(e.name, my_component) &&
+                    entry_is_dir(e, join_path(current_dir, e.name), the_fs),
             );
             if (the_ci_dirs.length === 1) {
                 had_case_mismatch = true;
@@ -339,10 +405,12 @@ export function resolve_path_rich(
             the_candidates.push(`${my_component}.do`);
         }
 
-        // Step 1: exact file match (candidates in order)
+        // Step 1: exact file match (candidates in order); symlinks followed
+        // via entry_is_file so a symlinked file is treated as a file.
         for (const my_cand of the_candidates) {
             const my_exact_file = my_entries.find(
-                e => e.name === my_cand && e.isFile(),
+                e => e.name === my_cand &&
+                    entry_is_file(e, join_path(current_dir, e.name), the_fs),
             );
             if (my_exact_file !== undefined) {
                 const my_full = join_path(current_dir, my_exact_file.name);
@@ -357,15 +425,20 @@ export function resolve_path_rich(
             }
         }
 
-        // Step 2: case-insensitive file matches over the candidate set
-        // Collect all (distinct) file entries whose names ci-match any candidate
+        // Step 2: case-insensitive file matches over the candidate set.
+        // Collect all (distinct) file entries whose names ci-match any
+        // candidate; symlinks are followed via entry_is_file.
         const the_ci_files: string[] = [];
         const seen_names = new Set<string>();
         for (const my_cand of the_candidates) {
             for (const my_entry of my_entries) {
                 if (
-                    my_entry.isFile() &&
                     ascii_ci_equal(my_entry.name, my_cand) &&
+                    entry_is_file(
+                        my_entry,
+                        join_path(current_dir, my_entry.name),
+                        the_fs,
+                    ) &&
                     !seen_names.has(my_entry.name)
                 ) {
                     seen_names.add(my_entry.name);

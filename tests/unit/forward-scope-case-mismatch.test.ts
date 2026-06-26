@@ -60,8 +60,9 @@ function make_patched_fs(
                 ) {
                     return my_entries.map(e => ({
                         name: e.name,
-                        isFile: () => e.is_file,
-                        isDirectory: () => !e.is_file,
+                        isFile:         () => e.is_file,
+                        isDirectory:    () => !e.is_file,
+                        isSymbolicLink: () => false,
                     }));
                 }
             }
@@ -70,10 +71,14 @@ function make_patched_fs(
                 name: string;
                 isFile(): boolean;
                 isDirectory(): boolean;
+                isSymbolicLink(): boolean;
             }>;
         },
         existsSync(p: string) {
             return fs.existsSync(p);
+        },
+        statSync(p: string) {
+            return fs.statSync(p);
         },
     };
 }

@@ -4,17 +4,49 @@ import {
     resolve_forward_call_rich,
 } from '../../src/utils/file-path-utils';
 
-// In-memory fs: map of dir -> entries (name + isFile)
-// Each key is a directory path; value is an array of [name, isFile] pairs.
-// existsSync answers true for directory paths (keys) and for file paths
-// (dir + '/' + name where isFile is true).
-function make_fs(tree: Record<string, Array<[string, boolean]>>) {
+// ─── In-memory filesystem helpers ────────────────────────────────────────────
+
+/**
+ * Entry descriptor for `make_fs`.
+ *
+ * Tuple: [name, kind]
+ *   kind = true        → regular file
+ *   kind = false       → regular directory
+ *   kind = 'link-dir'  → symlink whose target is a directory
+ *   kind = 'link-file' → symlink whose target is a file
+ *   kind = 'link-dead' → dangling symlink (statSync throws)
+ */
+type FsEntry = [
+    string,
+    boolean | 'link-dir' | 'link-file' | 'link-dead',
+];
+
+/**
+ * Build an injected filesystem from a tree descriptor.
+ *
+ * Map keys are directory paths; values are arrays of entry descriptors.
+ * existsSync is true for directory keys and for regular/symlink-file paths.
+ * statSync follows a symlink to its target kind; throws for dangling links.
+ */
+function make_fs(tree: Record<string, Array<FsEntry>>) {
     const the_dir_set = new Set(Object.keys(tree));
     const the_file_set = new Set<string>();
+    // Map from full path → kind, for statSync resolution
+    const the_kind_map = new Map<
+        string,
+        boolean | 'link-dir' | 'link-file' | 'link-dead'
+    >();
     for (const [my_dir, my_entries] of Object.entries(tree)) {
-        for (const [my_name, my_is_file] of my_entries) {
-            if (my_is_file) {
-                the_file_set.add(`${my_dir}/${my_name}`);
+        for (const [my_name, my_kind] of my_entries) {
+            const my_full = `${my_dir}/${my_name}`;
+            the_kind_map.set(my_full, my_kind);
+            // Treat as file for existsSync when it's a regular file or a
+            // symlink to a file (not dead and not dir-targeted).
+            if (
+                my_kind === true ||
+                my_kind === 'link-file'
+            ) {
+                the_file_set.add(my_full);
             }
         }
     }
@@ -25,11 +57,28 @@ function make_fs(tree: Record<string, Array<[string, boolean]>>) {
             p: string,
             _opts: { withFileTypes: true },
         ) =>
-            (tree[p] ?? []).map(([my_name, my_is_file]) => ({
+            (tree[p] ?? []).map(([my_name, my_kind]) => ({
                 name: my_name,
-                isFile: () => my_is_file,
-                isDirectory: () => !my_is_file,
+                isFile:         () => my_kind === true,
+                isDirectory:    () => my_kind === false,
+                isSymbolicLink: () =>
+                    my_kind === 'link-dir' ||
+                    my_kind === 'link-file' ||
+                    my_kind === 'link-dead',
             })),
+        statSync: (p: string): { isFile(): boolean; isDirectory(): boolean } => {
+            const my_kind = the_kind_map.get(p);
+            if (my_kind === 'link-dead' || my_kind === undefined) {
+                // Dangling symlink or unknown path → throw like real statSync
+                throw new Error(`ENOENT: no such file or directory, stat '${p}'`);
+            }
+            const my_is_file   = my_kind === true || my_kind === 'link-file';
+            const my_is_dir    = my_kind === false || my_kind === 'link-dir';
+            return {
+                isFile:      () => my_is_file,
+                isDirectory: () => my_is_dir,
+            };
+        },
     };
 }
 
@@ -215,6 +264,98 @@ describe('resolve_path_rich', () => {
         if (out.kind === 'case_only') {
             expect(out.path).toBe('/ws/Clean.do');
         }
+    });
+
+    // ── Symlink tests (CodeRabbit #216 regression) ────────────────────────
+
+    it('symlinked directory component is traversed (intermediate match)', () => {
+        // /ws/helpers → symlink to a directory containing clean.do
+        const fs = make_fs({
+            '/ws':          [['helpers', 'link-dir']],
+            '/ws/helpers':  [['clean.do', true]],
+        });
+        const out = resolve_path_rich('/ws/helpers/clean.do', {
+            workspace_roots: ['/ws'],
+            fs,
+        });
+        expect(out.kind).toBe('exact');
+        if (out.kind === 'exact') {
+            expect(out.path).toBe('/ws/helpers/clean.do');
+        }
+    });
+
+    it('symlinked .do file is matched at the final component (exact)', () => {
+        // /ws/clean.do is a symlink to a file
+        const fs = make_fs({
+            '/ws': [['clean.do', 'link-file']],
+        });
+        const out = resolve_path_rich('/ws/clean.do', {
+            workspace_roots: ['/ws'],
+            fs,
+        });
+        expect(out.kind).toBe('exact');
+        if (out.kind === 'exact') {
+            expect(out.path).toBe('/ws/clean.do');
+        }
+    });
+
+    it('symlinked file matched via .do fallback at the final component', () => {
+        // Requested without extension; /ws/Clean.do is a symlink to a file
+        const fs = make_fs({
+            '/ws': [['Clean.do', 'link-file']],
+        });
+        const out = resolve_path_rich('/ws/clean', {
+            workspace_roots: ['/ws'],
+            fs,
+        });
+        // The symlinked .do file should resolve as case_only (name mismatch)
+        expect(out.kind).toBe('case_only');
+        if (out.kind === 'case_only') {
+            expect(out.path).toBe('/ws/Clean.do');
+        }
+    });
+
+    it('symlinked file with case-only name difference resolves case_only', () => {
+        // /ws/Clean.do is a symlink; request uses lowercase → case_only
+        const fs = make_fs({
+            '/ws': [['Clean.do', 'link-file']],
+        });
+        const out = resolve_path_rich('/ws/clean.do', {
+            workspace_roots: ['/ws'],
+            fs,
+        });
+        expect(out.kind).toBe('case_only');
+        if (out.kind === 'case_only') {
+            expect(out.path).toBe('/ws/Clean.do');
+        }
+    });
+
+    it('dangling symlink does NOT match and does not throw', () => {
+        // /ws/dead.do is a dangling symlink; should resolve to missing
+        const fs = make_fs({
+            '/ws': [
+                ['dead.do', 'link-dead'],
+                ['other.do', true],
+            ],
+        });
+        const out = resolve_path_rich('/ws/dead.do', {
+            workspace_roots: ['/ws'],
+            fs,
+        });
+        expect(out.kind).toBe('missing');
+    });
+
+    it('dangling symlink directory does NOT crash intermediate traversal', () => {
+        // /ws/helpers is a dangling dir symlink; traversal must not throw
+        const fs = make_fs({
+            '/ws': [['helpers', 'link-dead']],
+        });
+        const out = resolve_path_rich('/ws/helpers/clean.do', {
+            workspace_roots: ['/ws'],
+            fs,
+        });
+        // helpers/ not resolved as a directory → missing
+        expect(out.kind).toBe('missing');
     });
 });
 
