@@ -3,7 +3,7 @@ import * as fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
-import { SyntaxNode, StataDiagnosticCode } from '../../src/types';
+import { StataDiagnosticCode } from '../../src/types';
 
 describe('Syntax Command Analyzer Property Tests', () => {
   let my_lexer: StataLexer;
@@ -142,7 +142,7 @@ describe('Syntax Command Analyzer Property Tests', () => {
           // Should NOT have undefined macro diagnostic for this reference
           const my_has_undefined_diagnostic = my_result.diagnostics.some(
             (my_diag) =>
-              my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.message.includes(`\`${my_arg_type}'`)
+              my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.symbol_name === my_arg_type
           );
           expect(my_has_undefined_diagnostic).toBe(false);
         }
@@ -171,7 +171,7 @@ describe('Syntax Command Analyzer Property Tests', () => {
       // Should NOT have undefined macro diagnostic for this reference
       const my_has_undefined_diagnostic = my_result.diagnostics.some(
         (my_diag) =>
-          my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.message.includes(`\`${my_option_name}'`)
+          my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.symbol_name === my_option_name
       );
       expect(my_has_undefined_diagnostic).toBe(false);
     }

@@ -286,13 +286,13 @@ global after_call = 2`);
 
             // other SHOULD produce warning (not defined anywhere)
             const other_warnings = diagnostics.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('other')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'other'
             );
             expect(other_warnings).toHaveLength(1);
 
             // fruit should NOT produce warning (inherited from parent)
             const fruit_warnings = diagnostics.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('fruit')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'fruit'
             );
             expect(fruit_warnings).toHaveLength(0);
         });

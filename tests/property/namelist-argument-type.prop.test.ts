@@ -87,7 +87,7 @@ describe('Feature: namelist-argument-type', () => {
           
           const namelistDiagnostics = analysis.diagnostics.filter(d =>
             d.code === StataDiagnosticCode.UNDEFINED_MACRO
-            && d.message.toLowerCase().includes('namelist')
+            && d.symbol_name === 'namelist'
           );
           expect(namelistDiagnostics).toHaveLength(0);
         }

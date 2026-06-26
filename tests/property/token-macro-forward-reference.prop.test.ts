@@ -32,7 +32,7 @@ describe("Token Macro Forward Reference Detection - Property Tests", () => {
                     // Should produce undefined macro warning
                     const the_warnings = analysis_result.diagnostics.filter(
                         my_diag => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                                  my_diag.message.includes(macro_name)
+                                  my_diag.symbol_name === macro_name
                     );
                     
                     expect(the_warnings.length).toBeGreaterThan(0);
@@ -75,7 +75,7 @@ describe("Token Macro Forward Reference Detection - Property Tests", () => {
                     // Should not produce undefined macro warning for this macro
                     const the_warnings = analysis_result.diagnostics.filter(
                         my_diag => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                                  my_diag.message.includes(macro_name)
+                                  my_diag.symbol_name === macro_name
                     );
                     
                     expect(the_warnings.length).toBe(0);
@@ -124,7 +124,7 @@ describe("Token Macro Forward Reference Detection - Property Tests", () => {
                     // Both references should produce warnings (or both should not)
                     const the_warnings = analysis_result.diagnostics.filter(
                         my_diag => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                                  my_diag.message.includes(macro_name)
+                                  my_diag.symbol_name === macro_name
                     );
                     
                     // Should have warnings for both references since both are forward references

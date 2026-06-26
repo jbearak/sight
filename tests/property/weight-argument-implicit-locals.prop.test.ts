@@ -175,13 +175,13 @@ end`;
 
           // Requirement 2.3: Should NOT have undefined macro diagnostic for weight
           const my_has_weight_diagnostic = my_analysis_result.diagnostics.some(
-            (my_diag) => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.message.includes("`weight'")
+            (my_diag) => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.symbol_name === 'weight'
           );
           expect(my_has_weight_diagnostic).toBe(false);
 
           // Requirement 2.4: Should NOT have undefined macro diagnostic for exp
           const my_has_exp_diagnostic = my_analysis_result.diagnostics.some(
-            (my_diag) => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.message.includes("`exp'")
+            (my_diag) => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.symbol_name === 'exp'
           );
           expect(my_has_exp_diagnostic).toBe(false);
         }

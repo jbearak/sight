@@ -167,7 +167,7 @@ describe('unify-forward-call-feeds refactoring', () => {
             // provides the symbol via resolved_scope.forward_call_symbols.
             const undefined_warnings = diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                d.message.includes('child_var')
+                (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'child_var'
             );
             expect(undefined_warnings).toHaveLength(0);
         });
@@ -203,7 +203,7 @@ describe('unify-forward-call-feeds refactoring', () => {
             // Since the callee file exists and defines child_var, it should be found
             const undefined_warnings = diagnostics.filter(d => 
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                d.message.includes('child_var')
+                (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'child_var'
             );
             expect(undefined_warnings).toHaveLength(0);
         });
@@ -274,7 +274,7 @@ describe('unify-forward-call-feeds refactoring', () => {
             // Should handle duplicates gracefully - no undefined macro warning
             const undefined_warnings = diagnostics.filter(d =>
                 d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                d.message.includes('child_var')
+                (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'child_var'
             );
             expect(undefined_warnings).toHaveLength(0);
         });

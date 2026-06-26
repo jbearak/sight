@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { SemanticAnalyzer, create_empty_symbol_table } from '../../src/analyzer';
 import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
-import { SymbolTable, ProgramSymbol, MacroSymbol, StataDiagnosticCode } from '../../src/types';
+import { SymbolTable, ProgramSymbol, StataDiagnosticCode } from '../../src/types';
 
 describe('Workspace c_local suppression', () => {
     it('should suppress undefined macro warnings when c_local is defined in workspace program', () => {
@@ -96,7 +96,7 @@ display "\`workspace_result'"
 
         // Should have undefined macro warning for workspace_result since it's not available from local program
         const undefined_macro_diagnostics = result.diagnostics.filter(d => 
-            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('workspace_result')
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.symbol_name === 'workspace_result'
         );
         expect(undefined_macro_diagnostics).toHaveLength(1);
 
@@ -139,7 +139,7 @@ display "\`result'"
 
         // Should not have undefined macro warnings for 'result'
         const undefined_macro_diagnostics = result.diagnostics.filter(d => 
-            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('result')
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.symbol_name === 'result'
         );
         expect(undefined_macro_diagnostics).toHaveLength(0);
 
@@ -180,7 +180,7 @@ display "\`result'"
 
         // Should have undefined macro warning for 'result' since program has no c_locals
         const undefined_macro_diagnostics = result.diagnostics.filter(d => 
-            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('result')
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.symbol_name === 'result'
         );
         expect(undefined_macro_diagnostics).toHaveLength(1);
 
@@ -221,7 +221,7 @@ display "\`result'"
 
         // Should have undefined macro warning for 'result' since c_locals is empty
         const undefined_macro_diagnostics = result.diagnostics.filter(d => 
-            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('result')
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.symbol_name === 'result'
         );
         expect(undefined_macro_diagnostics).toHaveLength(1);
 
@@ -252,7 +252,7 @@ display "\`result'"
 
         // Should have undefined macro warning for 'result' since no workspace symbols
         const undefined_macro_diagnostics = result.diagnostics.filter(d => 
-            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('result')
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.symbol_name === 'result'
         );
         expect(undefined_macro_diagnostics).toHaveLength(1);
 

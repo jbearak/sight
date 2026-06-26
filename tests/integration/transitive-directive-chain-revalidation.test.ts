@@ -105,10 +105,10 @@ local c_result = "$shared_macro"`;
 
             // Verify no undefined macro warnings for shared_macro initially
             const b_undefined_shared_v1 = b_diagnostics_v1.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('shared_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'shared_macro'
             );
             const c_undefined_shared_v1 = c_diagnostics_v1.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('shared_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'shared_macro'
             );
 
             expect(b_undefined_shared_v1).toHaveLength(0);
@@ -138,10 +138,10 @@ do "b.do"`;
 
             // Verify undefined macro warnings for shared_macro after removal
             const b_undefined_shared_v2 = b_diagnostics_v2.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('shared_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'shared_macro'
             );
             const c_undefined_shared_v2 = c_diagnostics_v2.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('shared_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'shared_macro'
             );
 
             expect(b_undefined_shared_v2.length).toBeGreaterThan(0);
@@ -171,10 +171,10 @@ local c_result = "$shared_macro"`;
             const c_diagnostics_v1 = await get_diagnostics_for_file(c_path, c_content);
 
             const b_undefined_shared_v1 = b_diagnostics_v1.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('shared_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'shared_macro'
             );
             const c_undefined_shared_v1 = c_diagnostics_v1.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('shared_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'shared_macro'
             );
 
             expect(b_undefined_shared_v1.length).toBeGreaterThan(0);
@@ -197,10 +197,10 @@ do "b.do"`;
             const c_diagnostics_v2 = await get_diagnostics_for_file(c_path, c_content);
 
             const b_undefined_shared_v2 = b_diagnostics_v2.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('shared_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'shared_macro'
             );
             const c_undefined_shared_v2 = c_diagnostics_v2.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('shared_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'shared_macro'
             );
 
             expect(b_undefined_shared_v2).toHaveLength(0);
@@ -228,7 +228,7 @@ local c_result = "$middle_macro"`;
             // Initial resolution - c.do should not have undefined warning for middle_macro
             const c_diagnostics_v1 = await get_diagnostics_for_file(c_path, c_content);
             const c_undefined_middle_v1 = c_diagnostics_v1.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('middle_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'middle_macro'
             );
             expect(c_undefined_middle_v1).toHaveLength(0);
 
@@ -250,7 +250,7 @@ do "c.do"`;
             // Re-resolve c.do - should now have undefined warning for middle_macro
             const c_diagnostics_v2 = await get_diagnostics_for_file(c_path, c_content);
             const c_undefined_middle_v2 = c_diagnostics_v2.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('middle_macro')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'middle_macro'
             );
             expect(c_undefined_middle_v2.length).toBeGreaterThan(0);
         });
@@ -288,9 +288,9 @@ local d_result = "$diamond_macro"`;
             const c_diagnostics_v1 = await get_diagnostics_for_file(c_path, c_content);
             const d_diagnostics_v1 = await get_diagnostics_for_file(d_path, d_content);
 
-            expect(b_diagnostics_v1.filter(d => d.message.includes('diamond_macro') && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
-            expect(c_diagnostics_v1.filter(d => d.message.includes('diamond_macro') && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
-            expect(d_diagnostics_v1.filter(d => d.message.includes('diamond_macro') && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
+            expect(b_diagnostics_v1.filter(d => (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'diamond_macro' && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
+            expect(c_diagnostics_v1.filter(d => (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'diamond_macro' && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
+            expect(d_diagnostics_v1.filter(d => (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'diamond_macro' && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
 
             // Modify a.do to remove diamond_macro
             const a_content_v2 = `global other_macro "other"
@@ -316,9 +316,9 @@ do "c.do"`;
             const c_diagnostics_v2 = await get_diagnostics_for_file(c_path, c_content);
             const d_diagnostics_v2 = await get_diagnostics_for_file(d_path, d_content);
 
-            expect(b_diagnostics_v2.filter(d => d.message.includes('diamond_macro') && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
-            expect(c_diagnostics_v2.filter(d => d.message.includes('diamond_macro') && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
-            expect(d_diagnostics_v2.filter(d => d.message.includes('diamond_macro') && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
+            expect(b_diagnostics_v2.filter(d => (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'diamond_macro' && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
+            expect(c_diagnostics_v2.filter(d => (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'diamond_macro' && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
+            expect(d_diagnostics_v2.filter(d => (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'diamond_macro' && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
         });
     });
 
@@ -346,7 +346,7 @@ display root_scalar`;
 
             // Should not have undefined warnings for root_global
             const undefined_root_global = c_diagnostics.filter(d =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('root_global')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'root_global'
             );
             expect(undefined_root_global).toHaveLength(0);
         });

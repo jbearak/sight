@@ -74,13 +74,13 @@ local other_result = "$other"
 
         // Should NOT have undefined macro warning for 'fruit' (defined in main.do)
         const undefined_fruit = diagnostics.filter(d =>
-            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('fruit')
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'fruit'
         );
         expect(undefined_fruit).toHaveLength(0);
 
         // Should have undefined macro warning for 'other' (not defined anywhere)
         const undefined_other = diagnostics.filter(d =>
-            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('other')
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'other'
         );
         expect(undefined_other).toHaveLength(1);
     });

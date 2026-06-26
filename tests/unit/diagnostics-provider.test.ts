@@ -585,7 +585,7 @@ describe('DiagnosticsProvider', () => {
             // Should NOT have undefined macro diagnostic for 'apple'
             const undefined_macro = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                     d.message.includes('apple')
+                     (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'apple'
             );
             expect(undefined_macro).toBeUndefined();
         });
@@ -664,7 +664,7 @@ display \`result'
             // Should NOT have undefined macro diagnostic for 'result'
             const undefined_result = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                     d.message.includes('result')
+                     (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'result'
             );
             expect(undefined_result).toBeUndefined();
         });
@@ -713,7 +713,7 @@ display \`result'
             // SHOULD have undefined macro diagnostic for 'result' because case doesn't match
             const undefined_result = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                     d.message.includes('result')
+                     (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'result'
             );
             expect(undefined_result).toBeDefined();
         });
@@ -762,7 +762,7 @@ display \`result'
             // Should NOT have undefined macro diagnostic for 'result'
             const undefined_result = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                     d.message.includes('result')
+                     (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'result'
             );
             expect(undefined_result).toBeUndefined();
         });
@@ -812,7 +812,7 @@ display \`result'
             // SHOULD have undefined macro diagnostic for 'result' because prefix is wrong case
             const undefined_result = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                     d.message.includes('result')
+                     (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'result'
             );
             expect(undefined_result).toBeDefined();
         });
@@ -1088,7 +1088,7 @@ display \`result'
 
             const undefined_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && d.message.includes('veggie')
+                    && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'veggie'
             );
             expect(undefined_diag).toBeDefined();
         });
@@ -1138,7 +1138,7 @@ display \`result'
 
             const undefined_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && d.message.includes('veggie')
+                    && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'veggie'
             );
             expect(undefined_diag).toBeDefined();
         });
@@ -1192,7 +1192,7 @@ display \`result'
 
             const undefined_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE
-                    && d.message.includes('age')
+                    && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'age'
             );
             expect(undefined_diag).toBeDefined();
         });
@@ -1375,7 +1375,7 @@ display \`result'
             )).toBeUndefined();
             expect(the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && d.message.includes('veggie')
+                    && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'veggie'
             )).toBeUndefined();
         });
         it('should prefer same-file forward-reference rewrites over forward-call blame', async () => {
@@ -1436,7 +1436,7 @@ display \`result'
 
             const undefined_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && d.message.includes("`veggie'")
+                    && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'veggie'
             );
             expect(undefined_diag).toBeUndefined();
         });
@@ -1464,7 +1464,7 @@ display \`result'
 
             const undefined_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && d.message.includes('$after_global')
+                    && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'after_global'
             );
             expect(undefined_diag).toBeUndefined();
         });
@@ -1484,7 +1484,7 @@ display \`result'
 
             const undefined_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && d.message.includes('missing')
+                    && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'missing'
             );
             expect(undefined_diag).toBeDefined();
         });
@@ -1797,7 +1797,7 @@ display \`result'
 
             const undefined_diag = the_diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && d.message.includes('`veggie\'')
+                    && (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'veggie'
             );
             expect(undefined_diag).toBeUndefined();
         });
