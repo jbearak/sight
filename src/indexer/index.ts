@@ -325,12 +325,14 @@ export class WorkspaceIndexer {
 
                 const entry_path = path.join(dir_path, entry.name);
 
-                // Recurse into real subdirectories only. Symlinked dirs
-                // are NOT descended: an in-workspace target is already
-                // covered by the direct scan of its real location, and
-                // an external target would crawl an arbitrary tree
-                // (#219). The walk stays a finite real tree, so no
-                // cycle/boundary guard is needed.
+                // Recurse into real subdirectories only (unchanged).
+                // Symlinked dirs are NOT descended: an in-workspace
+                // target is already covered by the direct scan of its
+                // real location, and an external target would crawl an
+                // arbitrary tree (#219). Recursing only real subdirs
+                // adds no symlink cycle/escape risk, so no new guard is
+                // needed. (OS junctions/bind mounts present as real
+                // dirs and are descended as before — pre-existing.)
                 if (entry.isDirectory()) {
                     // Skip version-control metadata directories. They hold no
                     // Stata source, can be very large, and recursing them is

@@ -82,11 +82,12 @@ function walk_sources(
 
     for (const entry of entries) {
         const entry_path = path.join(dir_path, entry.name);
-        // Recurse into real subdirectories only. Symlinked dirs are not
-        // descended: an in-workspace target is already covered by the
-        // direct scan of its real location, and an external target
-        // would crawl an arbitrary tree (issue #219). The walk stays a
-        // finite real tree, so no cycle/boundary guard is needed.
+        // Recurse into real subdirectories only (unchanged). Symlinked
+        // dirs are not descended: an in-workspace target is already
+        // covered by the direct scan of its real location, and an
+        // external target would crawl an arbitrary tree (issue #219).
+        // Recursing only real subdirs adds no symlink cycle/escape
+        // risk, so no new guard is needed.
         if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
             walk_sources(entry_path, out, operator_errors);

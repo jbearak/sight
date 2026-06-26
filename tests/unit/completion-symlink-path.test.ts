@@ -81,4 +81,40 @@ describe('path completion offers symlinked entries (#219)', () => {
         expect(labels).toContain('realdir/');
         expect(labels).toContain('real.do');
     });
+
+    it('offers a symlinked dir whose target is outside the listed dir', async () => {
+        // A symlinked directory pointing OUTSIDE the listed directory is
+        // still offered as a navigable folder (listing is not recursion).
+        const external = fs.mkdtempSync(path.join(os.tmpdir(), 'comp-ext-'));
+        try {
+            if (!try_symlink(external, path.join(tmp_dir, 'extlink'))) return;
+            const content = `do "${tmp_dir}/`;
+            const completions = await provider.get_completions(doc_for(content), {
+                line: 0,
+                character: content.length,
+            });
+            expect(completions.map((c) => c.label)).toContain('extlink/');
+        } finally {
+            fs.rmSync(external, { recursive: true, force: true });
+        }
+    });
+
+    it('does not offer a dangling symlink', async () => {
+        // A dangling symlink classifies as `other` and is dropped, not
+        // offered as a broken file.
+        if (!try_symlink(
+            path.join(tmp_dir, 'missing-target'),
+            path.join(tmp_dir, 'broken.do'),
+        )) return;
+        fs.writeFileSync(path.join(tmp_dir, 'real.do'), 'display 1\n');
+
+        const content = `do "${tmp_dir}/`;
+        const completions = await provider.get_completions(doc_for(content), {
+            line: 0,
+            character: content.length,
+        });
+        const labels = completions.map((c) => c.label);
+        expect(labels).toContain('real.do');
+        expect(labels).not.toContain('broken.do');
+    });
 });

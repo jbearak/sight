@@ -116,6 +116,9 @@ The indexer is *best-effort* and intentionally bounded:
 
 A **symlinked source file** (a symlink that resolves to a `.do`, `.ado`,
 `.doh`, or `.mata` file) is indexed normally — its target may live anywhere.
+It is indexed under the symlink's own path; if the symlink and its target are
+both inside the workspace, the file is indexed under both paths (a harmless
+over-count — both paths resolve to the same content).
 
 A **symlinked directory** is *not* recursively scanned. If its target is
 inside your workspace, those files are already indexed via the directory's

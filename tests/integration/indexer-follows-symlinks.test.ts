@@ -215,4 +215,19 @@ describe('sthlp recursive search follows symlinks safely (#219)', () => {
         const found = await resolve(tmp_dir, 'zzsymtopic');
         expect(found).toBe(path.join(sub, 'zzsymtopic.sthlp'));
     });
+
+    it('does not return a dangling symlinked .sthlp (search continues)', async () => {
+        const sub = path.join(tmp_dir, 'sub');
+        fs.mkdirSync(sub);
+        // A dangling symlink whose name matches the help basename must not
+        // be returned as a (broken) match — entry_is_file_async stats it,
+        // the stat throws, and the search continues.
+        if (!try_symlink(
+            path.join(sub, 'missing-target'),
+            path.join(sub, 'zzsymtopic.sthlp'),
+        )) return;
+
+        const found = await resolve(tmp_dir, 'zzsymtopic');
+        expect(found).toBeNull();
+    });
 });

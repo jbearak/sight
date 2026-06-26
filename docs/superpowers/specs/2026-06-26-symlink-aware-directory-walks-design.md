@@ -131,10 +131,15 @@ direct scan of its real location already indexes those files; if the target is
 *outside*, that is precisely the escape hazard. So the policy is simply:
 
 - **Recurse into real subdirectories only** (`entry.isDirectory()`, the
-  pre-existing check — symlinked dirs excluded, as before). A real directory
-  tree is finite and acyclic, so **no** visited set, realpath, or boundary
-  machinery is needed; cycles, escape, aliasing, TOCTOU, and exclusion-bypass
-  are all structurally impossible.
+  pre-existing check — symlinked dirs excluded, as before). Because recursion
+  follows only real subdirectories (exactly as it did before this fix), the
+  change introduces **no** new symlink cycle/escape risk, so **no** visited
+  set, realpath, or boundary machinery is added; the TOCTOU / aliasing /
+  exclusion-bypass classes that a symlinked-dir descent would create simply do
+  not arise. (OS-level Windows junctions and bind mounts report as real
+  directories via `isDirectory()` and are therefore descended just as the
+  pre-existing code descended them — that is unchanged by this fix and out of
+  scope here.)
 - **Follow symlinked source FILES.** A `readdir` entry for a symlinked file is
   neither `isFile()` nor `isDirectory()`, so the old code dropped it — this is
   the actual #219 bug. Replace the file test with the symlink-aware
@@ -147,6 +152,14 @@ wants an external directory indexed declares it as a workspace folder or
 ado-path (the indexer already accepts both) rather than reaching it through a
 symlink. Path completion is the one exception — it *lists* a symlinked dir as a
 navigable folder (see §3) because listing is not recursion.
+
+A symlinked source file is indexed under the path at which it is encountered
+(the symlink path), matching how every other entry is indexed by traversal
+path. If such a symlink and its real target are *both* inside the workspace,
+the same physical file is indexed under both URIs — a benign best-effort-index
+over-count (both paths are valid and resolve to the same content), not a
+correctness issue. De-duplicating by canonical path would reintroduce the
+realpath machinery this design deliberately removes, so it is left as-is.
 
 ### 3. Per-site changes
 

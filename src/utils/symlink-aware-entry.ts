@@ -21,7 +21,8 @@
  * `await`; callers pick the one matching their surrounding I/O style.
  */
 
-/** Minimal fs seam: a stat that FOLLOWS symlinks (throws on dangling). */
+/** Minimal fs seam: a stat that FOLLOWS symlinks (throws on a dangling
+ * link). */
 export interface StatSyncFs {
     statSync(p: string): { isFile(): boolean; isDirectory(): boolean };
 }
