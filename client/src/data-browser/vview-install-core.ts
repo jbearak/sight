@@ -109,14 +109,19 @@ export interface VviewInstallHooks<
 }
 
 // True when `content` is a Sight-shipped copy of an ado: its leading
-// banner line is exactly the asset's ownership marker. Exact match (not
-// a prefix) so a foreign file that merely begins with our banner text
-// is never misclassified as Sight-owned and clobbered.
+// banner line is exactly the asset's ownership marker. The match is
+// exact (not a prefix, and surrounding whitespace is NOT normalized) so
+// a foreign file that merely begins with — or pads — our banner text is
+// never misclassified as Sight-owned and clobbered. Only a trailing CR
+// is stripped, so a CRLF-saved copy of our own file is still recognized.
 export function is_sight_owned(
     content: string,
     marker: string
 ): boolean {
-    const my_first_line = content.split('\n', 1)[0].trim();
+    let my_first_line = content.split('\n', 1)[0];
+    if (my_first_line.endsWith('\r')) {
+        my_first_line = my_first_line.slice(0, -1);
+    }
     return my_first_line === marker;
 }
 
@@ -233,9 +238,16 @@ export function install_ado_asset(
 
     try {
         fs.mkdirSync(target_dir, { recursive: true });
+        // For a missing target, create exclusively ('wx') so that a
+        // foreign file racing in between the re-check above and this
+        // write is not clobbered (EEXIST → leave it). For an update of
+        // our own file, overwrite ('w').
+        const my_flag =
+            asset.state === 'missing' ? 'wx' : 'w';
         fs.writeFileSync(
             asset.target_path,
-            asset.bundled_content
+            asset.bundled_content,
+            { flag: my_flag }
         );
         log(
             asset.name
@@ -244,6 +256,16 @@ export function install_ado_asset(
         );
         return true;
     } catch (my_err) {
+        const my_node_error = my_err as NodeJS.ErrnoException;
+        if (my_node_error.code === 'EEXIST') {
+            log(
+                asset.name
+                + ': a file appeared at '
+                + asset.target_path
+                + ' during install; leaving it untouched'
+            );
+            return true;
+        }
         log(
             asset.name
             + ': failed to install: '

@@ -166,6 +166,24 @@ describe('ado ownership detection', () => {
         ).toBe(false);
     });
 
+    it('recognizes a CRLF-saved copy of our own file', () => {
+        expect(
+            is_sight_owned(
+                `${BROWSE_MARKER}\r\nprogram define browse\r\n`,
+                BROWSE_MARKER
+            )
+        ).toBe(true);
+    });
+
+    it('does not treat a whitespace-padded banner as owned', () => {
+        expect(
+            is_sight_owned(
+                `  ${BROWSE_MARKER}\nx\n`,
+                BROWSE_MARKER
+            )
+        ).toBe(false);
+    });
+
     it('does not treat a mere prefix of the marker as owned', () => {
         // Guards against a truncated marker: a banner that only
         // starts to resemble ours must not be claimed as Sight-owned.
