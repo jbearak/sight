@@ -495,6 +495,17 @@ export enum StataDiagnosticCode {
   MIXED_LOGICAL_OPERATORS = 6004,
 }
 
+// Structured payload carried on a diagnostic's `data` field for undefined-symbol
+// diagnostics (UNDEFINED_MACRO / UNDEFINED_VARIABLE). Lets downstream logic
+// (suppression, out-of-scope rewriting) recover the referenced symbol from
+// structured data instead of parsing the human-facing message prose, so the
+// message wording can change without breaking behavior. See docs/superpowers/
+// specs/2026-06-26-diagnostic-message-code-deduplication.md.
+export interface UndefinedSymbolDiagnosticData {
+  symbol_name?: string;
+  reference_kind?: 'local' | 'global' | 'variable';
+}
+
 
 // Configuration Types
 export interface CommentFormattingConfig {

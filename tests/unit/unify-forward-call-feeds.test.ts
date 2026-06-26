@@ -87,6 +87,9 @@ function create_document_state(content: string, uri: string): DocumentState {
             : DiagnosticSeverity.Hint,
         code: diag.code,
         source: 'sight',
+        ...(diag.symbol_name !== undefined || diag.reference_kind !== undefined
+            ? { data: { symbol_name: diag.symbol_name, reference_kind: diag.reference_kind } }
+            : {}),
     }));
 
     return {

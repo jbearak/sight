@@ -4,6 +4,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import {
+    format_undefined_macro_message,
+    format_undefined_variable_message,
+} from '../utils/undefined-symbol-message';
+import {
     StataAST,
     StataNode,
     SymbolTable,
@@ -35,6 +39,12 @@ export interface SemanticDiagnostic {
     range: Range;
     code: StataDiagnosticCode;
     severity: 'error' | 'warning' | 'information' | 'hint';
+    // Structured carriers for downstream logic so it never parses message prose
+    // to recover the referenced symbol. Populated for UNDEFINED_MACRO /
+    // UNDEFINED_VARIABLE diagnostics. See docs/superpowers/specs/
+    // 2026-06-26-diagnostic-message-code-deduplication.md.
+    symbol_name?: string;
+    reference_kind?: 'local' | 'global' | 'variable';
 }
 
 // Analysis result returned by the semantic analyzer
@@ -2336,15 +2346,13 @@ export class SemanticAnalyzer {
         if (!is_defined) {
             const range_key = `${node.range.start.line}:${node.range.start.character}:${node.range.end.line}:${node.range.end.character}`;
             reported_ranges.add(range_key);
-            // Use consistent format: local uses `name', global uses $name
-            const macro_display = node.scope === 'local' 
-                ? `\`${node.name}'` 
-                : `$${node.name}`;
             diagnostics.push({
-                message: `Undefined ${node.scope} macro: ${macro_display}`,
+                message: format_undefined_macro_message(node.scope, node.name),
                 range: node.range,
                 code: StataDiagnosticCode.UNDEFINED_MACRO,
                 severity: 'warning',
+                symbol_name: node.name,
+                reference_kind: node.scope,
             });
         }
     }
@@ -2368,12 +2376,16 @@ export class SemanticAnalyzer {
         if (!is_defined) {
             const range_key = `${macro_ref.range.start.line}:${macro_ref.range.start.character}:${macro_ref.range.end.line}:${macro_ref.range.end.character}`;
             reported_ranges.add(range_key);
-            const scope_display = macro_ref.scope === 'local' ? `\`${macro_ref.name}'` : `$${macro_ref.name}`;
             diagnostics.push({
-                message: `Undefined ${macro_ref.scope} macro: ${scope_display}`,
+                message: format_undefined_macro_message(
+                    macro_ref.scope,
+                    macro_ref.name
+                ),
                 range: macro_ref.range,
                 code: StataDiagnosticCode.UNDEFINED_MACRO,
                 severity: 'warning',
+                symbol_name: macro_ref.name,
+                reference_kind: macro_ref.scope,
             });
         }
     }
@@ -2405,10 +2417,14 @@ export class SemanticAnalyzer {
 
                 if (!is_defined) {
                     diagnostics.push({
-                        message: `Potentially undefined variable: ${var_node.name}`,
+                        message: format_undefined_variable_message(
+                            var_node.name
+                        ),
                         range: var_node.range,
                         code: StataDiagnosticCode.UNDEFINED_VARIABLE,
                         severity: 'information',
+                        symbol_name: var_node.name,
+                        reference_kind: 'variable',
                     });
                 }
             }
@@ -2675,10 +2691,15 @@ export class SemanticAnalyzer {
                 const token_line = token.range.start.line;
                 if (macro_name && !this.is_macro_defined(macro_name, 'local', symbols, undefined, token_line)) {
                     diagnostics.push({
-                        message: `Undefined local macro: \`${macro_name}'`,
+                        message: format_undefined_macro_message(
+                            'local',
+                            macro_name
+                        ),
                         range: token.range,
                         code: StataDiagnosticCode.UNDEFINED_MACRO,
                         severity: 'warning',
+                        symbol_name: macro_name,
+                        reference_kind: 'local',
                     });
                 }
             } else if (token.type === 'MACRO_REF_GLOBAL') {
@@ -2710,10 +2731,15 @@ export class SemanticAnalyzer {
                 const token_line = token.range.start.line;
                 if (macro_name && !this.is_macro_defined(macro_name, 'global', symbols, undefined, token_line)) {
                     diagnostics.push({
-                        message: `Undefined global macro: $${macro_name}`,
+                        message: format_undefined_macro_message(
+                            'global',
+                            macro_name
+                        ),
                         range: token.range,
                         code: StataDiagnosticCode.UNDEFINED_MACRO,
                         severity: 'warning',
+                        symbol_name: macro_name,
+                        reference_kind: 'global',
                     });
                 }
             }

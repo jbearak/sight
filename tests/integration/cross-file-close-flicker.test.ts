@@ -107,9 +107,7 @@ function file_provider() {
 
 function has_undefined_macro(diags: { code?: unknown; message?: string }[]): boolean {
     return diags.some(d =>
-        d.code === StataDiagnosticCode.UNDEFINED_MACRO
-        || (typeof d.message === 'string'
-            && d.message.toLowerCase().includes('undefined local macro')));
+        d.code === StataDiagnosticCode.UNDEFINED_MACRO);
 }
 
 describe('cross-file diagnostic flicker on parent close', () => {

@@ -41,8 +41,7 @@ describe('sight check integration', () => {
 
         expect(result.code).toBe(EXIT_CHECK_FAILED);
         expect(result.stdout).toContain('main.do:1:');
-        expect(result.stdout).toContain('Undefined');
-        expect(result.stdout).toContain('macro');
+        expect(result.stdout).toContain('[2001]');
     });
 
     it('honors editor default undefinedVariable off', async () => {

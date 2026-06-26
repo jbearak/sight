@@ -79,7 +79,7 @@ end`;
     display "\`Cache'"
 end`;
         expect(undefined_macro_messages(my_source)).toEqual([
-            "Undefined local macro: \`Cache'",
+            "\`Cache' is not defined",
         ]);
     });
 });

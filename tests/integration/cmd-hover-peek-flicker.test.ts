@@ -111,9 +111,7 @@ function make_provider(open_buffers: Map<string, string>) {
 
 function has_undefined_macro(diags: { code?: unknown; message?: string }[]): boolean {
     return diags.some(d =>
-        d.code === StataDiagnosticCode.UNDEFINED_MACRO
-        || (typeof d.message === 'string'
-            && d.message.toLowerCase().includes('undefined local macro')));
+        d.code === StataDiagnosticCode.UNDEFINED_MACRO);
 }
 
 describe('Cmd-hover peek lifecycle flicker (parent open then close)', () => {

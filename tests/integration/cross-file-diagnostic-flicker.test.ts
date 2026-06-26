@@ -176,9 +176,7 @@ describe('cross-file diagnostic flicker (regression for #175)', () => {
         const diagnostics = await get_diags_promise;
 
         const has_undef_macro = diagnostics.some(d =>
-            d.code === StataDiagnosticCode.UNDEFINED_MACRO
-            || (typeof d.message === 'string'
-                && d.message.toLowerCase().includes('undefined local macro')),
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO,
         );
         expect(has_undef_macro).toBe(false);
     });

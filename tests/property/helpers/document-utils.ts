@@ -69,16 +69,22 @@ export function create_document_state(my_source: string): DocumentState {
     source: 'sight',
   }));
 
-  // Convert semantic diagnostics to LSP diagnostics format
+  // Convert semantic diagnostics to LSP diagnostics format. Mirror
+  // DocumentStore.build_diagnostics by carrying the structured
+  // symbol_name/reference_kind on `data` so the provider can recover the
+  // referenced symbol without parsing message prose.
   const my_semantic_diagnostics = my_analysis_result.diagnostics.map(diag => ({
     range: diag.range,
     message: diag.message,
-    severity: diag.severity === 'error' ? DiagnosticSeverity.Error : 
-              diag.severity === 'warning' ? DiagnosticSeverity.Warning : 
-              diag.severity === 'information' ? DiagnosticSeverity.Information : 
+    severity: diag.severity === 'error' ? DiagnosticSeverity.Error :
+              diag.severity === 'warning' ? DiagnosticSeverity.Warning :
+              diag.severity === 'information' ? DiagnosticSeverity.Information :
               DiagnosticSeverity.Hint,
     code: diag.code,
     source: 'sight',
+    ...(diag.symbol_name !== undefined || diag.reference_kind !== undefined
+      ? { data: { symbol_name: diag.symbol_name, reference_kind: diag.reference_kind } }
+      : {}),
   }));
 
   // Combine all diagnostics

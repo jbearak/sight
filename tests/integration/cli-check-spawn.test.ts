@@ -37,8 +37,7 @@ describe('sight check spawned CLI', () => {
         );
 
         expect(result.status).toBe(1);
-        expect(result.stdout).toContain('Undefined');
-        expect(result.stdout).toContain('macro');
+        expect(result.stdout).toContain('[2001]');
     });
 
     it('returns exit 2 for an unknown flag (operator error)', () => {

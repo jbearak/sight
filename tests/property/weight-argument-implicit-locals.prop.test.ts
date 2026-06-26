@@ -3,7 +3,7 @@ import * as fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
-import { SyntaxNode, ProgramNode } from '../../src/types';
+import { SyntaxNode, ProgramNode, StataDiagnosticCode } from '../../src/types';
 
 /**
  * Property Tests for Weight Argument Implicit Locals
@@ -175,13 +175,13 @@ end`;
 
           // Requirement 2.3: Should NOT have undefined macro diagnostic for weight
           const my_has_weight_diagnostic = my_analysis_result.diagnostics.some(
-            (my_diag) => my_diag.message.includes("Undefined local macro: `weight'")
+            (my_diag) => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.message.includes("`weight'")
           );
           expect(my_has_weight_diagnostic).toBe(false);
 
           // Requirement 2.4: Should NOT have undefined macro diagnostic for exp
           const my_has_exp_diagnostic = my_analysis_result.diagnostics.some(
-            (my_diag) => my_diag.message.includes("Undefined local macro: `exp'")
+            (my_diag) => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO && my_diag.message.includes("`exp'")
           );
           expect(my_has_exp_diagnostic).toBe(false);
         }

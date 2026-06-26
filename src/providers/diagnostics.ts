@@ -10,7 +10,8 @@ import {
     StataLSPConfig,
     SymbolTable,
     ResolvedScope,
-    DirectiveDiagnostic
+    DirectiveDiagnostic,
+    UndefinedSymbolDiagnosticData
 } from '../types';
 import {
     ScopeResolver,
@@ -34,6 +35,11 @@ type SemanticDiagnostic = {
     code: StataDiagnosticCode;
     severity: 'error' | 'warning' | 'information' | 'hint';
     base_code?: StataDiagnosticCode;
+    // Structured carriers populated by the analyzer for UNDEFINED_MACRO /
+    // UNDEFINED_VARIABLE so downstream logic reads the referenced symbol from
+    // data, never by parsing the (now reworded) message prose.
+    symbol_name?: string;
+    reference_kind?: 'local' | 'global' | 'variable';
 };
 type ReferenceKind = 'local' | 'global' | 'variable' | null;
 type OutOfScopeRewriteMatch = {
@@ -572,11 +578,16 @@ export class DiagnosticsProvider {
                         [DiagnosticSeverity.Information]: 'information',
                         [DiagnosticSeverity.Hint]: 'hint',
                     };
+                    const data = diag.data as
+                        | UndefinedSymbolDiagnosticData
+                        | undefined;
                     semantic_diags.push({
                         message: diag.message,
                         range: diag.range,
                         code,
                         severity: severity_map[diag.severity ?? DiagnosticSeverity.Error],
+                        symbol_name: data?.symbol_name,
+                        reference_kind: data?.reference_kind,
                     });
                 }
             }
@@ -1030,45 +1041,17 @@ export class DiagnosticsProvider {
     }
 
     /**
-     * Extract symbol name from a diagnostic message.
-     * Handles multiple formats:
-     * - Local macro format: `name' (backtick + apostrophe)
-     * - Global macro format: $name (dollar sign prefix)
-     * - Quoted format: 'name' (single quotes)
+     * Return the referenced symbol name for an undefined-symbol diagnostic.
+     * Reads the structured `symbol_name` the analyzer attaches; the message
+     * prose is no longer consulted.
      */
     private extract_symbol_name_from_diagnostic(
-        diagnostic: { message: string; code: StataDiagnosticCode }
+        diagnostic: { symbol_name?: string }
     ): string | null {
-        if (diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
-            const variable_match = diagnostic.message.match(
-                /^Potentially undefined variable: ([a-zA-Z_][a-zA-Z0-9_]*)$/
-            );
-            if (variable_match) {
-                return variable_match[1];
-            }
-            return null;
-        }
-
-        if (diagnostic.code !== StataDiagnosticCode.UNDEFINED_MACRO) {
-            return null;
-        }
-        // Try local macro format first: `name'
-        const local_macro_match = diagnostic.message.match(/`([^']+)'/);
-        if (local_macro_match) {
-            return local_macro_match[1];
-        }
-
-        // Try global macro format: $name or ${name}
-        const global_macro_match = diagnostic.message.match(
-            /\$(?:\{([a-zA-Z_][a-zA-Z0-9_]*)\}|([a-zA-Z_][a-zA-Z0-9_]*))/
-        );
-        if (global_macro_match) {
-            return global_macro_match[1] ?? global_macro_match[2];
-        }
-
-        // Fall back to quoted format: 'name'
-        const quoted_match = diagnostic.message.match(/'([^']+)'/);
-        return quoted_match ? quoted_match[1] : null;
+        // The analyzer populates symbol_name structurally for UNDEFINED_MACRO /
+        // UNDEFINED_VARIABLE diagnostics, so we never parse the message prose
+        // (which the human-facing wording is free to change).
+        return diagnostic.symbol_name ?? null;
     }
 
     /**
@@ -1347,43 +1330,17 @@ export class DiagnosticsProvider {
     }
 
     /**
-     * Classify the referenced symbol kind from a diagnostic.
-     * 
-     * Local macro references use backtick-apostrophe syntax: `name'
-     * Global macro references use dollar sign syntax: $name or ${name}
-     * 
-     * @param diagnostic - The diagnostic containing the message to parse
-     * @returns 'local', 'global', or 'variable' when the reference kind
-     *          can be determined,
-     *          null if neither can be determined
+     * Classify the referenced symbol kind for an undefined-symbol diagnostic.
+     *
+     * Reads the structured `reference_kind` the analyzer attaches ('local',
+     * 'global', or 'variable'); the message prose is no longer consulted.
+     *
+     * @returns 'local', 'global', or 'variable' when known, else null.
      */
     private classify_reference_kind(
-        diagnostic: { message: string; code: StataDiagnosticCode }
+        diagnostic: { reference_kind?: 'local' | 'global' | 'variable' }
     ): ReferenceKind {
-        if (diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE) {
-            return 'variable';
-        }
-
-        if (diagnostic.code !== StataDiagnosticCode.UNDEFINED_MACRO) {
-            return null;
-        }
-        // Check for local macro syntax: `name'
-        if (diagnostic.message.includes('`') && diagnostic.message.includes("'")) {
-            const local_match = diagnostic.message.match(/`[^']+'/);
-            if (local_match) {
-                return 'local';
-            }
-        }
-        
-        // Check for global macro syntax: $name or ${name}
-        if (diagnostic.message.includes('$')) {
-            const global_match = diagnostic.message.match(/\$\{?[a-zA-Z_][a-zA-Z0-9_]*\}?/);
-            if (global_match) {
-                return 'global';
-            }
-        }
-        
-        return null;
+        return diagnostic.reference_kind ?? null;
     }
 
     /**

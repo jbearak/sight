@@ -1,136 +1,130 @@
 // Feature: global-macro-execution-order, Property 6: Symbol Name Extraction Round-Trip
 // Validates: Requirements 2.3, 2.4
+//
+// The provider recovers an undefined symbol's name and reference kind from the
+// structured data the analyzer attaches (symbol_name / reference_kind), NOT by
+// parsing the human-facing message prose. These properties pin that contract:
+// for any macro name N, analyzing an undefined local (`N') or global ($N)
+// reference yields a diagnostic whose symbol_name === N and reference_kind is
+// 'local'/'global' — regardless of the message wording. See docs/superpowers/
+// specs/2026-06-26-diagnostic-message-code-deduplication.md.
 
 import * as fc from 'fast-check';
-import { describe, it, expect } from 'bun:test';
+import { describe, it, beforeEach } from 'bun:test';
 import { arbitrary_macro_name } from './generators/primitives';
-
-/**
- * Extraction logic matching DiagnosticsProvider.extract_symbol_name_from_diagnostic
- *
- * Extracts symbol names from diagnostic messages in these formats:
- * - Local macro format: `name'
- * - Global macro format: $name
- * - Quoted format: 'name' (fallback)
- */
-function extract_symbol_name_from_diagnostic(message: string): string | null {
-    // Try local macro format first: `name'
-    const local_macro_match = message.match(/`([^']+)'/);
-    if (local_macro_match) {
-        return local_macro_match[1];
-    }
-
-    // Try global macro format: $name
-    const global_macro_match = message.match(/\$([a-zA-Z_][a-zA-Z0-9_]*)/);
-    if (global_macro_match) {
-        return global_macro_match[1];
-    }
-
-    // Fall back to quoted format: 'name'
-    const quoted_match = message.match(/'([^']+)'/);
-    return quoted_match ? quoted_match[1] : null;
-}
+import { SemanticAnalyzer } from '../../src/analyzer';
+import { StataLexer } from '../../src/lexer';
+import { StataParser } from '../../src/parser';
+import { StataDiagnosticCode } from '../../src/types';
 
 describe('Symbol Name Extraction Round-Trip Properties', () => {
+    let analyzer: SemanticAnalyzer;
+    let lexer: StataLexer;
+    let parser: StataParser;
+
+    beforeEach(() => {
+        analyzer = new SemanticAnalyzer();
+        lexer = new StataLexer();
+        parser = new StataParser();
+    });
+
+    function analyze_document(my_source: string) {
+        const my_lex_result = lexer.tokenize(my_source);
+        const my_parse_result = parser.parse(my_lex_result.tokens);
+        return analyzer.analyze(
+            my_parse_result.ast,
+            'file:///test.do',
+            undefined,
+            { undefined_macro_enabled: true },
+            my_lex_result.tokens
+        );
+    }
+
+    // Return the single UNDEFINED_MACRO diagnostic, or null if not exactly one.
+    function single_undefined_macro(my_source: string) {
+        const my_result = analyze_document(my_source);
+        const the_errors = my_result.diagnostics.filter(
+            (my_diag) => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO
+        );
+        return the_errors.length === 1 ? the_errors[0] : null;
+    }
+
     /**
      * Property 6: Symbol Name Extraction Round-Trip
      *
-     * For any valid macro name N, creating a diagnostic message in either
-     * local (`N') or global ($N) format and then extracting the symbol name
-     * SHALL return N.
+     * For any valid macro name N, an undefined local (`N') or global ($N)
+     * reference SHALL produce a diagnostic carrying symbol_name === N and the
+     * matching reference_kind, sourced from structured data rather than prose.
      */
     describe('Property 6: Symbol Name Extraction Round-Trip', () => {
-        it('extracts local macro names correctly from diagnostic messages', () => {
+        it('attaches local macro name and kind to the diagnostic data', () => {
             fc.assert(
                 fc.property(
                     arbitrary_macro_name(),
                     (macro_name) => {
-                        // Create diagnostic message in local macro format
-                        const diagnostic_message = `Undefined local macro: \`${macro_name}'`;
-
-                        // Extract the symbol name
-                        const extracted_name = extract_symbol_name_from_diagnostic(
-                            diagnostic_message
+                        const my_diag = single_undefined_macro(
+                            `display \`${macro_name}'`
                         );
-
-                        // Verify round-trip: extracted name should match original
-                        return extracted_name === macro_name;
+                        return !!my_diag
+                            && my_diag.symbol_name === macro_name
+                            && my_diag.reference_kind === 'local';
                     }
                 ),
                 { numRuns: 200 }
             );
         });
 
-        it('extracts global macro names correctly from diagnostic messages', () => {
+        it('attaches global macro name and kind to the diagnostic data', () => {
             fc.assert(
                 fc.property(
                     arbitrary_macro_name(),
                     (macro_name) => {
-                        // Create diagnostic message in global macro format
-                        const diagnostic_message = `Undefined global macro: $${macro_name}`;
-
-                        // Extract the symbol name
-                        const extracted_name = extract_symbol_name_from_diagnostic(
-                            diagnostic_message
+                        const my_diag = single_undefined_macro(
+                            `display \${${macro_name}}`
                         );
-
-                        // Verify round-trip: extracted name should match original
-                        return extracted_name === macro_name;
+                        return !!my_diag
+                            && my_diag.symbol_name === macro_name
+                            && my_diag.reference_kind === 'global';
                     }
                 ),
                 { numRuns: 200 }
             );
         });
 
-        it('handles both formats consistently in mixed scenarios', () => {
+        it('round-trips the name independent of message wording', () => {
+            // The guarantee is structural: the symbol_name matches the source
+            // macro even though the message text no longer contains the words
+            // "undefined" or "macro". We assert the name is present in the data
+            // and (separately) that the message is the reworded form, proving
+            // the data is the authoritative carrier.
             fc.assert(
                 fc.property(
                     arbitrary_macro_name(),
                     fc.boolean(),
                     (macro_name, use_local_format) => {
-                        // Create diagnostic message in either format
-                        const diagnostic_message = use_local_format
-                            ? `Undefined local macro: \`${macro_name}'`
-                            : `Undefined global macro: $${macro_name}`;
+                        const my_source = use_local_format
+                            ? `display \`${macro_name}'`
+                            : `display \${${macro_name}}`;
+                        const my_diag = single_undefined_macro(my_source);
+                        if (!my_diag) return false;
 
-                        // Extract the symbol name
-                        const extracted_name = extract_symbol_name_from_diagnostic(
-                            diagnostic_message
-                        );
+                        const expected_kind = use_local_format
+                            ? 'local'
+                            : 'global';
+                        const expected_message = use_local_format
+                            ? `\`${macro_name}' is not defined`
+                            : `$${macro_name} is not defined`;
 
-                        // Verify round-trip: extracted name should match original
-                        return extracted_name === macro_name;
+                        return my_diag.symbol_name === macro_name
+                            && my_diag.reference_kind === expected_kind
+                            && my_diag.message === expected_message;
                     }
                 ),
                 { numRuns: 200 }
             );
         });
 
-        it('local format takes precedence over global format', () => {
-            fc.assert(
-                fc.property(
-                    arbitrary_macro_name(),
-                    arbitrary_macro_name(),
-                    (local_name, global_name) => {
-                        // Create a message containing both formats
-                        // Local format should be extracted first
-                        const diagnostic_message =
-                            `Found $${global_name} and \`${local_name}'`;
-
-                        const extracted_name = extract_symbol_name_from_diagnostic(
-                            diagnostic_message
-                        );
-
-                        // Local format takes precedence
-                        return extracted_name === local_name;
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
-
-        it('extracts names with underscores correctly', () => {
-            // Generator for names that specifically include underscores
+        it('round-trips names with underscores', () => {
             const name_with_underscore_gen = fc.tuple(
                 fc.constantFrom('_', 'a', 'A'),
                 fc.stringMatching(/^[a-zA-Z0-9_]{0,10}$/),
@@ -145,23 +139,19 @@ describe('Symbol Name Extraction Round-Trip Properties', () => {
                     name_with_underscore_gen,
                     fc.boolean(),
                     (macro_name, use_local_format) => {
-                        const diagnostic_message = use_local_format
-                            ? `Undefined local macro: \`${macro_name}'`
-                            : `Undefined global macro: $${macro_name}`;
-
-                        const extracted_name = extract_symbol_name_from_diagnostic(
-                            diagnostic_message
+                        const my_diag = single_undefined_macro(
+                            use_local_format
+                                ? `display \`${macro_name}'`
+                                : `display \${${macro_name}}`
                         );
-
-                        return extracted_name === macro_name;
+                        return !!my_diag && my_diag.symbol_name === macro_name;
                     }
                 ),
                 { numRuns: 100 }
             );
         });
 
-        it('extracts names starting with underscore correctly', () => {
-            // Generator for names starting with underscore
+        it('round-trips names starting with underscore', () => {
             const underscore_start_gen = fc.tuple(
                 fc.constant('_'),
                 fc.stringMatching(/^[a-zA-Z0-9_]{0,15}$/)
@@ -173,23 +163,19 @@ describe('Symbol Name Extraction Round-Trip Properties', () => {
                     underscore_start_gen,
                     fc.boolean(),
                     (macro_name, use_local_format) => {
-                        const diagnostic_message = use_local_format
-                            ? `Undefined local macro: \`${macro_name}'`
-                            : `Undefined global macro: $${macro_name}`;
-
-                        const extracted_name = extract_symbol_name_from_diagnostic(
-                            diagnostic_message
+                        const my_diag = single_undefined_macro(
+                            use_local_format
+                                ? `display \`${macro_name}'`
+                                : `display \${${macro_name}}`
                         );
-
-                        return extracted_name === macro_name;
+                        return !!my_diag && my_diag.symbol_name === macro_name;
                     }
                 ),
                 { numRuns: 100 }
             );
         });
 
-        it('extracts single character names correctly', () => {
-            // Generator for single character valid macro names
+        it('round-trips single character names', () => {
             const single_char_gen = fc.constantFrom(
                 'a', 'b', 'c', 'x', 'y', 'z',
                 'A', 'B', 'C', 'X', 'Y', 'Z',
@@ -201,23 +187,19 @@ describe('Symbol Name Extraction Round-Trip Properties', () => {
                     single_char_gen,
                     fc.boolean(),
                     (macro_name, use_local_format) => {
-                        const diagnostic_message = use_local_format
-                            ? `Undefined local macro: \`${macro_name}'`
-                            : `Undefined global macro: $${macro_name}`;
-
-                        const extracted_name = extract_symbol_name_from_diagnostic(
-                            diagnostic_message
+                        const my_diag = single_undefined_macro(
+                            use_local_format
+                                ? `display \`${macro_name}'`
+                                : `display \${${macro_name}}`
                         );
-
-                        return extracted_name === macro_name;
+                        return !!my_diag && my_diag.symbol_name === macro_name;
                     }
                 ),
                 { numRuns: 50 }
             );
         });
 
-        it('extracts names with digits correctly', () => {
-            // Generator for names containing digits (but not starting with digit)
+        it('round-trips names with digits', () => {
             const name_with_digits_gen = fc.tuple(
                 fc.constantFrom('a', 'b', 'c', '_', 'A', 'B', 'C'),
                 fc.stringMatching(/^[a-zA-Z0-9_]{0,5}$/),
@@ -232,15 +214,12 @@ describe('Symbol Name Extraction Round-Trip Properties', () => {
                     name_with_digits_gen,
                     fc.boolean(),
                     (macro_name, use_local_format) => {
-                        const diagnostic_message = use_local_format
-                            ? `Undefined local macro: \`${macro_name}'`
-                            : `Undefined global macro: $${macro_name}`;
-
-                        const extracted_name = extract_symbol_name_from_diagnostic(
-                            diagnostic_message
+                        const my_diag = single_undefined_macro(
+                            use_local_format
+                                ? `display \`${macro_name}'`
+                                : `display \${${macro_name}}`
                         );
-
-                        return extracted_name === macro_name;
+                        return !!my_diag && my_diag.symbol_name === macro_name;
                     }
                 ),
                 { numRuns: 100 }

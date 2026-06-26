@@ -152,7 +152,9 @@ function create_real_document_state(content: string, version: number = 1): Docum
         }
     }
 
-    // Convert analyzer diagnostics to LSP diagnostics
+    // Convert analyzer diagnostics to LSP diagnostics. Mirrors
+    // DocumentStore.build_diagnostics, including the structured `data` payload
+    // (symbol_name/reference_kind) the provider reads instead of parsing prose.
     const diagnostics = my_analysis_result.diagnostics.map(diag => ({
         range: diag.range,
         message: diag.message,
@@ -162,6 +164,9 @@ function create_real_document_state(content: string, version: number = 1): Docum
             : DiagnosticSeverity.Hint,
         code: diag.code,
         source: 'sight',
+        ...(diag.symbol_name !== undefined || diag.reference_kind !== undefined
+            ? { data: { symbol_name: diag.symbol_name, reference_kind: diag.reference_kind } }
+            : {}),
     }));
 
     return {
@@ -914,57 +919,64 @@ display \`result'
     });
 
     describe('out-of-scope helper methods', () => {
-        it('should extract variable names from undefined variable diagnostics', () => {
+        it('should extract symbol names from the structured data, not the message', () => {
             const symbol_name = (provider as any).extract_symbol_name_from_diagnostic({
-                message: 'Potentially undefined variable: foo',
                 code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+                symbol_name: 'foo',
+                reference_kind: 'variable',
             });
 
             expect(symbol_name).toBe('foo');
         });
 
-        it('should not parse macro-form messages as undefined variables', () => {
-            const symbol_name = (provider as any).extract_symbol_name_from_diagnostic({
-                message: "Undefined local macro: `foo'",
-                code: StataDiagnosticCode.UNDEFINED_VARIABLE,
-            });
-
-            expect(symbol_name).toBeNull();
-        });
-
-        it('should extract braced global macro names from undefined macro diagnostics', () => {
-            const symbol_name = (provider as any).extract_symbol_name_from_diagnostic({
-                message: 'Undefined global macro: ${foo}',
+        it('should ignore message prose entirely when extracting the symbol name', () => {
+            // The message text is no longer consulted: a diagnostic with a fully
+            // reworded message (no `\`x'`/`$x` sigils) still yields its symbol
+            // name from the structured field, and one with no structured field
+            // yields null regardless of what the prose says.
+            expect((provider as any).extract_symbol_name_from_diagnostic({
                 code: StataDiagnosticCode.UNDEFINED_MACRO,
+                message: 'completely reworded with no sigils at all',
+                symbol_name: 'foo',
+                reference_kind: 'local',
+            })).toBe('foo');
+
+            expect((provider as any).extract_symbol_name_from_diagnostic({
+                code: StataDiagnosticCode.UNDEFINED_MACRO,
+                message: "Undefined local macro: `foo'",
+            })).toBeNull();
+        });
+
+        it('should extract global macro names from the structured data', () => {
+            const symbol_name = (provider as any).extract_symbol_name_from_diagnostic({
+                code: StataDiagnosticCode.UNDEFINED_MACRO,
+                symbol_name: 'foo',
+                reference_kind: 'global',
             });
 
             expect(symbol_name).toBe('foo');
         });
 
-        it('should classify reference kinds for local, global, variable, and unknown diagnostics', () => {
+        it('should classify reference kinds from the structured data', () => {
             expect((provider as any).classify_reference_kind({
-                message: "Undefined local macro: `foo'",
                 code: StataDiagnosticCode.UNDEFINED_MACRO,
+                reference_kind: 'local',
             })).toBe('local');
 
             expect((provider as any).classify_reference_kind({
-                message: 'Undefined global macro: $foo',
                 code: StataDiagnosticCode.UNDEFINED_MACRO,
+                reference_kind: 'global',
             })).toBe('global');
 
             expect((provider as any).classify_reference_kind({
-                message: 'Undefined global macro: ${foo}',
-                code: StataDiagnosticCode.UNDEFINED_MACRO,
-            })).toBe('global');
-
-            expect((provider as any).classify_reference_kind({
-                message: 'Potentially undefined variable: foo',
                 code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+                reference_kind: 'variable',
             })).toBe('variable');
 
+            // No structured reference_kind → null, regardless of prose.
             expect((provider as any).classify_reference_kind({
-                message: 'Undefined macro',
                 code: StataDiagnosticCode.UNDEFINED_MACRO,
+                message: 'Undefined macro',
             })).toBeNull();
         });
 

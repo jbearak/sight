@@ -137,6 +137,15 @@ describe('Out-of-scope diagnostic cleanup integration', () => {
                 severity: 1,
                 code: my_diag.code,
                 source: 'sight',
+                ...(my_diag.symbol_name !== undefined
+                    || my_diag.reference_kind !== undefined
+                    ? {
+                        data: {
+                            symbol_name: my_diag.symbol_name,
+                            reference_kind: my_diag.reference_kind,
+                        },
+                    }
+                    : {}),
             })),
             context_ranges: context_tracker.get_all_context_ranges(),
             context_tracker,

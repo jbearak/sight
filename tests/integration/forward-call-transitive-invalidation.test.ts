@@ -26,7 +26,7 @@ import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
-import { ForwardCall } from '../../src/types';
+import { ForwardCall, StataDiagnosticCode } from '../../src/types';
 
 describe('Forward Call Transitive Invalidation Integration Tests', () => {
     let scope_resolver: ScopeResolver;
@@ -171,7 +171,7 @@ local bh_result = "$merp"`;
             // Initial diagnostics - bh_vars.do should NOT have undefined warning for merp
             const bh_vars_diagnostics_v1 = await get_diagnostics_for_file(bh_vars_path, bh_vars_content);
             const undefined_merp_v1 = bh_vars_diagnostics_v1.filter(d =>
-                d.message.toLowerCase().includes('undefined') && d.message.includes('merp')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('merp')
             );
             expect(undefined_merp_v1).toHaveLength(0);
 
@@ -210,7 +210,7 @@ local bh_result = "$merp"`;
             // 5. Re-resolve diagnostics - bh_vars.do should now have undefined warning for merp
             const bh_vars_diagnostics_v2 = await get_diagnostics_for_file(bh_vars_path, bh_vars_content);
             const undefined_merp_v2 = bh_vars_diagnostics_v2.filter(d =>
-                d.message.toLowerCase().includes('undefined') && d.message.includes('merp')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('merp')
             );
             expect(undefined_merp_v2.length).toBeGreaterThan(0);
         });
@@ -255,8 +255,8 @@ local b_result = "$shared_global"`;
             const dependent_a_diagnostics_v1 = await get_diagnostics_for_file(dependent_a_path, dependent_a_content);
             const dependent_b_diagnostics_v1 = await get_diagnostics_for_file(dependent_b_path, dependent_b_content);
 
-            expect(dependent_a_diagnostics_v1.filter(d => d.message.includes('shared_global') && d.message.toLowerCase().includes('undefined'))).toHaveLength(0);
-            expect(dependent_b_diagnostics_v1.filter(d => d.message.includes('shared_global') && d.message.toLowerCase().includes('undefined'))).toHaveLength(0);
+            expect(dependent_a_diagnostics_v1.filter(d => d.message.includes('shared_global') && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
+            expect(dependent_b_diagnostics_v1.filter(d => d.message.includes('shared_global') && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
 
             // Edit shared_callee.do to remove the global
             const shared_callee_content_v2 = `global other_global "different"`;
@@ -292,8 +292,8 @@ local b_result = "$shared_global"`;
             const dependent_b_diagnostics_v2 = await get_diagnostics_for_file(dependent_b_path, dependent_b_content);
 
             // Both should now have undefined warnings
-            expect(dependent_a_diagnostics_v2.filter(d => d.message.includes('shared_global') && d.message.toLowerCase().includes('undefined')).length).toBeGreaterThan(0);
-            expect(dependent_b_diagnostics_v2.filter(d => d.message.includes('shared_global') && d.message.toLowerCase().includes('undefined')).length).toBeGreaterThan(0);
+            expect(dependent_a_diagnostics_v2.filter(d => d.message.includes('shared_global') && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
+            expect(dependent_b_diagnostics_v2.filter(d => d.message.includes('shared_global') && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
         });
 
         test('deep chain: callee -> caller -> backward dep -> backward dep', async () => {
@@ -328,7 +328,7 @@ local level3 = "$deep_global"`;
 
             // Initial diagnostics - level3 should NOT have undefined warning
             const level3_diagnostics_v1 = await get_diagnostics_for_file(level3_path, level3_content);
-            expect(level3_diagnostics_v1.filter(d => d.message.includes('deep_global') && d.message.toLowerCase().includes('undefined'))).toHaveLength(0);
+            expect(level3_diagnostics_v1.filter(d => d.message.includes('deep_global') && d.code === StataDiagnosticCode.UNDEFINED_MACRO)).toHaveLength(0);
 
             // Edit callee to remove the global
             const callee_content_v2 = `global other_global "different"`;
@@ -358,7 +358,7 @@ local level3 = "$deep_global"`;
             }
 
             const level3_diagnostics_v2 = await get_diagnostics_for_file(level3_path, level3_content);
-            expect(level3_diagnostics_v2.filter(d => d.message.includes('deep_global') && d.message.toLowerCase().includes('undefined')).length).toBeGreaterThan(0);
+            expect(level3_diagnostics_v2.filter(d => d.message.includes('deep_global') && d.code === StataDiagnosticCode.UNDEFINED_MACRO).length).toBeGreaterThan(0);
         });
     });
 

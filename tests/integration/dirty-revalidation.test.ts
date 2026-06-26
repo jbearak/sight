@@ -8,6 +8,7 @@ import { URI } from 'vscode-uri';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { create_document_state } from '../property/helpers/document-utils';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
+import { StataDiagnosticCode } from '../../src/types';
 
 describe('Dirty File Revalidation Integration Tests', () => {
     let scope_resolver: ScopeResolver;
@@ -72,14 +73,14 @@ local other_result = "$other"
         );
 
         // Should NOT have undefined macro warning for 'fruit' (defined in main.do)
-        const undefined_fruit = diagnostics.filter(d => 
-            d.message.toLowerCase().includes('undefined') && d.message.includes('fruit')
+        const undefined_fruit = diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('fruit')
         );
         expect(undefined_fruit).toHaveLength(0);
 
         // Should have undefined macro warning for 'other' (not defined anywhere)
-        const undefined_other = diagnostics.filter(d => 
-            d.message.toLowerCase().includes('undefined') && d.message.includes('other')
+        const undefined_other = diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('other')
         );
         expect(undefined_other).toHaveLength(1);
     });

@@ -56,9 +56,11 @@ describe('AST and Token Diagnostic Consistency Property Tests', () => {
             'args', 'syntax', 'version', 'preserve', 'restore'
         ].includes(name.toLowerCase()));
 
-    // Expected message formats
-    const LOCAL_MACRO_FORMAT = /^Undefined local macro: `([^']+)'$/;
-    const GLOBAL_MACRO_FORMAT = /^Undefined global macro: \$?([a-zA-Z_][a-zA-Z0-9_]*)$/;
+    // Expected message formats. The diagnostic code (UNDEFINED_MACRO) classifies
+    // the rule; the message states subject + predicate. Local macros keep the
+    // `name' sigil, globals keep the $name sigil.
+    const LOCAL_MACRO_FORMAT = /^`([^']+)' is not defined$/;
+    const GLOBAL_MACRO_FORMAT = /^\$([a-zA-Z_][a-zA-Z0-9_]*) is not defined$/;
 
     /**
      * Property 7: AST and Token Diagnostic Consistency
@@ -91,9 +93,9 @@ describe('AST and Token Diagnostic Consistency Property Tests', () => {
                             return false;
                         }
 
-                        // Verify message format: "Undefined local macro: `name'"
+                        // Verify message format: "`name' is not defined"
                         const my_message = my_undefined_errors[0].message;
-                        const my_expected = `Undefined local macro: \`${my_macro_name}'`;
+                        const my_expected = `\`${my_macro_name}' is not defined`;
 
                         return my_message === my_expected;
                     }
@@ -127,15 +129,11 @@ describe('AST and Token Diagnostic Consistency Property Tests', () => {
                             return false;
                         }
 
-                        // Verify message format: "Undefined global macro: $name"
-                        // or "Undefined global macro: name"
+                        // Verify message format: "$name is not defined"
                         const my_message = my_undefined_errors[0].message;
-                        const my_valid_formats = [
-                            `Undefined global macro: $${my_macro_name}`,
-                            `Undefined global macro: ${my_macro_name}`
-                        ];
+                        const my_expected = `$${my_macro_name} is not defined`;
 
-                        return my_valid_formats.includes(my_message);
+                        return my_message === my_expected;
                     }
                 ),
                 { numRuns: 100 }
@@ -257,12 +255,13 @@ display \${${my_global_name}}`;
                             return false;
                         }
 
-                        // Find local and global diagnostics
+                        // Find local and global diagnostics by their sigils:
+                        // local macros render `name', globals render $name.
                         const my_local_diag = my_undefined_errors.find(
-                            (my_d) => my_d.message.includes('local')
+                            (my_d) => LOCAL_MACRO_FORMAT.test(my_d.message)
                         );
                         const my_global_diag = my_undefined_errors.find(
-                            (my_d) => my_d.message.includes('global')
+                            (my_d) => GLOBAL_MACRO_FORMAT.test(my_d.message)
                         );
 
                         if (!my_local_diag || !my_global_diag) {

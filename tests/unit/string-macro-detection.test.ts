@@ -1,6 +1,7 @@
 import { SemanticAnalyzer } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
+import { StataDiagnosticCode } from '../../src/types';
 
 describe('Undefined Macro Detection in Strings', () => {
   let lexer: StataLexer;
@@ -64,7 +65,7 @@ di "\`orange'"`;
     // 1. `apple' on line 1 (used before definition)
     // 2. `orange' on line 4 (never defined)
     const undefinedMacroDiagnostics = analyzeResult.diagnostics.filter(
-      d => d.message.includes('Undefined local macro')
+      d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
     );
     
     expect(undefinedMacroDiagnostics).toHaveLength(2);
@@ -98,7 +99,7 @@ di "\`orange'"`;
     );
     
     const undefinedMacroDiagnostics = analyzeResult.diagnostics.filter(
-      d => d.message.includes('Undefined global macro')
+      d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
     );
     
     expect(undefinedMacroDiagnostics).toHaveLength(1);

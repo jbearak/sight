@@ -10,6 +10,7 @@ import {
   LexerError,
   ParseError,
   ScopeResolverConfig,
+  UndefinedSymbolDiagnosticData,
 } from './types';
 import { StataLexer } from './lexer';
 import { StataParser } from './parser';
@@ -998,7 +999,9 @@ export class DocumentStore {
         code: error.code,
         source: 'sight',
       })),
-      // Convert semantic analyzer results to diagnostics
+      // Convert semantic analyzer results to diagnostics. Carry the analyzer's
+      // structured symbol_name/reference_kind on the `data` field so the
+      // provider can recover them without parsing message prose.
       ...analyzer_diagnostics.map((diag) => ({
         range: diag.range,
         message: diag.message,
@@ -1012,6 +1015,14 @@ export class DocumentStore {
                 : DiagnosticSeverity.Hint,
         code: diag.code,
         source: 'sight',
+        ...(diag.symbol_name !== undefined || diag.reference_kind !== undefined
+          ? {
+              data: {
+                symbol_name: diag.symbol_name,
+                reference_kind: diag.reference_kind,
+              } satisfies UndefinedSymbolDiagnosticData,
+            }
+          : {}),
       })),
     ];
   }

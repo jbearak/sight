@@ -19,6 +19,7 @@ import { CompletionProvider } from '../../src/providers/completion';
 import { URI } from 'vscode-uri';
 import { create_document_state } from '../property/helpers/document-utils';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
+import { StataDiagnosticCode } from '../../src/types';
 
 describe('Cache Invalidation Integration Tests', () => {
     let scope_resolver: ScopeResolver;
@@ -285,13 +286,13 @@ global after_call = 2`);
 
             // other SHOULD produce warning (not defined anywhere)
             const other_warnings = diagnostics.filter(d =>
-                d.message.toLowerCase().includes('undefined') && d.message.includes('other')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('other')
             );
             expect(other_warnings).toHaveLength(1);
 
             // fruit should NOT produce warning (inherited from parent)
             const fruit_warnings = diagnostics.filter(d =>
-                d.message.toLowerCase().includes('undefined') && d.message.includes('fruit')
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO && d.message.includes('fruit')
             );
             expect(fruit_warnings).toHaveLength(0);
         });

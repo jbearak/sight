@@ -3,6 +3,7 @@ import * as fc from "fast-check";
 import { SemanticAnalyzer } from "../../src/analyzer";
 import { StataParser } from "../../src/parser";
 import { StataLexer } from "../../src/lexer";
+import { StataDiagnosticCode } from "../../src/types";
 
 describe("Token Macro Forward Reference Detection - Property Tests", () => {
     test("Property 1: Token forward references produce warnings", () => {
@@ -30,7 +31,7 @@ describe("Token Macro Forward Reference Detection - Property Tests", () => {
                     
                     // Should produce undefined macro warning
                     const the_warnings = analysis_result.diagnostics.filter(
-                        my_diag => my_diag.message.toLowerCase().includes("undefined") && 
+                        my_diag => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                                   my_diag.message.includes(macro_name)
                     );
                     
@@ -73,7 +74,7 @@ describe("Token Macro Forward Reference Detection - Property Tests", () => {
                     
                     // Should not produce undefined macro warning for this macro
                     const the_warnings = analysis_result.diagnostics.filter(
-                        my_diag => my_diag.message.toLowerCase().includes("undefined") && 
+                        my_diag => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                                   my_diag.message.includes(macro_name)
                     );
                     
@@ -122,7 +123,7 @@ describe("Token Macro Forward Reference Detection - Property Tests", () => {
                     
                     // Both references should produce warnings (or both should not)
                     const the_warnings = analysis_result.diagnostics.filter(
-                        my_diag => my_diag.message.toLowerCase().includes("undefined") && 
+                        my_diag => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                                   my_diag.message.includes(macro_name)
                     );
                     
