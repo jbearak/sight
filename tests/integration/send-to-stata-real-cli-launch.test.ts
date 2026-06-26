@@ -63,8 +63,10 @@ function launch_stata_with_command(
         const child = spawn(cli, the_args, {
             cwd,
             // stdin closed: no REPL interaction, so the only way the
-            // marker appears is the launch-arg command running.
-            stdio: ['ignore', 'pipe', 'pipe'],
+            // marker appears is the launch-arg command running. stdout/
+            // stderr are ignored (not piped) -- we assert via the marker
+            // file, and unread pipes could fill and block a chatty Stata.
+            stdio: ['ignore', 'ignore', 'ignore'],
         });
         const timeout = setTimeout(() => {
             child.kill('SIGKILL');
