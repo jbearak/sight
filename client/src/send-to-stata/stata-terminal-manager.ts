@@ -6,6 +6,13 @@ import { wrap_path_for_stata_terminal } from './terminal.js';
 const PROFILE_ID = 'sight.stataTerminal';
 const TERMINAL_NAME = 'Stata';
 const TERMINAL_READY_TIMEOUT_MS = 5000;
+// Best-effort readiness heuristic for commands that must be TYPED into the
+// terminal (a reused terminal, a rapid second send, or a user-opened
+// profile terminal). VS Code exposes no signal for when an arbitrary REPL
+// has finished initializing its tty, so we wait for the process to exist
+// plus a short grace. The primary first-send path avoids this race
+// entirely by baking the command into the launch args (see
+// create_stata_terminal), where Stata runs it itself after init.
 const TERMINAL_STARTUP_GRACE_MS = 150;
 
 /**
@@ -228,12 +235,14 @@ export async function get_or_create_stata_terminal(
         return { terminal, created_with_initial_command: false };
     }
 
-    const baked = initial_command !== undefined;
     creation_in_flight = create_stata_terminal(initial_command).finally(() => {
         creation_in_flight = null;
     });
     const terminal = await creation_in_flight;
-    return { terminal, created_with_initial_command: baked };
+    return {
+        terminal,
+        created_with_initial_command: initial_command !== undefined,
+    };
 }
 
 async function create_stata_terminal(
