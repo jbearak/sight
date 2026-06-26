@@ -11,6 +11,7 @@ import { ForwardCall, ForwardCallType } from '../types';
 import { logger } from '../utils/logger';
 import {
     resolve_path_rich,
+    compute_forward_call_join,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -321,36 +322,18 @@ export class DependencyGraph {
     /**
      * Compute the absolute joined path to feed into `resolve_path_rich`.
      *
-     * Replicates the join logic of `resolve_call_path` in
-     * `forward-scope-resolver/index.ts`: if a `working_directory` is set
-     * and `raw_path` is relative, resolve `raw_path` against
-     * `working_directory`; otherwise use the analyzer's pre-joined
-     * `path` field (which is already script-relative).
+     * Delegates to the shared `compute_forward_call_join` helper
+     * in `src/utils/file-path-utils.ts` so the dep-graph and the
+     * forward-scope-resolver always agree on the joined target path.
      *
      * The `.do` fallback is intentionally left to `resolve_path_rich`.
      */
     private compute_joined_path(call: ForwardCall): string {
-        const my_raw = call.raw_path;
-        const my_wd = call.working_directory;
-
-        if (my_wd) {
-            // Normalize Windows separators before the isAbsolute check
-            const my_normalized = my_raw.replace(/\\/g, '/');
-            const my_is_abs =
-                node_path.isAbsolute(my_normalized) ||
-                /^[a-zA-Z]:\//.test(my_normalized);
-
-            if (!my_is_abs) {
-                // Relative path + working directory → join against WD
-                return node_path.normalize(
-                    node_path.join(my_wd, my_normalized),
-                );
-            }
-        }
-
-        // No working directory (or absolute raw_path): use the
-        // analyzer's already-resolved path (script-relative join).
-        return call.path;
+        return compute_forward_call_join(
+            call.raw_path,
+            call.path,
+            call.working_directory,
+        );
     }
 
     /**

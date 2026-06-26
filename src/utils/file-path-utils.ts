@@ -3,6 +3,7 @@
  */
 
 import * as node_fs from 'fs';
+import * as node_path from 'path';
 
 // Commands that accept file paths as their first argument
 export const FILE_COMMANDS = new Set([
@@ -476,4 +477,51 @@ function check_case_sensitivity(
 
     // No ASCII letter found; assume case-sensitive
     return true;
+}
+
+// ─── Forward-call join helper ─────────────────────────────────────────────────
+
+/**
+ * Compute the absolute joined filesystem path for a forward call.
+ *
+ * Replicates the join logic used by the dependency graph and the forward
+ * scope resolver so both consumers agree on the real-cased target path
+ * before feeding it into `resolve_path_rich`.
+ *
+ * Resolution priority (WD-first for relative paths):
+ *   1. If `working_directory` is set and `raw_path` is relative →
+ *      join `raw_path` against `working_directory`.
+ *   2. Otherwise → use `caller_resolved_path` (the analyzer's already
+ *      script-relative join stored in `ForwardCall.path`).
+ *
+ * The `.do` extension fallback is intentionally left to `resolve_path_rich`.
+ *
+ * @param raw_path          - The path exactly as written in source.
+ * @param caller_resolved   - `ForwardCall.path`: the analyzer's pre-joined
+ *                            absolute path (script-relative join).
+ * @param working_directory - Effective WD at the call site, or undefined.
+ */
+export function compute_forward_call_join(
+    raw_path: string,
+    caller_resolved: string,
+    working_directory: string | undefined,
+): string {
+    if (working_directory) {
+        // Normalize Windows separators before the isAbsolute check
+        const my_normalized = raw_path.replace(/\\/g, '/');
+        const my_is_abs =
+            node_path.isAbsolute(my_normalized) ||
+            /^[a-zA-Z]:\//.test(my_normalized);
+
+        if (!my_is_abs) {
+            // Relative path + working directory → join against WD
+            return node_path.normalize(
+                node_path.join(working_directory, my_normalized),
+            );
+        }
+    }
+
+    // No working directory (or absolute raw_path): use the
+    // analyzer's already-resolved path (script-relative join).
+    return caller_resolved;
 }
