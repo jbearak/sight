@@ -236,14 +236,21 @@ export interface DirectiveDiagnostic {
   source?: DiagnosticSource;
   kind?: 'missing_file' | 'path_case_mismatch';  // NEW — structured severity routing
   code?: StataDiagnosticCode;                     // NEW — stable code for the diagnostic
+  case_mismatch_seed_dir?: string;                // NEW — real existing dir for the auto probe
 }
 ```
 
 `convert_directive_diagnostic` routes on `kind`:
 
 - `kind === 'path_case_mismatch'` → severity from
-  `cross_file.diagnostics.case_mismatch` (resolving `auto` via
-  `host_is_case_sensitive()`); `off` → return `null` (drop). Independent of
+  `cross_file.diagnostics.case_mismatch`. When the configured value is `auto`,
+  resolve it via `host_is_case_sensitive(diagnostic.case_mismatch_seed_dir)`
+  (warning if case-sensitive, information if not). The converter receives only a
+  `DirectiveDiagnostic` + config and has no path/root context of its own, so the
+  resolver that detects the `case_only` mismatch **must stamp**
+  `case_mismatch_seed_dir` with the real existing directory the mismatch was
+  resolved under (the containing workspace root); the converter passes it
+  straight to the probe. `off` → return `null` (drop). Independent of
   `missing_file` severity — `missingFile = "off"` does **not** silence it.
 - `kind === 'missing_file'` (or legacy `'Cannot read file'` message) → existing
   `missing_file` policy, unchanged.
