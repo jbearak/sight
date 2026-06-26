@@ -544,13 +544,17 @@ export async function ensure_bundle_installed<
     }
 
     const my_installed = my_install(my_status, log);
-    if (!my_installed) {
-        return false;
-    }
-
+    // Record the user's consent once they choose Install, even if a
+    // single asset write fails (e.g. a transient EACCES). 'granted'
+    // tracks the consent decision, not write success: otherwise one
+    // failed file among the bundle would re-prompt on every startup
+    // although the others installed fine. The next startup's install
+    // check retries the still-missing/outdated file without prompting
+    // (permission is granted). The boolean result still reflects the
+    // actual write outcome for the caller's success/failure message.
     await my_set_permission(context, 'granted');
-    log('Stata commands: permission granted');
-    return true;
+    log('Stata commands: permission granted (user consented to install)');
+    return my_installed;
 }
 
 export async function install_bundle_manually<
@@ -593,13 +597,13 @@ export async function install_bundle_manually<
     }
 
     const my_installed = my_install(my_status, log);
-    if (!my_installed) {
-        return false;
-    }
-
+    // As in ensure_bundle_installed: a manual install is an explicit
+    // consent, so record 'granted' even on a partial write failure so
+    // the auto-install check does not start re-prompting. The result
+    // still reflects the actual write outcome.
     await my_set_permission(context, 'granted');
-    log('Stata commands: permission granted');
-    return true;
+    log('Stata commands: permission granted (manual install)');
+    return my_installed;
 }
 
 // Remove Sight-owned ado files and clear the remembered permission.

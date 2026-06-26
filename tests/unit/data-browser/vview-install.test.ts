@@ -526,7 +526,12 @@ describe('bundle install orchestration', () => {
         ).toBeUndefined();
     });
 
-    it('does not store granted permission if install fails after approval', async () => {
+    it('stores granted permission even if a write fails after approval', async () => {
+        // Consent is the user's decision to install, not whether every
+        // asset write succeeded. Recording 'granted' on a partial
+        // failure stops the auto-check from re-prompting on every
+        // startup; the next check silently retries the failed file.
+        // The boolean result still reports the write failure.
         const my_dir = create_temp_dir();
         const my_context = create_context();
 
@@ -548,7 +553,7 @@ describe('bundle install orchestration', () => {
                 my_context,
                 PERMISSION_KEY
             )
-        ).toBeUndefined();
+        ).toBe('granted');
     });
 
     it('silently updates an outdated install after prior approval', async () => {

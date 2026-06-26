@@ -225,4 +225,4 @@ With the default limit of 10,000 entries and ~3-4 alias keys per dataset, this a
 | `sight.dataBrowser.persistSort` | `true` | Remember and restore the row sort per dataset (matching shape) |
 | `sight.dataBrowser.persistFilters` | `true` | Remember and restore the row filters per dataset (matching shape) |
 | `sight.dataBrowser.maxStoredLayouts` | `10000` | Maximum stored layout entries (see above) |
-| `sight.personalAdoDir` | (platform default) | Path where Sight installs `vview.ado` |
+| `sight.personalAdoDir` | (platform default) | Path where Sight installs its Stata commands |
