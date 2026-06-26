@@ -1590,11 +1590,11 @@ export class DefinitionProvider {
         the_roots_set.add(current_dir);
         const the_roots = Array.from(the_roots_set);
 
-        const outcome = resolve_path_rich(resolved_path, {
+        const my_outcome = resolve_path_rich(resolved_path, {
             workspace_roots: the_roots,
         });
-        if (outcome.kind === 'exact' || outcome.kind === 'case_only') {
-            return outcome.path;
+        if (my_outcome.kind === 'exact' || my_outcome.kind === 'case_only') {
+            return my_outcome.path;
         }
         return null;
     }
