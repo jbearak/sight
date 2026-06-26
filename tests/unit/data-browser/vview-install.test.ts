@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
+    ADO_ASSET_DEFS,
     aggregate_bundle_state,
     classify_ado_asset,
     ensure_bundle_installed,
@@ -27,9 +28,10 @@ import {
 
 const PERMISSION_KEY =
     'sight.stataCommandsInstallPermission';
-const VVIEW_MARKER =
-    '*! vview.ado — Open dataset in Sight Data Browser';
-const BROWSE_MARKER = '*! browse.ado — CLI alias for vview';
+// Use the production markers, so tests bind to the real ownership
+// strings and catch any drift/truncation in them.
+const VVIEW_MARKER = ADO_ASSET_DEFS[0].marker;
+const BROWSE_MARKER = ADO_ASSET_DEFS[1].marker;
 
 const the_temp_dirs: string[] = [];
 
@@ -150,6 +152,18 @@ describe('ado ownership detection', () => {
                 '*! my own browse helper\nprogram define browse\nend\n',
                 BROWSE_MARKER
             )
+        ).toBe(false);
+    });
+
+    it('does not treat a mere prefix of the marker as owned', () => {
+        // Guards against a truncated marker: a banner that only
+        // starts to resemble ours must not be claimed as Sight-owned.
+        const my_prefix = BROWSE_MARKER.slice(
+            0,
+            BROWSE_MARKER.length - 12
+        );
+        expect(
+            is_sight_owned(my_prefix + '\nx\n', BROWSE_MARKER)
         ).toBe(false);
     });
 });
@@ -613,6 +627,35 @@ describe('bundle file installation', () => {
         expect(
             fs.existsSync(path.join(my_dir, 'vview.ado'))
         ).toBe(true);
+    });
+
+    it('does not overwrite a foreign file that appears after classification (TOCTOU)', () => {
+        const my_dir = create_temp_dir();
+        const my_foreign =
+            '*! my own browse\nprogram define browse\nend\n';
+        fs.writeFileSync(
+            path.join(my_dir, 'browse.ado'),
+            my_foreign
+        );
+
+        // Force a stale "missing" classification even though a
+        // foreign file now sits at the target path.
+        const my_bundle = build_bundle(my_dir, {
+            browse: { state: 'missing' },
+        });
+
+        const my_result = install_bundle(
+            my_bundle,
+            () => {}
+        );
+
+        expect(my_result).toBe(true);
+        expect(
+            fs.readFileSync(
+                path.join(my_dir, 'browse.ado'),
+                'utf-8'
+            )
+        ).toBe(my_foreign);
     });
 
     it('a lone foreign browse.ado yields up_to_date once vview is present', () => {

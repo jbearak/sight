@@ -5,6 +5,7 @@ import {
 } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ADO_ASSET_DEFS } from '../../../client/src/data-browser/vview-install-core';
 
 const REPO_ROOT = path.resolve(
     import.meta.dir,
@@ -154,5 +155,21 @@ describe('bundled browse alias asset', () => {
         expect(my_first_line).toBe(
             '*! browse.ado — CLI alias for vview (Sight Data Browser)'
         );
+    });
+});
+
+describe('ado ownership markers', () => {
+    it('each marker equals the first line of its canonical ado', () => {
+        // Ownership detection must use the FULL banner line, not a
+        // truncated prefix — otherwise a foreign same-named file
+        // could be misclassified as Sight-owned and overwritten.
+        for (const my_def of ADO_ASSET_DEFS) {
+            const my_source = fs.readFileSync(
+                path.join(REPO_ROOT, 'stata', my_def.name),
+                'utf-8'
+            );
+            const my_first_line = my_source.split('\n', 1)[0];
+            expect(my_def.marker).toBe(my_first_line);
+        }
     });
 });

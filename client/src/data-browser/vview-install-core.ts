@@ -24,16 +24,38 @@ export type VviewInstallPromptChoice =
     | 'not_now'
     | 'dismissed';
 
-// Description of one bundled ado file.
-export interface AdoAsset {
+// Identity of one bundled ado file.
+export interface AdoAssetDef {
     name: string;
+    // The full, stable leading-banner line that identifies a
+    // Sight-shipped copy of this file. It MUST equal the first line of
+    // the corresponding stata/<name> source (a test enforces this) so
+    // ownership detection is precise and never misclassifies a user's
+    // own same-named file (e.g. a personal browse.ado).
+    marker: string;
+}
+
+// Single source of truth for the bundled ado files and their ownership
+// markers. Imported by the extension wiring and by tests, so the marker
+// strings never drift between production and test code.
+export const ADO_ASSET_DEFS: AdoAssetDef[] = [
+    {
+        name: 'vview.ado',
+        marker:
+            '*! vview.ado — Open dataset in Sight Data Browser',
+    },
+    {
+        name: 'browse.ado',
+        marker:
+            '*! browse.ado — CLI alias for vview (Sight Data Browser)',
+    },
+];
+
+// Description of one bundled ado file.
+export interface AdoAsset extends AdoAssetDef {
     target_path: string;
     bundled_path: string;
     bundled_content?: string;
-    // Stable leading-banner prefix that identifies a Sight-shipped
-    // copy of this file. Used to avoid clobbering a user's own file
-    // that happens to share the name (e.g. a personal browse.ado).
-    marker: string;
 }
 
 export interface AdoAssetStatus extends AdoAsset {
@@ -174,6 +196,37 @@ export function install_ado_asset(
             + ': failed to install: bundled content is unavailable'
         );
         return false;
+    }
+
+    // Final ownership re-check: the classification was captured during
+    // inspection, possibly before a permission prompt. Guard against a
+    // foreign file appearing at the target in that window (TOCTOU) so
+    // we never overwrite a user's own same-named file.
+    try {
+        const my_current = fs.readFileSync(
+            asset.target_path,
+            'utf-8'
+        );
+        if (!is_sight_owned(my_current, asset.marker)) {
+            log(
+                asset.name
+                + ': a non-Sight file now occupies '
+                + asset.target_path
+                + '; leaving it untouched'
+            );
+            return true;
+        }
+    } catch (my_err) {
+        const my_node_error = my_err as NodeJS.ErrnoException;
+        if (my_node_error.code !== 'ENOENT') {
+            log(
+                asset.name
+                + ': failed to re-check before install: '
+                + String(my_err)
+            );
+            return false;
+        }
+        // ENOENT: nothing at the target, safe to create.
     }
 
     try {
@@ -385,7 +438,8 @@ export async function ensure_bundle_installed<
     const my_permission = my_get_permission(context);
     if (my_permission === 'granted') {
         log(
-            'Stata commands: permission previously granted; installing without prompt'
+            'Stata commands: permission previously granted; '
+            + 'installing without prompt'
         );
         return my_install(my_status, log);
     }

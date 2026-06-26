@@ -23,6 +23,7 @@ import {
     SignalWatcher,
 } from './signal-watcher.js';
 import {
+    ADO_ASSET_DEFS,
     classify_ado_asset,
     aggregate_bundle_state,
     ensure_bundle_installed as ensure_bundle_installed_core,
@@ -44,21 +45,6 @@ import { resolve_personal_ado_dir } from './install-path.js';
 // ('sight.vviewInstallPermission') is intentionally not reused.
 const STATA_COMMANDS_INSTALL_PERMISSION_KEY =
     'sight.stataCommandsInstallPermission';
-
-// Bundled ado files installed together into the personal ado dir.
-// `marker` is the stable leading-banner prefix used to recognize a
-// Sight-shipped copy (so we never clobber a user's own same-named
-// file). These markers MUST match the first banner line of each ado.
-const ADO_ASSETS: { name: string; marker: string }[] = [
-    {
-        name: 'vview.ado',
-        marker: '*! vview.ado — Open dataset in Sight Data Browser',
-    },
-    {
-        name: 'browse.ado',
-        marker: '*! browse.ado — CLI alias for vview',
-    },
-];
 
 const INSTALL_BUTTON = 'Install';
 const NOT_NOW_BUTTON = 'Not now';
@@ -246,13 +232,15 @@ function register_vview_install_commands(
                     );
                 if (my_installed) {
                     void vscode.window.showInformationMessage(
-                        'Sight\'s Stata commands (vview, browse) are installed and ready.'
+                        'Sight\'s Stata commands (vview, browse) '
+                        + 'are installed and ready.'
                     );
                     return;
                 }
 
                 void vscode.window.showErrorMessage(
-                    'Failed to install Sight\'s Stata commands. See the Sight output channel for details.'
+                    'Failed to install Sight\'s Stata commands. '
+                    + 'See the Sight output channel for details.'
                 );
             }
         )
@@ -284,13 +272,16 @@ function register_vview_install_commands(
                     );
                 if (my_ok) {
                     void vscode.window.showInformationMessage(
-                        'Sight\'s Stata commands (vview, browse) were removed (Sight-owned files only).'
+                        'Sight\'s Stata commands (vview, browse) '
+                        + 'were removed (Sight-owned files only).'
                     );
                     return;
                 }
 
                 void vscode.window.showErrorMessage(
-                    'Some Sight Stata command files could not be removed. See the Sight output channel for details.'
+                    'Some Sight Stata command files could not be '
+                    + 'removed. See the Sight output channel for '
+                    + 'details.'
                 );
             }
         )
@@ -367,7 +358,7 @@ function inspect_bundle_installation(
 ): BundleInstallStatus {
     const my_target_dir = get_personal_ado_dir();
 
-    const the_assets: AdoAssetStatus[] = ADO_ASSETS.map(
+    const the_assets: AdoAssetStatus[] = ADO_ASSET_DEFS.map(
         (my_def) => {
             const my_target_path = path.join(
                 my_target_dir,
