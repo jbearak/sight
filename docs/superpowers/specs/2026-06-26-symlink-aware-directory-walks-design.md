@@ -171,9 +171,10 @@ left as-is and documented (see `docs/cross-file.md`).
 
 **`scan_directory` (async):** signature unchanged. Directory branch stays
 `entry.isDirectory()` (real subdirs only) with the existing `VCS_METADATA_DIRS`
-skip. File branch becomes `await entry_is_file_async(entry, entry_path,
-fs.promises) && hasStataExtension(entry.name)` so a symlinked source file is
-collected.
+skip. File branch becomes `hasStataExtension(entry.name) && await
+entry_is_file_async(entry, entry_path, fs.promises)` so a symlinked source file
+is collected — the cheap name check is left of the `&&` so the (possibly
+stat-ing) helper runs only for Stata-named entries.
 
 **`find_sthlp_file_recursive` (async):** directory branch stays
 `my_dirent.isDirectory()` with the `EXCLUDED_DIRS` skip and the depth cap. File
@@ -182,9 +183,10 @@ so a symlinked `.sthlp` is matched.
 
 **`walk_sources` (sync):** signature unchanged. Directory branch stays
 `entry.isDirectory()` with the `VCS_METADATA_DIRS` skip. File branch becomes
-`entry_is_file_sync(entry, entry_path, fs) && hasStataExtension(entry.name)`.
-(Explicit top-level input paths in `collect_report_targets` already `statSync`
-+ `canonicalize_existing_path`, so a directly-named symlink already works.)
+`hasStataExtension(entry.name) && entry_is_file_sync(entry, entry_path, fs)`
+(cheap name check first, same gating as the other walks). (Explicit top-level
+input paths in `collect_report_targets` already `statSync` +
+`canonicalize_existing_path`, so a directly-named symlink already works.)
 
 **path completion (sync):** uses `classify_entry_sync(entry, full_path, fs)` and
 offers `'directory'` (incl. symlinked dirs) with a trailing `/` and `'file'`
