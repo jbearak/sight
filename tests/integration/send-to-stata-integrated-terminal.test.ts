@@ -429,4 +429,43 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
         );
         expect(vscode_state.the_send_calls).toEqual([]);
     });
+
+    test('waits for readiness before the first send to a profile-opened terminal', async () => {
+        const process_id_deferred = create_deferred<number | undefined>();
+        const vscode_state = create_vscode_mock_state(
+            process_id_deferred.promise
+        );
+        const terminal_manager = await import_terminal_manager_module(
+            vscode_state
+        );
+
+        // Simulate the user opening a "Stata" terminal from the dropdown:
+        // VS Code creates it and fires onDidOpenTerminal, which makes it
+        // the active managed terminal. We did NOT create it, so its first
+        // command cannot be baked into launch args -- it must be typed.
+        terminal_manager.simulate_profile_terminal_opened_for_tests(
+            vscode_state.terminal
+        );
+
+        // Send while Stata is still starting (processId unresolved).
+        const send_promise = terminal_manager.send_to_stata_terminal(
+            'do',
+            '/tmp/first.do'
+        );
+        await wait_for_condition(() => {
+            return vscode_state.the_show_calls.length === 1;
+        });
+
+        // Must NOT type into the still-starting Stata yet.
+        expect(vscode_state.the_send_calls).toEqual([]);
+
+        process_id_deferred.resolve(1234);
+        await send_promise;
+
+        expect(vscode_state.the_send_calls).toEqual([
+            "do `\"/tmp/first.do\"'",
+        ]);
+        // No new terminal was created; we reused the profile terminal.
+        expect(vscode_state.create_terminal_calls).toBe(0);
+    });
 });

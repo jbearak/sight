@@ -70,6 +70,16 @@ function handle_terminal_opened(terminal: vscode.Terminal): void {
         the_profile_terminals.add(terminal);
         track_activation(terminal);
         last_active_profile_terminal = terminal;
+        // A profile terminal the user opened from the dropdown carries no
+        // command we can bake into launch args, so its first send must be
+        // typed. Install a readiness promise so that send waits out
+        // Stata's startup stdin flush instead of racing it.
+        the_terminal_ready_promises.set(
+            terminal,
+            wait_for_terminal_ready(terminal).finally(() => {
+                the_terminal_ready_promises.delete(terminal);
+            })
+        );
     }
 }
 
@@ -347,6 +357,20 @@ export async function send_to_stata_terminal(
         const escaped_path = wrap_path_for_stata_terminal(temp_file_path);
         terminal.sendText(`${command} ${escaped_path}`);
     }
+}
+
+/**
+ * Test seam: simulate the user opening a Stata profile terminal from the
+ * dropdown. In production VS Code calls provideTerminalProfile (which
+ * increments the pending-creation counter) and then fires
+ * onDidOpenTerminal; this drives the same handle_terminal_opened path,
+ * including its readiness tracking, without a full VS Code mock.
+ */
+export function simulate_profile_terminal_opened_for_tests(
+    terminal: vscode.Terminal
+): void {
+    pending_profile_creation_count++;
+    handle_terminal_opened(terminal);
 }
 
 export function reset_stata_terminal_manager_for_tests(): void {
