@@ -72,15 +72,28 @@ function handle_terminal_opened(terminal: vscode.Terminal): void {
         last_active_profile_terminal = terminal;
         // A profile terminal the user opened from the dropdown carries no
         // command we can bake into launch args, so its first send must be
-        // typed. Install a readiness promise so that send waits out
-        // Stata's startup stdin flush instead of racing it.
-        the_terminal_ready_promises.set(
-            terminal,
-            wait_for_terminal_ready(terminal).finally(() => {
-                the_terminal_ready_promises.delete(terminal);
-            })
-        );
+        // typed. Track readiness so that send waits out Stata's startup
+        // stdin flush instead of racing it.
+        track_terminal_ready(terminal);
     }
+}
+
+/**
+ * Begin tracking when `terminal` is ready to receive typed input, storing
+ * the promise so the next send can await it.
+ *
+ * The profile-opened path installs this eagerly, before any send, so the
+ * promise may have no awaiter when it settles. wait_for_terminal_ready
+ * rejects if the terminal closes or times out before it is ready, so we
+ * attach a no-op catch to avoid an unhandled rejection in that case; an
+ * actual send still awaits the stored promise and observes the rejection.
+ */
+function track_terminal_ready(terminal: vscode.Terminal): void {
+    const ready_promise = wait_for_terminal_ready(terminal).finally(() => {
+        the_terminal_ready_promises.delete(terminal);
+    });
+    ready_promise.catch(() => {});
+    the_terminal_ready_promises.set(terminal, ready_promise);
 }
 
 function handle_terminal_closed(terminal: vscode.Terminal): void {
@@ -262,12 +275,7 @@ async function create_stata_terminal(
     the_profile_terminals.add(terminal);
     track_activation(terminal);
     last_active_profile_terminal = terminal;
-    the_terminal_ready_promises.set(
-        terminal,
-        wait_for_terminal_ready(terminal).finally(() => {
-            the_terminal_ready_promises.delete(terminal);
-        })
-    );
+    track_terminal_ready(terminal);
 
     return terminal;
 }

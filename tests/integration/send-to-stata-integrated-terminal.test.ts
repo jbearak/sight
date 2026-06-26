@@ -468,4 +468,33 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
         // No new terminal was created; we reused the profile terminal.
         expect(vscode_state.create_terminal_calls).toBe(0);
     });
+
+    test('rejects a send to a profile terminal that closes before ready', async () => {
+        const process_id_deferred = create_deferred<number | undefined>();
+        const vscode_state = create_vscode_mock_state(
+            process_id_deferred.promise
+        );
+        const terminal_manager = await import_terminal_manager_module(
+            vscode_state
+        );
+
+        terminal_manager.simulate_profile_terminal_opened_for_tests(
+            vscode_state.terminal
+        );
+
+        const send_promise = terminal_manager.send_to_stata_terminal(
+            'do',
+            '/tmp/first.do'
+        );
+
+        // Terminal dies during startup, before processId resolves.
+        for (const my_listener of vscode_state.the_close_listeners) {
+            my_listener(vscode_state.terminal);
+        }
+
+        await expect(send_promise).rejects.toThrow(
+            'closed before it was ready'
+        );
+        expect(vscode_state.the_send_calls).toEqual([]);
+    });
 });

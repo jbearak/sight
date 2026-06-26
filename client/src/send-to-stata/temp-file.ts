@@ -3,7 +3,13 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
-export const DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS = 5000;
+// Stata reads the temp do-file asynchronously after we hand it off, so
+// the file must outlive that read. For the integrated terminal the file
+// is now handed to Stata as a launch argument, and a cold first console
+// launch (license check, init) can take many seconds before Stata reads
+// it. Delete late enough to clear a slow cold start; the file is tiny so
+// a longer lifetime is cheap.
+export const DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS = 30000;
 
 export function get_temp_dir(): string {
     return os.tmpdir();
