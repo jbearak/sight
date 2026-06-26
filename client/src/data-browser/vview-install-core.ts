@@ -409,27 +409,71 @@ export function uninstall_bundle(
     return my_all_ok;
 }
 
+// The quoted, comma-separated display list of the browse-abbreviation
+// commands (e.g. `"brows", "brow", "bro", "br"`), derived from the
+// canonical bundle definitions so the prompt copy can never name a
+// different set than what is actually installed. Anything that is not
+// the headline vview/browse command is an abbreviation alias.
+const BROWSE_ABBREVIATION_LABEL = ADO_ASSET_DEFS
+    .filter(
+        (my_def) =>
+            my_def.name !== 'vview.ado'
+            && my_def.name !== 'browse.ado'
+    )
+    .map((my_def) => '"' + my_def.name.replace(/\.ado$/, '') + '"')
+    .join(', ');
+
+// The verb describing what the install will actually do to the
+// pending (not-yet-satisfied) assets: "add" when only new files are
+// written, "update" when only existing Sight-owned files differ, and
+// "add or update" when both. Foreign and up-to-date assets are not
+// pending and so do not influence the verb.
+function describe_install_action(
+    status: BundleInstallStatus
+): string {
+    let has_addition = false;
+    let has_update = false;
+    for (const my_asset of status.assets) {
+        if (my_asset.state === 'missing') {
+            has_addition = true;
+        } else if (my_asset.state === 'outdated') {
+            has_update = true;
+        }
+    }
+
+    if (has_addition && has_update) {
+        return 'add or update';
+    }
+    if (has_update) {
+        return 'update';
+    }
+    return 'add';
+}
+
 // Build the install-permission prompt text, tailored to what is
 // already on disk. When vview.ado is already installed (up to date),
 // re-offering "vview" confuses a user who installed it before the
 // browse bundle existed, so the prompt instead frames the fresh
-// consent as *adding the console `browse` alias* (and its
-// abbreviations). When vview is not yet present, the full bundle is
-// offered. Either way the install location is named.
+// consent around the console `browse` alias (and its abbreviations).
+// When vview is not yet current, the full bundle is offered. The
+// action verb (add/update/add or update) reflects what the install
+// will actually do, so an in-place update is never described as a
+// fresh addition. Either way the install location is named.
 export function build_install_prompt_message(
     status: BundleInstallStatus
 ): string {
     const my_vview = status.assets.find(
         (my_asset) => my_asset.name === 'vview.ado'
     );
-    const vview_already_installed =
+    const my_vview_already_installed =
         my_vview?.state === 'up_to_date';
+    const my_action = describe_install_action(status);
 
-    if (vview_already_installed) {
+    if (my_vview_already_installed) {
         return (
             'vview is already installed. Would you like Sight to '
-            + 'also add the console "browse" command (and its '
-            + 'abbreviations "brows", "brow", "bro", "br") as an '
+            + `also ${my_action} the console "browse" command (and `
+            + `its abbreviations ${BROWSE_ABBREVIATION_LABEL}) as an `
             + 'alias for vview? In console Stata they open datasets '
             + 'in VS Code; the GUI built-in "browse" is unaffected.'
             + '\n\n'
@@ -438,11 +482,11 @@ export function build_install_prompt_message(
     }
 
     return (
-        'Would you like to add Sight\'s Stata commands '
-        + '("vview" and "browse") to Stata?\n\n'
+        `Would you like to ${my_action} Sight's Stata commands `
+        + '("vview" and "browse")?\n\n'
         + '"vview" opens datasets in VS Code; in console '
-        + 'Stata, "browse" (and its abbreviations "brows", '
-        + '"brow", "bro", "br") becomes an alias for it (the '
+        + `Stata, "browse" (and its abbreviations `
+        + `${BROWSE_ABBREVIATION_LABEL}) becomes an alias for it (the `
         + 'GUI built-in "browse" is unaffected).\n\n'
         + `Install location: ${status.target_dir}`
     );

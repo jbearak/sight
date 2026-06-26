@@ -387,7 +387,62 @@ describe('install prompt message', () => {
 
         expect(my_message).toContain('"vview" and "browse"');
         expect(my_message).toContain(my_dir);
+        expect(my_message).toContain('add');
         expect(my_message).not.toContain('already installed');
+    });
+
+    it('says "update" (not "add") when a present browse alias is merely outdated', () => {
+        // vview current, browse already installed but stale: install
+        // updates it, so the prompt must not describe it as a fresh add.
+        const my_dir = create_temp_dir();
+        const my_status = build_bundle(my_dir, {
+            vview: { state: 'up_to_date' },
+            browse: { state: 'outdated' },
+        });
+
+        const my_message =
+            build_install_prompt_message(my_status);
+
+        expect(my_message).toContain('already installed');
+        expect(my_message).toContain('update');
+        expect(my_message).not.toContain('also add the console');
+    });
+
+    it('says "update" when vview itself is outdated', () => {
+        const my_dir = create_temp_dir();
+        const my_status = build_bundle(my_dir, {
+            vview: { state: 'outdated' },
+            browse: { state: 'outdated' },
+        });
+
+        const my_message =
+            build_install_prompt_message(my_status);
+
+        expect(my_message).toContain('update');
+        expect(my_message).toContain('"vview" and "browse"');
+        expect(my_message).not.toContain('already installed');
+    });
+
+    it('names the abbreviation aliases from the canonical bundle defs', () => {
+        const my_dir = create_temp_dir();
+        const my_status = build_bundle(my_dir, {
+            vview: { state: 'missing' },
+        });
+
+        const my_message =
+            build_install_prompt_message(my_status);
+
+        for (const my_def of ADO_ASSET_DEFS) {
+            if (
+                my_def.name === 'vview.ado'
+                || my_def.name === 'browse.ado'
+            ) {
+                continue;
+            }
+            const my_label =
+                '"' + my_def.name.replace(/\.ado$/, '') + '"';
+            expect(my_message).toContain(my_label);
+        }
     });
 });
 
@@ -422,6 +477,33 @@ describe('bundle install orchestration', () => {
         expect(the_logs).toContain(
             'Stata commands: prompting for install permission'
         );
+    });
+
+    it('passes the full bundle status to the prompt hook', async () => {
+        const my_dir = create_temp_dir();
+        const my_context = create_context();
+        let my_received: BundleInstallStatus | undefined;
+
+        await ensure_bundle_installed(
+            my_context,
+            () => {},
+            PERMISSION_KEY,
+            {
+                inspect_installation: () =>
+                    build_bundle(my_dir),
+                prompt_for_install: async (status) => {
+                    my_received = status;
+                    return 'not_now';
+                },
+            }
+        );
+
+        // The hook must receive the status (so it can tailor copy),
+        // not just the bare target_dir string.
+        expect(my_received).toBeDefined();
+        expect(my_received?.target_dir).toBe(my_dir);
+        expect(Array.isArray(my_received?.assets)).toBe(true);
+        expect(my_received?.assets.length).toBeGreaterThan(0);
     });
 
     it('installs without prompting when permission was already granted', async () => {
