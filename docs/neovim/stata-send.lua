@@ -5,14 +5,36 @@
 local M = {}
 
 -- Stata application variants in order of preference
-local stata_apps = { "StataMP", "StataSE", "StataBE", "Stata" }
+local stata_apps = { "StataMP", "StataSE", "StataBE", "StataIC", "Stata" }
 
--- Find the first available Stata application
+-- macOS install roots to probe. Stata ships through two channels that
+-- install to different roots: perpetual-license editions under
+-- /Applications/Stata/ and the StataNow subscription channel under
+-- /Applications/StataNow/. The .app bundle inside each is named by
+-- edition (e.g. StataSE.app), so only the root differs; we probe both
+-- so detection works regardless of channel. The perpetual root is
+-- listed first only so it is the one we detect first -- the launch is
+-- by edition name (see send_to_stata), so the root a match came from
+-- does not change which app AppleScript opens.
+local stata_app_roots = { "/Applications/Stata/", "/Applications/StataNow/" }
+
+-- Shown when no Stata GUI app can be located. Kept in one place so the
+-- wording lives in a single source of truth.
+local STATA_NOT_FOUND_MESSAGE =
+  "Stata not found in /Applications/Stata/ or /Applications/StataNow/"
+
+-- Find the first available Stata application and return its edition
+-- name. Variants are tried in order (outer loop) and, for each, both
+-- roots are probed (inner loop), so a more capable edition wins
+-- regardless of channel. The return value is the edition name because
+-- AppleScript launches Stata by name, not by bundle path.
 local function find_stata_app()
   for _, app in ipairs(stata_apps) do
-    local path = "/Applications/Stata/" .. app .. ".app"
-    if vim.fn.isdirectory(path) == 1 then
-      return app
+    for _, root in ipairs(stata_app_roots) do
+      local path = root .. app .. ".app"
+      if vim.fn.isdirectory(path) == 1 then
+        return app
+      end
     end
   end
   return nil
@@ -221,7 +243,7 @@ function M.send(command)
   command = command or "do"
   local stata_app = find_stata_app()
   if not stata_app then
-    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    vim.notify(STATA_NOT_FOUND_MESSAGE, vim.log.levels.ERROR)
     return
   end
 
@@ -244,7 +266,7 @@ function M.send_range(command, line1, line2)
   command = command or "do"
   local stata_app = find_stata_app()
   if not stata_app then
-    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    vim.notify(STATA_NOT_FOUND_MESSAGE, vim.log.levels.ERROR)
     return
   end
 
@@ -267,7 +289,7 @@ function M.send_upward(command)
   command = command or "do"
   local stata_app = find_stata_app()
   if not stata_app then
-    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    vim.notify(STATA_NOT_FOUND_MESSAGE, vim.log.levels.ERROR)
     return
   end
 
@@ -285,7 +307,7 @@ function M.send_downward(command)
   command = command or "do"
   local stata_app = find_stata_app()
   if not stata_app then
-    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    vim.notify(STATA_NOT_FOUND_MESSAGE, vim.log.levels.ERROR)
     return
   end
 
@@ -303,7 +325,7 @@ function M.send_file(command)
   command = command or "do"
   local stata_app = find_stata_app()
   if not stata_app then
-    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    vim.notify(STATA_NOT_FOUND_MESSAGE, vim.log.levels.ERROR)
     return
   end
 
@@ -327,7 +349,7 @@ end
 function M.cd_file()
   local stata_app = find_stata_app()
   if not stata_app then
-    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    vim.notify(STATA_NOT_FOUND_MESSAGE, vim.log.levels.ERROR)
     return
   end
 
@@ -345,7 +367,7 @@ end
 function M.cd_workspace()
   local stata_app = find_stata_app()
   if not stata_app then
-    vim.notify("Stata not found in /Applications/Stata/", vim.log.levels.ERROR)
+    vim.notify(STATA_NOT_FOUND_MESSAGE, vim.log.levels.ERROR)
     return
   end
 
