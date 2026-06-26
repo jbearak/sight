@@ -118,7 +118,7 @@ describe('ForwardScopeResolver — case-only path mismatch', () => {
             'resolves callee symbols and emits exactly one path_case_mismatch',
             async () => {
                 // On-disk file is helpers/Clean.do
-                const clean_path = write_file(
+                write_file(
                     'helpers/Clean.do',
                     'global from_clean = 1\n',
                 );
@@ -227,15 +227,13 @@ describe('ForwardScopeResolver — case-only path mismatch', () => {
              * (because depth > 0 for grandparent's call when seen from
              * parent/child scope build).
              */
-            let clean_path: string;
             let gp_path: string;
             let parent_path: string;
-            let child_path: string;
             let helpers_dir: string;
             let the_patched_fs: RichResolveFs;
 
             beforeEach(() => {
-                clean_path = write_file(
+                write_file(
                     'helpers/Clean.do',
                     'global clean_sym = 42\n',
                 );
@@ -248,7 +246,7 @@ describe('ForwardScopeResolver — case-only path mismatch', () => {
                     'parent.do',
                     `do "${gp_path}"\n`,
                 );
-                child_path = write_file(
+                write_file(
                     'child.do',
                     `do "${parent_path}"\n`,
                 );
@@ -324,12 +322,6 @@ describe('ForwardScopeResolver — case-only path mismatch', () => {
                     // = parent_uri; the grandparent's case-only call is at
                     // depth 1 and must NOT emit.
                     const parent_uri = to_uri(parent_path);
-                    const gp_uri = to_uri(gp_path);
-                    const wrong_cased = path.join(
-                        temp_dir,
-                        'helpers',
-                        'clean',
-                    );
 
                     // Create a fresh resolver for this sub-test
                     const parent_sr = new ScopeResolver();
