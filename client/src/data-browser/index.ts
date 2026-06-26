@@ -232,7 +232,8 @@ function register_vview_install_commands(
                     );
                 if (my_installed) {
                     void vscode.window.showInformationMessage(
-                        'Sight\'s Stata commands (vview, browse) '
+                        'Sight\'s Stata commands (vview, browse, and '
+                        + 'the browse abbreviations br/bro/brow/brows) '
                         + 'are installed and ready.'
                     );
                     return;
@@ -272,7 +273,8 @@ function register_vview_install_commands(
                     );
                 if (my_ok) {
                     void vscode.window.showInformationMessage(
-                        'Sight\'s Stata commands (vview, browse) '
+                        'Sight\'s Stata commands (vview, browse, and '
+                        + 'the browse abbreviations br/bro/brow/brows) '
                         + 'were removed (Sight-owned files only).'
                     );
                     return;

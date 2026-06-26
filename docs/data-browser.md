@@ -67,9 +67,9 @@ If you already have your own copy of any of the generic command names
 file untouched and installs only the ones it owns (`vview.ado` is always
 installed, since `vview` is Sight's own command name).
 
-You can override the install location with the `sight.personalAdoDir` setting, or manually install with the **Sight: Install Stata Commands (vview, browse)** command from the Command Palette.
+You can override the install location with the `sight.personalAdoDir` setting, or manually install with the **Sight: Install Stata Commands** command from the Command Palette.
 
-To re-trigger the install prompt (e.g., after declining), run **Sight: Reset Stata Commands Install Permission** from the Command Palette. To remove the installed files (Sight-owned copies only), run **Sight: Uninstall Stata Commands (vview, browse)**.
+To re-trigger the install prompt (e.g., after declining), run **Sight: Reset Stata Commands Install Permission** from the Command Palette. To remove the installed files (Sight-owned copies only), run **Sight: Uninstall Stata Commands**.
 
 ### How It Works
 

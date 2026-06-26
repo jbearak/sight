@@ -257,3 +257,33 @@ describe('ado ownership markers', () => {
         }
     });
 });
+
+describe('bundled ado set reconciliation', () => {
+    // The copy-vview-ado script globs `../stata/*.ado` into client/stata,
+    // and the installer is driven only by ADO_ASSET_DEFS. These must
+    // agree in both directions: an unregistered .ado dropped into stata/
+    // would ship in the extension yet never install/uninstall, and a def
+    // without a source file would abort the whole bundle install. Assert
+    // the three sets are identical so neither drift slips through.
+    const list_ados = (dir: string): string[] =>
+        fs
+            .readdirSync(dir)
+            .filter((my_name) => my_name.endsWith('.ado'))
+            .sort();
+
+    const the_def_names = ADO_ASSET_DEFS.map(
+        (my_def) => my_def.name
+    ).sort();
+
+    it('matches the canonical stata/ directory', () => {
+        expect(
+            list_ados(path.join(REPO_ROOT, 'stata'))
+        ).toEqual(the_def_names);
+    });
+
+    it('matches the bundled client/stata/ directory', () => {
+        expect(
+            list_ados(path.join(REPO_ROOT, 'client', 'stata'))
+        ).toEqual(the_def_names);
+    });
+});
