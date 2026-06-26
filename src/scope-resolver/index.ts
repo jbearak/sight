@@ -1760,7 +1760,12 @@ export class ScopeResolver {
             workspace_root: my_workspace_root,
         });
 
-        // Combine forward calls from commands and directives
+        // Combine forward calls from commands and directives.
+        // Stamp caller_uri and working_directory on directive calls so every
+        // ForwardCall carries the resolution context needed by Tasks 6/7.
+        // Analyzer-produced calls already carry these fields (caller_uri was
+        // set by SemanticAnalyzer; effective_working_directory is threaded in
+        // above via the analyzer config).
         const directive_forward_calls: ForwardCall[] = (my_directive_result.forward_calls ?? []).map(d => ({
             type: d.type,
             path: d.path,
@@ -1769,6 +1774,8 @@ export class ScopeResolver {
             range: d.range,
             source: 'directive' as const,
             is_static: true,
+            caller_uri: uri,
+            working_directory: effective_working_directory,
         }));
 
         const all_forward_calls: ForwardCall[] = [
@@ -2383,6 +2390,26 @@ export class ScopeResolver {
             get misses() { return snapshot.scope.misses; },
             get invalidations() { return snapshot.scope.invalidations; },
         };
+    }
+
+    /**
+     * Return the cached forward calls for a given URI if the file has
+     * already been parsed (i.e. its entry exists in the file cache).
+     *
+     * The returned calls carry `caller_uri` and `working_directory` as
+     * stamped by `parse_content`.  Intended for Task 6/7 consumers and
+     * test assertions; returns undefined when the URI is not cached.
+     */
+    get_forward_calls_for_uri(uri: string): ForwardCall[] | undefined {
+        // The file_cache key is "uri" or "uri|working_directory".
+        // Iterate all keys that start with the bare URI so we find any
+        // working-directory variant that may have been cached.
+        for (const [my_key, my_entry] of this.file_cache) {
+            if (my_key === uri || my_key.startsWith(`${uri}|`)) {
+                return my_entry.forward_calls;
+            }
+        }
+        return undefined;
     }
 
     /**

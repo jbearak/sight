@@ -854,6 +854,12 @@ export interface ForwardCall {
   range: Range;
   source: 'directive' | 'command';
   is_static: boolean;     // false if path contains macro references
+  // Resolution context: populated by every producer so downstream consumers
+  // can replay the join (raw_path + caller dir + working_directory) uniformly.
+  caller_uri?: string;         // URI of the file that contains the call
+  working_directory?: string;  // Effective WD at the call site; undefined means
+                               // script-relative (the raw_path join base is the
+                               // caller file's own directory).
 }
 
 export interface ForwardResolveContext {

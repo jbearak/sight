@@ -782,7 +782,10 @@ export class DocumentStore {
       analyze_result.result!.diagnostics
     );
 
-    // Parse directive-based forward calls and merge with analyzer's command-detected calls
+    // Parse directive-based forward calls and merge with analyzer's
+    // command-detected calls.  Stamp caller_uri and working_directory on
+    // directive calls; analyzer calls already carry these fields because
+    // we passed resolved_working_directory into analyze() above.
     let all_forward_calls = analyze_result.result!.forward_calls;
     try {
       const directive_parser = new DirectiveParser();
@@ -795,6 +798,8 @@ export class DocumentStore {
         range: d.range,
         source: 'directive' as const,
         is_static: true,
+        caller_uri: uri,
+        working_directory: resolved_working_directory,
       }));
       all_forward_calls = [
         ...analyze_result.result!.forward_calls,

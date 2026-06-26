@@ -105,7 +105,12 @@ export class WorkspaceIndexer {
     private max_files_reached = false;
     private version: number = 0;
     private scan_generation: number = 0;
-    
+    // Stamped ForwardCall list per URI (command + directive, with
+    // caller_uri and working_directory populated).  Stored so tests and
+    // Task 6/7 consumers can inspect the context fields without going
+    // through the dependency graph (which only stores URI edges).
+    private forward_call_index: Map<string, ForwardCall[]> = new Map();
+
     // Debouncing state for file updates
     private pending_updates: Map<string, NodeJS.Timeout> = new Map();
     private update_queue: Set<string> = new Set();
@@ -398,6 +403,7 @@ export class WorkspaceIndexer {
         this.symbol_index.delete(file_uri);
         this.token_index.delete(file_uri);
         this.context_ranges_index.delete(file_uri);
+        this.forward_call_index.delete(file_uri);
         if (was_indexed) {
             this.version++;
             // Evicting an already-counted file (size growth, re-index error,
@@ -507,6 +513,38 @@ export class WorkspaceIndexer {
                 { workspace_root }
             );
 
+            // Resolve effective working directory from @lsp-cd / @lsp-wd
+            // directive.  This is stamped onto ForwardCall objects as
+            // resolution context for Task 6/7 consumers; it does NOT change
+            // the existing `path` field (script-relative join) so the
+            // dependency graph edges are preserved exactly as before.
+            // Mirror the logic in ScopeResolver.parse_content: own directive
+            // wins; workspace-relative paths are joined against workspace_root.
+            let effective_working_directory: string | undefined;
+            if (directive_result.working_directory) {
+                const my_wd = directive_result.working_directory;
+                if (my_wd.is_workspace_relative) {
+                    if (workspace_root) {
+                        effective_working_directory = path.normalize(
+                            path.join(workspace_root, my_wd.resolved_path)
+                        );
+                    }
+                } else {
+                    effective_working_directory = my_wd.resolved_path;
+                }
+            }
+
+            // Stamp caller_uri and working_directory onto command-detected
+            // forward calls produced by the analyzer.  The analyzer already
+            // sets caller_uri (= file_uri) on each call; we add
+            // working_directory here because the analyzer does not have access
+            // to the effective WD in this context (the indexer analyzes without
+            // threading WD to preserve the existing path-resolution behavior).
+            const stamped_analyzer_calls: ForwardCall[] = analyzeResult.forward_calls.map(fc => ({
+                ...fc,
+                working_directory: effective_working_directory,
+            }));
+
             // Compute context ranges for embedded language support
             const context_tracker = new ContextTracker();
             context_tracker.initialize_from_tokens(lexResult.tokens, content);
@@ -517,8 +555,9 @@ export class WorkspaceIndexer {
                 && this.should_skip_for_max_indexed_files(file_uri)) return;
 
             // Combine forward calls from analyzer (command-detected)
-            // and directive parser (directive-detected)
-            let all_forward_calls = analyzeResult.forward_calls;
+            // and directive parser (directive-detected).
+            // Stamp caller_uri and working_directory on all calls.
+            let all_forward_calls: ForwardCall[] = stamped_analyzer_calls;
             if (directive_result.forward_calls && directive_result.forward_calls.length > 0) {
                 const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
                     type: d.type,
@@ -528,12 +567,17 @@ export class WorkspaceIndexer {
                     range: d.range,
                     source: 'directive' as const,
                     is_static: true,
+                    caller_uri: file_uri,
+                    working_directory: effective_working_directory,
                 }));
                 all_forward_calls = [
-                    ...analyzeResult.forward_calls,
+                    ...stamped_analyzer_calls,
                     ...directive_forward_calls,
                 ].sort((a, b) => a.call_site_line - b.call_site_line);
             }
+
+            // Store stamped forward calls for Task 6/7 resolution context.
+            this.forward_call_index.set(file_uri, all_forward_calls);
 
             // Update dependency graph with forward calls
             if (this.dependency_graph) {
@@ -725,6 +769,7 @@ export class WorkspaceIndexer {
         this.symbol_index.clear();
         this.token_index.clear();
         this.context_ranges_index.clear();
+        this.forward_call_index.clear();
         this.skipped_files.clear();
         this.metrics = {
             files_indexed: 0,
@@ -798,6 +843,19 @@ export class WorkspaceIndexer {
      */
     get_metrics(): IndexerMetrics {
         return { ...this.metrics };
+    }
+
+    /**
+     * Return the stamped ForwardCall list for a given file URI, or
+     * undefined if the URI has not been indexed yet.
+     *
+     * The returned calls carry `caller_uri` and `working_directory` as
+     * populated by the indexer during scanning.  Intended for Task 6/7
+     * consumers that need resolution context without going through the
+     * dependency graph (which only stores URI edges).
+     */
+    get_forward_calls(uri: string): ForwardCall[] | undefined {
+        return this.forward_call_index.get(uri);
     }
 
     /**
