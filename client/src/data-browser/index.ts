@@ -418,8 +418,9 @@ export async function prompt_for_stata_commands_install(
             'Would you like to add Sight\'s Stata commands '
             + '("vview" and "browse") to Stata?\n\n'
             + '"vview" opens datasets in VS Code; in console '
-            + 'Stata, "browse" becomes an alias for it (the GUI '
-            + 'built-in "browse" is unaffected).\n\n'
+            + 'Stata, "browse" (and its abbreviations "brows", '
+            + '"brow", "bro", "br") becomes an alias for it (the '
+            + 'GUI built-in "browse" is unaffected).\n\n'
             + `Install location: ${target_dir}`,
             INSTALL_BUTTON,
             NOT_NOW_BUTTON

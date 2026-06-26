@@ -62,8 +62,10 @@ permission.
 
 On macOS, Sight defaults to `OLDPLACE` (`~/ado/`) rather than `PERSONAL` to avoid sandbox-related writes into `~/Documents/Stata/...`.
 
-If you already have your own `browse.ado` on the ado-path, Sight leaves it
-untouched and installs only `vview.ado`.
+If you already have your own copy of any of the generic command names
+(`browse`, `brows`, `brow`, `bro`, `br`) on the ado-path, Sight leaves that
+file untouched and installs only the ones it owns (`vview.ado` is always
+installed, since `vview` is Sight's own command name).
 
 You can override the install location with the `sight.personalAdoDir` setting, or manually install with the **Sight: Install Stata Commands (vview, browse)** command from the Command Palette.
 
