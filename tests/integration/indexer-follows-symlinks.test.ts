@@ -1,10 +1,12 @@
 /**
- * The workspace scan must follow symlinked directories and symlinked source
- * files (issue #219) — a `readdir` entry for a symlink is neither
- * `isDirectory()` nor `isFile()`, so the old classification silently dropped
- * them. It must do so SAFELY: a symlink cycle must terminate, the same
- * physical file reached via a symlink must not be indexed twice, and a symlink
- * whose target escapes every declared scan root must not be followed.
+ * The workspace scan must follow symlinked source FILES (issue #219) — a
+ * `readdir` entry for a symlink is neither `isDirectory()` nor `isFile()`, so
+ * the old classification silently dropped them. Symlinked DIRECTORIES are
+ * deliberately NOT descended: an in-workspace target is already covered by the
+ * direct scan of its real location, and an out-of-workspace target would crawl
+ * an arbitrary external tree. These tests pin both: symlinked files are
+ * indexed, and symlinked directories are never recursed (so cycles terminate
+ * trivially, nothing is double-indexed, and an external target is not crawled).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -82,7 +84,7 @@ describe('indexer follows symlinks safely (#219)', () => {
         expect(indexed.includes(URI.file(link).toString())).toBe(true);
     });
 
-    it('indexes files inside a symlinked subdirectory', async () => {
+    it('indexes a symlinked-dir target via its real in-workspace location', async () => {
         const real_dir = path.join(tmp_dir, 'realdir');
         fs.mkdirSync(real_dir);
         fs.writeFileSync(path.join(real_dir, 'inner.do'), 'display 1\n');
@@ -90,47 +92,36 @@ describe('indexer follows symlinks safely (#219)', () => {
         if (!try_symlink(real_dir, link_dir)) return;
 
         const indexed = await index(tmp_dir);
-        // The file is reachable as realdir/inner.do and/or linkdir/inner.do;
-        // at least one must be indexed and exactly one physical copy counts.
+        // The symlinked dir is not descended, but realdir/inner.do is reached
+        // by the direct scan — indexed exactly once, under its real path.
+        expect(indexed).toContain(
+            URI.file(path.join(real_dir, 'inner.do')).toString(),
+        );
         const inner_count = indexed.filter(
             (u) => u.endsWith('/inner.do'),
         ).length;
-        expect(inner_count).toBe(1); // followed once, not double-indexed
+        expect(inner_count).toBe(1); // not double-indexed via the symlink
     });
 
-    it('terminates on an ancestor-pointing directory symlink cycle', async () => {
+    it('terminates trivially on an ancestor-pointing dir symlink (not descended)', async () => {
         const sub = path.join(tmp_dir, 'sub');
         fs.mkdirSync(sub);
         fs.writeFileSync(path.join(tmp_dir, 'main.do'), 'display 1\n');
-        // sub/loop -> tmp_dir (cycle back to an ancestor)
+        // sub/loop -> tmp_dir: a cycle if descended; it is not descended.
         if (!try_symlink(tmp_dir, path.join(sub, 'loop'))) return;
 
-        // Must complete (no infinite recursion / hang) and still index main.do.
+        // Completes (no recursion through the symlink) and indexes main.do once.
         const indexed = await index(tmp_dir);
-        expect(indexed.includes(URI.file(path.join(tmp_dir, 'main.do')).toString()))
-            .toBe(true);
-        // main.do must not be double-indexed via the cycle.
+        expect(indexed).toContain(
+            URI.file(path.join(tmp_dir, 'main.do')).toString(),
+        );
         const main_count = indexed.filter(
             (u) => u.endsWith('/main.do'),
         ).length;
         expect(main_count).toBe(1);
     });
 
-    it('does NOT double-index a physical file reached via two paths', async () => {
-        const real_dir = path.join(tmp_dir, 'realdir');
-        fs.mkdirSync(real_dir);
-        fs.writeFileSync(path.join(real_dir, 'shared.do'), 'display 1\n');
-        // A second symlink in the SAME root pointing at realdir.
-        if (!try_symlink(real_dir, path.join(tmp_dir, 'alias'))) return;
-
-        const indexed = await index(tmp_dir);
-        const shared_count = indexed.filter(
-            (u) => u.endsWith('/shared.do'),
-        ).length;
-        expect(shared_count).toBe(1);
-    });
-
-    it('does NOT follow a symlink that escapes all declared scan roots', async () => {
+    it('does NOT descend a symlinked directory whose target is outside the workspace', async () => {
         // An external tree OUTSIDE the workspace root.
         const external = fs.mkdtempSync(path.join(os.tmpdir(), 'symlink-ext-'));
         try {
@@ -138,17 +129,14 @@ describe('indexer follows symlinks safely (#219)', () => {
             const root = path.join(tmp_dir, 'ws');
             fs.mkdirSync(root);
             fs.writeFileSync(path.join(root, 'inside.do'), 'display 1\n');
-            // root/escape -> external (escapes the declared root `root`)
-            if (!try_symlink(external, path.join(root, 'escape'))) return;
+            // root/external_link -> external (target outside the workspace)
+            if (!try_symlink(external, path.join(root, 'external_link'))) return;
 
             const indexed = await index(root);
-            expect(indexed.includes(URI.file(path.join(root, 'inside.do')).toString()))
-                .toBe(true);
-            // The escaping symlink's target must NOT be crawled.
-            expect(
-                indexed.includes(URI.file(path.join(external, 'outside.do')).toString()),
-            ).toBe(false);
-            // and not via the symlink path either
+            expect(indexed).toContain(
+                URI.file(path.join(root, 'inside.do')).toString(),
+            );
+            // The external target must NOT be crawled (under any path).
             const outside_count = indexed.filter(
                 (u) => u.endsWith('/outside.do'),
             ).length;
@@ -177,8 +165,8 @@ describe('sthlp recursive search follows symlinks safely (#219)', () => {
     it('finds a symlinked .sthlp file buried in a subdirectory', async () => {
         // The recursive search only runs for workspace-root dirs, and only
         // when the topic is not found directly at the root. Bury a symlinked
-        // .sthlp one level down. File symlinks are not boundary-checked, so the
-        // target may live anywhere.
+        // .sthlp one level down (under a REAL subdir). Symlinked files are
+        // followed regardless of where the target lives.
         const external = fs.mkdtempSync(path.join(os.tmpdir(), 'sthlp-tgt-'));
         try {
             const real_help = path.join(external, 'real.sthlp');
@@ -195,12 +183,12 @@ describe('sthlp recursive search follows symlinks safely (#219)', () => {
         }
     });
 
-    it('terminates on a directory symlink cycle while searching', async () => {
+    it('does not recurse through a directory symlink while searching', async () => {
         const sub = path.join(tmp_dir, 'sub');
         fs.mkdirSync(sub);
         // A genuine help file reachable below the root.
         fs.writeFileSync(path.join(sub, 'zzsymtopic.sthlp'), '{smcl}\nhelp\n');
-        // sub/loop -> tmp_dir (cycle); must not hang.
+        // sub/loop -> tmp_dir: would be a cycle if descended; it is not.
         if (!try_symlink(tmp_dir, path.join(sub, 'loop'))) return;
 
         const found = await resolve(tmp_dir, 'zzsymtopic');

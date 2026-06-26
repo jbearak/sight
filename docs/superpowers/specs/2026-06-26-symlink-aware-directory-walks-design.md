@@ -47,9 +47,9 @@ We reuse exactly this logic.
 ### 1. Shared symlink-aware classification helper
 
 `resolve_path_rich` already contains the canonical sync implementation as the
-private `entry_is_dir` / `entry_is_file`. To avoid a fourth and fifth copy of
-the same try/catch, extract the logic into a new focused module and have all
-consumers (including `file-path-utils.ts`) call it.
+private `entry_is_dir` / `entry_is_file`. Rather than copy that try/catch into
+each new walk site, extract it into a focused module and have all consumers
+(including `file-path-utils.ts`) call it.
 
 New file `src/utils/symlink-aware-entry.ts`:
 
@@ -72,134 +72,115 @@ export function entry_is_directory_sync(
     entry: DirentLike, full_path: string, fs: StatSyncFs): boolean;
 export function entry_is_file_sync(
     entry: DirentLike, full_path: string, fs: StatSyncFs): boolean;
-export async function entry_is_directory_async(
-    entry: DirentLike, full_path: string, fs: StatAsyncFs): Promise<boolean>;
 export async function entry_is_file_async(
     entry: DirentLike, full_path: string, fs: StatAsyncFs): Promise<boolean>;
 
-// Single-syscall classifier for walker call sites that test dir-then-file
-// on the same entry (the boolean pair would stat a symlink twice).
+// Single-syscall classifier for path completion, which lists one directory
+// level and offers BOTH symlinked dirs and symlinked files (dir-then-file on
+// the same entry — the boolean pair would stat a symlink twice).
 export type EntryKind = 'directory' | 'file' | 'other';
 export function classify_entry_sync(
     entry: DirentLike, full_path: string, fs: StatSyncFs): EntryKind;
-export async function classify_entry_async(
-    entry: DirentLike, full_path: string, fs: StatAsyncFs): Promise<EntryKind>;
 ```
 
 Each is the PR #216 shape: fast path on the `Dirent` predicate; on
 `isSymbolicLink()`, stat the full path and classify by the target; `try/catch`
-→ `false`/`'other'` on a dangling/erroring link. The sync and async pairs share
-identical logic, differing only in `await`.
+→ `false`/`'other'` on a dangling/erroring link.
 
-The boolean pair stays for `resolve_path_rich`, which tests *either* dir
-(non-final component) *or* file (final component) on a given entry, never both.
-The four recursive/listing walk sites test **directory-then-file** on the same
-entry, so they use `classify_entry_*` to avoid stat-ing a symlinked entry twice
-(Codex review, minor #4).
+`entry_is_directory_sync` / `entry_is_file_sync` serve `resolve_path_rich`,
+which tests *either* dir (non-final component) *or* file (final component) on a
+given entry, never both. `entry_is_file_async` serves the async indexer walks
+(see §2). `classify_entry_sync` serves path completion. There is deliberately
+**no** async directory variant or async classifier: the recursive walks descend
+only real subdirectories (`Dirent.isDirectory()`), so they never async-classify
+a directory.
 
 `file-path-utils.ts`'s private `entry_is_dir` / `entry_is_file` delegate to
 `entry_is_directory_sync` / `entry_is_file_sync` (one source of truth).
 `RichResolveFs.statSync` already satisfies `StatSyncFs`, so the resolver and its
 tests are unaffected behaviorally — verified green by the existing
-`path-resolve-rich.test.ts` symlink suite. *(Already implemented.)*
+`path-resolve-rich.test.ts` symlink suite.
 
-### 2. Traversal policy for recursive walks (separate from classification)
+### 2. Traversal policy: follow symlinked files, do NOT descend symlinked dirs
 
-Classification (§1) tells a walk *what* an entry is. It does **not** decide
-*whether to descend* — and `resolve_path_rich` never had to, because it walks a
-**fixed component list** from a request path and cannot loop or escape. The
-three recursive walks (`scan_directory`, `walk_sources`,
-`find_sthlp_file_recursive`) enumerate arbitrary trees, so following symlinked
-directories introduces two distinct hazards that classification alone does not
-address (Codex review, major #1/#2/#3):
+Classification (§1) tells a walk *what* an entry is. It does **not** by itself
+decide *whether to descend* — and `resolve_path_rich` never had to, because it
+walks a **fixed component list** from a request path and cannot loop or escape.
+The three recursive walks (`scan_directory`, `walk_sources`,
+`find_sthlp_file_recursive`) enumerate arbitrary trees, where recursively
+following symlinked **directories** introduces a cluster of hazards (raised by
+Codex's adversarial reviews of both the spec and the implementation):
 
-1. **Cycles** — a directory symlink pointing at an ancestor
-   (`/ws/sub/link -> /ws`) is an infinite descent.
-2. **Escape** — a directory symlink pointing outside the declared scan roots
-   (`/ws/link -> /Users/me`) makes the walk crawl an arbitrary external tree.
-   The indexer's `maxIndexedFiles` cap does **not** bound this: it gates
-   *indexing* inside `index_file` (`should_skip_for_max_indexed_files`,
-   `src/indexer/index.ts:421`), while `scan_directory` keeps recursing
-   regardless, so the directory walk itself is unbounded.
-3. **Duplicate traversal/indexing** — the same physical dir reached via two
-   paths (`/ws/a` and `/ws/link_to_a`) is walked and indexed twice under
-   distinct URIs (symbols are keyed by traversal path, `src/indexer/index.ts:450`).
+1. **Cycles** — a dir symlink pointing at an ancestor (`/ws/sub/link -> /ws`).
+2. **Escape** — a dir symlink to outside the workspace (`/ws/link -> /Users/me`)
+   crawls an arbitrary external tree. The indexer's `maxIndexedFiles` cap does
+   **not** bound this: it gates *indexing* inside `index_file`
+   (`should_skip_for_max_indexed_files`, `src/indexer/index.ts:421`), while the
+   directory walk keeps recursing regardless.
+3. **Aliasing / duplicate indexing** — the same physical dir reached via a
+   symlink and via its real path is walked/indexed twice under distinct URIs
+   (symbols are keyed by traversal path, `src/indexer/index.ts:450`); a symlink
+   to a *declared root* can even claim that root before its own scan.
+4. **TOCTOU + exclusion bypass** — a parent-side boundary check is racy, and a
+   symlink named innocuously but pointing at `.git`/`node_modules` bypasses the
+   name-based exclusion.
 
-**Policy — canonical visited set + scan-root boundary, threaded per walk:**
+The key realization: descending symlinked directories adds essentially **no
+coverage** anyway. If a symlinked dir's target is *inside* the workspace, the
+direct scan of its real location already indexes those files; if the target is
+*outside*, that is precisely the escape hazard. So the policy is simply:
 
-Each top-level walk owns a `visited_real_dirs: Set<string>` and a set of
-**canonical boundary roots** (the canonical form of the directories the walk was
-explicitly told to scan). On entering *any* directory `dir` to scan (root and
-every subdirectory, symlinked or not):
+- **Recurse into real subdirectories only** (`entry.isDirectory()`, the
+  pre-existing check — symlinked dirs excluded, as before). A real directory
+  tree is finite and acyclic, so **no** visited set, realpath, or boundary
+  machinery is needed; cycles, escape, aliasing, TOCTOU, and exclusion-bypass
+  are all structurally impossible.
+- **Follow symlinked source FILES.** A `readdir` entry for a symlinked file is
+  neither `isFile()` nor `isDirectory()`, so the old code dropped it — this is
+  the actual #219 bug. Replace the file test with the symlink-aware
+  `entry_is_file_*` so a symlinked `.do`/`.ado`/`.sthlp` (target anywhere) is
+  recognized.
 
-1. `canonical = realpath(dir)`; on throw (dangling/raced) → skip the directory.
-2. If `visited_real_dirs.has(canonical)` → return (handles cycles **and**
-   duplicate traversal/indexing for free). Else add it.
-3. Recurse into child directories. For a child that **is a symlink**, first
-   check its canonical target is within some canonical boundary root; if not,
-   skip it (do not follow the escape). Non-symlink children are within the root
-   by construction and need no boundary check.
-
-Why `realpath` on every directory rather than only on symlinked entries: the
-visited set must be keyed by physical identity to dedupe a plain subtree reached
-*through* a symlink (`/ws/link/sub` vs `/ws/real/sub`). `realpath` is one
-syscall per **directory** (not per file); directories are far fewer than files,
-and the indexer already `stat`s every file it indexes (`src/indexer/index.ts:463`),
-so the added cost is negligible against total scan work. The non-symlinked
-common case gains one `realpath` per directory and no behavior change.
-
-The boundary deliberately does **not** follow symlinks that escape the declared
-roots. A user who wants an external shared library indexed adds it as a
-workspace folder or ado-path (the indexer already accepts both) rather than
-relying on an escaping symlink — a conservative, predictable default that avoids
-silently crawling `$HOME`. This is an explicit, reviewed scope decision.
-
-`find_sthlp_file_recursive` gets the **same** visited-set + boundary guard. Its
-`MAX_STHLP_SEARCH_DEPTH = 8` cap bounds depth but **not** repeated traversal of
-the same physical dirs within that depth, so the depth cap alone is not
-sufficient (Codex review, major #3). Boundary root = the canonical `root_dir`
-it was invoked with.
+This is the conscious scope decision: **symlinked source files are followed
+everywhere; symlinked directories are not recursively crawled.** A user who
+wants an external directory indexed declares it as a workspace folder or
+ado-path (the indexer already accepts both) rather than reaching it through a
+symlink. Path completion is the one exception — it *lists* a symlinked dir as a
+navigable folder (see §3) because listing is not recursion.
 
 ### 3. Per-site changes
 
-**`scan_directory` (async):** signature gains a threaded
-`visited_real_dirs: Set<string>` and `boundary_roots: string[]` (canonical).
-`initialize` seeds `boundary_roots` once from the canonical form of
-`workspace_folders ∪ ado_paths` and passes a fresh `visited_real_dirs` per
-top-level `scan_directory` call (shared across its recursion). Per directory:
-realpath + visited check (step 1–2). Per entry: `classify_entry_async(entry,
-entry_path, fs.promises)`; `'directory'` → VCS skip, then symlink-boundary check
-(step 3) before recursing; `'file'` + `hasStataExtension` → collect. VCS skip
-(`VCS_METADATA_DIRS.has(entry.name)`) unchanged.
+**`scan_directory` (async):** signature unchanged. Directory branch stays
+`entry.isDirectory()` (real subdirs only) with the existing `VCS_METADATA_DIRS`
+skip. File branch becomes `await entry_is_file_async(entry, entry_path,
+fs.promises) && hasStataExtension(entry.name)` so a symlinked source file is
+collected.
 
-**`find_sthlp_file_recursive` (async):** add `classify_entry_async`; seed a
-`visited_real_dirs` set and a single boundary root (canonical `root_dir`) at the
-top; realpath + visited check before processing each popped dir; symlink
-children get the boundary check before being pushed. `EXCLUDED_DIRS` unchanged;
-depth cap retained as an additional bound.
+**`find_sthlp_file_recursive` (async):** directory branch stays
+`my_dirent.isDirectory()` with the `EXCLUDED_DIRS` skip and the depth cap. File
+branch becomes `my_dirent.name === basename && await entry_is_file_async(...)`
+so a symlinked `.sthlp` is matched.
 
-**`walk_sources` (sync):** thread `visited_real_dirs` and a `boundary_root`
-(canonical of the top dir passed by `collect_report_targets`). Use
-`classify_entry_sync` with `{ statSync: fs.statSync }` and `fs.realpathSync` for
-the visited/boundary logic. `VCS_METADATA_DIRS` skip unchanged. (Explicit
-top-level input paths in `collect_report_targets` already `statSync` and
-`canonicalize_existing_path`, so they are unaffected.)
+**`walk_sources` (sync):** signature unchanged. Directory branch stays
+`entry.isDirectory()` with the `VCS_METADATA_DIRS` skip. File branch becomes
+`entry_is_file_sync(entry, entry_path, fs) && hasStataExtension(entry.name)`.
+(Explicit top-level input paths in `collect_report_targets` already `statSync`
++ `canonicalize_existing_path`, so a directly-named symlink already works.)
 
-**path completion (sync):** swap the dir/file predicates to
-`classify_entry_sync` with `{ statSync: fs.statSync }`. **No recursion** → no
-visited set, no boundary: the provider lists one directory level; navigating
-into a symlinked dir re-lists that one level on the next request. Hidden-file
-skip (`entry.name.startsWith('.')`) and prefix filter unchanged. A symlinked dir
-is offered with the trailing `/`; a symlinked Stata file like a regular file.
+**path completion (sync):** uses `classify_entry_sync(entry, full_path, fs)` and
+offers `'directory'` (incl. symlinked dirs) with a trailing `/` and `'file'`
+(incl. symlinked files) as files. **No recursion** → listing a symlinked dir is
+safe; navigating into it re-lists that one level on the next request. Hidden-file
+skip (`entry.name.startsWith('.')`) and prefix filter unchanged.
 
 ### 4. Out of scope / explicitly preserved
 
-- **Output paths stay as written (symlink paths), not canonicalized.** Indexed
-  URIs and completion labels remain the traversal/symlink path, matching how
-  non-symlink entries are reported today. Canonical paths are used *only*
-  internally for the visited set and boundary check.
-- **Escaping symlinks are not followed** (see §2). Declared roots are the
-  boundary; external targets must be declared explicitly.
+- **Symlinked directories are not recursively descended** by the indexer or
+  `sight check` (see §2). In-workspace targets are covered by the direct scan;
+  external targets must be declared as a workspace folder / ado-path. Path
+  completion still *offers* symlinked dirs (listing, not recursion).
+- **Output paths stay as written.** Indexed URIs / completion labels remain the
+  path as encountered, matching non-symlink entries.
 - `resolve_path_rich`'s external behavior is unchanged; the helper extraction is
   mechanical de-duplication covered by existing tests.
 
@@ -211,35 +192,38 @@ and platform-independent (no real symlinks on disk, which are awkward on CI /
 Windows). For sites whose seams are not injectable, use a temp dir with real
 symlinks, guarded so the test skips where the platform cannot create symlinks.
 
-New unit tests for `symlink-aware-entry.ts` *(already implemented, 9 passing)*:
+New unit tests for `symlink-aware-entry.ts`:
 - symlinked-dir / symlinked-file / dangling / plain-dir / plain-file across the
-  boolean pair and the `classify_entry_*` pair
+  boolean helpers and `classify_entry_sync`
 - fast path asserts the stat seam is **never called** for plain entries
-- sync and async variants each covered
+- `entry_is_file_async` covered (sync + async parity)
 
-Per-site tests:
-- **indexer `scan_directory`:** symlinked `.do` is indexed; files under a
-  symlinked subdir are indexed; an ancestor-pointing dir symlink **terminates**;
-  the same physical file reached via a symlink is **not double-indexed**; a dir
-  symlink whose target is **outside** all declared roots is **not followed**.
-- **indexer `find_sthlp_file_recursive`:** a symlinked `.sthlp` (or symlinked
-  dir containing it) is found; a cycle terminates within the depth cap.
-- **`walk_sources` / `collect_report_targets`:** symlinked source file and
-  symlinked subtree are discovered; a cycle terminates; an escaping symlink is
-  not followed.
-- **path completion:** symlinked dir and symlinked `.do` appear as completions.
+Per-site tests (real temp-dir symlinks, skipped where the platform can't make
+them):
+- **indexer `scan_directory`:** a symlinked `.do` is indexed; a symlinked dir's
+  in-workspace target is indexed once via its real path; an ancestor-pointing
+  dir symlink does not hang (not descended) and nothing is double-indexed; a dir
+  symlink whose target is **outside** the workspace is **not descended**.
+- **indexer `find_sthlp_file_recursive`:** a symlinked `.sthlp` under a real
+  subdir is found; a dir symlink is not recursed through.
+- **`walk_sources` / `collect_report_targets`:** symlinked source file
+  discovered; symlinked-dir target discovered via its real path; dir symlink not
+  recursed; external dir symlink not descended.
+- **path completion:** a symlinked dir and a symlinked `.do` appear as
+  completions.
 
 Existing `path-resolve-rich.test.ts` symlink suite must stay green after the
 delegation refactor (regression guard for §1) — confirmed.
 
 ## Risks
 
-- **Performance:** one `realpath` per directory entered (not per file) plus
-  `stat` only on symlinked entries. Negligible against per-file indexing work;
-  the non-symlinked common case is otherwise unchanged.
-- **Boundary too strict:** a symlink to an undeclared external tree is silently
-  not indexed. Mitigation: documented behavior; the fix is to declare the target
-  as a workspace folder / ado-path. Chosen over the alternative (crawl anywhere)
-  because unbounded external traversal is the worse failure.
+- **Performance:** `stat` only on symlinked entries (one syscall, only when the
+  `Dirent` fast path doesn't resolve it). The non-symlinked common case is
+  unchanged — same `isDirectory()` recursion as before.
+- **Symlinked-dir targets not indexed when external:** a symlinked directory
+  pointing outside the workspace has its contents un-indexed. Mitigation:
+  documented; declare the target as a workspace folder / ado-path. Chosen over
+  recursively crawling symlinked dirs, which reintroduces cycle / escape /
+  aliasing / TOCTOU hazards for no coverage gain on in-workspace layouts.
 - **Refactor regression in the resolver:** bounded — delegation preserves
   semantics and is covered by the existing symlink test suite (confirmed green).

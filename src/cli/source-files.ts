@@ -2,12 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import {
-    hasStataExtension,
-    VCS_METADATA_DIRS,
-    is_within_any_root,
-} from '../utils/file-path-utils';
-import { classify_entry_sync } from '../utils/symlink-aware-entry';
+import { hasStataExtension, VCS_METADATA_DIRS } from '../utils/file-path-utils';
+import { entry_is_file_sync } from '../utils/symlink-aware-entry';
 import { compare_strings, error_message } from './shared';
 
 export interface ReportTarget {
@@ -72,23 +68,8 @@ export function is_within_workspace(
 function walk_sources(
     dir_path: string,
     out: string[],
-    operator_errors: string[],
-    boundary_root: string,
-    visited_real_dirs: Set<string>
+    operator_errors: string[]
 ): void {
-    // Canonicalize the directory and dedupe by physical identity. This makes a
-    // symlink cycle terminate and prevents walking the same physical dir twice
-    // when it is reachable through a symlink (issue #219). realpath is one
-    // syscall per directory entered (not per file).
-    let canonical_dir: string;
-    try {
-        canonical_dir = fs.realpathSync.native(dir_path);
-    } catch {
-        return; // dangling/raced directory — skip
-    }
-    if (visited_real_dirs.has(canonical_dir)) return;
-    visited_real_dirs.add(canonical_dir);
-
     let entries: fs.Dirent[];
     try {
         entries = fs.readdirSync(dir_path, { withFileTypes: true });
@@ -101,29 +82,21 @@ function walk_sources(
 
     for (const entry of entries) {
         const entry_path = path.join(dir_path, entry.name);
-        const entry_kind = classify_entry_sync(entry, entry_path, fs);
-        if (entry_kind === 'directory') {
+        // Recurse into real subdirectories only. Symlinked directories are not
+        // descended: an in-workspace target is already covered by the direct
+        // scan of its real location, and an out-of-workspace target would crawl
+        // an arbitrary external tree (issue #219). This keeps the walk a finite
+        // real tree, so no cycle/boundary guard is needed.
+        if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
-            // A symlinked directory may point outside the scan root; follow it
-            // only when its physical target stays within the boundary, so a
-            // symlink cannot make the walk escape into an arbitrary tree.
-            if (entry.isSymbolicLink()) {
-                let target: string;
-                try {
-                    target = fs.realpathSync.native(entry_path);
-                } catch {
-                    continue; // dangling symlink — skip
-                }
-                if (!is_within_any_root(target, [boundary_root])) continue;
-            }
-            walk_sources(
-                entry_path,
-                out,
-                operator_errors,
-                boundary_root,
-                visited_real_dirs
-            );
-        } else if (entry_kind === 'file' && hasStataExtension(entry.name)) {
+            walk_sources(entry_path, out, operator_errors);
+        } else if (
+            // A symlinked source FILE is followed (its target may live
+            // anywhere): without this it is neither isFile() nor isDirectory()
+            // and was silently skipped (#219).
+            entry_is_file_sync(entry, entry_path, fs) &&
+            hasStataExtension(entry.name)
+        ) {
             out.push(entry_path);
         }
     }
@@ -174,15 +147,7 @@ export function collect_report_targets(
             continue;
         }
         if (stat.isDirectory()) {
-            // `absolute_path` is already canonical (canonicalize_existing_path),
-            // so it is both the boundary root and the first visited entry.
-            walk_sources(
-                absolute_path,
-                source_paths,
-                operator_errors,
-                absolute_path,
-                new Set<string>()
-            );
+            walk_sources(absolute_path, source_paths, operator_errors);
         } else if (stat.isFile() && hasStataExtension(absolute_path)) {
             source_paths.push(absolute_path);
         }

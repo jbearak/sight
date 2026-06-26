@@ -74,24 +74,11 @@ export function entry_is_file_sync(
 }
 
 /**
- * Async counterpart of {@link entry_is_directory_sync}.
- */
-export async function entry_is_directory_async(
-    entry: DirentLike,
-    full_path: string,
-    fs: StatAsyncFs,
-): Promise<boolean> {
-    if (entry.isDirectory()) return true;
-    if (!entry.isSymbolicLink()) return false;
-    try {
-        return (await fs.stat(full_path)).isDirectory();
-    } catch {
-        return false; // dangling symlink — treat as non-matching
-    }
-}
-
-/**
- * Async counterpart of {@link entry_is_file_sync}.
+ * Async counterpart of {@link entry_is_file_sync}. Used by the async indexer
+ * walks, which descend only real subdirectories (`Dirent.isDirectory()`) but
+ * must still recognize a symlinked *file* as a source file (issue #219). There
+ * is deliberately no async directory variant: the recursive walks do not follow
+ * symlinked directories, so they never need to async-classify one.
  */
 export async function entry_is_file_async(
     entry: DirentLike,
@@ -112,9 +99,10 @@ export type EntryKind = 'directory' | 'file' | 'other';
 
 /**
  * Classify an entry as `'directory'`, `'file'`, or `'other'` with at most ONE
- * stat call. Recursive-walk call sites test directory-then-file on the same
- * entry; the boolean helpers would stat a symlinked entry twice (once per
- * test), so those sites should use this instead.
+ * stat call. Used by path completion, which lists one directory level and wants
+ * to offer both symlinked directories and symlinked files; testing the boolean
+ * helpers directory-then-file would stat a symlinked entry twice, so it uses
+ * this instead.
  *
  * Fast path: the `Dirent` predicates (no syscall for non-symlink entries).
  * Symlink path: a single `statSync` follows the link; a dangling link throws
@@ -130,27 +118,6 @@ export function classify_entry_sync(
     if (!entry.isSymbolicLink()) return 'other';
     try {
         const my_stat = fs.statSync(full_path);
-        if (my_stat.isDirectory()) return 'directory';
-        if (my_stat.isFile()) return 'file';
-        return 'other';
-    } catch {
-        return 'other'; // dangling symlink — skip
-    }
-}
-
-/**
- * Async counterpart of {@link classify_entry_sync}.
- */
-export async function classify_entry_async(
-    entry: DirentLike,
-    full_path: string,
-    fs: StatAsyncFs,
-): Promise<EntryKind> {
-    if (entry.isDirectory()) return 'directory';
-    if (entry.isFile()) return 'file';
-    if (!entry.isSymbolicLink()) return 'other';
-    try {
-        const my_stat = await fs.stat(full_path);
         if (my_stat.isDirectory()) return 'directory';
         if (my_stat.isFile()) return 'file';
         return 'other';
