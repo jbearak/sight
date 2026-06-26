@@ -437,6 +437,9 @@ export class ForwardScopeResolver {
                         `${my_call.raw_path}`,
                     range: my_call.range,
                     severity: 'warning',
+                    // Structural kind for routing; substring fallback in
+                    // the converter is preserved for backward compat.
+                    kind: 'missing_file',
                     source: {
                         source_file: my_source_filename,
                         source_line: my_call.call_site_line,

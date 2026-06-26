@@ -137,6 +137,8 @@ interface ForwardScopeResolverInterface {
             diagnostics: DirectiveDiagnostic[];
             working_directory?: string;
             call_chain?: string[];
+            /** See ForwardResolveContext.diagnostic_owner_uri. */
+            diagnostic_owner_uri?: string;
         },
         recursion_stack?: Set<string>,
         token?: import('vscode-languageserver').CancellationToken,
@@ -912,6 +914,10 @@ export class ScopeResolver {
                     diagnostics: the_diagnostics,
                     working_directory: effective_working_directory,
                     call_chain: [],
+                    // Thread the owner so path_case_mismatch fires for
+                    // case-only do/run/include written in THIS file at
+                    // depth 0, and is suppressed in all nested callees.
+                    diagnostic_owner_uri: file_uri,
                 },
                 new Set([file_uri]), // Include current file in recursion stack for cycle detection
                 token,
