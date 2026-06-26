@@ -84,8 +84,17 @@ export interface RichResolveOptions {
   try_do_fallback?: boolean;          // default true
   /** Directories within these roots may be case-insensitively scanned. */
   workspace_roots?: string[];
-  /** Injected for tests. */
-  fs?: { existsSync(p: string): boolean; readdirSync(p: string): string[] };
+  /**
+   * Injected for tests. `readdirSync` returns Dirent-like entries so the
+   * resolver can tell a directory named `clean` from a file `Clean.do` (see
+   * the `.do` fallback rule below). The default uses Node `fs` with
+   * `{ withFileTypes: true }`.
+   */
+  fs?: {
+    readdirSync(p: string, opts: { withFileTypes: true }):
+      Array<{ name: string; isFile(): boolean; isDirectory(): boolean }>;
+    existsSync(p: string): boolean;   // used only to find the deepest existing ancestor
+  };
 }
 
 export function resolve_path_rich(
@@ -101,25 +110,31 @@ consumer, preserving non-goal #1.
 
 ### Algorithm — component-wise, exact-before-case at every level
 
-Split `resolved_fs_path` into directory components below the deepest existing
-ancestor. Walk components left → right starting from that ancestor:
+Find the deepest existing ancestor directory of `resolved_fs_path` (the only
+use of `existsSync`, and only on directories — never to classify a leaf's
+casing). Walk the remaining components left → right from that ancestor; at each
+component the **directory listing is the sole source of truth for casing** (no
+`existsSync` casing short-circuit — see "Why not trust `existsSync`" below):
 
-1. `readdirSync(current_dir)` (only when the exact child does not exist —
-   exact match short-circuits with a cheap `existsSync`).
-2. If an entry equals the requested component **with exact casing** → exact for
-   this component; descend.
-3. Else collect entries equal to the requested component **case-insensitively
-   (ASCII fold)**:
-   - exactly **1** → `case_only`; record the mismatch and descend into the
-     real-cased entry.
-   - **2+** → return `ambiguous` (stop).
-   - **0** → return `missing` (stop).
-4. **Final component, `.do` fallback:** when `try_do_fallback` and the final
-   component has no extension, the candidate names are *both* `name` and
-   `name.do`. Tier ordering at the final component:
-   - exact `name`, then exact `name.do` → `exact`;
-   - else case-insensitive over `{name, name.do}`: exactly one distinct on-disk
-     file → `case_only`; 2+ distinct → `ambiguous`; none → `missing`.
+1. `readdirSync(current_dir, { withFileTypes: true })`.
+2. If an entry's name equals the requested component **with exact casing**:
+   - non-final component, entry is a directory → exact for this component;
+     descend.
+   - final component → exact (subject to the `.do` rule in step 4).
+3. Else collect entries whose name equals the requested component
+   **case-insensitively (ASCII fold)**:
+   - non-final component: exactly **1** directory → `case_only` (record the
+     mismatch, descend into the real-cased entry); **2+** → `ambiguous` (stop);
+     **0** → `missing` (stop).
+4. **Final component (`.do` fallback):** the requested leaf yields candidate
+   names `{name}`, plus `{name.do}` when `try_do_fallback` and `name` has no
+   extension. Only **file** entries (not directories) satisfy a final-component
+   match. Tier ordering:
+   - exact `name` (file), else exact `name.do` (file) → `exact`;
+   - else case-insensitive over the candidate set, counting **distinct file
+     entries**: exactly one → `case_only`; 2+ → `ambiguous`; none → `missing`.
+   A directory whose name equals `name` does **not** win over a unique file
+   `Name.do` candidate (Stata runs the `.do` file, not the directory).
 
 The overall outcome is `exact` iff every component matched exactly; `case_only`
 if at least one component (or the final `.do` candidate) needed ci-resolution
@@ -129,16 +144,16 @@ the first component that is.
 `case_only.path` is the fully real-cased on-disk path; `case_only.requested` is
 the original as-typed resolved path (for the diagnostic message).
 
-### Why not trust `existsSync` for the exact tier
+### Why not trust `existsSync` for casing
 
 `fs.existsSync('helpers/clean.do')` returns **true** on macOS/Windows even when
-the file is `Clean.do`. Relying on it would mask the mismatch on case-insensitive
-hosts — defeating the "warn before Linux CI" requirement. So the resolver
-**compares requested casing against the actual `readdirSync` entry casing** at
-each component. This yields the correct classification uniformly on both
-regimes. `existsSync` is used only as a fast-path *exact* short-circuit (and a
-case-insensitive `existsSync` hit still gets verified against the real entry
-casing before being reported `exact`).
+the file is `Clean.do`. Using `existsSync` to classify a leaf as `exact` would
+mask the mismatch on case-insensitive hosts — defeating the "warn before Linux
+CI" requirement. So the resolver **never** uses `existsSync` to judge casing:
+casing is decided **only** by comparing the requested component against the
+actual `readdirSync` entry names. `existsSync` is used solely to locate the
+deepest existing ancestor directory to start the walk from. This yields the
+correct classification uniformly on both filesystem regimes.
 
 ### Workspace-bounded scanning
 
@@ -160,17 +175,24 @@ export function host_is_case_sensitive(
 ): boolean;   // cached after first probe
 ```
 
-Probe: take a known-existing path (the module's own `__dirname`), flip the case
-of its first ASCII letter, and test `existsSync` of the flipped variant. If the
-flipped path does **not** exist → case-sensitive. If no ASCII letter to flip →
-assume case-sensitive (conservative: surfaces the warning). The result is
-cached at module scope; the optional `fs` injection is for tests only and
-bypasses the cache.
+Probe: take a known-existing path, flip the case of its first ASCII letter, and
+test `existsSync` of the flipped variant. If the flipped path does **not**
+exist → case-sensitive. If no ASCII letter to flip → assume case-sensitive
+(conservative: surfaces the warning). The result is cached at module scope; the
+optional `fs` injection is for tests only and bypasses the cache.
+
+The package is ESM (`"type": "module"`), so `__dirname` is unavailable. Derive
+the probe path from `import.meta.url`:
+`path.dirname(fileURLToPath(import.meta.url))`. (The server is also bundled to
+CJS for the VS Code client; if `import.meta` is unavailable in that bundle,
+fall back to `process.cwd()`, which reliably contains ASCII letters in
+practice.)
 
 `auto` maps to **`information`** on a case-insensitive host and **`warning`** on
 a case-sensitive host. Because `sight check --max-severity` defaults to `Info`
-(`src/cli/check.ts:129`), the same code is silent on a dev's Mac and **fails
-Linux CI** — the intended asymmetry.
+(`src/cli/check.ts:129`), an `auto` mismatch does **not fail the build** on a
+case-insensitive host (it is still reported as an information diagnostic in the
+output) but **fails Linux CI** as a warning — the intended asymmetry.
 
 ## The diagnostic
 
@@ -203,6 +225,14 @@ export interface DirectiveDiagnostic {
   `missing_file` severity — `missingFile = "off"` does **not** silence it.
 - `kind === 'missing_file'` (or legacy `'Cannot read file'` message) → existing
   `missing_file` policy, unchanged.
+
+The returned LSP `Diagnostic` object currently
+(`src/providers/diagnostics.ts:1040`) omits `code`, so a directive diagnostic's
+code never reaches `sight check`'s `[code]` text rendering. Add
+`code: diagnostic.code` to the returned object so `path-case-mismatch` shows
+its `PATH_CASE_MISMATCH` code (and any future coded directive diagnostics
+benefit too). Existing missing-file directive diagnostics keep `code`
+`undefined`, so their output is unchanged.
 
 Add a new `StataDiagnosticCode` in a fresh cross-file range. The existing
 ranges are lexer 1xxx, semantic 2xxx, parser 3xxx, indentation 5xxx, operator
@@ -242,15 +272,45 @@ commands (no explicit directive), the range is the path argument of the command.
 Every static-path resolution site routes through `resolve_path_rich` so the
 real-cased file enters the graph and the diagnostic fires once.
 
+**Resolution-context prerequisite.** `resolve_path_rich` classifies casing for
+a path *already joined against the correct base directory*. Today the join
+logic (script-relative vs working-directory, plus the `.do` fallback) lives in
+`forward-scope-resolver`'s `resolve_call_path` (~:80), **not** in the analyzer
+that first produces `ForwardCall.path` (`src/analyzer/index.ts` ~:1211–1240).
+`ForwardCall.path` is the analyzer's script-relative join, which can already be
+a wrong miss before the dependency graph or scope resolver sees the original
+candidate. To resolve uniformly, `ForwardCall` carries the resolution context
+needed to replay the join:
+
+```ts
+interface ForwardCall {
+  // existing:
+  path: string;          // analyzer's script-relative join (as today)
+  is_static: boolean;
+  // NEW (populated by the analyzer / call extractor):
+  raw_path: string;      // the path exactly as written in source
+  caller_uri: string;    // file containing the call
+  working_directory?: string;  // effective WD at the call site, if any
+}
+```
+
+Both the dependency graph and the forward resolver compute the joined absolute
+path from (`raw_path`, `caller_uri` dir, `working_directory`) — the **same**
+join `resolve_call_path` performs — and feed *that* into `resolve_path_rich`
+with the indexer's `workspace_roots`. This guarantees the graph edge and the
+forward diagnostic agree on the real-cased target. (Backward directives have
+their own join; see consumer #3.)
+
 1. **Dependency graph** — `src/dependency-graph/index.ts` `update_caller`
    (~:48–112) / `path_to_uri` (~:328). Today static-call paths become URIs
    without case normalization, so on a case-sensitive FS the
    `callee_to_callers` reverse key never matches the real file's URI and
-   backward auto-discovery fails → cascade. Resolve the callee with
-   `resolve_path_rich`; on `exact`/`case_only` key the edge by the **real-cased**
-   resolved URI; on `ambiguous`/`missing` keep today's behavior (no real-file
-   edge). The dep-graph build itself emits no diagnostic (diagnostics belong to
-   the resolver phase); it only needs the corrected URI so reverse lookup works.
+   backward auto-discovery fails → cascade. Join per the prerequisite above and
+   resolve with `resolve_path_rich`; on `exact`/`case_only` key the edge by the
+   **real-cased** resolved URI; on `ambiguous`/`missing` keep today's behavior
+   (no real-file edge). The dep-graph build emits **no** diagnostic (diagnostics
+   belong to the resolver phase); it only needs the corrected URI so reverse
+   lookup works.
 2. **Forward scope resolver** — `src/forward-scope-resolver/index.ts`
    `resolve_call_path` (~:80) and `get_callee_scope` (~:691). Replace the
    ad-hoc `existsSync` + `.do` chain with `resolve_path_rich`. On `case_only`,
@@ -258,47 +318,81 @@ real-cased file enters the graph and the diagnostic fires once.
    at the call site (replacing the would-be "Cannot read file" miss — no double
    emission). On `ambiguous`/`missing`, keep the existing cannot-read-file
    diagnostic.
+
+   **Single-emission guard (own-file only).** `ForwardScopeResolver.resolve`
+   resolves not only the analyzed file's own forward calls but also a **parent's**
+   forward calls when building inherited scope for a child (e.g.
+   `resolve_parent_forward_calls`). A parent's case-only `do` must be reported
+   **once**, on the parent's own diagnostics, not re-reported on every child it
+   feeds. So `path_case_mismatch` is emitted **only when resolving the forward
+   calls of the file currently being diagnosed** — i.e. gate emission on an
+   `emit_diagnostics` mode that is true for the own-file pass and false when
+   resolving ancestor/parent forward calls for inheritance. (Edge resolution and
+   scope inheritance still happen in both passes; only the *diagnostic* is
+   gated.)
 3. **Scope resolver** — `src/scope-resolver/index.ts`: **explicit backward
-   directive** resolution (`follow_directives`, ~:1324). The wrong casing lives
-   in the directive's own path string, so resolve it with `resolve_path_rich`
-   against the file's own directory (no `@lsp-cd`/workspace-root fallback). On
-   `case_only`, resolve the parent and push a backward-worded
-   `path_case_mismatch` at the directive range. On `ambiguous`/`missing`,
-   existing behavior.
+   directive** resolution (`follow_directives`, ~:1324). Backward
+   `Directive.path` may already be transformed by the directive parser's
+   `resolve_path_with_fallback`; for rich resolution we use the **absolute path
+   built from `Directive.raw_path` joined to the directive file's own
+   containing directory** (no `@lsp-cd`, no workspace-root fallback — the Raven
+   invariant). On `case_only`, resolve the parent and push a backward-worded
+   `path_case_mismatch` at the directive range; the message displays `raw_path`
+   (as written) versus the real-cased relative on-disk name. On
+   `ambiguous`/`missing`, existing behavior.
 
    Note — **auto-discovered parents** (synthetic directives from the dep graph,
    ~:277) need no resolution or diagnostic here: their `caller_uri` is already
    the real-cased URI of an existing parent file (corrected at consumer #1). In
    the auto-discovery case the casing typo, if any, is in the **parent's
    forward `do`/`run`/`include` statement**, which is reported by the forward
-   resolver (consumer #2) when that parent is analyzed — not at the child.
+   resolver (consumer #2, own-file pass) when that parent is analyzed — not at
+   the child.
+
+   **ScopeResolver's own URI-keyed maps.** Beyond the dependency graph,
+   ScopeResolver keeps its own reverse-dependency / cached-file maps (e.g.
+   `update_reverse_dependencies`, the file parse cache, cascade invalidation).
+   These must be keyed by the **same real-cased URI** the rich resolver
+   produces; otherwise a case-only callee registers under the as-typed key and a
+   later correction (or callee edit) fails to invalidate the right entry. Route
+   those keys through the resolved real-cased URI and cover them with the
+   invalidation tests below (M3).
 4. **Go-to-definition** — `src/providers/definition.ts` `resolve_file_path`
    (~:1555). Route through `resolve_path_rich`; `exact` and `case_only` both
    navigate to the real-cased target; `ambiguous`/`missing` → no navigation.
 5. **Path completion** — `src/providers/completion.ts` path-completion context.
-   Completion already lists real directory entries via `readdirSync`, so it
-   surfaces correct casing intrinsically; the requirement is only that it not
-   regress. No diagnostic from completion.
+   Completion lists real directory entries from disk, so it already presents
+   correct casing for the locations it browses. No new diagnostic and no new
+   resolution work is required for completion; we only assert it does not
+   regress for its currently-supported completion roots.
 
-Diagnostics are emitted **only** in the resolver phase (forward-scope-resolver /
-scope-resolver) so each mismatch is reported exactly once regardless of how many
-consumers touch the path.
+Diagnostics are emitted **only** in the resolver phase (forward-scope-resolver
+own-file pass / scope-resolver backward directive) so each mismatch is reported
+exactly once regardless of how many consumers touch the path.
 
 ## Configuration
 
 - **Type** (`src/types/index.ts` `CrossFileConfig.diagnostics`): add
-  `case_mismatch?: 'auto' | 'error' | 'warning' | 'information' | 'off'`.
+  `case_mismatch?: CrossFileCaseMismatchSeverity` where
+  `type CrossFileCaseMismatchSeverity = 'auto' | 'error' | 'warning' | 'information' | 'off'`.
+  This is a **distinct** type from the existing cross-file severity
+  (`'error' | 'warning' | 'information' | 'off'`) — `auto` is valid **only** for
+  `case_mismatch`, not for `missing_file` / `max_depth` /
+  `call_site_identification`.
 - **Default** (`DEFAULT_SETTINGS` in `src/server-handlers.ts`):
   `case_mismatch: 'auto'`.
-- **Schema mapping** (`src/config-file/schema.ts`): accept public
-  `crossFile.diagnostics.caseMismatch`; add `'auto'` to the accepted severity
-  set for this key only (the other cross-file severities keep their existing
-  value set). Map camelCase → `cross_file.diagnostics.case_mismatch`. The
-  existing `normalize_name` machinery already accepts both camelCase and
-  snake_case spellings.
-- **Validation** (`src/utils/config-validator.ts`): accept the five values for
-  `case_mismatch`; invalid values fall back to `auto` with a warning, matching
-  the existing severity-validation pattern.
+- **Schema mapping** (`src/config-file/schema.ts`): the existing
+  `CROSS_FILE_SEVERITIES` set (`error|warning|information|off|info`) is reused
+  by `missing_file` and friends and must **not** be widened. Add a separate
+  `CROSS_FILE_CASE_MISMATCH_SEVERITIES` set that also includes `auto`, used
+  **only** when validating/mapping `caseMismatch`. Map public
+  `crossFile.diagnostics.caseMismatch` → `cross_file.diagnostics.case_mismatch`
+  (the `normalize_name` machinery already accepts both camelCase and snake_case
+  spellings).
+- **Validation** (`src/utils/config-validator.ts`): validate `case_mismatch`
+  against the five-value set (including `auto`); invalid values fall back to
+  `auto` with a warning, matching the existing severity-validation pattern. The
+  other cross-file severities keep rejecting `auto`.
 - **Mapping into resolver config** (`scope_resolver_config_for`,
   `src/scope-resolver/index.ts:99`): thread `case_mismatch` so the resolver
   phase knows the configured severity. `host_is_case_sensitive()` resolves
@@ -350,15 +444,26 @@ Linux CI and are skipped (or inverted) on macOS, mirroring Raven's
 
 **Forward integration:**
 - dependency graph: a wrong-cased static `do` builds the edge to the
-  real-cased file URI; ambiguous → no edge.
+  real-cased file URI; ambiguous → no edge. Cover both the script-relative and
+  working-directory join (exercising the `ForwardCall` `raw_path` /
+  `working_directory` context).
 - forward-scope-resolver: case-only call resolves; **no** undefined-symbol
   cascade; **exactly one** `path_case_mismatch` at the call site.
+- **single-emission guard:** a grandparent→parent→child chain where the
+  grandparent's `do` is case-only emits the diagnostic **once** (on the
+  grandparent), not re-emitted on the parent or child whose inherited scope
+  re-resolves that forward call.
 - go-to-definition navigates a wrong-cased `do` path; ambiguous → no nav.
 
 **Backward integration:**
 - scope-resolver: wrong-cased `@lsp-done-by`/`@lsp-included-by` resolves the
   parent; no cascade; one backward-worded `path_case_mismatch` (asserts the
-  message makes no execution claim); ambiguous → unresolved.
+  message makes no execution claim and shows `raw_path` vs real-cased name);
+  ambiguous → unresolved.
+- **invalidation (M3):** a case-only callee registers under the real-cased URI
+  in ScopeResolver's reverse-dependency / cache maps, and editing or
+  correcting the callee invalidates the right entry (no stale-key
+  revalidation mismatch).
 
 **Config:**
 - parse/validate/map `crossFile.diagnostics.caseMismatch` including `auto`;
