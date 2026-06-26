@@ -279,21 +279,44 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
                     return Promise.resolve(undefined);
                 },
                 showWarningMessage: () => Promise.resolve(undefined),
-                createTerminal: () => ({
-                    name: 'Stata',
-                    processId: Promise.resolve(1234),
-                    show: () => {},
-                    sendText: (text: string) => {
-                        const temp_file_path = text.replace(
-                            /^[^ ]+\s+/,
-                            ''
-                        );
+                createTerminal: (
+                    options?: { shellArgs?: string[] }
+                ) => {
+                    // The integrated first command is delivered via launch
+                    // args (shellArgs: [command, `"<path>"']), not typed,
+                    // so simulate Stata reading that baked file. The path
+                    // is the last arg wrapped in Stata compound quotes.
+                    const the_shell_args = options?.shellArgs;
+                    if (
+                        Array.isArray(the_shell_args)
+                        && the_shell_args.length >= 2
+                    ) {
+                        const wrapped =
+                            the_shell_args[the_shell_args.length - 1];
+                        const temp_file_path = wrapped
+                            .replace(/^`"/, '')
+                            .replace(/"'$/, '');
                         simulate_stata_read(
                             temp_file_path,
                             current_read_attempt_state
                         );
-                    },
-                }),
+                    }
+                    return {
+                        name: 'Stata',
+                        processId: Promise.resolve(1234),
+                        show: () => {},
+                        sendText: (text: string) => {
+                            const temp_file_path = text.replace(
+                                /^[^ ]+\s+/,
+                                ''
+                            );
+                            simulate_stata_read(
+                                temp_file_path,
+                                current_read_attempt_state
+                            );
+                        },
+                    };
+                },
                 onDidCloseTerminal: () => ({
                     dispose: () => {},
                 }),
