@@ -27,6 +27,7 @@ import {
     OutOfScopeSymbolKind,
 } from '../utils/out-of-scope-message';
 import { undefined_symbol_data_fields } from '../utils/undefined-symbol-diagnostic';
+import { host_is_case_sensitive } from '../utils/file-path-utils';
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
@@ -47,6 +48,12 @@ type OutOfScopeRewriteMatch = {
     symbol_kind: OutOfScopeSymbolKind;
     reason: OutOfScopeMessageReason;
 };
+
+// ─── Testability seam for host_is_case_sensitive ─────────────────────────────
+// Production code calls the real implementation. Tests can override this
+// via DiagnosticsProvider.set_host_probe() to inject a deterministic stub
+// without mocking the module.
+let host_probe: (seed_dir: string) => boolean = host_is_case_sensitive;
 
 export interface DiagnosticsConnection {
     sendDiagnostics(params: {
@@ -94,6 +101,23 @@ export class DiagnosticsProvider {
     ) {
         this.connection = connection;
         this.debounce_manager = debounce_manager || null;
+    }
+
+    /**
+     * Override the host case-sensitivity probe for testing.
+     * Restoring the original after the test is the caller's responsibility.
+     * In production, the probe defaults to the real `host_is_case_sensitive`.
+     *
+     * @param probe - A function that returns true when the host FS is
+     *   case-sensitive for the given seed directory.
+     * @returns The previous probe (so tests can restore it).
+     */
+    static set_host_probe(
+        probe: (seed_dir: string) => boolean,
+    ): (seed_dir: string) => boolean {
+        const previous = host_probe;
+        host_probe = probe;
+        return previous;
     }
 
     /**
@@ -1017,18 +1041,67 @@ export class DiagnosticsProvider {
 
     /**
      * Convert a directive diagnostic to an LSP Diagnostic.
+     *
+     * Routing is keyed on `diagnostic.kind` (structured discriminator):
+     * - `'path_case_mismatch'` → severity from
+     *   `config.cross_file.diagnostics.case_mismatch`; independent of
+     *   `missing_file` severity.
+     * - `'missing_file'` or legacy message containing 'Cannot read file' →
+     *   existing `missing_file` policy, unchanged.
      */
     private convert_directive_diagnostic(
         diagnostic: DirectiveDiagnostic,
         config: StataLSPConfig
     ): Diagnostic | null {
-        // Check config severity for missing file diagnostics
-        const missing_file_severity = config.cross_file?.diagnostics?.missing_file;
-        if (diagnostic.message.includes('Cannot read file') && missing_file_severity === 'off') {
+        // ── path_case_mismatch branch ─────────────────────────────────────────
+        if (diagnostic.kind === 'path_case_mismatch') {
+            const case_mismatch_setting =
+                config.cross_file?.diagnostics?.case_mismatch ?? 'auto';
+
+            if (case_mismatch_setting === 'off') {
+                return null;
+            }
+
+            let severity: DiagnosticSeverity;
+            if (case_mismatch_setting === 'auto') {
+                // Probe the host filesystem. Fall back to case-sensitive
+                // (Warning) when seed dir is missing — conservative choice
+                // that surfaces the problem rather than silently hiding it.
+                const seed_dir = diagnostic.case_mismatch_seed_dir;
+                const is_sensitive = seed_dir !== undefined
+                    ? host_probe(seed_dir)
+                    : true; // no seed → assume case-sensitive
+                severity = is_sensitive
+                    ? DiagnosticSeverity.Warning
+                    : DiagnosticSeverity.Information;
+            } else {
+                severity =
+                    this.get_severity_from_config(case_mismatch_setting)
+                    ?? DiagnosticSeverity.Warning;
+            }
+
+            return {
+                range: diagnostic.range,
+                message: diagnostic.message,
+                severity,
+                code: diagnostic.code,
+                source: 'sight',
+            };
+        }
+
+        // ── missing_file / legacy branch ─────────────────────────────────────
+        // Keyed on `kind === 'missing_file'` OR the legacy prose substring.
+        const is_missing_file =
+            diagnostic.kind === 'missing_file' ||
+            diagnostic.message.includes('Cannot read file');
+
+        const missing_file_severity =
+            config.cross_file?.diagnostics?.missing_file;
+        if (is_missing_file && missing_file_severity === 'off') {
             return null;
         }
 
-        const severity = diagnostic.message.includes('Cannot read file')
+        const severity = is_missing_file
             ? (
                 missing_file_severity
                     ? this.get_severity_from_config(missing_file_severity)

@@ -493,6 +493,9 @@ export enum StataDiagnosticCode {
   INVALID_OPERATOR_SEQUENCE = 6002,
   CSTYLE_LOGICAL_IN_CONTROL_FLOW = 6003,
   MIXED_LOGICAL_OPERATORS = 6004,
+
+  // Cross-file diagnostics
+  PATH_CASE_MISMATCH = 7001,
 }
 
 // Structured payload carried on a diagnostic's `data` field for undefined-symbol
@@ -624,6 +627,18 @@ export interface DirectiveDiagnostic {
   range: Range;
   severity: 'error' | 'warning' | 'information';
   source?: DiagnosticSource;  // Source attribution for diagnostics from parent files
+  /** Structured discriminator for severity routing. */
+  kind?: 'missing_file' | 'path_case_mismatch';
+  /** Stable code included on the emitted LSP Diagnostic (e.g. PATH_CASE_MISMATCH). */
+  code?: StataDiagnosticCode;
+  /**
+   * Real existing directory used to probe host case-sensitivity when
+   * `config.cross_file.diagnostics.case_mismatch === 'auto'`.
+   * Typically the workspace root that contains the mismatched path.
+   * When absent and severity is 'auto', the converter treats the host
+   * as case-sensitive (Warning) as a conservative fallback.
+   */
+  case_mismatch_seed_dir?: string;
 }
 
 export interface ScalarSymbol {
