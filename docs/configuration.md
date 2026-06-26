@@ -272,6 +272,7 @@ maxCalleeRevalidations = 10
 missingFile = "warning"
 maxDepth = "information"
 callSiteIdentification = "information"
+caseMismatch = "auto"
 ```
 
 | Option                                  | Type                 | Default         | Description                                                             |
@@ -297,8 +298,11 @@ callSiteIdentification = "information"
 | `crossFile.assumeCallSite`              | `"end"` \| `"start"` | `"end"`         | Where to assume call site when not specified and inference fails        |
 | `crossFile.diagnostics.missingFile`     | severity             | `"warning"`     | Severity for missing directive file diagnostics                         |
 | `crossFile.diagnostics.callSiteIdentification` | severity      | `"information"` | Severity for call site identification diagnostics                       |
+| `crossFile.diagnostics.caseMismatch`    | severity + `"auto"`  | `"auto"`        | Severity for case-only path mismatch diagnostics. `"auto"` maps to `information` on case-insensitive filesystems (macOS/Windows) and `warning` on case-sensitive ones (Linux/CI). Independent of `missingFile`; not suppressible via `@lsp-ignore` — silence with `"off"` or fix the path. |
 
-Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias: `"info"` for `"information"`)
+Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias:
+`"info"` for `"information"`). `crossFile.diagnostics.caseMismatch` also
+accepts `"auto"` (not valid for other cross-file severity keys).
 
 Both `indexWorkspace` and `crossFile.indexWorkspace` default to `true`.
 Workspace indexing runs only when both are enabled; setting either to `false`
