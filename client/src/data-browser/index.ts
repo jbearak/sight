@@ -24,6 +24,7 @@ import {
 } from './signal-watcher.js';
 import {
     ADO_ASSET_DEFS,
+    build_install_prompt_message,
     classify_ado_asset,
     aggregate_bundle_state,
     ensure_bundle_installed as ensure_bundle_installed_core,
@@ -413,17 +414,11 @@ async function set_stata_commands_install_permission(
 }
 
 export async function prompt_for_stata_commands_install(
-    target_dir: string
+    status: BundleInstallStatus
 ): Promise<VviewInstallPromptChoice> {
     const my_result =
         await vscode.window.showInformationMessage(
-            'Would you like to add Sight\'s Stata commands '
-            + '("vview" and "browse") to Stata?\n\n'
-            + '"vview" opens datasets in VS Code; in console '
-            + 'Stata, "browse" (and its abbreviations "brows", '
-            + '"brow", "bro", "br") becomes an alias for it (the '
-            + 'GUI built-in "browse" is unaffected).\n\n'
-            + `Install location: ${target_dir}`,
+            build_install_prompt_message(status),
             INSTALL_BUTTON,
             NOT_NOW_BUTTON
         );

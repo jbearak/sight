@@ -10,6 +10,7 @@ import * as path from 'path';
 import {
     ADO_ASSET_DEFS,
     aggregate_bundle_state,
+    build_install_prompt_message,
     classify_ado_asset,
     ensure_bundle_installed,
     get_install_permission,
@@ -351,6 +352,42 @@ describe('bundle aggregate state', () => {
         expect(
             aggregate_bundle_state(['up_to_date', 'foreign'])
         ).toBe('up_to_date');
+    });
+});
+
+describe('install prompt message', () => {
+    it('frames consent as adding the browse alias when vview is already installed', () => {
+        const my_dir = create_temp_dir();
+        const my_status = build_bundle(my_dir, {
+            vview: { state: 'up_to_date' },
+            browse: { state: 'missing' },
+        });
+
+        const my_message =
+            build_install_prompt_message(my_status);
+
+        // Acknowledges vview is already present and frames the
+        // consent around the browse alias, not a fresh vview install.
+        expect(my_message).toContain('already installed');
+        expect(my_message).toContain('browse');
+        expect(my_message).toContain(my_dir);
+        // Must NOT present vview as something to be added.
+        expect(my_message).not.toContain('"vview" and "browse"');
+    });
+
+    it('offers the full vview + browse install when vview is absent', () => {
+        const my_dir = create_temp_dir();
+        const my_status = build_bundle(my_dir, {
+            vview: { state: 'missing' },
+            browse: { state: 'missing' },
+        });
+
+        const my_message =
+            build_install_prompt_message(my_status);
+
+        expect(my_message).toContain('"vview" and "browse"');
+        expect(my_message).toContain(my_dir);
+        expect(my_message).not.toContain('already installed');
     });
 });
 
