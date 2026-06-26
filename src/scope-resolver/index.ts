@@ -48,6 +48,7 @@ import {
 import { build_do_include_pattern } from '../utils/stata-call-patterns';
 import {
     resolve_path_rich,
+    resolve_forward_call_rich,
     compute_forward_call_join,
     type RichResolveFs,
 } from '../utils/file-path-utils';
@@ -2599,23 +2600,32 @@ export class ScopeResolver {
      *    my_call.path (pre-joined analyzer path), same as today's behavior.
      */
     private resolve_callee_uri(my_call: ForwardCall): string {
-        const my_joined = compute_forward_call_join(
-            my_call.raw_path,
-            my_call.path,
-            my_call.working_directory,
-        );
         if (this.workspace_roots.length > 0) {
-            const my_outcome = resolve_path_rich(my_joined, {
-                workspace_roots: this.workspace_roots,
-                fs: this.resolve_fs,
-            });
+            // Use the shared WD-join-with-fallback helper so that
+            // scope-resolver reverse-dep keys agree with dep-graph and
+            // forward-scope-resolver even when WD-join misses but the
+            // script-relative path exists.
+            const my_outcome = resolve_forward_call_rich(
+                my_call.raw_path,
+                my_call.path,
+                my_call.working_directory,
+                {
+                    workspace_roots: this.workspace_roots,
+                    fs: this.resolve_fs,
+                },
+            );
             if (
                 my_outcome.kind === 'exact' ||
                 my_outcome.kind === 'case_only'
             ) {
                 return URI.file(my_outcome.path).toString();
             }
-            // ambiguous or missing: fall back to joined path
+            // ambiguous or missing: fall back to WD-joined path
+            const my_joined = compute_forward_call_join(
+                my_call.raw_path,
+                my_call.path,
+                my_call.working_directory,
+            );
             return URI.file(my_joined).toString();
         }
         // Roots unset (early startup): fall back to as-typed path,

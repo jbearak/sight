@@ -552,3 +552,80 @@ export function compute_forward_call_join(
     // analyzer's already-resolved path (script-relative join).
     return caller_resolved;
 }
+
+// ─── WD-join-with-script-relative-fallback helper ────────────────────────────
+
+/**
+ * Resolve a forward call with WD-priority and script-relative fallback.
+ *
+ * Resolution order:
+ *   1. Compute `my_joined = compute_forward_call_join(raw_path,
+ *      caller_resolved_original, working_directory)`.
+ *   2. Run `resolve_path_rich(my_joined, ...)` → `my_primary`.
+ *   3. If `my_primary` is `exact` or `case_only` → return `my_primary`.
+ *   4. Else if `my_joined !== caller_resolved_original` (i.e., WD changed
+ *      the join path), try `resolve_path_rich(caller_resolved_original, ...)`
+ *      → `my_fallback`. If `my_fallback` is `exact` or `case_only` → return
+ *      `my_fallback`.
+ *   5. Else return `my_primary` (ambiguous or missing from WD join).
+ *
+ * This mirrors the pre-WD behavior: when the WD-resolved path is missing or
+ * ambiguous, we fall back to the script-relative path the analyzer pre-
+ * computed. The fallback is skipped when the joined path IS the script-
+ * relative path (working_directory was unset or raw_path was absolute) to
+ * avoid a redundant lookup.
+ *
+ * All three consumers — forward-scope-resolver, dependency-graph, and
+ * scope-resolver's reverse-dep helper — should call this function so they
+ * all agree on which URI is the callee.
+ *
+ * @param raw_path                 - Path exactly as written in source.
+ * @param caller_resolved_original - `ForwardCall.path`: analyzer's
+ *                                   pre-joined (script-relative) path.
+ * @param working_directory        - Effective WD at the call site, or
+ *                                   undefined.
+ * @param options                  - Forwarded to `resolve_path_rich`.
+ */
+export function resolve_forward_call_rich(
+    raw_path: string,
+    caller_resolved_original: string,
+    working_directory: string | undefined,
+    options?: { workspace_roots?: string[]; fs?: RichResolveFs },
+): PathCaseOutcome {
+    const my_joined = compute_forward_call_join(
+        raw_path,
+        caller_resolved_original,
+        working_directory,
+    );
+
+    const my_rich_opts: RichResolveOptions = {
+        try_do_fallback: true,
+        workspace_roots: options?.workspace_roots,
+        fs: options?.fs,
+    };
+
+    const my_primary = resolve_path_rich(my_joined, my_rich_opts);
+
+    if (my_primary.kind === 'exact' || my_primary.kind === 'case_only') {
+        return my_primary;
+    }
+
+    // WD-join did not find the file. If the WD changed the join path,
+    // try the script-relative fallback (caller_resolved_original).
+    if (my_joined !== caller_resolved_original) {
+        const my_fallback = resolve_path_rich(
+            caller_resolved_original,
+            my_rich_opts,
+        );
+        if (
+            my_fallback.kind === 'exact' ||
+            my_fallback.kind === 'case_only'
+        ) {
+            return my_fallback;
+        }
+    }
+
+    // Both paths failed (or they were identical): return the primary outcome
+    // so callers see the original WD-based requested path in diagnostics.
+    return my_primary;
+}

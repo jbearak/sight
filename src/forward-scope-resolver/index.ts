@@ -24,9 +24,9 @@ import {
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { ScopeResolver } from '../scope-resolver';
 import {
-    resolve_path_rich,
-    compute_forward_call_join,
+    resolve_forward_call_rich,
     type RichResolveFs,
+    type PathCaseOutcome,
 } from '../utils/file-path-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
 
@@ -83,11 +83,13 @@ export class ForwardScopeResolver {
 
     /**
      * Re-resolve a forward call path using the working directory context
-     * and the rich path resolver for case-insensitive fallback.
+     * and the rich path resolver with WD-priority and script-relative
+     * fallback.
      *
-     * Replaces the former ad-hoc `existsSync` + `.do` chain.  The
-     * joined path is computed via `compute_forward_call_join` (same logic
-     * as the dependency graph) and classified by `resolve_path_rich`.
+     * Delegates to `resolve_forward_call_rich` (shared across all three
+     * consumers) which tries:
+     *   1. WD-join + `resolve_path_rich`  (WD priority).
+     *   2. Script-relative path fallback when (1) misses/is ambiguous.
      *
      * Returns `{ resolved_path, outcome_kind, ... }`:
      * - `exact`     → use `resolved_path`; no diagnostic needed.
@@ -108,23 +110,17 @@ export class ForwardScopeResolver {
         requested_path?: string;
         seed_dir?: string;
     } {
-        // Compute the joined absolute path (WD-priority for relative paths)
-        const my_joined = compute_forward_call_join(
+        const my_outcome: PathCaseOutcome = resolve_forward_call_rich(
             raw_path,
             original_resolved_path,
             working_directory,
+            {
+                workspace_roots: this.workspace_roots.length > 0
+                    ? this.workspace_roots
+                    : undefined,
+                fs: this.resolve_fs,
+            },
         );
-
-        const my_rich_opts = {
-            try_do_fallback: true,
-            workspace_roots: this.workspace_roots.length > 0
-                ? this.workspace_roots
-                : undefined,
-            fs: this.resolve_fs,
-        };
-
-        // Classify the WD-priority join via resolve_path_rich
-        const my_outcome = resolve_path_rich(my_joined, my_rich_opts);
 
         if (my_outcome.kind === 'exact') {
             return {
@@ -144,12 +140,14 @@ export class ForwardScopeResolver {
             };
         }
 
-        // WD-priority join was missing or ambiguous: return the outcome so
-        // the caller can report accordingly.  No second fallback — the dep-
-        // graph uses compute_forward_call_join exclusively; diverging here
-        // would mean edges and diagnostics disagree on which URI is the callee.
+        // ambiguous or missing: return the outcome so the caller can report.
+        // For ambiguous, resolve_forward_call_rich returns the primary
+        // (WD-join) outcome. For missing, same. The as-joined path is
+        // embedded in my_outcome.requested for missing/ambiguous kinds.
         return {
-            resolved_path: my_joined,
+            resolved_path: my_outcome.kind === 'ambiguous' || my_outcome.kind === 'missing'
+                ? (my_outcome as { requested: string }).requested
+                : original_resolved_path,
             outcome_kind: my_outcome.kind,
         };
     }
@@ -172,8 +170,8 @@ export class ForwardScopeResolver {
     /**
      * Simple path resolver used by
      * `compute_effective_end_state_locals`.  Routes through
-     * `compute_forward_call_join` + `resolve_path_rich` (with the
-     * resolver's `workspace_roots`) so that case-only paths are resolved
+     * `resolve_forward_call_rich` (with the resolver's `workspace_roots`)
+     * so that WD-priority paths with script-relative fallback are resolved
      * to their real-cased on-disk path — consistent with `resolve_call_path`
      * and the dependency graph.  Does NOT emit diagnostics; the returned
      * path is used only to read the file for end-state computation.
@@ -187,19 +185,17 @@ export class ForwardScopeResolver {
         original_resolved_path: string,
         working_directory?: string,
     ): string {
-        const my_joined = compute_forward_call_join(
+        const my_outcome = resolve_forward_call_rich(
             raw_path,
             original_resolved_path,
             working_directory,
+            {
+                workspace_roots: this.workspace_roots.length > 0
+                    ? this.workspace_roots
+                    : undefined,
+                fs: this.resolve_fs,
+            },
         );
-
-        const my_outcome = resolve_path_rich(my_joined, {
-            try_do_fallback: true,
-            workspace_roots: this.workspace_roots.length > 0
-                ? this.workspace_roots
-                : undefined,
-            fs: this.resolve_fs,
-        });
 
         if (
             my_outcome.kind === 'exact' ||
@@ -208,8 +204,11 @@ export class ForwardScopeResolver {
             return my_outcome.path;
         }
 
-        // ambiguous or missing: fall through; get_callee_scope will error
-        return my_joined;
+        // ambiguous or missing: fall through; get_callee_scope will error.
+        // Return the requested path so the error message is meaningful.
+        return my_outcome.kind === 'ambiguous' || my_outcome.kind === 'missing'
+            ? (my_outcome as { requested: string }).requested
+            : original_resolved_path;
     }
 
     /**

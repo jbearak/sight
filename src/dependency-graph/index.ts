@@ -10,7 +10,7 @@ import * as node_path from 'path';
 import { ForwardCall, ForwardCallType } from '../types';
 import { logger } from '../utils/logger';
 import {
-    resolve_path_rich,
+    resolve_forward_call_rich,
     compute_forward_call_join,
     type RichResolveFs,
 } from '../utils/file-path-utils';
@@ -107,10 +107,19 @@ export class DependencyGraph {
             // Only attempt case resolution when workspace roots are set.
             let callee_uri: string;
             if (this.workspace_roots.length > 0) {
-                const my_outcome = resolve_path_rich(my_joined_path, {
-                    workspace_roots: this.workspace_roots,
-                    fs: this.resolve_fs,
-                });
+                // Use the shared WD-join-with-fallback helper so that
+                // dep-graph edges and forward-scope-resolver agree on the
+                // callee URI even when the WD-joined path is missing/
+                // ambiguous but the script-relative path exists.
+                const my_outcome = resolve_forward_call_rich(
+                    my_call.raw_path,
+                    my_call.path,
+                    my_call.working_directory,
+                    {
+                        workspace_roots: this.workspace_roots,
+                        fs: this.resolve_fs,
+                    },
+                );
                 if (
                     my_outcome.kind === 'exact' ||
                     my_outcome.kind === 'case_only'
@@ -119,7 +128,7 @@ export class DependencyGraph {
                     callee_uri = this.path_to_uri(my_outcome.path);
                 } else {
                     // ambiguous or missing: keep today's behavior
-                    // (key by as-typed path, no real-file edge)
+                    // (key by as-joined path, no real-file edge)
                     callee_uri = this.path_to_uri(my_joined_path);
                 }
             } else {
