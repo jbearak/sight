@@ -718,6 +718,10 @@ export function resolve_forward_call_rich(
 
     // All candidates missing (or list was somehow empty): return the first
     // outcome so callers see the primary (WD-joined) `requested` path.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    return my_first_outcome!;
+    if (my_first_outcome) {
+        return my_first_outcome;
+    }
+    // Unreachable: the candidate list always has at least the script-relative
+    // entry. Return a well-formed missing outcome to satisfy the type.
+    return { kind: 'missing', requested: raw_path };
 }
