@@ -41,15 +41,19 @@ resolved before any ado-file on your path, so the native Data Editor opens
 exactly as before; Sight's `browse.ado` never runs. The alias also guards on
 `c(console)` as a safeguard.
 
-Only the exact command `browse` is aliased — abbreviations such as `br` and
-`bro` are not (Stata does not abbreviate ado-file command names). Because the
-alias forwards to `vview`, only `vview`'s options apply; native-`browse`-only
-options such as `nolabel` are not supported in the CLI.
+The standard abbreviations of `browse` — `brows`, `brow`, `bro`, and `br` —
+are aliased too. Stata does not auto-abbreviate ado-file command names, so
+Sight ships a small forwarder ado for each (`br.ado`, `bro.ado`, etc.). In the
+GUI, the built-in `browse` command and its abbreviations are resolved first,
+so all of these still open the native Data Editor; in the CLI they forward to
+`vview`. Because the alias forwards to `vview`, only `vview`'s options apply;
+native-`browse`-only options such as `nolabel` are not supported in the CLI.
 
 ### Installation
 
-Sight automatically installs its Stata commands (`vview.ado` and `browse.ado`)
-the first time the extension activates. You'll see a one-time prompt asking for
+Sight automatically installs its Stata commands (`vview.ado`, `browse.ado`,
+and the `browse` abbreviation forwarders `brows`/`brow`/`bro`/`br`) the first
+time the extension activates. You'll see a one-time prompt asking for
 permission.
 
 - **macOS**: `~/ado/`
@@ -58,12 +62,14 @@ permission.
 
 On macOS, Sight defaults to `OLDPLACE` (`~/ado/`) rather than `PERSONAL` to avoid sandbox-related writes into `~/Documents/Stata/...`.
 
-If you already have your own `browse.ado` on the ado-path, Sight leaves it
-untouched and installs only `vview.ado`.
+If you already have your own copy of any of the generic command names
+(`browse`, `brows`, `brow`, `bro`, `br`) on the ado-path, Sight leaves that
+file untouched and installs only the ones it owns (`vview.ado` is always
+installed, since `vview` is Sight's own command name).
 
-You can override the install location with the `sight.personalAdoDir` setting, or manually install with the **Sight: Install Stata Commands (vview, browse)** command from the Command Palette.
+You can override the install location with the `sight.personalAdoDir` setting, or manually install with the **Sight: Install Stata Commands** command from the Command Palette.
 
-To re-trigger the install prompt (e.g., after declining), run **Sight: Reset Stata Commands Install Permission** from the Command Palette. To remove the installed files (Sight-owned copies only), run **Sight: Uninstall Stata Commands (vview, browse)**.
+To re-trigger the install prompt (e.g., after declining), run **Sight: Reset Stata Commands Install Permission** from the Command Palette. To remove the installed files (Sight-owned copies only), run **Sight: Uninstall Stata Commands**.
 
 ### How It Works
 
@@ -219,4 +225,4 @@ With the default limit of 10,000 entries and ~3-4 alias keys per dataset, this a
 | `sight.dataBrowser.persistSort` | `true` | Remember and restore the row sort per dataset (matching shape) |
 | `sight.dataBrowser.persistFilters` | `true` | Remember and restore the row filters per dataset (matching shape) |
 | `sight.dataBrowser.maxStoredLayouts` | `10000` | Maximum stored layout entries (see above) |
-| `sight.personalAdoDir` | (platform default) | Path where Sight installs `vview.ado` |
+| `sight.personalAdoDir` | (platform default) | Path where Sight installs its Stata commands |

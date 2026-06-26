@@ -837,3 +837,156 @@ describe('bundle uninstall', () => {
         ).toBeUndefined();
     });
 });
+
+// The four `browse` abbreviation forwarders share `browse`'s generic-name
+// ownership posture. build_bundle models only vview+browse, so these
+// data-driven tests exercise install-write, foreign protection, and
+// ownership-gated uninstall directly over the production abbreviation defs.
+describe('browse-abbreviation bundle assets', () => {
+    const THE_ABBREV_DEFS = ADO_ASSET_DEFS.filter((my_def) =>
+        ['brows.ado', 'brow.ado', 'bro.ado', 'br.ado'].includes(
+            my_def.name
+        )
+    );
+
+    function make_abbrev_asset(
+        def: (typeof ADO_ASSET_DEFS)[number],
+        target_dir: string,
+        extra: Partial<AdoAssetStatus> = {}
+    ): AdoAssetStatus {
+        const my_asset: AdoAsset = {
+            name: def.name,
+            target_path: path.join(target_dir, def.name),
+            bundled_path: path.join('/bundle', def.name),
+            bundled_content: `${def.marker}\nprogram define x\nend\n`,
+            marker: def.marker,
+            protect_foreign: def.protect_foreign,
+        };
+        return {
+            ...my_asset,
+            ...extra,
+            state:
+                extra.state
+                ?? classify_ado_asset(my_asset, () => {}),
+        };
+    }
+
+    it('ships all four standard abbreviations as protected assets', () => {
+        expect(THE_ABBREV_DEFS.map((my_def) => my_def.name)).toEqual([
+            'brows.ado',
+            'brow.ado',
+            'bro.ado',
+            'br.ado',
+        ]);
+        for (const my_def of THE_ABBREV_DEFS) {
+            // Generic built-in names: a user's own copy must be protected.
+            expect(my_def.protect_foreign).toBe(true);
+        }
+    });
+
+    for (const my_def of THE_ABBREV_DEFS) {
+        describe(my_def.name, () => {
+            it('writes a missing target on install', () => {
+                const my_dir = create_temp_dir();
+                const my_asset = make_abbrev_asset(my_def, my_dir);
+                expect(my_asset.state).toBe('missing');
+
+                expect(
+                    install_bundle(
+                        {
+                            state: 'missing',
+                            target_dir: my_dir,
+                            assets: [my_asset],
+                        },
+                        () => {}
+                    )
+                ).toBe(true);
+                expect(
+                    fs.readFileSync(
+                        path.join(my_dir, my_def.name),
+                        'utf-8'
+                    )
+                ).toBe(my_asset.bundled_content);
+            });
+
+            it('never overwrites a foreign file and leaves it intact', () => {
+                const my_dir = create_temp_dir();
+                const my_foreign =
+                    `*! my own ${my_def.name}\nprogram define x\nend\n`;
+                fs.writeFileSync(
+                    path.join(my_dir, my_def.name),
+                    my_foreign
+                );
+
+                const my_asset = make_abbrev_asset(my_def, my_dir);
+                expect(my_asset.state).toBe('foreign');
+
+                expect(
+                    install_bundle(
+                        {
+                            state: 'up_to_date',
+                            target_dir: my_dir,
+                            assets: [my_asset],
+                        },
+                        () => {}
+                    )
+                ).toBe(true);
+                expect(
+                    fs.readFileSync(
+                        path.join(my_dir, my_def.name),
+                        'utf-8'
+                    )
+                ).toBe(my_foreign);
+            });
+
+            it('uninstall removes a Sight-owned copy but not a foreign one', () => {
+                const my_owned_dir = create_temp_dir();
+                const my_owned = make_abbrev_asset(
+                    my_def,
+                    my_owned_dir
+                );
+                fs.writeFileSync(
+                    path.join(my_owned_dir, my_def.name),
+                    my_owned.bundled_content as string
+                );
+                uninstall_bundle(
+                    {
+                        state: 'up_to_date',
+                        target_dir: my_owned_dir,
+                        assets: [my_owned],
+                    },
+                    () => {}
+                );
+                expect(
+                    fs.existsSync(
+                        path.join(my_owned_dir, my_def.name)
+                    )
+                ).toBe(false);
+
+                const my_foreign_dir = create_temp_dir();
+                const my_foreign =
+                    `*! my own ${my_def.name}\nprogram define x\nend\n`;
+                fs.writeFileSync(
+                    path.join(my_foreign_dir, my_def.name),
+                    my_foreign
+                );
+                uninstall_bundle(
+                    {
+                        state: 'up_to_date',
+                        target_dir: my_foreign_dir,
+                        assets: [
+                            make_abbrev_asset(my_def, my_foreign_dir),
+                        ],
+                    },
+                    () => {}
+                );
+                expect(
+                    fs.readFileSync(
+                        path.join(my_foreign_dir, my_def.name),
+                        'utf-8'
+                    )
+                ).toBe(my_foreign);
+            });
+        });
+    }
+});

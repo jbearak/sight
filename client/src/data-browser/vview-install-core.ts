@@ -59,6 +59,34 @@ export const ADO_ASSET_DEFS: AdoAssetDef[] = [
             '*! browse.ado — CLI alias for vview (Sight Data Browser)',
         protect_foreign: true,
     },
+    // Standard Stata abbreviations of `browse`. Like `browse`, each
+    // is a generic built-in name (in the GUI, the built-in command
+    // and its abbreviations shadow these ados), so a user's own
+    // same-named file must be protected.
+    {
+        name: 'brows.ado',
+        marker:
+            '*! brows.ado — CLI alias for vview (Sight Data Browser)',
+        protect_foreign: true,
+    },
+    {
+        name: 'brow.ado',
+        marker:
+            '*! brow.ado — CLI alias for vview (Sight Data Browser)',
+        protect_foreign: true,
+    },
+    {
+        name: 'bro.ado',
+        marker:
+            '*! bro.ado — CLI alias for vview (Sight Data Browser)',
+        protect_foreign: true,
+    },
+    {
+        name: 'br.ado',
+        marker:
+            '*! br.ado — CLI alias for vview (Sight Data Browser)',
+        protect_foreign: true,
+    },
 ];
 
 // Description of one bundled ado file.

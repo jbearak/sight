@@ -365,7 +365,7 @@
         "sight.personalAdoDir": {
           "type": "string",
           "default": "",
-          "description": "Path where Sight installs vview.ado. Leave empty for the platform default (macOS: ~/ado/, Linux: ~/ado/personal/, Windows: %USERPROFILE%\\ado\\personal\\)."
+          "description": "Path where Sight installs its Stata commands. Leave empty for the platform default (macOS: ~/ado/, Linux: ~/ado/personal/, Windows: %USERPROFILE%\\ado\\personal\\)."
         },
         "sight.dataBrowser.maxStoredLayouts": {
           "type": "number",
@@ -503,7 +503,7 @@
       },
       {
         "command": "sight.installVviewAdo",
-        "title": "Sight: Install Stata Commands (vview, browse)"
+        "title": "Sight: Install Stata Commands"
       },
       {
         "command": "sight.resetVviewInstallPermission",
@@ -511,7 +511,7 @@
       },
       {
         "command": "sight.uninstallStataCommands",
-        "title": "Sight: Uninstall Stata Commands (vview, browse)"
+        "title": "Sight: Uninstall Stata Commands"
       }
     ],
     "keybindings": [
@@ -734,7 +734,7 @@
     "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --external:vscode --minify && node -e \"require('fs').writeFileSync('dist/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
     "bundle:webview-test": "bunx esbuild src/data-browser/webview/test-harness/index.tsx --bundle --platform=browser --format=iife --outfile=dist-test/toolbar-wrap-harness/index.js --loader:.css=css",
-    "copy-vview-ado": "mkdir -p stata && cp ../stata/vview.ado stata/vview.ado && cp ../stata/browse.ado stata/browse.ado",
+    "copy-vview-ado": "mkdir -p stata && rm -f stata/*.ado && cp ../stata/*.ado stata/",
     "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/ && node -e \"require('fs').writeFileSync('server/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "compile": "bun run copy-vview-ado && bun run bundle && bun run bundle:webview",
     "watch": "tsc -watch -p ./",
