@@ -28,6 +28,7 @@ import {
     compute_forward_call_join,
     type RichResolveFs,
 } from '../utils/file-path-utils';
+import { get_workspace_root_for_path } from '../utils/workspace-roots';
 
 export interface ForwardScopeConfig {
     max_forward_depth: number;
@@ -143,67 +144,10 @@ export class ForwardScopeResolver {
             };
         }
 
-        // WD-priority join was missing or ambiguous. Try the original
-        // (script-relative) resolved path as a fallback — only when it
-        // differs from the WD join (avoids a redundant second resolve call).
-        // This preserves backward compatibility: when the analyzer's
-        // existing path join already found the correct file (e.g. when no
-        // WD context applies or when WD points to a non-existent directory),
-        // the forward resolver still succeeds rather than emitting a
-        // spurious "Cannot read file" diagnostic.
-        // The dep-graph does NOT apply this fallback (it keys by WD join
-        // exclusively), so in a non-WD scenario both agree on the joined
-        // path; in a WD-but-invalid scenario the dep-graph edge may be
-        // missing, but the forward diagnostic guard (depth > 0 or
-        // different owner) prevents spurious cascades.
-        if (my_joined !== original_resolved_path) {
-            if (this.workspace_roots.length > 0) {
-                // With workspace roots, use resolve_path_rich on the
-                // original path for proper case-only detection.
-                const my_fallback = resolve_path_rich(
-                    original_resolved_path,
-                    my_rich_opts,
-                );
-                if (my_fallback.kind === 'exact') {
-                    return {
-                        resolved_path: my_fallback.path,
-                        outcome_kind: 'exact',
-                    };
-                }
-                if (my_fallback.kind === 'case_only') {
-                    const my_seed = this.find_seed_dir(my_fallback.path);
-                    return {
-                        resolved_path: my_fallback.path,
-                        outcome_kind: 'case_only',
-                        requested_path: my_fallback.requested,
-                        seed_dir: my_seed,
-                    };
-                }
-            } else {
-                // Without workspace roots (e.g. early startup, test
-                // harnesses), resolve_path_rich's walk-from-root can fail
-                // in sandbox/restricted environments. Fall back to the
-                // original existsSync approach for backward compatibility.
-                if (fs.existsSync(original_resolved_path)) {
-                    return {
-                        resolved_path: original_resolved_path,
-                        outcome_kind: 'exact',
-                    };
-                }
-                if (
-                    !original_resolved_path.endsWith('.do') &&
-                    fs.existsSync(original_resolved_path + '.do')
-                ) {
-                    return {
-                        resolved_path: original_resolved_path + '.do',
-                        outcome_kind: 'exact',
-                    };
-                }
-            }
-        }
-
-        // Both join attempts failed: return the WD-priority outcome so
-        // the caller can report accordingly.
+        // WD-priority join was missing or ambiguous: return the outcome so
+        // the caller can report accordingly.  No second fallback — the dep-
+        // graph uses compute_forward_call_join exclusively; diverging here
+        // would mean edges and diagnostics disagree on which URI is the callee.
         return {
             resolved_path: my_joined,
             outcome_kind: my_outcome.kind,
@@ -214,60 +158,58 @@ export class ForwardScopeResolver {
      * Find the workspace root that contains `fs_path` (the deepest one).
      * Returns it as the seed directory for the host case-sensitivity probe.
      * Falls back to the file's own directory if no workspace root matches.
+     *
+     * Delegates to the shared `get_workspace_root_for_path` helper so
+     * there is one source of truth for the deepest-containing-root search.
      */
     private find_seed_dir(fs_path: string): string {
-        const my_norm = fs_path.replace(/\\/g, '/');
-        let my_best: string | undefined;
-        let my_best_len = -1;
-        for (const my_root of this.workspace_roots) {
-            const my_root_norm = my_root.replace(/\\/g, '/');
-            const my_prefix = my_root_norm.endsWith('/')
-                ? my_root_norm
-                : my_root_norm + '/';
-            if (
-                my_norm.startsWith(my_prefix) &&
-                my_root.length > my_best_len
-            ) {
-                my_best = my_root;
-                my_best_len = my_root.length;
-            }
-        }
-        return my_best ?? path.dirname(fs_path);
+        return (
+            get_workspace_root_for_path(this.workspace_roots, fs_path) ??
+            path.dirname(fs_path)
+        );
     }
 
     /**
      * Simple path resolver used by
-     * `compute_effective_end_state_locals`.  This helper only needs a
-     * best-effort path (for reading the file); it does NOT emit
-     * diagnostics, so the rich `resolve_path_rich`-based classification
-     * is unnecessary overhead.  It replicates the original ad-hoc
-     * existsSync + .do chain so that `compute_effective_end_state_locals`
-     * continues to work correctly in all environments (including sandbox
-     * environments where `readdirSync('/')` may not list all directories).
+     * `compute_effective_end_state_locals`.  Routes through
+     * `compute_forward_call_join` + `resolve_path_rich` (with the
+     * resolver's `workspace_roots`) so that case-only paths are resolved
+     * to their real-cased on-disk path — consistent with `resolve_call_path`
+     * and the dependency graph.  Does NOT emit diagnostics; the returned
+     * path is used only to read the file for end-state computation.
      *
-     * Returns the best path found, or `original_resolved_path` if
-     * nothing else works.
+     * Returns the real-cased path for exact/case_only outcomes, the
+     * as-joined path for ambiguous/missing (which will produce an error in
+     * `get_callee_scope`, matching today's behavior).
      */
     private resolve_call_path_simple(
         raw_path: string,
         original_resolved_path: string,
         working_directory?: string,
     ): string {
-        // Try the joined path (WD-priority)
         const my_joined = compute_forward_call_join(
             raw_path,
             original_resolved_path,
             working_directory,
         );
 
-        if (fs.existsSync(my_joined)) return my_joined;
-        if (!my_joined.endsWith('.do')) {
-            const my_with_do = my_joined + '.do';
-            if (fs.existsSync(my_with_do)) return my_with_do;
+        const my_outcome = resolve_path_rich(my_joined, {
+            try_do_fallback: true,
+            workspace_roots: this.workspace_roots.length > 0
+                ? this.workspace_roots
+                : undefined,
+            fs: this.resolve_fs,
+        });
+
+        if (
+            my_outcome.kind === 'exact' ||
+            my_outcome.kind === 'case_only'
+        ) {
+            return my_outcome.path;
         }
 
-        // Fall back to original (will produce an error in get_callee_scope)
-        return original_resolved_path;
+        // ambiguous or missing: fall through; get_callee_scope will error
+        return my_joined;
     }
 
     /**
