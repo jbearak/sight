@@ -41,10 +41,14 @@ import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from
 import { logger } from '../utils/logger';
 import { error_message } from '../utils/error-message';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
-import { get_workspace_root_for_uri } from '../utils/workspace-roots';
+import {
+    get_workspace_root_for_uri,
+    get_workspace_root_for_path,
+} from '../utils/workspace-roots';
 import { build_do_include_pattern } from '../utils/stata-call-patterns';
 import {
     resolve_path_rich,
+    compute_forward_call_join,
     host_is_case_sensitive,
     type RichResolveFs,
 } from '../utils/file-path-utils';
@@ -673,29 +677,18 @@ export class ScopeResolver {
             };
         }
         if (my_outcome.kind === 'case_only') {
-            // Find the workspace root that contains the real path as the
-            // seed dir for the host case-sensitivity probe.
-            const my_real_norm = my_outcome.path.replace(/\\/g, '/');
-            let my_seed: string | undefined;
-            let my_seed_len = -1;
-            for (const my_root of this.workspace_roots) {
-                const my_root_norm = my_root.replace(/\\/g, '/');
-                const my_prefix = my_root_norm.endsWith('/')
-                    ? my_root_norm
-                    : my_root_norm + '/';
-                if (
-                    my_real_norm.startsWith(my_prefix) &&
-                    my_root.length > my_seed_len
-                ) {
-                    my_seed = my_root;
-                    my_seed_len = my_root.length;
-                }
-            }
+            // Use the shared helper to find the deepest workspace root
+            // that contains the real path (consistent with forward-scope-
+            // resolver's seed-dir logic; uses path.sep, no '/' assumption).
+            const my_seed = get_workspace_root_for_path(
+                this.workspace_roots,
+                my_outcome.path,
+            ) ?? path.dirname(my_outcome.path);
             return {
                 real_path: my_outcome.path,
                 outcome_kind: 'case_only',
                 requested_path: my_outcome.requested,
-                seed_dir: my_seed ?? path.dirname(my_outcome.path),
+                seed_dir: my_seed,
             };
         }
         // ambiguous or missing: fall back to the as-typed directive.path
@@ -732,17 +725,12 @@ export class ScopeResolver {
             .replace(/\\/g, '/') || raw_path;
         const my_real_disp = path.relative(child_dir, real_path)
             .replace(/\\/g, '/') || real_path;
-        // Resolve effective severity for 'auto'
-        let effective_severity: 'error' | 'warning' | 'information';
-        if (my_severity === 'auto') {
-            // Treat 'auto' as 'warning' at emit time; the diagnostics
-            // provider re-resolves via host_is_case_sensitive() when
-            // case_mismatch_seed_dir is set. Default to 'warning' so the
-            // field is never undefined.
-            effective_severity = 'warning';
-        } else {
-            effective_severity = my_severity;
-        }
+        // Use 'warning' as a neutral placeholder. For path_case_mismatch
+        // diagnostics, convert_directive_diagnostic in the diagnostics
+        // provider is the SINGLE point that resolves 'auto' via
+        // host_is_case_sensitive() — it derives the final LSP severity
+        // entirely from the config setting and host probe, so this field
+        // is not consulted. We do not pre-resolve 'auto' here.
         diagnostics.push({
             // Backward directives are LSP hints — no execution claim.
             message:
@@ -750,7 +738,7 @@ export class ScopeResolver {
                 `file on disk "${my_real_disp}"; update the directive ` +
                 `to match the file's casing.`,
             range: directive.range,
-            severity: effective_severity,
+            severity: 'warning',
             kind: 'path_case_mismatch',
             code: StataDiagnosticCode.PATH_CASE_MISMATCH,
             case_mismatch_seed_dir: seed_dir,
@@ -2615,6 +2603,48 @@ export class ScopeResolver {
     }
 
     /**
+     * Resolve the real-cased callee URI for a forward call.
+     *
+     * Mirrors `DependencyGraph.update_caller` exactly so the scope-resolver's
+     * own reverse-dependency maps key callees by the same URI the dep-graph
+     * uses — required for invalidation to fire on the correct map entry.
+     *
+     * Algorithm:
+     * 1. Compute the joined absolute path honoring working_directory (same
+     *    as the dep-graph via compute_forward_call_join).
+     * 2. When workspace_roots are set, call resolve_path_rich to get the
+     *    real on-disk casing.
+     *    - exact or case_only  → use the real-cased path
+     *    - ambiguous or missing → fall back to the joined path (no edge)
+     * 3. When workspace_roots are empty (early startup) → fall back to
+     *    my_call.path (pre-joined analyzer path), same as today's behavior.
+     */
+    private resolve_callee_uri(my_call: ForwardCall): string {
+        const my_joined = compute_forward_call_join(
+            my_call.raw_path,
+            my_call.path,
+            my_call.working_directory,
+        );
+        if (this.workspace_roots.length > 0) {
+            const my_outcome = resolve_path_rich(my_joined, {
+                workspace_roots: this.workspace_roots,
+                fs: this.resolve_fs,
+            });
+            if (
+                my_outcome.kind === 'exact' ||
+                my_outcome.kind === 'case_only'
+            ) {
+                return URI.file(my_outcome.path).toString();
+            }
+            // ambiguous or missing: fall back to joined path
+            return URI.file(my_joined).toString();
+        }
+        // Roots unset (early startup): fall back to as-typed path,
+        // no case normalization — same as today's behavior.
+        return URI.file(my_call.path).toString();
+    }
+
+    /**
      * Compute the diff between old and new forward calls.
      */
     private compute_call_edge_diff(
@@ -2624,19 +2654,19 @@ export class ScopeResolver {
         const old_by_callee = new Map<string, CallEdge[]>();
         const new_by_callee = new Map<string, CallEdge[]>();
 
-        // Group old calls by callee URI
+        // Group old calls by callee URI (real-cased, matching dep-graph keys)
         for (const my_call of old_calls) {
             if (!my_call.is_static || !my_call.path) continue;
-            const my_uri = URI.file(my_call.path).toString();
+            const my_uri = this.resolve_callee_uri(my_call);
             const edges = old_by_callee.get(my_uri) ?? [];
             edges.push({ call_type: my_call.type, call_site_line: my_call.call_site_line });
             old_by_callee.set(my_uri, edges);
         }
 
-        // Group new calls by callee URI
+        // Group new calls by callee URI (real-cased, matching dep-graph keys)
         for (const my_call of new_calls) {
             if (!my_call.is_static || !my_call.path) continue;
-            const my_uri = URI.file(my_call.path).toString();
+            const my_uri = this.resolve_callee_uri(my_call);
             const edges = new_by_callee.get(my_uri) ?? [];
             edges.push({ call_type: my_call.type, call_site_line: my_call.call_site_line });
             new_by_callee.set(my_uri, edges);
@@ -3121,7 +3151,10 @@ export class ScopeResolver {
                 continue;
             }
 
-            const callee_uri = URI.file(my_call.path).toString();
+            // Use real-cased URI (via resolve_callee_uri) so this map keys
+            // callees the same way dependency-graph does — required for
+            // invalidation to fire when the real-cased callee changes.
+            const callee_uri = this.resolve_callee_uri(my_call);
             const edge: CallEdge = {
                 call_type: my_call.type,
                 call_site_line: my_call.call_site_line,

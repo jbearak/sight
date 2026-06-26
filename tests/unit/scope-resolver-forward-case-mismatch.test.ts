@@ -340,5 +340,215 @@ describe(
                 );
             },
         );
+
+        // ─── (3) M3: forward callee reverse-dep map uses real-cased URI ───────
+
+        describe(
+            '(3) M3: case-only forward callee registers under real-cased URI ' +
+                'in callee_to_callers; editing real-cased callee invalidates caller',
+            () => {
+                it(
+                    'register_forward_call_relationships_from_cache keys by ' +
+                        'real-cased URI, not as-typed URI',
+                    async () => {
+                        // On-disk: helpers/Clean.do; source: do helpers/clean
+                        write_file('helpers/Clean.do', 'global g = 1\n');
+                        const helpers_dir = path.join(temp_dir, 'helpers');
+                        const caller_path = write_file('main.do', '');
+                        const caller_uri = to_uri(caller_path);
+
+                        // Real on-disk path/URI (correct casing)
+                        const real_callee_path = path.join(
+                            temp_dir, 'helpers', 'Clean.do',
+                        );
+                        const real_callee_uri = to_uri(real_callee_path);
+
+                        // As-typed path/URI (wrong casing in source: clean.do)
+                        const wrong_callee_path = path.join(
+                            temp_dir, 'helpers', 'clean.do',
+                        );
+                        const wrong_callee_uri = to_uri(wrong_callee_path);
+
+                        // Inject fs so resolve_path_rich maps clean.do → Clean.do
+                        const the_overrides = new Map<
+                            string,
+                            Array<{ name: string; is_file: boolean }>
+                        >();
+                        the_overrides.set(helpers_dir, [
+                            { name: 'Clean.do', is_file: true },
+                        ]);
+                        const my_patched_fs = make_patched_fs(the_overrides);
+                        scope_resolver.set_resolve_fs(my_patched_fs);
+                        scope_resolver.set_workspace_roots([temp_dir]);
+
+                        // Build a ForwardCall as the analyzer would produce it:
+                        // raw_path is what the source typed; path is the
+                        // pre-joined (wrong-cased) absolute path.
+                        const { Range } = await import(
+                            'vscode-languageserver'
+                        );
+                        const my_forward_call = {
+                            path: wrong_callee_path,
+                            raw_path: 'helpers/clean',
+                            is_static: true,
+                            type: 'do' as const,
+                            call_site_line: 0,
+                            range: Range.create(0, 0, 0, 14),
+                            source: 'command' as const,
+                        };
+
+                        // Register via the private method (same path the
+                        // server takes when a callee is parsed from disk).
+                        const the_symbols = {
+                            programs: new Map(),
+                            localMacros: new Map(),
+                            globalMacros: new Map(),
+                            variables: new Map(),
+                            scalars: new Map(),
+                            matrices: new Map(),
+                        };
+                        (scope_resolver as any)
+                            .register_forward_call_relationships_from_cache(
+                                caller_uri,
+                                [my_forward_call],
+                                the_symbols,
+                            );
+
+                        // callee_to_callers MUST key by the real-cased URI
+                        const the_callers_real =
+                            scope_resolver.get_callers_for_callee(
+                                real_callee_uri,
+                            );
+                        expect(the_callers_real.has(caller_uri)).toBe(true);
+
+                        // Wrong-cased URI must NOT appear as a callee key
+                        const the_callers_wrong =
+                            scope_resolver.get_callers_for_callee(
+                                wrong_callee_uri,
+                            );
+                        expect(the_callers_wrong.has(caller_uri)).toBe(false);
+                    },
+                );
+
+                it(
+                    'update_reverse_dependencies keys by real-cased URI so ' +
+                        'that invalidating the real callee cascades to caller',
+                    async () => {
+                        write_file('helpers/Clean.do', 'global g = 1\n');
+                        const helpers_dir = path.join(temp_dir, 'helpers');
+                        const caller_path = write_file('main.do', '');
+                        const caller_uri = to_uri(caller_path);
+                        const real_callee_path = path.join(
+                            temp_dir, 'helpers', 'Clean.do',
+                        );
+                        const real_callee_uri = to_uri(real_callee_path);
+                        const wrong_callee_path = path.join(
+                            temp_dir, 'helpers', 'clean.do',
+                        );
+
+                        const the_overrides = new Map<
+                            string,
+                            Array<{ name: string; is_file: boolean }>
+                        >();
+                        the_overrides.set(helpers_dir, [
+                            { name: 'Clean.do', is_file: true },
+                        ]);
+                        const my_patched_fs = make_patched_fs(the_overrides);
+                        scope_resolver.set_resolve_fs(my_patched_fs);
+                        scope_resolver.set_workspace_roots([temp_dir]);
+
+                        const { Range } = await import(
+                            'vscode-languageserver'
+                        );
+                        const my_forward_call = {
+                            path: wrong_callee_path,
+                            raw_path: 'helpers/clean',
+                            is_static: true,
+                            type: 'do' as const,
+                            call_site_line: 0,
+                            range: Range.create(0, 0, 0, 14),
+                            source: 'command' as const,
+                        };
+                        const the_symbols = {
+                            programs: new Map(),
+                            localMacros: new Map(),
+                            globalMacros: new Map(),
+                            variables: new Map(),
+                            scalars: new Map(),
+                            matrices: new Map(),
+                        };
+
+                        // Simulate what the server does on open-document change
+                        scope_resolver.update_reverse_dependencies(
+                            caller_uri,
+                            [my_forward_call],
+                            the_symbols,
+                        );
+
+                        // callee_to_callers must key by real-cased URI
+                        const the_callers_real =
+                            scope_resolver.get_callers_for_callee(
+                                real_callee_uri,
+                            );
+                        expect(the_callers_real.has(caller_uri)).toBe(true);
+
+                        // Wrong-cased URI must NOT be a key
+                        const the_callers_wrong =
+                            scope_resolver.get_callers_for_callee(
+                                to_uri(wrong_callee_path),
+                            );
+                        expect(the_callers_wrong.has(caller_uri)).toBe(false);
+                    },
+                );
+
+                it(
+                    'invalidating by real-cased callee URI removes dependent ' +
+                        'scope-cache entries (cascade via dependent_uris)',
+                    async () => {
+                        // On-disk: helpers/Clean.do; source: do helpers/clean
+                        write_file('helpers/Clean.do', 'global g = 1\n');
+                        const helpers_dir = path.join(temp_dir, 'helpers');
+                        const caller_content = 'do helpers/clean\n';
+                        const caller_path = write_file(
+                            'main.do',
+                            caller_content,
+                        );
+                        const caller_uri = to_uri(caller_path);
+                        const real_callee_path = path.join(
+                            temp_dir, 'helpers', 'Clean.do',
+                        );
+                        const real_callee_uri = to_uri(real_callee_path);
+
+                        const the_overrides = new Map<
+                            string,
+                            Array<{ name: string; is_file: boolean }>
+                        >();
+                        the_overrides.set(helpers_dir, [
+                            { name: 'Clean.do', is_file: true },
+                        ]);
+                        const my_patched_fs = make_patched_fs(the_overrides);
+                        forward_resolver.set_resolve_fs(my_patched_fs);
+                        forward_resolver.set_workspace_roots([temp_dir]);
+                        scope_resolver.set_resolve_fs(my_patched_fs);
+                        scope_resolver.set_workspace_roots([temp_dir]);
+
+                        // First resolve populates scope cache with
+                        // dependent_uris containing the real-cased callee URI
+                        // (the forward-scope-resolver uses the real path).
+                        await scope_resolver.resolve(caller_uri, caller_content);
+                        scope_resolver.reset_cache_metrics();
+
+                        // Invalidating by real-cased callee URI must cascade
+                        // to caller's scope cache via cascade_invalidate_scope_cache_for_uri.
+                        scope_resolver.invalidate_scope_cache(real_callee_uri);
+
+                        const the_metrics = scope_resolver.get_cache_metrics();
+                        expect(
+                            the_metrics.scope.invalidations,
+                        ).toBeGreaterThan(0);
+                    },
+                );
+            },
+        );
     },
 );
