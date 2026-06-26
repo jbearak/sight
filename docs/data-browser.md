@@ -41,15 +41,19 @@ resolved before any ado-file on your path, so the native Data Editor opens
 exactly as before; Sight's `browse.ado` never runs. The alias also guards on
 `c(console)` as a safeguard.
 
-Only the exact command `browse` is aliased — abbreviations such as `br` and
-`bro` are not (Stata does not abbreviate ado-file command names). Because the
-alias forwards to `vview`, only `vview`'s options apply; native-`browse`-only
-options such as `nolabel` are not supported in the CLI.
+The standard abbreviations of `browse` — `brows`, `brow`, `bro`, and `br` —
+are aliased too. Stata does not auto-abbreviate ado-file command names, so
+Sight ships a small forwarder ado for each (`br.ado`, `bro.ado`, etc.). In the
+GUI, the built-in `browse` command and its abbreviations are resolved first,
+so all of these still open the native Data Editor; in the CLI they forward to
+`vview`. Because the alias forwards to `vview`, only `vview`'s options apply;
+native-`browse`-only options such as `nolabel` are not supported in the CLI.
 
 ### Installation
 
-Sight automatically installs its Stata commands (`vview.ado` and `browse.ado`)
-the first time the extension activates. You'll see a one-time prompt asking for
+Sight automatically installs its Stata commands (`vview.ado`, `browse.ado`,
+and the `browse` abbreviation forwarders `brows`/`brow`/`bro`/`br`) the first
+time the extension activates. You'll see a one-time prompt asking for
 permission.
 
 - **macOS**: `~/ado/`

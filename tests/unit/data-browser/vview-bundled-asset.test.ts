@@ -158,6 +158,90 @@ describe('bundled browse alias asset', () => {
     });
 });
 
+describe('bundled browse-abbreviation alias assets', () => {
+    // `browse` can be abbreviated to `brows`/`brow`/`bro`/`br`; each
+    // abbreviation ships its own forwarder ado, since Stata does not
+    // auto-abbreviate ado command names.
+    const THE_ABBREVIATIONS = [
+        'brows',
+        'brow',
+        'bro',
+        'br',
+    ];
+
+    for (const my_abbrev of THE_ABBREVIATIONS) {
+        const my_file_name = `${my_abbrev}.ado`;
+        const my_source_path = path.join(
+            REPO_ROOT,
+            'stata',
+            my_file_name
+        );
+
+        const load_source = (): string =>
+            fs.readFileSync(my_source_path, 'utf-8');
+
+        describe(my_file_name, () => {
+            it('matches the source file in client/stata', () => {
+                const my_client_asset_path = path.join(
+                    REPO_ROOT,
+                    'client',
+                    'stata',
+                    my_file_name
+                );
+
+                expect(fs.existsSync(my_source_path)).toBe(true);
+                expect(
+                    fs.existsSync(my_client_asset_path)
+                ).toBe(true);
+                expect(
+                    fs.readFileSync(
+                        my_client_asset_path,
+                        'utf-8'
+                    )
+                ).toBe(load_source());
+            });
+
+            it('is a pure vview forwarder', () => {
+                const my_source = load_source();
+
+                expect(my_source).toContain(
+                    `program define ${my_abbrev}`
+                );
+                expect(my_source).toContain('vview `0\'');
+            });
+
+            it('guards on console mode so the GUI built-in is never replaced', () => {
+                const my_source = load_source();
+
+                expect(my_source).toContain(
+                    '`"`c(console)\'"\' != "console"'
+                );
+                expect(my_source).toContain('exit 199');
+            });
+
+            it('names the typed command in its guard message', () => {
+                const my_source = load_source();
+
+                expect(my_source).toContain(
+                    `di as err "${my_abbrev}: the Sight alias `
+                );
+            });
+
+            it('carries the stable Sight ownership marker on its first line', () => {
+                const my_first_line = load_source().split(
+                    '\n',
+                    1
+                )[0];
+
+                expect(my_first_line).toBe(
+                    `*! ${my_file_name} — CLI alias for vview `
+                    + '(Sight Data Browser)'
+                );
+            });
+        });
+    }
+});
+
 describe('ado ownership markers', () => {
     it('each marker equals the first line of its canonical ado', () => {
         // Ownership detection must use the FULL banner line, not a
