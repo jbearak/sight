@@ -3160,7 +3160,10 @@ export class ScopeResolver {
         // Build caller_to_callees map: callee_uri -> CallEdge[]
         const callee_edges_map = new Map<string, CallEdge[]>();
 
-        // Register each callee relationship
+        // Register each callee relationship. Compute the callee URI ONCE per
+        // call and reuse it for all maps and last_forward_calls — no redundant
+        // resolve_callee_uri calls.
+        const the_stored: Array<{ call: ForwardCall; resolved_uri: string }> = [];
         for (const my_call of forward_calls) {
             // Skip dynamic paths (containing macro references)
             if (!my_call.is_static || !my_call.path) {
@@ -3170,32 +3173,35 @@ export class ScopeResolver {
             // Use real-cased URI (via resolve_callee_uri) so this map keys
             // callees the same way dependency-graph does — required for
             // invalidation to fire when the real-cased callee changes.
-            const callee_uri = this.resolve_callee_uri(my_call, caller_uri);
+            const my_callee_uri = this.resolve_callee_uri(my_call, caller_uri);
             const edge: CallEdge = {
                 call_type: my_call.type,
                 call_site_line: my_call.call_site_line,
             };
 
             // Add to callee_to_callers
-            let caller_set = this.reverse_deps.callee_to_callers.get(callee_uri);
+            let caller_set = this.reverse_deps.callee_to_callers.get(my_callee_uri);
             if (!caller_set) {
                 caller_set = new Set();
-                this.reverse_deps.callee_to_callers.set(callee_uri, caller_set);
+                this.reverse_deps.callee_to_callers.set(my_callee_uri, caller_set);
             }
             caller_set.add(caller_uri);
 
             // Accumulate edges for caller_to_callees
-            let edges = callee_edges_map.get(callee_uri);
+            let edges = callee_edges_map.get(my_callee_uri);
             if (!edges) {
                 edges = [];
-                callee_edges_map.set(callee_uri, edges);
+                callee_edges_map.set(my_callee_uri, edges);
             }
             edges.push(edge);
 
             // Track this callee for forward_caller_to_callees
-            my_callees.add(callee_uri);
+            my_callees.add(my_callee_uri);
 
-            this.log(`[forward-call-cache] Registered: ${caller_uri} calls ${callee_uri}`);
+            // Collect for last_forward_calls (avoids second resolve_callee_uri call)
+            the_stored.push({ call: my_call, resolved_uri: my_callee_uri });
+
+            this.log(`[forward-call-cache] Registered: ${caller_uri} calls ${my_callee_uri}`);
         }
 
         // Store in caller_to_callees map (spec 5.1)
@@ -3209,14 +3215,8 @@ export class ScopeResolver {
         }
 
         // Store forward_calls for diff computation (spec 5.4), paired with
-        // the resolved callee URI so deletion cleanup doesn't need to re-
-        // resolve from a filesystem that may no longer contain the file.
-        const the_stored = forward_calls
-            .filter(c => c.is_static && c.path)
-            .map(c => ({
-                call: c,
-                resolved_uri: this.resolve_callee_uri(c, caller_uri),
-            }));
+        // the resolved callee URI (captured inside the loop above so we do
+        // not call resolve_callee_uri a second time).
         this.reverse_deps.last_forward_calls.set(caller_uri, the_stored);
 
         // Compute and store interface hash

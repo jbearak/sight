@@ -4,7 +4,6 @@
 
 import * as node_fs from 'fs';
 import * as node_path from 'path';
-import { get_workspace_root_for_path } from './workspace-roots';
 
 // Commands that accept file paths as their first argument
 export const FILE_COMMANDS = new Set([
@@ -507,6 +506,36 @@ function check_case_sensitivity(
     return true;
 }
 
+/**
+ * Return the deepest workspace root that strictly contains `dir_path`
+ * (i.e. `dir_path` starts with `root + path.sep`, after normalising
+ * separators). Returns `null` when no root contains `dir_path`.
+ * Unlike `get_workspace_root_for_path` there is NO fallback to
+ * `workspace_roots[0]` — callers can rely on `null` meaning "truly
+ * outside every workspace root".
+ */
+function find_strict_containing_root(
+    workspace_roots: string[],
+    dir_path: string,
+): string | null {
+    // Normalise separators so POSIX paths match on all platforms.
+    const norm_dir = dir_path.replace(/\\/g, '/');
+    let best_root: string | null = null;
+    let best_length = -1;
+    for (const my_root of workspace_roots) {
+        const my_norm = my_root.replace(/\\/g, '/');
+        const my_prefix = my_norm.endsWith('/') ? my_norm : my_norm + '/';
+        if (
+            (norm_dir === my_norm || norm_dir.startsWith(my_prefix)) &&
+            my_norm.length > best_length
+        ) {
+            best_root = my_root;
+            best_length = my_norm.length;
+        }
+    }
+    return best_root;
+}
+
 // ─── WD-join / script-relative / workspace-root fallback helper ──────────────
 
 /**
@@ -570,15 +599,20 @@ export function resolve_forward_call_rich(
     }
 
     // Tier 3: workspace-root-relative (relative paths only, skip if no
-    // workspace_roots or candidate already present)
+    // workspace_roots or candidate already present).
+    // STRICT containment: only add this candidate when caller_dir is
+    // actually INSIDE a workspace root. Do NOT use
+    // get_workspace_root_for_path here — it falls back to
+    // workspace_roots[0] when nothing matches, which would add a
+    // spurious candidate for callers outside the workspace.
     if (!my_is_abs && options?.workspace_roots?.length) {
-        const my_containing_root = get_workspace_root_for_path(
+        const my_strict_root = find_strict_containing_root(
             options.workspace_roots,
             caller_dir,
         );
-        if (my_containing_root) {
+        if (my_strict_root !== null) {
             const my_root_candidate = node_path.normalize(
-                node_path.join(my_containing_root, my_normalized_raw),
+                node_path.join(my_strict_root, my_normalized_raw),
             );
             if (!the_candidates.includes(my_root_candidate)) {
                 the_candidates.push(my_root_candidate);

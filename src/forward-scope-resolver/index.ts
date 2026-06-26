@@ -89,7 +89,8 @@ export class ForwardScopeResolver {
      * Delegates to `resolve_forward_call_rich` (shared across all three
      * consumers) which tries:
      *   1. WD-join + `resolve_path_rich`  (WD priority).
-     *   2. Script-relative path fallback when (1) misses/is ambiguous.
+     *   2. Script-relative path fallback when (1) misses (ambiguous stops
+     *      immediately without falling through to this tier).
      *
      * Returns `{ resolved_path, outcome_kind, ... }`:
      * - `exact`     → use `resolved_path`; no diagnostic needed.

@@ -275,4 +275,40 @@ describe('resolve_forward_call_rich', () => {
         // fire when the primary outcome is `ambiguous`.
         expect(my_outcome.kind).toBe('ambiguous');
     });
+
+    // RC1: caller OUTSIDE all workspace_roots must NOT get a tier-3
+    // workspace-root-relative candidate. A file that exists under
+    // workspace_roots[0] but NOT relative to the outside caller must
+    // resolve to MISSING, not a spurious hit.
+    it('caller outside all workspace_roots: no tier-3 candidate added', () => {
+        // Filesystem layout:
+        //   /ws/helpers/setup.do  — exists under the workspace root
+        //   /outside              — caller dir, NOT inside /ws
+        //
+        // Before the fix, tier-3 used get_workspace_root_for_path which
+        // falls back to workspace_roots[0] (/ws) and would wrongly add
+        // /ws/helpers/setup as a candidate, producing an exact hit.
+        // After the fix, find_strict_containing_root returns null for
+        // /outside → tier-3 is skipped → only the script-relative
+        // candidate /outside/helpers/setup is tried → MISSING.
+        const the_fs = make_fs({
+            '/ws':             [['helpers', false]],
+            '/ws/helpers':     [['setup.do', true]],
+            '/outside':        [], // no helpers/ here — script-relative misses
+        });
+
+        const my_outcome = resolve_forward_call_rich(
+            'helpers/setup',
+            '/outside',         // caller_dir — outside /ws
+            undefined,          // no working_directory
+            {
+                workspace_roots: ['/ws'],
+                fs: the_fs,
+            },
+        );
+
+        // Tier-3 must NOT fire; the only candidate (/outside/helpers/setup)
+        // is MISSING.
+        expect(my_outcome.kind).toBe('missing');
+    });
 });
