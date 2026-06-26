@@ -25,9 +25,32 @@ vview price mpg if foreign, replace  // Refresh existing panel
 | `name(string)` | Custom tab name (default: current filename) |
 | `rows(integer)` | Cap the number of displayed observations. Applied *after* `if`/`in` filtering — useful when you want to limit output without knowing the exact observation count (e.g., `vview, rows(500)` on a large dataset) |
 
+### `browse` in console Stata
+
+In console Stata (the CLI), the built-in `browse` command does not exist — it
+is a GUI-only feature. Sight ships a small `browse.ado` alongside `vview.ado`
+so that, **in the CLI only**, `browse` becomes an alias for `vview`:
+
+```stata
+browse                 // same as vview
+browse price mpg if foreign
+```
+
+This does **not** affect the Stata GUI. There, the built-in `browse` is
+resolved before any ado-file on your path, so the native Data Editor opens
+exactly as before; Sight's `browse.ado` never runs. The alias also guards on
+`c(console)` as a safeguard.
+
+Only the exact command `browse` is aliased — abbreviations such as `br` and
+`bro` are not (Stata does not abbreviate ado-file command names). Because the
+alias forwards to `vview`, only `vview`'s options apply; native-`browse`-only
+options such as `nolabel` are not supported in the CLI.
+
 ### Installation
 
-Sight automatically installs `vview.ado` the first time the extension activates. You'll see a one-time prompt asking for permission.
+Sight automatically installs its Stata commands (`vview.ado` and `browse.ado`)
+the first time the extension activates. You'll see a one-time prompt asking for
+permission.
 
 - **macOS**: `~/ado/`
 - **Windows**: `%USERPROFILE%\ado\personal\`
@@ -35,9 +58,12 @@ Sight automatically installs `vview.ado` the first time the extension activates.
 
 On macOS, Sight defaults to `OLDPLACE` (`~/ado/`) rather than `PERSONAL` to avoid sandbox-related writes into `~/Documents/Stata/...`.
 
-You can override the install location with the `sight.personalAdoDir` setting, or manually install with the **Sight: Install vview.ado** command from the Command Palette.
+If you already have your own `browse.ado` on the ado-path, Sight leaves it
+untouched and installs only `vview.ado`.
 
-To re-trigger the install prompt (e.g., after declining), run **Sight: Reset vview.ado Install Permission** from the Command Palette.
+You can override the install location with the `sight.personalAdoDir` setting, or manually install with the **Sight: Install Stata Commands (vview, browse)** command from the Command Palette.
+
+To re-trigger the install prompt (e.g., after declining), run **Sight: Reset Stata Commands Install Permission** from the Command Palette. To remove the installed files (Sight-owned copies only), run **Sight: Uninstall Stata Commands (vview, browse)**.
 
 ### How It Works
 
