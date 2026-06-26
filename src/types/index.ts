@@ -493,6 +493,9 @@ export enum StataDiagnosticCode {
   INVALID_OPERATOR_SEQUENCE = 6002,
   CSTYLE_LOGICAL_IN_CONTROL_FLOW = 6003,
   MIXED_LOGICAL_OPERATORS = 6004,
+
+  // Cross-file diagnostics
+  PATH_CASE_MISMATCH = 7001,
 }
 
 // Structured payload carried on a diagnostic's `data` field for undefined-symbol
@@ -624,6 +627,18 @@ export interface DirectiveDiagnostic {
   range: Range;
   severity: 'error' | 'warning' | 'information';
   source?: DiagnosticSource;  // Source attribution for diagnostics from parent files
+  /** Structured discriminator for severity routing. */
+  kind?: 'missing_file' | 'path_case_mismatch';
+  /** Stable code included on the emitted LSP Diagnostic (e.g. PATH_CASE_MISMATCH). */
+  code?: StataDiagnosticCode;
+  /**
+   * Real existing directory used to probe host case-sensitivity when
+   * `config.cross_file.diagnostics.case_mismatch === 'auto'`.
+   * Typically the workspace root that contains the mismatched path.
+   * When absent and severity is 'auto', the converter treats the host
+   * as case-sensitive (Warning) as a conservative fallback.
+   */
+  case_mismatch_seed_dir?: string;
 }
 
 export interface ScalarSymbol {
@@ -706,6 +721,10 @@ export interface ScopeResolverConfig {
     max_depth?: 'error' | 'warning' | 'information' | 'off';
     // Severity for call site identification diagnostics
     call_site_identification?: 'error' | 'warning' | 'information' | 'off';
+    // Severity for case-only path mismatch diagnostics in backward
+    // directives; 'auto' resolves at emission time via
+    // host_is_case_sensitive().
+    case_mismatch?: CrossFileCaseMismatchSeverity;
   };
 }
 
@@ -728,6 +747,9 @@ export interface ScopeCacheMetrics {
   readonly invalidations: number; // alias for scope.invalidations
 }
 
+export type CrossFileCaseMismatchSeverity =
+    'auto' | 'error' | 'warning' | 'information' | 'off';
+
 export interface CrossFileConfig {
   index_workspace: boolean;
   max_indexed_files: number;
@@ -742,6 +764,8 @@ export interface CrossFileConfig {
     max_depth: 'error' | 'warning' | 'information' | 'off';
     // Severity for call site identification diagnostics
     call_site_identification?: 'error' | 'warning' | 'information' | 'off';
+    // Severity for case-mismatch diagnostics; 'auto' means the server chooses
+    case_mismatch?: CrossFileCaseMismatchSeverity;
   };
 }
 
@@ -783,9 +807,15 @@ export interface ReverseDependencyIndex {
   // Cache of the last known interface hashes for each file (dual hashing)
   interface_hashes: Map<string, DualInterfaceHash>;
 
-  // Cache of the last known forward calls for each caller URI
-  // Used to compute diffs when update_reverse_dependencies is called
-  last_forward_calls: Map<string, ForwardCall[]>;
+  // Cache of the last known forward calls for each caller URI, paired with
+  // the resolved callee URI computed at registration time (while the callee
+  // file still exists on disk). The stored URI is used during deletion
+  // cleanup so we do NOT re-resolve from the filesystem after the file is
+  // gone (which would produce the wrong-cased URI and leave a stale entry).
+  last_forward_calls: Map<string, Array<{
+    call: ForwardCall;
+    resolved_uri: string;
+  }>>;
 }
 
 export interface CallEdgeDiff {
@@ -834,6 +864,12 @@ export interface ForwardCall {
   range: Range;
   source: 'directive' | 'command';
   is_static: boolean;     // false if path contains macro references
+  // Resolution context: populated by every producer so downstream consumers
+  // can replay the join (raw_path + caller dir + working_directory) uniformly.
+  caller_uri?: string;         // URI of the file that contains the call
+  working_directory?: string;  // Effective WD at the call site; undefined means
+                               // script-relative (the raw_path join base is the
+                               // caller file's own directory).
 }
 
 export interface ForwardResolveContext {
@@ -842,7 +878,16 @@ export interface ForwardResolveContext {
   depth: number;
   diagnostics: DirectiveDiagnostic[];
   working_directory?: string;  // Inherited working directory for path resolution
-  call_chain?: string[];       // Call chain for diagnostic messages (e.g., ["parent.do", "child.do"])
+  call_chain?: string[];       // Call chain for diagnostic messages
+  /**
+   * URI of the file whose diagnostics are being collected in this
+   * resolution pass. Only path_case_mismatch diagnostics for forward
+   * calls written directly in this file (current_file_uri ===
+   * diagnostic_owner_uri && depth === 0) are emitted. Nested callee
+   * resolution and ancestor-scope builds resolve leniently but suppress
+   * the diagnostic to avoid cascade / double-emit.
+   */
+  diagnostic_owner_uri?: string;
 }
 
 export interface ForwardCallSite {

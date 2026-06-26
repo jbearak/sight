@@ -36,7 +36,10 @@ import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { is_safe_include_name } from '../utils/include-expander';
 import { compute_line_offsets } from '../utils/line-utils';
-import { get_workspace_root_for_path } from '../utils/workspace-roots';
+import {
+    get_workspace_root_for_path,
+    resolve_working_directory_directive,
+} from '../utils/workspace-roots';
 import { discover_stata_ado_paths } from '../utils/stata-install-paths';
 import {
     FindaliasResolver,
@@ -105,7 +108,7 @@ export class WorkspaceIndexer {
     private max_files_reached = false;
     private version: number = 0;
     private scan_generation: number = 0;
-    
+
     // Debouncing state for file updates
     private pending_updates: Map<string, NodeJS.Timeout> = new Map();
     private update_queue: Set<string> = new Set();
@@ -507,6 +510,41 @@ export class WorkspaceIndexer {
                 { workspace_root }
             );
 
+            // Resolve effective working directory from @lsp-cd / @lsp-wd
+            // directive via the shared helper so the value is identical to
+            // what DocumentStore stamps — required for dependency-graph edge
+            // keys to be stable across both producers.
+            //
+            // NOTE (inherited WD): DocumentStore can also inherit a working
+            // directory from parent files via ScopeResolver when the current
+            // file has no own @lsp-cd directive. The indexer does not perform
+            // that lookup because ScopeResolver itself calls the indexer
+            // (via file-parse cache) and a recursive call during bulk
+            // indexing would create re-entrant, unbounded recursion. Files
+            // that rely on inherited working-directory resolution will have
+            // their ForwardCall.working_directory set to undefined here; the
+            // dependency graph will fall back to caller-relative path
+            // resolution for those calls, which is the same behaviour as
+            // before the shared-helper alignment.
+            const effective_working_directory: string | undefined =
+                directive_result.working_directory
+                    ? resolve_working_directory_directive(
+                          directive_result.working_directory,
+                          workspace_root,
+                      )
+                    : undefined;
+
+            // Stamp caller_uri and working_directory onto command-detected
+            // forward calls produced by the analyzer.  The analyzer already
+            // sets caller_uri (= file_uri) on each call; we add
+            // working_directory here because the analyzer does not have access
+            // to the effective WD in this context (the indexer analyzes without
+            // threading WD to preserve the existing path-resolution behavior).
+            const stamped_analyzer_calls: ForwardCall[] = analyzeResult.forward_calls.map(fc => ({
+                ...fc,
+                working_directory: effective_working_directory,
+            }));
+
             // Compute context ranges for embedded language support
             const context_tracker = new ContextTracker();
             context_tracker.initialize_from_tokens(lexResult.tokens, content);
@@ -517,8 +555,9 @@ export class WorkspaceIndexer {
                 && this.should_skip_for_max_indexed_files(file_uri)) return;
 
             // Combine forward calls from analyzer (command-detected)
-            // and directive parser (directive-detected)
-            let all_forward_calls = analyzeResult.forward_calls;
+            // and directive parser (directive-detected).
+            // Stamp caller_uri and working_directory on all calls.
+            let all_forward_calls: ForwardCall[] = stamped_analyzer_calls;
             if (directive_result.forward_calls && directive_result.forward_calls.length > 0) {
                 const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
                     type: d.type,
@@ -528,9 +567,11 @@ export class WorkspaceIndexer {
                     range: d.range,
                     source: 'directive' as const,
                     is_static: true,
+                    caller_uri: file_uri,
+                    working_directory: effective_working_directory,
                 }));
                 all_forward_calls = [
-                    ...analyzeResult.forward_calls,
+                    ...stamped_analyzer_calls,
                     ...directive_forward_calls,
                 ].sort((a, b) => a.call_site_line - b.call_site_line);
             }

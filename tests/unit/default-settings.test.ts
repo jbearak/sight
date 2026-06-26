@@ -20,5 +20,11 @@ describe('DEFAULT_SETTINGS', () => {
                 false
             );
         });
+
+        it('should default case_mismatch to "auto"', () => {
+            expect(DEFAULT_SETTINGS.cross_file.diagnostics.case_mismatch).toBe(
+                'auto'
+            );
+        });
     });
 });

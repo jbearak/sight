@@ -10,6 +10,8 @@ import type { DeepPartial } from '../config-file/types';
 import { DEFAULT_SETTINGS } from '../server-handlers';
 
 type CrossFileSeverityLevel = 'error' | 'warning' | 'information' | 'off';
+type CrossFileCaseMismatchLevel =
+    'auto' | 'error' | 'warning' | 'information' | 'off';
 
 /**
  * Build a complete StataLSPConfig by validating a partial configuration, applying defaults for missing or invalid fields, and normalizing allowed values.
@@ -286,8 +288,15 @@ export function validate_comment_formatting_config(
 
         if (cross_file.diagnostics) {
             const valid_severities = ['error', 'warning', 'information', 'info', 'off'];
+            const valid_case_mismatch_severities = [
+                'auto', 'error', 'warning', 'information', 'info', 'off',
+            ];
             const normalize_sev = (s: string): CrossFileSeverityLevel =>
                 (s === 'info' ? 'information' : s) as CrossFileSeverityLevel;
+            const normalize_case_mismatch_sev = (
+                s: string
+            ): CrossFileCaseMismatchLevel =>
+                (s === 'info' ? 'information' : s) as CrossFileCaseMismatchLevel;
             if (
                 cross_file.diagnostics.missing_file &&
                 valid_severities.includes(cross_file.diagnostics.missing_file)
@@ -305,6 +314,21 @@ export function validate_comment_formatting_config(
                 valid_severities.includes(cross_file.diagnostics.call_site_identification)
             ) {
                 validated_config.cross_file.diagnostics.call_site_identification = normalize_sev(cross_file.diagnostics.call_site_identification);
+            }
+            // case_mismatch accepts 'auto' in addition to the standard
+            // severities; an invalid value falls back to 'auto' with a warning
+            if (cross_file.diagnostics.case_mismatch !== undefined) {
+                const my_raw = cross_file.diagnostics.case_mismatch as string;
+                if (valid_case_mismatch_severities.includes(my_raw)) {
+                    validated_config.cross_file.diagnostics.case_mismatch =
+                        normalize_case_mismatch_sev(my_raw);
+                } else {
+                    log_warning?.(
+                        `Invalid cross_file.diagnostics.case_mismatch: ` +
+                        `${my_raw}. Using default: auto`
+                    );
+                    validated_config.cross_file.diagnostics.case_mismatch = 'auto';
+                }
             }
         }
     }

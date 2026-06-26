@@ -490,6 +490,43 @@ Some tests intentionally trigger error paths (e.g., missing parent files in
 To enable noisy test logs while debugging, set:
 - `SIGHT_TEST_LOG=1`
 
+### Reviewing changes before a PR
+
+CI (`.github/workflows/ci.yml`) runs only `bun run typecheck` and `bun test`.
+`bun run lint` (eslint) is NOT in CI — run it yourself before opening a PR, or
+its warnings ship unnoticed:
+
+```bash
+bun run test   # typecheck + tests (the CI gate)
+bun run lint   # eslint src client/src — NOT in CI, run manually
+```
+
+When reviewing a diff (human or LLM/agent review), these checks have repeatedly
+caught real bugs that a logic-only read missed. Apply them in addition to "does
+the new logic look right":
+
+- **Replaced-primitive contract check.** When a change swaps one primitive for
+  another (`existsSync` -> `readdirSync`+`Dirent`, sync -> async, one API for
+  another), enumerate the OLD primitive's full contract and verify each property
+  survives - not just the behavior you were targeting. Example that bit us:
+  `existsSync` *follows symlinks*; `readdirSync` + `Dirent.isFile()/isDirectory()`
+  does *not* (a symlink is neither), so swapping them silently dropped symlinked
+  `do`/`include` resolution. List the old behavior; check each survives.
+- **Sweep the whole pattern, not the instance.** When a fix establishes an
+  invariant (e.g. "an `ambiguous` `PathCaseOutcome` must never fall through to a
+  concrete path"), grep for ALL consumers of that type/function and verify each,
+  rather than fixing only the call site in front of you. Multiple review rounds
+  here each surfaced one more unswept instance of an already-"fixed" pattern.
+- **Run at least one un-primed review pass.** Targeted review against a known
+  list of invariants is efficient but confirmation-biased - it finds the failure
+  modes you already suspect and misses orthogonal ones. Also review (or have a
+  reviewer review) the diff cold, with no list of expected issues, asking "what
+  could be wrong here that the author wasn't thinking about?"
+- **When replacing existing behavior, spec what the old code did.** The design's
+  "out of scope" list should be derived from the old code's actual contract, so
+  dropping a capability (e.g. symlink support) shows up as an explicit, reviewed
+  decision instead of a silent regression with no test.
+
 ### Version Bumping
 
 Use the version bump script to update package versions and optionally commit, tag, and push:

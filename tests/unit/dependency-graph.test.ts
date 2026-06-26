@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { DependencyGraph } from '../../src/dependency-graph';
 import { ForwardCall } from '../../src/types';
+import { type RichResolveFs } from '../../src/utils/file-path-utils';
 import { URI } from 'vscode-uri';
 
 function make_forward_call(
@@ -19,6 +20,98 @@ function make_forward_call(
         },
         source: 'command',
         is_static: true,
+    };
+}
+
+/**
+ * Build a ForwardCall that carries the resolution context fields
+ * (`raw_path`, `caller_uri`, `working_directory`) so the dep-graph can
+ * replay the join with `resolve_path_rich`.
+ */
+function make_forward_call_with_context(opts: {
+    type: 'do' | 'run' | 'include';
+    path: string;         // analyzer's script-relative join (as typed in path)
+    raw_path: string;     // path exactly as written in source
+    caller_uri: string;
+    call_site_line: number;
+    working_directory?: string;
+}): ForwardCall {
+    return {
+        type: opts.type,
+        path: opts.path,
+        raw_path: opts.raw_path,
+        call_site_line: opts.call_site_line,
+        range: {
+            start: { line: opts.call_site_line, character: 0 },
+            end: { line: opts.call_site_line, character: 10 },
+        },
+        source: 'command',
+        is_static: true,
+        caller_uri: opts.caller_uri,
+        working_directory: opts.working_directory,
+    };
+}
+
+/**
+ * Build a minimal injected `RichResolveFs` from a flat map of
+ * directory → entries.  Each entry has a name and a boolean
+ * `is_file` flag (false → directory).
+ *
+ * `existsSync` returns true for any path that appears as a key in
+ * `dir_entries` (treating it as an existing directory) or whose
+ * parent directory lists it as a file entry.
+ */
+function make_mock_fs(
+    dir_entries: Map<string, Array<{ name: string; is_file: boolean }>>,
+): RichResolveFs {
+    const known_paths = new Set<string>();
+    for (const [dir, entries] of dir_entries) {
+        known_paths.add(dir);
+        for (const my_entry of entries) {
+            known_paths.add(
+                dir.endsWith('/') ? `${dir}${my_entry.name}` : `${dir}/${my_entry.name}`,
+            );
+        }
+    }
+    return {
+        readdirSync(p: string, _opts: { withFileTypes: true }) {
+            const norm = p.replace(/\\/g, '/');
+            const the_entries = dir_entries.get(norm);
+            if (!the_entries) {
+                throw new Error(`ENOENT: no such directory: ${norm}`);
+            }
+            return the_entries.map(e => ({
+                name:           e.name,
+                isFile:         () => e.is_file,
+                isDirectory:    () => !e.is_file,
+                isSymbolicLink: () => false,
+            }));
+        },
+        existsSync(p: string): boolean {
+            return known_paths.has(p.replace(/\\/g, '/'));
+        },
+        statSync(p: string): { isFile(): boolean; isDirectory(): boolean } {
+            const my_norm = p.replace(/\\/g, '/');
+            // Derive the parent dir and entry name
+            const my_last_slash = my_norm.lastIndexOf('/');
+            const my_dir  = my_last_slash >= 0
+                ? my_norm.slice(0, my_last_slash)
+                : my_norm;
+            const my_name = my_last_slash >= 0
+                ? my_norm.slice(my_last_slash + 1)
+                : '';
+            const the_entries = dir_entries.get(my_dir);
+            const my_entry = the_entries?.find(e => e.name === my_name);
+            if (my_entry === undefined) {
+                throw new Error(
+                    `ENOENT: no such file or directory, stat '${p}'`,
+                );
+            }
+            return {
+                isFile:      () => my_entry.is_file,
+                isDirectory: () => !my_entry.is_file,
+            };
+        },
     };
 }
 
@@ -315,6 +408,181 @@ describe('DependencyGraph', () => {
             expect(graph.get_edge_count()).toBe(0);
             expect(graph.get_version()).toBe(0);
             expect(graph.is_scan_complete()).toBe(false);
+        });
+    });
+
+    describe('case-only path resolution (Task 6)', () => {
+        // Virtual workspace layout used by the injected fs:
+        //
+        //   /ws/
+        //     parent.do       (caller)
+        //     helpers/
+        //       Clean.do      (on-disk casing — caller writes "helpers/clean")
+        //     ambig/
+        //       Clean.do
+        //       clean.do      (two ci matches → ambiguous)
+        //     workdir/
+        //       Target.do     (resolved via working_directory)
+        //
+        const ws_root = '/ws';
+        const ws_parent_path = '/ws/parent.do';
+        const ws_parent_uri = URI.file(ws_parent_path).toString();
+
+        // Real on-disk cased URIs
+        const real_clean_uri = URI.file('/ws/helpers/Clean.do').toString();
+        const real_target_uri = URI.file('/ws/workdir/Target.do').toString();
+
+        // As-typed (wrong-cased) path the caller uses
+        const as_typed_path = '/ws/helpers/clean';     // no .do extension
+
+        let the_fs: RichResolveFs;
+
+        beforeEach(() => {
+            // Fresh graph per test
+            graph = new DependencyGraph();
+
+            the_fs = make_mock_fs(
+                new Map([
+                    ['/ws', [
+                        { name: 'parent.do', is_file: true },
+                        { name: 'helpers',   is_file: false },
+                        { name: 'ambig',     is_file: false },
+                        { name: 'workdir',   is_file: false },
+                    ]],
+                    ['/ws/helpers', [
+                        { name: 'Clean.do', is_file: true },
+                    ]],
+                    ['/ws/ambig', [
+                        { name: 'Clean.do', is_file: true },
+                        { name: 'clean.do', is_file: true },
+                    ]],
+                    ['/ws/workdir', [
+                        { name: 'Target.do', is_file: true },
+                    ]],
+                ]),
+            );
+
+            graph.set_workspace_roots([ws_root]);
+            graph.set_resolve_fs(the_fs);
+        });
+
+        it('wrong-cased script-relative do builds edge to real-cased URI', () => {
+            // The caller writes `do helpers/clean` — the analyzer's
+            // script-relative join produces "/ws/helpers/clean" (no ext).
+            // resolve_path_rich must find "helpers/Clean.do" via ci + .do
+            // fallback.
+            const my_call = make_forward_call_with_context({
+                type: 'do',
+                path: as_typed_path,         // "/ws/helpers/clean"
+                raw_path: 'helpers/clean',
+                caller_uri: ws_parent_uri,
+                call_site_line: 5,
+            });
+
+            graph.update_caller(ws_parent_uri, [my_call]);
+
+            // Edge must be keyed by the REAL-cased URI, not the as-typed one
+            const the_parents = graph.get_parents(real_clean_uri);
+            expect(the_parents).toHaveLength(1);
+            expect(the_parents[0]!.caller_uri).toBe(ws_parent_uri);
+
+            // The as-typed URI must NOT be in the graph
+            const as_typed_uri = URI.file(as_typed_path).toString();
+            expect(graph.get_parents(as_typed_uri)).toHaveLength(0);
+        });
+
+        it('wrong-cased working-directory join builds edge to real-cased URI', () => {
+            // The caller sets @lsp-cd /ws/workdir and writes `do target`.
+            // The dep-graph must join raw_path="target" with
+            // working_directory="/ws/workdir" to produce
+            // "/ws/workdir/target", which resolves to "Target.do" via
+            // ci + .do fallback.
+            const my_call = make_forward_call_with_context({
+                type: 'do',
+                path: '/ws/target',          // script-relative (wrong base)
+                raw_path: 'target',
+                caller_uri: ws_parent_uri,
+                call_site_line: 10,
+                working_directory: '/ws/workdir',
+            });
+
+            graph.update_caller(ws_parent_uri, [my_call]);
+
+            const the_parents = graph.get_parents(real_target_uri);
+            expect(the_parents).toHaveLength(1);
+            expect(the_parents[0]!.caller_uri).toBe(ws_parent_uri);
+        });
+
+        it('ambiguous ci matches (2+) keeps today\'s behavior — no real-file edge', () => {
+            // /ws/ambig has both CLEAN.do and Clean.do — both are
+            // case-insensitive matches for "clean.do", but neither is
+            // an exact match → ambiguous.
+            const ambig_fs = make_mock_fs(
+                new Map([
+                    ['/ws', [
+                        { name: 'parent.do', is_file: true },
+                        { name: 'ambig',     is_file: false },
+                    ]],
+                    ['/ws/ambig', [
+                        { name: 'CLEAN.do', is_file: true },
+                        { name: 'Clean.do', is_file: true },
+                    ]],
+                ]),
+            );
+
+            const my_ambig_graph = new DependencyGraph();
+            my_ambig_graph.set_workspace_roots([ws_root]);
+            my_ambig_graph.set_resolve_fs(ambig_fs);
+
+            const as_typed_ambig = '/ws/ambig/clean.do';
+            const my_call = make_forward_call_with_context({
+                type: 'do',
+                path: as_typed_ambig,
+                raw_path: 'ambig/clean.do',
+                caller_uri: ws_parent_uri,
+                call_site_line: 20,
+            });
+
+            my_ambig_graph.update_caller(ws_parent_uri, [my_call]);
+
+            // No real-file edge should have been created for either candidate
+            expect(my_ambig_graph.get_edge_count()).toBe(1);
+
+            // The edge is keyed by the as-typed path (today's behavior)
+            const as_typed_ambig_uri = URI.file(as_typed_ambig).toString();
+            const real_clean_do_uc_uri =
+                URI.file('/ws/ambig/CLEAN.do').toString();
+            const real_clean_do_mc_uri =
+                URI.file('/ws/ambig/Clean.do').toString();
+
+            expect(my_ambig_graph.get_parents(real_clean_do_uc_uri))
+                .toHaveLength(0);
+            expect(my_ambig_graph.get_parents(real_clean_do_mc_uri))
+                .toHaveLength(0);
+            expect(my_ambig_graph.get_parents(as_typed_ambig_uri))
+                .toHaveLength(1);
+        });
+
+        it('unset workspace roots fall back to today\'s behavior — no throw', () => {
+            // Create a fresh graph WITHOUT setting workspace roots or fs
+            const my_graph = new DependencyGraph();
+            // Do NOT call set_workspace_roots or set_resolve_fs
+
+            const my_call = make_forward_call_with_context({
+                type: 'do',
+                path: '/ws/helpers/clean',
+                raw_path: 'helpers/clean',
+                caller_uri: ws_parent_uri,
+                call_site_line: 5,
+            });
+
+            // Must not throw even though there are no workspace roots
+            expect(() => my_graph.update_caller(ws_parent_uri, [my_call])).not.toThrow();
+            expect(my_graph.get_edge_count()).toBe(1);
+
+            // Edge is keyed by the as-typed path (no case normalization)
+            const as_typed_uri = URI.file('/ws/helpers/clean').toString();
+            expect(my_graph.get_parents(as_typed_uri)).toHaveLength(1);
         });
     });
 });

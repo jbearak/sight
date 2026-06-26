@@ -30,6 +30,8 @@ import {
     ContentProvider,
     WorkingDirectoryDirective,
     StataLSPConfig,
+    StataDiagnosticCode,
+    CrossFileCaseMismatchSeverity,
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
 import { DirectiveParser } from '../directive-parser';
@@ -39,8 +41,16 @@ import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from
 import { logger } from '../utils/logger';
 import { error_message } from '../utils/error-message';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
-import { get_workspace_root_for_uri } from '../utils/workspace-roots';
+import {
+    get_workspace_root_for_uri,
+    get_workspace_root_for_path,
+} from '../utils/workspace-roots';
 import { build_do_include_pattern } from '../utils/stata-call-patterns';
+import {
+    resolve_path_rich,
+    resolve_forward_call_rich,
+    type RichResolveFs,
+} from '../utils/file-path-utils';
 
 export {
     get_visible_symbols_at,
@@ -109,6 +119,8 @@ export function scope_resolver_config_for(
             max_depth: config.cross_file?.diagnostics?.max_depth,
             call_site_identification:
                 config.cross_file?.diagnostics?.call_site_identification,
+            case_mismatch:
+                config.cross_file?.diagnostics?.case_mismatch,
         },
     });
 }
@@ -137,6 +149,8 @@ interface ForwardScopeResolverInterface {
             diagnostics: DirectiveDiagnostic[];
             working_directory?: string;
             call_chain?: string[];
+            /** See ForwardResolveContext.diagnostic_owner_uri. */
+            diagnostic_owner_uri?: string;
         },
         recursion_stack?: Set<string>,
         token?: import('vscode-languageserver').CancellationToken,
@@ -169,6 +183,9 @@ export class ScopeResolver {
     private content_provider: ContentProvider;
     private workspace_roots: string[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
+    // Injected filesystem for resolve_path_rich (for tests only).
+    // When undefined, resolve_path_rich uses the real Node fs.
+    private resolve_fs?: RichResolveFs;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
         this.directive_parser = new DirectiveParser();
@@ -220,7 +237,18 @@ export class ScopeResolver {
      * Set the workspace roots for resolving workspace-relative working directory paths.
      */
     set_workspace_roots(workspace_roots: string[]): void {
-        this.workspace_roots = workspace_roots;
+        // Normalize (resolve) roots for consistent containment checks,
+        // matching how DependencyGraph and ForwardScopeResolver store them.
+        this.workspace_roots = workspace_roots.map(r => path.resolve(r));
+    }
+
+    /**
+     * Inject a filesystem implementation for `resolve_path_rich`.
+     * For testing only — production code leaves this undefined so
+     * `resolve_path_rich` uses the real Node `fs`.
+     */
+    set_resolve_fs(injected_fs: RichResolveFs): void {
+        this.resolve_fs = injected_fs;
     }
 
     /**
@@ -607,6 +635,122 @@ export class ScopeResolver {
     }
 
     /**
+     * Resolve a backward directive's raw_path to the real-cased absolute
+     * filesystem path using `resolve_path_rich`.
+     *
+     * The join is done via `DirectiveParser.resolve_path` (separator
+     * normalization, Windows/UNC handling) on `directive.raw_path` joined
+     * to the containing directory of `child_uri` — WITHOUT the `.do`
+     * fallback applied at that stage. `resolve_path_rich` owns the `.do`
+     * fallback (`try_do_fallback: true`).
+     *
+     * Returns the real-cased path and the outcome kind. The caller decides
+     * what to do with `case_only` vs `ambiguous`/`missing`.
+     */
+    private compute_directive_real_path(
+        directive: Directive,
+        child_uri: string,
+    ): {
+        real_path: string;
+        outcome_kind: 'exact' | 'case_only' | 'ambiguous' | 'missing';
+        requested_path?: string;
+        seed_dir?: string;
+    } {
+        const child_fs_path = URI.parse(child_uri).fsPath;
+        const containing_dir = path.dirname(child_fs_path);
+        // Join raw_path without .do fallback; rich resolver owns that.
+        const joined = this.directive_parser.resolve_path(
+            directive.raw_path,
+            containing_dir,
+        );
+        const my_outcome = resolve_path_rich(joined, {
+            try_do_fallback: true,
+            workspace_roots: this.workspace_roots.length > 0
+                ? this.workspace_roots
+                : undefined,
+            fs: this.resolve_fs,
+        });
+
+        if (my_outcome.kind === 'exact') {
+            return {
+                real_path: my_outcome.path,
+                outcome_kind: 'exact',
+            };
+        }
+        if (my_outcome.kind === 'case_only') {
+            // Use the shared helper to find the deepest workspace root
+            // that contains the real path (consistent with forward-scope-
+            // resolver's seed-dir logic; uses path.sep, no '/' assumption).
+            const my_seed = get_workspace_root_for_path(
+                this.workspace_roots,
+                my_outcome.path,
+            ) ?? path.dirname(my_outcome.path);
+            return {
+                real_path: my_outcome.path,
+                outcome_kind: 'case_only',
+                requested_path: my_outcome.requested,
+                seed_dir: my_seed,
+            };
+        }
+        // ambiguous or missing: fall back to the as-typed directive.path
+        // so the existing error path can report it.
+        return {
+            real_path: directive.path,
+            outcome_kind: my_outcome.kind,
+        };
+    }
+
+    /**
+     * Emit a backward-directive path_case_mismatch diagnostic.
+     *
+     * Message deliberately makes no Stata-execution claim — backward
+     * directives are LSP hints only; Stata never reads them.
+     */
+    private emit_backward_case_mismatch(
+        raw_path: string,
+        real_path: string,
+        directive: Directive,
+        child_uri: string,
+        seed_dir: string | undefined,
+        config: ScopeResolverConfig,
+        diagnostics: DirectiveDiagnostic[],
+    ): void {
+        const my_severity: CrossFileCaseMismatchSeverity =
+            config.diagnostics?.case_mismatch ?? 'auto';
+        if (my_severity === 'off') {
+            return;
+        }
+        // Compute display paths relative to the child's directory.
+        const child_dir = path.dirname(URI.parse(child_uri).fsPath);
+        const my_req_disp = path.relative(child_dir, raw_path)
+            .replace(/\\/g, '/') || raw_path;
+        const my_real_disp = path.relative(child_dir, real_path)
+            .replace(/\\/g, '/') || real_path;
+        // Use 'warning' as a neutral placeholder. For path_case_mismatch
+        // diagnostics, convert_directive_diagnostic in the diagnostics
+        // provider is the SINGLE point that resolves 'auto' via
+        // host_is_case_sensitive() — it derives the final LSP severity
+        // entirely from the config setting and host probe, so this field
+        // is not consulted. We do not pre-resolve 'auto' here.
+        diagnostics.push({
+            // Backward directives are LSP hints — no execution claim.
+            message:
+                `Directive path "${my_req_disp}" does not match the ` +
+                `file on disk "${my_real_disp}"; update the directive ` +
+                `to match the file's casing.`,
+            range: directive.range,
+            severity: 'warning',
+            kind: 'path_case_mismatch',
+            code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+            case_mismatch_seed_dir: seed_dir,
+            source: {
+                source_file: path.basename(URI.parse(child_uri).fsPath),
+                original_range: directive.range,
+            },
+        });
+    }
+
+    /**
      * Generate cache key for scope resolution.
      */
     private generate_cache_key(file_uri: string, content: string, config: ScopeResolverConfig): string {
@@ -833,10 +977,21 @@ export class ScopeResolver {
         );
 
         // Register backward directive dependencies for this file
-        // Clear old dependencies first, then register new ones
+        // Clear old dependencies first, then register new ones.
+        // Use real-cased URIs (M3): case-only directive targets register
+        // under the on-disk URI so edits to the real file invalidate the
+        // right scope-cache entries.
         this.clear_backward_directive_dependencies(file_uri);
         for (const my_directive of normalized_directives) {
-            const my_parent_uri = URI.file(my_directive.path).toString();
+            const my_real = this.compute_directive_real_path(
+                my_directive, file_uri,
+            );
+            // Ambiguous outcome → two or more case-insensitive matches on
+            // disk; no concrete parent can be chosen, so skip registration.
+            if (my_real.outcome_kind === 'ambiguous') {
+                continue;
+            }
+            const my_parent_uri = URI.file(my_real.real_path).toString();
             this.register_backward_directive_dependency(file_uri, my_parent_uri);
         }
 
@@ -912,6 +1067,10 @@ export class ScopeResolver {
                     diagnostics: the_diagnostics,
                     working_directory: effective_working_directory,
                     call_chain: [],
+                    // Thread the owner so path_case_mismatch fires for
+                    // case-only do/run/include written in THIS file at
+                    // depth 0, and is suppressed in all nested callees.
+                    diagnostic_owner_uri: file_uri,
                 },
                 new Set([file_uri]), // Include current file in recursion stack for cycle detection
                 token,
@@ -1312,7 +1471,45 @@ export class ScopeResolver {
                 return { working_directory: found_working_directory };
             }
 
-            const my_parent_uri = URI.file(my_directive.path).toString();
+            // Resolve the directive path via the rich resolver so that a
+            // unique case-only match on disk still resolves (no cascade)
+            // and registers under the REAL-cased URI (M3 invariant).
+            // Auto-synthesised directives already carry real-cased paths
+            // from the dependency graph, so resolve_path_rich returns
+            // 'exact' for them and no diagnostic is emitted.
+            const my_rich = this.compute_directive_real_path(
+                my_directive, current_uri,
+            );
+
+            // Ambiguous outcome → two or more case-insensitive matches on
+            // disk; no concrete parent can be chosen.  Skip this directive
+            // entirely (no registration, no parsing) so an arbitrary-cased
+            // parent is never picked on a case-insensitive host.
+            if (my_rich.outcome_kind === 'ambiguous') {
+                continue;
+            }
+
+            const my_real_fs_path = my_rich.real_path;
+            const my_parent_uri = URI.file(my_real_fs_path).toString();
+
+            // Emit backward path_case_mismatch for explicit case-only
+            // mismatches.  No execution claim — backward directives are
+            // LSP hints only.
+            if (my_rich.outcome_kind === 'case_only') {
+                const my_raw_joined = this.directive_parser.resolve_path(
+                    my_directive.raw_path,
+                    path.dirname(URI.parse(current_uri).fsPath),
+                );
+                this.emit_backward_case_mismatch(
+                    my_raw_joined,
+                    my_real_fs_path,
+                    my_directive,
+                    current_uri,
+                    my_rich.seed_dir,
+                    config,
+                    diagnostics,
+                );
+            }
 
             // Cycle detection
             if (visited.has(my_parent_uri)) {
@@ -1335,7 +1532,7 @@ export class ScopeResolver {
             // Phase 2: Parse with discovered working directory
             const my_parent_result = await this.get_parsed_file(
                 my_parent_uri,
-                my_directive.path,
+                my_real_fs_path,
                 { working_directory: discovered_wd, request_cache }  // Pass discovered working directory
             );
 
@@ -1347,21 +1544,22 @@ export class ScopeResolver {
             // Handle error results
             if ('error' in my_parent_result) {
                 const error_message = my_parent_result.error;
-                const source_filename = path.basename(my_directive.path);
+                const source_filename = path.basename(my_real_fs_path);
 
                 // Handle encoding errors specifically
                 if (error_message.includes('invalid byte sequence') ||
                     error_message.includes('malformed') ||
                     error_message.includes('encoding')) {
-                    this.warn(`ScopeResolver: Encoding error in ${my_directive.path}, skipping file`);
+                    this.warn(`ScopeResolver: Encoding error in ${my_real_fs_path}, skipping file`);
                 } else {
-                    this.warn(`ScopeResolver: File read error for ${my_directive.path}: ${error_message}`);
+                    this.warn(`ScopeResolver: File read error for ${my_real_fs_path}: ${error_message}`);
                 }
 
                 diagnostics.push({
-                    message: `Cannot read file: ${my_directive.path} (${error_message})`,
+                    message: `Cannot read file: ${my_real_fs_path} (${error_message})`,
                     range: my_directive.range,
                     severity: 'warning',
+                    kind: 'missing_file',
                     source: {
                         source_file: source_filename,
                         // Omit source_line - call site unknown (file unreadable)
@@ -1380,7 +1578,7 @@ export class ScopeResolver {
             // Use content from get_parsed_file() for call site resolution (no second disk read)
             const my_parent_content = my_parent_result.content;
             const current_filename = this.extract_filename(current_uri);
-            const parent_filename = path.basename(my_directive.path);
+            const parent_filename = path.basename(my_real_fs_path);
 
             // Resolve call site line (0-indexed internally)
             // Priority: explicit call_site > reverse deps edges > text inference > config default
@@ -1760,7 +1958,12 @@ export class ScopeResolver {
             workspace_root: my_workspace_root,
         });
 
-        // Combine forward calls from commands and directives
+        // Combine forward calls from commands and directives.
+        // Stamp caller_uri and working_directory on directive calls so every
+        // ForwardCall carries the resolution context needed by Tasks 6/7.
+        // Analyzer-produced calls already carry these fields (caller_uri was
+        // set by SemanticAnalyzer; effective_working_directory is threaded in
+        // above via the analyzer config).
         const directive_forward_calls: ForwardCall[] = (my_directive_result.forward_calls ?? []).map(d => ({
             type: d.type,
             path: d.path,
@@ -1769,6 +1972,8 @@ export class ScopeResolver {
             range: d.range,
             source: 'directive' as const,
             is_static: true,
+            caller_uri: uri,
+            working_directory: effective_working_directory,
         }));
 
         const all_forward_calls: ForwardCall[] = [
@@ -2393,31 +2598,100 @@ export class ScopeResolver {
     }
 
     /**
-     * Compute the diff between old and new forward calls.
+     * Resolve the real-cased callee URI for a forward call.
+     *
+     * Mirrors `DependencyGraph.update_caller` exactly so the scope-resolver's
+     * own reverse-dependency maps key callees by the same URI the dep-graph
+     * uses — required for invalidation to fire on the correct map entry.
+     *
+     * Algorithm:
+     * 1. Derive caller_dir from my_call.caller_uri (or fall back to
+     *    path.dirname(my_call.path) when caller_uri is absent).
+     * 2. Call resolve_forward_call_rich(raw_path, caller_dir, wd, ...)
+     *    which computes both the WD-joined and script-relative candidates
+     *    independently of the pre-joined ForwardCall.path.
+     *    - exact or case_only  → use the real-cased path
+     *    - ambiguous or missing → key by my_outcome.requested (WD path)
+     * 3. When workspace_roots are empty (early startup) → fall back to
+     *    my_call.path (pre-joined analyzer path), same as today's behavior.
+     */
+    private resolve_callee_uri(
+        my_call: ForwardCall,
+        caller_uri_override?: string,
+    ): string {
+        if (this.workspace_roots.length > 0) {
+            // Use the shared WD-join-with-fallback helper so that
+            // scope-resolver reverse-dep keys agree with dep-graph and
+            // forward-scope-resolver. Passes caller_dir (not the pre-joined
+            // ForwardCall.path) so both candidates are computed correctly
+            // regardless of which producer wrote the call.
+            // Prefer the explicit override (passed by methods that know the
+            // caller), then the call's own caller_uri, then fall back to
+            // the caller file's directory derived from the pre-joined path.
+            const my_effective_caller_uri =
+                caller_uri_override ?? my_call.caller_uri;
+            const my_caller_dir = my_effective_caller_uri
+                ? path.dirname(URI.parse(my_effective_caller_uri).fsPath)
+                : path.dirname(my_call.path);
+            const my_outcome = resolve_forward_call_rich(
+                my_call.raw_path,
+                my_caller_dir,
+                my_call.working_directory,
+                {
+                    workspace_roots: this.workspace_roots,
+                    fs: this.resolve_fs,
+                },
+            );
+            if (
+                my_outcome.kind === 'exact' ||
+                my_outcome.kind === 'case_only'
+            ) {
+                return URI.file(my_outcome.path).toString();
+            }
+            // ambiguous or missing: key by the WD-joined requested path.
+            // Both variants carry `requested: string`.
+            return URI.file(my_outcome.requested).toString();
+        }
+        // Roots unset (early startup): fall back to as-typed path,
+        // no case normalization — same as today's behavior.
+        return URI.file(my_call.path).toString();
+    }
+
+    /**
+     * Compute the diff between old and new forward calls, operating on
+     * pre-resolved `{call, resolved_uri}` pairs so that each callee URI is
+     * computed ONCE and shared between the diff logic and the map mutations.
+     *
+     * Accepting pre-resolved pairs satisfies the single-resolved-URI
+     * invariant: the same URI used to key `caller_to_callees` /
+     * `callee_to_callers` is stored in `last_forward_calls`, with no
+     * secondary filesystem resolution for either old or new entries.
      */
     private compute_call_edge_diff(
-        old_calls: ForwardCall[],
-        new_calls: ForwardCall[]
+        old_stored: Array<{ call: ForwardCall; resolved_uri: string }>,
+        new_stored: Array<{ call: ForwardCall; resolved_uri: string }>,
     ): CallEdgeDiff {
         const old_by_callee = new Map<string, CallEdge[]>();
         const new_by_callee = new Map<string, CallEdge[]>();
 
-        // Group old calls by callee URI
-        for (const my_call of old_calls) {
-            if (!my_call.is_static || !my_call.path) continue;
-            const my_uri = URI.file(my_call.path).toString();
-            const edges = old_by_callee.get(my_uri) ?? [];
-            edges.push({ call_type: my_call.type, call_site_line: my_call.call_site_line });
-            old_by_callee.set(my_uri, edges);
+        // Group old entries by their pre-resolved callee URI.
+        for (const my_entry of old_stored) {
+            const edges = old_by_callee.get(my_entry.resolved_uri) ?? [];
+            edges.push({
+                call_type: my_entry.call.type,
+                call_site_line: my_entry.call.call_site_line,
+            });
+            old_by_callee.set(my_entry.resolved_uri, edges);
         }
 
-        // Group new calls by callee URI
-        for (const my_call of new_calls) {
-            if (!my_call.is_static || !my_call.path) continue;
-            const my_uri = URI.file(my_call.path).toString();
-            const edges = new_by_callee.get(my_uri) ?? [];
-            edges.push({ call_type: my_call.type, call_site_line: my_call.call_site_line });
-            new_by_callee.set(my_uri, edges);
+        // Group new entries by their pre-resolved callee URI.
+        for (const my_entry of new_stored) {
+            const edges = new_by_callee.get(my_entry.resolved_uri) ?? [];
+            edges.push({
+                call_type: my_entry.call.type,
+                call_site_line: my_entry.call.call_site_line,
+            });
+            new_by_callee.set(my_entry.resolved_uri, edges);
         }
 
         const diff: CallEdgeDiff = {
@@ -2471,14 +2745,29 @@ export class ScopeResolver {
         new_forward_calls: ForwardCall[],
         new_symbols: SymbolTable
     ): { affected_callees: Set<string>; interface_changed: boolean } {
-        // Get old forward calls from reverse_deps cache
-        const old_forward_calls = this.reverse_deps.last_forward_calls.get(caller_uri) ?? [];
+        // old_stored carries the pre-resolved callee URIs from the previous
+        // registration — use them as-is so we NEVER re-resolve old calls from
+        // the filesystem (the callee may already be deleted or renamed).
+        const old_stored =
+            this.reverse_deps.last_forward_calls.get(caller_uri) ?? [];
 
-        // Compute diff
-        const diff = this.compute_call_edge_diff(old_forward_calls, new_forward_calls);
+        // Precompute new_stored ONCE (resolve each new call exactly once),
+        // before diffing, so the same URI is used in both the diff and
+        // the map mutations and last_forward_calls write.
+        const new_stored: Array<{ call: ForwardCall; resolved_uri: string }> =
+            new_forward_calls
+                .filter(c => c.is_static && c.path)
+                .map(c => ({
+                    call: c,
+                    resolved_uri: this.resolve_callee_uri(c, caller_uri),
+                }));
 
-        // Store new forward calls for next diff computation
-        this.reverse_deps.last_forward_calls.set(caller_uri, new_forward_calls);
+        // Compute diff using pre-resolved pairs — no secondary filesystem
+        // resolution for either old or new entries.
+        const diff = this.compute_call_edge_diff(old_stored, new_stored);
+
+        // Commit the new stored list.
+        this.reverse_deps.last_forward_calls.set(caller_uri, new_stored);
 
         // Compute dual interface hashes
         const old_hashes = this.reverse_deps.interface_hashes.get(caller_uri);
@@ -2654,15 +2943,22 @@ export class ScopeResolver {
                         this.reverse_deps.forward_caller_to_callees.delete(my_caller_uri);
                     }
                 }
-                // Also update last_forward_calls to remove calls to the deleted file
-                const last_calls = this.reverse_deps.last_forward_calls.get(my_caller_uri);
-                if (last_calls) {
-                    const filtered_calls = last_calls.filter(call => {
-                        const call_uri = URI.file(call.path).toString();
-                        return call_uri !== uri;
-                    });
-                    if (filtered_calls.length !== last_calls.length) {
-                        this.reverse_deps.last_forward_calls.set(my_caller_uri, filtered_calls);
+                // Also update last_forward_calls to remove calls to the
+                // deleted file. Use the stored resolved_uri (recorded at
+                // registration time, while the callee still existed on disk)
+                // rather than re-resolving via the filesystem — the file is
+                // now gone so re-resolution would return the wrong-cased URI
+                // and leave a stale entry.
+                const last_stored = this.reverse_deps.last_forward_calls.get(my_caller_uri);
+                if (last_stored) {
+                    const filtered_stored = last_stored.filter(
+                        e => e.resolved_uri !== uri,
+                    );
+                    if (filtered_stored.length !== last_stored.length) {
+                        this.reverse_deps.last_forward_calls.set(
+                            my_caller_uri,
+                            filtered_stored,
+                        );
                     }
                 }
             }
@@ -2777,7 +3073,17 @@ export class ScopeResolver {
         const normalized = this.normalize_directives(directives, []);
         this.clear_backward_directive_dependencies(child_uri);
         for (const my_directive of normalized) {
-            const my_parent_uri = URI.file(my_directive.path).toString();
+            // Use real-cased URI (M3) so edits to the real file invalidate
+            // the right scope-cache entries even when the directive uses
+            // a different casing.
+            const my_real = this.compute_directive_real_path(
+                my_directive, child_uri,
+            );
+            // Ambiguous outcome → no concrete parent to register.
+            if (my_real.outcome_kind === 'ambiguous') {
+                continue;
+            }
+            const my_parent_uri = URI.file(my_real.real_path).toString();
             this.register_backward_directive_dependency(child_uri, my_parent_uri);
         }
     }
@@ -2886,39 +3192,48 @@ export class ScopeResolver {
         // Build caller_to_callees map: callee_uri -> CallEdge[]
         const callee_edges_map = new Map<string, CallEdge[]>();
 
-        // Register each callee relationship
+        // Register each callee relationship. Compute the callee URI ONCE per
+        // call and reuse it for all maps and last_forward_calls — no redundant
+        // resolve_callee_uri calls.
+        const the_stored: Array<{ call: ForwardCall; resolved_uri: string }> = [];
         for (const my_call of forward_calls) {
             // Skip dynamic paths (containing macro references)
             if (!my_call.is_static || !my_call.path) {
                 continue;
             }
 
-            const callee_uri = URI.file(my_call.path).toString();
+            // Use real-cased URI (via resolve_callee_uri) so this map keys
+            // callees the same way dependency-graph does — required for
+            // invalidation to fire when the real-cased callee changes.
+            const my_callee_uri = this.resolve_callee_uri(my_call, caller_uri);
             const edge: CallEdge = {
                 call_type: my_call.type,
                 call_site_line: my_call.call_site_line,
             };
 
             // Add to callee_to_callers
-            let caller_set = this.reverse_deps.callee_to_callers.get(callee_uri);
+            let caller_set = this.reverse_deps.callee_to_callers.get(my_callee_uri);
             if (!caller_set) {
                 caller_set = new Set();
-                this.reverse_deps.callee_to_callers.set(callee_uri, caller_set);
+                this.reverse_deps.callee_to_callers.set(my_callee_uri, caller_set);
             }
             caller_set.add(caller_uri);
 
             // Accumulate edges for caller_to_callees
-            let edges = callee_edges_map.get(callee_uri);
+            let edges = callee_edges_map.get(my_callee_uri);
             if (!edges) {
                 edges = [];
-                callee_edges_map.set(callee_uri, edges);
+                callee_edges_map.set(my_callee_uri, edges);
             }
             edges.push(edge);
 
             // Track this callee for forward_caller_to_callees
-            my_callees.add(callee_uri);
+            my_callees.add(my_callee_uri);
 
-            this.log(`[forward-call-cache] Registered: ${caller_uri} calls ${callee_uri}`);
+            // Collect for last_forward_calls (avoids second resolve_callee_uri call)
+            the_stored.push({ call: my_call, resolved_uri: my_callee_uri });
+
+            this.log(`[forward-call-cache] Registered: ${caller_uri} calls ${my_callee_uri}`);
         }
 
         // Store in caller_to_callees map (spec 5.1)
@@ -2931,8 +3246,10 @@ export class ScopeResolver {
             this.reverse_deps.forward_caller_to_callees.set(caller_uri, my_callees);
         }
 
-        // Store forward_calls for diff computation (spec 5.4)
-        this.reverse_deps.last_forward_calls.set(caller_uri, forward_calls);
+        // Store forward_calls for diff computation (spec 5.4), paired with
+        // the resolved callee URI (captured inside the loop above so we do
+        // not call resolve_callee_uri a second time).
+        this.reverse_deps.last_forward_calls.set(caller_uri, the_stored);
 
         // Compute and store interface hash
         const interface_hash = this.compute_dual_interface_hash(symbols);

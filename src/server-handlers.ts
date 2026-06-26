@@ -139,6 +139,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         diagnostics: {
             missing_file: 'warning',
             max_depth: 'information',
+            case_mismatch: 'auto',
         },
     },
     debug: false,

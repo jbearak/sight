@@ -113,6 +113,59 @@ emitted at `information` severity.
 | 5001 | `UNNECESSARY_INDENTATION` | A line is indented past the AST-computed depth. |
 | 5002 | `MISSING_INDENTATION` | A line is at a shallower indent than its block depth. |
 
+## Cross-file diagnostics
+
+Reported during cross-file scope resolution. Severity is configurable
+via the `crossFile.diagnostics.*` keys in `sight.toml`.
+
+| Code | Name | Default | Severity key | Trigger |
+|---|---|---|---|---|
+| 7001 | `PATH_CASE_MISMATCH` | `auto` | `crossFile.diagnostics.caseMismatch` | A `do`/`run`/`include` command or cross-file directive (`@lsp-do`, `@lsp-run`, `@lsp-include`, `@lsp-done-by`, `@lsp-run-by`, `@lsp-included-by`) references a path that differs from the on-disk file by letter case only. The file is resolved and symbols are inherited normally; only the spelling is wrong. |
+
+### `PATH_CASE_MISMATCH` (7001)
+
+**Trigger:** A static path in a `do`, `run`, or `include` command — or
+in a forward directive (`@lsp-do`, `@lsp-run`, `@lsp-include`) or
+backward header directive (`@lsp-done-by`, `@lsp-run-by`,
+`@lsp-included-by`) — resolves to an on-disk file that has different
+letter casing. The file is found and symbols are inherited (no
+undefined-symbol cascade), but the diagnostic asks you to fix the
+spelling.
+
+**Forward message** (`do`/`run`/`include` commands and forward
+directives): notes that Stata will not find the file on case-sensitive
+filesystems and shows both spellings:
+
+```text
+Path "helpers/clean" does not match the file on disk
+"helpers/Clean.do"; Stata will not find it on case-sensitive
+filesystems (Linux). Update the path to match.
+```
+
+**Backward message** (`@lsp-done-by`, `@lsp-run-by`,
+`@lsp-included-by`): backward directives are not Stata commands, so the
+message makes no execution claim:
+
+```text
+Directive path "parent" does not match the file on disk
+"Parent.do"; update the directive to match the file's casing.
+```
+
+**Default severity (`"auto"`):** `information` on case-insensitive
+filesystems (macOS/Windows), `warning` on case-sensitive ones (Linux /
+CI). This means the same code is quiet during local development on a Mac
+but surfaces as a build warning in Linux CI — the intended asymmetry.
+
+**Not suppressible** by `@lsp-ignore` or `@lsp-ignore-next`. Suppress
+project-wide with `crossFile.diagnostics.caseMismatch = "off"`, or fix
+the path casing. Setting `crossFile.diagnostics.missingFile = "off"`
+does **not** silence this diagnostic — the two settings are independent.
+
+**Out of scope:** data-file commands (`use`, `save`, `merge`, `import`,
+`export`); paths with macro interpolation; paths outside all workspace
+folders. Only static paths in the cross-file execution graph
+(`do`/`run`/`include` and their directive equivalents) are covered.
+
 ## Configuration
 
 Diagnostics keys live under `sight.*` in VS Code's `settings.json`:

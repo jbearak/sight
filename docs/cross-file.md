@@ -527,6 +527,89 @@ Isolated files with no `do`/`run`/`include` edges are considered related only
 to themselves, so Find References on a program in such a file returns just the
 current file's matches.
 
+## Case-Only Path Mismatch Handling
+
+When a `do`, `run`, or `include` path — or a cross-file directive path —
+differs from the on-disk file by letter case only, the LSP resolves the
+target into the cross-file graph so that symbols are still inherited.
+A single `path-case-mismatch` diagnostic is emitted at the call or
+directive site pointing out the discrepancy.
+
+**Why this matters:** on a case-insensitive filesystem (macOS, Windows)
+the wrong-cased path silently resolves at runtime, but the same path
+fails on a case-sensitive filesystem (Linux / CI). The diagnostic gives
+you a clear signal before the code reaches Linux CI, without producing a
+cascade of false undefined-symbol warnings.
+
+### Forward calls and directives
+
+For `do`, `run`, and `include` commands in Stata code — and for the
+explicit forward-call directives `@lsp-do`, `@lsp-run`, `@lsp-include`
+— the diagnostic message notes that Stata will not find the file on
+case-sensitive systems and shows the as-written path alongside the
+on-disk spelling. For example, `do helpers/clean` resolving on-disk
+`helpers/Clean.do` produces:
+
+```text
+Path "helpers/clean" does not match the file on disk
+"helpers/Clean.do"; Stata will not find it on case-sensitive
+filesystems (Linux). Update the path to match.
+```
+
+The diagnostic is attached to the path argument of the command or
+directive. For auto-discovered `do`/`run`/`include` commands (no
+explicit directive), the range is the path token in the Stata source.
+
+### Backward header directives
+
+For `@lsp-done-by`, `@lsp-run-by`, and `@lsp-included-by` directives in
+the file header, the LSP resolves paths relative to the **file's own
+containing directory** — no `@lsp-cd` / working-directory is applied
+here and there is no workspace-root fallback (backward directives have
+never used them). The message makes no Stata-execution claim because
+backward directives are not Stata commands; it simply asks you to fix
+the directive casing:
+
+```text
+Directive path "parent" does not match the file on disk
+"Parent.do"; update the directive to match the file's casing.
+```
+
+### Resolution rules
+
+- **Only static paths** are handled. Paths that contain macro
+  interpolation (e.g., `` do "`dir'/file.do" ``) are skipped, exactly
+  as today.
+- **Exact-before-case:** if a file exists with the exact casing written
+  in the source, it wins; case-insensitive matching is only tried when
+  no exact match is found.
+- **Unique match required:** if two or more files differ only by case
+  from the requested path (ambiguous), the path stays unresolved — no
+  graph edge, no `path-case-mismatch` diagnostic, and the existing
+  missing-file diagnostic applies. A unique case-insensitive match
+  resolves and emits exactly one `path-case-mismatch` diagnostic.
+- **ASCII case folding only.** Non-ASCII byte differences are compared
+  exactly.
+- **Workspace-bounded.** The case-insensitive scan runs only for paths
+  inside a workspace folder. Paths that resolve outside all workspace
+  roots get no case handling — existing exact-match/missing behavior.
+- **Single emission per call site.** The diagnostic is emitted exactly
+  once at the site in the file that contains the mismatched path. Nested
+  callee resolution and ancestor-scope traversal resolve leniently but
+  do not re-emit the diagnostic on behalf of the traversed file.
+
+### Configuration
+
+Severity is controlled by `crossFile.diagnostics.caseMismatch` (see
+[Configuration](#configuration) and
+[docs/configuration.md](configuration.md)). The default `"auto"` maps
+to `information` on a case-insensitive host (macOS/Windows) and
+`warning` on a case-sensitive host (Linux/CI), so the mismatch is quiet
+during local development but surfaces as a build warning in Linux CI.
+The diagnostic is **not** suppressible by `@lsp-ignore` or
+`@lsp-ignore-next`; silence it project-wide with `caseMismatch = "off"`
+or by correcting the path casing.
+
 ## Call Site Diagnostics
 
 The LSP provides informative diagnostics when processing cross-file
@@ -616,6 +699,8 @@ callSiteIdentification = "information"
 | `crossFile.assumeCallSite`                    | string   | `"end"`         | Where to assume call site when inference fails (`"end"` or `"start"`) |
 | `crossFile.diagnostics.missingFile`           | severity | `"warning"`     | Severity for missing directive file diagnostics        |
 | `crossFile.diagnostics.callSiteIdentification`| severity | `"information"` | Severity for call site identification diagnostics      |
+| `crossFile.diagnostics.caseMismatch`          | severity or `"auto"` | `"auto"`        | Severity for case-only path mismatch diagnostics. `"auto"`: `information` on case-insensitive filesystems (macOS/Windows), `"warning"` on case-sensitive (Linux/CI) |
 
 Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias:
-`"info"` for `"information"`)
+`"info"` for `"information"`). `crossFile.diagnostics.caseMismatch` also
+accepts `"auto"` (not valid for other cross-file severity keys).

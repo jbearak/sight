@@ -393,6 +393,7 @@ export async function build_check_context(
     scope_resolver.set_dependency_graph(dependency_graph);
     scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
     diagnostics_provider.set_dependency_graph(dependency_graph);
+    dependency_graph.set_workspace_roots([workspace_root]);
     scope_resolver.set_workspace_roots([workspace_root]);
     forward_scope_resolver.set_workspace_roots([workspace_root]);
     document_store.set_workspace_roots([workspace_root]);

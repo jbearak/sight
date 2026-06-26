@@ -1196,6 +1196,8 @@ export class SemanticAnalyzer {
             range: node.range,
             source: 'command',
             is_static: !has_macro,
+            caller_uri: this.uri,
+            working_directory: this.config.working_directory,
         });
     }
     

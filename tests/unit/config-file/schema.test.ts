@@ -102,4 +102,47 @@ describe('map_public_config_to_partial_config', () => {
 
         expect(result.cross_file?.max_chain_depth).toBe(10);
     });
+
+    describe('crossFile.diagnostics.caseMismatch', () => {
+        it('maps caseMismatch "auto" to cross_file.diagnostics.case_mismatch', () => {
+            const result = map_public_config_to_partial_config({
+                crossFile: { diagnostics: { caseMismatch: 'auto' } },
+            });
+            expect(result.cross_file?.diagnostics?.case_mismatch).toBe('auto');
+        });
+
+        it('maps caseMismatch "warning" through to internal field', () => {
+            const result = map_public_config_to_partial_config({
+                crossFile: { diagnostics: { caseMismatch: 'warning' } },
+            });
+            expect(result.cross_file?.diagnostics?.case_mismatch).toBe('warning');
+        });
+
+        it('maps caseMismatch "info" to "information"', () => {
+            const result = map_public_config_to_partial_config({
+                crossFile: { diagnostics: { caseMismatch: 'info' } },
+            });
+            expect(result.cross_file?.diagnostics?.case_mismatch).toBe('information');
+        });
+
+        it('rejects an invalid caseMismatch value and emits a warning', () => {
+            const the_warnings: string[] = [];
+            const result = map_public_config_to_partial_config(
+                { crossFile: { diagnostics: { caseMismatch: 'bogus' } } },
+                (w) => the_warnings.push(w.message)
+            );
+            expect(result.cross_file?.diagnostics?.case_mismatch).toBeUndefined();
+            expect(the_warnings.length).toBeGreaterThan(0);
+        });
+
+        it('rejects "auto" for missingFile — auto is not allowed on other cross-file severities', () => {
+            const the_warnings: string[] = [];
+            const result = map_public_config_to_partial_config(
+                { crossFile: { diagnostics: { missingFile: 'auto' } } },
+                (w) => the_warnings.push(w.message)
+            );
+            expect(result.cross_file?.diagnostics?.missing_file).not.toBe('auto');
+            expect(the_warnings.length).toBeGreaterThan(0);
+        });
+    });
 });

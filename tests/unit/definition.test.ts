@@ -5,11 +5,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { init_tracker_from_source } from '../test-context-helper';
 import { Position } from 'vscode-languageserver';
+import { URI } from 'vscode-uri';
 import { DefinitionProvider } from '../../src/providers/definition';
 import { DocumentState } from '../../src/document-store';
 import { SymbolTable, MacroSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
 import { StataLexer } from '../../src/lexer';
+import { host_is_case_sensitive } from '../../src/utils/file-path-utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -25,7 +27,7 @@ function create_test_document(
     const my_lexer = new StataLexer();
     const my_lex_result = my_lexer.tokenize(content);
     return {
-        uri: uri || `file://${process.cwd()}/test.do`,
+        uri: uri || URI.file(`${process.cwd()}/test.do`).toString(),
         version: 1,
         content,
         tokens: my_lex_result.tokens,
@@ -1048,7 +1050,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
             
             const my_content = 'do "helper"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1065,7 +1067,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(script_path, '// Script file');
             
             const my_content = 'run "script"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1082,7 +1084,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
             
             const my_content = 'include helper';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1099,7 +1101,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
             
             const my_content = '// @lsp-done-by: "helper"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1116,7 +1118,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(script_path, '// Script file');
             
             const my_content = '// @lsp-included-by: "script"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1133,7 +1135,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
 
             const my_content = '// @lsp-do: "helper"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
 
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1149,7 +1151,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(helper_path, '// Helper file');
 
             const my_content = 'mata\n// @lsp-do: "helper"\nend';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             init_tracker_from_source(context_tracker, my_content);
 
             // Position on "helper" on line 1 (inside the mata block)
@@ -1172,7 +1174,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             fs.writeFileSync(script_exact_path, '// Exact script file');
             
             const my_content = 'do "script.do"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
             
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1185,7 +1187,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
 
         it('should return null when neither exact path nor .do fallback exists', async () => {
             const my_content = 'do "nonexistent"';
-            const my_doc = create_test_document(my_content, undefined, `file://${path.join(temp_dir, 'test.do')}`);
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
 
             const my_definition = await definition_provider.get_definition(
                 my_doc,
@@ -1205,7 +1207,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             init_tracker_from_source(context_tracker, my_content);
 
@@ -1228,7 +1230,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             init_tracker_from_source(context_tracker, my_content);
 
@@ -1263,7 +1265,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             const my_doc = create_test_document(
                 my_content,
                 undefined,
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             init_tracker_from_source(context_tracker, my_content);
 
@@ -1303,7 +1305,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
                 const my_doc = create_test_document(
                     my_content,
                     undefined,
-                    `file://${path.join(temp_dir, 'test.do')}`
+                    URI.file(path.join(temp_dir, 'test.do')).toString()
                 );
                 init_tracker_from_source(context_tracker, my_content);
 
@@ -1324,6 +1326,250 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
                 expect(single.uri).toContain('parent.do');
             });
         }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Case-only (ci) path resolution via resolve_path_rich
+    // ────────────────────────────────────────────────────────────────────────
+    describe('Case-only path resolution (resolve_path_rich)', () => {
+        it('navigates do command with wrong-cased path to real-cased file', async () => {
+            // Create subdirectory + file with specific casing
+            const helpers_dir = path.join(temp_dir, 'helpers');
+            fs.mkdirSync(helpers_dir, { recursive: true });
+            const real_path = path.join(helpers_dir, 'Clean.do');
+            fs.writeFileSync(real_path, '// Helper file');
+
+            // Reference uses wrong case for both directory and filename
+            const my_content = 'do helpers/clean';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                URI.file(path.join(temp_dir, 'test.do')).toString()
+            );
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                // Position inside "helpers/clean" (character 8 is inside the path)
+                { line: 0, character: 8 }
+            );
+
+            expect(my_definition).not.toBeNull();
+            const single = my_definition as { uri: string };
+            // Must navigate to the real-cased file, not the as-typed path
+            expect(single.uri).toContain('Clean.do');
+        });
+
+        it('navigates @lsp-done-by directive with wrong-cased path', async () => {
+            const helpers_dir = path.join(temp_dir, 'helpers');
+            fs.mkdirSync(helpers_dir, { recursive: true });
+            const real_path = path.join(helpers_dir, 'Parent.do');
+            fs.writeFileSync(real_path, '// Parent file');
+
+            const my_content = '// @lsp-done-by: "helpers/parent"';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                URI.file(path.join(temp_dir, 'test.do')).toString()
+            );
+
+            // Cursor inside "helpers/parent" (quoted path area)
+            const path_char = my_content.indexOf('helpers/parent') + 4;
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: path_char }
+            );
+
+            expect(my_definition).not.toBeNull();
+            const single = my_definition as { uri: string };
+            expect(single.uri).toContain('Parent.do');
+        });
+
+        it('still resolves exact-cased path (regression)', async () => {
+            // Exact casing must still work after the change
+            const helper_path = path.join(temp_dir, 'exact.do');
+            fs.writeFileSync(helper_path, '// Exact file');
+
+            const my_content = 'do exact';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                URI.file(path.join(temp_dir, 'test.do')).toString()
+            );
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 5 }
+            );
+
+            expect(my_definition).not.toBeNull();
+            const single = my_definition as { uri: string };
+            expect(single.uri).toContain('exact.do');
+        });
+
+        it('returns null for missing path (no file at all)', async () => {
+            const my_content = 'do totally_nonexistent_file';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                URI.file(path.join(temp_dir, 'test.do')).toString()
+            );
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 8 }
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('returns null for ambiguous path (two ci-matches, case-sensitive host only)', async () => {
+            // This scenario requires a case-sensitive filesystem: two files
+            // whose names differ only in ASCII case (Clean.do and CLEAN.do)
+            // both ci-match the reference `do helpers/clean`.  resolve_path_rich
+            // classifies this as `ambiguous` and definition should return null.
+            //
+            // On a case-insensitive host (macOS HFS+) it is impossible to
+            // create both files; the second write silently overwrites the first,
+            // yielding a single match (`case_only`) rather than `ambiguous`.
+            // Guard the meaningful assertions behind the host probe.
+            const helpers_dir = path.join(temp_dir, 'helpers');
+            fs.mkdirSync(helpers_dir, { recursive: true });
+
+            const the_is_sensitive = host_is_case_sensitive(helpers_dir);
+
+            if (the_is_sensitive) {
+                // Case-sensitive host: create two files differing only by case.
+                fs.writeFileSync(
+                    path.join(helpers_dir, 'Clean.do'),
+                    '// Clean.do',
+                );
+                fs.writeFileSync(
+                    path.join(helpers_dir, 'CLEAN.do'),
+                    '// CLEAN.do',
+                );
+
+                // Both files are now present on disk.  A reference with a
+                // third casing (clean.do) is a ci-match for both → ambiguous.
+                const my_content = 'do helpers/clean';
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    URI.file(path.join(temp_dir, 'test.do')).toString()
+                );
+
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: 8 }
+                );
+
+                // ambiguous → no navigation
+                expect(my_definition).toBeNull();
+            } else {
+                // Case-insensitive host: the ambiguous scenario cannot be
+                // constructed.  Write only one file so the test exercises the
+                // case-insensitive code path without vacuously passing.
+                fs.writeFileSync(
+                    path.join(helpers_dir, 'Clean.do'),
+                    '// Clean.do',
+                );
+
+                const my_content = 'do helpers/clean';
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    URI.file(path.join(temp_dir, 'test.do')).toString()
+                );
+
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: 8 }
+                );
+
+                // On ci host a single ci-match resolves normally (case_only).
+                expect(my_definition).not.toBeNull();
+            }
+        });
+    });
+
+    describe('Cross-directory case-only resolution with workspace roots', () => {
+        it(
+            'navigates do with wrong-cased cross-dir target when workspace root is set',
+            async () => {
+                // Layout:
+                //   temp_dir/           ← workspace root
+                //     sub/main.do       ← document under test
+                //     shared/clean.do   ← real on-disk file (lowercase)
+                //
+                // The document references `do ../shared/Clean` (wrong case).
+                // With workspace root set the resolver should walk shared/ and
+                // find clean.do via a case-only match.
+                const sub_dir = path.join(temp_dir, 'sub');
+                const shared_dir = path.join(temp_dir, 'shared');
+                fs.mkdirSync(sub_dir, { recursive: true });
+                fs.mkdirSync(shared_dir, { recursive: true });
+
+                const real_path = path.join(shared_dir, 'clean.do');
+                fs.writeFileSync(real_path, '// Shared helper');
+
+                const my_content = 'do ../shared/Clean';
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    URI.file(path.join(sub_dir, 'main.do')).toString()
+                );
+
+                // Set the workspace root so the provider can reach ../shared/
+                definition_provider.set_workspace_roots([temp_dir]);
+
+                // Cursor inside "../shared/Clean" (e.g. character 8)
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: 8 }
+                );
+
+                // On a case-insensitive FS (macOS HFS+) resolution succeeds
+                // via existsSync regardless of workspace roots; on a
+                // case-sensitive FS it depends on resolve_path_rich using the
+                // workspace root to walk shared/. Both must be non-null.
+                expect(my_definition).not.toBeNull();
+
+                const the_is_sensitive = host_is_case_sensitive(shared_dir);
+                if (the_is_sensitive) {
+                    // Case-sensitive: must navigate to the real-cased path.
+                    const single = my_definition as { uri: string };
+                    expect(single.uri).toContain('clean.do');
+                }
+            }
+        );
+
+        it(
+            'current_dir still works as fallback when workspace roots are empty',
+            async () => {
+                // Regression: even with no workspace roots set (e.g. early
+                // startup), same-directory resolution must still succeed.
+                const real_path = path.join(temp_dir, 'helper.do');
+                fs.writeFileSync(real_path, '// Helper');
+
+                const my_content = 'do helper';
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    URI.file(path.join(temp_dir, 'test.do')).toString()
+                );
+
+                // No workspace roots set (empty by default)
+                definition_provider.set_workspace_roots([]);
+
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: 5 }
+                );
+
+                expect(my_definition).not.toBeNull();
+                const single = my_definition as { uri: string };
+                expect(single.uri).toContain('helper.do');
+            }
+        );
     });
 
     describe('DefinitionProvider - Symbol Precedence', () => {

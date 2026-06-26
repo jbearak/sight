@@ -43,11 +43,10 @@ import { IContextTracker } from '../context-tracker/types';
 import { ScopeResolver, build_scope_resolver_config, get_visible_symbols_at } from '../scope-resolver';
 import { WorkspaceIndexer } from '../indexer';
 import * as path from 'path';
-import * as fs from 'fs';
 // vscode-uri is a small standalone library for parsing file:// URIs.
 // It does not require VS Code at runtime; it is safe for running the LSP standalone.
 import { URI } from 'vscode-uri';
-import { resolvePathWithDoFallback } from '../utils/file-path-utils';
+import { resolve_path_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
 
@@ -55,6 +54,20 @@ import { is_cursor_in_comment } from '../utils/comment-utils';
  * Definition Provider class.
  */
 export class DefinitionProvider {
+    /** Workspace roots set by the server, used for cross-directory resolution. */
+    private workspace_roots: string[] = [];
+
+    /**
+     * Update the workspace roots used by resolve_file_path.
+     *
+     * Must be called whenever the LSP workspace folders change so that
+     * cross-directory `do`/`run`/`include` targets that live outside the
+     * current document's directory are still case-only resolved correctly.
+     */
+    set_workspace_roots(roots: string[]): void {
+        this.workspace_roots = roots;
+    }
+
     /**
      * Get the definition location for a position in the document.
      *
@@ -1551,12 +1564,38 @@ export class DefinitionProvider {
 
     /**
      * Resolve file path with .do fallback, relative to current file.
+     *
+     * Routes through `resolve_path_rich` so that a path whose casing differs
+     * from the on-disk file only in ASCII case (`do helpers/clean` for on-disk
+     * `helpers/Clean.do`) still navigates to the real-cased target. Ambiguous
+     * or missing paths return null (no navigation).
+     *
+     * The workspace roots (from set_workspace_roots) are included so that
+     * cross-directory targets resolve correctly with case-only handling.
+     * current_dir is always appended as a fallback to preserve symlink-safe
+     * behaviour on macOS where /tmp is a symlink to /private/tmp: even when
+     * a workspace root contains the document's directory under a different
+     * prefix, current_dir still bounds the file's own directory.
+     * resolve_path_rich picks the longest matching root, so the real
+     * workspace root takes precedence when it genuinely contains the target.
      */
     private resolve_file_path(current_uri: string, file_path: string): string | null {
         const current_path = URI.parse(current_uri).fsPath;
         const current_dir = path.dirname(current_path);
         const resolved_path = path.resolve(current_dir, file_path);
-        
-        return resolvePathWithDoFallback(resolved_path, fs);
+
+        // Build the root list: real workspace roots first, then current_dir
+        // as a symlink-safe fallback. De-duplicate to avoid redundant scans.
+        const the_roots_set = new Set<string>(this.workspace_roots);
+        the_roots_set.add(current_dir);
+        const the_roots = Array.from(the_roots_set);
+
+        const my_outcome = resolve_path_rich(resolved_path, {
+            workspace_roots: the_roots,
+        });
+        if (my_outcome.kind === 'exact' || my_outcome.kind === 'case_only') {
+            return my_outcome.path;
+        }
+        return null;
     }
 }

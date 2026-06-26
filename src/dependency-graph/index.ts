@@ -6,8 +6,13 @@
  * parent files when backward_dependencies=auto.
  */
 
+import * as node_path from 'path';
 import { ForwardCall, ForwardCallType } from '../types';
 import { logger } from '../utils/logger';
+import {
+    resolve_forward_call_rich,
+    type RichResolveFs,
+} from '../utils/file-path-utils';
 
 /**
  * An auto-discovered backward edge: a parent file that calls the child.
@@ -40,6 +45,40 @@ export class DependencyGraph {
     // Whether the initial workspace scan has completed
     private scan_complete: boolean = false;
 
+    // Workspace roots for case-only path resolution (set before graph
+    // updates so both the indexer and the open-document path share roots).
+    private workspace_roots: string[] = [];
+
+    // Injected filesystem for resolve_path_rich (for tests only).
+    // When undefined, resolve_path_rich uses the real Node fs.
+    private resolve_fs?: RichResolveFs;
+
+    /**
+     * Set workspace roots (filesystem paths). Must be called before any
+     * `update_caller` so both the indexer and the open-document update
+     * path resolve case-only paths against the same roots.
+     *
+     * When empty (early startup / before roots are known), `update_caller`
+     * falls back to today's behavior: edges keyed by the as-typed URI with
+     * no case normalization.
+     */
+    set_workspace_roots(roots: string[]): void {
+        this.workspace_roots = roots.map(r => node_path.resolve(r));
+    }
+
+    get_workspace_roots(): string[] {
+        return [...this.workspace_roots];
+    }
+
+    /**
+     * Inject a filesystem implementation for `resolve_path_rich`.
+     * For testing only — production code leaves this undefined so
+     * `resolve_path_rich` uses the real Node `fs`.
+     */
+    set_resolve_fs(fs: RichResolveFs): void {
+        this.resolve_fs = fs;
+    }
+
     /**
      * Update the graph with forward calls from a caller file.
      * Diffs against stored callees: removes stale edges, adds new ones.
@@ -54,11 +93,48 @@ export class DependencyGraph {
 
         // Filter to static calls with resolved paths
         const my_new_callees = new Map<string, AutoBackwardEdge>();
+        const my_caller_dir = node_path.dirname(
+            this.uri_to_fs_path(my_caller_uri),
+        );
         for (const my_call of forward_calls) {
             if (!my_call.is_static || !my_call.path) continue;
 
-            // Use the callee's file URI as the key
-            const callee_uri = this.path_to_uri(my_call.path);
+            // Determine the real-cased callee URI.
+            // Only attempt case resolution when workspace roots are set.
+            let callee_uri: string;
+            if (this.workspace_roots.length > 0) {
+                // Use the shared WD-join-with-fallback helper so that
+                // dep-graph edges and forward-scope-resolver agree on the
+                // callee URI. Passes caller_dir (not the pre-joined path)
+                // so both WD and script-relative candidates are computed
+                // correctly regardless of which producer wrote the call.
+                const my_outcome = resolve_forward_call_rich(
+                    my_call.raw_path,
+                    my_caller_dir,
+                    my_call.working_directory,
+                    {
+                        workspace_roots: this.workspace_roots,
+                        fs: this.resolve_fs,
+                    },
+                );
+                if (
+                    my_outcome.kind === 'exact' ||
+                    my_outcome.kind === 'case_only'
+                ) {
+                    // Key the edge by the real on-disk-cased path
+                    callee_uri = this.path_to_uri(my_outcome.path);
+                } else {
+                    // ambiguous or missing: key by the WD-joined requested
+                    // path (my_outcome.requested) rather than recomputing
+                    // the join — both variants carry `requested: string`.
+                    callee_uri = this.path_to_uri(my_outcome.requested);
+                }
+            } else {
+                // Roots unset (early startup): fall back to today's
+                // behavior — no case normalization
+                callee_uri = this.path_to_uri(my_call.path);
+            }
+
             // If multiple calls from the same caller to the same callee,
             // keep the earliest call site (first encounter wins)
             if (!my_new_callees.has(callee_uri)) {
@@ -329,5 +405,13 @@ export class DependencyGraph {
         // Lazy import to avoid circular dependency at module load time
         const { URI } = require('vscode-uri');
         return URI.file(file_path).toString();
+    }
+
+    /**
+     * Extract the filesystem path from a file URI string.
+     */
+    private uri_to_fs_path(uri: string): string {
+        const { URI } = require('vscode-uri');
+        return URI.parse(uri).fsPath;
     }
 }

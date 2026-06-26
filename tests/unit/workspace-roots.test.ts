@@ -10,7 +10,9 @@ import * as path from 'path';
 import {
     get_workspace_root_for_path,
     get_workspace_root_for_uri,
+    resolve_working_directory_directive,
 } from '../../src/utils/workspace-roots';
+import type { WorkingDirectoryDirective } from '../../src/types';
 
 describe('get_workspace_root_for_path', () => {
     test('returns undefined for empty workspace_roots', () => {
@@ -76,5 +78,76 @@ describe('get_workspace_root_for_uri', () => {
         const roots = ['/workspace/a'];
         expect(get_workspace_root_for_uri(roots, 'not-a-valid-uri'))
             .toBe('/workspace/a');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// resolve_working_directory_directive
+// ---------------------------------------------------------------------------
+
+/**
+ * Construct a minimal WorkingDirectoryDirective for tests.
+ */
+function make_wd_directive(
+    resolved_path: string,
+    is_workspace_relative: boolean,
+): WorkingDirectoryDirective {
+    return {
+        path: resolved_path,
+        resolved_path,
+        is_workspace_relative,
+        range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 },
+        },
+        directive_form: 'cd',
+    };
+}
+
+describe('resolve_working_directory_directive', () => {
+    test('workspace-relative: joins workspace_root with resolved_path', () => {
+        const my_workspace_root = '/workspace/project';
+        const my_directive = make_wd_directive('data', true);
+        const result = resolve_working_directory_directive(
+            my_directive,
+            my_workspace_root,
+        );
+        expect(result).toBe(
+            path.normalize(path.join(my_workspace_root, 'data'))
+        );
+    });
+
+    test('workspace-relative: returns undefined when workspace_root is absent', () => {
+        const my_directive = make_wd_directive('data', true);
+        const result = resolve_working_directory_directive(my_directive, undefined);
+        expect(result).toBeUndefined();
+    });
+
+    test('non-workspace-relative: returns resolved_path directly', () => {
+        const my_abs_path = '/absolute/path/to/wd';
+        const my_directive = make_wd_directive(my_abs_path, false);
+        const result = resolve_working_directory_directive(my_directive, undefined);
+        expect(result).toBe(my_abs_path);
+    });
+
+    test('non-workspace-relative: workspace_root is ignored', () => {
+        const my_abs_path = '/project/results';
+        const my_directive = make_wd_directive(my_abs_path, false);
+        // Pass a workspace_root that differs from resolved_path; must be ignored.
+        const result = resolve_working_directory_directive(
+            my_directive,
+            '/completely/different/root',
+        );
+        expect(result).toBe(my_abs_path);
+    });
+
+    test('workspace-relative path is normalised (no double slashes)', () => {
+        const my_directive = make_wd_directive('sub/data', true);
+        const result = resolve_working_directory_directive(
+            my_directive,
+            '/workspace',
+        );
+        expect(result).toBe(path.normalize('/workspace/sub/data'));
+        expect(result).not.toContain('//');
     });
 });

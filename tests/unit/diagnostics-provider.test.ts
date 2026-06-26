@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { undefined_symbol_data_fields } from '../../src/utils/undefined-symbol-diagnostic';
 import { DocumentState } from '../../src/document-store';
-import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope } from '../../src/types';
+import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope, CrossFileCaseMismatchSeverity } from '../../src/types';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { ContextTracker } from '../../src/context-tracker';
 import { StataLexer } from '../../src/lexer';
@@ -1856,5 +1856,356 @@ display \`result'
             expect(undefined_diag).toBeUndefined();
         });
     });
+
+    // ── convert_directive_diagnostic — path_case_mismatch routing ────────────
+    describe('convert_directive_diagnostic — path_case_mismatch', () => {
+        // Shared helpers
+        const DUMMY_RANGE = {
+            start: { line: 0, character: 5 },
+            end: { line: 0, character: 20 },
+        };
+
+        // A minimal document that produces no diagnostics of its own,
+        // so the only diagnostics we see come from the injected
+        // resolved_scope.diagnostics array.
+        const quiet_document = create_document_state('display "hello"\n');
+
+        // Build a resolved scope that carries exactly one DirectiveDiagnostic.
+        function make_scope_with_diag(diag: object) {
+            return {
+                symbols: {
+                    programs: new Map(),
+                    localMacros: new Map(),
+                    globalMacros: new Map(),
+                    variables: new Map(),
+                    scalars: new Map(),
+                    matrices: new Map(),
+                },
+                chain: [],
+                out_of_scope_symbols: [],
+                has_directives: false,
+                has_auto_parents: false,
+                scan_complete_at_resolve_time: true,
+                diagnostics: [diag],
+            };
+        }
+
+        // Build a config with cross_file.diagnostics.case_mismatch set.
+        function make_config_with_case_mismatch(
+            case_mismatch: CrossFileCaseMismatchSeverity,
+        ): StataLSPConfig {
+            return {
+                ...DEFAULT_CONFIG,
+                cross_file: {
+                    index_workspace: false,
+                    max_indexed_files: 0,
+                    assume_call_site: 'end',
+                    backward_dependencies: 'auto',
+                    max_backward_depth: 10,
+                    max_forward_depth: 10,
+                    max_chain_depth: 20,
+                    diagnostics: {
+                        missing_file: 'warning',
+                        max_depth: 'warning',
+                        case_mismatch: case_mismatch,
+                    },
+                },
+            };
+        }
+
+        it('(a) case_mismatch: off → returns null (diagnostic suppressed)', async () => {
+            const scope = make_scope_with_diag({
+                kind: 'path_case_mismatch',
+                code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+                message: 'Path "helpers/clean" does not match on-disk "helpers/Clean.do"',
+                range: DUMMY_RANGE,
+                severity: 'warning',
+                case_mismatch_seed_dir: '/workspace',
+            });
+
+            const mock_resolver = { resolve: async () => scope };
+            const config = make_config_with_case_mismatch('off');
+
+            const the_diagnostics = await provider.get_diagnostics(
+                quiet_document,
+                config,
+                undefined,
+                mock_resolver as any,
+            );
+
+            const case_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+            );
+            expect(case_diag).toBeUndefined();
+        });
+
+        it('(b) case_mismatch: warning → Warning severity, code propagated', async () => {
+            const scope = make_scope_with_diag({
+                kind: 'path_case_mismatch',
+                code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+                message: 'Path "helpers/clean" does not match on-disk "helpers/Clean.do"',
+                range: DUMMY_RANGE,
+                severity: 'warning',
+                case_mismatch_seed_dir: '/workspace',
+            });
+
+            const mock_resolver = { resolve: async () => scope };
+            const config = make_config_with_case_mismatch('warning');
+
+            const the_diagnostics = await provider.get_diagnostics(
+                quiet_document,
+                config,
+                undefined,
+                mock_resolver as any,
+            );
+
+            const case_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+            );
+            expect(case_diag).toBeDefined();
+            expect(case_diag?.severity).toBe(DiagnosticSeverity.Warning);
+            expect(case_diag?.code).toBe(StataDiagnosticCode.PATH_CASE_MISMATCH);
+        });
+
+        it('(b2) case_mismatch: information → Information severity', async () => {
+            const scope = make_scope_with_diag({
+                kind: 'path_case_mismatch',
+                code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+                message: 'Path case mismatch',
+                range: DUMMY_RANGE,
+                severity: 'information',
+                case_mismatch_seed_dir: '/workspace',
+            });
+
+            const mock_resolver = { resolve: async () => scope };
+            const config = make_config_with_case_mismatch('information');
+
+            const the_diagnostics = await provider.get_diagnostics(
+                quiet_document,
+                config,
+                undefined,
+                mock_resolver as any,
+            );
+
+            const case_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+            );
+            expect(case_diag).toBeDefined();
+            expect(case_diag?.severity).toBe(DiagnosticSeverity.Information);
+        });
+
+        it('(c1) case_mismatch: auto + case-sensitive host → Warning', async () => {
+            const previous_probe = DiagnosticsProvider.set_host_probe(
+                (_seed_dir: string) => true, // case-sensitive
+            );
+            try {
+                const scope = make_scope_with_diag({
+                    kind: 'path_case_mismatch',
+                    code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+                    message: 'Path case mismatch',
+                    range: DUMMY_RANGE,
+                    severity: 'warning',
+                    case_mismatch_seed_dir: '/workspace',
+                });
+
+                const mock_resolver = { resolve: async () => scope };
+                const config = make_config_with_case_mismatch('auto');
+
+                const the_diagnostics = await provider.get_diagnostics(
+                    quiet_document,
+                    config,
+                    undefined,
+                    mock_resolver as any,
+                );
+
+                const case_diag = the_diagnostics.find(
+                    d => d.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+                );
+                expect(case_diag).toBeDefined();
+                expect(case_diag?.severity).toBe(DiagnosticSeverity.Warning);
+            } finally {
+                DiagnosticsProvider.set_host_probe(previous_probe);
+            }
+        });
+
+        it('(c2) case_mismatch: auto + case-insensitive host → Information', async () => {
+            const previous_probe = DiagnosticsProvider.set_host_probe(
+                (_seed_dir: string) => false, // case-insensitive
+            );
+            try {
+                const scope = make_scope_with_diag({
+                    kind: 'path_case_mismatch',
+                    code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+                    message: 'Path case mismatch',
+                    range: DUMMY_RANGE,
+                    severity: 'warning',
+                    case_mismatch_seed_dir: '/workspace',
+                });
+
+                const mock_resolver = { resolve: async () => scope };
+                const config = make_config_with_case_mismatch('auto');
+
+                const the_diagnostics = await provider.get_diagnostics(
+                    quiet_document,
+                    config,
+                    undefined,
+                    mock_resolver as any,
+                );
+
+                const case_diag = the_diagnostics.find(
+                    d => d.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+                );
+                expect(case_diag).toBeDefined();
+                expect(case_diag?.severity).toBe(DiagnosticSeverity.Information);
+            } finally {
+                DiagnosticsProvider.set_host_probe(previous_probe);
+            }
+        });
+
+        it('(c3) case_mismatch: auto + missing seed_dir → Warning (conservative)', async () => {
+            // When case_mismatch_seed_dir is absent, assume case-sensitive →
+            // Warning, regardless of actual host
+            const previous_probe = DiagnosticsProvider.set_host_probe(
+                (_seed_dir: string) => false, // would be insensitive, but ignored
+            );
+            try {
+                const scope = make_scope_with_diag({
+                    kind: 'path_case_mismatch',
+                    code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+                    message: 'Path case mismatch',
+                    range: DUMMY_RANGE,
+                    severity: 'warning',
+                    // no case_mismatch_seed_dir
+                });
+
+                const mock_resolver = { resolve: async () => scope };
+                const config = make_config_with_case_mismatch('auto');
+
+                const the_diagnostics = await provider.get_diagnostics(
+                    quiet_document,
+                    config,
+                    undefined,
+                    mock_resolver as any,
+                );
+
+                const case_diag = the_diagnostics.find(
+                    d => d.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+                );
+                expect(case_diag).toBeDefined();
+                expect(case_diag?.severity).toBe(DiagnosticSeverity.Warning);
+            } finally {
+                DiagnosticsProvider.set_host_probe(previous_probe);
+            }
+        });
+
+        it('(d) missingFile: off does NOT suppress path_case_mismatch', async () => {
+            const scope = make_scope_with_diag({
+                kind: 'path_case_mismatch',
+                code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+                message: 'Path case mismatch',
+                range: DUMMY_RANGE,
+                severity: 'warning',
+                case_mismatch_seed_dir: '/workspace',
+            });
+
+            const mock_resolver = { resolve: async () => scope };
+            // missingFile: off, but case_mismatch: warning — must still emit
+            const config: StataLSPConfig = {
+                ...DEFAULT_CONFIG,
+                cross_file: {
+                    index_workspace: false,
+                    max_indexed_files: 0,
+                    assume_call_site: 'end',
+                    backward_dependencies: 'auto',
+                    max_backward_depth: 10,
+                    max_forward_depth: 10,
+                    max_chain_depth: 20,
+                    diagnostics: {
+                        missing_file: 'off',
+                        max_depth: 'warning',
+                        case_mismatch: 'warning',
+                    },
+                },
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                quiet_document,
+                config,
+                undefined,
+                mock_resolver as any,
+            );
+
+            const case_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+            );
+            expect(case_diag).toBeDefined();
+            expect(case_diag?.severity).toBe(DiagnosticSeverity.Warning);
+        });
+
+        it('(e) regression: missing-file diagnostic still behaves as before', async () => {
+            // Legacy missing-file diagnostic (no `kind` field) with message
+            // containing 'Cannot read file'. It should be governed solely by
+            // missingFile policy, not by case_mismatch, and should NOT have a
+            // `code` on the returned Diagnostic.
+            const scope = make_scope_with_diag({
+                // no `kind` field — legacy path
+                message: 'Cannot read file "parent.do"',
+                range: DUMMY_RANGE,
+                severity: 'warning',
+            });
+
+            const mock_resolver = { resolve: async () => scope };
+
+            // (e1) missingFile: warning → emitted as Warning, code undefined
+            const config_warn = make_config_with_case_mismatch('warning');
+            const the_diagnostics_warn = await provider.get_diagnostics(
+                quiet_document,
+                config_warn,
+                undefined,
+                mock_resolver as any,
+            );
+            const missing_diag_warn = the_diagnostics_warn.find(
+                d => d.message.includes('Cannot read file')
+            );
+            expect(missing_diag_warn).toBeDefined();
+            expect(missing_diag_warn?.severity).toBe(DiagnosticSeverity.Warning);
+            expect(missing_diag_warn?.code).toBeUndefined();
+
+            // (e2) missingFile: off → diagnostic is suppressed
+            // Build a fresh config: need to override missing_file while keeping
+            // case_mismatch irrelevant
+            const config_off: StataLSPConfig = {
+                ...DEFAULT_CONFIG,
+                cross_file: {
+                    index_workspace: false,
+                    max_indexed_files: 0,
+                    assume_call_site: 'end',
+                    backward_dependencies: 'auto',
+                    max_backward_depth: 10,
+                    max_forward_depth: 10,
+                    max_chain_depth: 20,
+                    diagnostics: {
+                        missing_file: 'off',
+                        max_depth: 'warning',
+                    },
+                },
+            };
+            // Need fresh provider (cache is keyed by version+config_hash)
+            const provider2 = new DiagnosticsProvider(
+                create_mock_connection() as any
+            );
+            const the_diagnostics_off = await provider2.get_diagnostics(
+                quiet_document,
+                config_off,
+                undefined,
+                mock_resolver as any,
+            );
+            const missing_diag_off = the_diagnostics_off.find(
+                d => d.message.includes('Cannot read file')
+            );
+            expect(missing_diag_off).toBeUndefined();
+        });
+    });
 });
-      
+
+
