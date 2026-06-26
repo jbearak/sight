@@ -54,6 +54,20 @@ import { is_cursor_in_comment } from '../utils/comment-utils';
  * Definition Provider class.
  */
 export class DefinitionProvider {
+    /** Workspace roots set by the server, used for cross-directory resolution. */
+    private workspace_roots: string[] = [];
+
+    /**
+     * Update the workspace roots used by resolve_file_path.
+     *
+     * Must be called whenever the LSP workspace folders change so that
+     * cross-directory `do`/`run`/`include` targets that live outside the
+     * current document's directory are still case-only resolved correctly.
+     */
+    set_workspace_roots(roots: string[]): void {
+        this.workspace_roots = roots;
+    }
+
     /**
      * Get the definition location for a position in the document.
      *
@@ -1556,20 +1570,28 @@ export class DefinitionProvider {
      * `helpers/Clean.do`) still navigates to the real-cased target. Ambiguous
      * or missing paths return null (no navigation).
      *
-     * The current directory is used as the workspace root so the rich
-     * resolver bounds its walk to the directory containing the document
-     * (and its subdirectories). This avoids symlink ambiguity on macOS
-     * where `/tmp` is a symlink to `/private/tmp`.
+     * The workspace roots (from set_workspace_roots) are included so that
+     * cross-directory targets resolve correctly with case-only handling.
+     * current_dir is always appended as a fallback to preserve symlink-safe
+     * behaviour on macOS where /tmp is a symlink to /private/tmp: even when
+     * a workspace root contains the document's directory under a different
+     * prefix, current_dir still bounds the file's own directory.
+     * resolve_path_rich picks the longest matching root, so the real
+     * workspace root takes precedence when it genuinely contains the target.
      */
     private resolve_file_path(current_uri: string, file_path: string): string | null {
         const current_path = URI.parse(current_uri).fsPath;
         const current_dir = path.dirname(current_path);
         const resolved_path = path.resolve(current_dir, file_path);
 
-        // Use current_dir as the workspace root so the walk is bounded and
-        // symlink-safe (avoids /tmp → /private/tmp false-negatives on macOS).
+        // Build the root list: real workspace roots first, then current_dir
+        // as a symlink-safe fallback. De-duplicate to avoid redundant scans.
+        const the_roots_set = new Set<string>(this.workspace_roots);
+        the_roots_set.add(current_dir);
+        const the_roots = Array.from(the_roots_set);
+
         const outcome = resolve_path_rich(resolved_path, {
-            workspace_roots: [current_dir],
+            workspace_roots: the_roots,
         });
         if (outcome.kind === 'exact' || outcome.kind === 'case_only') {
             return outcome.path;

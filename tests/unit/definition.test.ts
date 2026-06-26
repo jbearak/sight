@@ -1490,6 +1490,87 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
         });
     });
 
+    describe('Cross-directory case-only resolution with workspace roots', () => {
+        it(
+            'navigates do with wrong-cased cross-dir target when workspace root is set',
+            async () => {
+                // Layout:
+                //   temp_dir/           ← workspace root
+                //     sub/main.do       ← document under test
+                //     shared/clean.do   ← real on-disk file (lowercase)
+                //
+                // The document references `do ../shared/Clean` (wrong case).
+                // With workspace root set the resolver should walk shared/ and
+                // find clean.do via a case-only match.
+                const sub_dir = path.join(temp_dir, 'sub');
+                const shared_dir = path.join(temp_dir, 'shared');
+                fs.mkdirSync(sub_dir, { recursive: true });
+                fs.mkdirSync(shared_dir, { recursive: true });
+
+                const real_path = path.join(shared_dir, 'clean.do');
+                fs.writeFileSync(real_path, '// Shared helper');
+
+                const my_content = 'do ../shared/Clean';
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    `file://${path.join(sub_dir, 'main.do')}`
+                );
+
+                // Set the workspace root so the provider can reach ../shared/
+                definition_provider.set_workspace_roots([temp_dir]);
+
+                // Cursor inside "../shared/Clean" (e.g. character 8)
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: 8 }
+                );
+
+                // On a case-insensitive FS (macOS HFS+) resolution succeeds
+                // via existsSync regardless of workspace roots; on a
+                // case-sensitive FS it depends on resolve_path_rich using the
+                // workspace root to walk shared/. Both must be non-null.
+                expect(my_definition).not.toBeNull();
+
+                const the_is_sensitive = host_is_case_sensitive(shared_dir);
+                if (the_is_sensitive) {
+                    // Case-sensitive: must navigate to the real-cased path.
+                    const single = my_definition as { uri: string };
+                    expect(single.uri).toContain('clean.do');
+                }
+            }
+        );
+
+        it(
+            'current_dir still works as fallback when workspace roots are empty',
+            async () => {
+                // Regression: even with no workspace roots set (e.g. early
+                // startup), same-directory resolution must still succeed.
+                const real_path = path.join(temp_dir, 'helper.do');
+                fs.writeFileSync(real_path, '// Helper');
+
+                const my_content = 'do helper';
+                const my_doc = create_test_document(
+                    my_content,
+                    undefined,
+                    `file://${path.join(temp_dir, 'test.do')}`
+                );
+
+                // No workspace roots set (empty by default)
+                definition_provider.set_workspace_roots([]);
+
+                const my_definition = await definition_provider.get_definition(
+                    my_doc,
+                    { line: 0, character: 5 }
+                );
+
+                expect(my_definition).not.toBeNull();
+                const single = my_definition as { uri: string };
+                expect(single.uri).toContain('helper.do');
+            }
+        );
+    });
+
     describe('DefinitionProvider - Symbol Precedence', () => {
         it('should prioritize document symbols over workspace symbols', async () => {
             // Create document with a local symbol

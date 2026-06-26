@@ -878,6 +878,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             if (dependency_graph) {
                 dependency_graph.set_workspace_roots(folder_paths);
             }
+            if (definition_provider) {
+                definition_provider.set_workspace_roots(folder_paths);
+            }
 
             // Single-root project config: sight.toml is discovered from the
             // first workspace folder and applied to every document. Multi-root
@@ -907,6 +910,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             }
             if (dependency_graph) {
                 dependency_graph.set_workspace_roots([]);
+            }
+            if (definition_provider) {
+                definition_provider.set_workspace_roots([]);
             }
         }
 
