@@ -110,9 +110,24 @@ consumer, preserving non-goal #1.
 
 ### Algorithm — component-wise, exact-before-case at every level
 
-Find the deepest existing ancestor directory of `resolved_fs_path` (the only
-use of `existsSync`, and only on directories — never to classify a leaf's
-casing). Walk the remaining components left → right from that ancestor; at each
+**Where the walk starts.** To avoid silently trusting a wrong-cased base/ancestor
+directory (on a case-insensitive host, a wrong-cased ancestor still "exists"),
+the walk starts at the **containing workspace root** — a directory whose casing
+is canonical because it was supplied by the editor/CLI — and verifies **every**
+component of `resolved_fs_path` below that root. `existsSync` is used only to
+confirm the chosen workspace-root prefix exists; it is **never** used to classify
+a component's casing.
+
+- If `resolved_fs_path` is inside a `workspace_roots` entry → walk from that
+  root, verifying all relative components (this is the case-handling path).
+- If `resolved_fs_path` is **outside** every workspace root (or no
+  `workspace_roots` were supplied and the path is absolute outside the analyzed
+  tree) → **no case handling**: fall back to plain existence (`exact` if the
+  file exists as today, else `missing`), and emit **no** `path_case_mismatch`.
+  Base-directory casing above the workspace root is explicitly out of scope (see
+  Out of scope), as is the casing of a wrong-cased `@lsp-cd` working directory.
+
+Walk the relative components left → right from the workspace root; at each
 component the **directory listing is the sole source of truth for casing** (no
 `existsSync` casing short-circuit — see "Why not trust `existsSync`" below):
 
@@ -151,42 +166,42 @@ the file is `Clean.do`. Using `existsSync` to classify a leaf as `exact` would
 mask the mismatch on case-insensitive hosts — defeating the "warn before Linux
 CI" requirement. So the resolver **never** uses `existsSync` to judge casing:
 casing is decided **only** by comparing the requested component against the
-actual `readdirSync` entry names. `existsSync` is used solely to locate the
-deepest existing ancestor directory to start the walk from. This yields the
-correct classification uniformly on both filesystem regimes.
+actual `readdirSync` entry names. `existsSync` is used solely to confirm the
+canonical workspace-root prefix the walk starts from. This yields the correct
+classification uniformly on both filesystem regimes.
 
 ### Workspace-bounded scanning
 
-The case-insensitive `readdirSync` scan only runs for directories **inside a
-`workspace_roots` entry** (perf + privacy). A component whose directory is
-outside every workspace root requires an exact match (falls to `missing` if the
-exact child is absent). With no `workspace_roots` supplied, scanning is allowed
-for any directory (preserves test ergonomics and standalone-CLI use where the
-file under analysis is the root).
+The case-insensitive `readdirSync` walk runs **only for paths inside a
+`workspace_roots` entry** (perf + privacy + the canonical-root start point
+above). A path outside every workspace root gets **no case handling**: existing
+exact/missing behavior, no directory enumeration, no `path_case_mismatch`. For
+tests and the standalone CLI, callers pass the analyzed file's own root as a
+`workspace_roots` entry so case handling applies to the tree under analysis.
 
 ### Host regime → `auto` severity
 
-New cached helper (e.g. `src/utils/file-path-utils.ts` or a small
+A cached host-filesystem helper (in `src/utils/file-path-utils.ts` or a small
 `host-filesystem.ts`):
 
 ```ts
 export function host_is_case_sensitive(
-  fs?: { existsSync(p: string): boolean },
-): boolean;   // cached after first probe
+  seed_existing_dir: string,                      // a real, existing directory
+  fs?: { existsSync(p: string): boolean },        // injected for tests
+): boolean;   // result cached per process after first probe
 ```
 
-Probe: take a known-existing path, flip the case of its first ASCII letter, and
-test `existsSync` of the flipped variant. If the flipped path does **not**
+The probe takes a **known-existing directory the resolver already has on hand**
+— a workspace root (or the analyzed file's own directory) — rather than deriving
+a path from the module location. This sidesteps the ESM-vs-bundled-CJS
+`__dirname`/`import.meta` problem entirely: host case-sensitivity is a property
+of the filesystem, not of any particular path, so any real existing directory
+with an ASCII letter works as the seed. Flip the case of its first ASCII letter
+and test `existsSync` of the flipped variant. If the flipped path does **not**
 exist → case-sensitive. If no ASCII letter to flip → assume case-sensitive
 (conservative: surfaces the warning). The result is cached at module scope; the
-optional `fs` injection is for tests only and bypasses the cache.
-
-The package is ESM (`"type": "module"`), so `__dirname` is unavailable. Derive
-the probe path from `import.meta.url`:
-`path.dirname(fileURLToPath(import.meta.url))`. (The server is also bundled to
-CJS for the VS Code client; if `import.meta` is unavailable in that bundle,
-fall back to `process.cwd()`, which reliably contains ASCII letters in
-practice.)
+optional `fs` injection is for tests only and bypasses the cache. If a caller
+ever has no real directory on hand, `process.cwd()` is an acceptable seed.
 
 `auto` maps to **`information`** on a case-insensitive host and **`warning`** on
 a case-sensitive host. Because `sight check --max-severity` defaults to `Info`
@@ -301,6 +316,21 @@ with the indexer's `workspace_roots`. This guarantees the graph edge and the
 forward diagnostic agree on the real-cased target. (Backward directives have
 their own join; see consumer #3.)
 
+**Every `ForwardCall` producer must populate the new fields**, or an edge built
+from an unpopulated producer regresses to the as-typed join. The producers are:
+- the **workspace indexer** (`src/indexer/index.ts` ~:493–523) — it analyzes
+  files during the scan, so it must **resolve each file's effective
+  working-directory directive(s) before** call extraction/mapping, then attach
+  `caller_uri` + `working_directory` to every `ForwardCall` it feeds into the
+  dependency graph;
+- `ScopeResolver.parse_content` (`src/scope-resolver/index.ts` ~:1764), which
+  already has the effective working directory in hand;
+- `DocumentStore` (~:790) for in-editor open documents.
+A producer with no working-directory context attaches `working_directory:
+undefined` (script-relative join), which is the correct behavior for files that
+genuinely have none — the point is that the field is always *explicitly* set by
+the producer, never left to a downstream default that guesses the base.
+
 1. **Dependency graph** — `src/dependency-graph/index.ts` `update_caller`
    (~:48–112) / `path_to_uri` (~:328). Today static-call paths become URIs
    without case normalization, so on a case-sensitive FS the
@@ -319,27 +349,33 @@ their own join; see consumer #3.)
    emission). On `ambiguous`/`missing`, keep the existing cannot-read-file
    diagnostic.
 
-   **Single-emission guard (own-file only).** `ForwardScopeResolver.resolve`
-   resolves not only the analyzed file's own forward calls but also a **parent's**
-   forward calls when building inherited scope for a child (e.g.
-   `resolve_parent_forward_calls`). A parent's case-only `do` must be reported
-   **once**, on the parent's own diagnostics, not re-reported on every child it
-   feeds. So `path_case_mismatch` is emitted **only when resolving the forward
-   calls of the file currently being diagnosed** — i.e. gate emission on an
-   `emit_diagnostics` mode that is true for the own-file pass and false when
-   resolving ancestor/parent forward calls for inheritance. (Edge resolution and
-   scope inheritance still happen in both passes; only the *diagnostic* is
-   gated.)
+   **Single-emission guard (owner URI at depth 0).** `ForwardScopeResolver.resolve`
+   resolves forward calls in three situations that could each re-report the same
+   mismatch: the analyzed file's own calls; a **parent's** calls when building a
+   child's inherited scope (`resolve_parent_forward_calls`); and **recursive
+   nested callees** reached while following a forward chain. A boolean
+   `emit_diagnostics` flag is insufficient because the own-file pass itself
+   recurses into nested callees. Instead, thread a `diagnostic_owner_uri` (the
+   URI of the file currently being diagnosed) and emit `path_case_mismatch`
+   **only when `current_file_uri === diagnostic_owner_uri` and the resolution
+   `depth === 0`** — i.e. the mismatch is on a forward call written directly in
+   the diagnosed file. Every other resolution (nested callee, ancestor/parent
+   inheritance) still resolves scope with case leniency but **suppresses** the
+   diagnostic. Each file emits its own mismatches when it is itself the diagnosed
+   file, so a case-only `do` in file A is reported exactly once — on A — whether
+   A is analyzed as a root or pulled in as someone's ancestor.
 3. **Scope resolver** — `src/scope-resolver/index.ts`: **explicit backward
    directive** resolution (`follow_directives`, ~:1324). Backward
-   `Directive.path` may already be transformed by the directive parser's
-   `resolve_path_with_fallback`; for rich resolution we use the **absolute path
-   built from `Directive.raw_path` joined to the directive file's own
-   containing directory** (no `@lsp-cd`, no workspace-root fallback — the Raven
-   invariant). On `case_only`, resolve the parent and push a backward-worded
-   `path_case_mismatch` at the directive range; the message displays `raw_path`
-   (as written) versus the real-cased relative on-disk name. On
-   `ambiguous`/`missing`, existing behavior.
+   `Directive.path` may already be transformed by the directive parser; build
+   the absolute path for rich resolution by reusing `DirectiveParser`'s
+   path-resolution semantics (separator normalization, Windows absolute/UNC
+   handling) on `Directive.raw_path` joined to the **directive file's own
+   containing directory** — but **without** the `.do` fallback applied at that
+   stage (the rich resolver owns the `.do` fallback). No `@lsp-cd`, no
+   workspace-root fallback — the Raven invariant. On `case_only`, resolve the
+   parent and push a backward-worded `path_case_mismatch` at the directive
+   range; the message displays `raw_path` (as written) versus the real-cased
+   relative on-disk name. On `ambiguous`/`missing`, existing behavior.
 
    Note — **auto-discovered parents** (synthetic directives from the dep graph,
    ~:277) need no resolution or diagnostic here: their `caller_uri` is already
@@ -421,7 +457,12 @@ with other diagnostics. `--max-severity` gating is automatic.
   workspace-root fallback and never read `@lsp-cd` (Raven invariant); message
   makes no Stata-execution claim.
 - **Single emission** — exactly one diagnostic per mismatched call/directive,
-  emitted in the resolver phase, never duplicated across consumers.
+  emitted only when the owning file is the diagnosed file and the call is at
+  resolution depth 0; never duplicated across nested-callee, ancestor, or
+  multi-consumer resolution.
+- **Base-directory casing** — the workspace root and any directory above it are
+  assumed canonical; the resolver verifies only components *below* the
+  workspace root. Paths outside all workspace roots get no case handling.
 
 ## Testing (TDD; test-first)
 
@@ -490,5 +531,8 @@ Linux CI and are skipped (or inverted) on macOS, mirroring Raven's
 - Data-file path commands (`use`/`save`/`merge`/`import`/`export`/`adopath`).
 - `@lsp-cd`/working-directory *directive* path casing (only the execution graph
   paths are covered here).
+- Casing of the workspace root and any directory **above** it — assumed
+  canonical; only components below a workspace root are verified. Paths entirely
+  outside all workspace roots get no case handling.
 - Non-ASCII case folding.
 - Macro-interpolated paths.
