@@ -174,16 +174,11 @@ describe('Expression Keyword Disambiguation Property Tests', () => {
         const tokens = lexer.tokenize(source).tokens;
         const parseResult = parser.parse(tokens);
         const symbols = analyzer.analyze(parseResult.ast, tokens);
-        
-        // Should not have undefined variable warnings for the keyword
-        const undefined_warnings = symbols.diagnostics.filter(d => 
-          d.message.includes('undefined') && d.message.includes(keyword)
-        );
-        
-        // Keywords used as variables should be treated as regular variables
-        // They may generate undefined warnings, but this is expected behavior
-        // The key test is that they don't cause syntax errors
-        const syntax_errors = symbols.diagnostics.filter(d => 
+
+        // Keywords used as variables should be treated as regular variables.
+        // They may generate undefined warnings, and that is expected behavior;
+        // the key property here is that they don't cause syntax errors.
+        const syntax_errors = symbols.diagnostics.filter(d =>
           d.message.includes('syntax') || d.message.includes('expected')
         );
         

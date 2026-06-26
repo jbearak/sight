@@ -275,7 +275,7 @@ di "BH variables after merge: \`raw_vars_bh'"`;
 
             // Filter for undefined macro warnings about bh_merge_bh_vars_final
             const bh_vars_final_warnings = diagnostics.filter(d => 
-                d.message.toLowerCase().includes('undefined') &&
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                 d.message.includes('bh_merge_bh_vars_final')
             );
 
@@ -328,7 +328,7 @@ di "Final: \`final_vars'"`;
             );
 
             const undefined_warnings = diagnostics.filter(d => 
-                d.message.toLowerCase().includes('undefined') &&
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                 (d.message.includes('bh_merge_bh_vars_renamed') || 
                  d.message.includes('bh_merge_bh_vars_final'))
             );

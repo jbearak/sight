@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
-import { SyntaxNode } from '../../src/types';
+import { SyntaxNode, StataDiagnosticCode } from '../../src/types';
 
 describe('Feature: namelist-argument-type', () => {
   let lexer: StataLexer;
@@ -85,8 +85,9 @@ describe('Feature: namelist-argument-type', () => {
           const result = parser.parse(tokens);
           const analysis = analyzer.analyze(result.ast, 'test://file.do', undefined, { undefined_macro_enabled: true }, tokens);
           
-          const namelistDiagnostics = analysis.diagnostics.filter(d => 
-            d.message.toLowerCase().includes('namelist') && d.message.toLowerCase().includes('undefined')
+          const namelistDiagnostics = analysis.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            && d.message.toLowerCase().includes('namelist')
           );
           expect(namelistDiagnostics).toHaveLength(0);
         }
