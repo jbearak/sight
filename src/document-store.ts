@@ -20,7 +20,10 @@ import { ContextRange } from './context-tracker/types';
 import { with_parse_timeout } from './utils/parse-timeout';
 import { DirectiveParser } from './directive-parser';
 import { ScopeResolver } from './scope-resolver';
-import { get_workspace_root_for_uri } from './utils/workspace-roots';
+import {
+  get_workspace_root_for_uri,
+  resolve_working_directory_directive,
+} from './utils/workspace-roots';
 
 import * as path from 'path';
 import * as fs from 'fs';
@@ -1037,25 +1040,33 @@ export class DocumentStore {
    * @param uri - The URI of the script file
    * @returns The resolved absolute path, or undefined if resolution fails
    */
+  /**
+   * Resolve the working directory from a WorkingDirectoryDirective.
+   *
+   * Uses the shared `resolve_working_directory_directive` helper to
+   * compute the canonical absolute path (same algorithm as the Indexer
+   * and ScopeResolver, ensuring dependency-graph edge keys are stable
+   * across producers). Then applies an existence check: if the resolved
+   * directory does not exist on disk the method returns `undefined` so
+   * the runtime falls back to the script's own directory.
+   *
+   * @param directive - The parsed working directory directive
+   * @param uri - The URI of the script file
+   * @returns The resolved absolute path, or undefined if resolution
+   *          fails or the directory does not exist
+   */
   private resolve_working_directory(
     directive: WorkingDirectoryDirective,
     uri: string
   ): string | undefined {
-    let resolved_path: string;
+    const workspace_root = this.get_workspace_root_for_uri(uri);
+    const resolved_path = resolve_working_directory_directive(
+      directive,
+      workspace_root
+    );
 
-    if (directive.is_workspace_relative) {
-      // Resolve relative to the workspace root that contains this file
-      const workspace_root = this.get_workspace_root_for_uri(uri);
-      if (!workspace_root) {
-        // No workspace root available - cannot resolve workspace-relative path
-        return undefined;
-      }
-      // resolved_path in directive already has leading slash stripped
-      resolved_path = path.normalize(path.join(workspace_root, directive.resolved_path));
-    } else {
-      // Resolve relative to script's containing directory
-      // The directive parser already resolved this for us
-      resolved_path = directive.resolved_path;
+    if (!resolved_path) {
+      return undefined;
     }
 
     // Check if the resolved directory exists

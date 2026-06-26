@@ -7,6 +7,7 @@
 
 import * as path from 'path';
 import { URI } from 'vscode-uri';
+import type { WorkingDirectoryDirective } from '../types';
 
 /**
  * Find the deepest workspace root that contains the given filesystem path.
@@ -65,4 +66,50 @@ export function get_workspace_root_for_uri(
     } catch {
         return path.resolve(workspace_roots[0]);
     }
+}
+
+/**
+ * Resolve a WorkingDirectoryDirective to an absolute filesystem path.
+ *
+ * Resolution rules:
+ * - `is_workspace_relative === true`: join `workspace_root` with
+ *   `directive.resolved_path` and normalise. Returns `undefined` when
+ *   `workspace_root` is not provided (no workspace is open).
+ * - `is_workspace_relative === false`: return `directive.resolved_path`
+ *   directly (the directive parser already resolved it relative to the
+ *   script's containing directory).
+ *
+ * This function intentionally does NOT check whether the resulting path
+ * exists on disk. Callers that require an existence check (e.g.
+ * DocumentStore) should apply `fs.existsSync` / `fs.statSync` on top of
+ * the value returned here. Keeping the existence check out of this helper
+ * ensures that the Indexer, ScopeResolver, and DocumentStore all produce
+ * the same canonical path string for the same directive, which is
+ * required for dependency-graph edge keying to be stable across
+ * producers.
+ *
+ * @param directive - The parsed working-directory directive.
+ * @param workspace_root - Pre-resolved workspace root for the file that
+ *   contains the directive (used only for workspace-relative paths).
+ * @returns Resolved absolute path, or `undefined` if workspace-relative
+ *   and no workspace root is available.
+ */
+export function resolve_working_directory_directive(
+    directive: WorkingDirectoryDirective,
+    workspace_root: string | undefined,
+): string | undefined {
+    if (directive.is_workspace_relative) {
+        if (!workspace_root) {
+            // Cannot resolve a workspace-relative path without a root.
+            return undefined;
+        }
+        // directive.resolved_path already has the leading slash stripped
+        // by the directive parser.
+        return path.normalize(
+            path.join(workspace_root, directive.resolved_path)
+        );
+    }
+    // Non-workspace-relative: the directive parser already resolved the
+    // path relative to the script's containing directory.
+    return directive.resolved_path;
 }

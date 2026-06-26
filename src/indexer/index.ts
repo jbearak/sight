@@ -36,7 +36,10 @@ import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { is_safe_include_name } from '../utils/include-expander';
 import { compute_line_offsets } from '../utils/line-utils';
-import { get_workspace_root_for_path } from '../utils/workspace-roots';
+import {
+    get_workspace_root_for_path,
+    resolve_working_directory_directive,
+} from '../utils/workspace-roots';
 import { discover_stata_ado_paths } from '../utils/stata-install-paths';
 import {
     FindaliasResolver,
@@ -508,25 +511,28 @@ export class WorkspaceIndexer {
             );
 
             // Resolve effective working directory from @lsp-cd / @lsp-wd
-            // directive.  This is stamped onto ForwardCall objects as
-            // resolution context for Task 6/7 consumers; it does NOT change
-            // the existing `path` field (script-relative join) so the
-            // dependency graph edges are preserved exactly as before.
-            // Mirror the logic in ScopeResolver.parse_content: own directive
-            // wins; workspace-relative paths are joined against workspace_root.
-            let effective_working_directory: string | undefined;
-            if (directive_result.working_directory) {
-                const my_wd = directive_result.working_directory;
-                if (my_wd.is_workspace_relative) {
-                    if (workspace_root) {
-                        effective_working_directory = path.normalize(
-                            path.join(workspace_root, my_wd.resolved_path)
-                        );
-                    }
-                } else {
-                    effective_working_directory = my_wd.resolved_path;
-                }
-            }
+            // directive via the shared helper so the value is identical to
+            // what DocumentStore stamps — required for dependency-graph edge
+            // keys to be stable across both producers.
+            //
+            // NOTE (inherited WD): DocumentStore can also inherit a working
+            // directory from parent files via ScopeResolver when the current
+            // file has no own @lsp-cd directive. The indexer does not perform
+            // that lookup because ScopeResolver itself calls the indexer
+            // (via file-parse cache) and a recursive call during bulk
+            // indexing would create re-entrant, unbounded recursion. Files
+            // that rely on inherited working-directory resolution will have
+            // their ForwardCall.working_directory set to undefined here; the
+            // dependency graph will fall back to caller-relative path
+            // resolution for those calls, which is the same behaviour as
+            // before the shared-helper alignment.
+            const effective_working_directory: string | undefined =
+                directive_result.working_directory
+                    ? resolve_working_directory_directive(
+                          directive_result.working_directory,
+                          workspace_root,
+                      )
+                    : undefined;
 
             // Stamp caller_uri and working_directory onto command-detected
             // forward calls produced by the analyzer.  The analyzer already
