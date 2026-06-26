@@ -33,13 +33,13 @@ export interface AdoAssetDef {
     // ownership detection is precise and never misclassifies a user's
     // own same-named file (e.g. a personal browse.ado).
     marker: string;
-    // When true, a differing same-named file that is NOT Sight-owned is
-    // left untouched (classified 'foreign'). When false, Sight owns the
-    // command name and installs/updates its own copy regardless. `vview`
-    // is Sight's own command, so it is always installed — otherwise a
-    // user's unrelated vview.ado could leave `browse` aliasing a
-    // non-Sight vview. `browse` is a generic Stata built-in name, so a
-    // user's own browse.ado must be protected.
+    // When true, a differing same-named file that is NOT Sight-owned
+    // is left untouched (classified 'foreign'). When false, Sight owns
+    // the command name and installs/updates its own copy regardless.
+    // `vview` is Sight's own command, so it is always installed: a
+    // user's unrelated vview.ado would otherwise leave `browse`
+    // aliasing a non-Sight vview. `browse` is a generic Stata built-in
+    // name, so a user's own browse.ado must be protected.
     protect_foreign: boolean;
 }
 
@@ -120,10 +120,10 @@ export interface VviewInstallHooks<
 
 // True when `content` is a Sight-shipped copy of an ado: its leading
 // banner line is exactly the asset's ownership marker. The match is
-// exact (not a prefix, and surrounding whitespace is NOT normalized) so
-// a foreign file that merely begins with — or pads — our banner text is
-// never misclassified as Sight-owned and clobbered. Only a trailing CR
-// is stripped, so a CRLF-saved copy of our own file is still recognized.
+// exact (not a prefix, and surrounding whitespace is NOT normalized),
+// so a foreign file that merely begins with, or pads, our banner text
+// is never misclassified as Sight-owned and clobbered. Only a trailing
+// CR is stripped, so a CRLF-saved copy of our own file still matches.
 export function is_sight_owned(
     content: string,
     marker: string
