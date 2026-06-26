@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { undefined_symbol_data_fields } from '../../src/utils/undefined-symbol-diagnostic';
 import { DocumentState } from '../../src/document-store';
-import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope } from '../../src/types';
+import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope, CrossFileCaseMismatchSeverity } from '../../src/types';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { ContextTracker } from '../../src/context-tracker';
 import { StataLexer } from '../../src/lexer';
@@ -1892,7 +1892,7 @@ display \`result'
 
         // Build a config with cross_file.diagnostics.case_mismatch set.
         function make_config_with_case_mismatch(
-            case_mismatch: string,
+            case_mismatch: CrossFileCaseMismatchSeverity,
         ): StataLSPConfig {
             return {
                 ...DEFAULT_CONFIG,
@@ -1907,7 +1907,7 @@ display \`result'
                     diagnostics: {
                         missing_file: 'warning',
                         max_depth: 'warning',
-                        case_mismatch: case_mismatch as any,
+                        case_mismatch: case_mismatch,
                     },
                 },
             };
@@ -2208,4 +2208,4 @@ display \`result'
     });
 });
 
-      
+
