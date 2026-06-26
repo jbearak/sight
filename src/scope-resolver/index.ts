@@ -49,7 +49,6 @@ import { build_do_include_pattern } from '../utils/stata-call-patterns';
 import {
     resolve_path_rich,
     compute_forward_call_join,
-    host_is_case_sensitive,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -2573,26 +2572,6 @@ export class ScopeResolver {
             get misses() { return snapshot.scope.misses; },
             get invalidations() { return snapshot.scope.invalidations; },
         };
-    }
-
-    /**
-     * Return the cached forward calls for a given URI if the file has
-     * already been parsed (i.e. its entry exists in the file cache).
-     *
-     * The returned calls carry `caller_uri` and `working_directory` as
-     * stamped by `parse_content`.  Intended for Task 6/7 consumers and
-     * test assertions; returns undefined when the URI is not cached.
-     */
-    get_forward_calls_for_uri(uri: string): ForwardCall[] | undefined {
-        // The file_cache key is "uri" or "uri|working_directory".
-        // Iterate all keys that start with the bare URI so we find any
-        // working-directory variant that may have been cached.
-        for (const [my_key, my_entry] of this.file_cache) {
-            if (my_key === uri || my_key.startsWith(`${uri}|`)) {
-                return my_entry.forward_calls;
-            }
-        }
-        return undefined;
     }
 
     /**

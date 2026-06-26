@@ -10,6 +10,15 @@
  * These fields are the prerequisite for Tasks 6 & 7 (case-only path
  * resolution) so that every consumer can replay the correct path join
  * without guessing which base directory to use.
+ *
+ * Stamping is observed through production consumers rather than removed
+ * test-only accessors:
+ *   - Indexer: via a spy DependencyGraph injected with
+ *     `indexer.set_dependency_graph()`, capturing `update_caller` args.
+ *   - ScopeResolver: via `reverse_deps.last_forward_calls` — the internal
+ *     map populated by `register_forward_call_relationships_from_cache`
+ *     (accessed as `(scope_resolver as any).reverse_deps.last_forward_calls`
+ *     to avoid adding a public accessor for a private field).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -23,6 +32,11 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { ScopeResolver } from '../../src/scope-resolver';
+import {
+    DependencyGraph,
+    type GraphUpdateResult,
+} from '../../src/dependency-graph';
+import type { ForwardCall } from '../../src/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -43,6 +57,24 @@ function write_file(rel_path: string, content: string): string {
     fs.mkdirSync(path.dirname(abs_path), { recursive: true });
     fs.writeFileSync(abs_path, content);
     return abs_path;
+}
+
+/**
+ * A DependencyGraph subclass that captures `update_caller` calls so tests
+ * can inspect the ForwardCall objects passed by the production indexer path.
+ * No test-only accessor is needed on WorkspaceIndexer itself.
+ */
+class SpyDependencyGraph extends DependencyGraph {
+    // Recorded arguments: caller_uri -> last forward_calls array
+    readonly recorded_calls: Map<string, ForwardCall[]> = new Map();
+
+    override update_caller(
+        caller_uri: string,
+        forward_calls: ForwardCall[],
+    ): GraphUpdateResult {
+        this.recorded_calls.set(caller_uri, [...forward_calls]);
+        return super.update_caller(caller_uri, forward_calls);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -149,14 +181,23 @@ describe('ForwardCall context — analyzer producer', () => {
 
 // ---------------------------------------------------------------------------
 // 2. Indexer producer — stamping caller_uri and working_directory
+//
+// Observed via a SpyDependencyGraph injected into the indexer via
+// `set_dependency_graph()`.  The indexer's production path calls
+// `dependency_graph.update_caller(file_uri, all_forward_calls)` after
+// stamping; we record those forward_calls directly from the spy.
 // ---------------------------------------------------------------------------
 
 describe('ForwardCall context — indexer producer', () => {
     let indexer: WorkspaceIndexer;
+    let spy_graph: SpyDependencyGraph;
 
     beforeEach(async () => {
         setup_temp_dir();
         indexer = new WorkspaceIndexer();
+        spy_graph = new SpyDependencyGraph();
+        spy_graph.set_workspace_roots([temp_dir]);
+        indexer.set_dependency_graph(spy_graph);
         // initialize() sets workspace_roots; we pass an empty ado_paths list
         // and let it scan (temp_dir is empty at this point so it is fast).
         await indexer.initialize([temp_dir]);
@@ -172,7 +213,7 @@ describe('ForwardCall context — indexer producer', () => {
 
         await indexer.index_file(caller_path);
 
-        const the_calls = indexer.get_forward_calls(caller_uri);
+        const the_calls = spy_graph.recorded_calls.get(caller_uri);
         expect(the_calls).toBeDefined();
         expect(the_calls!.length).toBeGreaterThanOrEqual(1);
         const my_call = the_calls![0];
@@ -191,7 +232,7 @@ describe('ForwardCall context — indexer producer', () => {
 
         await indexer.index_file(caller_path);
 
-        const the_calls = indexer.get_forward_calls(caller_uri);
+        const the_calls = spy_graph.recorded_calls.get(caller_uri);
         expect(the_calls).toBeDefined();
         expect(the_calls!.length).toBeGreaterThanOrEqual(1);
         const my_call = the_calls![0];
@@ -204,7 +245,7 @@ describe('ForwardCall context — indexer producer', () => {
 
         await indexer.index_file(caller_path);
 
-        const the_calls = indexer.get_forward_calls(caller_uri);
+        const the_calls = spy_graph.recorded_calls.get(caller_uri);
         expect(the_calls).toBeDefined();
         const my_call = the_calls![0];
         expect(Object.prototype.hasOwnProperty.call(my_call, 'working_directory'))
@@ -215,6 +256,11 @@ describe('ForwardCall context — indexer producer', () => {
 
 // ---------------------------------------------------------------------------
 // 3. ScopeResolver.parse_content producer
+//
+// Observed via `(scope_resolver as any).reverse_deps.last_forward_calls`,
+// the internal Map populated by `register_forward_call_relationships_from_cache`
+// immediately after `parse_content` runs.  This avoids adding a public
+// accessor; the cast is a deliberate test-seam read on a private field.
 // ---------------------------------------------------------------------------
 
 describe('ForwardCall context — scope-resolver parse_content producer', () => {
@@ -229,6 +275,31 @@ describe('ForwardCall context — scope-resolver parse_content producer', () => 
     afterEach(() => {
         tear_down_temp_dir();
     });
+
+    /**
+     * Retrieve the forward calls stored in the scope-resolver's file_cache
+     * for a given URI.  The file_cache is the production store populated by
+     * both `parse_file` (in-memory/inline path, used by `resolve()`) and
+     * `_read_and_parse_uri_from_disk` (disk path).  We read it via a
+     * deliberate `as any` cast rather than adding a public accessor.
+     *
+     * The cache key is "uri" or "uri|working_directory"; we match any key
+     * that starts with the bare URI so working-directory variants are found.
+     */
+    function get_file_cache_forward_calls(
+        sr: ScopeResolver,
+        uri: string,
+    ): ForwardCall[] | undefined {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const the_cache: Map<string, { forward_calls: ForwardCall[] }> =
+            (sr as any).file_cache;
+        for (const [my_key, my_entry] of the_cache) {
+            if (my_key === uri || my_key.startsWith(`${uri}|`)) {
+                return my_entry.forward_calls;
+            }
+        }
+        return undefined;
+    }
 
     it('stamps caller_uri and working_directory on forward calls', async () => {
         write_file('sub/work.do', 'global g = 1\n');
@@ -245,19 +316,18 @@ describe('ForwardCall context — scope-resolver parse_content producer', () => 
             caller_content,
         );
 
-        // The forward_call_symbols in the resolved scope should have been
-        // built from forward calls carrying caller_uri and working_directory.
-        // We verify via get_forward_calls_for_uri which reads the file cache.
-        const the_calls = scope_resolver.get_forward_calls_for_uri(caller_uri);
+        // The resolve() itself must not throw
+        expect(the_resolved).toBeDefined();
+
+        // Verify stamping via the production internal store populated by
+        // register_forward_call_relationships_from_cache.
+        const the_calls = get_file_cache_forward_calls(scope_resolver, caller_uri);
         expect(the_calls).toBeDefined();
         expect(the_calls!.length).toBeGreaterThanOrEqual(1);
         const my_call = the_calls![0];
         expect(my_call.caller_uri).toBe(caller_uri);
         // WD should equal the resolved wd_path (workspace_root + 'data')
         expect(my_call.working_directory).toBe(wd_path);
-
-        // The resolve() itself must not throw
-        expect(the_resolved).toBeDefined();
     });
 
     it('working_directory is undefined when no @lsp-cd directive', async () => {
@@ -267,7 +337,7 @@ describe('ForwardCall context — scope-resolver parse_content producer', () => 
 
         await scope_resolver.resolve(caller_uri, caller_content);
 
-        const the_calls = scope_resolver.get_forward_calls_for_uri(caller_uri);
+        const the_calls = get_file_cache_forward_calls(scope_resolver, caller_uri);
         expect(the_calls).toBeDefined();
         expect(the_calls!.length).toBeGreaterThanOrEqual(1);
         const my_call = the_calls![0];

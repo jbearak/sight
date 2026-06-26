@@ -105,11 +105,6 @@ export class WorkspaceIndexer {
     private max_files_reached = false;
     private version: number = 0;
     private scan_generation: number = 0;
-    // Stamped ForwardCall list per URI (command + directive, with
-    // caller_uri and working_directory populated).  Stored so tests and
-    // Task 6/7 consumers can inspect the context fields without going
-    // through the dependency graph (which only stores URI edges).
-    private forward_call_index: Map<string, ForwardCall[]> = new Map();
 
     // Debouncing state for file updates
     private pending_updates: Map<string, NodeJS.Timeout> = new Map();
@@ -403,7 +398,6 @@ export class WorkspaceIndexer {
         this.symbol_index.delete(file_uri);
         this.token_index.delete(file_uri);
         this.context_ranges_index.delete(file_uri);
-        this.forward_call_index.delete(file_uri);
         if (was_indexed) {
             this.version++;
             // Evicting an already-counted file (size growth, re-index error,
@@ -575,9 +569,6 @@ export class WorkspaceIndexer {
                     ...directive_forward_calls,
                 ].sort((a, b) => a.call_site_line - b.call_site_line);
             }
-
-            // Store stamped forward calls for Task 6/7 resolution context.
-            this.forward_call_index.set(file_uri, all_forward_calls);
 
             // Update dependency graph with forward calls
             if (this.dependency_graph) {
@@ -769,7 +760,6 @@ export class WorkspaceIndexer {
         this.symbol_index.clear();
         this.token_index.clear();
         this.context_ranges_index.clear();
-        this.forward_call_index.clear();
         this.skipped_files.clear();
         this.metrics = {
             files_indexed: 0,
@@ -843,19 +833,6 @@ export class WorkspaceIndexer {
      */
     get_metrics(): IndexerMetrics {
         return { ...this.metrics };
-    }
-
-    /**
-     * Return the stamped ForwardCall list for a given file URI, or
-     * undefined if the URI has not been indexed yet.
-     *
-     * The returned calls carry `caller_uri` and `working_directory` as
-     * populated by the indexer during scanning.  Intended for Task 6/7
-     * consumers that need resolution context without going through the
-     * dependency graph (which only stores URI edges).
-     */
-    get_forward_calls(uri: string): ForwardCall[] | undefined {
-        return this.forward_call_index.get(uri);
     }
 
     /**
