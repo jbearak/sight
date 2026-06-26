@@ -6,8 +6,13 @@
  * parent files when backward_dependencies=auto.
  */
 
+import * as node_path from 'path';
 import { ForwardCall, ForwardCallType } from '../types';
 import { logger } from '../utils/logger';
+import {
+    resolve_path_rich,
+    type RichResolveFs,
+} from '../utils/file-path-utils';
 
 /**
  * An auto-discovered backward edge: a parent file that calls the child.
@@ -40,6 +45,36 @@ export class DependencyGraph {
     // Whether the initial workspace scan has completed
     private scan_complete: boolean = false;
 
+    // Workspace roots for case-only path resolution (set before graph
+    // updates so both the indexer and the open-document path share roots).
+    private workspace_roots: string[] = [];
+
+    // Injected filesystem for resolve_path_rich (for tests only).
+    // When undefined, resolve_path_rich uses the real Node fs.
+    private resolve_fs?: RichResolveFs;
+
+    /**
+     * Set workspace roots (filesystem paths). Must be called before any
+     * `update_caller` so both the indexer and the open-document update
+     * path resolve case-only paths against the same roots.
+     *
+     * When empty (early startup / before roots are known), `update_caller`
+     * falls back to today's behavior: edges keyed by the as-typed URI with
+     * no case normalization.
+     */
+    set_workspace_roots(roots: string[]): void {
+        this.workspace_roots = roots.map(r => node_path.resolve(r));
+    }
+
+    /**
+     * Inject a filesystem implementation for `resolve_path_rich`.
+     * For testing only — production code leaves this undefined so
+     * `resolve_path_rich` uses the real Node `fs`.
+     */
+    set_resolve_fs(fs: RichResolveFs): void {
+        this.resolve_fs = fs;
+    }
+
     /**
      * Update the graph with forward calls from a caller file.
      * Diffs against stored callees: removes stale edges, adds new ones.
@@ -57,8 +92,37 @@ export class DependencyGraph {
         for (const my_call of forward_calls) {
             if (!my_call.is_static || !my_call.path) continue;
 
-            // Use the callee's file URI as the key
-            const callee_uri = this.path_to_uri(my_call.path);
+            // Compute the joined absolute path the same way
+            // resolve_call_path does in forward-scope-resolver: honor
+            // working_directory for relative raw paths, else use the
+            // analyzer's existing join (my_call.path).
+            const my_joined_path = this.compute_joined_path(my_call);
+
+            // Determine the real-cased callee URI.
+            // Only attempt case resolution when workspace roots are set.
+            let callee_uri: string;
+            if (this.workspace_roots.length > 0) {
+                const my_outcome = resolve_path_rich(my_joined_path, {
+                    workspace_roots: this.workspace_roots,
+                    fs: this.resolve_fs,
+                });
+                if (
+                    my_outcome.kind === 'exact' ||
+                    my_outcome.kind === 'case_only'
+                ) {
+                    // Key the edge by the real on-disk-cased path
+                    callee_uri = this.path_to_uri(my_outcome.path);
+                } else {
+                    // ambiguous or missing: keep today's behavior
+                    // (key by as-typed path, no real-file edge)
+                    callee_uri = this.path_to_uri(my_joined_path);
+                }
+            } else {
+                // Roots unset (early startup): fall back to today's
+                // behavior — no case normalization
+                callee_uri = this.path_to_uri(my_call.path);
+            }
+
             // If multiple calls from the same caller to the same callee,
             // keep the earliest call site (first encounter wins)
             if (!my_new_callees.has(callee_uri)) {
@@ -249,6 +313,41 @@ export class DependencyGraph {
     }
 
     // --- Private helpers ---
+
+    /**
+     * Compute the absolute joined path to feed into `resolve_path_rich`.
+     *
+     * Replicates the join logic of `resolve_call_path` in
+     * `forward-scope-resolver/index.ts`: if a `working_directory` is set
+     * and `raw_path` is relative, resolve `raw_path` against
+     * `working_directory`; otherwise use the analyzer's pre-joined
+     * `path` field (which is already script-relative).
+     *
+     * The `.do` fallback is intentionally left to `resolve_path_rich`.
+     */
+    private compute_joined_path(call: ForwardCall): string {
+        const my_raw = call.raw_path;
+        const my_wd = call.working_directory;
+
+        if (my_wd) {
+            // Normalize Windows separators before the isAbsolute check
+            const my_normalized = my_raw.replace(/\\/g, '/');
+            const my_is_abs =
+                node_path.isAbsolute(my_normalized) ||
+                /^[a-zA-Z]:\//.test(my_normalized);
+
+            if (!my_is_abs) {
+                // Relative path + working directory → join against WD
+                return node_path.normalize(
+                    node_path.join(my_wd, my_normalized),
+                );
+            }
+        }
+
+        // No working directory (or absolute raw_path): use the
+        // analyzer's already-resolved path (script-relative join).
+        return call.path;
+    }
 
     /**
      * Add or update a single backward edge.

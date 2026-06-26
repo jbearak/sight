@@ -875,6 +875,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             if (forward_scope_resolver) {
                 forward_scope_resolver.set_workspace_roots(folder_paths);
             }
+            if (dependency_graph) {
+                dependency_graph.set_workspace_roots(folder_paths);
+            }
 
             // Single-root project config: sight.toml is discovered from the
             // first workspace folder and applied to every document. Multi-root
@@ -901,6 +904,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             }
             if (forward_scope_resolver) {
                 forward_scope_resolver.set_workspace_roots([]);
+            }
+            if (dependency_graph) {
+                dependency_graph.set_workspace_roots([]);
             }
         }
 
@@ -1222,6 +1228,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
             // Create and wire dependency graph for auto backward dependencies
             dependency_graph = new DependencyGraph();
+            dependency_graph.set_workspace_roots(active_workspace_roots);
             workspace_indexer.set_dependency_graph(dependency_graph);
             workspace_indexer.set_on_graph_change(invalidate_and_revalidate_callees);
             scope_resolver.set_dependency_graph(dependency_graph);
