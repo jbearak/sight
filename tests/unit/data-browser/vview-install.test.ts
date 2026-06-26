@@ -137,13 +137,24 @@ afterEach(() => {
 });
 
 describe('ado ownership detection', () => {
-    it('recognizes a Sight-shipped file by its banner marker', () => {
+    it('recognizes a Sight-shipped file by its exact banner marker', () => {
         expect(
             is_sight_owned(
-                `${BROWSE_MARKER} (Sight Data Browser)\n...`,
+                `${BROWSE_MARKER}\nprogram define browse\nend\n`,
                 BROWSE_MARKER
             )
         ).toBe(true);
+    });
+
+    it('does not treat a banner with extra trailing text as owned', () => {
+        // Exact match only: a file that merely starts with our banner
+        // text must not be claimed as Sight-owned.
+        expect(
+            is_sight_owned(
+                `${BROWSE_MARKER} (modified by user)\n...`,
+                BROWSE_MARKER
+            )
+        ).toBe(false);
     });
 
     it('treats a foreign file with a different banner as not owned', () => {

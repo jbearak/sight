@@ -108,14 +108,16 @@ export interface VviewInstallHooks<
     ) => boolean;
 }
 
-// True when `content` looks like the Sight-shipped copy of an ado
-// (its leading banner begins with the asset's ownership marker).
+// True when `content` is a Sight-shipped copy of an ado: its leading
+// banner line is exactly the asset's ownership marker. Exact match (not
+// a prefix) so a foreign file that merely begins with our banner text
+// is never misclassified as Sight-owned and clobbered.
 export function is_sight_owned(
     content: string,
     marker: string
 ): boolean {
     const my_first_line = content.split('\n', 1)[0].trim();
-    return my_first_line.startsWith(marker);
+    return my_first_line === marker;
 }
 
 export function classify_ado_asset(
