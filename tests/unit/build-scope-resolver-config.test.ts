@@ -123,6 +123,8 @@ describe('build_scope_resolver_config', () => {
             diagnostics: {
                 max_depth: 'error',
                 call_site_identification: 'off',
+                // case_mismatch threads through from DEFAULT_SETTINGS
+                case_mismatch: 'auto',
             },
         });
     });

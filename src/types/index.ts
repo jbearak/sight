@@ -721,6 +721,10 @@ export interface ScopeResolverConfig {
     max_depth?: 'error' | 'warning' | 'information' | 'off';
     // Severity for call site identification diagnostics
     call_site_identification?: 'error' | 'warning' | 'information' | 'off';
+    // Severity for case-only path mismatch diagnostics in backward
+    // directives; 'auto' resolves at emission time via
+    // host_is_case_sensitive().
+    case_mismatch?: CrossFileCaseMismatchSeverity;
   };
 }
 

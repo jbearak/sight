@@ -30,6 +30,8 @@ import {
     ContentProvider,
     WorkingDirectoryDirective,
     StataLSPConfig,
+    StataDiagnosticCode,
+    CrossFileCaseMismatchSeverity,
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
 import { DirectiveParser } from '../directive-parser';
@@ -41,6 +43,11 @@ import { error_message } from '../utils/error-message';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { get_workspace_root_for_uri } from '../utils/workspace-roots';
 import { build_do_include_pattern } from '../utils/stata-call-patterns';
+import {
+    resolve_path_rich,
+    host_is_case_sensitive,
+    type RichResolveFs,
+} from '../utils/file-path-utils';
 
 export {
     get_visible_symbols_at,
@@ -109,6 +116,8 @@ export function scope_resolver_config_for(
             max_depth: config.cross_file?.diagnostics?.max_depth,
             call_site_identification:
                 config.cross_file?.diagnostics?.call_site_identification,
+            case_mismatch:
+                config.cross_file?.diagnostics?.case_mismatch,
         },
     });
 }
@@ -171,6 +180,9 @@ export class ScopeResolver {
     private content_provider: ContentProvider;
     private workspace_roots: string[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
+    // Injected filesystem for resolve_path_rich (for tests only).
+    // When undefined, resolve_path_rich uses the real Node fs.
+    private resolve_fs?: RichResolveFs;
 
     constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
         this.directive_parser = new DirectiveParser();
@@ -223,6 +235,15 @@ export class ScopeResolver {
      */
     set_workspace_roots(workspace_roots: string[]): void {
         this.workspace_roots = workspace_roots;
+    }
+
+    /**
+     * Inject a filesystem implementation for `resolve_path_rich`.
+     * For testing only — production code leaves this undefined so
+     * `resolve_path_rich` uses the real Node `fs`.
+     */
+    set_resolve_fs(injected_fs: RichResolveFs): void {
+        this.resolve_fs = injected_fs;
     }
 
     /**
@@ -609,6 +630,138 @@ export class ScopeResolver {
     }
 
     /**
+     * Resolve a backward directive's raw_path to the real-cased absolute
+     * filesystem path using `resolve_path_rich`.
+     *
+     * The join is done via `DirectiveParser.resolve_path` (separator
+     * normalization, Windows/UNC handling) on `directive.raw_path` joined
+     * to the containing directory of `child_uri` — WITHOUT the `.do`
+     * fallback applied at that stage. `resolve_path_rich` owns the `.do`
+     * fallback (`try_do_fallback: true`).
+     *
+     * Returns the real-cased path and the outcome kind. The caller decides
+     * what to do with `case_only` vs `ambiguous`/`missing`.
+     */
+    private compute_directive_real_path(
+        directive: Directive,
+        child_uri: string,
+    ): {
+        real_path: string;
+        outcome_kind: 'exact' | 'case_only' | 'ambiguous' | 'missing';
+        requested_path?: string;
+        seed_dir?: string;
+    } {
+        const child_fs_path = URI.parse(child_uri).fsPath;
+        const containing_dir = path.dirname(child_fs_path);
+        // Join raw_path without .do fallback; rich resolver owns that.
+        const joined = this.directive_parser.resolve_path(
+            directive.raw_path,
+            containing_dir,
+        );
+        const my_outcome = resolve_path_rich(joined, {
+            try_do_fallback: true,
+            workspace_roots: this.workspace_roots.length > 0
+                ? this.workspace_roots
+                : undefined,
+            fs: this.resolve_fs,
+        });
+
+        if (my_outcome.kind === 'exact') {
+            return {
+                real_path: my_outcome.path,
+                outcome_kind: 'exact',
+            };
+        }
+        if (my_outcome.kind === 'case_only') {
+            // Find the workspace root that contains the real path as the
+            // seed dir for the host case-sensitivity probe.
+            const my_real_norm = my_outcome.path.replace(/\\/g, '/');
+            let my_seed: string | undefined;
+            let my_seed_len = -1;
+            for (const my_root of this.workspace_roots) {
+                const my_root_norm = my_root.replace(/\\/g, '/');
+                const my_prefix = my_root_norm.endsWith('/')
+                    ? my_root_norm
+                    : my_root_norm + '/';
+                if (
+                    my_real_norm.startsWith(my_prefix) &&
+                    my_root.length > my_seed_len
+                ) {
+                    my_seed = my_root;
+                    my_seed_len = my_root.length;
+                }
+            }
+            return {
+                real_path: my_outcome.path,
+                outcome_kind: 'case_only',
+                requested_path: my_outcome.requested,
+                seed_dir: my_seed ?? path.dirname(my_outcome.path),
+            };
+        }
+        // ambiguous or missing: fall back to the as-typed directive.path
+        // so the existing error path can report it.
+        return {
+            real_path: directive.path,
+            outcome_kind: my_outcome.kind,
+        };
+    }
+
+    /**
+     * Emit a backward-directive path_case_mismatch diagnostic.
+     *
+     * Message deliberately makes no Stata-execution claim — backward
+     * directives are LSP hints only; Stata never reads them.
+     */
+    private emit_backward_case_mismatch(
+        raw_path: string,
+        real_path: string,
+        directive: Directive,
+        child_uri: string,
+        seed_dir: string | undefined,
+        config: ScopeResolverConfig,
+        diagnostics: DirectiveDiagnostic[],
+    ): void {
+        const my_severity: CrossFileCaseMismatchSeverity =
+            config.diagnostics?.case_mismatch ?? 'auto';
+        if (my_severity === 'off') {
+            return;
+        }
+        // Compute display paths relative to the child's directory.
+        const child_dir = path.dirname(URI.parse(child_uri).fsPath);
+        const my_req_disp = path.relative(child_dir, raw_path)
+            .replace(/\\/g, '/') || raw_path;
+        const my_real_disp = path.relative(child_dir, real_path)
+            .replace(/\\/g, '/') || real_path;
+        // Resolve effective severity for 'auto'
+        let effective_severity: 'error' | 'warning' | 'information';
+        if (my_severity === 'auto') {
+            // Treat 'auto' as 'warning' at emit time; the diagnostics
+            // provider re-resolves via host_is_case_sensitive() when
+            // case_mismatch_seed_dir is set. Default to 'warning' so the
+            // field is never undefined.
+            effective_severity = 'warning';
+        } else {
+            effective_severity = my_severity;
+        }
+        diagnostics.push({
+            // Backward directives are LSP hints — no execution claim.
+            message:
+                `Directive path "${my_req_disp}" does not match the ` +
+                `file on disk "${my_real_disp}"; update the directive ` +
+                `to match the file's casing.`,
+            range: directive.range,
+            severity: effective_severity,
+            kind: 'path_case_mismatch',
+            code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+            case_mismatch_seed_dir: seed_dir,
+            source: {
+                source_file: path.basename(URI.parse(child_uri).fsPath),
+                original_range: directive.range,
+            },
+        });
+    }
+
+    /**
      * Generate cache key for scope resolution.
      */
     private generate_cache_key(file_uri: string, content: string, config: ScopeResolverConfig): string {
@@ -835,10 +988,16 @@ export class ScopeResolver {
         );
 
         // Register backward directive dependencies for this file
-        // Clear old dependencies first, then register new ones
+        // Clear old dependencies first, then register new ones.
+        // Use real-cased URIs (M3): case-only directive targets register
+        // under the on-disk URI so edits to the real file invalidate the
+        // right scope-cache entries.
         this.clear_backward_directive_dependencies(file_uri);
         for (const my_directive of normalized_directives) {
-            const my_parent_uri = URI.file(my_directive.path).toString();
+            const my_real = this.compute_directive_real_path(
+                my_directive, file_uri,
+            );
+            const my_parent_uri = URI.file(my_real.real_path).toString();
             this.register_backward_directive_dependency(file_uri, my_parent_uri);
         }
 
@@ -1318,7 +1477,36 @@ export class ScopeResolver {
                 return { working_directory: found_working_directory };
             }
 
-            const my_parent_uri = URI.file(my_directive.path).toString();
+            // Resolve the directive path via the rich resolver so that a
+            // unique case-only match on disk still resolves (no cascade)
+            // and registers under the REAL-cased URI (M3 invariant).
+            // Auto-synthesised directives already carry real-cased paths
+            // from the dependency graph, so resolve_path_rich returns
+            // 'exact' for them and no diagnostic is emitted.
+            const my_rich = this.compute_directive_real_path(
+                my_directive, current_uri,
+            );
+            const my_real_fs_path = my_rich.real_path;
+            const my_parent_uri = URI.file(my_real_fs_path).toString();
+
+            // Emit backward path_case_mismatch for explicit case-only
+            // mismatches.  No execution claim — backward directives are
+            // LSP hints only.
+            if (my_rich.outcome_kind === 'case_only') {
+                const my_raw_joined = this.directive_parser.resolve_path(
+                    my_directive.raw_path,
+                    path.dirname(URI.parse(current_uri).fsPath),
+                );
+                this.emit_backward_case_mismatch(
+                    my_raw_joined,
+                    my_real_fs_path,
+                    my_directive,
+                    current_uri,
+                    my_rich.seed_dir,
+                    config,
+                    diagnostics,
+                );
+            }
 
             // Cycle detection
             if (visited.has(my_parent_uri)) {
@@ -1341,7 +1529,7 @@ export class ScopeResolver {
             // Phase 2: Parse with discovered working directory
             const my_parent_result = await this.get_parsed_file(
                 my_parent_uri,
-                my_directive.path,
+                my_real_fs_path,
                 { working_directory: discovered_wd, request_cache }  // Pass discovered working directory
             );
 
@@ -1353,21 +1541,22 @@ export class ScopeResolver {
             // Handle error results
             if ('error' in my_parent_result) {
                 const error_message = my_parent_result.error;
-                const source_filename = path.basename(my_directive.path);
+                const source_filename = path.basename(my_real_fs_path);
 
                 // Handle encoding errors specifically
                 if (error_message.includes('invalid byte sequence') ||
                     error_message.includes('malformed') ||
                     error_message.includes('encoding')) {
-                    this.warn(`ScopeResolver: Encoding error in ${my_directive.path}, skipping file`);
+                    this.warn(`ScopeResolver: Encoding error in ${my_real_fs_path}, skipping file`);
                 } else {
-                    this.warn(`ScopeResolver: File read error for ${my_directive.path}: ${error_message}`);
+                    this.warn(`ScopeResolver: File read error for ${my_real_fs_path}: ${error_message}`);
                 }
 
                 diagnostics.push({
-                    message: `Cannot read file: ${my_directive.path} (${error_message})`,
+                    message: `Cannot read file: ${my_real_fs_path} (${error_message})`,
                     range: my_directive.range,
                     severity: 'warning',
+                    kind: 'missing_file',
                     source: {
                         source_file: source_filename,
                         // Omit source_line - call site unknown (file unreadable)
@@ -1386,7 +1575,7 @@ export class ScopeResolver {
             // Use content from get_parsed_file() for call site resolution (no second disk read)
             const my_parent_content = my_parent_result.content;
             const current_filename = this.extract_filename(current_uri);
-            const parent_filename = path.basename(my_directive.path);
+            const parent_filename = path.basename(my_real_fs_path);
 
             // Resolve call site line (0-indexed internally)
             // Priority: explicit call_site > reverse deps edges > text inference > config default
@@ -2810,7 +2999,13 @@ export class ScopeResolver {
         const normalized = this.normalize_directives(directives, []);
         this.clear_backward_directive_dependencies(child_uri);
         for (const my_directive of normalized) {
-            const my_parent_uri = URI.file(my_directive.path).toString();
+            // Use real-cased URI (M3) so edits to the real file invalidate
+            // the right scope-cache entries even when the directive uses
+            // a different casing.
+            const my_real = this.compute_directive_real_path(
+                my_directive, child_uri,
+            );
+            const my_parent_uri = URI.file(my_real.real_path).toString();
             this.register_backward_directive_dependency(child_uri, my_parent_uri);
         }
     }
