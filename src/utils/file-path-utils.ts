@@ -558,45 +558,61 @@ export function compute_forward_call_join(
 /**
  * Resolve a forward call with WD-priority and script-relative fallback.
  *
- * Resolution order:
- *   1. Compute `my_joined = compute_forward_call_join(raw_path,
- *      caller_resolved_original, working_directory)`.
- *   2. Run `resolve_path_rich(my_joined, ...)` → `my_primary`.
- *   3. If `my_primary` is `exact` or `case_only` → return `my_primary`.
- *   4. Else if `my_joined !== caller_resolved_original` (i.e., WD changed
- *      the join path), try `resolve_path_rich(caller_resolved_original, ...)`
- *      → `my_fallback`. If `my_fallback` is `exact` or `case_only` → return
- *      `my_fallback`.
- *   5. Else return `my_primary` (ambiguous or missing from WD join).
+ * This function computes both the WD-joined and script-relative candidate
+ * paths independently from the caller's directory, avoiding dependence on
+ * the pre-joined path stored in `ForwardCall.path` (which varies by producer).
  *
- * This mirrors the pre-WD behavior: when the WD-resolved path is missing or
- * ambiguous, we fall back to the script-relative path the analyzer pre-
- * computed. The fallback is skipped when the joined path IS the script-
- * relative path (working_directory was unset or raw_path was absolute) to
- * avoid a redundant lookup.
+ * Resolution order:
+ *   1. Compute `my_script_relative = path.resolve(caller_dir, raw_path)`.
+ *      (`path.resolve` handles absolute `raw_path` correctly.)
+ *   2. Compute `my_wd_joined`: if `working_directory` is set and `raw_path`
+ *      is relative, join `raw_path` against `working_directory`; else
+ *      `my_wd_joined = my_script_relative`.
+ *   3. Run `resolve_path_rich(my_wd_joined, ...)` → `my_primary`.
+ *   4. If `my_primary` is `exact` or `case_only` → return `my_primary`.
+ *   5. **Only when `my_primary` is `missing`** (NOT `ambiguous`) and the
+ *      two candidates differ, try `resolve_path_rich(my_script_relative, ...)`
+ *      → `my_fallback`. If `my_fallback` is `exact` or `case_only` → return
+ *      `my_fallback`. (An `ambiguous` WD-join STAYS ambiguous — never falls
+ *      back to the script-relative path.)
+ *   6. Return `my_primary` (ambiguous or missing).
  *
  * All three consumers — forward-scope-resolver, dependency-graph, and
  * scope-resolver's reverse-dep helper — should call this function so they
  * all agree on which URI is the callee.
  *
- * @param raw_path                 - Path exactly as written in source.
- * @param caller_resolved_original - `ForwardCall.path`: analyzer's
- *                                   pre-joined (script-relative) path.
- * @param working_directory        - Effective WD at the call site, or
- *                                   undefined.
- * @param options                  - Forwarded to `resolve_path_rich`.
+ * @param raw_path          - Path exactly as written in source.
+ * @param caller_dir        - dirname of the caller file's fsPath (NOT the
+ *                            pre-joined ForwardCall.path).
+ * @param working_directory - Effective WD at the call site, or undefined.
+ * @param options           - Forwarded to `resolve_path_rich`.
  */
 export function resolve_forward_call_rich(
     raw_path: string,
-    caller_resolved_original: string,
+    caller_dir: string,
     working_directory: string | undefined,
     options?: { workspace_roots?: string[]; fs?: RichResolveFs },
 ): PathCaseOutcome {
-    const my_joined = compute_forward_call_join(
-        raw_path,
-        caller_resolved_original,
-        working_directory,
-    );
+    // Script-relative candidate: path.resolve handles absolute raw_path.
+    const my_script_relative = node_path.resolve(caller_dir, raw_path);
+
+    // WD candidate: apply working_directory for relative paths only.
+    let my_wd_joined: string;
+    if (working_directory) {
+        const my_normalized = raw_path.replace(/\\/g, '/');
+        const my_is_abs =
+            node_path.isAbsolute(my_normalized) ||
+            /^[a-zA-Z]:\//.test(my_normalized);
+        if (!my_is_abs) {
+            my_wd_joined = node_path.normalize(
+                node_path.join(working_directory, my_normalized),
+            );
+        } else {
+            my_wd_joined = my_script_relative;
+        }
+    } else {
+        my_wd_joined = my_script_relative;
+    }
 
     const my_rich_opts: RichResolveOptions = {
         try_do_fallback: true,
@@ -604,19 +620,20 @@ export function resolve_forward_call_rich(
         fs: options?.fs,
     };
 
-    const my_primary = resolve_path_rich(my_joined, my_rich_opts);
+    const my_primary = resolve_path_rich(my_wd_joined, my_rich_opts);
 
     if (my_primary.kind === 'exact' || my_primary.kind === 'case_only') {
         return my_primary;
     }
 
-    // WD-join did not find the file. If the WD changed the join path,
-    // try the script-relative fallback (caller_resolved_original).
-    if (my_joined !== caller_resolved_original) {
-        const my_fallback = resolve_path_rich(
-            caller_resolved_original,
-            my_rich_opts,
-        );
+    // Only fall back to the script-relative path when the primary outcome
+    // is `missing` (NOT `ambiguous`). An ambiguous WD-join means 2+ files
+    // match on disk; falling back would silently ignore the ambiguity.
+    if (
+        my_primary.kind === 'missing' &&
+        my_wd_joined !== my_script_relative
+    ) {
+        const my_fallback = resolve_path_rich(my_script_relative, my_rich_opts);
         if (
             my_fallback.kind === 'exact' ||
             my_fallback.kind === 'case_only'
@@ -625,7 +642,7 @@ export function resolve_forward_call_rich(
         }
     }
 
-    // Both paths failed (or they were identical): return the primary outcome
-    // so callers see the original WD-based requested path in diagnostics.
+    // Ambiguous or both paths missing: return the primary outcome so callers
+    // see the WD-based requested path in diagnostics.
     return my_primary;
 }

@@ -49,7 +49,6 @@ import { build_do_include_pattern } from '../utils/stata-call-patterns';
 import {
     resolve_path_rich,
     resolve_forward_call_rich,
-    compute_forward_call_join,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -238,7 +237,9 @@ export class ScopeResolver {
      * Set the workspace roots for resolving workspace-relative working directory paths.
      */
     set_workspace_roots(workspace_roots: string[]): void {
-        this.workspace_roots = workspace_roots;
+        // Normalize (resolve) roots for consistent containment checks,
+        // matching how DependencyGraph and ForwardScopeResolver store them.
+        this.workspace_roots = workspace_roots.map(r => path.resolve(r));
     }
 
     /**
@@ -2590,24 +2591,37 @@ export class ScopeResolver {
      * uses — required for invalidation to fire on the correct map entry.
      *
      * Algorithm:
-     * 1. Compute the joined absolute path honoring working_directory (same
-     *    as the dep-graph via compute_forward_call_join).
-     * 2. When workspace_roots are set, call resolve_path_rich to get the
-     *    real on-disk casing.
+     * 1. Derive caller_dir from my_call.caller_uri (or fall back to
+     *    path.dirname(my_call.path) when caller_uri is absent).
+     * 2. Call resolve_forward_call_rich(raw_path, caller_dir, wd, ...)
+     *    which computes both the WD-joined and script-relative candidates
+     *    independently of the pre-joined ForwardCall.path.
      *    - exact or case_only  → use the real-cased path
-     *    - ambiguous or missing → fall back to the joined path (no edge)
+     *    - ambiguous or missing → key by my_outcome.requested (WD path)
      * 3. When workspace_roots are empty (early startup) → fall back to
      *    my_call.path (pre-joined analyzer path), same as today's behavior.
      */
-    private resolve_callee_uri(my_call: ForwardCall): string {
+    private resolve_callee_uri(
+        my_call: ForwardCall,
+        caller_uri_override?: string,
+    ): string {
         if (this.workspace_roots.length > 0) {
             // Use the shared WD-join-with-fallback helper so that
             // scope-resolver reverse-dep keys agree with dep-graph and
-            // forward-scope-resolver even when WD-join misses but the
-            // script-relative path exists.
+            // forward-scope-resolver. Passes caller_dir (not the pre-joined
+            // ForwardCall.path) so both candidates are computed correctly
+            // regardless of which producer wrote the call.
+            // Prefer the explicit override (passed by methods that know the
+            // caller), then the call's own caller_uri, then fall back to
+            // the caller file's directory derived from the pre-joined path.
+            const my_effective_caller_uri =
+                caller_uri_override ?? my_call.caller_uri;
+            const my_caller_dir = my_effective_caller_uri
+                ? path.dirname(URI.parse(my_effective_caller_uri).fsPath)
+                : path.dirname(my_call.path);
             const my_outcome = resolve_forward_call_rich(
                 my_call.raw_path,
-                my_call.path,
+                my_caller_dir,
                 my_call.working_directory,
                 {
                     workspace_roots: this.workspace_roots,
@@ -2620,13 +2634,9 @@ export class ScopeResolver {
             ) {
                 return URI.file(my_outcome.path).toString();
             }
-            // ambiguous or missing: fall back to WD-joined path
-            const my_joined = compute_forward_call_join(
-                my_call.raw_path,
-                my_call.path,
-                my_call.working_directory,
-            );
-            return URI.file(my_joined).toString();
+            // ambiguous or missing: key by the WD-joined requested path.
+            // Both variants carry `requested: string`.
+            return URI.file(my_outcome.requested).toString();
         }
         // Roots unset (early startup): fall back to as-typed path,
         // no case normalization — same as today's behavior.
@@ -2638,7 +2648,8 @@ export class ScopeResolver {
      */
     private compute_call_edge_diff(
         old_calls: ForwardCall[],
-        new_calls: ForwardCall[]
+        new_calls: ForwardCall[],
+        caller_uri_override?: string,
     ): CallEdgeDiff {
         const old_by_callee = new Map<string, CallEdge[]>();
         const new_by_callee = new Map<string, CallEdge[]>();
@@ -2646,7 +2657,7 @@ export class ScopeResolver {
         // Group old calls by callee URI (real-cased, matching dep-graph keys)
         for (const my_call of old_calls) {
             if (!my_call.is_static || !my_call.path) continue;
-            const my_uri = this.resolve_callee_uri(my_call);
+            const my_uri = this.resolve_callee_uri(my_call, caller_uri_override);
             const edges = old_by_callee.get(my_uri) ?? [];
             edges.push({ call_type: my_call.type, call_site_line: my_call.call_site_line });
             old_by_callee.set(my_uri, edges);
@@ -2655,7 +2666,7 @@ export class ScopeResolver {
         // Group new calls by callee URI (real-cased, matching dep-graph keys)
         for (const my_call of new_calls) {
             if (!my_call.is_static || !my_call.path) continue;
-            const my_uri = this.resolve_callee_uri(my_call);
+            const my_uri = this.resolve_callee_uri(my_call, caller_uri_override);
             const edges = new_by_callee.get(my_uri) ?? [];
             edges.push({ call_type: my_call.type, call_site_line: my_call.call_site_line });
             new_by_callee.set(my_uri, edges);
@@ -2716,7 +2727,7 @@ export class ScopeResolver {
         const old_forward_calls = this.reverse_deps.last_forward_calls.get(caller_uri) ?? [];
 
         // Compute diff
-        const diff = this.compute_call_edge_diff(old_forward_calls, new_forward_calls);
+        const diff = this.compute_call_edge_diff(old_forward_calls, new_forward_calls, caller_uri);
 
         // Store new forward calls for next diff computation
         this.reverse_deps.last_forward_calls.set(caller_uri, new_forward_calls);
@@ -2895,11 +2906,15 @@ export class ScopeResolver {
                         this.reverse_deps.forward_caller_to_callees.delete(my_caller_uri);
                     }
                 }
-                // Also update last_forward_calls to remove calls to the deleted file
+                // Also update last_forward_calls to remove calls to the
+                // deleted file. Compare using the real-cased URI from
+                // resolve_callee_uri, which is the same key used when the
+                // entry was registered — a plain URI.file(call.path) would
+                // miss case-only mismatches and leave a stale entry.
                 const last_calls = this.reverse_deps.last_forward_calls.get(my_caller_uri);
                 if (last_calls) {
                     const filtered_calls = last_calls.filter(call => {
-                        const call_uri = URI.file(call.path).toString();
+                        const call_uri = this.resolve_callee_uri(call, my_caller_uri);
                         return call_uri !== uri;
                     });
                     if (filtered_calls.length !== last_calls.length) {
@@ -3143,7 +3158,7 @@ export class ScopeResolver {
             // Use real-cased URI (via resolve_callee_uri) so this map keys
             // callees the same way dependency-graph does — required for
             // invalidation to fire when the real-cased callee changes.
-            const callee_uri = this.resolve_callee_uri(my_call);
+            const callee_uri = this.resolve_callee_uri(my_call, caller_uri);
             const edge: CallEdge = {
                 call_type: my_call.type,
                 call_site_line: my_call.call_site_line,

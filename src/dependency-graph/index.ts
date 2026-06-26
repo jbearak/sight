@@ -11,7 +11,6 @@ import { ForwardCall, ForwardCallType } from '../types';
 import { logger } from '../utils/logger';
 import {
     resolve_forward_call_rich,
-    compute_forward_call_join,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -94,14 +93,11 @@ export class DependencyGraph {
 
         // Filter to static calls with resolved paths
         const my_new_callees = new Map<string, AutoBackwardEdge>();
+        const my_caller_dir = node_path.dirname(
+            this.uri_to_fs_path(my_caller_uri),
+        );
         for (const my_call of forward_calls) {
             if (!my_call.is_static || !my_call.path) continue;
-
-            // Compute the joined absolute path the same way
-            // resolve_call_path does in forward-scope-resolver: honor
-            // working_directory for relative raw paths, else use the
-            // analyzer's existing join (my_call.path).
-            const my_joined_path = this.compute_joined_path(my_call);
 
             // Determine the real-cased callee URI.
             // Only attempt case resolution when workspace roots are set.
@@ -109,11 +105,12 @@ export class DependencyGraph {
             if (this.workspace_roots.length > 0) {
                 // Use the shared WD-join-with-fallback helper so that
                 // dep-graph edges and forward-scope-resolver agree on the
-                // callee URI even when the WD-joined path is missing/
-                // ambiguous but the script-relative path exists.
+                // callee URI. Passes caller_dir (not the pre-joined path)
+                // so both WD and script-relative candidates are computed
+                // correctly regardless of which producer wrote the call.
                 const my_outcome = resolve_forward_call_rich(
                     my_call.raw_path,
-                    my_call.path,
+                    my_caller_dir,
                     my_call.working_directory,
                     {
                         workspace_roots: this.workspace_roots,
@@ -127,9 +124,10 @@ export class DependencyGraph {
                     // Key the edge by the real on-disk-cased path
                     callee_uri = this.path_to_uri(my_outcome.path);
                 } else {
-                    // ambiguous or missing: keep today's behavior
-                    // (key by as-joined path, no real-file edge)
-                    callee_uri = this.path_to_uri(my_joined_path);
+                    // ambiguous or missing: key by the WD-joined requested
+                    // path (my_outcome.requested) rather than recomputing
+                    // the join — both variants carry `requested: string`.
+                    callee_uri = this.path_to_uri(my_outcome.requested);
                 }
             } else {
                 // Roots unset (early startup): fall back to today's
@@ -329,23 +327,6 @@ export class DependencyGraph {
     // --- Private helpers ---
 
     /**
-     * Compute the absolute joined path to feed into `resolve_path_rich`.
-     *
-     * Delegates to the shared `compute_forward_call_join` helper
-     * in `src/utils/file-path-utils.ts` so the dep-graph and the
-     * forward-scope-resolver always agree on the joined target path.
-     *
-     * The `.do` fallback is intentionally left to `resolve_path_rich`.
-     */
-    private compute_joined_path(call: ForwardCall): string {
-        return compute_forward_call_join(
-            call.raw_path,
-            call.path,
-            call.working_directory,
-        );
-    }
-
-    /**
      * Add or update a single backward edge.
      * Returns true if the edge set changed.
      */
@@ -424,5 +405,13 @@ export class DependencyGraph {
         // Lazy import to avoid circular dependency at module load time
         const { URI } = require('vscode-uri');
         return URI.file(file_path).toString();
+    }
+
+    /**
+     * Extract the filesystem path from a file URI string.
+     */
+    private uri_to_fs_path(uri: string): string {
+        const { URI } = require('vscode-uri');
+        return URI.parse(uri).fsPath;
     }
 }

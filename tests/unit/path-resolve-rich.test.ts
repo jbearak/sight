@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'bun:test';
-import { resolve_path_rich } from '../../src/utils/file-path-utils';
+import {
+    resolve_path_rich,
+    resolve_forward_call_rich,
+} from '../../src/utils/file-path-utils';
 
 // In-memory fs: map of dir -> entries (name + isFile)
 // Each key is a directory path; value is an array of [name, isFile] pairs.
@@ -212,5 +215,36 @@ describe('resolve_path_rich', () => {
         if (out.kind === 'case_only') {
             expect(out.path).toBe('/ws/Clean.do');
         }
+    });
+});
+
+describe('resolve_forward_call_rich', () => {
+    // Scenario: WD-join produces AMBIGUOUS, script-relative is clean.
+    // The function MUST stay ambiguous — it must NOT fall back to the
+    // clean script-relative path.
+    it('ambiguous WD-join does NOT fall back to clean script-relative path', () => {
+        // Filesystem: WD=/wd, caller dir=/ws, raw_path=helpers/clean
+        // /wd/helpers/ has two case-insensitive matches → ambiguous WD-join.
+        // /ws/helpers/ has a single exact match → script-relative would succeed.
+        const the_fs = make_fs({
+            '/wd':          [['helpers', false]],
+            '/wd/helpers':  [['Clean.do', true], ['CLEAN.do', true]], // ambiguous
+            '/ws':          [['helpers', false]],
+            '/ws/helpers':  [['clean.do', true]], // would succeed as script-relative
+        });
+
+        const my_outcome = resolve_forward_call_rich(
+            'helpers/clean',
+            '/ws',              // caller_dir
+            '/wd',              // working_directory → WD-join is /wd/helpers/clean
+            {
+                workspace_roots: ['/ws', '/wd'],
+                fs: the_fs,
+            },
+        );
+
+        // Must remain ambiguous — the clean script-relative fallback must NOT
+        // fire when the primary outcome is `ambiguous`.
+        expect(my_outcome.kind).toBe('ambiguous');
     });
 });

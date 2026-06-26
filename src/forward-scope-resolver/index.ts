@@ -101,8 +101,7 @@ export class ForwardScopeResolver {
      */
     private resolve_call_path(
         raw_path: string,
-        original_resolved_path: string,
-        _caller_uri: string,
+        caller_uri: string,
         working_directory?: string,
     ): {
         resolved_path: string;
@@ -110,9 +109,10 @@ export class ForwardScopeResolver {
         requested_path?: string;
         seed_dir?: string;
     } {
+        const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
         const my_outcome: PathCaseOutcome = resolve_forward_call_rich(
             raw_path,
-            original_resolved_path,
+            my_caller_dir,
             working_directory,
             {
                 workspace_roots: this.workspace_roots.length > 0
@@ -140,14 +140,10 @@ export class ForwardScopeResolver {
             };
         }
 
-        // ambiguous or missing: return the outcome so the caller can report.
-        // For ambiguous, resolve_forward_call_rich returns the primary
-        // (WD-join) outcome. For missing, same. The as-joined path is
-        // embedded in my_outcome.requested for missing/ambiguous kinds.
+        // ambiguous or missing: both variants have `requested: string`.
+        // Return it directly — no cast needed, no dead else-branch.
         return {
-            resolved_path: my_outcome.kind === 'ambiguous' || my_outcome.kind === 'missing'
-                ? (my_outcome as { requested: string }).requested
-                : original_resolved_path,
+            resolved_path: my_outcome.requested,
             outcome_kind: my_outcome.kind,
         };
     }
@@ -182,12 +178,13 @@ export class ForwardScopeResolver {
      */
     private resolve_call_path_simple(
         raw_path: string,
-        original_resolved_path: string,
+        caller_uri: string,
         working_directory?: string,
     ): string {
+        const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
         const my_outcome = resolve_forward_call_rich(
             raw_path,
-            original_resolved_path,
+            my_caller_dir,
             working_directory,
             {
                 workspace_roots: this.workspace_roots.length > 0
@@ -205,10 +202,8 @@ export class ForwardScopeResolver {
         }
 
         // ambiguous or missing: fall through; get_callee_scope will error.
-        // Return the requested path so the error message is meaningful.
-        return my_outcome.kind === 'ambiguous' || my_outcome.kind === 'missing'
-            ? (my_outcome as { requested: string }).requested
-            : original_resolved_path;
+        // Both variants have `requested: string` — return it directly.
+        return my_outcome.requested;
     }
 
     /**
@@ -315,7 +310,6 @@ export class ForwardScopeResolver {
             // .do fallback, and case-only mismatches uniformly).
             const my_path_result = this.resolve_call_path(
                 my_call.raw_path,
-                my_call.path,
                 file_uri,
                 my_context.working_directory,
             );
@@ -839,7 +833,7 @@ export class ForwardScopeResolver {
                     // behavior can fail in sandbox environments.
                     const nested_resolved = this.resolve_call_path_simple(
                         my_event.call.raw_path,
-                        my_event.call.path,
+                        callee_uri,
                         nested_working_dir,
                     );
                     const nested_uri = URI.file(nested_resolved).toString();
