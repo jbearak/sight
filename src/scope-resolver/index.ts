@@ -202,7 +202,6 @@ export class ScopeResolver {
         this.reverse_deps = {
             caller_to_callees: new Map(),
             callee_to_callers: new Map(),
-            forward_caller_to_callees: new Map(),
             interface_hashes: new Map(),
             last_forward_calls: new Map(),
         };
@@ -2923,7 +2922,6 @@ export class ScopeResolver {
     reset_reverse_deps(): void {
         this.reverse_deps.caller_to_callees.clear();
         this.reverse_deps.callee_to_callers.clear();
-        this.reverse_deps.forward_caller_to_callees.clear();
         this.reverse_deps.interface_hashes.clear();
         this.reverse_deps.last_forward_calls.clear();
         this.backward_directive_children.clear();
@@ -2951,9 +2949,6 @@ export class ScopeResolver {
             this.reverse_deps.caller_to_callees.delete(caller_uri);
         }
 
-        // Remove forward_caller_to_callees entry (prevents memory leak)
-        this.reverse_deps.forward_caller_to_callees.delete(caller_uri);
-
         // Remove interface hash
         this.reverse_deps.interface_hashes.delete(caller_uri);
 
@@ -2978,14 +2973,6 @@ export class ScopeResolver {
                     callee_map.delete(uri);
                     if (callee_map.size === 0) {
                         this.reverse_deps.caller_to_callees.delete(my_caller_uri);
-                    }
-                }
-                // Also update forward_caller_to_callees to remove the deleted callee
-                const forward_callees = this.reverse_deps.forward_caller_to_callees.get(my_caller_uri);
-                if (forward_callees) {
-                    forward_callees.delete(uri);
-                    if (forward_callees.size === 0) {
-                        this.reverse_deps.forward_caller_to_callees.delete(my_caller_uri);
                     }
                 }
                 // Also update last_forward_calls to remove calls to the
@@ -3232,8 +3219,6 @@ export class ScopeResolver {
         // Clear existing relationships for this caller first
         this.clear_forward_call_relationships(caller_uri);
 
-        // Track callees in a Set for this caller (for forward_caller_to_callees)
-        const my_callees = new Set<string>();
         // Build caller_to_callees map: callee_uri -> CallEdge[]
         const callee_edges_map = new Map<string, CallEdge[]>();
 
@@ -3272,9 +3257,6 @@ export class ScopeResolver {
             }
             edges.push(edge);
 
-            // Track this callee for forward_caller_to_callees
-            my_callees.add(my_callee_uri);
-
             // Collect for last_forward_calls (avoids second resolve_callee_uri call)
             the_stored.push({ call: my_call, resolved_uri: my_callee_uri });
 
@@ -3284,11 +3266,6 @@ export class ScopeResolver {
         // Store in caller_to_callees map (spec 5.1)
         if (callee_edges_map.size > 0) {
             this.reverse_deps.caller_to_callees.set(caller_uri, callee_edges_map);
-        }
-
-        // Store in forward_caller_to_callees map (for O(M) clear)
-        if (my_callees.size > 0) {
-            this.reverse_deps.forward_caller_to_callees.set(caller_uri, my_callees);
         }
 
         // Store forward_calls for diff computation (spec 5.4), paired with
@@ -3327,9 +3304,6 @@ export class ScopeResolver {
             // Delete the caller_to_callees entry
             this.reverse_deps.caller_to_callees.delete(caller_uri);
         }
-
-        // Delete the forward_caller_to_callees entry
-        this.reverse_deps.forward_caller_to_callees.delete(caller_uri);
 
         // Delete the interface_hashes entry (prevents ghosting on file delete/recreate)
         this.reverse_deps.interface_hashes.delete(caller_uri);

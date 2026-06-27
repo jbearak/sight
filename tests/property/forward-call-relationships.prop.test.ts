@@ -122,8 +122,8 @@ describe('Feature: callee-change-caller-revalidation', () => {
                         expect(reverse_deps.callee_to_callers.get(callee_uri)?.has(caller_uri)).toBe(true);
                     }
 
-                    // Check caller is registered in forward_caller_to_callees with all callees
-                    const caller_callees = reverse_deps.forward_caller_to_callees.get(caller_uri);
+                    // Check caller is registered in caller_to_callees with all callees
+                    const caller_callees = reverse_deps.caller_to_callees.get(caller_uri);
                     expect(caller_callees).toBeDefined();
 
                     const expected_callees = new Set(
@@ -166,8 +166,8 @@ describe('Feature: callee-change-caller-revalidation', () => {
                         expect(callers === undefined || !callers.has(caller_uri)).toBe(true);
                     }
                     
-                    // Check forward_caller_to_callees entry is removed
-                    expect(reverse_deps.forward_caller_to_callees.has(caller_uri)).toBe(false);
+                    // Check caller_to_callees entry is removed
+                    expect(reverse_deps.caller_to_callees.has(caller_uri)).toBe(false);
                 }
             ), { numRuns: 100 });
         });
@@ -296,7 +296,7 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     const reverse_deps = (resolver as any).reverse_deps;
                     
                     // Check only new callees are present
-                    const caller_callees = reverse_deps.forward_caller_to_callees.get(caller_uri);
+                    const caller_callees = reverse_deps.caller_to_callees.get(caller_uri);
                     const expected_callees = new Set(
                         new_calls
                             .filter(call => call.is_static && call.raw_path)
