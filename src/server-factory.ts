@@ -757,13 +757,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
         return b.every((value) => set_a.has(value));
     }
 
-    // The project-config keys that change WHICH files are indexed (and thus
-    // require a full index teardown + re-scan). Everything else — severities,
-    // formatting, completion, resolution depths, debug — only affects how open
-    // documents are validated/resolved, which a revalidation pass handles
-    // without re-scanning the workspace. Client/init settings are constant
-    // across a config-file reload, so comparing this subset of project_file_config
-    // is sufficient to detect an effective indexing change.
+    // The project-config keys that change WHICH files are indexed, or how
+    // their indexed dependency-graph edges are keyed (and thus require a full
+    // index teardown + re-scan). Most settings — severities, formatting,
+    // completion, debug — only affect how open documents are
+    // validated/resolved, which a revalidation pass handles without
+    // re-scanning. `max_backward_depth` is included because the indexer's
+    // inherited-WD walk (#218) uses it to key closed-file callee edges, so a
+    // depth change must re-index for those edges to stay consistent with the
+    // open-document path. Client/init settings are constant across a
+    // config-file reload, so comparing this subset of project_file_config is
+    // sufficient to detect an effective indexing change.
     function indexing_affecting_signature(
         config: DeepPartial<StataLSPConfig> | undefined
     ): string {
@@ -773,6 +777,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             index_workspace: config?.cross_file?.index_workspace ?? null,
             max_indexed_files: config?.cross_file?.max_indexed_files ?? null,
             maxFileSizeBytes: config?.indexing?.maxFileSizeBytes ?? null,
+            max_backward_depth: config?.cross_file?.max_backward_depth ?? null,
         });
     }
 
