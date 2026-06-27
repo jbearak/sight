@@ -43,6 +43,37 @@ const create_mock_content_provider = () => ({
     stat: async (uri: string) => ({ mtimeMs: Date.now(), size: 100 })
 });
 
+// Recursively scan an arbitrary value for any string === target.
+// Used to assert no stale callee URI lingers anywhere in reverse_deps
+// without naming any specific map (so it survives field removal).
+function value_references_uri(value: unknown, target: string): boolean {
+    if (typeof value === 'string') {
+        return value === target;
+    }
+    if (value instanceof Map) {
+        for (const [my_key, my_val] of value) {
+            if (value_references_uri(my_key, target)) return true;
+            if (value_references_uri(my_val, target)) return true;
+        }
+        return false;
+    }
+    if (value instanceof Set) {
+        for (const my_member of value) {
+            if (value_references_uri(my_member, target)) return true;
+        }
+        return false;
+    }
+    if (Array.isArray(value)) {
+        return value.some(my_item =>
+            value_references_uri(my_item, target));
+    }
+    if (value && typeof value === 'object') {
+        return Object.values(value).some(my_val =>
+            value_references_uri(my_val, target));
+    }
+    return false;
+}
+
 describe('Forward Call Relationship Tracking', () => {
     let resolver: ScopeResolver;
 
@@ -68,7 +99,7 @@ describe('Forward Call Relationship Tracking', () => {
 
             const reverse_deps = (resolver as any).reverse_deps;
             expect(reverse_deps.callee_to_callers.get(callee_uri)?.has(caller_uri)).toBe(true);
-            expect(reverse_deps.forward_caller_to_callees.get(caller_uri)?.has(callee_uri)).toBe(true);
+            expect(reverse_deps.caller_to_callees.get(caller_uri)?.has(callee_uri)).toBe(true);
         });
 
         it('should register multiple forward calls', () => {
@@ -98,7 +129,7 @@ describe('Forward Call Relationship Tracking', () => {
             const reverse_deps = (resolver as any).reverse_deps;
             expect(reverse_deps.callee_to_callers.get(callee1_uri)?.has(caller_uri)).toBe(true);
             expect(reverse_deps.callee_to_callers.get(callee2_uri)?.has(caller_uri)).toBe(true);
-            expect(reverse_deps.forward_caller_to_callees.get(caller_uri)?.size).toBe(2);
+            expect(reverse_deps.caller_to_callees.get(caller_uri)?.size).toBe(2);
         });
 
         it('should skip dynamic paths (is_static=false)', () => {
@@ -115,7 +146,7 @@ describe('Forward Call Relationship Tracking', () => {
             (resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
 
             const reverse_deps = (resolver as any).reverse_deps;
-            expect(reverse_deps.forward_caller_to_callees.has(caller_uri)).toBe(false);
+            expect(reverse_deps.caller_to_callees.has(caller_uri)).toBe(false);
         });
 
         it('should clear existing relationships before registration', () => {
@@ -151,7 +182,7 @@ describe('Forward Call Relationship Tracking', () => {
             expect(reverse_deps.callee_to_callers.get(new_callee_uri)?.has(caller_uri)).toBe(true);
         });
 
-        it('should update both callee_to_callers and forward_caller_to_callees', () => {
+        it('should update both callee_to_callers and caller_to_callees', () => {
             const caller_uri = 'file:///caller.do';
             const callee_uri = 'file:///callee.do';
             const forward_calls = [make_forward_call(
@@ -168,7 +199,7 @@ describe('Forward Call Relationship Tracking', () => {
             const reverse_deps = (resolver as any).reverse_deps;
             // Check bidirectional mapping
             expect(reverse_deps.callee_to_callers.get(callee_uri)?.has(caller_uri)).toBe(true);
-            expect(reverse_deps.forward_caller_to_callees.get(caller_uri)?.has(callee_uri)).toBe(true);
+            expect(reverse_deps.caller_to_callees.get(caller_uri)?.has(callee_uri)).toBe(true);
         });
     });
 
@@ -204,7 +235,7 @@ describe('Forward Call Relationship Tracking', () => {
             const callers2 = reverse_deps.callee_to_callers.get(callee2_uri);
             expect(callers1 === undefined || !callers1.has(caller_uri)).toBe(true);
             expect(callers2 === undefined || !callers2.has(caller_uri)).toBe(true);
-            expect(reverse_deps.forward_caller_to_callees.has(caller_uri)).toBe(false);
+            expect(reverse_deps.caller_to_callees.has(caller_uri)).toBe(false);
         });
 
         it('should be no-op when caller has no relationships', () => {
@@ -444,6 +475,55 @@ describe('Forward Call Relationship Tracking', () => {
             expect(result.has('file:///B.do')).toBe(true);
             expect(result.has('file:///A.do')).toBe(false); // Beyond max depth
             expect(result.size).toBe(2);
+        });
+    });
+
+    describe('issue #217: live-edit then delete leaves no stale callee', () => {
+        it('removes all references to a callee dropped via live edit '
+            + 'then deleted', () => {
+            const caller_uri = 'file:///caller.do';
+            const a_uri = 'file:///a.do';
+            const b_uri = 'file:///b.do';
+            const symbols = create_empty_symbol_table();
+
+            // 1. Register caller -> {a, b} via the cache path.
+            const both_calls = [
+                make_forward_call(
+                    URI.parse(a_uri).fsPath, true, 'do', 1, 'a.do'),
+                make_forward_call(
+                    URI.parse(b_uri).fsPath, true, 'do', 2, 'b.do'),
+            ];
+            (resolver as any)
+                .register_forward_call_relationships_from_cache(
+                    caller_uri, both_calls, symbols);
+
+            // Precondition: b is genuinely registered, so the final
+            // assertion proves removal rather than never-present.
+            expect(value_references_uri(
+                (resolver as any).reverse_deps, b_uri)).toBe(true);
+
+            // 2. Live edit deletes `do b` -> only `do a` remains.
+            const a_only = [
+                make_forward_call(
+                    URI.parse(a_uri).fsPath, true, 'do', 1, 'a.do'),
+            ];
+            (resolver as any).update_reverse_dependencies(
+                caller_uri, a_only, symbols);
+
+            const reverse_deps = (resolver as any).reverse_deps;
+
+            // Authoritative maps no longer reference b.
+            expect(reverse_deps.caller_to_callees.get(caller_uri)
+                ?.has(b_uri)).toBeFalsy();
+            expect(reverse_deps.callee_to_callers.has(b_uri))
+                .toBe(false);
+
+            // 3. Delete b.do.
+            (resolver as any).remove_uri_from_reverse_deps(b_uri);
+
+            // 4. No reference to b remains anywhere in reverse_deps.
+            expect(value_references_uri(reverse_deps, b_uri))
+                .toBe(false);
         });
     });
 });
