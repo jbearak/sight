@@ -344,7 +344,26 @@ export class DataBrowserPanel implements vscode.Disposable {
         await this.send_metadata();
     }
 
-    private async send_metadata(): Promise<void> {
+    /**
+     * Serialize metadata sends so two restores never overlap. Without
+     * this, a webview reload (a second `ready`) during a slow restore
+     * would start a concurrent send_metadata that overwrites the shared
+     * restore AbortController, so a Cancel could abort the wrong restore
+     * while an earlier one keeps reading. Chaining guarantees one restore
+     * at a time; a Cancel (handled out of band) still aborts the active
+     * one, which then completes and lets the next send proceed.
+     */
+    private send_metadata_chain: Promise<void> = Promise.resolve();
+
+    private send_metadata(): Promise<void> {
+        const my_next = this.send_metadata_chain
+            .catch(() => {})
+            .then(() => this.send_metadata_impl());
+        this.send_metadata_chain = my_next;
+        return my_next;
+    }
+
+    private async send_metadata_impl(): Promise<void> {
         if (!this.dta_file) return;
 
         try {

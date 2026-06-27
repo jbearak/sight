@@ -93,6 +93,7 @@ async function make_restore_panel(opts: {
     panel_like.restoring = false;
     panel_like.restore_failed = false;
     panel_like.restore_id = -1;
+    panel_like.send_metadata_chain = Promise.resolve();
     panel_like.row_cache = { clear: () => undefined };
 
     panel_like.panel = {
@@ -255,6 +256,32 @@ describe('send_metadata restore', () => {
 
         expect(panel_like.restoring).toBe(false);
         expect(panel_like.restore_abort).toBeNull();
+    });
+
+    it('serializes send_metadata so a reload cannot start a concurrent restore', async () => {
+        const { panel_like, posted } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+        });
+        let release_first: (() => void) | null = null;
+        const my_gate = new Promise<void>(r => { release_first = r; });
+        let calls = 0;
+        panel_like.compute_sort_permutation = async () => {
+            if (calls++ === 0) await my_gate;
+            return new Uint32Array(10);
+        };
+
+        const p1 = panel_like.send_metadata();
+        const p2 = panel_like.send_metadata();
+        // Let microtasks settle; without serialization p2 would begin its
+        // own restore (and post a second restorePending) before p1 ends.
+        await Promise.resolve();
+        release_first!();
+        await Promise.all([p1, p2]);
+
+        const the_pendings = posted.filter(
+            m => m.type === 'restorePending'
+        );
+        expect(the_pendings.length).toBe(1);
     });
 
     it('real read error keeps prefs and warns (finding #7)', async () => {
