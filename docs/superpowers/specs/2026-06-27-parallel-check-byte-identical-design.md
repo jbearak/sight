@@ -87,6 +87,33 @@ happenstance, and we want a test that fails loudly if that invariant breaks.
 5. Coverage for directives / working-directory inheritance (the paths most
    sensitive to open-document state).
 
+## API changes (explicit)
+
+The implementation introduces exactly these surface changes in `src/cli/check.ts`;
+no other modules change their public API.
+
+1. `CheckContext` gains a field
+   `create_document_store: () => DocumentStore`. It returns a fresh
+   `DocumentStore` wired only to the shared **read-only** infrastructure (see
+   §1 below). The existing `document_store: DocumentStore` field is **kept**
+   (built once via this same factory) so the `context.document_store.dispose()`
+   lifecycle used by existing tests is unaffected.
+2. `collect_check_diagnostics` gains an optional trailing parameter
+   `max_parallel: number = CHECK_MAX_PARALLEL`. `run_check_with_cwd` calls it
+   without the argument (unchanged behavior). Tests pass `1`, `2`, `4`.
+3. `build_check_context` **stops** calling
+   `document_store.set_on_backward_directives_parsed(...)`. This is the only
+   behavioral removal; it is a no-op for `check` output (the overlay it fed has
+   no consumer in the diagnostics path — verified). The wiring that the factory
+   *does* perform is: `set_workspace_roots`, `set_scope_resolver`,
+   `set_scope_resolver_config`.
+
+No new accessors are added to `WorkspaceIndexer`, `DocumentStore`, or
+`ScopeResolver`. The isolation test observes behavior through existing public
+methods (`DocumentStore.getAll()`, and a spy on the existing public
+`WorkspaceIndexer.set_buffer_directives`) plus the new `create_document_store`
+factory — so no production surface exists solely for tests.
+
 ## Approach
 
 Two complementary changes — one structural guarantee, one test that guards it —
@@ -185,15 +212,31 @@ cost is negligible next to lex/parse/analyze.
     diverge if open-doc state leaked across targets);
   - enough targets (> 4) that all worker slots are active and at least one
     worker processes multiple targets.
-- **Direct isolation assertion** (not just output equality): a test wraps
-  `context.create_document_store` to capture every store it hands out, and
-  patches each store's `open` to record `store.getAll().length` at open time.
-  After `collect_check_diagnostics`, assert the recorded peak per store is `≤ 1`
-  and that the buffer overlay was never populated
-  (`workspace_indexer` exposes no live buffer overlay entries). This proves the
-  structural invariant directly rather than inferring it from output equality.
+- **Direct isolation assertion** (not just output equality), using only
+  existing public methods plus the new factory:
+  - Wrap `context.create_document_store` so the test captures every store it
+    hands out, and monkey-patch each captured store's `open` to record
+    `store.getAll().length` immediately after the real `open` resolves. After
+    `collect_check_diagnostics` with `max_parallel = 4`, assert the recorded
+    peak across **every** store is `≤ 1` (no store ever held a sibling target),
+    while the number of distinct stores created is `> 1` (parallelism really
+    happened).
+  - Spy on the context's `workspace_indexer.set_buffer_directives` and assert it
+    is **never called** during collection — proving the buffer overlay stays
+    unpopulated (the dropped-callback guarantee), without needing a private
+    accessor.
 - A small test that passing duplicate explicit target paths produces the same
   output as passing the path once (dedupe behavior is unchanged).
+- **Existing test migration.** `cli-check.test.ts`'s "processes report targets
+  concurrently while preserving output order" currently mocks
+  `context.document_store` and asserts `max_active_opens > 1` on that single
+  shared mock. With per-worker stores there is no shared store to observe, so
+  this test is updated to mock `context.create_document_store` (returning a
+  fresh mock store per call). The mock tracks **global** concurrent opens across
+  all stores (assert `> 1`, proving parallelism survived) and **per-store**
+  concurrent opens (assert `≤ 1`, proving isolation). This is the same test,
+  re-pointed at the new factory, and it doubles as the direct isolation
+  assertion above.
 
 ### 3. Documentation
 
