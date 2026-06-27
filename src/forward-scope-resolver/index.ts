@@ -25,6 +25,7 @@ import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { ScopeResolver } from '../scope-resolver';
 import {
     resolve_forward_call_rich,
+    is_resolvable_static_call,
     type RichResolveFs,
     type PathCaseOutcome,
 } from '../utils/file-path-utils';
@@ -267,7 +268,7 @@ export class ForwardScopeResolver {
         // This ensures earlier calls are processed first, which is important for
         // duplicate detection (the earliest call to a file should win)
         const static_calls = forward_calls
-            .filter(call => call.is_static && call.raw_path)
+            .filter(is_resolvable_static_call)
             .sort((a, b) => a.call_site_line - b.call_site_line);
 
         for (const my_call of static_calls) {
@@ -809,7 +810,7 @@ export class ForwardScopeResolver {
                 }
             }
             for (const my_call of callee_result.forward_calls) {
-                if (!my_call.is_static || !my_call.raw_path) continue;
+                if (!is_resolvable_static_call(my_call)) continue;
                 // Include-only descent. `do`/`run` callees run in a fresh scope
                 // and leave no bindings behind for the caller's end-of-execution
                 // state — promoting them to `include` is a separate fix from the

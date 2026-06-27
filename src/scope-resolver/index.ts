@@ -50,6 +50,7 @@ import {
     resolve_path_rich,
     resolve_forward_call_rich,
     outcome_fs_path,
+    is_resolvable_static_call,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -1292,21 +1293,22 @@ export class ScopeResolver {
     /**
      * Resolve the working directory a file INHERITS from its explicit
      * backward-directive parents (`@lsp-done-by` / `@lsp-included-by`;
-     * `@lsp-run-by` is parsed as `done-by`). Pass the file's full directive
-     * list — this filters to the backward types itself, so the "which
-     * directives are backward" rule lives in one place. Own-directive WD is
-     * the caller's responsibility; this returns only the inherited value.
+     * `@lsp-run-by` is parsed as `done-by`). Pass the file's full
+     * directive list — this filters to the backward types itself, so the
+     * "which directives are backward" rule lives in one place.
+     * Own-directive WD is the caller's responsibility; this returns only
+     * the inherited value.
      *
-     * Safe to call from the workspace indexer: it reads parent files via this
-     * resolver's own `file_cache` / disk through `get_parsed_file` and never
-     * touches the indexer's `symbol_index` nor re-enters `index_file`. Used to
-     * make indexed and open-document dependency-graph callee keys agree for
-     * WD-dependent files (#218).
+     * Safe to call from the workspace indexer: it reads parent files via
+     * this resolver's own `file_cache` / disk through `get_parsed_file`
+     * and never touches the indexer's `symbol_index` nor re-enters
+     * `index_file`. Used to make indexed and open-document
+     * dependency-graph callee keys agree for WD-dependent files (#218).
      *
      * Covers EXPLICIT backward directives only. WD inherited via
-     * auto-discovered (dependency-graph) parents is not resolved here — that
-     * depends on scan ordering — and stays best-effort during indexing,
-     * corrected when the file is opened.
+     * auto-discovered (dependency-graph) parents is not resolved here —
+     * that depends on scan ordering — and stays best-effort during
+     * indexing, corrected when the file is opened.
      */
     async resolve_inherited_working_directory(
         directives: Directive[],
@@ -1364,10 +1366,11 @@ export class ScopeResolver {
                 return undefined;
             }
 
-            // Resolve the parent through the case-aware chokepoint so the
-            // inherited-WD lookup matches the main follow_directives path:
-            // case-only matches resolve, the .do fallback is applied, and
-            // an ambiguous parent is skipped instead of arbitrarily picked.
+            // Resolve the parent through the case-aware chokepoint so
+            // the inherited-WD lookup matches the main follow_directives
+            // path: case-only matches resolve, the .do fallback is
+            // applied, and an ambiguous parent is skipped instead of
+            // arbitrarily picked.
             const my_rich = this.compute_directive_real_path(
                 my_directive, current_uri,
             );
@@ -1992,7 +1995,8 @@ export class ScopeResolver {
         }
         const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
-        // Pass working_directory and workspace_root to analyzer for path resolution
+        // Stamp the effective working directory onto the analyzer's forward
+        // calls as resolution context; the analyzer no longer resolves paths.
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
         });
@@ -2785,7 +2789,7 @@ export class ScopeResolver {
         // the map mutations and last_forward_calls write.
         const new_stored: Array<{ call: ForwardCall; resolved_uri: string }> =
             new_forward_calls
-                .filter(c => c.is_static && c.raw_path)
+                .filter(is_resolvable_static_call)
                 .map(c => ({
                     call: c,
                     resolved_uri: this.resolve_callee_uri(c, caller_uri),
@@ -3226,9 +3230,8 @@ export class ScopeResolver {
         // resolve_callee_uri calls.
         const the_stored: Array<{ call: ForwardCall; resolved_uri: string }> = [];
         for (const my_call of forward_calls) {
-            // Skip dynamic paths (containing macro references) and
-            // degenerate calls with no path text.
-            if (!my_call.is_static || !my_call.raw_path) {
+            // Skip dynamic (macro) calls and degenerate empty-path calls.
+            if (!is_resolvable_static_call(my_call)) {
                 continue;
             }
 

@@ -390,6 +390,9 @@ export async function build_check_context(
         config.cross_file.max_indexed_files
     );
     workspace_indexer.set_dependency_graph(dependency_graph);
+    // Let indexing resolve inherited working directories (#218) so closed
+    // files get the same callee keys here as in the LSP server.
+    workspace_indexer.set_scope_resolver(scope_resolver);
     scope_resolver.set_dependency_graph(dependency_graph);
     scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
     diagnostics_provider.set_dependency_graph(dependency_graph);

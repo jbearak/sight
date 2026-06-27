@@ -12,6 +12,7 @@ import { logger } from '../utils/logger';
 import {
     resolve_forward_call_rich,
     outcome_fs_path,
+    is_resolvable_static_call,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -98,11 +99,7 @@ export class DependencyGraph {
             this.uri_to_fs_path(my_caller_uri),
         );
         for (const my_call of forward_calls) {
-            // Skip dynamic calls and degenerate calls with no path text
-            // (a static call always carries a non-empty raw_path in
-            // practice; the guard keeps a stray empty path from keying a
-            // spurious caller-dir edge).
-            if (!my_call.is_static || !my_call.raw_path) continue;
+            if (!is_resolvable_static_call(my_call)) continue;
 
             // Determine the callee URI through the single shared resolver.
             // Pass caller_dir (not a pre-joined path) so the WD-join and

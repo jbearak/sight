@@ -43,6 +43,7 @@ import { validate_comment_formatting_config } from './utils/config-validator';
 import { error_message } from './utils/error-message';
 import { RenameHandler } from './utils/file-rename-handler';
 import { Logger } from './utils/logger';
+import { is_resolvable_static_call } from './utils/file-path-utils';
 import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
@@ -1005,7 +1006,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     if (document_state?.forward_calls && document_state?.symbols) {
                         // Log forward calls for debugging (Req 8.2, 8.4)
                         if (is_debug) {
-                            const static_calls = document_state.forward_calls.filter(c => c.is_static && c.raw_path);
+                            const static_calls = document_state.forward_calls.filter(is_resolvable_static_call);
                             connection.console.log(`[reverse-deps] Updating for ${snapshot_uri}`);
                             connection.console.log(`[reverse-deps]   forward_calls: ${document_state.forward_calls.length} total, ${static_calls.length} static`);
                             for (const my_call of static_calls) {
