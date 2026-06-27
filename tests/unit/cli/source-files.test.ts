@@ -162,3 +162,112 @@ describe('sight check source files', () => {
         }
     });
 });
+
+/**
+ * `sight check` analyzes each discovered file under its own URI, and the
+ * workspace index holds real files only. Opening a symlink-alias URI the index
+ * never indexed gives unreliable cross-file scope and (past the index cap) a
+ * spurious "file not indexed", so this walk — like the persistent indexer —
+ * follows neither symlinked directories nor symlinked files (issue #219).
+ * In-workspace symlink targets are covered via their real path;
+ * symlink-following lives in the non-analyzing consumers.
+ */
+function try_symlink(target: string, link_path: string): boolean {
+    try {
+        fs.symlinkSync(target, link_path);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+describe('sight check analyzes real files only, not symlinks (#219)', () => {
+    it('does NOT discover a symlinked source file', () => {
+        // The real file is checked; the symlink alias is not a separate
+        // target (analysis is path-keyed; analyzing the alias URI would
+        // mismatch the dep-graph / index).
+        const root = temp_dir();
+        const real = path.join(root, 'real.do');
+        fs.writeFileSync(real, 'display 1\n');
+        if (!try_symlink(real, path.join(root, 'aliased.do'))) return;
+
+        const result = collect_report_targets([], root, root);
+        const rels = result.targets.map((my_target) => my_target.relative_path);
+        expect(rels).toContain('real.do');
+        expect(rels).not.toContain('aliased.do');
+    });
+
+    it('does NOT discover a symlinked source file with an external target', () => {
+        // An external-target symlink is not checked; declare the external
+        // location as a workspace folder to check it directly.
+        const root = temp_dir();
+        const external = temp_dir();
+        const target = path.join(external, 'lib.do');
+        fs.writeFileSync(target, 'display 1\n');
+        if (!try_symlink(target, path.join(root, 'lib.do'))) return;
+
+        const result = collect_report_targets([], root, root);
+        const rels = result.targets.map((my_target) => my_target.relative_path);
+        expect(rels).not.toContain('lib.do');
+    });
+
+    it('does not discover a symlinked non-source file', () => {
+        const root = temp_dir();
+        const real = path.join(root, 'notes.txt');
+        fs.writeFileSync(real, 'not stata\n');
+        if (!try_symlink(real, path.join(root, 'aliased.txt'))) return;
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+
+        const result = collect_report_targets([], root, root);
+        const rels = result.targets.map((my_target) => my_target.relative_path);
+        expect(rels).toContain('main.do');
+        expect(rels.some((my_rel) => my_rel.endsWith('.txt'))).toBe(false);
+    });
+
+    it('discovers a symlinked-dir target via its real in-workspace location', () => {
+        const root = temp_dir();
+        const real_dir = path.join(root, 'realdir');
+        fs.mkdirSync(real_dir);
+        fs.writeFileSync(path.join(real_dir, 'inner.do'), 'display 1\n');
+        if (!try_symlink(real_dir, path.join(root, 'linkdir'))) return;
+
+        const result = collect_report_targets([], root, root);
+        // linkdir is not descended; realdir/inner.do is found by the direct
+        // scan — discovered exactly once, under its real path.
+        const inner = result.targets.filter((my_target) =>
+            my_target.relative_path.endsWith('inner.do'),
+        );
+        expect(inner).toHaveLength(1);
+        expect(inner[0]!.relative_path).toBe('realdir/inner.do');
+        expect(result.operator_errors).toEqual([]);
+    });
+
+    it('does not recurse through a directory symlink (cycle would not hang)', () => {
+        const root = temp_dir();
+        const sub = path.join(root, 'sub');
+        fs.mkdirSync(sub);
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+        if (!try_symlink(root, path.join(sub, 'loop'))) return;
+
+        // Completes (loop not descended); main.do discovered exactly once.
+        const result = collect_report_targets([], root, root);
+        const mains = result.targets.filter((my_target) =>
+            my_target.relative_path.endsWith('main.do'),
+        );
+        expect(mains).toHaveLength(1);
+    });
+
+    it('does NOT descend a symlinked directory pointing outside the scan root', () => {
+        const root = temp_dir();
+        const external = temp_dir();
+        fs.writeFileSync(path.join(root, 'inside.do'), 'display 1\n');
+        fs.writeFileSync(path.join(external, 'outside.do'), 'display 1\n');
+        if (!try_symlink(external, path.join(root, 'external_link'))) return;
+
+        const result = collect_report_targets([], root, root);
+        const rels = result.targets.map((my_target) => my_target.relative_path);
+        expect(rels).toContain('inside.do');
+        expect(rels.some((my_rel) => my_rel.endsWith('outside.do')))
+            .toBe(false);
+    });
+});

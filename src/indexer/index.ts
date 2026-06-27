@@ -49,6 +49,7 @@ import {
     hasStataExtension,
     VCS_METADATA_DIRS,
 } from '../utils/file-path-utils';
+import { entry_is_file_async } from '../utils/symlink-aware-entry';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
@@ -324,6 +325,14 @@ export class WorkspaceIndexer {
 
                 const entry_path = path.join(dir_path, entry.name);
 
+                // The persistent index follows neither symlinked dirs
+                // nor symlinked files (#219): it keys entries by path
+                // and the watcher invalidates by the changed path, so
+                // an alias entry could not be kept fresh when its
+                // target changes. In-workspace targets are covered via
+                // the real path; symlink-following lives in the
+                // listing/lookup consumers (path completion, the .sthlp
+                // lookup), which keep no path-keyed analysis state.
                 if (entry.isDirectory()) {
                     // Skip version-control metadata directories. They hold no
                     // Stata source, can be very large, and recursing them is
@@ -1320,6 +1329,9 @@ export class WorkspaceIndexer {
 
             for (const my_dirent of the_entries) {
                 const my_path = path.join(my_entry.path, my_dirent.name);
+                // Recurse into real subdirectories only; symlinked
+                // dirs are not descended (avoids cycles / external
+                // crawl, #219).
                 if (my_dirent.isDirectory()) {
                     if (!WorkspaceIndexer.EXCLUDED_DIRS.has(my_dirent.name)) {
                         the_dirs.push({
@@ -1329,9 +1341,16 @@ export class WorkspaceIndexer {
                     }
                     continue;
                 }
+                // A symlinked `.sthlp` file IS matched (target may live
+                // anywhere): without this it is neither isFile() nor
+                // isDirectory() and was silently skipped (#219).
                 if (
-                    my_dirent.isFile() &&
-                    my_dirent.name === basename
+                    my_dirent.name === basename &&
+                    (await entry_is_file_async(
+                        my_dirent,
+                        my_path,
+                        fs.promises
+                    ))
                 ) {
                     return my_path;
                 }

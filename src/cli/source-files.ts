@@ -81,6 +81,16 @@ function walk_sources(
 
     for (const entry of entries) {
         const entry_path = path.join(dir_path, entry.name);
+        // `sight check` analyzes each discovered file under its own
+        // URI, and the workspace index holds real files only. Opening a
+        // symlink-alias URI the index never indexed gives unreliable
+        // cross-file scope and a spurious SIGHT_FILE_NOT_INDEXED past
+        // the index cap (`has_indexed_file` is keyed by URI). So this
+        // walk, like the persistent indexer, follows neither symlinked
+        // dirs nor symlinked files — real files only (issue #219).
+        // In-workspace symlink targets are covered via their real path;
+        // symlink following lives in the non-analyzing consumers (path
+        // completion, the `.sthlp` lookup).
         if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
             walk_sources(entry_path, out, operator_errors);

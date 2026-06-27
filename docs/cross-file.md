@@ -112,6 +112,32 @@ The indexer is *best-effort* and intentionally bounded:
 - It stops after `crossFile.maxIndexedFiles` (default 1000)
 - It updates the index when files change on disk (via the VS Code file watcher)
 
+#### Symlinks
+
+Features that **analyze** files — the persistent workspace index and
+`sight check` — follow neither symlinked directories nor symlinked files; they
+process **real files only**. The index holds entries keyed by file path (the
+file watcher invalidates by the changed path), so a symlinked-file alias the
+index never indexed would be a stranger to the cross-file graph: analyzing it
+gives unreliable scope and (in `sight check`, past the index cap) a spurious
+"file not indexed". So the alias is not analyzed. If a symlink's target is
+inside your workspace its content is already analyzed via the real path, so
+cross-file go-to-definition, workspace-symbol search, and diagnostics still
+work. If the target is *outside* your workspace (for example a shared library
+elsewhere on disk), add that location as a workspace folder (or, for `.ado`
+help/programs, an ado-path) to have it analyzed directly. This also keeps a
+stray symlinked directory from making a walk crawl an arbitrary external tree.
+
+(A `do`/`include` that references a file *through* a symlink path is a separate,
+pre-existing matter handled by path resolution, not by these directory walks.)
+
+Symlink-following *is* applied in the features that only **list or look up**
+paths (no path-keyed analysis state to keep consistent):
+
+- **Path completion** offers symlinked directories (as navigable folders) and
+  symlinked files, so you can complete and open them.
+- **Help (`.sthlp`) lookup** follows a symlinked help file.
+
 ### Cross-file scope resolution
 
 Cross-file *scope* (which symbols are considered "in scope" at a particular
