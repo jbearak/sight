@@ -2831,14 +2831,20 @@ export class SemanticAnalyzer {
         const macro_refs: string[] = [];
         
         // Match local macro references: `name'
-        const local_pattern = /`([^']+)'/g;
+        // Exclude backtick from the name class so the scanner restarts at each
+        // backtick without overlap (avoids polynomial ReDoS); macro names
+        // cannot contain a backtick anyway.
+        const local_pattern = /`([^'`]+)'/g;
         let match;
         while ((match = local_pattern.exec(args)) !== null) {
             macro_refs.push(match[1]);
         }
         
         // Match global macro references: $name or ${name}
-        const global_pattern = /\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+        // Exclude '{' from the braced-name class so the scanner restarts at
+        // each '${' without overlap (avoids polynomial ReDoS); macro names
+        // cannot contain a brace.
+        const global_pattern = /\$\{([^{}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
         while ((match = global_pattern.exec(args)) !== null) {
             macro_refs.push(match[1] || match[2]);
         }
