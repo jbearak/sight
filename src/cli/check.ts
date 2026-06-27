@@ -39,6 +39,7 @@ import {
     OutputFormat,
     SeverityLevel,
     diagnostic_exceeds_threshold,
+    is_truncation_diagnostic,
     error_message,
     parse_color_choice,
     parse_output_format,
@@ -746,6 +747,7 @@ export async function run_check_with_cwd(
             target_result.targets
         );
         const any_failure = diagnostics.some((record) =>
+            !is_truncation_diagnostic(record.diagnostic) &&
             diagnostic_exceeds_threshold(
                 record.diagnostic,
                 result.args.max_severity

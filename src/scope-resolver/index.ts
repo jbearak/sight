@@ -1234,19 +1234,74 @@ export class ScopeResolver {
         // Use overall chain depth limit minus current backward depth.
         const remaining_depth = config.max_chain_depth - depth;
         if (remaining_depth <= 0) {
+            // Cap-induced truncation, not a genuine error (#209). Respect the
+            // configured `max_depth` severity and suppress when 'off' —
+            // consistent with the backward and forward depth caps.
+            const max_depth_setting =
+                config.diagnostics?.max_depth ?? 'warning';
+            if (max_depth_setting === 'off') {
+                return {
+                    symbols: create_empty_symbol_table(),
+                    diagnostics: [],
+                    call_sites: [],
+                    all_call_sites: [],
+                };
+            }
+            // Attribute to the parent file's call site so the diagnostic
+            // points somewhere actionable (was 0:0). Guard the sentinel:
+            // with assume_call_site === 'end' the inferred call_site_line
+            // is Number.MAX_SAFE_INTEGER. When the call site is unknown,
+            // anchor the range at line 0 but OMIT source_line — downstream
+            // formatting treats a defined source_line as authoritative and
+            // would mislabel an unknown site as "line 1".
+            const has_known_call_site =
+                Number.isInteger(call_site_line) &&
+                call_site_line >= 0 &&
+                call_site_line < Number.MAX_SAFE_INTEGER;
+            const chain_line = has_known_call_site ? call_site_line : 0;
+            const chain_range = {
+                start: { line: chain_line, character: 0 },
+                end: { line: chain_line, character: 0 },
+            };
+            const parent_basename =
+                path.basename(URI.parse(parent_uri).fsPath);
             return {
                 symbols: create_empty_symbol_table(),
                 diagnostics: [{
-                    message: `Maximum combined resolution depth exceeded when resolving parent forward calls`,
-                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-                    severity: 'warning',
+                    message:
+                        `Maximum combined resolution depth ` +
+                        `(${config.max_chain_depth}) exceeded when ` +
+                        `resolving parent forward calls`,
+                    range: chain_range,
+                    severity: max_depth_setting,
+                    kind: 'truncation',
+                    code: StataDiagnosticCode.CROSS_FILE_TRUNCATED,
+                    source: {
+                        source_file: parent_basename,
+                        // Omit source_line when the call site is unknown.
+                        ...(has_known_call_site
+                            ? { source_line: call_site_line }
+                            : {}),
+                        original_range: chain_range,
+                    },
                 }],
                 call_sites: [],
                 all_call_sites: [],
             };
         }
 
-        // Create a recursion stack from visited set for cycle detection.
+        // ISSUE #209 INVARIANT (sibling visibility): isolate the parent's
+        // forward-call walk from the backward walk. We pass a *copy* of the
+        // backward `visited` set (not the live set) as the forward cycle
+        // stack, and a *fresh* forward `visited` Map (line below). Combined
+        // with the caller deleting `my_parent_uri` from `visited` BEFORE
+        // invoking us (see follow_directives), every URI in `recursion_stack`
+        // is the current file or a file already on the active backward chain
+        // — never an independent earlier sibling. So a legitimately earlier-
+        // sourced sibling can never be skipped as a false cycle. Raven
+        // (jbearak/raven#471, #477) shared ONE map across both walks and
+        // dropped such siblings; do not merge these structures. Regression:
+        // tests/integration/hub-heavy-sibling-visibility.test.ts.
         const recursion_stack = new Set<string>(visited);
 
         // Resolve the FULL forward-call list so find-references sees sibling
@@ -1267,7 +1322,12 @@ export class ScopeResolver {
             },
             recursion_stack,
             token,
-            { max_forward_depth: remaining_depth }
+            {
+                max_forward_depth: remaining_depth,
+                // Thread the depth-diagnostic severity/off setting so a
+                // parent's forward truncations honor `max_depth` too (#209).
+                diagnostics: { max_depth: config.diagnostics?.max_depth },
+            }
         );
 
         // Derive pre-site subset + its merged symbol table for scope resolution.
@@ -1505,6 +1565,9 @@ export class ScopeResolver {
                     message: `Maximum backward directive depth (${config.max_backward_depth}) exceeded`,
                     range: default_range,
                     severity: max_depth_severity,
+                    // Cap-induced truncation, not a genuine error (#209).
+                    kind: 'truncation',
+                    code: StataDiagnosticCode.CROSS_FILE_TRUNCATED,
                     source: {
                         source_file: source_filename,
                         source_line: 0,

@@ -496,6 +496,11 @@ export enum StataDiagnosticCode {
 
   // Cross-file diagnostics
   PATH_CASE_MISMATCH = 7001,
+  // Emitted when a traversal cap (max_backward_depth / max_forward_depth /
+  // max_chain_depth) truncates cross-file resolution. Signals "results may be
+  // incomplete", NOT a genuine undefined symbol — surfaced distinctly by
+  // `sight check` and excluded from its pass/fail tally.
+  CROSS_FILE_TRUNCATED = 7002,
 }
 
 // Structured payload carried on a diagnostic's `data` field for undefined-symbol
@@ -628,7 +633,7 @@ export interface DirectiveDiagnostic {
   severity: 'error' | 'warning' | 'information';
   source?: DiagnosticSource;  // Source attribution for diagnostics from parent files
   /** Structured discriminator for severity routing. */
-  kind?: 'missing_file' | 'path_case_mismatch';
+  kind?: 'missing_file' | 'path_case_mismatch' | 'truncation';
   /** Stable code included on the emitted LSP Diagnostic (e.g. PATH_CASE_MISMATCH). */
   code?: StataDiagnosticCode;
   /**
@@ -881,6 +886,16 @@ export interface ForwardResolveContext {
    * the diagnostic to avoid cascade / double-emit.
    */
   diagnostic_owner_uri?: string;
+  /**
+   * Range of the depth-0 forward call in the diagnostic-owner file that began
+   * this resolution. Set once, on the first recursion into an owner-rooted
+   * call, and propagated unchanged. Used to anchor NESTED cap-truncation
+   * diagnostics (#209) to the owner file's actual call site — otherwise a
+   * nested call's line (in a callee file) would be reported against the owner
+   * file, since the backward-directive remap does not run for a root file with
+   * no directives. Undefined for ancestor-scope builds (no owner).
+   */
+  root_call_range?: Range;
 }
 
 export interface ForwardCallSite {

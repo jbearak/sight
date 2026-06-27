@@ -17,7 +17,6 @@ import {
     ForwardCallSite,
     ForwardResolvedScope,
     DuplicateCallDecision,
-    DirectiveDiagnostic,
     MacroSymbol,
     StataDiagnosticCode,
 } from '../types';
@@ -38,6 +37,71 @@ export interface ForwardScopeConfig {
     };
 }
 
+/**
+ * Inputs that fully determine a file's forward-call CLOSURE — and so the
+ * complete cache key for a caller-INDEPENDENT forward-closure memo
+ * (#209, #208). There is deliberately NO caller field: the closure is a
+ * pure function of these inputs, so caller identity can never vary it.
+ * See docs/cross-file.md "Forward-closure caching semantics".
+ *
+ * - `content_hash`        the callee's own text (its forward calls).
+ * - `effective_call_type` `do` vs `include` — governs local propagation.
+ * - `working_directory`   resolves the callee's relative do/run paths.
+ * - `depth`               raw forward depth: subsumes remaining-budget
+ *                         AND the `depth === 0` flag that gates
+ *                         `excluded_locals`.
+ * - `max_forward_depth`   the truncation cap in force.
+ * - `dep_graph_version`   folds the dependency-graph version so stale
+ *                         forward edges can't serve a stale closure.
+ */
+export interface ForwardClosureKeyInputs {
+    callee_uri: string;
+    content_hash: string;
+    effective_call_type: EffectiveCallType;
+    working_directory: string | undefined;
+    depth: number;
+    max_forward_depth: number;
+    dep_graph_version: number;
+}
+
+/**
+ * Build the caller-independent forward-closure cache key (#209). The cache
+ * STORE/SERVE write-path is deferred to a follow-up; this contract ships now
+ * so the follow-up — and the #208 standalone work — can rely on it, guarded
+ * by the memo-on/off correctness gate.
+ *
+ * Encoded as a JSON tuple rather than a delimiter-joined string so the key
+ * is collision-free: a `callee_uri` or `working_directory` containing a
+ * delimiter cannot forge another key, and an absent working directory
+ * (`undefined` → JSON `null`) stays distinct from an empty string (`""`).
+ *
+ * NOTE: the key intentionally OMITS the caller's `visited` map and the
+ * `diagnostic_owner_uri`. These vary `resolve()`'s output but are NOT keyed,
+ * because the deferred store/serve path handles them OUTSIDE the key (encoding
+ * `visited` would make the key caller-dependent, defeating the whole point):
+ *  - duplicate-call (`visited`) divergence is prevented by serving only when
+ *    the cached closure's reachable set is DISJOINT from the caller's
+ *    stack+visited, then replaying its visited-delta;
+ *  - diagnostic/owner divergence is prevented by caching only diagnostic-free,
+ *    owner-suppressed closures (any closure that would emit a diagnostic is
+ *    recomputed live).
+ * See docs/cross-file.md "Forward-closure caching semantics" for the full
+ * deferred design and the memo-on/off correctness gate that enforces it.
+ */
+export function build_forward_closure_key(
+    inputs: ForwardClosureKeyInputs
+): string {
+    return JSON.stringify([
+        inputs.callee_uri,
+        inputs.content_hash,
+        inputs.effective_call_type,
+        inputs.working_directory ?? null,
+        inputs.depth,
+        inputs.max_forward_depth,
+        inputs.dep_graph_version,
+    ]);
+}
+
 const DEFAULT_CONFIG: ForwardScopeConfig = {
     max_forward_depth: 10,
 };
@@ -50,9 +114,29 @@ export class ForwardScopeResolver {
     // When undefined, resolve_path_rich uses the real Node fs.
     private resolve_fs?: RichResolveFs;
 
+    // #209: switch for the (deferred) caller-independent forward-closure
+    // memo. Default OFF — the cache store/serve write-path lands in a
+    // follow-up. The memo-on/off correctness gate flips this to prove the
+    // future cache is behaviorally identical to the live walk; #208's
+    // caller-independence assumption rides on that gate, not on the cache.
+    private forward_closure_memo_enabled = false;
+
     constructor(scope_resolver: ScopeResolver, config: Partial<ForwardScopeConfig> = {}) {
         this.scope_resolver = scope_resolver;
         this.default_config = { ...DEFAULT_CONFIG, ...config };
+    }
+
+    /**
+     * Enable/disable the forward-closure memo (#209). Default OFF. The
+     * store/serve write-path is deferred; until it lands, toggling this is a
+     * behavioral no-op — guarded by the memo-on/off correctness gate.
+     */
+    set_forward_closure_memo_enabled(enabled: boolean): void {
+        this.forward_closure_memo_enabled = enabled;
+    }
+
+    is_forward_closure_memo_enabled(): boolean {
+        return this.forward_closure_memo_enabled;
     }
 
     /**
@@ -286,21 +370,57 @@ export class ForwardScopeResolver {
 
             // Check depth limit
             if (my_context.depth >= resolved_config.max_forward_depth) {
-                // Always emit diagnostic when max depth is exceeded
-                const diagnostic: DirectiveDiagnostic = {
-                    message: `${source_prefix}Maximum forward resolution depth (${resolved_config.max_forward_depth}) exceeded`,
-                    severity: 'information',
-                    range: {
+                // Cap-induced truncation, not a genuine error (#209). Respect
+                // the configured `max_depth` severity, and suppress entirely
+                // when 'off' — consistent with the backward depth cap (this
+                // previously always emitted at 'information', ignoring the
+                // setting). The call is skipped regardless, to bound recursion.
+                // Fallback matches the backward and chain depth caps
+                // ('warning') for consistency when `max_depth` is unset; in
+                // production the resolved config supplies it ('information' per
+                // DEFAULT_SETTINGS), so this fallback only affects unconfigured
+                // callers.
+                const max_depth_setting =
+                    resolved_config.diagnostics?.max_depth ?? 'warning';
+                if (max_depth_setting !== 'off') {
+                    // Anchor the diagnostic to a location in the DIAGNOSTIC-
+                    // OWNER file (#209). A nested truncation (depth > 0)
+                    // would otherwise carry a callee-file line and render
+                    // against the owner file — the backward-directive remap
+                    // does not run for a root file with no directives.
+                    // `root_call_range` (the owner's depth-0 call site)
+                    // anchors it correctly; at depth 0 the call is already in
+                    // `file_uri`, so use its own line. (`call_site_line` is a
+                    // real parsed AST line, never the backward
+                    // `assume_call_site: 'end'` sentinel.)
+                    const anchor_uri =
+                        my_context.root_call_range !== undefined &&
+                        my_context.diagnostic_owner_uri !== undefined
+                            ? my_context.diagnostic_owner_uri
+                            : file_uri;
+                    const anchor_range = my_context.root_call_range ?? {
                         start: { line: my_call.call_site_line, character: 0 },
-                        end: { line: my_call.call_site_line, character: 0 }
-                    },
-                    source: {
-                        source_file: path.basename(my_call.raw_path),
-                        source_line: my_call.call_site_line,
-                        original_range: my_call.range
-                    }
-                };
-                my_context.diagnostics.push(diagnostic);
+                        end: { line: my_call.call_site_line, character: 0 },
+                    };
+                    my_context.diagnostics.push({
+                        message:
+                            `${source_prefix}Maximum forward resolution ` +
+                            `depth (${resolved_config.max_forward_depth}) ` +
+                            `exceeded`,
+                        severity: max_depth_setting,
+                        // Tagged so `sight check` surfaces it distinctly and
+                        // keeps it out of the pass/fail tally.
+                        kind: 'truncation',
+                        code: StataDiagnosticCode.CROSS_FILE_TRUNCATED,
+                        range: anchor_range,
+                        source: {
+                            source_file: path.basename(
+                                URI.parse(anchor_uri).fsPath),
+                            source_line: anchor_range.start.line,
+                            original_range: anchor_range,
+                        },
+                    });
+                }
                 // Skip this call to prevent excessive recursion
                 continue;
             }
@@ -559,6 +679,14 @@ export class ForwardScopeResolver {
                         // owner and therefore suppress their own
                         // path_case_mismatch emission.
                         diagnostic_owner_uri: my_context.diagnostic_owner_uri,
+                        // Anchor nested cap-truncations to the owner file's
+                        // depth-0 call site (#209). Established once, on the
+                        // first owner-rooted recursion, then propagated. Only
+                        // set when an owner is present (not ancestor builds).
+                        root_call_range: my_context.root_call_range ??
+                            (my_context.diagnostic_owner_uri !== undefined
+                                ? my_call.range
+                                : undefined),
                     },
                     my_stack,
                     token,
