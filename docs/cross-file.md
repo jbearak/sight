@@ -114,26 +114,27 @@ The indexer is *best-effort* and intentionally bounded:
 
 #### Symlinks
 
-A **symlinked source file** is indexed when the symlink's **own name** has a
-Stata source extension (`.do`, `.ado`, `.doh`, `.mata`) and its target is a
-regular file (the target may live anywhere). Detection is by the link name —
-the same rule used for regular files — so `analysis.do -> …/analysis.do` is
-indexed, but a link whose name lacks a Stata extension is not, even if its
-target is a `.do` file. It is indexed under the symlink's own path; if the
-symlink and its target are both inside the workspace, the same content is
-indexed under two separate URIs, and each counts toward
-`crossFile.maxIndexedFiles` — so near that cap a duplicate symlink can crowd
-out another file.
+The **persistent workspace index** follows neither symlinked directories nor
+symlinked files. It keys entries by path and the file watcher invalidates by
+the changed file's path, so an alias entry could not be kept in sync when its
+real target changes — rather than serve stale duplicates, the index simply
+holds the real files. If a symlink's target is inside your workspace, its
+content is already indexed via the real path, so cross-file go-to-definition
+and workspace-symbol search still work. If the target is *outside* your
+workspace (for example a symlink to a shared library elsewhere on disk), add
+that location as a workspace folder (or, for `.ado` help/programs, an ado-path)
+to have it indexed directly. This also keeps a stray symlinked directory from
+making the indexer crawl an arbitrary external tree.
 
-A **symlinked directory** is *not* recursively scanned. If its target is
-inside your workspace, those files are already indexed via the directory's
-real location, so nothing is lost. If its target is *outside* your workspace
-(for example a symlink to a shared library elsewhere on disk), its contents
-are **not** indexed — add that location as a workspace folder (or, for `.ado`
-help/programs, an ado-path) to have it scanned directly. This keeps a stray
-symlink from making the indexer crawl an arbitrary external tree. The same
-applies to `sight check` source discovery. Path completion still *offers*
-symlinked directories for navigation (listing one level is not recursion).
+Symlink-following *is* applied where there is no long-lived, path-keyed state
+to keep fresh:
+
+- **Path completion** offers symlinked directories (as navigable folders) and
+  symlinked source files, so you can complete and open them.
+- **`sight check`** discovers symlinked source files (a symlink whose own name
+  has a Stata source extension and whose target is a regular file) during its
+  one-shot scan; symlinked directories are still not descended.
+- **Help (`.sthlp`) lookup** follows a symlinked help file.
 
 ### Cross-file scope resolution
 

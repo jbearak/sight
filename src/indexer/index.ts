@@ -325,14 +325,14 @@ export class WorkspaceIndexer {
 
                 const entry_path = path.join(dir_path, entry.name);
 
-                // Recurse into real subdirectories only (unchanged).
-                // Symlinked dirs are NOT descended: an in-workspace
-                // target is already covered by the direct scan of its
-                // real location, and an external target would crawl an
-                // arbitrary tree (#219). Recursing only real subdirs
-                // adds no symlink cycle/escape risk, so no new guard is
-                // needed. (OS junctions/bind mounts present as real
-                // dirs and are descended as before — pre-existing.)
+                // The persistent index follows neither symlinked dirs
+                // nor symlinked files (#219): it keys entries by path
+                // and the watcher invalidates by the changed path, so
+                // an alias entry could not be kept fresh when its
+                // target changes. In-workspace targets are covered via
+                // the real path; one-shot consumers follow symlinked
+                // files (completion, `sight check`, .sthlp lookup),
+                // where no staleness can arise.
                 if (entry.isDirectory()) {
                     // Skip version-control metadata directories. They hold no
                     // Stata source, can be very large, and recursing them is
@@ -343,17 +343,8 @@ export class WorkspaceIndexer {
                     }
                     await this.scan_directory(entry_path, generation);
                 } else if (
-                    // A symlinked source FILE is followed (target may
-                    // live anywhere): without this it is neither
-                    // isFile() nor isDirectory() and was silently
-                    // skipped (#219). The cheap extension check gates
-                    // the (possibly stat-ing) helper.
-                    hasStataExtension(entry.name) &&
-                    (await entry_is_file_async(
-                        entry,
-                        entry_path,
-                        fs.promises
-                    ))
+                    entry.isFile() &&
+                    hasStataExtension(entry.name)
                 ) {
                     file_paths.push(entry_path);
                 }

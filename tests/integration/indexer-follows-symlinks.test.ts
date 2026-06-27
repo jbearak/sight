@@ -1,12 +1,13 @@
 /**
- * The workspace scan must follow symlinked source FILES (issue #219) — a
- * `readdir` entry for a symlink is neither `isDirectory()` nor `isFile()`, so
- * the old classification silently dropped them. Symlinked DIRECTORIES are
- * deliberately NOT descended: an in-workspace target is already covered by the
- * direct scan of its real location, and an out-of-workspace target would crawl
- * an arbitrary external tree. These tests pin both: symlinked files are
- * indexed, and symlinked directories are never recursed (so cycles terminate
- * trivially, nothing is double-indexed, and an external target is not crawled).
+ * The persistent workspace indexer follows neither symlinked directories nor
+ * symlinked files (issue #219): it keys entries by path and the file watcher
+ * invalidates by the changed event path, so an alias entry could not be kept
+ * fresh when its real target changes. In-workspace targets are covered via
+ * their real path; symlink-following lives in the one-shot consumers (path
+ * completion, `sight check`, the on-demand `.sthlp` lookup). These tests pin
+ * the indexer side: a symlinked source file is NOT added to the index, a
+ * symlinked directory is never recursed (so cycles terminate trivially and an
+ * external target is not crawled), and real files are unaffected.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -72,29 +73,24 @@ describe('indexer follows symlinks safely (#219)', () => {
         fs.rmSync(tmp_dir, { recursive: true, force: true });
     });
 
-    it('indexes a symlinked .do file', async () => {
+    it('does NOT add a symlinked source file to the persistent index', async () => {
+        // The persistent indexer keys/invalidates by path and cannot keep an
+        // alias entry fresh, so it indexes the real file only (issue #219).
         const real = path.join(tmp_dir, 'real.do');
         fs.writeFileSync(real, 'program define foo\nend\n');
         const link = path.join(tmp_dir, 'aliased.do');
         if (!try_symlink(real, link)) return; // platform without symlinks
 
         const indexed = await index(tmp_dir);
-        // Both the regular file and the symlinked file are indexed.
         expect(indexed.includes(URI.file(real).toString())).toBe(true);
-        expect(indexed.includes(URI.file(link).toString())).toBe(true);
+        expect(indexed.includes(URI.file(link).toString())).toBe(false);
     });
 
-    it('does not index a symlinked non-Stata file', async () => {
-        // The cheap extension filter must gate the symlink stat: a
-        // symlink whose name is not a Stata source extension is never
-        // followed and never indexed (issue #219 review).
-        const real = path.join(tmp_dir, 'notes.txt');
-        fs.writeFileSync(real, 'not stata\n');
-        if (!try_symlink(real, path.join(tmp_dir, 'aliased.txt'))) return;
-        // Also a dangling non-Stata symlink must not break the scan.
+    it('a dangling symlink does not break the scan', async () => {
+        // A dangling symlink (any name) must not throw or be indexed.
         try_symlink(
             path.join(tmp_dir, 'missing-target'),
-            path.join(tmp_dir, 'broken.txt'),
+            path.join(tmp_dir, 'broken.do'),
         );
         fs.writeFileSync(path.join(tmp_dir, 'real.do'), 'display 1\n');
 
@@ -102,7 +98,8 @@ describe('indexer follows symlinks safely (#219)', () => {
         expect(indexed).toContain(
             URI.file(path.join(tmp_dir, 'real.do')).toString(),
         );
-        expect(indexed.some((u) => u.endsWith('.txt'))).toBe(false);
+        expect(indexed.includes(URI.file(path.join(tmp_dir, 'broken.do')).toString()))
+            .toBe(false);
     });
 
     it('indexes a symlinked-dir target via its real in-workspace location', async () => {

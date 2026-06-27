@@ -77,12 +77,12 @@ export function entry_is_file_sync(
 }
 
 /**
- * Async counterpart of {@link entry_is_file_sync}. Used by the async
- * indexer walks, which descend only real subdirectories
- * (`Dirent.isDirectory()`) but must still recognize a symlinked *file*
- * as a source file (issue #219). There is deliberately no async
- * directory variant: the recursive walks do not follow symlinked
- * directories, so they never need to async-classify one.
+ * Async counterpart of {@link entry_is_file_sync}. Used by the
+ * on-demand async `.sthlp` lookup walk (`find_sthlp_file_recursive`),
+ * which descends only real subdirectories (`Dirent.isDirectory()`) but
+ * must still match a symlinked help *file* (issue #219). There is
+ * deliberately no async directory variant: the walk does not follow
+ * symlinked directories, so it never async-classifies one.
  */
 export async function entry_is_file_async(
     entry: DirentLike,
