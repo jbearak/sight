@@ -185,6 +185,36 @@ export function resolve_scoped_client_settings(
     });
 }
 
+// The config keys that change WHICH files are indexed, or how their
+// indexed dependency-graph edges are keyed (and thus require a full
+// index teardown + re-scan). Most settings — severities, formatting,
+// completion, debug — only affect how open documents are
+// validated/resolved, which a revalidation pass handles without
+// re-scanning. `max_backward_depth` is included because the indexer's
+// inherited-WD walk (#218) uses it to key closed-file callee edges, so
+// a depth change must re-index for those edges to stay consistent with
+// the open-document path. (`backward_dependencies` is NOT needed: the
+// indexer walk forces explicit backward resolution, so it is
+// independent of the auto/explicit mode.)
+//
+// This signature is compared on BOTH config-change paths against a
+// single shared `last_applied_indexing_signature`: the `sight.toml`
+// reload (`reload_project_config_once`) and the runtime client-settings
+// push (`onDidChangeConfiguration`). It is computed on the effective
+// merged `StataLSPConfig` so both paths are directly comparable (#223).
+export function indexing_affecting_signature(
+    config: DeepPartial<StataLSPConfig> | undefined
+): string {
+    return JSON.stringify({
+        adoPaths: config?.adoPaths ?? null,
+        indexWorkspace: config?.indexWorkspace ?? null,
+        index_workspace: config?.cross_file?.index_workspace ?? null,
+        max_indexed_files: config?.cross_file?.max_indexed_files ?? null,
+        maxFileSizeBytes: config?.indexing?.maxFileSizeBytes ?? null,
+        max_backward_depth: config?.cross_file?.max_backward_depth ?? null,
+    });
+}
+
 /**
  * Create and start the LSP server with the specified options.
  */
@@ -245,6 +275,27 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let project_config_candidate_dirs: string[] = [];
     let active_workspace_roots: string[] = [];
     let project_config_watch_registration: Disposable | undefined = undefined;
+
+    // Single source of truth for "which indexing-affecting settings are
+    // currently reflected in the workspace index" (#223). Compared on both
+    // the sight.toml reload path and the runtime onDidChangeConfiguration
+    // path to decide whether a full teardown + re-scan is needed. Written
+    // only by `configure_workspace_indexing`. Initialized to the empty
+    // string: a real `indexing_affecting_signature` is always a JSON object
+    // string, so the empty-string sentinel can never collide with one, and
+    // any comparison made before the first index is established reads as
+    // "changed" (the safe outcome). The initial scan itself is
+    // unconditional (via `refresh_workspace_state` ->
+    // `configure_workspace_indexing`), so no first scan is ever skipped.
+    let last_applied_indexing_signature = '';
+
+    // Monotonic counter giving a latest-wins guard for runtime config
+    // changes. Bumped synchronously on every onDidChangeConfiguration
+    // event; the async capability-mode handler applies its settings only if
+    // it is still the latest, so two rapid events cannot write the signature
+    // / start scans out of order. (Indexer scan state is separately
+    // protected by the indexer's own scan_generation guard.)
+    let config_change_seq = 0;
 
     // Initialization options config
     let init_options_config: unknown = undefined;
@@ -707,6 +758,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
             reset_workspace_indexing_state();
         }
 
+        // Record the indexing-affecting signature we are committing to the
+        // moment we decide to apply `settings` (synchronously, not after
+        // the async scan). This is the single writer of
+        // last_applied_indexing_signature; both config-change paths compare
+        // against it. Optimistic by design: if the async scan later fails it
+        // is not rolled back, matching the sight.toml reload path which
+        // likewise commits its new config regardless of scan success.
+        last_applied_indexing_signature =
+            indexing_affecting_signature(settings);
+
         configure_completion_provider(settings);
 
         if (workspace_indexer) {
@@ -757,34 +818,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
         return b.every((value) => set_a.has(value));
     }
 
-    // The project-config keys that change WHICH files are indexed, or how
-    // their indexed dependency-graph edges are keyed (and thus require a full
-    // index teardown + re-scan). Most settings — severities, formatting,
-    // completion, debug — only affect how open documents are
-    // validated/resolved, which a revalidation pass handles without
-    // re-scanning. `max_backward_depth` is included because the indexer's
-    // inherited-WD walk (#218) uses it to key closed-file callee edges, so a
-    // depth change must re-index for those edges to stay consistent with the
-    // open-document path. (`backward_dependencies` is NOT needed: the indexer
-    // walk forces explicit backward resolution, so it is independent of the
-    // auto/explicit mode.) Client/init settings are constant across a
-    // config-file reload, so comparing this subset of project_file_config is
-    // sufficient to detect an effective indexing change. (This is the
-    // project-config reload path; runtime client settings.json changes do not
-    // re-index for any indexing setting — a pre-existing, uniform limitation.)
-    function indexing_affecting_signature(
-        config: DeepPartial<StataLSPConfig> | undefined
-    ): string {
-        return JSON.stringify({
-            adoPaths: config?.adoPaths ?? null,
-            indexWorkspace: config?.indexWorkspace ?? null,
-            index_workspace: config?.cross_file?.index_workspace ?? null,
-            max_indexed_files: config?.cross_file?.max_indexed_files ?? null,
-            maxFileSizeBytes: config?.indexing?.maxFileSizeBytes ?? null,
-            max_backward_depth: config?.cross_file?.max_backward_depth ?? null,
-        });
-    }
-
     async function reload_project_config_once(): Promise<void> {
         const active_root = active_workspace_roots[0];
         if (!active_root) {
@@ -792,8 +825,6 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
 
         const previous_config_json = JSON.stringify(project_file_config ?? null);
-        const previous_indexing_signature =
-            indexing_affecting_signature(project_file_config);
         const previous_watch_dirs = project_config_watch_dirs();
 
         apply_loaded_project_config(
@@ -812,16 +843,19 @@ export async function create_server(options: ServerOptions): Promise<void> {
             return;
         }
 
-        const indexing_changed =
-            indexing_affecting_signature(project_file_config) !==
-            previous_indexing_signature;
-
         document_settings.clear();
 
         if (!server_capabilities.has_configuration_capability) {
             global_settings = build_non_capability_settings();
         }
         const settings = await get_document_settings('');
+
+        // Compare the new effective settings against the shared last-applied
+        // signature (the same variable the runtime onDidChangeConfiguration
+        // path uses), so both paths agree on what is currently indexed (#223).
+        const indexing_changed =
+            indexing_affecting_signature(settings) !==
+            last_applied_indexing_signature;
 
         if (indexing_changed) {
             configure_workspace_indexing(settings, active_workspace_roots, true);
@@ -1370,18 +1404,59 @@ export async function create_server(options: ServerOptions): Promise<void> {
     );
 
     // Configuration change handler
+    // Apply an effective settings snapshot produced by a runtime
+    // onDidChangeConfiguration event. If an indexing-affecting key
+    // changed, tear down and re-scan the workspace so closed-file edges /
+    // indexed state match the new settings (mirrors the sight.toml reload
+    // path, #223); otherwise keep the index and just reconfigure providers
+    // + revalidate.
+    function apply_runtime_settings_change(settings: StataLSPConfig): void {
+        const new_signature = indexing_affecting_signature(settings);
+        if (new_signature !== last_applied_indexing_signature) {
+            // Indexing-affecting change: full teardown + re-scan.
+            // configure_workspace_indexing reconfigures the completion
+            // provider synchronously, updates
+            // last_applied_indexing_signature, and revalidates open
+            // documents once the async re-scan completes.
+            //
+            // We deliberately do NOT validate open documents immediately
+            // here: the index reset inside configure_workspace_indexing is
+            // synchronous and empties the index, so an immediate
+            // validate-all would resolve every open document against an
+            // empty index and flash false undefined-symbol warnings until
+            // the scan finishes (the same red-squiggle flicker the close
+            // handler avoids). The reload path avoids it the same way.
+            configure_workspace_indexing(
+                settings, active_workspace_roots, true
+            );
+        } else {
+            // No indexing-affecting change: keep the index intact,
+            // reconfigure providers, and revalidate open documents
+            // immediately against the live index. revalidate_all_open_docs
+            // clears each document's published version and re-validates.
+            configure_completion_provider(settings);
+            workspace_indexer?.configure(settings);
+            revalidate_all_open_docs();
+        }
+    }
+
     connection.onDidChangeConfiguration((change) => {
+        // Latest-wins guard (#223): bump synchronously on every event so a
+        // newer event supersedes any pending async (capability-mode)
+        // resolution. The non-capability branch is synchronous, but still
+        // bumps so it correctly supersedes an in-flight async resolution.
+        const my_seq = ++config_change_seq;
         if (server_capabilities.has_configuration_capability) {
             document_settings.clear();
             void get_document_settings('').then((settings) => {
-                configure_completion_provider(settings);
-                // Propagate indexing-affecting settings (e.g.
-                // indexing.maxFileSizeBytes) so the indexer does not stay stale
-                // after a runtime configuration change.
-                workspace_indexer?.configure(settings);
+                if (my_seq !== config_change_seq) {
+                    // Superseded by a newer config event; let that one win.
+                    return;
+                }
+                apply_runtime_settings_change(settings);
             }).catch((err) => {
                 connection.console.error(
-                    `Error refreshing completion config: ${err}`
+                    `Error refreshing config after change: ${err}`
                 );
             });
         } else {
@@ -1389,28 +1464,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 change.settings
             );
             global_settings = build_non_capability_settings();
-            configure_completion_provider(global_settings);
-            workspace_indexer?.configure(global_settings);
+            apply_runtime_settings_change(global_settings);
         }
-
-        // Clear published versions so diagnostics will be re-published
-        // even though document versions haven't changed
-        if (diagnostics_provider) {
-            for (const my_doc of documents.all()) {
-                diagnostics_provider.clear_published_version(my_doc.uri);
-            }
-        }
-
-        // Fire-and-forget validation for all documents
-        // Catch errors to prevent unhandled promise rejections
-        documents.all().forEach((doc) => {
-            validate_text_document(doc).catch((err) => {
-                connection.console.error(
-                    `Error validating ${doc.uri} ` +
-                    `after config change: ${err}`
-                );
-            });
-        });
     });
 
     // Document open handler - validate when a document is first opened

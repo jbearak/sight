@@ -323,7 +323,7 @@ describe('sight check integration', () => {
         }
     });
 
-    it('processes report targets concurrently while preserving output order', async () => {
+    it('analyzes each target in its own single-document store while running concurrently', async () => {
         const root = temp_dir();
         const targets = ['a.do', 'b.do', 'c.do', 'd.do', 'e.do'].map(
             (file_name) => {
@@ -337,27 +337,60 @@ describe('sight check integration', () => {
             }
         );
 
-        let active_opens = 0;
-        let max_active_opens = 0;
+        // Track concurrency at two scopes: globally (across all per-worker
+        // stores, which proves parallelism survived) and per individual store
+        // (which proves isolation — no store ever holds a sibling target).
+        let global_active_opens = 0;
+        let global_max_active_opens = 0;
+        let max_active_opens_per_store = 0;
+        let stores_created = 0;
+
+        const make_store = () => {
+            // Track the documents this store actually holds open. The counts
+            // stay live from open() until close(), not just for the artificial
+            // parse delay, so max_active_opens_per_store catches a regression
+            // where a worker opens the next target before closing the previous
+            // one on the same store.
+            const the_open_uris = new Set<string>();
+            return {
+                open: async (uri: string) => {
+                    global_active_opens++;
+                    global_max_active_opens = Math.max(
+                        global_max_active_opens,
+                        global_active_opens
+                    );
+                    the_open_uris.add(uri);
+                    max_active_opens_per_store = Math.max(
+                        max_active_opens_per_store,
+                        the_open_uris.size
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                },
+                get: (uri: string) =>
+                    the_open_uris.has(uri) ? { uri } : undefined,
+                close: (uri: string) => {
+                    if (the_open_uris.delete(uri)) {
+                        global_active_opens--;
+                    }
+                },
+                dispose: async () => undefined,
+            };
+        };
+
+        let set_buffer_directives_calls = 0;
 
         const context = {
             workspace_indexer: {
                 get_all_symbols: () => create_empty_symbol_table(),
                 get_metrics: () => ({ files_indexed: targets.length }),
                 has_indexed_file: () => true,
-            },
-            document_store: {
-                open: async () => {
-                    active_opens++;
-                    max_active_opens = Math.max(
-                        max_active_opens,
-                        active_opens
-                    );
-                    await new Promise((resolve) => setTimeout(resolve, 20));
-                    active_opens--;
+                set_buffer_directives: () => {
+                    set_buffer_directives_calls++;
                 },
-                get: (uri: string) => ({ uri }),
-                close: () => undefined,
+            },
+            create_document_store: () => {
+                stores_created++;
+                return make_store();
             },
             diagnostics_provider: {
                 get_diagnostics: async (state: { uri: string }) => [{
@@ -385,12 +418,79 @@ describe('sight check integration', () => {
             context,
             root,
             config_result.config,
-            targets
+            targets,
+            4
         );
 
-        expect(max_active_opens).toBeGreaterThan(1);
+        // Parallelism preserved: more than one target is analyzed at once.
+        expect(global_max_active_opens).toBeGreaterThan(1);
+        // Isolation: no single store ever has more than one document open, so a
+        // target's analysis never sees a sibling target as an open document.
+        expect(max_active_opens_per_store).toBe(1);
+        // More than one store means workers really ran in parallel on their own
+        // stores rather than all sharing one.
+        expect(stores_created).toBeGreaterThan(1);
+        // The buffer-directive overlay (a find-references-only concern) is never
+        // populated during check, so no cross-target overlay state leaks.
+        expect(set_buffer_directives_calls).toBe(0);
         expect(records.map((record) => record.relative_path)).toEqual(
             targets.map((target) => target.relative_path)
         );
+    });
+
+    it('drives a distinct real DocumentStore per worker through the real factory', async () => {
+        // The isolation test above mocks `create_document_store`, and the
+        // byte-identical determinism test would still pass even if the factory
+        // returned a single shared store (shared-store output is already
+        // identical today). This test closes that gap: it runs real collection
+        // over the real `build_check_context` factory and asserts the factory
+        // actually hands out several distinct stores — none of them the primary
+        // context store — so a regression that returns a shared store is caught.
+        const root = temp_dir();
+        const the_target_files = [
+            'a.do', 'b.do', 'c.do', 'd.do', 'e.do', 'f.do',
+        ];
+        for (const my_file of the_target_files) {
+            fs.writeFileSync(path.join(root, my_file), 'display 1\n');
+        }
+
+        const config_result = load_check_config({
+            cwd: root,
+            workspace_root: root,
+            no_config: true,
+        });
+        expect(config_result.kind).toBe('loaded');
+        if (config_result.kind !== 'loaded') return;
+
+        const targets = collect_report_targets([], root, root).targets;
+        const context = await build_check_context(root, config_result.config);
+
+        // Wrap the real factory to capture every store it actually creates.
+        const real_factory = context.create_document_store.bind(context);
+        const created_stores = new Set<unknown>();
+        context.create_document_store = () => {
+            const store = real_factory();
+            created_stores.add(store);
+            return store;
+        };
+
+        try {
+            await collect_check_diagnostics(
+                context,
+                root,
+                config_result.config,
+                targets,
+                4
+            );
+
+            // Several distinct real stores were created (one per worker), so
+            // the factory is not returning a single shared store.
+            expect(created_stores.size).toBeGreaterThan(1);
+            // None of them is the primary context store reused as the analysis
+            // store.
+            expect(created_stores.has(context.document_store)).toBe(false);
+        } finally {
+            await context.document_store.dispose();
+        }
     });
 });
