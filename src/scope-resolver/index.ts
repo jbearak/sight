@@ -1297,6 +1297,9 @@ export class ScopeResolver {
      * @param visited - Set of visited URIs for cycle detection
      * @param depth - Current recursion depth
      * @param config - Scope resolver configuration
+     * @param request_cache - Per-request parse cache
+     * @param current_uri - URI of the file whose directives these are
+     *   (the join base for case-aware parent resolution)
      * @returns The effective working directory for the chain, or undefined if not found
      */
     private async discover_working_directory(
@@ -1305,6 +1308,7 @@ export class ScopeResolver {
         depth: number,
         config: ScopeResolverConfig,
         request_cache: RequestCache,
+        current_uri: string,
         token?: CancellationToken
     ): Promise<string | undefined> {
         // Check depth limit
@@ -1318,19 +1322,32 @@ export class ScopeResolver {
                 return undefined;
             }
 
-            const my_parent_uri = URI.file(my_directive.path).toString();
+            // Resolve the parent through the case-aware chokepoint so the
+            // inherited-WD lookup matches the main follow_directives path:
+            // case-only matches resolve, the .do fallback is applied, and
+            // an ambiguous parent is skipped instead of arbitrarily picked.
+            const my_rich = this.compute_directive_real_path(
+                my_directive, current_uri,
+            );
+            if (my_rich.outcome_kind === 'ambiguous') {
+                continue;
+            }
+            const my_real_path = my_rich.real_path;
+            const my_parent_uri = URI.file(my_real_path).toString();
 
             // Cycle detection - skip if already visited
             if (visited.has(my_parent_uri)) {
                 continue;
             }
 
-            // Read file content using get_parsed_file to leverage cache
+            // Read file content using get_parsed_file to leverage cache.
+            // compute_directive_real_path already applied the .do fallback,
+            // so no second manual retry is needed here.
             let my_parent_result: ParsedFileResult;
             try {
                 my_parent_result = await this.get_parsed_file(
                     my_parent_uri,
-                    my_directive.path,
+                    my_real_path,
                     { request_cache }
                 );
             } catch (error) {
@@ -1343,28 +1360,7 @@ export class ScopeResolver {
             }
 
             if ('error' in my_parent_result) {
-                // Try .do fallback if original path doesn't end in .do
-                if (!my_directive.path.endsWith('.do')) {
-                    const my_fallback_path = my_directive.path + '.do';
-                    const my_fallback_uri = URI.file(my_fallback_path).toString();
-                    try {
-                        my_parent_result = await this.get_parsed_file(
-                            my_fallback_uri,
-                            my_fallback_path,
-                            { request_cache }
-                        );
-                    } catch {
-                        this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
-                        continue;
-                    }
-                } else {
-                    this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
-                    continue;
-                }
-            }
-
-            if ('error' in my_parent_result) {
-                this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
+                this.warn(`discover_working_directory: Cannot read file ${my_real_path}`);
                 continue;
             }
 
@@ -1407,6 +1403,7 @@ export class ScopeResolver {
                     depth + 1,
                     config,
                     request_cache,
+                    my_parent_uri,
                     token
                 );
 
@@ -1526,6 +1523,7 @@ export class ScopeResolver {
                 depth,
                 config,
                 request_cache,
+                current_uri,
                 token
             );
 
