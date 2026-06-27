@@ -323,7 +323,7 @@ describe('sight check integration', () => {
         }
     });
 
-    it('processes report targets concurrently while preserving output order', async () => {
+    it('analyzes each target in its own single-document store while running concurrently', async () => {
         const root = temp_dir();
         const targets = ['a.do', 'b.do', 'c.do', 'd.do', 'e.do'].map(
             (file_name) => {
@@ -337,27 +337,52 @@ describe('sight check integration', () => {
             }
         );
 
-        let active_opens = 0;
-        let max_active_opens = 0;
+        // Track concurrency at two scopes: globally (across all per-worker
+        // stores, which proves parallelism survived) and per individual store
+        // (which proves isolation — no store ever holds a sibling target).
+        let global_active_opens = 0;
+        let global_max_active_opens = 0;
+        let max_active_opens_per_store = 0;
+        let stores_created = 0;
+
+        const make_store = () => {
+            let store_active_opens = 0;
+            return {
+                open: async () => {
+                    global_active_opens++;
+                    store_active_opens++;
+                    global_max_active_opens = Math.max(
+                        global_max_active_opens,
+                        global_active_opens
+                    );
+                    max_active_opens_per_store = Math.max(
+                        max_active_opens_per_store,
+                        store_active_opens
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                    global_active_opens--;
+                    store_active_opens--;
+                },
+                get: (uri: string) => ({ uri }),
+                close: () => undefined,
+                dispose: async () => undefined,
+            };
+        };
+
+        let set_buffer_directives_calls = 0;
 
         const context = {
             workspace_indexer: {
                 get_all_symbols: () => create_empty_symbol_table(),
                 get_metrics: () => ({ files_indexed: targets.length }),
                 has_indexed_file: () => true,
-            },
-            document_store: {
-                open: async () => {
-                    active_opens++;
-                    max_active_opens = Math.max(
-                        max_active_opens,
-                        active_opens
-                    );
-                    await new Promise((resolve) => setTimeout(resolve, 20));
-                    active_opens--;
+                set_buffer_directives: () => {
+                    set_buffer_directives_calls++;
                 },
-                get: (uri: string) => ({ uri }),
-                close: () => undefined,
+            },
+            create_document_store: () => {
+                stores_created++;
+                return make_store();
             },
             diagnostics_provider: {
                 get_diagnostics: async (state: { uri: string }) => [{
@@ -385,10 +410,21 @@ describe('sight check integration', () => {
             context,
             root,
             config_result.config,
-            targets
+            targets,
+            4
         );
 
-        expect(max_active_opens).toBeGreaterThan(1);
+        // Parallelism preserved: more than one target is analyzed at once.
+        expect(global_max_active_opens).toBeGreaterThan(1);
+        // Isolation: no single store ever has more than one document open, so a
+        // target's analysis never sees a sibling target as an open document.
+        expect(max_active_opens_per_store).toBe(1);
+        // More than one store means workers really ran in parallel on their own
+        // stores rather than all sharing one.
+        expect(stores_created).toBeGreaterThan(1);
+        // The buffer-directive overlay (a find-references-only concern) is never
+        // populated during check, so no cross-target overlay state leaks.
+        expect(set_buffer_directives_calls).toBe(0);
         expect(records.map((record) => record.relative_path)).toEqual(
             targets.map((target) => target.relative_path)
         );
