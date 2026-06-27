@@ -433,7 +433,10 @@ export class DataBrowserPanel implements vscode.Disposable {
             const is_cancelled = () => my_abort?.signal.aborted === true;
             try {
                 const my_signal = my_abort?.signal;
-                let my_failed = await this.maybe_restore_sort(
+                // Track sort/filter failure separately so the warning
+                // names only what actually failed (the other may have
+                // applied successfully).
+                const my_sort_failed = await this.maybe_restore_sort(
                     my_schema_hash, my_signal
                 );
                 if (!this.dta_file) return;
@@ -445,10 +448,11 @@ export class DataBrowserPanel implements vscode.Disposable {
                 if (my_generation !== this.generation) return;
                 // A cancel during the sort read must not kick off a long
                 // filter read; skip it and fall through to forget.
+                let my_filter_failed = false;
                 if (!is_cancelled()) {
-                    my_failed = await this.maybe_restore_filter(
+                    my_filter_failed = await this.maybe_restore_filter(
                         my_schema_hash, my_signal
-                    ) || my_failed;
+                    );
                     if (!this.dta_file) return;
                 }
                 // A refresh / reload during the reads supersedes this
@@ -474,11 +478,13 @@ export class DataBrowserPanel implements vscode.Disposable {
                 if (!is_cancelled() && this.filtered_indices) {
                     this.post_filter_applied();
                 }
-                if (my_failed) {
+                if (my_sort_failed || my_filter_failed) {
+                    const what = my_sort_failed && my_filter_failed
+                        ? 'sort and filter'
+                        : my_sort_failed ? 'sort' : 'filter';
                     vscode.window.showWarningMessage(
-                        'Could not reapply the saved sort/filter for '
-                        + 'this dataset; showing it unsorted and '
-                        + 'unfiltered.'
+                        `Could not reapply the saved ${what} for this `
+                        + 'dataset; it was not applied.'
                     );
                 }
                 // Persist the "forget" only after metadata is posted, so

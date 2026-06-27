@@ -312,8 +312,10 @@ describe('send_metadata restore', () => {
 
         await panel_like.send_metadata();
 
-        // Natural order + warning, but prefs are NOT forgotten.
+        // Natural order + an accurate warning (sort only), prefs kept.
         expect(warnings.length).toBe(1);
+        expect(warnings[0]).toContain('sort');
+        expect(warnings[0]).not.toContain('filter');
         expect(panel_like.sort.keys.length).toBe(0);
         expect(sort_set).toEqual([]);
         expect(filter_set).toEqual([]);
