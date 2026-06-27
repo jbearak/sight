@@ -729,6 +729,14 @@ export class DataBrowserPanel implements vscode.Disposable {
                     // flight, the in-memory sort/filter are already set
                     // and re-sent as-is — no re-read.)
                     if (this.restoring) {
+                        // Abort the in-flight restore's reads so the
+                        // serialized send_metadata chain advances at once;
+                        // otherwise the reload's replacement restore (and
+                        // its Cancel banner) can't start until the old
+                        // read finishes, stranding the user on a bare
+                        // "Loading…". The generation bump above makes the
+                        // aborted restore bail without forgetting prefs.
+                        this.restore_abort?.abort();
                         this.sort_restored = false;
                         this.filter_restored = false;
                         this.restoring = false;

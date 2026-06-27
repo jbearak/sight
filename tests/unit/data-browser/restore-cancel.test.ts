@@ -414,6 +414,25 @@ describe('handle_cancel_restore', () => {
     });
 });
 
+describe('webview reload during restore (PullFrog finding)', () => {
+    it('aborts the in-flight restore so the serialized chain can advance', async () => {
+        const { panel_like } = await make_restore_panel();
+        panel_like.restoring = true;
+        const my_ctrl = new AbortController();
+        panel_like.restore_abort = my_ctrl;
+        // Stub the queued re-send so the test isolates reload handling.
+        let resend = false;
+        panel_like.send_metadata = async () => { resend = true; };
+
+        await panel_like.handle_message({ type: 'ready' });
+
+        expect(my_ctrl.signal.aborted).toBe(true);
+        expect(panel_like.restoring).toBe(false);
+        expect(panel_like.restore_id).toBe(-1);
+        expect(resend).toBe(true);
+    });
+});
+
 describe('sort/filter ignored while restoring (round 6)', () => {
     it('handle_set_sort is a no-op while a restore is in flight', async () => {
         const { panel_like, posted } = await make_restore_panel();
