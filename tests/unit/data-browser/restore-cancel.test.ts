@@ -89,9 +89,7 @@ async function make_restore_panel(opts: {
     panel_like.filter_restored = false;
     panel_like.effective_perm = null;
     panel_like.restore_abort = null;
-    panel_like.restore_cancelled = false;
     panel_like.restoring = false;
-    panel_like.restore_failed = false;
     panel_like.restore_id = -1;
     panel_like.send_metadata_chain = Promise.resolve();
     panel_like.row_cache = { clear: () => undefined };
