@@ -21,9 +21,9 @@ import {
     clamp_column_width,
     collect_sampled_value_width_hints,
     type BrowserGridColumn,
-    describe_browser_row_count,
     describe_restore_message,
     describe_subset,
+    describe_toolbar_row_count,
     get_cell_display_value,
     get_variable_header_tooltip,
     merge_persisted_and_default_widths,
@@ -815,22 +815,6 @@ export function App(): ReactElement {
         }
     };
 
-    const row_count_text = describe_browser_row_count(
-        metadata,
-        nobs_effective,
-        first_visible_row,
-        visible_row_count
-    );
-
-    const subset_text = describe_subset(metadata);
-    // Sort and filter are usually mutually exclusive, but both can be
-    // in flight at once; show every pending operation rather than
-    // letting one mask the other.
-    const the_progress_parts: string[] = [];
-    if (sort_pending) the_progress_parts.push('Sorting…');
-    if (filter_pending) the_progress_parts.push('Filtering…');
-    const sort_filter_progress_text = the_progress_parts.join(' · ');
-
     // On open, explain (and let the user cancel) the wait while saved
     // sort/filter preferences are reapplied.
     const restore_message = restore_pending
@@ -841,6 +825,25 @@ export function App(): ReactElement {
                 restore_pending.filter
             ))
         : null;
+
+    // While the restore banner is up it explains the wait, so suppress
+    // the bare "Loading…" row-count that would otherwise stack above it.
+    const row_count_text = describe_toolbar_row_count(
+        metadata,
+        nobs_effective,
+        first_visible_row,
+        visible_row_count,
+        restore_message !== null
+    );
+
+    const subset_text = describe_subset(metadata);
+    // Sort and filter are usually mutually exclusive, but both can be
+    // in flight at once; show every pending operation rather than
+    // letting one mask the other.
+    const the_progress_parts: string[] = [];
+    if (sort_pending) the_progress_parts.push('Sorting…');
+    if (filter_pending) the_progress_parts.push('Filtering…');
+    const sort_filter_progress_text = the_progress_parts.join(' · ');
 
     // Drop the sort/filter chips onto their own row when they would
     // otherwise crowd the action buttons off the toolbar. `hidden_columns.size`

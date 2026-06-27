@@ -226,10 +226,10 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.effective_perm = null;
         this.histogram_cache.clear();
         // Reset the saved-preference restore handshake; a fresh restore
-        // begins (if applicable) when initialize() re-sends metadata.
-        this.restore_abort = null;
-        this.restoring = false;
-        this.restore_id = -1;
+        // begins (if applicable) when initialize() re-sends metadata. The
+        // generation bump above makes any aborted in-flight restore bail
+        // without forgetting prefs.
+        this.abort_and_clear_restore();
 
         // Clean up the old temp file on Windows before
         // overwriting the path (other platforms unlink
@@ -649,6 +649,11 @@ export class DataBrowserPanel implements vscode.Disposable {
      * `restore_id = -1` consumes the handshake so a duplicate cancel is
      * ignored. The caller invalidates caches / posts updates and then
      * persists the forget via {@link forget_persisted_prefs}.
+     *
+     * This shares the `restore_id = -1` line with
+     * {@link consume_restore_handshake} but is deliberately distinct: this
+     * runs in the cancel/forget path and must ALSO clear sort/filter, so
+     * the two must not be merged.
      */
     private reset_restored_prefs(): void {
         this.restore_id = -1;
@@ -656,6 +661,33 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.permutation = null;
         this.filter = EMPTY_FILTER;
         this.filtered_indices = null;
+    }
+
+    /**
+     * Consume the restore handshake because the user has superseded the
+     * restored prefs (a new sort/filter). A later cancelRestore carrying
+     * the old id then no longer reaches handle_cancel_restore's late
+     * clear-and-forget branch, so it cannot wipe what the user applied.
+     * Only a cancel that genuinely raced completion (no user change since)
+     * still finds a matching id.
+     */
+    private consume_restore_handshake(): void {
+        this.restore_id = -1;
+    }
+
+    /**
+     * Abort the in-flight restore's reads and clear the handshake. Used
+     * by the lifecycle-interruption paths (a webview reload's `ready` and
+     * `refresh()` to a new dataset): both bump the generation first, which
+     * makes the aborted restore bail without forgetting prefs, while the
+     * abort lets the serialized send_metadata chain advance at once
+     * instead of waiting behind the old, still-running column read.
+     */
+    private abort_and_clear_restore(): void {
+        this.restore_abort?.abort();
+        this.restore_abort = null;
+        this.restoring = false;
+        this.restore_id = -1;
     }
 
     /** Forget the persisted sort/filter for this dataset×schema. */
@@ -729,19 +761,16 @@ export class DataBrowserPanel implements vscode.Disposable {
                     // flight, the in-memory sort/filter are already set
                     // and re-sent as-is — no re-read.)
                     if (this.restoring) {
-                        // Abort the in-flight restore's reads so the
-                        // serialized send_metadata chain advances at once;
-                        // otherwise the reload's replacement restore (and
-                        // its Cancel banner) can't start until the old
-                        // read finishes, stranding the user on a bare
-                        // "Loading…". The generation bump above makes the
-                        // aborted restore bail without forgetting prefs.
-                        this.restore_abort?.abort();
+                        // Re-arm the one-shot restore flags so the queued
+                        // re-send reapplies the saved prefs, then abort the
+                        // in-flight reads and clear the handshake so the
+                        // serialized send_metadata chain advances at once
+                        // (otherwise the reload's replacement restore and
+                        // its Cancel banner can't start until the old read
+                        // finishes, stranding the user on a bare "Loading…").
                         this.sort_restored = false;
                         this.filter_restored = false;
-                        this.restoring = false;
-                        this.restore_abort = null;
-                        this.restore_id = -1;
+                        this.abort_and_clear_restore();
                     }
                     await this.send_metadata();
                 }
@@ -800,6 +829,10 @@ export class DataBrowserPanel implements vscode.Disposable {
         // re-sort then. (During the initial restore there is no grid to
         // sort from; this guards the refresh-with-visible-grid case.)
         if (this.restoring) return;
+
+        // The user is superseding the restored prefs, so the restore
+        // handshake is over.
+        this.consume_restore_handshake();
 
         // Bump the generation so any row request that is already
         // in-flight under the previous permutation is dropped instead of
@@ -1030,6 +1063,10 @@ export class DataBrowserPanel implements vscode.Disposable {
         // flight (see handle_set_sort): a generation bump here would
         // strand the restore with no metadata posted.
         if (this.restoring) return;
+
+        // The user is superseding the restored prefs, so the restore
+        // handshake is over (see handle_set_sort).
+        this.consume_restore_handshake();
 
         // Bump the generation so an in-flight row request under the old
         // effective permutation is dropped rather than posting stale rows

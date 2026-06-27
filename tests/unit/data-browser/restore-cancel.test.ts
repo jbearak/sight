@@ -433,6 +433,103 @@ describe('webview reload during restore (PullFrog finding)', () => {
     });
 });
 
+describe('refresh during restore (PullFrog finding)', () => {
+    it('aborts the in-flight restore before discarding the controller', async () => {
+        const { panel_like } = await make_restore_panel();
+        panel_like.restoring = true;
+        panel_like.restore_id = 0;
+        const my_ctrl = new AbortController();
+        panel_like.restore_abort = my_ctrl;
+        panel_like.histogram_cache = { clear: () => undefined };
+        panel_like.dta_file = { close: () => undefined };
+        // Isolate refresh handling from the full re-open.
+        let reinit = false;
+        panel_like.initialize = async () => { reinit = true; };
+
+        await panel_like.refresh(
+            { name: 'ds2', subsetted: false },
+            '/tmp/ds2.dta'
+        );
+
+        // The old read must be aborted (not just dropped) so the queued
+        // send_metadata for the new dataset is not stuck behind it.
+        expect(my_ctrl.signal.aborted).toBe(true);
+        expect(panel_like.restore_abort).toBeNull();
+        expect(panel_like.restoring).toBe(false);
+        expect(panel_like.restore_id).toBe(-1);
+        expect(reinit).toBe(true);
+    });
+});
+
+describe('restore_id consumed on user pref change (PullFrog finding)', () => {
+    it('handle_set_sort consumes restore_id so a stale late cancel cannot clear it', async () => {
+        const { panel_like, sort_set } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+        });
+        // Restore already completed; the user now applies a new sort.
+        panel_like.restoring = false;
+        panel_like.restore_id = 4;
+        panel_like.current_schema_hash = () => 'h';
+        panel_like.recompute_effective = () => undefined;
+        panel_like.post_sort_status = () => undefined;
+        panel_like.post_sort_applied = () => undefined;
+        panel_like.compute_sort_permutation =
+            async () => new Uint32Array(10);
+
+        await panel_like.handle_set_sort({
+            type: 'setSort',
+            keys: [{ col_index: 1, direction: 'desc' }],
+            labels_on: true,
+        });
+
+        // The handshake id is consumed: a delayed cancelRestore carrying
+        // the old id must no longer reach the clear-and-forget branch.
+        expect(panel_like.restore_id).toBe(-1);
+
+        const my_writes_before = sort_set.length;
+        panel_like.generation++;
+        await panel_like.handle_cancel_restore({
+            type: 'cancelRestore', restore_id: 4,
+        });
+        expect(sort_set.length).toBe(my_writes_before);
+    });
+
+    it('handle_set_filters consumes restore_id so a stale late cancel cannot clear it', async () => {
+        const { panel_like, filter_set } = await make_restore_panel({
+            stored_filter: STORED_FILTER,
+        });
+        panel_like.restoring = false;
+        panel_like.restore_id = 9;
+        panel_like.current_schema_hash = () => 'h';
+        panel_like.recompute_effective = () => undefined;
+        panel_like.post_filter_status = () => undefined;
+        panel_like.post_filter_applied = () => undefined;
+        panel_like.compute_filter_indices =
+            async () => new Uint32Array(10);
+
+        await panel_like.handle_set_filters({
+            type: 'setFilters',
+            entries: [{
+                id: 'f2',
+                col_index: 0,
+                predicate: { kind: 'isNotEmpty' },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on: true,
+        });
+
+        expect(panel_like.restore_id).toBe(-1);
+
+        const my_writes_before = filter_set.length;
+        panel_like.generation++;
+        await panel_like.handle_cancel_restore({
+            type: 'cancelRestore', restore_id: 9,
+        });
+        expect(filter_set.length).toBe(my_writes_before);
+    });
+});
+
 describe('sort/filter ignored while restoring (round 6)', () => {
     it('handle_set_sort is a no-op while a restore is in flight', async () => {
         const { panel_like, posted } = await make_restore_panel();

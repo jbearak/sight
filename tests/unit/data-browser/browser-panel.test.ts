@@ -11,6 +11,7 @@ import {
     describe_browser_row_count,
     describe_restore_message,
     describe_subset,
+    describe_toolbar_row_count,
     describe_visible_rows,
     get_cell_display_value,
     get_variable_header_subtitle,
@@ -137,6 +138,19 @@ describe('grid-model helpers', () => {
     it('routes missing metadata to the loading row-count label', () => {
         expect(describe_browser_row_count(null, undefined, 0, 0))
             .toBe('Loading…');
+    });
+
+    it('suppresses the toolbar row count while a restore banner shows', () => {
+        // The restore banner already explains the wait, so the bare
+        // "Loading…" must not stack above it (PullFrog finding).
+        expect(describe_toolbar_row_count(null, undefined, 0, 0, true))
+            .toBe('');
+        // No restore in flight: fall through to the normal label.
+        expect(describe_toolbar_row_count(null, undefined, 0, 0, false))
+            .toBe('Loading…');
+        expect(describe_toolbar_row_count(
+            { nobs: 1000 } as never, undefined, 0, 50, true
+        )).toBe('');
     });
 
     it('words the restore message by which prefs apply', () => {
