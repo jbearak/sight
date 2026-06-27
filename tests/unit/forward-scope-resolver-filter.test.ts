@@ -19,7 +19,6 @@ describe('ForwardScopeResolver.filter_calls_before_line()', () => {
         return {
             type: 'do',
             raw_path: path_str,
-            path: `/test/${path_str}`,
             call_site_line: line,
             is_static: true,
             range: {

@@ -2,19 +2,28 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import fc from 'fast-check';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { URI } from 'vscode-uri';
+import * as path from 'path';
 import type { SymbolTable, ForwardCall } from '../../src/types';
 import { Range } from 'vscode-languageserver';
 
+// Mirror the resolver's missing-case callee derivation: callees are now
+// resolved from raw_path + caller dir (no pre-joined path field). These
+// fixtures use non-existent synthetic files with no working directory, so
+// resolve_forward_call_rich returns the script-relative candidate.
+function expected_callee_uri(caller_uri: string, raw_path: string): string {
+    const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
+    return URI.file(path.resolve(my_caller_dir, raw_path)).toString();
+}
+
 // Helper to create a ForwardCall object with all required properties
 function make_forward_call(
-    path: string,
+    _path: string,
     is_static: boolean,
     type: 'do' | 'run' | 'include',
     call_site_line: number,
     raw_path: string
 ): ForwardCall {
     return {
-        path,
         is_static,
         type,
         call_site_line,
@@ -108,19 +117,19 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     
                     // Check all callees are registered in callee_to_callers
                     for (const my_call of forward_calls) {
-                        if (!my_call.is_static || !my_call.path) continue;
-                        const callee_uri = URI.file(my_call.path).toString();
+                        if (!my_call.is_static || !my_call.raw_path) continue;
+                        const callee_uri = expected_callee_uri(caller_uri, my_call.raw_path);
                         expect(reverse_deps.callee_to_callers.get(callee_uri)?.has(caller_uri)).toBe(true);
                     }
-                    
+
                     // Check caller is registered in forward_caller_to_callees with all callees
                     const caller_callees = reverse_deps.forward_caller_to_callees.get(caller_uri);
                     expect(caller_callees).toBeDefined();
-                    
+
                     const expected_callees = new Set(
                         forward_calls
-                            .filter(call => call.is_static && call.path)
-                            .map(call => URI.file(call.path!).toString())
+                            .filter(call => call.is_static && call.raw_path)
+                            .map(call => expected_callee_uri(caller_uri, call.raw_path))
                     );
                     expect(caller_callees?.size).toBe(expected_callees.size);
                     
@@ -150,8 +159,8 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     
                     // Check all callee_to_callers entries for this caller are removed
                     for (const my_call of forward_calls) {
-                        if (!my_call.is_static || !my_call.path) continue;
-                        const callee_uri = URI.file(my_call.path).toString();
+                        if (!my_call.is_static || !my_call.raw_path) continue;
+                        const callee_uri = expected_callee_uri(caller_uri, my_call.raw_path);
                         const callers = reverse_deps.callee_to_callers.get(callee_uri);
                         // Either the set doesn't exist or doesn't contain caller
                         expect(callers === undefined || !callers.has(caller_uri)).toBe(true);
@@ -290,24 +299,24 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     const caller_callees = reverse_deps.forward_caller_to_callees.get(caller_uri);
                     const expected_callees = new Set(
                         new_calls
-                            .filter(call => call.is_static && call.path)
-                            .map(call => URI.file(call.path!).toString())
+                            .filter(call => call.is_static && call.raw_path)
+                            .map(call => expected_callee_uri(caller_uri, call.raw_path))
                     );
-                    
+
                     expect(caller_callees?.size).toBe(expected_callees.size);
                     for (const my_expected_callee of expected_callees) {
                         expect(caller_callees?.has(my_expected_callee)).toBe(true);
                     }
-                    
+
                     // Check old callees no longer reference this caller (if not in new_calls)
                     const new_callee_uris = new Set(
                         new_calls
-                            .filter(call => call.is_static && call.path)
-                            .map(call => URI.file(call.path!).toString())
+                            .filter(call => call.is_static && call.raw_path)
+                            .map(call => expected_callee_uri(caller_uri, call.raw_path))
                     );
                     for (const my_old_call of old_calls) {
-                        if (!my_old_call.is_static || !my_old_call.path) continue;
-                        const old_callee_uri = URI.file(my_old_call.path).toString();
+                        if (!my_old_call.is_static || !my_old_call.raw_path) continue;
+                        const old_callee_uri = expected_callee_uri(caller_uri, my_old_call.raw_path);
                         if (!new_callee_uris.has(old_callee_uri)) {
                             const callers = reverse_deps.callee_to_callers.get(old_callee_uri);
                             // Either the set doesn't exist or doesn't contain caller
@@ -328,15 +337,15 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     // Create a scope cache entry with forward call symbols
                     const dependent_uris = new Set<string>();
                     for (const my_call of forward_calls) {
-                        if (my_call.is_static && my_call.path) {
-                            dependent_uris.add(URI.file(my_call.path).toString());
+                        if (my_call.is_static && my_call.raw_path) {
+                            dependent_uris.add(expected_callee_uri(caller_uri, my_call.raw_path));
                         }
                     }
-                    
+
                     // Verify all forward call URIs are in dependent_uris
                     for (const my_call of forward_calls) {
-                        if (!my_call.is_static || !my_call.path) continue;
-                        const callee_uri = URI.file(my_call.path).toString();
+                        if (!my_call.is_static || !my_call.raw_path) continue;
+                        const callee_uri = expected_callee_uri(caller_uri, my_call.raw_path);
                         expect(dependent_uris.has(callee_uri)).toBe(true);
                     }
                 }

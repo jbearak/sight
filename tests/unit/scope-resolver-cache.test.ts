@@ -220,7 +220,6 @@ local x = 1
     describe('reset_reverse_deps', () => {
         const make_forward_call = (callee_path: string, line: number): ForwardCall => ({
             type: 'do',
-            path: callee_path,
             raw_path: path.basename(callee_path),
             call_site_line: line,
             range: { start: { line, character: 0 }, end: { line, character: 10 } },

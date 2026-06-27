@@ -63,7 +63,6 @@ describe('Callee Revalidation Integration Tests', () => {
                 if (fs.existsSync(resolved_path)) {
                     calls.push({
                         type: type as 'do' | 'run' | 'include',
-                        path: resolved_path,
                         raw_path,
                         call_site_line: i,
                         range: { start: { line: i, character: 0 }, end: { line: i, character: line.length } },
@@ -131,7 +130,6 @@ do "callee.do"
             const { symbols } = parse_and_analyze('do "callee.do"', caller_uri);
             scope_resolver.update_reverse_dependencies(caller_uri, [{
                 type: 'do',
-                path: callee_path,
                 raw_path: 'callee.do',
                 call_site_line: 0,
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 14 } },
@@ -141,7 +139,6 @@ do "callee.do"
 
             const result = scope_resolver.update_reverse_dependencies(caller_uri, [{
                 type: 'include',
-                path: callee_path,
                 raw_path: 'callee.do',
                 call_site_line: 0,
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 18 } },
@@ -163,7 +160,6 @@ do "callee.do"
 
             scope_resolver.update_reverse_dependencies(caller_uri, [{
                 type: 'do',
-                path: callee_path,
                 raw_path: 'callee.do',
                 call_site_line: 5,
                 range: { start: { line: 5, character: 0 }, end: { line: 5, character: 14 } },
@@ -173,7 +169,6 @@ do "callee.do"
 
             const result = scope_resolver.update_reverse_dependencies(caller_uri, [{
                 type: 'do',
-                path: callee_path,
                 raw_path: 'callee.do',
                 call_site_line: 10,
                 range: { start: { line: 10, character: 0 }, end: { line: 10, character: 14 } },
@@ -283,7 +278,6 @@ local result = $parent_global
             // Now change the call site line and verify it updates
             const updated_forward_calls = [{
                 type: 'do' as const,
-                path: callee_path,
                 raw_path: 'callee.do',
                 call_site_line: 6, // Move call to after after_global definition
                 range: { start: { line: 6, character: 0 }, end: { line: 6, character: 14 } },

@@ -179,12 +179,12 @@ describe('Macro Path Diagnostic Suppression Property Tests', () => {
      * Property 6d: Non-static paths have empty resolved path
      * 
      * For any `do`/`run`/`include` command with a path containing a macro reference,
-     * the forward_call SHALL have an empty resolved `path` property.
-     * 
+     * the forward_call SHALL be marked non-static (local and global macros).
+     *
      * Feature: diagnostic-false-positives, Property 6: Macro Path Diagnostic Suppression
      * Validates: Requirements 3.2
      */
-    it('should have empty resolved path for non-static macro paths', () => {
+    it('should mark macro paths as non-static (local and global)', () => {
         fc.assert(
             fc.property(
                 command_type_gen,
@@ -192,20 +192,17 @@ describe('Macro Path Diagnostic Suppression Property Tests', () => {
                 fc.boolean(), // true = local macro, false = global macro
                 (my_command, my_macro_name, my_is_local) => {
                     // Build document with macro in path
-                    const my_path = my_is_local 
-                        ? `\`${my_macro_name}'` 
+                    const my_path = my_is_local
+                        ? `\`${my_macro_name}'`
                         : `$${my_macro_name}`;
                     const my_document = `${my_command} "${my_path}"`;
                     const my_result = analyze_document(my_document);
 
                     // Should have exactly one forward call
                     expect(my_result.forward_calls.length).toBe(1);
-                    
+
                     // Should be marked as non-static
                     expect(my_result.forward_calls[0].is_static).toBe(false);
-                    
-                    // Resolved path should be empty for non-static calls
-                    expect(my_result.forward_calls[0].path).toBe('');
 
                     return true;
                 }
@@ -284,8 +281,6 @@ describe('Macro Path Diagnostic Suppression Property Tests', () => {
                     // Should be marked as non-static
                     expect(my_result.forward_calls[0].is_static).toBe(false);
                     
-                    // Resolved path should be empty
-                    expect(my_result.forward_calls[0].path).toBe('');
 
                     return true;
                 }
@@ -324,8 +319,6 @@ describe('Macro Path Diagnostic Suppression Property Tests', () => {
                     // Should be marked as non-static
                     expect(my_result.forward_calls[0].is_static).toBe(false);
                     
-                    // Resolved path should be empty
-                    expect(my_result.forward_calls[0].path).toBe('');
 
                     return true;
                 }
@@ -363,8 +356,6 @@ describe('Macro Path Diagnostic Suppression Property Tests', () => {
                     // Should be marked as non-static
                     expect(my_result.forward_calls[0].is_static).toBe(false);
                     
-                    // Resolved path should be empty
-                    expect(my_result.forward_calls[0].path).toBe('');
 
                     return true;
                 }
@@ -432,15 +423,12 @@ run "$${my_macro_name}"`;
                     
                     // First call (static path) should be static
                     expect(my_result.forward_calls[0].is_static).toBe(true);
-                    expect(my_result.forward_calls[0].path).not.toBe('');
-                    
+
                     // Second call (local macro) should be non-static
                     expect(my_result.forward_calls[1].is_static).toBe(false);
-                    expect(my_result.forward_calls[1].path).toBe('');
-                    
+
                     // Third call (global macro) should be non-static
                     expect(my_result.forward_calls[2].is_static).toBe(false);
-                    expect(my_result.forward_calls[2].path).toBe('');
 
                     return true;
                 }

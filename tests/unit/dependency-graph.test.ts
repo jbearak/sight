@@ -11,7 +11,6 @@ function make_forward_call(
 ): ForwardCall {
     return {
         type,
-        path: file_path,
         raw_path: file_path,
         call_site_line,
         range: {
@@ -30,7 +29,6 @@ function make_forward_call(
  */
 function make_forward_call_with_context(opts: {
     type: 'do' | 'run' | 'include';
-    path: string;         // analyzer's script-relative join (as typed in path)
     raw_path: string;     // path exactly as written in source
     caller_uri: string;
     call_site_line: number;
@@ -38,7 +36,6 @@ function make_forward_call_with_context(opts: {
 }): ForwardCall {
     return {
         type: opts.type,
-        path: opts.path,
         raw_path: opts.raw_path,
         call_site_line: opts.call_site_line,
         range: {
@@ -122,7 +119,6 @@ function make_dynamic_call(
 ): ForwardCall {
     return {
         type,
-        path: '',
         raw_path,
         call_site_line,
         range: {
@@ -207,7 +203,6 @@ describe('DependencyGraph', () => {
         it('should skip calls with empty raw_path', () => {
             const my_call: ForwardCall = {
                 type: 'do',
-                path: '',
                 raw_path: '',
                 call_site_line: 5,
                 range: {
@@ -473,7 +468,8 @@ describe('DependencyGraph', () => {
             // fallback.
             const my_call = make_forward_call_with_context({
                 type: 'do',
-                path: as_typed_path,         // "/ws/helpers/clean"
+                // raw_path "helpers/clean" joins to "/ws/helpers/clean"
+                // (no ext); resolve_path_rich finds "helpers/Clean.do".
                 raw_path: 'helpers/clean',
                 caller_uri: ws_parent_uri,
                 call_site_line: 5,
@@ -499,7 +495,6 @@ describe('DependencyGraph', () => {
             // ci + .do fallback.
             const my_call = make_forward_call_with_context({
                 type: 'do',
-                path: '/ws/target',          // script-relative (wrong base)
                 raw_path: 'target',
                 caller_uri: ws_parent_uri,
                 call_site_line: 10,
@@ -537,7 +532,6 @@ describe('DependencyGraph', () => {
             const as_typed_ambig = '/ws/ambig/clean.do';
             const my_call = make_forward_call_with_context({
                 type: 'do',
-                path: as_typed_ambig,
                 raw_path: 'ambig/clean.do',
                 caller_uri: ws_parent_uri,
                 call_site_line: 20,
@@ -570,7 +564,6 @@ describe('DependencyGraph', () => {
 
             const my_call = make_forward_call_with_context({
                 type: 'do',
-                path: '/ws/helpers/clean',
                 raw_path: 'helpers/clean',
                 caller_uri: ws_parent_uri,
                 call_site_line: 5,

@@ -47,7 +47,6 @@ function make_local(uri: string, name: string, line: number, character: number):
 function make_include_call(line: number, character: number, target_path: string): ForwardCall {
     return {
         type: 'include',
-        path: target_path,
         raw_path: target_path,
         call_site_line: line,
         range: {

@@ -393,7 +393,6 @@ describe(
                             'vscode-languageserver'
                         );
                         const my_forward_call = {
-                            path: wrong_callee_path,
                             raw_path: 'helpers/clean',
                             is_static: true,
                             type: 'do' as const,
@@ -466,7 +465,6 @@ describe(
                             'vscode-languageserver'
                         );
                         const my_forward_call = {
-                            path: wrong_callee_path,
                             raw_path: 'helpers/clean',
                             is_static: true,
                             type: 'do' as const,
@@ -547,7 +545,6 @@ describe(
                         // analyzer produces): raw_path is source-typed,
                         // path is the script-relative pre-join.
                         const my_forward_call = {
-                            path: wrong_callee_path,
                             raw_path: 'helpers/clean',
                             is_static: true,
                             type: 'do' as const,
@@ -656,7 +653,6 @@ describe(
                         // analyzer produces): raw_path is source-typed,
                         // path is the script-relative pre-join.
                         const my_forward_call = {
-                            path: wrong_callee_path,
                             raw_path: 'helpers/clean',
                             is_static: true,
                             type: 'do' as const,

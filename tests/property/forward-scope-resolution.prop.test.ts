@@ -47,7 +47,6 @@ global callee_global = 2
 
             const forward_calls: ForwardCall[] = [{
                 type: 'do',
-                path: callee,
                 raw_path: 'callee.do',
                 call_site_line: 0,
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
@@ -72,7 +71,6 @@ global callee_global = 2
 
             const forward_calls: ForwardCall[] = [{
                 type: 'run',
-                path: callee,
                 raw_path: 'callee.do',
                 call_site_line: 0,
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
@@ -99,7 +97,6 @@ global callee_global = 2
 
             const forward_calls: ForwardCall[] = [{
                 type: 'include',
-                path: callee,
                 raw_path: 'callee.do',
                 call_site_line: 0,
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
@@ -130,7 +127,6 @@ global callee_global = 2
 
             const forward_calls: ForwardCall[] = [{
                 type: 'do',
-                path: files[0],
                 raw_path: 'file0.do',
                 call_site_line: 0,
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },

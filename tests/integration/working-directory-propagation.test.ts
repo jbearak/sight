@@ -18,6 +18,7 @@ import { DocumentStore } from '../../src/document-store';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { DirectiveParser } from '../../src/directive-parser';
+import { resolve_forward_call_rich } from '../../src/utils/file-path-utils';
 
 /**
  * Helper to normalize paths and remove trailing slashes for comparison.
@@ -133,14 +134,13 @@ include subdir/wm_vars
 
             expect(wm_vars_call).toBeDefined();
 
-            // The resolved path should be relative to fixture_dir/ (working directory)
-            // not relative to fixture_dir/subdir/ (script location)
-            const expected_path_with_do = path.join(fixture_dir, 'subdir', 'wm_vars.do');
-            const expected_path_without_do = path.join(fixture_dir, 'subdir', 'wm_vars');
-            expect(
-                wm_vars_call!.path === expected_path_with_do ||
-                wm_vars_call!.path === expected_path_without_do
-            ).toBe(true);
+            // The call carries the working directory (@lsp-cd "../" from
+            // subdir => fixture_dir) as resolution context. Consumers join
+            // raw_path against this WD, so the callee resolves relative to
+            // fixture_dir/, not the script location fixture_dir/subdir/.
+            expect(wm_vars_call!.working_directory).toBe(
+                path.normalize(path.join(subdir, '../'))
+            );
         });
 
         it('should correctly resolve nested file paths with working directory context', async () => {
@@ -271,13 +271,24 @@ include nonexistent/file.do
             // The working_directory should be propagated (inherited)
             expect(result.working_directory).toBe(fixture_dir);
 
-            // Forward calls should be resolved relative to fixture_dir/
-            // not relative to fixture_dir/dhs/
+            // Forward calls should resolve relative to fixture_dir/
+            // not fixture_dir/dhs/. Resolution now lives in the shared
+            // resolver; replay it from raw_path + caller dir + WD.
+            const my_caller_dir = path.dirname(wm_vars_path);
             for (const my_call of result.forward_calls) {
-                if (my_call.is_static && my_call.path) {
-                    // Paths should NOT have double dhs/ (e.g., dhs/subdir/wm_vars/)
-                    expect(my_call.path).not.toMatch(/dhs[\/\\]dhs/);
-                }
+                if (!my_call.is_static || !my_call.raw_path) continue;
+                const my_outcome = resolve_forward_call_rich(
+                    my_call.raw_path,
+                    my_caller_dir,
+                    my_call.working_directory,
+                    { workspace_roots: [fixture_dir] },
+                );
+                const my_resolved = my_outcome.kind === 'exact' ||
+                    my_outcome.kind === 'case_only'
+                    ? my_outcome.path
+                    : my_outcome.requested;
+                // Paths should NOT have double dhs/ (e.g., dhs/subdir/...)
+                expect(my_resolved).not.toMatch(/dhs[\/\\]dhs/);
             }
         });
 
@@ -301,12 +312,21 @@ include nonexistent/file.do
             expect('error' in result).toBe(false);
             if ('error' in result) return;
 
-            // Check that forward calls are resolved correctly
+            // Check that forward calls resolve correctly (no double dhs/).
+            const my_caller_dir = path.dirname(wm_vars_path);
             for (const my_call of result.forward_calls) {
-                if (my_call.is_static && my_call.path) {
-                    // Paths should NOT have double dhs/ (e.g., dhs/subdir/wm_vars/)
-                    expect(my_call.path).not.toMatch(/dhs[\/\\]dhs/);
-                }
+                if (!my_call.is_static || !my_call.raw_path) continue;
+                const my_outcome = resolve_forward_call_rich(
+                    my_call.raw_path,
+                    my_caller_dir,
+                    my_call.working_directory,
+                    { workspace_roots: [fixture_dir] },
+                );
+                const my_resolved = my_outcome.kind === 'exact' ||
+                    my_outcome.kind === 'case_only'
+                    ? my_outcome.path
+                    : my_outcome.requested;
+                expect(my_resolved).not.toMatch(/dhs[\/\\]dhs/);
             }
         });
     });

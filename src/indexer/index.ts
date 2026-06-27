@@ -516,7 +516,6 @@ export class WorkspaceIndexer {
                 parseResult.ast,
                 file_uri,
                 undefined,
-                { workspace_root }
             );
 
             // Resolve effective working directory from @lsp-cd / @lsp-wd
@@ -570,7 +569,6 @@ export class WorkspaceIndexer {
             if (directive_result.forward_calls && directive_result.forward_calls.length > 0) {
                 const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
                     type: d.type,
-                    path: d.path,
                     raw_path: d.raw_path,
                     call_site_line: d.call_site_line,
                     range: d.range,

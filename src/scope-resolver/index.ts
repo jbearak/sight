@@ -1955,7 +1955,6 @@ export class ScopeResolver {
         // Pass working_directory and workspace_root to analyzer for path resolution
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
-            workspace_root: my_workspace_root,
         });
 
         // Combine forward calls from commands and directives.
@@ -1966,7 +1965,6 @@ export class ScopeResolver {
         // above via the analyzer config).
         const directive_forward_calls: ForwardCall[] = (my_directive_result.forward_calls ?? []).map(d => ({
             type: d.type,
-            path: d.path,
             raw_path: d.raw_path,
             call_site_line: d.call_site_line,
             range: d.range,
