@@ -45,13 +45,25 @@ All three were **byte-identical**. This is expected from the CLI wiring:
   before collection and is not mutated during it; its `version_counter` is
   stable, so `ScopeResolver`'s content-hash + graph-version cache keys are
   stable and deterministic.
-- The two shared mutations that `open()` triggers —
-  `ScopeResolver.sync_backward_directive_dependencies` and (via the
-  `on_backward_directives_parsed` callback) `WorkspaceIndexer.set_buffer_directives`
-  — are content-idempotent (each writes the same URI→directives derived from
-  the same on-disk bytes) and feed only **cache invalidation** and
-  **find-references** (`get_related_uris`), neither of which participates in
-  `check` diagnostics.
+- The shared mutations that `open()` triggers are content-idempotent and do
+  not feed `check` diagnostics:
+  - `ScopeResolver.sync_backward_directive_dependencies` and the
+    `scope_resolver.resolve(...)` call made for working-directory inheritance
+    populate the resolver's `file_cache` / `scope_cache` / reverse-dependency
+    maps. These caches are keyed by content hash + dependency-graph version +
+    config; during `check` no file changes and the graph version is stable, so
+    every key is stable and every cached value is a pure function of on-disk
+    bytes. Concurrent workers may race to fill the same key, but each entry is
+    written as a whole object (no torn reads) and all writers compute the same
+    value — so results are deterministic. (The empirical probe confirms this:
+    shared-sequential, which reuses one resolver across targets, matched the
+    fresh-context isolated baseline byte-for-byte.)
+  - The `on_backward_directives_parsed` → `WorkspaceIndexer.set_buffer_directives`
+    overlay feeds **only** `WorkspaceIndexer.get_related_uris`, which is
+    consumed exclusively by the hover / definition / references providers
+    (verified by grep). `check` runs diagnostics only and never calls
+    `get_related_uris`, and `DiagnosticsProvider` does not reference the
+    indexer at all. So the overlay is dead weight in `check`.
 - Output ordering is already parallelism-independent: results are written into
   `the_slots[my_index]` by target index and flattened in order, and
   `collect_report_targets` sorts targets by `relative_path`.
@@ -100,24 +112,45 @@ read-only infrastructure (`ScopeResolver`, `WorkspaceIndexer`,
 
 Implementation:
 
-- Extract the `DocumentStore` wiring from `build_check_context` into a helper
-  `wire_check_document_store(store, deps)` where
-  `deps = { workspace_root, scope_resolver, workspace_indexer, config }`. It
-  sets workspace roots, the scope resolver, the scope-resolver config
-  (`scope_resolver_config_for(config)`), and the `on_backward_directives_parsed`
-  callback (→ `workspace_indexer.set_buffer_directives`). This is exactly the
-  wiring `build_check_context` does today, factored for reuse.
-- `build_check_context` keeps creating and wiring a `document_store` on
-  `CheckContext` via this helper (preserves the existing field and the
-  `context.document_store.dispose()` lifecycle that several tests rely on).
-- `collect_check_diagnostics` creates **one wired store per worker** (not the
-  shared `context.document_store`), uses it for that worker's targets, and
-  disposes it when the worker finishes. With `worker_count =
+- Add a factory `create_document_store()` to `CheckContext` that builds a fresh
+  `DocumentStore` wired to the shared infrastructure:
+  - `set_workspace_roots([workspace_root])`,
+  - `set_scope_resolver(scope_resolver)` (needed so WD inheritance resolves),
+  - `set_scope_resolver_config(scope_resolver_config_for(config))`.
+  - It deliberately does **not** wire the `on_backward_directives_parsed`
+    callback. That callback exists to keep the LSP server's find-references view
+    fresh against unsaved edits; `check` never calls `get_related_uris` and has
+    no unsaved edits (buffer content always equals disk), so populating the
+    shared `buffer_directives_overlay` is pure dead weight and a needless piece
+    of cross-target shared state. Dropping it is verified safe: the overlay has
+    no consumer in the `check` diagnostics path.
+- `build_check_context` creates the shared infra and exposes
+  `create_document_store`. It still creates one `document_store` on
+  `CheckContext` (via the factory) to preserve the existing field and the
+  `context.document_store.dispose()` lifecycle that several tests rely on. The
+  one behavior change to this primary store is that it no longer registers the
+  buffer-directive callback (see above) — a no-op for `check` output.
+- `collect_check_diagnostics` creates **one store per worker** via the factory
+  (not the shared `context.document_store`), uses it for that worker's targets,
+  and disposes it when the worker finishes. With `worker_count =
   min(max_parallel, targets.length)`, that is at most `max_parallel` stores,
-  each holding ≤1 live document.
+  each holding ≤1 live document (because each target is `close()`d in a
+  `finally` before the worker pulls its next index).
 - The shared `context.document_store` is left intact for lifecycle/back-compat;
   it simply isn't used as the analysis store anymore. (We keep it rather than
   remove it to avoid churning ~5 test call sites that dispose it.)
+
+**Scope of the guarantee (deliberately narrow).** The structural invariant is:
+*the `DocumentStore` used to analyze a target exposes only that target* — so any
+consumer that reads the live document set (`getAll()` / `get(other_uri)`) sees a
+single document, and the shared `buffer_directives_overlay` is never populated.
+We do **not** isolate the `ScopeResolver` per worker: it is disk-backed and
+therefore inherently open-document-agnostic, and per-worker resolvers would
+discard the shared file/scope cache and re-read+re-parse every parent per worker
+for no correctness gain (YAGNI). If a future change gives the CLI an
+open-buffer-preferring content provider, that provider must be wired to a
+per-worker store (not a global one) for this invariant to keep holding; the
+regression test below is the backstop that fails loudly if that ever regresses.
 
 This is low-risk: a `DocumentStore` is a handful of `Map`s; per-worker creation
 cost is negligible next to lex/parse/analyze.
@@ -126,17 +159,25 @@ cost is negligible next to lex/parse/analyze.
 
 - Add an optional `max_parallel?: number` parameter to
   `collect_check_diagnostics` (default `CHECK_MAX_PARALLEL`). `run_check_with_cwd`
-  is unchanged (uses the default). This lets a test drive the *same context*
-  at parallelism 1 (sequential) and 4 (parallel) — a faithful sequential-vs-
-  parallel comparison rather than an approximation.
+  is unchanged (uses the default). This lets a test drive collection at
+  parallelism 1 (sequential) and N (parallel).
 - New integration test `tests/integration/cli-check-parallel-determinism.test.ts`:
   build one workspace exercising every open-document-sensitive path, then assert
-  the rendered output (JSON, the canonical serialization) is **byte-identical**
-  across `max_parallel ∈ {1, 2, 4}`, and that ordering is stable. Workspace
-  covers:
+  the rendered output (JSON — the canonical serialization) is **byte-identical**
+  across `max_parallel ∈ {1, 2, 4}`. To prevent shared-cache priming from
+  masking a divergence (a real risk flagged in review — `open()` fills the
+  resolver caches), **build a fresh `CheckContext` for each `max_parallel`
+  run** rather than reusing one context across modes. Also compute a per-target
+  **isolated** baseline (a fresh context per single target) and assert every
+  `max_parallel` run equals it — this is the strongest oracle, since the
+  isolated run provably only ever has one document open.
+  Workspace covers:
   - cross-file `do` chain with a global defined in the parent used in a child
     (auto backward discovery / `done-by` inheritance);
   - `include` chain inheriting a local macro;
+  - explicit `@lsp-done-by` and `@lsp-included-by` directive-only relationships
+    (the directive path that drives the buffer overlay), in addition to the
+    auto-discovered `do`/`include` edges;
   - `@lsp-cd` working-directory inheritance from a parent to a child whose
     diagnostics depend on the resolved WD;
   - two unrelated modules that both define the same global name and the same
@@ -144,10 +185,15 @@ cost is negligible next to lex/parse/analyze.
     diverge if open-doc state leaked across targets);
   - enough targets (> 4) that all worker slots are active and at least one
     worker processes multiple targets.
-- Add a focused unit/integration assertion that a worker's store never holds
-  more than one document (the isolation invariant) — implemented by checking
-  that `collect_check_diagnostics` output matches the per-target **isolated**
-  baseline (fresh context per target), which can only hold one document.
+- **Direct isolation assertion** (not just output equality): a test wraps
+  `context.create_document_store` to capture every store it hands out, and
+  patches each store's `open` to record `store.getAll().length` at open time.
+  After `collect_check_diagnostics`, assert the recorded peak per store is `≤ 1`
+  and that the buffer overlay was never populated
+  (`workspace_indexer` exposes no live buffer overlay entries). This proves the
+  structural invariant directly rather than inferring it from output equality.
+- A small test that passing duplicate explicit target paths produces the same
+  output as passing the path once (dedupe behavior is unchanged).
 
 ### 3. Documentation
 
@@ -173,6 +219,25 @@ cost is negligible next to lex/parse/analyze.
 - Not raising or making `CHECK_MAX_PARALLEL` user-configurable (the param is
   internal, for tests). YAGNI.
 - Not addressing issue #184's transactional-side-effect concern; orthogonal.
+- **Indexer insertion-order nondeterminism is out of scope.** Review noted that
+  `WorkspaceIndexer.initialize` reads directories via `readdir` (unsorted) and
+  commits to `symbol_index` as a worker pool completes, so `get_all_symbols`
+  insertion order can vary *run to run*. This does **not** cause
+  parallel-vs-sequential divergence within a run — #207's actual subject —
+  because `collect_check_diagnostics` captures `workspace_symbols` **once**
+  before the parallel region and passes the same snapshot to every worker, and
+  per CLAUDE.md workspace symbols do not suppress diagnostics or affect
+  diagnostic ordering (output is ordered by target index). Any cross-run
+  ordering effect would be a pre-existing determinism concern independent of
+  parallelization; if it proves to affect rendered output it warrants its own
+  issue.
+- **Parse/analyze timeout divergence under CPU contention is out of scope.**
+  `DocumentStore` wraps lex/parse/analyze in `with_parse_timeout`; under heavy
+  parallel load a pathological file near the wall-clock threshold could time out
+  where a sequential run would not, emitting a timeout diagnostic. This is an
+  inherent property of any parallel executor and a safety valve for pathological
+  input, not normal output; the regression test uses small files that never
+  approach the timeout.
 
 ## Risks and mitigations
 
@@ -188,9 +253,11 @@ cost is negligible next to lex/parse/analyze.
   size/index-limit/read-error per-target diagnostics unchanged (logic moved
   verbatim); (e) output order unchanged (slot-by-index preserved).
 - **Determinism of `DiagnosticsProvider.filtered_cache`** (shared, keyed by
-  `uri:version:config_hash`): per-worker stores all use `version = 1` and
-  distinct URIs per target, so no cross-target cache collision; the cache stays
-  correct.
+  `uri:version:config_hash` — verified in `src/providers/diagnostics.ts`):
+  per-worker stores all use `version = 1` and distinct URIs per target, so no
+  cross-target cache collision; the cache stays correct. The provider also takes
+  no reference to the document store or indexer, so it cannot observe sibling
+  open state.
 
 ## Verification plan
 
