@@ -126,9 +126,13 @@ read_rows(
   ~65 536). For each chunk, in order:
   1. If `signal.aborted`, throw `DOMException('The read was aborted',
      'AbortError')` (Node provides global `DOMException`).
-  2. If the file was closed mid-read (`this._closed` / fd null), stop and return
-     the rows accumulated so far (consistent with the existing "closed returns
-     `[]`" contract; the caller discards partial results on abort anyway).
+  2. If the file was closed mid-read (`this._closed` / fd null), return `[]`
+     — **never the partially-accumulated rows.** Matching the existing "closed
+     returns `[]`" contract keeps a truncated read from masquerading as a
+     successful short read; a partial column must never be silently handed back,
+     since a caller computing a sort/filter over it would produce wrong results.
+     (The signal-less path keeps its current single-shot behavior; this rule is
+     specifically about the chunked loop, where a close can land between chunks.)
   3. `read_data_rows(fd, metadata, chunk_start, chunk_count)` → parse via
      `read_rows_from_data_buffer` → if any strL column falls in
      `[col_start, col_end)`, `_resolve_strls` on **that chunk's** rows and
@@ -158,7 +162,8 @@ release the loop for that handler to run.
   `AbortError` and reads nothing.
 - **Abort mid-read:** aborting after the first `setImmediate` yield rejects with
   `AbortError`; no rows are returned to the caller.
-- **Closed mid-read:** closing the file between chunks stops cleanly.
+- **Closed mid-read:** closing the file between chunks returns `[]` (not a
+  partial column) — assert the result is empty, not truncated.
 
 ### Release / consumption
 
@@ -174,24 +179,34 @@ git dependency) so Part 2 can be built and tested end-to-end.
 
 ### Message protocol (`client/src/data-browser/webview/types.ts`)
 
-Add two messages:
+Add two messages. Both carry a `restore_id` (the panel's `generation` value at
+the moment `restorePending` is posted) so stale/crossed messages from an earlier
+lifecycle can be dropped at the protocol level rather than relying on ordering
+assumptions:
 
-- **Extension → webview:** `{ type: 'restorePending'; sort: boolean; filter: boolean }`
+- **Extension → webview:** `{ type: 'restorePending'; restore_id: number; sort: boolean; filter: boolean }`
   — posted at the top of `send_metadata`, *before* the column reads, when a
   stored sort and/or filter actually exists for this `dataset_key × schema_hash`.
-- **Webview → extension:** `{ type: 'cancelRestore' }` — posted when the user
-  clicks Cancel.
+- **Webview → extension:** `{ type: 'cancelRestore'; restore_id: number }` —
+  posted when the user clicks Cancel, echoing the `restore_id` it is cancelling.
+
+The extension ignores a `cancelRestore` whose `restore_id` does not match the
+current restore (see late-cancel handling below). The webview records the latest
+`restore_id` from `restorePending` and stamps it onto any `cancelRestore`.
 
 ### Extension side (`browser-panel.ts`)
 
 State added to the panel: `restore_abort: AbortController | null`,
-`restore_cancelled: boolean`, `restoring: boolean`.
+`restore_cancelled: boolean`, `restoring: boolean`, `restore_id: number`.
 
 `send_metadata`, on first restore for the dataset:
 
-1. Peek both stores. If either has a stored pref, set `restoring = true`, create
-   `this.restore_abort = new AbortController()`, and post
-   `restorePending { sort, filter }` **before** the heavy reads.
+1. Peek both stores. If either has a stored pref, **reset the restore state**
+   (`restore_cancelled = false`, fresh `this.restore_abort =
+   new AbortController()`, `restore_id = this.generation`, `restoring = true`),
+   then post `restorePending { restore_id, sort, filter }` **before** the heavy
+   reads. Resetting `restore_cancelled` here (not just on cancel) keeps a prior
+   cancel from poisoning a later restore — see finding #4.
 2. Call `maybe_restore_sort` / `maybe_restore_filter`, threading
    `this.restore_abort.signal` down:
    - `read_full_column(col, signal)` →
@@ -200,26 +215,48 @@ State added to the panel: `restore_abort: AbortController | null`,
    - `read_rows(0, nobs, col, col+1, { signal })`.
 3. Between the two restores, short-circuit if `restore_cancelled` so a cancel
    during the sort read does not then trigger a long filter read.
-4. The existing `try { … } catch { … = null }` around each compute turns an
-   `AbortError` (or any read failure) into "no permutation / no indices," i.e.
-   natural order. `maybe_restore_*` already only apply `this.sort` /
-   `this.filter` when the compute returned a non-null result, so an aborted
-   restore leaves them empty.
-5. On the cancelled path, `send_metadata`:
+4. **Distinguish abort from real failure.** The compute wrappers must catch and
+   classify: an `AbortError` (or `restore_cancelled === true`) → quiet natural
+   order; any *other* error (corruption, I/O, parser bug) → natural order **plus**
+   a non-blocking notice (e.g. a toolbar note / `showWarningMessage`,
+   "Couldn't reapply saved sort/filter"), and the persisted prefs are **kept**
+   (only an explicit user cancel forgets them — finding #7). A bare
+   `catch { … = null }` that swallows everything is explicitly rejected.
+5. On the **cancelled** path (user cancel, `restore_cancelled === true`),
+   `send_metadata`:
+   - **resets all in-memory restore effects**, not just the persisted/chip view:
+     `this.sort = { keys: [], … }`, `this.permutation = null`,
+     `this.filter = { entries: [], … }`, `this.filtered_indices = null`, then
+     `recompute_effective()`. This is required because a *completed* sort restore
+     may already have applied `this.sort` / `this.permutation` before the cancel
+     landed during the filter read — without this reset the grid would show
+     sorted rows with no chip (finding #1);
    - clears **both** persisted prefs for this `dataset_key × schema_hash`
      (`sort_state_store.set(…, { keys: [], … })` and the filter equivalent;
      set-empty deletes the entry, sort-state.ts:145–152) — *forget entirely*;
    - posts `metadata` with `stored_sort` / `stored_filter` **omitted** (so no
      chips render);
    - skips `post_filter_applied` (no filter is active).
-6. Clear `restoring` (and `restore_abort`) once `metadata` is posted, on both
-   the normal and cancelled paths.
+6. **Cleanup in a `finally`,** not only after a successful `postMessage`: clear
+   `restoring`, null `restore_abort`. Tying cleanup to a `finally` ensures an
+   early throw inside `send_metadata` (before `metadata` is posted) cannot strand
+   the panel in a permanent `restoring` state (finding #3). The existing
+   `try/catch` that surfaces "Failed to open .dta file" stays; the cleanup is its
+   `finally`.
 
-`handle_message` gains a `cancelRestore` case:
+`handle_message` gains a `cancelRestore` case keyed on `restore_id`:
 
-- If `!this.restoring`, ignore (defensive against a stray/late cancel after the
-  grid is already up).
-- Otherwise: `this.restore_cancelled = true; this.restore_abort?.abort();`
+- If `msg.restore_id !== this.restore_id`, ignore (stale cancel from a previous
+  lifecycle — finding #6).
+- Else if `this.restoring` is still true: `restore_cancelled = true;
+  this.restore_abort?.abort();` (the normal in-flight cancel).
+- Else (the restore already completed and posted `metadata` in the cross-window
+  race — finding #5): the user still asked to cancel, so honor it as an explicit
+  **clear-and-forget**: reset in-memory sort/filter as in step 5, clear both
+  persisted stores, bump `generation`, clear the row cache, and post
+  `sortApplied` / `filterApplied` (and an updated `metadata` if chips must
+  disappear) so the grid drops to natural order. This guarantees a click that the
+  user saw as "Cancel" is never silently dropped.
 
 Note: on the normal (non-cancelled) completion, behavior is exactly as today —
 `metadata` is posted with the restored sort/filter applied; the only difference
@@ -228,9 +265,9 @@ arrives.
 
 ### Webview side (`app.tsx`, `use-row-loader.ts`, `grid-model.ts`)
 
-- Track `restore_pending: { sort: boolean; filter: boolean } | null`. Set it on
-  `restorePending`; clear it when `metadata` arrives (both the normal and
-  cancelled paths end by posting `metadata`).
+- Track `restore_pending: { restore_id: number; sort: boolean; filter: boolean } | null`.
+  Set it on `restorePending` (recording `restore_id`); clear it when `metadata`
+  arrives (both the normal and cancelled paths end by posting `metadata`).
 - While `restore_pending` is set and `metadata` is still `null`, render — in
   place of the bare `Loading…`, reusing the `toolbar-progress` styling — an
   explanatory line plus an inline **Cancel** button:
@@ -240,35 +277,73 @@ arrives.
 - **Debounce:** only reveal this UI if `restore_pending` persists past ~200 ms,
   so small/fast files (where `metadata` arrives almost immediately) do not flash
   the message.
-- The Cancel button posts `cancelRestore` and optimistically shows a transient
-  *"Cancelling…"* until `metadata` arrives, after which the grid renders in
-  natural order with no chips.
+- The Cancel button posts `cancelRestore { restore_id }` and optimistically
+  shows a transient *"Cancelling…"* until `metadata` arrives. On the normal path
+  the grid then renders in natural order with no chips. In the cross-window race
+  (the extension had already completed the restore when the cancel arrived), the
+  extension honors the late cancel as a clear-and-forget (see extension side), so
+  the grid still ends in natural order — the optimistic UI is never contradicted.
 
 ### Edge cases
 
 - **Persistence disabled** (`persistSort` / `persistFilters` = false): no stored
   prefs → no `restorePending` → behavior unchanged.
-- **Stored filter that drops all chips** on schema mismatch, or yields an empty
-  survivor set: only post `restorePending` when a stored pref genuinely exists to
-  apply (peek the stores, mirroring `maybe_restore_*`'s own guards).
-- **Refresh** (`ready` received while `dta_file` is already set): same path; the
-  `generation` bump on refresh already discards stale in-flight reads.
-- **Cancel arriving after restore completed:** guarded by `restoring`; the
-  webview also stops showing the button once `metadata` arrives, so it should
-  not be sent — but the guard makes it a no-op regardless.
+- **`restorePending` gating is on *existence*, not outcome (finding #8):** post
+  `restorePending` whenever a stored pref *exists and is schema-applicable* —
+  which is exactly what the cheap store peek can determine (mirroring
+  `maybe_restore_*`'s own guards: persistence enabled, entry present, predicate
+  fits the column kind). Whether the filter ultimately yields an *empty survivor
+  set* is unknowable without the very read the UI exists to explain, so it must
+  **not** gate `restorePending`. A stored filter that later resolves to zero rows
+  still shows the explanation while it computes; `metadata` then clears it.
+- **Restore read fails for a real reason (not cancel) (finding #7):** the dataset
+  opens in natural order, a non-blocking notice tells the user the saved
+  sort/filter couldn't be reapplied, and the persisted prefs are **retained** so
+  the next reopen can retry. This is deliberately distinct from cancel
+  (forget) and must not be silently conflated with it.
+- **Refresh** (`ready` received while `dta_file` is already set): `maybe_restore_*`
+  are one-shot (`sort_restored` / `filter_restored` guards), so a refresh does not
+  re-read columns; `restorePending` may still be posted but the debounce
+  suppresses the flash. The `generation` bump on refresh discards stale in-flight
+  reads, and the fresh `restore_id` (step 1) makes any crossed `cancelRestore`
+  from the prior lifecycle a no-op.
+- **Late cancel after completion (finding #5):** handled by the `restore_id`
+  match + clear-and-forget fallback in `handle_message`, so the user's click is
+  honored rather than dropped.
 - **Cancel during the sort read, with a filter also stored:** the
-  `restore_cancelled` short-circuit (step 3) prevents the subsequent filter read.
+  `restore_cancelled` short-circuit (step 3) prevents the subsequent filter read;
+  step 5's in-memory reset guarantees a sort that *did* complete before the cancel
+  is also undone (finding #1).
 
 ### Tests (sight)
 
-- **Extension unit:** a `cancelRestore` during restore (a) aborts the read,
-  (b) clears both persisted stores, (c) results in `send_metadata` emitting
-  natural-order `metadata` with no `stored_sort` / `stored_filter` and no
+- **Extension unit — basic cancel:** a `cancelRestore` during restore (a) aborts
+  the read, (b) clears both persisted stores, (c) results in `send_metadata`
+  emitting natural-order `metadata` with no `stored_sort` / `stored_filter` and no
   `filterApplied`; a normal completion still applies the stored sort/filter and
   emits `restorePending` before `metadata`.
+- **Extension unit — sort-done, filter-cancelled (finding #1):** with a stored
+  sort *and* filter, complete the sort restore then cancel during the filter
+  read; assert the final state is fully natural order — `this.permutation` is
+  null, `effective_nobs` is the full count, and `metadata` carries no chips. (A
+  naive implementation that only omits `stored_sort` would leave `permutation`
+  set; this test must fail against that.)
+- **Extension unit — real read error vs cancel (finding #7):** a non-`AbortError`
+  failure from `read_rows` opens in natural order, surfaces the notice, and
+  **keeps** the persisted prefs; assert the stores are unchanged (contrast with
+  the cancel test, which clears them).
+- **Extension unit — stale/late cancel (findings #5, #6):** a `cancelRestore`
+  with a non-matching `restore_id` is a no-op; a matching one that arrives after
+  completion drops the grid to natural order and forgets the prefs.
+- **Extension unit — no stranded state (finding #3):** force `send_metadata` to
+  throw before posting `metadata`; assert `restoring` is cleared and
+  `restore_abort` nulled (the `finally`).
+- **dta-parser — closed mid-read (finding #2):** closing the file between chunks
+  yields `[]`, asserted empty (not a truncated column).
 - **Webview unit (`grid-model` / loader):** `restorePending` produces the
   correct explanatory text per flag combination; the message is suppressed
-  before the debounce threshold and shown after; it clears on `metadata`.
+  before the debounce threshold and shown after; it clears on `metadata`; a
+  `cancelRestore` echoes the recorded `restore_id`.
 - **Integration (`data-browser-smoke` style):** reopen a `.dta` with saved
   sort and filter → `restorePending` is posted before `metadata`; without
   cancel, the restored order is applied.
@@ -279,9 +354,9 @@ Normal reopen with saved prefs:
 
 ```
 webview: ready
-ext:     restorePending {sort,filter}      ← new; webview shows explanation (after 200ms)
+ext:     restorePending {restore_id,sort,filter}  ← new; webview shows explanation (after 200ms)
 ext:     [chunked, cancellable column reads]
-ext:     metadata (stored_sort/filter set) ← webview clears restore_pending, renders sorted
+ext:     metadata (stored_sort/filter set)        ← webview clears restore_pending, renders sorted
 ext:     filterApplied (if filtered)
 ```
 
@@ -289,8 +364,9 @@ Cancelled reopen:
 
 ```
 webview: ready
-ext:     restorePending {sort,filter}
-webview: [user clicks Cancel] → cancelRestore
-ext:     controller.abort() → reads reject AbortError → prefs forgotten
-ext:     metadata (no stored_sort/filter)  ← webview renders natural order, no chips
+ext:     restorePending {restore_id,sort,filter}
+webview: [user clicks Cancel] → cancelRestore {restore_id}
+ext:     restore_id matches & restoring → controller.abort()
+ext:       reads reject AbortError → reset in-memory sort+filter, recompute_effective, prefs forgotten
+ext:     metadata (no stored_sort/filter)         ← webview renders natural order, no chips
 ```
