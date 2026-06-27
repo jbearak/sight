@@ -598,7 +598,15 @@ export async function collect_check_diagnostics(
     }
 
     let file_index = 0;
-    const worker_count = Math.min(max_parallel, targets.length);
+    // With no targets there is nothing to drain (0 workers). Otherwise clamp to
+    // >= 1 so a caller passing max_parallel < 1 still drains every target with
+    // one worker rather than silently producing zero workers and an empty
+    // result. The default (CHECK_MAX_PARALLEL) always satisfies this; the guard
+    // only matters for the internal, test-facing parameter.
+    const worker_count =
+        targets.length === 0
+            ? 0
+            : Math.max(1, Math.min(max_parallel, targets.length));
     const the_workers = Array.from(
         { length: worker_count },
         async () => {

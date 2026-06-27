@@ -181,6 +181,20 @@ describe('sight check parallel determinism (#207)', () => {
         expect(files).toEqual(sorted);
     });
 
+    it('drains every target even when max_parallel is below 1', async () => {
+        // The internal max_parallel parameter is clamped to >= 1 for non-empty
+        // target sets, so a degenerate value never silently yields zero workers
+        // and an empty report.
+        const root = build_hazard_workspace();
+        const config = load_config(root);
+
+        const sequential = await render_with_parallelism(root, config, 1);
+        const zero = await render_with_parallelism(root, config, 0);
+
+        expect(zero).toBe(sequential);
+        expect(JSON.parse(zero).length).toBeGreaterThan(0);
+    });
+
     it('treats duplicate explicit targets the same as a single mention', async () => {
         const root = build_hazard_workspace();
         const config = load_config(root);
