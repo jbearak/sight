@@ -300,6 +300,30 @@ describe('send_metadata restore', () => {
         expect(sort_set).toEqual([]);
     });
 
+    it('suppresses the failure warning when the user cancels (round 9)', async () => {
+        const { panel_like, sort_set, filter_set } =
+            await make_restore_panel({
+                stored_sort: STORED_SORT,
+                stored_filter: STORED_FILTER,
+            });
+        // Sort read genuinely fails (non-abort)...
+        panel_like.compute_sort_permutation = async () => {
+            throw new Error('decode failed');
+        };
+        // ...then the user cancels during the filter read.
+        panel_like.compute_filter_indices = async () => {
+            panel_like.restore_abort?.abort();
+            throw abort_error();
+        };
+
+        await panel_like.send_metadata();
+
+        // Cancel wins: prefs forgotten, and NO confusing failure popup.
+        expect(warnings).toEqual([]);
+        expect(sort_set[0].keys.length).toBe(0);
+        expect(filter_set[0].entries.length).toBe(0);
+    });
+
     it('real read error keeps prefs and warns (finding #7)', async () => {
         const { panel_like, posted, sort_set, filter_set } =
             await make_restore_panel({ stored_sort: STORED_SORT });

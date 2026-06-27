@@ -478,7 +478,12 @@ export class DataBrowserPanel implements vscode.Disposable {
                 if (!is_cancelled() && this.filtered_indices) {
                     this.post_filter_applied();
                 }
-                if (my_sort_failed || my_filter_failed) {
+                // Suppress the failure warning when the user cancelled:
+                // a read may have genuinely failed before the cancel
+                // landed, but the user explicitly chose natural order, so
+                // a "couldn't reapply" popup would be confusing noise.
+                if (!is_cancelled()
+                    && (my_sort_failed || my_filter_failed)) {
                     const what = my_sort_failed && my_filter_failed
                         ? 'sort and filter'
                         : my_sort_failed ? 'sort' : 'filter';
