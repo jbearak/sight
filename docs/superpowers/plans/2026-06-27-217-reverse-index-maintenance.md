@@ -127,9 +127,7 @@ git commit -m "test: reproduce #217 stale-callee leak (red)
 
 Live-edit removal of a callee followed by deleting that callee's
 file leaves a phantom entry in forward_caller_to_callees. Generic
-reverse_deps scan catches it; passes once the redundant map is gone.
-
-Claude-Session: https://claude.ai/code/session_01QTiSfVjJzbn7u52aijpqJr"
+reverse_deps scan catches it; passes once the redundant map is gone."
 ```
 
 ---
@@ -256,9 +254,7 @@ git commit -m "fix: remove redundant forward_caller_to_callees index (#217)
 
 The map duplicated caller_to_callees, was never read for any
 decision, and the live-edit path never maintained it, so it
-leaked stale callees. Removing it eliminates the drift class.
-
-Claude-Session: https://claude.ai/code/session_01QTiSfVjJzbn7u52aijpqJr"
+leaked stale callees. Removing it eliminates the drift class."
 ```
 
 ---
@@ -349,9 +345,7 @@ git add tests/unit/scope-resolver/forward-call-relationships.test.ts tests/prope
 git commit -m "test: migrate forward-call tests to caller_to_callees (#217)
 
 The redundant forward_caller_to_callees map is gone; assert against
-the authoritative caller_to_callees, whose keys are the callees.
-
-Claude-Session: https://claude.ai/code/session_01QTiSfVjJzbn7u52aijpqJr"
+the authoritative caller_to_callees, whose keys are the callees."
 ```
 
 ---
