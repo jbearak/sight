@@ -1321,7 +1321,19 @@ export class ScopeResolver {
         if (the_backward_directives.length === 0) {
             return undefined;
         }
-        const my_config: ScopeResolverConfig = { ...DEFAULT_CONFIG, ...config };
+        // Force EXPLICIT backward resolution for the walk. The recursion into
+        // deeper ancestors goes through get_effective_backward_directives,
+        // which in 'auto' mode reads the dependency graph — and during a bulk
+        // indexer scan that graph is only partially built, so an auto-
+        // discovered grandparent's WD would resolve order-dependently (a
+        // race). Forcing 'explicit' makes the walk deterministic and
+        // scan-order-independent; auto-discovered-parent WD stays best-effort
+        // and is resolved authoritatively when the file is opened.
+        const my_config: ScopeResolverConfig = {
+            ...DEFAULT_CONFIG,
+            ...config,
+            backward_dependencies: 'explicit',
+        };
         return this.discover_working_directory(
             the_backward_directives,
             new Set<string>(),

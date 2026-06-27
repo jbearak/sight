@@ -108,4 +108,39 @@ describe('Indexer inherited working directory (#218)', () => {
         // Grandparent WD was depth-excluded, so the edge is NOT keyed by it.
         expect(the_callees.has(inherited_callee)).toBe(false);
     });
+
+    it('does not inherit WD via an auto-discovered grandparent (deterministic)', async () => {
+        // grandparent.do auto-`do`es parent.do (a dependency-graph edge, not
+        // an explicit directive) and sets @lsp-cd. child.do explicitly
+        // @lsp-done-by parent.do, which has no directive of its own. The
+        // indexer walk forces EXPLICIT resolution, so it must NOT follow the
+        // auto-discovered grandparent — otherwise the result would depend on
+        // scan order (the dep graph is only partially built mid-scan). The
+        // grandparent WD is resolved authoritatively when child.do is opened.
+        write_file('grandparent.do', '// @lsp-cd: "data"\ndo parent.do\n');
+        write_file('parent.do', 'global p = 1\n');
+        write_file('child.do', '// @lsp-done-by: "parent.do"\ndo sub.do\n');
+        write_file('data/sub.do', 'global from_sub = 1\n');
+
+        const indexer = new WorkspaceIndexer();
+        const graph = new DependencyGraph();
+        graph.set_workspace_roots([temp_dir]);
+        indexer.set_dependency_graph(graph);
+
+        const scope_resolver = new ScopeResolver();
+        scope_resolver.set_workspace_roots([temp_dir]);
+        indexer.set_scope_resolver(scope_resolver);
+
+        await indexer.initialize([temp_dir]);
+
+        const child_uri = URI.file(path.join(temp_dir, 'child.do')).toString();
+        const auto_inherited_callee = URI.file(
+            path.join(temp_dir, 'data', 'sub.do'),
+        ).toString();
+
+        // Auto-discovered grandparent WD is NOT inherited during indexing,
+        // regardless of which order the files were scanned.
+        expect(graph.get_callees(child_uri).has(auto_inherited_callee))
+            .toBe(false);
+    });
 });
