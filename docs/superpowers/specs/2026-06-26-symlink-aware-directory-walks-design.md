@@ -29,11 +29,11 @@ symlinked file/dir already works; only the recursive `walk_sources` descent
 misses symlinks. No change needed there.
 
 These are the sites the original bug touches. The fix's reach differs by site
-(see §2): the **persistent indexer** `scan_directory` is intentionally left
-real-files-only (it cannot keep a symlink-alias entry fresh — Codex round-7),
-no walk descends symlinked directories, and the **one-shot** consumers
-(`walk_sources`, `find_sthlp_file_recursive`, path completion) follow symlinked
-files.
+(see §2): no walk descends symlinked directories; the **analyzing** consumers
+(`scan_directory` and `sight check`'s `walk_sources`) are intentionally left
+real-files-only (they cannot safely analyze a symlink-alias URI the index does
+not hold — Codex rounds 7/9); and only the **listing/lookup** consumers
+(`find_sthlp_file_recursive`, path completion) follow symlinked files.
 
 ## Reference behavior (PR #216)
 
@@ -109,7 +109,7 @@ async-classify a directory.
 tests are unaffected behaviorally — verified green by the existing
 `path-resolve-rich.test.ts` symlink suite.
 
-### 2. Traversal policy: follow symlinked files, do NOT descend symlinked dirs
+### 2. Traversal policy: who follows symlinks (and who must not)
 
 Classification (§1) tells a walk *what* an entry is. It does **not** by itself
 decide *whether to descend* — and `resolve_path_rich` never had to, because it
