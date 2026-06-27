@@ -21,8 +21,9 @@ import {
     clamp_column_width,
     collect_sampled_value_width_hints,
     type BrowserGridColumn,
-    describe_browser_row_count,
+    describe_restore_message,
     describe_subset,
+    describe_toolbar_row_count,
     get_cell_display_value,
     get_variable_header_tooltip,
     merge_persisted_and_default_widths,
@@ -274,6 +275,9 @@ export function App(): ReactElement {
         histograms,
         request_histogram,
         update_viewport,
+        restore_pending,
+        restore_cancelling,
+        cancel_restore,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
     const [show_formats, set_show_formats] = useState(true);
@@ -811,11 +815,25 @@ export function App(): ReactElement {
         }
     };
 
-    const row_count_text = describe_browser_row_count(
+    // On open, explain (and let the user cancel) the wait while saved
+    // sort/filter preferences are reapplied.
+    const restore_message = restore_pending
+        ? (restore_cancelling
+            ? 'Cancelling…'
+            : describe_restore_message(
+                restore_pending.sort,
+                restore_pending.filter
+            ))
+        : null;
+
+    // While the restore banner is up it explains the wait, so suppress
+    // the bare "Loading…" row-count that would otherwise stack above it.
+    const row_count_text = describe_toolbar_row_count(
         metadata,
         nobs_effective,
         first_visible_row,
-        visible_row_count
+        visible_row_count,
+        restore_message !== null
     );
 
     const subset_text = describe_subset(metadata);
@@ -1129,6 +1147,20 @@ export function App(): ReactElement {
             {sort_filter_progress_text && (
                 <div className="toolbar-progress" role="status">
                     {sort_filter_progress_text}
+                </div>
+            )}
+            {restore_message && (
+                <div className="toolbar-restore" role="status">
+                    <span>{restore_message}</span>
+                    {!restore_cancelling && (
+                        <button
+                            type="button"
+                            className="restore-cancel"
+                            onClick={cancel_restore}
+                        >
+                            Cancel
+                        </button>
+                    )}
                 </div>
             )}
             {subset_text && (

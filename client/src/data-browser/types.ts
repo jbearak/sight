@@ -57,6 +57,18 @@ export interface RequestHistogramMessage {
     col_index: number;
 }
 
+/**
+ * Asks the host to abandon the in-progress restore of saved sort/filter
+ * and show the data unsorted/unfiltered, forgetting the saved
+ * preferences. `restore_id` echoes the value from the `restorePending`
+ * the webview is cancelling, so a stale cancel from a prior lifecycle is
+ * ignored by the host.
+ */
+export interface CancelRestoreMessage {
+    type: 'cancelRestore';
+    restore_id: number;
+}
+
 export type WebviewMessage =
     | RowRequest
     | ReadyMessage
@@ -65,7 +77,8 @@ export type WebviewMessage =
     | CopyColumnRequest
     | SetSortMessage
     | SetFiltersMessage
-    | RequestHistogramMessage;
+    | RequestHistogramMessage
+    | CancelRestoreMessage;
 
 // Extension → Webview messages
 
@@ -128,6 +141,20 @@ export interface HistogramDataMessage {
     bins: HistogramBin[];
 }
 
+/**
+ * Sent before the host reads columns to reapply a saved sort/filter on
+ * open, so the webview can explain the wait (instead of a bare
+ * "Loading…") and offer a Cancel control. `restore_id` identifies this
+ * restore so a `cancelRestore` can be matched to it. `sort` / `filter`
+ * say which preferences are being applied (for the message wording).
+ */
+export interface RestorePendingMessage {
+    type: 'restorePending';
+    restore_id: number;
+    sort: boolean;
+    filter: boolean;
+}
+
 export type ExtensionMessage =
     | RowResponse
     | MetadataMessage
@@ -135,7 +162,8 @@ export type ExtensionMessage =
     | SortStatusMessage
     | FilterAppliedMessage
     | FilterStatusMessage
-    | HistogramDataMessage;
+    | HistogramDataMessage
+    | RestorePendingMessage;
 
 export interface VariableDescription {
     name: string;
