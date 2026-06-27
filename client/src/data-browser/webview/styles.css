@@ -72,7 +72,8 @@ body,
 }
 
 /* Saved sort/filter is being reapplied on open: explains the wait and
-   offers a Cancel that abandons it and shows the data unsorted. */
+   offers a "Skip and show data now" link that abandons the reapply and
+   loads the data immediately. */
 .toolbar-restore {
     /* Stack the message and the skip link so the link reads as the
        message's own follow-up action rather than a detached control
@@ -93,8 +94,8 @@ body,
 }
 
 .toolbar-restore > span {
-    /* Cap the message to the panel width so a long explanation ellipsizes
-       rather than forcing the banner wider than the viewport. */
+    /* Cap the message to the panel width so a long explanation
+       ellipsizes instead of widening the banner past the viewport. */
     max-width: 100%;
     white-space: nowrap;
     overflow: hidden;
@@ -102,11 +103,14 @@ body,
 }
 
 .restore-skip {
-    /* Styled as a link, not a button: it's a low-stakes alternative to
-       waiting, and a link sits naturally beneath the message it modifies. */
+    /* Styled as a link, not a button: a low-stakes alternative to
+       waiting that sits naturally beneath the message it modifies.
+       Underlined at rest (unlike `.popover-action-btn`, which underlines
+       only on hover) because it is the banner's primary affordance and
+       must read as clickable without hovering. */
     padding: 0;
     font-size: 12px;
-    color: var(--vscode-textLink-foreground);
+    color: var(--vscode-textLink-foreground, inherit);
     background: none;
     border: none;
     text-decoration: underline;
@@ -114,7 +118,7 @@ body,
 }
 
 .restore-skip:hover {
-    color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+    color: var(--vscode-textLink-activeForeground, inherit);
 }
 
 /* Sort + filter chip strips. Sits between the row count and the action
@@ -844,7 +848,8 @@ body,
 .filter-chip-body:focus-visible,
 .filter-chip-kebab:focus-visible,
 .filter-strip-clear:focus-visible,
-.filter-popover-btn:focus-visible {
+.filter-popover-btn:focus-visible,
+.restore-skip:focus-visible {
     outline: 1px solid var(--vscode-focusBorder, #007fd4);
     outline-offset: 1px;
 }
