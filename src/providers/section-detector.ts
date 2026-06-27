@@ -38,15 +38,21 @@ export interface RawSection {
 
 const DELIMITER_CHARS = new Set(['*', '-', '=', '+', '/', '#']);
 
-// Single-line section patterns:
+// Single-line section patterns. These capture only the comment marker and the
+// body (from the first non-space char to end-of-line); the trailing delimiter
+// is split off in code by `split_trailing_delimiter`. The earlier single-regex
+// form (`(\S.*?)\s+(-{4,}|...)\s*$`) was rejected by CodeQL as polynomial ReDoS
+// because the lazy `.*?` and the surrounding `\s+` can both match the separating
+// whitespace. These body patterns have no two overlapping repetitions.
+//
 // Slash-style: // Section Name ---- (delimiter: 4+ of - = * +)
-const SLASH_SECTION_PATTERN = /^\s*\/\/\s+(\S.*?)\s+(-{4,}|={4,}|\*{4,}|\+{4,})\s*$/;
+const SLASH_SECTION_BODY_PATTERN = /^\s*\/\/\s+(\S.*)$/;
 
 // Star-style: * Section Name ---- (delimiter: 4+ of - = +, NOT * to avoid starred inline ambiguity)
-const STAR_SECTION_PATTERN = /^\s*\*\s+(\S.*?)\s+(-{4,}|={4,}|\+{4,})\s*$/;
+const STAR_SECTION_BODY_PATTERN = /^\s*\*\s+(\S.*)$/;
 
-// Starred inline: ** Section Name ** or *** Section Name ***
-const STARRED_INLINE_PATTERN = /^\s*(\*{2,})\s+(\S.*?)\s+(\*{2,})\s*$/;
+// Starred inline: ** Section Name ** or *** Section Name *** (delimiter: 2+ *)
+const STARRED_INLINE_BODY_PATTERN = /^\s*(\*{2,})\s+(\S.*)$/;
 
 // Numbered section: * 1. Name, // 1.1 Name, * 1.1.1 Name
 const NUMBERED_SECTION_PATTERN = /^\s*(?:\*|\/\/)\s+(\d+(?:\.\d+)*\.?)\s+(\S.*)$/;
@@ -76,6 +82,77 @@ export function is_delimiter_only(s: string): boolean {
         }
     }
     return true;
+}
+
+/**
+ * Whitespace test matching the regex `\s` class, for a single character.
+ * Using `/\s/.test(c)` on one char is linear and carries no ReDoS risk.
+ */
+function is_whitespace(c: string): boolean {
+    return /\s/.test(c);
+}
+
+/**
+ * Remove trailing characters matching `is_strip_char` from `text`.
+ *
+ * Linear-time replacement for `text.replace(/[...]+$/, '')`. CodeQL flags the
+ * unanchored trailing-character-class form as polynomial ReDoS because the
+ * engine retries the run from every start position; scanning from the end is
+ * O(n) and behaves identically.
+ */
+function strip_trailing(
+    text: string,
+    is_strip_char: (c: string) => boolean
+): string {
+    let my_end = text.length;
+    while (my_end > 0 && is_strip_char(text[my_end - 1])) {
+        my_end--;
+    }
+    return text.substring(0, my_end);
+}
+
+/**
+ * Given a comment body (already stripped of its comment marker and leading
+ * whitespace, so it begins with a non-space character), detect a trailing
+ * section delimiter of the form `<name> <run>`, where `<run>` is `min_run`+
+ * repetitions of a single character drawn from `allowed_delims`, separated
+ * from the name by whitespace and optionally followed by trailing whitespace.
+ *
+ * Returns the trimmed name, or null if the body does not end in such a
+ * delimiter. This replaces a regex of the form `(\S.*?)\s+(-{4,}|...)\s*$`
+ * whose lazy `.*?` and surrounding `\s+` overlap (both can match the
+ * separating whitespace), which CodeQL flags as polynomial ReDoS. The manual
+ * scan is linear.
+ */
+function split_trailing_delimiter(
+    body: string,
+    allowed_delims: string,
+    min_run: number
+): string | null {
+    // Skip trailing whitespace (the regex's `\s*$`).
+    let my_end = body.length;
+    while (my_end > 0 && is_whitespace(body[my_end - 1])) {
+        my_end--;
+    }
+    if (my_end === 0) return null;
+
+    // Measure the trailing run of a single delimiter character.
+    const my_delim_char = body[my_end - 1];
+    if (!allowed_delims.includes(my_delim_char)) return null;
+    let my_run_start = my_end;
+    while (my_run_start > 0 && body[my_run_start - 1] === my_delim_char) {
+        my_run_start--;
+    }
+    if (my_end - my_run_start < min_run) return null;
+
+    // The run must be separated from the name by whitespace (the regex's
+    // `\s+`), and a non-empty name must precede that whitespace.
+    if (my_run_start === 0 || !is_whitespace(body[my_run_start - 1])) {
+        return null;
+    }
+    const my_name = body.substring(0, my_run_start).trim();
+    if (my_name.length === 0) return null;
+    return my_name;
 }
 
 /**
@@ -393,7 +470,10 @@ export function extract_banner_name(line: string): string | null {
     my_text = my_text.replace(/^[\s*\-=+/#]+/, '');
 
     // Strip trailing delimiter chars and whitespace
-    my_text = my_text.replace(/[\s*\-=+/#]+$/, '');
+    my_text = strip_trailing(
+        my_text,
+        c => is_whitespace(c) || '*-=+/#'.includes(c)
+    );
 
     // Trim again
     my_text = my_text.trim();
@@ -425,7 +505,7 @@ export function extract_block_comment_heading(line: string): string | null {
     my_text = my_text.replace(/^[\s*]+/, '');
 
     // Strip trailing asterisks and whitespace
-    my_text = my_text.replace(/[\s*]+$/, '');
+    my_text = strip_trailing(my_text, c => is_whitespace(c) || c === '*');
 
     // Trim again
     my_text = my_text.trim();
@@ -512,15 +592,21 @@ function detect_single_line_sections(
     for (let my_line_num = 0; my_line_num < my_total_lines; my_line_num++) {
         const my_line = get_line(content, line_offsets, my_line_num);
 
-        // Try slash-style first
-        let my_match = my_line.match(SLASH_SECTION_PATTERN);
-        if (!my_match) {
-            // Try star-style
-            my_match = my_line.match(STAR_SECTION_PATTERN);
+        // Try slash-style first, then star-style. Each captures the comment
+        // body; the trailing delimiter is split off in code.
+        let my_name: string | null = null;
+        const my_slash = my_line.match(SLASH_SECTION_BODY_PATTERN);
+        if (my_slash) {
+            my_name = split_trailing_delimiter(my_slash[1], '-=*+', 4);
+        }
+        if (my_name === null) {
+            const my_star = my_line.match(STAR_SECTION_BODY_PATTERN);
+            if (my_star) {
+                my_name = split_trailing_delimiter(my_star[1], '-=+', 4);
+            }
         }
 
-        if (my_match) {
-            const my_name = my_match[1].trim();
+        if (my_name !== null) {
             if (is_delimiter_only(my_name)) continue;
 
             const my_line_length = my_line.length;
@@ -668,10 +754,13 @@ function detect_starred_inline_sections(
         if (consumed_lines.has(my_line_num)) continue;
 
         const my_line = get_line(content, line_offsets, my_line_num);
-        const my_match = my_line.match(STARRED_INLINE_PATTERN);
+        const my_match = my_line.match(STARRED_INLINE_BODY_PATTERN);
         if (!my_match) continue;
 
-        const my_name = my_match[2].trim();
+        // my_match[2] is the body after the opening `**`; the closing `**` is
+        // split off in code (delimiter: 2+ asterisks).
+        const my_name = split_trailing_delimiter(my_match[2], '*', 2);
+        if (my_name === null) continue;
         if (is_delimiter_only(my_name)) continue;
 
         const my_line_length = my_line.length;

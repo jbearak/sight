@@ -191,6 +191,36 @@ export function get_language_context(
 }
 
 /**
+ * Detects a Markdown link `[text](url)` in linear time.
+ *
+ * Exactly equivalent to the prior regex `/\[.+\]\(.+\)/` (which CodeQL flagged
+ * as polynomial ReDoS because of its two unbounded `.+` runs), without the
+ * backtracking: a match exists iff some line holds a `](` with a `[` at least
+ * one character earlier and a `)` at least one character later — `.` in the old
+ * regex never crossed a line terminator, so each link lives on a single line.
+ * We split on the full set of characters `.` excludes (LF, CR, LS, PS) to
+ * preserve that boundary exactly. Scanning with `indexOf`/`lastIndexOf` is O(n).
+ */
+const JS_LINE_TERMINATORS = /[\n\r\u2028\u2029]/;
+
+function contains_markdown_link(content: string): boolean {
+  for (const my_line of content.split(JS_LINE_TERMINATORS)) {
+    const my_first_bracket = my_line.indexOf('[');
+    if (my_first_bracket === -1) continue;
+    const my_last_close_paren = my_line.lastIndexOf(')');
+    if (my_last_close_paren === -1) continue;
+
+    // The `](` must sit at least one char after the first `[` (the `[...]`
+    // run) and at least one char before the last `)` (the `(...)` run).
+    const my_sep = my_line.indexOf('](', my_first_bracket + 2);
+    if (my_sep !== -1 && my_sep + 3 <= my_last_close_paren) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Detects if a comment contains Markdown syntax.
  *
  * @param content - The comment content
@@ -208,7 +238,6 @@ export function contains_markdown(content: string): boolean {
     /__[^_]+__/,         // Bold (alt)
     /\*[^\*]+\*/,        // Italic
     /_[^_]+_/,           // Italic (alt)
-    /\[.+\]\(.+\)/,      // Links
   ];
 
   for (const pattern of markdown_patterns) {
@@ -217,7 +246,8 @@ export function contains_markdown(content: string): boolean {
     }
   }
 
-  return false;
+  // Links — handled in code (see contains_markdown_link) to avoid ReDoS.
+  return contains_markdown_link(content);
 }
 
 /**
