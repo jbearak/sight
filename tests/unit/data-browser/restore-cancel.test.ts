@@ -179,10 +179,10 @@ describe('send_metadata restore', () => {
         // Sort restore completes (applies sort + permutation)...
         panel_like.compute_sort_permutation = async () =>
             new Uint32Array(10);
-        // ...then a cancel lands during the filter read: the abort sets
-        // restore_cancelled and the read rejects with AbortError.
+        // ...then a cancel lands during the filter read: the controller
+        // is aborted and the read rejects with AbortError.
         panel_like.compute_filter_indices = async () => {
-            panel_like.restore_cancelled = true;
+            panel_like.restore_abort?.abort();
             throw abort_error();
         };
 
@@ -226,7 +226,6 @@ describe('send_metadata restore', () => {
 
         await panel_like.send_metadata();
 
-        expect(panel_like.restore_cancelled).toBe(false);
         expect(panel_like.sort.keys.length).toBe(1);
         expect(panel_like.filter.entries.length).toBe(1);
         // Nothing forgotten.
@@ -268,12 +267,11 @@ describe('send_metadata restore', () => {
 
         await panel_like.send_metadata();
 
-        expect(panel_like.restore_failed).toBe(true);
-        // Natural order, but prefs are NOT forgotten.
+        // Natural order + warning, but prefs are NOT forgotten.
+        expect(warnings.length).toBe(1);
         expect(panel_like.sort.keys.length).toBe(0);
         expect(sort_set).toEqual([]);
         expect(filter_set).toEqual([]);
-        expect(warnings.length).toBe(1);
         const my_meta = posted.find(m => m.type === 'metadata');
         expect(my_meta.stored_sort).toBeUndefined();
     });
@@ -291,7 +289,6 @@ describe('handle_cancel_restore', () => {
             type: 'cancelRestore', restore_id: 4,
         });
 
-        expect(panel_like.restore_cancelled).toBe(false);
         expect(aborted).toBe(false);
     });
 
@@ -306,7 +303,6 @@ describe('handle_cancel_restore', () => {
             type: 'cancelRestore', restore_id: 7,
         });
 
-        expect(panel_like.restore_cancelled).toBe(true);
         expect(aborted).toBe(true);
     });
 
@@ -419,13 +415,17 @@ describe('late-cancel invalidation ordering (finding C-2)', () => {
     });
 });
 
-describe('stale restore flags do not leak across opens (code-review root cause)', () => {
+describe('stale restore state does not leak across opens (code-review root cause)', () => {
     it('a later send_metadata without a restore does not forget manual prefs', async () => {
         const { panel_like, sort_set, filter_set } =
             await make_restore_panel({ stored_sort: STORED_SORT });
-        // Simulate: a prior open was cancelled, then the user manually
-        // applied a sort, then the webview re-sends 'ready'.
-        panel_like.restore_cancelled = true;
+        // Simulate: a prior restore was cancelled (its aborted
+        // controller lingers), the user then manually applied a sort,
+        // and the webview re-sends 'ready'. The new send_metadata begins
+        // no restore (already restored), so it must read no cancel.
+        const my_stale = new AbortController();
+        my_stale.abort();
+        panel_like.restore_abort = my_stale;
         panel_like.sort_restored = true;
         panel_like.filter_restored = true;
         panel_like.sort = STORED_SORT;
@@ -437,6 +437,5 @@ describe('stale restore flags do not leak across opens (code-review root cause)'
         expect(panel_like.sort.keys.length).toBe(1);
         expect(sort_set).toEqual([]);
         expect(filter_set).toEqual([]);
-        expect(panel_like.restore_cancelled).toBe(false);
     });
 });

@@ -125,18 +125,16 @@ export class DataBrowserPanel implements vscode.Disposable {
     private filter: FilterState = EMPTY_FILTER;
     private filtered_indices: Uint32Array | null = null;
     private filter_restored = false;
-    // Saved-preference restore on open: aborts the column reads when the
-    // user cancels; `restore_id` (the generation at restore start) keys
-    // the restorePending/cancelRestore handshake so a stale or late
-    // cancel from a prior lifecycle is ignored. `restoring` gates the
-    // in-flight vs. already-completed cancel paths; `restore_cancelled`
-    // tells send_metadata to forget + show natural order;
-    // `restore_failed` records a non-abort read failure (notice + keep
-    // prefs). `restore_id === -1` means "no cancellable restore".
+    // Saved-preference restore on open. Cancellation is carried by the
+    // AbortController's signal (captured locally per send_metadata call),
+    // not a shared boolean, so a concurrent send_metadata can't erase an
+    // in-flight cancel. `restore_id` (the generation at restore start)
+    // keys the restorePending/cancelRestore handshake so a stale or late
+    // cancel is ignored; `restore_id === -1` means "no cancellable
+    // restore". `restoring` gates the in-flight vs. already-completed
+    // cancel paths.
     private restore_abort: AbortController | null = null;
-    private restore_cancelled = false;
     private restoring = false;
-    private restore_failed = false;
     private restore_id = -1;
     // The filter survivor set composed with the sort permutation: the
     // single effective permutation handed to the reader. Recomputed
@@ -224,9 +222,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         // Reset the saved-preference restore handshake; a fresh restore
         // begins (if applicable) when initialize() re-sends metadata.
         this.restore_abort = null;
-        this.restore_cancelled = false;
         this.restoring = false;
-        this.restore_failed = false;
         this.restore_id = -1;
 
         // Clean up the old temp file on Windows before
@@ -351,15 +347,6 @@ export class DataBrowserPanel implements vscode.Disposable {
     private async send_metadata(): Promise<void> {
         if (!this.dta_file) return;
 
-        // Per-attempt restore flags. Reset here (not only in
-        // maybe_begin_restore, which is skipped when no restore begins)
-        // so a cancel/failure from an earlier open can't leak into a
-        // later send_metadata — e.g. a webview reload that re-sends
-        // 'ready' must not run apply_cancel_forget against a sort the
-        // user applied manually in the meantime.
-        this.restore_cancelled = false;
-        this.restore_failed = false;
-
         try {
             const my_missing_style =
                 vscode.workspace
@@ -412,22 +399,28 @@ export class DataBrowserPanel implements vscode.Disposable {
             // the finally only cleans up its own restore, not one a
             // concurrent refresh may have started.
             const my_began = this.maybe_begin_restore(my_schema_hash);
-            const my_abort = this.restore_abort;
+            // Cancellation is read from this restore's own AbortSignal
+            // (null when no restore began), so a concurrent send_metadata
+            // reassigning this.restore_abort can't change what THIS call
+            // sees. `my_failed` aggregates non-abort read failures from
+            // the restore helpers (returned, not stored on the instance).
+            const my_abort = my_began ? this.restore_abort : null;
+            const is_cancelled = () => my_abort?.signal.aborted === true;
             try {
                 const my_signal = my_abort?.signal;
-                await this.maybe_restore_sort(
+                let my_failed = await this.maybe_restore_sort(
                     my_schema_hash, my_signal
                 );
                 if (!this.dta_file) return;
                 // A cancel during the sort read must not kick off a long
                 // filter read; skip it and fall through to forget.
-                if (!this.restore_cancelled) {
-                    await this.maybe_restore_filter(
+                if (!is_cancelled()) {
+                    my_failed = await this.maybe_restore_filter(
                         my_schema_hash, my_signal
-                    );
+                    ) || my_failed;
                     if (!this.dta_file) return;
                 }
-                if (this.restore_cancelled) {
+                if (is_cancelled()) {
                     // Undo any sort that completed before the cancel
                     // landed (memory only here), so chips and effective
                     // order agree on "natural" before metadata is posted.
@@ -440,10 +433,10 @@ export class DataBrowserPanel implements vscode.Disposable {
                 // A restored filter changes the visible row count; the
                 // webview learns the effective count from filterApplied
                 // (metadata.nobs stays the full dataset size).
-                if (!this.restore_cancelled && this.filtered_indices) {
+                if (!is_cancelled() && this.filtered_indices) {
                     this.post_filter_applied();
                 }
-                if (this.restore_failed) {
+                if (my_failed) {
                     vscode.window.showWarningMessage(
                         'Could not reapply the saved sort/filter for '
                         + 'this dataset; showing it unsorted and '
@@ -453,7 +446,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 // Persist the "forget" only after metadata is posted, so
                 // a store-write failure cannot strand the webview waiting
                 // on a metadata it never receives.
-                if (this.restore_cancelled) {
+                if (is_cancelled()) {
                     await this.forget_persisted_prefs(my_schema_hash);
                 }
             } finally {
@@ -544,8 +537,8 @@ export class DataBrowserPanel implements vscode.Disposable {
             && this.has_applicable_stored_filter(schema_hash_value);
         if (!my_has_sort && !my_has_filter) return false;
 
-        // restore_cancelled / restore_failed are reset at the top of
-        // send_metadata, which is this method's only caller.
+        // A fresh controller per restore; cancellation is read from its
+        // signal, so there is no shared boolean to reset.
         this.restore_abort = new AbortController();
         this.restore_id = this.generation;
         this.restoring = true;
@@ -639,7 +632,8 @@ export class DataBrowserPanel implements vscode.Disposable {
     ): Promise<void> {
         if (msg.restore_id !== this.restore_id) return;
         if (this.restoring) {
-            this.restore_cancelled = true;
+            // Abort the in-flight reads; send_metadata reads the same
+            // signal and takes its cancelled path (forget + natural).
             this.restore_abort?.abort();
             return;
         }
@@ -789,20 +783,22 @@ export class DataBrowserPanel implements vscode.Disposable {
      * On first metadata for a dataset, restore any persisted sort for
      * this dataset_key × schema_hash and recompute its permutation.
      * No-op on later metadata re-sends (the in-memory sort wins).
+     * Returns true iff a genuine (non-abort) read failure occurred, so
+     * the caller can warn and keep the saved pref.
      */
     private async maybe_restore_sort(
         schema_hash_value: string,
         signal?: AbortSignal
-    ): Promise<void> {
-        if (this.sort_restored) return;
+    ): Promise<boolean> {
+        if (this.sort_restored) return false;
         this.sort_restored = true;
-        if (!this.dta_file || !this.persist_sort_enabled()) return;
+        if (!this.dta_file || !this.persist_sort_enabled()) return false;
 
         const my_stored = this.sort_state_store.get(
             this.dataset_key,
             schema_hash_value
         );
-        if (!my_stored) return;
+        if (!my_stored) return false;
 
         const my_generation = this.generation;
         let my_permutation: Uint32Array | null = null;
@@ -812,19 +808,17 @@ export class DataBrowserPanel implements vscode.Disposable {
                     my_stored, signal
                 );
         } catch (my_err) {
-            // A user cancel aborts the read; leave natural order
-            // silently. A genuine read failure is recorded so the
+            // A user cancel aborts the read → natural order, silent. A
+            // genuine read failure → natural order, but report so the
             // caller can warn and keep the saved pref for next time.
-            if (!is_abort_error(my_err)) {
-                this.restore_failed = true;
-            }
-            return;
+            return !is_abort_error(my_err);
         }
-        if (my_generation !== this.generation) return;
+        if (my_generation !== this.generation) return false;
         if (my_permutation) {
             this.sort = my_stored;
             this.permutation = my_permutation;
         }
+        return false;
     }
 
     /**
@@ -1013,16 +1007,18 @@ export class DataBrowserPanel implements vscode.Disposable {
     private async maybe_restore_filter(
         schema_hash_value: string,
         signal?: AbortSignal
-    ): Promise<void> {
-        if (this.filter_restored) return;
+    ): Promise<boolean> {
+        if (this.filter_restored) return false;
         this.filter_restored = true;
-        if (!this.dta_file || !this.persist_filters_enabled()) return;
+        if (!this.dta_file || !this.persist_filters_enabled()) {
+            return false;
+        }
 
         const my_stored = this.filter_state_store.get(
             this.dataset_key,
             schema_hash_value
         );
-        if (!my_stored) return;
+        if (!my_stored) return false;
 
         // The persistence key folds in column name + type but not the
         // display format, so a column re-saved with a different
@@ -1039,7 +1035,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                     my_var
                 );
         });
-        if (the_kept_entries.length === 0) return;
+        if (the_kept_entries.length === 0) return false;
         const my_filter: FilterState = {
             entries: the_kept_entries,
             labels_on_when_filtered: my_stored.labels_on_when_filtered,
@@ -1053,16 +1049,14 @@ export class DataBrowserPanel implements vscode.Disposable {
             );
         } catch (my_err) {
             // Cancel → natural order silently; genuine failure →
-            // natural order, record so the caller can warn and keep
+            // natural order, reported so the caller can warn and keep
             // the saved filter. Either way, don't restore the chips.
-            if (!is_abort_error(my_err)) {
-                this.restore_failed = true;
-            }
-            return;
+            return !is_abort_error(my_err);
         }
-        if (my_generation !== this.generation) return;
+        if (my_generation !== this.generation) return false;
         this.filter = my_filter;
         this.filtered_indices = my_indices;
+        return false;
     }
 
     /**
