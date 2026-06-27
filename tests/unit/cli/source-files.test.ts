@@ -164,13 +164,13 @@ describe('sight check source files', () => {
 });
 
 /**
- * `sight check` analyzes each discovered file, and analysis is keyed by path
- * (the dependency graph keys callee edges by the resolved real path; the
- * workspace index holds real files only). Analyzing a symlink-alias URI would
- * miss its parents / be reported as un-indexed, so this walk — like the
- * persistent indexer — follows neither symlinked directories nor symlinked
- * files (issue #219). In-workspace symlink targets are covered via their real
- * path; symlink-following lives in the non-analyzing consumers.
+ * `sight check` analyzes each discovered file under its own URI, and the
+ * workspace index holds real files only. Opening a symlink-alias URI the index
+ * never indexed gives unreliable cross-file scope and (past the index cap) a
+ * spurious "file not indexed", so this walk — like the persistent indexer —
+ * follows neither symlinked directories nor symlinked files (issue #219).
+ * In-workspace symlink targets are covered via their real path;
+ * symlink-following lives in the non-analyzing consumers.
  */
 function try_symlink(target: string, link_path: string): boolean {
     try {

@@ -140,17 +140,20 @@ Two realizations shape the policy:
    real location already covers those files; if *outside*, that is precisely
    the escape hazard. So no walk descends symlinked directories.
 2. **Anything that ANALYZES files cannot safely follow symlinked files,
-   because analysis is keyed by path.** The persistent index keys entries by
-   `URI.file(file_path)` and `onDidChangeWatchedFiles` re-indexes/removes only
-   the *changed event path*, so an `alias.do -> real.do` entry would go stale
-   when `real.do` is edited (watcher fires for `real.do`, not the alias —
-   Codex round-7). `sight check` opens each target under `URI.file(target.path)`
-   and resolves backward scope via `dependency_graph.get_parents(uri)`, whose
-   callee edges are keyed by the **resolved real path**; it also gates on
-   `has_indexed_file(uri)` (real files only). Analyzing a symlink-alias URI
-   would therefore miss its parents (false undefined-symbol diagnostics) and,
-   past the index cap, be reported `SIGHT_FILE_NOT_INDEXED` (Codex round-9). So
-   the analyzing consumers process **real files only**.
+   because the index holds real files only and is keyed by path.** The
+   persistent index keys entries by `URI.file(file_path)` and
+   `onDidChangeWatchedFiles` re-indexes/removes only the *changed event path*,
+   so an `alias.do -> real.do` entry would go stale when `real.do` is edited
+   (watcher fires for `real.do`, not the alias — Codex round-7). `sight check`
+   opens each target under `URI.file(target.path)` and gates on
+   `has_indexed_file(uri)` (real files only); analyzing a symlink-alias URI the
+   index never indexed yields unreliable cross-file scope and, past the index
+   cap, a spurious `SIGHT_FILE_NOT_INDEXED` (Codex round-9). So the analyzing
+   consumers process **real files only**. (Separately and pre-existing: a
+   `do`/`include` that names a child *through* a symlink path keys its
+   dependency-graph edge by the alias path that `resolve_forward_call_rich`
+   returns, not the realpath — a cross-file-resolution matter independent of
+   these directory walks and out of scope for #219.)
 
 So:
 

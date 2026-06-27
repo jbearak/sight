@@ -3,8 +3,9 @@
  * symlinked files (issue #219): it keys entries by path and the file watcher
  * invalidates by the changed event path, so an alias entry could not be kept
  * fresh when its real target changes. In-workspace targets are covered via
- * their real path; symlink-following lives in the one-shot consumers (path
- * completion, `sight check`, the on-demand `.sthlp` lookup). These tests pin
+ * their real path; symlink-following lives in the listing/lookup consumers
+ * (path completion, the on-demand `.sthlp` lookup), not the analyzing ones
+ * (the index and `sight check` both follow real files only). These tests pin
  * the indexer side: a symlinked source file is NOT added to the index, a
  * symlinked directory is never recursed (so cycles terminate trivially and an
  * external target is not crawled), and real files are unaffected.

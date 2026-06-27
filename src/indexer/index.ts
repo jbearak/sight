@@ -330,9 +330,9 @@ export class WorkspaceIndexer {
                 // and the watcher invalidates by the changed path, so
                 // an alias entry could not be kept fresh when its
                 // target changes. In-workspace targets are covered via
-                // the real path; one-shot consumers follow symlinked
-                // files (completion, `sight check`, .sthlp lookup),
-                // where no staleness can arise.
+                // the real path; symlink-following lives in the
+                // listing/lookup consumers (path completion, the .sthlp
+                // lookup), which keep no path-keyed analysis state.
                 if (entry.isDirectory()) {
                     // Skip version-control metadata directories. They hold no
                     // Stata source, can be very large, and recursing them is
