@@ -68,9 +68,15 @@ import type {
 } from './types.js';
 import { EMPTY_SORT, EMPTY_FILTER } from './types.js';
 
-/** A read aborted via AbortSignal (vs. a genuine read failure). */
+/**
+ * A read aborted via AbortSignal (vs. a genuine read failure). Matches on
+ * `name` rather than `instanceof Error` because the abort is thrown as a
+ * `DOMException`, which is not an `Error` subclass on every runtime.
+ */
 function is_abort_error(err: unknown): boolean {
-    return err instanceof Error && err.name === 'AbortError';
+    return typeof err === 'object'
+        && err !== null
+        && (err as { name?: unknown }).name === 'AbortError';
 }
 
 /** %tc / %tC store milliseconds since 1960; other date formats store

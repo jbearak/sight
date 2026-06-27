@@ -25,10 +25,10 @@ import {
     type FilterState,
 } from '../../../client/src/data-browser/types';
 
-function abort_error(): Error {
-    const my_err = new Error('The read was aborted');
-    my_err.name = 'AbortError';
-    return my_err;
+// Mirror what dta-parser actually throws on abort (a DOMException, not a
+// plain Error) so the tests exercise is_abort_error's real input type.
+function abort_error(): unknown {
+    return new DOMException('The read was aborted', 'AbortError');
 }
 
 interface RestoreHarness {
