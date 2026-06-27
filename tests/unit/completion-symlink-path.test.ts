@@ -71,7 +71,7 @@ describe('path completion offers symlinked entries (#219)', () => {
             line: 0,
             character: content.length,
         });
-        const labels = completions.map((c) => c.label);
+        const labels = completions.map((my_completion) => my_completion.label);
 
         // Symlinked directory offered with trailing slash.
         expect(labels).toContain('linkdir/');
@@ -93,7 +93,10 @@ describe('path completion offers symlinked entries (#219)', () => {
                 line: 0,
                 character: content.length,
             });
-            expect(completions.map((c) => c.label)).toContain('extlink/');
+            const labels = completions.map(
+                (my_completion) => my_completion.label,
+            );
+            expect(labels).toContain('extlink/');
         } finally {
             fs.rmSync(external, { recursive: true, force: true });
         }
@@ -113,7 +116,7 @@ describe('path completion offers symlinked entries (#219)', () => {
             line: 0,
             character: content.length,
         });
-        const labels = completions.map((c) => c.label);
+        const labels = completions.map((my_completion) => my_completion.label);
         expect(labels).toContain('real.do');
         expect(labels).not.toContain('broken.do');
     });

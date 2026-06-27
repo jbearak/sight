@@ -117,7 +117,7 @@ describe('indexer follows symlinks safely (#219)', () => {
             URI.file(path.join(real_dir, 'inner.do')).toString(),
         );
         const inner_count = indexed.filter(
-            (u) => u.endsWith('/inner.do'),
+            (my_uri) => my_uri.endsWith('/inner.do'),
         ).length;
         expect(inner_count).toBe(1); // not double-indexed via the symlink
     });
@@ -135,7 +135,7 @@ describe('indexer follows symlinks safely (#219)', () => {
             URI.file(path.join(tmp_dir, 'main.do')).toString(),
         );
         const main_count = indexed.filter(
-            (u) => u.endsWith('/main.do'),
+            (my_uri) => my_uri.endsWith('/main.do'),
         ).length;
         expect(main_count).toBe(1);
     });
@@ -157,7 +157,7 @@ describe('indexer follows symlinks safely (#219)', () => {
             );
             // The external target must NOT be crawled (under any path).
             const outside_count = indexed.filter(
-                (u) => u.endsWith('/outside.do'),
+                (my_uri) => my_uri.endsWith('/outside.do'),
             ).length;
             expect(outside_count).toBe(0);
         } finally {

@@ -192,7 +192,7 @@ describe('sight check analyzes real files only, not symlinks (#219)', () => {
         if (!try_symlink(real, path.join(root, 'aliased.do'))) return;
 
         const result = collect_report_targets([], root, root);
-        const rels = result.targets.map((t) => t.relative_path);
+        const rels = result.targets.map((my_target) => my_target.relative_path);
         expect(rels).toContain('real.do');
         expect(rels).not.toContain('aliased.do');
     });
@@ -207,7 +207,8 @@ describe('sight check analyzes real files only, not symlinks (#219)', () => {
         if (!try_symlink(target, path.join(root, 'lib.do'))) return;
 
         const result = collect_report_targets([], root, root);
-        expect(result.targets.map((t) => t.relative_path)).not.toContain('lib.do');
+        const rels = result.targets.map((my_target) => my_target.relative_path);
+        expect(rels).not.toContain('lib.do');
     });
 
     it('does not discover a symlinked non-source file', () => {
@@ -218,9 +219,9 @@ describe('sight check analyzes real files only, not symlinks (#219)', () => {
         fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
 
         const result = collect_report_targets([], root, root);
-        const rels = result.targets.map((t) => t.relative_path);
+        const rels = result.targets.map((my_target) => my_target.relative_path);
         expect(rels).toContain('main.do');
-        expect(rels.some((r) => r.endsWith('.txt'))).toBe(false);
+        expect(rels.some((my_rel) => my_rel.endsWith('.txt'))).toBe(false);
     });
 
     it('discovers a symlinked-dir target via its real in-workspace location', () => {
@@ -233,8 +234,8 @@ describe('sight check analyzes real files only, not symlinks (#219)', () => {
         const result = collect_report_targets([], root, root);
         // linkdir is not descended; realdir/inner.do is found by the direct
         // scan — discovered exactly once, under its real path.
-        const inner = result.targets.filter((t) =>
-            t.relative_path.endsWith('inner.do'),
+        const inner = result.targets.filter((my_target) =>
+            my_target.relative_path.endsWith('inner.do'),
         );
         expect(inner).toHaveLength(1);
         expect(inner[0]!.relative_path).toBe('realdir/inner.do');
@@ -250,8 +251,8 @@ describe('sight check analyzes real files only, not symlinks (#219)', () => {
 
         // Completes (loop not descended); main.do discovered exactly once.
         const result = collect_report_targets([], root, root);
-        const mains = result.targets.filter((t) =>
-            t.relative_path.endsWith('main.do'),
+        const mains = result.targets.filter((my_target) =>
+            my_target.relative_path.endsWith('main.do'),
         );
         expect(mains).toHaveLength(1);
     });
@@ -264,8 +265,9 @@ describe('sight check analyzes real files only, not symlinks (#219)', () => {
         if (!try_symlink(external, path.join(root, 'external_link'))) return;
 
         const result = collect_report_targets([], root, root);
-        const rels = result.targets.map((t) => t.relative_path);
+        const rels = result.targets.map((my_target) => my_target.relative_path);
         expect(rels).toContain('inside.do');
-        expect(rels.some((r) => r.endsWith('outside.do'))).toBe(false);
+        expect(rels.some((my_rel) => my_rel.endsWith('outside.do')))
+            .toBe(false);
     });
 });
