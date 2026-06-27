@@ -849,7 +849,6 @@ export type EffectiveCallType = 'do' | 'include';
 
 export interface ForwardCallDirective {
   type: ForwardCallType;
-  path: string;           // Resolved absolute path
   raw_path: string;       // Original path from directive
   call_site_line: number; // Line where directive appears (0-indexed)
   call_site?: CallSite;   // Optional call site specification (line=N or match="string")
@@ -858,7 +857,6 @@ export interface ForwardCallDirective {
 
 export interface ForwardCall {
   type: ForwardCallType;
-  path: string;           // Resolved absolute path (or empty if macro)
   raw_path: string;       // Original path from command/directive
   call_site_line: number; // Line where call occurs (0-indexed)
   range: Range;

@@ -7,7 +7,6 @@
 
 import { describe, test, expect } from 'bun:test';
 import * as fc from 'fast-check';
-import * as path from 'path';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { DirectiveParser } from '../../src/directive-parser';
@@ -43,12 +42,12 @@ describe('Working Directory Integration Property Tests', () => {
                     async (my_filename, my_type) => {
                         const forward_calls: ForwardCall[] = [{
                             type: my_type,
-                            path: `/nonexistent/${my_filename}`,
                             raw_path: my_filename,
                             call_site_line: 0,
                             range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
                             source: 'command',
                             is_static: true,
+                            caller_uri: 'file:///test/script.do',
                         }];
 
                         const result = await forward_resolver.resolve(
@@ -161,8 +160,10 @@ describe('Working Directory Integration Property Tests', () => {
                         expect(result.forward_calls!.length).toBe(1);
                         const forward_call = result.forward_calls![0];
                         expect(forward_call.type).toBe('do');
-                        // Path should be resolved relative to script_dir, not working_dir
-                        expect(forward_call.path.startsWith(script_dir)).toBe(true);
+                        // The directive parser records raw_path verbatim and
+                        // does NOT fold in the working directory; resolution
+                        // (script-relative for @lsp-do) is the consumer's job.
+                        expect(forward_call.raw_path).toBe(callee_file);
                     }
                 ),
                 { numRuns: 100 }

@@ -786,7 +786,6 @@ describe(
                 const forward_calls = [];
                 for (let i = 0; i < 20; i++) {
                     forward_calls.push({
-                        path: `/path/to/file_${i}.do`,
                         call_site_line: i,
                         call_type: 'do' as const,
                         is_static: true,
@@ -874,7 +873,6 @@ describe(
                                 i++
                             ) {
                                 forward_calls.push({
-                                    path: `/path/file_${i}.do`,
                                     call_site_line: i,
                                     call_type:
                                         'do' as const,

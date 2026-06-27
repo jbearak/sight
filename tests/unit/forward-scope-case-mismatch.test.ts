@@ -159,7 +159,6 @@ describe('ForwardScopeResolver — case-only path mismatch', () => {
                 const the_forward_calls = [
                     {
                         type: 'do' as const,
-                        path: wrong_cased,
                         raw_path: 'helpers/clean',
                         call_site_line: 0,
                         range: {
@@ -283,7 +282,6 @@ describe('ForwardScopeResolver — case-only path mismatch', () => {
                 const the_gp_calls = [
                     {
                         type: 'do' as const,
-                        path: wrong_cased,
                         raw_path: 'helpers/clean',
                         call_site_line: 0,
                         range: {
@@ -338,7 +336,6 @@ describe('ForwardScopeResolver — case-only path mismatch', () => {
                     const the_parent_calls = [
                         {
                             type: 'do' as const,
-                            path: gp_path,
                             raw_path: gp_path,
                             call_site_line: 0,
                             range: {
@@ -416,7 +413,6 @@ describe('ForwardScopeResolver — case-only path mismatch', () => {
                 const the_forward_calls = [
                     {
                         type: 'do' as const,
-                        path: wrong_cased,
                         raw_path: 'helpers/clean',
                         call_site_line: 0,
                         range: {

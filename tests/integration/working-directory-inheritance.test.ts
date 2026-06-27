@@ -148,10 +148,16 @@ do "data/load_data.do"
 
             expect(load_data_call).toBeDefined();
 
-            // The resolved path should be relative to test_dir (inherited working directory)
-            // not relative to scripts/dhs/ (survey.do's location)
-            const expected_path = path.join(test_dir, 'data', 'load_data.do');
-            expect(load_data_call!.path).toBe(expected_path);
+            // survey.do inherits loop.do's @lsp-cd ("../" from scripts/ =>
+            // test_dir), so the forward call carries that working directory
+            // as resolution context. Consumers resolve the callee from
+            // raw_path + this working_directory; the forward call no longer
+            // stores a pre-resolved path. (The inherited WD keeps a trailing
+            // separator from the "../" directive, which is harmless for the
+            // join, so compare with it stripped.)
+            const my_inherited_wd =
+                load_data_call!.working_directory?.replace(/[/\\]$/, '');
+            expect(my_inherited_wd).toBe(test_dir);
         });
 
         it('should use child own working directory when present', async () => {

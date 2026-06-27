@@ -14,6 +14,7 @@ import {
     VariableSymbol,
     IndexerMetrics,
     StataLSPConfig,
+    ScopeResolverConfig,
     Directive,
     ScalarSymbol,
     MatrixSymbol,
@@ -31,7 +32,11 @@ import {
     merge_symbol_tables
 } from '../analyzer';
 import { DirectiveParser } from '../directive-parser';
-import { ScopeResolver, build_scope_resolver_config } from '../scope-resolver';
+import {
+    ScopeResolver,
+    build_scope_resolver_config,
+    scope_resolver_config_for,
+} from '../scope-resolver';
 import { ContextTracker } from '../context-tracker';
 import { logger } from '../utils/logger';
 import { is_safe_include_name } from '../utils/include-expander';
@@ -116,12 +121,30 @@ export class WorkspaceIndexer {
     private is_processing_queue = false;
     private on_graph_change_callback?: (changed_callees: Set<string>) => void;
     private workspace_roots: string[] = [];
+    // Optional ScopeResolver used during indexing to resolve a file's
+    // INHERITED working directory (#218). When unset, indexing stamps
+    // only the file's own @lsp-cd / @lsp-wd directive.
+    private scope_resolver?: ScopeResolver;
+    // Cross-file resolver config (depth limits etc.) derived from the
+    // workspace settings, so the indexer's inherited-WD walk uses the
+    // same limits as open-document resolution (#218).
+    private scope_resolver_config: Partial<ScopeResolverConfig> = {};
 
     /**
      * Set the dependency graph for auto backward dependency discovery.
      */
     set_dependency_graph(graph: DependencyGraph): void {
         this.dependency_graph = graph;
+    }
+
+    /**
+     * Provide a ScopeResolver so indexing can resolve inherited working
+     * directories (#218), making indexed and open-document dependency-graph
+     * callee keys agree for WD-dependent files. Optional: when unset,
+     * indexing stamps own-directive WD only (best-effort).
+     */
+    set_scope_resolver(resolver: ScopeResolver): void {
+        this.scope_resolver = resolver;
     }
 
     /**
@@ -516,32 +539,41 @@ export class WorkspaceIndexer {
                 parseResult.ast,
                 file_uri,
                 undefined,
-                { workspace_root }
             );
 
-            // Resolve effective working directory from @lsp-cd / @lsp-wd
-            // directive via the shared helper so the value is identical to
-            // what DocumentStore stamps — required for dependency-graph edge
-            // keys to be stable across both producers.
+            // Resolve effective working directory: own @lsp-cd / @lsp-wd
+            // directive first (via the shared helper, so the value
+            // matches what DocumentStore stamps), then — when there is no
+            // own directive — the WD inherited from backward-directive
+            // parents.
             //
-            // NOTE (inherited WD): DocumentStore can also inherit a working
-            // directory from parent files via ScopeResolver when the current
-            // file has no own @lsp-cd directive. The indexer does not perform
-            // that lookup because ScopeResolver itself calls the indexer
-            // (via file-parse cache) and a recursive call during bulk
-            // indexing would create re-entrant, unbounded recursion. Files
-            // that rely on inherited working-directory resolution will have
-            // their ForwardCall.working_directory set to undefined here; the
-            // dependency graph will fall back to caller-relative path
-            // resolution for those calls, which is the same behaviour as
-            // before the shared-helper alignment.
-            const effective_working_directory: string | undefined =
+            // The inherited lookup (#218) reuses ScopeResolver's WD walk,
+            // which reads parents via the resolver's own file_cache / disk
+            // and never re-enters the indexer's index_file, so it is safe
+            // to call during a bulk scan. When no ScopeResolver is wired,
+            // inherited WD is skipped and the edge stays own-WD-only.
+            const own_working_directory: string | undefined =
                 directive_result.working_directory
                     ? resolve_working_directory_directive(
                           directive_result.working_directory,
                           workspace_root,
                       )
                     : undefined;
+
+            let effective_working_directory = own_working_directory;
+            if (own_working_directory === undefined && this.scope_resolver) {
+                // Pass the active cross-file resolver config (depth
+                // limits) so the inherited WD matches what DocumentStore
+                // computes under non-default settings. The helper filters
+                // to backward directives itself.
+                effective_working_directory =
+                    await this.scope_resolver
+                        .resolve_inherited_working_directory(
+                            directive_result.directives,
+                            file_uri,
+                            this.scope_resolver_config,
+                        );
+            }
 
             // Stamp caller_uri and working_directory onto command-detected
             // forward calls produced by the analyzer.  The analyzer already
@@ -570,7 +602,6 @@ export class WorkspaceIndexer {
             if (directive_result.forward_calls && directive_result.forward_calls.length > 0) {
                 const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
                     type: d.type,
-                    path: d.path,
                     raw_path: d.raw_path,
                     call_site_line: d.call_site_line,
                     range: d.range,
@@ -793,6 +824,11 @@ export class WorkspaceIndexer {
      * Configure the indexer with LSP settings.
      */
     configure(config: Partial<StataLSPConfig>): void {
+        // Capture cross-file resolver depth limits so the inherited-WD
+        // walk during indexing uses the same config as open-document
+        // resolution.
+        this.scope_resolver_config = scope_resolver_config_for(config);
+
         const threshold = config?.indexing?.maxFileSizeBytes;
         if (typeof threshold === 'number' && threshold > 0) {
             this.size_threshold_bytes = threshold;

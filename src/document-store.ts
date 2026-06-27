@@ -730,7 +730,6 @@ export class DocumentStore {
         workspace_symbols,
         {
           working_directory: resolved_working_directory,
-          workspace_root: this.get_workspace_root_for_uri(uri),
         },
         lex_result.result!.tokens
       )
@@ -794,7 +793,6 @@ export class DocumentStore {
       const directive_result = directive_parser.parse_forward_call_directives(content, uri);
       const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
         type: d.type,
-        path: d.path,
         raw_path: d.raw_path,
         call_site_line: d.call_site_line,
         range: d.range,

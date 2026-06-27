@@ -1,7 +1,4 @@
 import { Range } from 'vscode-languageserver-textdocument';
-import { URI } from 'vscode-uri';
-import * as path from 'path';
-import * as fs from 'fs';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import {
     format_undefined_macro_message,
@@ -71,10 +68,10 @@ export interface AnalyzerConfig {
     declared_matrices: Map<string, { line: number }>;
     declared_programs: Map<string, { line: number }>;
     // Working directory for resolving paths in do/run/include commands
-    // (from @lsp-working-directory directive)
+    // (from @lsp-working-directory directive). Still stamped onto each
+    // ForwardCall as resolution context; the analyzer no longer resolves
+    // paths itself (see detect_forward_call).
     working_directory?: string;
-    // Workspace root for fallback path resolution
-    workspace_root?: string;
 }
 
 /**
@@ -1175,22 +1172,14 @@ export class SemanticAnalyzer {
         }
         
         const call_type: 'do' | 'run' | 'include' = is_do ? 'do' : is_run ? 'run' : 'include';
-        
-        // Resolve path using working directory context or fallback strategy
-        let resolved_path = '';
-        if (!has_macro) {
-            const containing_dir = path.dirname(URI.parse(this.uri).fsPath);
-            resolved_path = this.resolve_forward_call_path(
-                raw_path,
-                containing_dir,
-                this.config.working_directory,
-                this.config.workspace_root
-            );
-        }
-        
+
+        // No path resolution here: consumers (dependency graph,
+        // scope-resolver reverse deps, forward-scope-resolver) resolve the
+        // callee from raw_path + caller dir + working_directory via the
+        // shared case-aware resolve_forward_call_rich. We only record the
+        // raw path and resolution context.
         this.forward_calls.push({
             type: call_type,
-            path: resolved_path,
             raw_path: raw_path,
             call_site_line: node.range.start.line,
             range: node.range,
@@ -1199,98 +1188,6 @@ export class SemanticAnalyzer {
             caller_uri: this.uri,
             working_directory: this.config.working_directory,
         });
-    }
-    
-    /**
-     * Resolve a forward call path using working directory context or fallback strategy.
-     * 
-     * Resolution order:
-     * 1. If working_directory is set, resolve relative to it
-     * 2. Otherwise, try script-relative first
-     * 3. If not found, try workspace-root-relative
-     * 4. Return script-relative path if neither exists
-     */
-    private resolve_forward_call_path(
-        raw_path: string,
-        script_dir: string,
-        working_dir: string | undefined,
-        workspace_root: string | undefined
-    ): string {
-        // Normalize path separators
-        const normalized = raw_path.replace(/\\/g, '/');
-        
-        // If absolute path, just normalize and return
-        if (path.isAbsolute(normalized) || /^[a-zA-Z]:\//.test(normalized)) {
-            return this.resolve_with_do_fallback(path.normalize(normalized));
-        }
-        
-        // If working directory is set, resolve relative to it
-        if (working_dir) {
-            const resolved = path.normalize(path.join(working_dir, normalized));
-            return this.resolve_with_do_fallback(resolved);
-        }
-        
-        // Fallback strategy: try script-relative first
-        const script_relative = path.normalize(path.join(script_dir, normalized));
-        const script_resolved = this.resolve_with_do_fallback(script_relative);
-        
-        // If file exists at script-relative path, use it
-        if (fs.existsSync(script_resolved)) {
-            return script_resolved;
-        }
-        
-        // Try workspace-root-relative if workspace_root is set
-        if (workspace_root) {
-            const workspace_relative = path.normalize(path.join(workspace_root, normalized));
-            const workspace_resolved = this.resolve_with_do_fallback(workspace_relative);
-            
-            if (fs.existsSync(workspace_resolved)) {
-                return workspace_resolved;
-            }
-        }
-        
-        // Return script-relative path (diagnostic will be emitted elsewhere)
-        return script_resolved;
-    }
-    
-    /**
-     * Try to resolve a path, appending .do if the exact path doesn't exist.
-     */
-    private resolve_with_do_fallback(resolved_path: string): string {
-        // If exact path exists, return it
-        if (fs.existsSync(resolved_path)) {
-            return resolved_path;
-        }
-        
-        // If path doesn't end in .do, try appending .do
-        if (!resolved_path.endsWith('.do')) {
-            const with_do = resolved_path + '.do';
-            if (fs.existsSync(with_do)) {
-                return with_do;
-            }
-        }
-        
-        // Return original resolved path
-        return resolved_path;
-    }
-    
-    /**
-     * Resolve a path relative to the containing file's directory with .do fallback.
-     * @deprecated Use resolve_forward_call_path for forward calls
-     */
-    private resolve_path_with_fallback(raw_path: string, containing_dir: string): string {
-        // Normalize path separators
-        const normalized = raw_path.replace(/\\/g, '/');
-        
-        // Resolve relative to containing directory
-        let resolved: string;
-        if (path.isAbsolute(normalized) || /^[a-zA-Z]:\//.test(normalized)) {
-            resolved = path.normalize(normalized);
-        } else {
-            resolved = path.normalize(path.join(containing_dir, normalized));
-        }
-        
-        return this.resolve_with_do_fallback(resolved);
     }
 
     /**

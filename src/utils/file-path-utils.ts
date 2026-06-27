@@ -61,30 +61,6 @@ export function hasStataExtension(filename: string): boolean {
   return STATA_FILE_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
-/**
- * Resolve file path with .do fallback
- * Returns the path that exists, trying original path first, then with .do extension
- */
-export function resolvePathWithDoFallback(
-  fs_path: string,
-  fs: { existsSync: (path: string) => boolean },
-): string | null {
-  // Try original path first
-  if (fs.existsSync(fs_path)) {
-    return fs_path;
-  }
-
-  // Try .do fallback if original path doesn't end in .do
-  if (!fs_path.endsWith('.do')) {
-    const fallback_path = fs_path + '.do';
-    if (fs.existsSync(fallback_path)) {
-      return fallback_path;
-    }
-  }
-
-  return null;
-}
-
 // ─── Rich path resolver ───────────────────────────────────────────────────────
 
 /**
@@ -569,6 +545,33 @@ function find_strict_containing_root(
         }
     }
     return best_root;
+}
+
+/**
+ * True when a forward call is a static call worth resolving into a
+ * callee edge: not macro-interpolated AND carrying non-empty path text.
+ * The `raw_path` guard keeps a degenerate empty path from keying a
+ * spurious caller-dir edge. Shared by every forward-call consumer so the
+ * gate stays identical across the dependency graph, scope-resolver,
+ * forward-scope resolver, and the debug log.
+ */
+export function is_resolvable_static_call(
+    call: { is_static: boolean; raw_path: string },
+): boolean {
+    return call.is_static && call.raw_path.length > 0;
+}
+
+/**
+ * Project a `PathCaseOutcome` to the filesystem path a callee should be
+ * keyed by: the real on-disk-cased path for `exact`/`case_only`,
+ * otherwise the `requested` (WD-joined) path for `ambiguous`/`missing`.
+ * Shared by the dependency graph and the scope-resolver reverse-dep
+ * keying so both agree.
+ */
+export function outcome_fs_path(outcome: PathCaseOutcome): string {
+    return outcome.kind === 'exact' || outcome.kind === 'case_only'
+        ? outcome.path
+        : outcome.requested;
 }
 
 // ─── WD-join / script-relative / workspace-root fallback helper ──────────────

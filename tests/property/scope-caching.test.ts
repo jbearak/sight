@@ -205,7 +205,6 @@ describe('Scope Caching Property Tests', () => {
             // This populates the callee_to_callers map so invalidation can cascade
             const forward_calls = [{
                 type: 'do' as const,
-                path: callee_path,
                 raw_path: 'callee.do',
                 call_site_line: 0,
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 12 } },
@@ -248,7 +247,6 @@ describe('Scope Caching Property Tests', () => {
             // Manually update reverse dependencies (simulating what the server does on didChange)
             const forward_calls = [{
                 type: 'do' as const,
-                path: callee_path,
                 raw_path: 'callee2.do',
                 call_site_line: 0,
                 range: { start: { line: 0, character: 0 }, end: { line: 0, character: 13 } },

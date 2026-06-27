@@ -49,6 +49,8 @@ import { build_do_include_pattern } from '../utils/stata-call-patterns';
 import {
     resolve_path_rich,
     resolve_forward_call_rich,
+    outcome_fs_path,
+    is_resolvable_static_call,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -107,7 +109,7 @@ export function build_scope_resolver_config(
 }
 
 export function scope_resolver_config_for(
-    config: StataLSPConfig
+    config: Partial<StataLSPConfig>
 ): Partial<ScopeResolverConfig> {
     return build_scope_resolver_config({
         assume_call_site: config.cross_file?.assume_call_site,
@@ -1289,6 +1291,60 @@ export class ScopeResolver {
     }
 
     /**
+     * Resolve the working directory a file INHERITS from its explicit
+     * backward-directive parents (`@lsp-done-by` / `@lsp-included-by`;
+     * `@lsp-run-by` is parsed as `done-by`). Pass the file's full
+     * directive list — this filters to the backward types itself, so the
+     * "which directives are backward" rule lives in one place.
+     * Own-directive WD is the caller's responsibility; this returns only
+     * the inherited value.
+     *
+     * Safe to call from the workspace indexer: it reads parent files via
+     * this resolver's own `file_cache` / disk through `get_parsed_file`
+     * and never touches the indexer's `symbol_index` nor re-enters
+     * `index_file`. Used to make indexed and open-document
+     * dependency-graph callee keys agree for WD-dependent files (#218).
+     *
+     * Covers EXPLICIT backward directives only. WD inherited via
+     * auto-discovered (dependency-graph) parents is not resolved here —
+     * that depends on scan ordering — and stays best-effort during
+     * indexing, corrected when the file is opened.
+     */
+    async resolve_inherited_working_directory(
+        directives: Directive[],
+        current_uri: string,
+        config?: Partial<ScopeResolverConfig>,
+    ): Promise<string | undefined> {
+        const the_backward_directives = directives.filter(
+            d => d.type === 'done-by' || d.type === 'included-by',
+        );
+        if (the_backward_directives.length === 0) {
+            return undefined;
+        }
+        // Force EXPLICIT backward resolution for the walk. The recursion into
+        // deeper ancestors goes through get_effective_backward_directives,
+        // which in 'auto' mode reads the dependency graph — and during a bulk
+        // indexer scan that graph is only partially built, so an auto-
+        // discovered grandparent's WD would resolve order-dependently (a
+        // race). Forcing 'explicit' makes the walk deterministic and
+        // scan-order-independent; auto-discovered-parent WD stays best-effort
+        // and is resolved authoritatively when the file is opened.
+        const my_config: ScopeResolverConfig = {
+            ...DEFAULT_CONFIG,
+            ...config,
+            backward_dependencies: 'explicit',
+        };
+        return this.discover_working_directory(
+            the_backward_directives,
+            new Set<string>(),
+            0,
+            my_config,
+            new Map(),
+            current_uri,
+        );
+    }
+
+    /**
      * Discover the working directory from the directive chain using lightweight parsing.
      * This method only parses directives (no full AST) to efficiently find the working
      * directory before doing full parsing.
@@ -1297,6 +1353,9 @@ export class ScopeResolver {
      * @param visited - Set of visited URIs for cycle detection
      * @param depth - Current recursion depth
      * @param config - Scope resolver configuration
+     * @param request_cache - Per-request parse cache
+     * @param current_uri - URI of the file whose directives these are
+     *   (the join base for case-aware parent resolution)
      * @returns The effective working directory for the chain, or undefined if not found
      */
     private async discover_working_directory(
@@ -1305,6 +1364,7 @@ export class ScopeResolver {
         depth: number,
         config: ScopeResolverConfig,
         request_cache: RequestCache,
+        current_uri: string,
         token?: CancellationToken
     ): Promise<string | undefined> {
         // Check depth limit
@@ -1318,19 +1378,33 @@ export class ScopeResolver {
                 return undefined;
             }
 
-            const my_parent_uri = URI.file(my_directive.path).toString();
+            // Resolve the parent through the case-aware chokepoint so
+            // the inherited-WD lookup matches the main follow_directives
+            // path: case-only matches resolve, the .do fallback is
+            // applied, and an ambiguous parent is skipped instead of
+            // arbitrarily picked.
+            const my_rich = this.compute_directive_real_path(
+                my_directive, current_uri,
+            );
+            if (my_rich.outcome_kind === 'ambiguous') {
+                continue;
+            }
+            const my_real_path = my_rich.real_path;
+            const my_parent_uri = URI.file(my_real_path).toString();
 
             // Cycle detection - skip if already visited
             if (visited.has(my_parent_uri)) {
                 continue;
             }
 
-            // Read file content using get_parsed_file to leverage cache
+            // Read file content using get_parsed_file to leverage cache.
+            // compute_directive_real_path already applied the .do fallback,
+            // so no second manual retry is needed here.
             let my_parent_result: ParsedFileResult;
             try {
                 my_parent_result = await this.get_parsed_file(
                     my_parent_uri,
-                    my_directive.path,
+                    my_real_path,
                     { request_cache }
                 );
             } catch (error) {
@@ -1343,28 +1417,7 @@ export class ScopeResolver {
             }
 
             if ('error' in my_parent_result) {
-                // Try .do fallback if original path doesn't end in .do
-                if (!my_directive.path.endsWith('.do')) {
-                    const my_fallback_path = my_directive.path + '.do';
-                    const my_fallback_uri = URI.file(my_fallback_path).toString();
-                    try {
-                        my_parent_result = await this.get_parsed_file(
-                            my_fallback_uri,
-                            my_fallback_path,
-                            { request_cache }
-                        );
-                    } catch {
-                        this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
-                        continue;
-                    }
-                } else {
-                    this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
-                    continue;
-                }
-            }
-
-            if ('error' in my_parent_result) {
-                this.warn(`discover_working_directory: Cannot read file ${my_directive.path}`);
+                this.warn(`discover_working_directory: Cannot read file ${my_real_path}`);
                 continue;
             }
 
@@ -1407,6 +1460,7 @@ export class ScopeResolver {
                     depth + 1,
                     config,
                     request_cache,
+                    my_parent_uri,
                     token
                 );
 
@@ -1526,6 +1580,7 @@ export class ScopeResolver {
                 depth,
                 config,
                 request_cache,
+                current_uri,
                 token
             );
 
@@ -1952,10 +2007,10 @@ export class ScopeResolver {
         }
         const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
-        // Pass working_directory and workspace_root to analyzer for path resolution
+        // Stamp the effective working directory onto the analyzer's forward
+        // calls as resolution context; the analyzer no longer resolves paths.
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
-            workspace_root: my_workspace_root,
         });
 
         // Combine forward calls from commands and directives.
@@ -1966,7 +2021,6 @@ export class ScopeResolver {
         // above via the analyzer config).
         const directive_forward_calls: ForwardCall[] = (my_directive_result.forward_calls ?? []).map(d => ({
             type: d.type,
-            path: d.path,
             raw_path: d.raw_path,
             call_site_line: d.call_site_line,
             range: d.range,
@@ -2605,56 +2659,47 @@ export class ScopeResolver {
      * uses — required for invalidation to fire on the correct map entry.
      *
      * Algorithm:
-     * 1. Derive caller_dir from my_call.caller_uri (or fall back to
-     *    path.dirname(my_call.path) when caller_uri is absent).
+     * 1. Derive caller_dir from my_call.caller_uri (an empty string when
+     *    no caller URI is available — degrades to relative resolution).
      * 2. Call resolve_forward_call_rich(raw_path, caller_dir, wd, ...)
-     *    which computes both the WD-joined and script-relative candidates
-     *    independently of the pre-joined ForwardCall.path.
+     *    which computes the WD-joined and script-relative candidates from
+     *    raw_path.
      *    - exact or case_only  → use the real-cased path
      *    - ambiguous or missing → key by my_outcome.requested (WD path)
-     * 3. When workspace_roots are empty (early startup) → fall back to
-     *    my_call.path (pre-joined analyzer path), same as today's behavior.
+     * Empty workspace_roots → plain-existence semantics (no case handling),
+     * matching the old early-startup behavior.
      */
     private resolve_callee_uri(
         my_call: ForwardCall,
         caller_uri_override?: string,
     ): string {
-        if (this.workspace_roots.length > 0) {
-            // Use the shared WD-join-with-fallback helper so that
-            // scope-resolver reverse-dep keys agree with dep-graph and
-            // forward-scope-resolver. Passes caller_dir (not the pre-joined
-            // ForwardCall.path) so both candidates are computed correctly
-            // regardless of which producer wrote the call.
-            // Prefer the explicit override (passed by methods that know the
-            // caller), then the call's own caller_uri, then fall back to
-            // the caller file's directory derived from the pre-joined path.
-            const my_effective_caller_uri =
-                caller_uri_override ?? my_call.caller_uri;
-            const my_caller_dir = my_effective_caller_uri
-                ? path.dirname(URI.parse(my_effective_caller_uri).fsPath)
-                : path.dirname(my_call.path);
-            const my_outcome = resolve_forward_call_rich(
-                my_call.raw_path,
-                my_caller_dir,
-                my_call.working_directory,
-                {
-                    workspace_roots: this.workspace_roots,
-                    fs: this.resolve_fs,
-                },
-            );
-            if (
-                my_outcome.kind === 'exact' ||
-                my_outcome.kind === 'case_only'
-            ) {
-                return URI.file(my_outcome.path).toString();
-            }
-            // ambiguous or missing: key by the WD-joined requested path.
-            // Both variants carry `requested: string`.
-            return URI.file(my_outcome.requested).toString();
-        }
-        // Roots unset (early startup): fall back to as-typed path,
-        // no case normalization — same as today's behavior.
-        return URI.file(my_call.path).toString();
+        // Resolve the callee URI through the single shared helper so
+        // scope-resolver reverse-dep keys agree with dep-graph and
+        // forward-scope-resolver. Pass caller_dir (derived from the
+        // caller URI, never a pre-joined path) so the WD-join and
+        // script-relative candidates are computed from raw_path,
+        // regardless of which producer wrote the call. Empty
+        // workspace_roots → plain-existence semantics (no case handling),
+        // matching the old early-startup behavior.
+        // Prefer the explicit override (passed by methods that know the
+        // caller), then the call's own caller_uri.
+        const my_effective_caller_uri =
+            caller_uri_override ?? my_call.caller_uri;
+        const my_caller_dir = my_effective_caller_uri
+            ? path.dirname(URI.parse(my_effective_caller_uri).fsPath)
+            : '';
+        const my_outcome = resolve_forward_call_rich(
+            my_call.raw_path,
+            my_caller_dir,
+            my_call.working_directory,
+            {
+                workspace_roots: this.workspace_roots,
+                fs: this.resolve_fs,
+            },
+        );
+        // exact/case_only → real-cased path; ambiguous/missing → the
+        // WD-joined `requested` path (shared with dep-graph keying).
+        return URI.file(outcome_fs_path(my_outcome)).toString();
     }
 
     /**
@@ -2756,7 +2801,7 @@ export class ScopeResolver {
         // the map mutations and last_forward_calls write.
         const new_stored: Array<{ call: ForwardCall; resolved_uri: string }> =
             new_forward_calls
-                .filter(c => c.is_static && c.path)
+                .filter(is_resolvable_static_call)
                 .map(c => ({
                     call: c,
                     resolved_uri: this.resolve_callee_uri(c, caller_uri),
@@ -3197,8 +3242,8 @@ export class ScopeResolver {
         // resolve_callee_uri calls.
         const the_stored: Array<{ call: ForwardCall; resolved_uri: string }> = [];
         for (const my_call of forward_calls) {
-            // Skip dynamic paths (containing macro references)
-            if (!my_call.is_static || !my_call.path) {
+            // Skip dynamic (macro) calls and degenerate empty-path calls.
+            if (!is_resolvable_static_call(my_call)) {
                 continue;
             }
 

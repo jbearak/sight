@@ -620,7 +620,6 @@ describe('Auto Backward Resolution', () => {
             const graph = new DependencyGraph();
             graph.update_caller(parent_uri, [{
                 type: 'do',
-                path: child_path,
                 raw_path: 'child.do',
                 is_static: true,
                 call_site_line: 1,

@@ -97,7 +97,6 @@ describe('Forward Call Transitive Invalidation Integration Tests', () => {
                 if (fs.existsSync(resolved_path)) {
                     calls.push({
                         type: type as 'do' | 'run' | 'include',
-                        path: resolved_path,
                         raw_path,
                         call_site_line: i,
                         range: { start: { line: i, character: 0 }, end: { line: i, character: line.length } },

@@ -4,16 +4,17 @@ import { URI } from 'vscode-uri';
 import type { SymbolTable, ForwardCall } from '../../../src/types';
 import { Range } from 'vscode-languageserver';
 
-// Helper to create a ForwardCall object with all required properties
+// Helper to create a ForwardCall object with all required properties.
+// The first argument is retained for call-site compatibility but no
+// longer stored: callees are resolved from raw_path + caller dir.
 function make_forward_call(
-    path: string,
+    _path: string,
     is_static: boolean,
     type: 'do' | 'run' | 'include',
     call_site_line: number,
     raw_path: string
 ): ForwardCall {
     return {
-        path,
         is_static,
         type,
         call_site_line,

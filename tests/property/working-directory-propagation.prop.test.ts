@@ -73,7 +73,6 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
         call_site_line: number = 0
     ): ForwardCall => ({
         type: call_type,
-        path: file_path,
         raw_path,
         call_site_line,
         range: { start: { line: call_site_line, character: 0 }, end: { line: call_site_line, character: 10 } },
@@ -772,7 +771,6 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                         };
                         const forward_calls: ForwardCall[] = [{
                             type: 'do',
-                            path: child_path,
                             raw_path: child_name,
                             call_site_line,
                             range: expected_range,
@@ -910,7 +908,6 @@ describe('Working Directory Inheritance and Propagation Property Tests', () => {
                         // Create forward call to a non-existent file
                         const forward_calls: ForwardCall[] = [{
                             type: call_type,
-                            path: get_iteration_path(missing_name),
                             raw_path: missing_name,
                             call_site_line: 0,
                             range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },

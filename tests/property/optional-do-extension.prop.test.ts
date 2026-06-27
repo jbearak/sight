@@ -108,7 +108,6 @@ matrix test_matrix = (1,2)
 
                     const forward_calls: ForwardCall[] = [{
                         type: 'do',
-                        path: path.join(temp_dir, base_name),
                         raw_path: base_name,
                         call_site_line: 0,
                         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
@@ -136,7 +135,6 @@ matrix test_matrix = (1,2)
 
                     const forward_calls: ForwardCall[] = [{
                         type: 'do',
-                        path: path.join(temp_dir, base_name),
                         raw_path: base_name,
                         call_site_line: 0,
                         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
@@ -165,7 +163,6 @@ matrix test_matrix = (1,2)
 
                     const forward_calls: ForwardCall[] = [{
                         type: 'do',
-                        path: path.join(temp_dir, base_name),
                         raw_path: base_name,
                         call_site_line: 0,
                         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
@@ -189,7 +186,6 @@ matrix test_matrix = (1,2)
 
                     const forward_calls: ForwardCall[] = [{
                         type: 'include',
-                        path: path.join(temp_dir, base_name),
                         raw_path: base_name,
                         call_site_line: 0,
                         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },

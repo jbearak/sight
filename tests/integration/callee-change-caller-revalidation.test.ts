@@ -17,14 +17,13 @@ import { Range } from 'vscode-languageserver';
 
 // Helper to create a ForwardCall object with all required properties
 function make_forward_call(
-    path: string,
+    _path: string,
     is_static: boolean,
     type: 'do' | 'run' | 'include',
     call_site_line: number,
     raw_path: string
 ): ForwardCall {
     return {
-        path,
         is_static,
         type,
         call_site_line,

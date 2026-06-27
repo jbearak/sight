@@ -245,18 +245,18 @@ export class DirectiveParser {
      * Respects @lsp-ignore (same line) and @lsp-ignore-next (preceding line).
      *
      * @param content - The file content to parse
-     * @param file_uri - The URI of the file
+     * @param _file_uri - The URI of the file (unused; kept for parity
+     *   with the other directive-parser entry points)
      * @returns Object containing forward calls and diagnostics
      */
     parse_forward_call_directives(
         content: string,
-        file_uri: string
+        _file_uri: string
     ): { forward_calls: ForwardCallDirective[]; diagnostics: DirectiveDiagnostic[] } {
         const doc: DocumentLike = { content, line_offsets: compute_line_offsets(content) };
         const line_count = get_line_count(doc);
         const the_forward_calls: ForwardCallDirective[] = [];
         const the_diagnostics: DirectiveDiagnostic[] = [];
-        const containing_dir = path.dirname(URI.parse(file_uri).fsPath);
 
         // Track lines to ignore from @lsp-ignore-next
         const ignored_next_lines = new Set<number>();
@@ -338,7 +338,6 @@ export class DirectiveParser {
                     continue;
                 }
 
-                const my_resolved_path = this.resolve_path_with_fallback(my_raw_path, containing_dir);
                 const my_call_site = this.parse_call_site(my_params);
                 const my_range: Range = {
                     start: { line: i, character: 0 },
@@ -374,7 +373,6 @@ export class DirectiveParser {
 
                 the_forward_calls.push({
                     type: my_type,
-                    path: my_resolved_path,
                     raw_path: my_raw_path,
                     call_site_line: my_call_site_line,
                     call_site: my_call_site,

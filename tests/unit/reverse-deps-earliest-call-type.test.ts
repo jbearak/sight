@@ -60,7 +60,6 @@ describe('ScopeResolver reverse deps call type selection', () => {
             [
                 {
                     type: 'do',
-                    path: child_path,
                     raw_path: 'child.do',
                     call_site_line: 2,
                     range: { start: { line: 2, character: 0 }, end: { line: 2, character: 12 } },
@@ -69,7 +68,6 @@ describe('ScopeResolver reverse deps call type selection', () => {
                 },
                 {
                     type: 'include',
-                    path: child_path,
                     raw_path: 'child.do',
                     call_site_line: 4,
                     range: { start: { line: 4, character: 0 }, end: { line: 4, character: 16 } },

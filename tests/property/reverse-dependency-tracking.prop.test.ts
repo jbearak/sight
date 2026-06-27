@@ -36,7 +36,6 @@ describe('Reverse Dependency Tracking Property Tests', () => {
 
     const make_forward_call = (callee_path: string, type: 'do' | 'run' | 'include', line: number): ForwardCall => ({
         type,
-        path: callee_path,
         raw_path: path.basename(callee_path),
         call_site_line: line,
         range: { start: { line, character: 0 }, end: { line, character: 10 } },

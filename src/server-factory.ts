@@ -43,6 +43,7 @@ import { validate_comment_formatting_config } from './utils/config-validator';
 import { error_message } from './utils/error-message';
 import { RenameHandler } from './utils/file-rename-handler';
 import { Logger } from './utils/logger';
+import { is_resolvable_static_call } from './utils/file-path-utils';
 import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
@@ -756,13 +757,21 @@ export async function create_server(options: ServerOptions): Promise<void> {
         return b.every((value) => set_a.has(value));
     }
 
-    // The project-config keys that change WHICH files are indexed (and thus
-    // require a full index teardown + re-scan). Everything else — severities,
-    // formatting, completion, resolution depths, debug — only affects how open
-    // documents are validated/resolved, which a revalidation pass handles
-    // without re-scanning the workspace. Client/init settings are constant
-    // across a config-file reload, so comparing this subset of project_file_config
-    // is sufficient to detect an effective indexing change.
+    // The project-config keys that change WHICH files are indexed, or how
+    // their indexed dependency-graph edges are keyed (and thus require a full
+    // index teardown + re-scan). Most settings — severities, formatting,
+    // completion, debug — only affect how open documents are
+    // validated/resolved, which a revalidation pass handles without
+    // re-scanning. `max_backward_depth` is included because the indexer's
+    // inherited-WD walk (#218) uses it to key closed-file callee edges, so a
+    // depth change must re-index for those edges to stay consistent with the
+    // open-document path. (`backward_dependencies` is NOT needed: the indexer
+    // walk forces explicit backward resolution, so it is independent of the
+    // auto/explicit mode.) Client/init settings are constant across a
+    // config-file reload, so comparing this subset of project_file_config is
+    // sufficient to detect an effective indexing change. (This is the
+    // project-config reload path; runtime client settings.json changes do not
+    // re-index for any indexing setting — a pre-existing, uniform limitation.)
     function indexing_affecting_signature(
         config: DeepPartial<StataLSPConfig> | undefined
     ): string {
@@ -772,6 +781,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             index_workspace: config?.cross_file?.index_workspace ?? null,
             max_indexed_files: config?.cross_file?.max_indexed_files ?? null,
             maxFileSizeBytes: config?.indexing?.maxFileSizeBytes ?? null,
+            max_backward_depth: config?.cross_file?.max_backward_depth ?? null,
         });
     }
 
@@ -1005,11 +1015,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     if (document_state?.forward_calls && document_state?.symbols) {
                         // Log forward calls for debugging (Req 8.2, 8.4)
                         if (is_debug) {
-                            const static_calls = document_state.forward_calls.filter(c => c.is_static && c.path);
+                            const static_calls = document_state.forward_calls.filter(is_resolvable_static_call);
                             connection.console.log(`[reverse-deps] Updating for ${snapshot_uri}`);
                             connection.console.log(`[reverse-deps]   forward_calls: ${document_state.forward_calls.length} total, ${static_calls.length} static`);
                             for (const my_call of static_calls) {
-                                connection.console.log(`[reverse-deps]   - ${my_call.type} "${my_call.path}" (line ${my_call.call_site_line})`);
+                                connection.console.log(`[reverse-deps]   - ${my_call.type} "${my_call.raw_path}" (line ${my_call.call_site_line})`);
                             }
                         }
 
@@ -1238,6 +1248,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
             definition_provider.set_workspace_roots(active_workspace_roots);
             workspace_indexer.set_dependency_graph(dependency_graph);
             workspace_indexer.set_on_graph_change(invalidate_and_revalidate_callees);
+            // Let the indexer resolve inherited working directories during the
+            // workspace scan so its dependency-graph callee keys match the
+            // open-document path for WD-dependent files (#218).
+            workspace_indexer.set_scope_resolver(scope_resolver);
             scope_resolver.set_dependency_graph(dependency_graph);
             diagnostics_provider.set_dependency_graph(dependency_graph);
 

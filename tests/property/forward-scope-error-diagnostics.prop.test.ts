@@ -59,7 +59,6 @@ describe('Property 6: Error Diagnostics Include Tried Paths', () => {
         call_site_line: number
     ): ForwardCall => ({
         type: call_type,
-        path: resolved_path,
         raw_path,
         call_site_line,
         range: {

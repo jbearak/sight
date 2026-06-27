@@ -11,6 +11,8 @@ import { ForwardCall, ForwardCallType } from '../types';
 import { logger } from '../utils/logger';
 import {
     resolve_forward_call_rich,
+    outcome_fs_path,
+    is_resolvable_static_call,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -97,43 +99,24 @@ export class DependencyGraph {
             this.uri_to_fs_path(my_caller_uri),
         );
         for (const my_call of forward_calls) {
-            if (!my_call.is_static || !my_call.path) continue;
+            if (!is_resolvable_static_call(my_call)) continue;
 
-            // Determine the real-cased callee URI.
-            // Only attempt case resolution when workspace roots are set.
-            let callee_uri: string;
-            if (this.workspace_roots.length > 0) {
-                // Use the shared WD-join-with-fallback helper so that
-                // dep-graph edges and forward-scope-resolver agree on the
-                // callee URI. Passes caller_dir (not the pre-joined path)
-                // so both WD and script-relative candidates are computed
-                // correctly regardless of which producer wrote the call.
-                const my_outcome = resolve_forward_call_rich(
-                    my_call.raw_path,
-                    my_caller_dir,
-                    my_call.working_directory,
-                    {
-                        workspace_roots: this.workspace_roots,
-                        fs: this.resolve_fs,
-                    },
-                );
-                if (
-                    my_outcome.kind === 'exact' ||
-                    my_outcome.kind === 'case_only'
-                ) {
-                    // Key the edge by the real on-disk-cased path
-                    callee_uri = this.path_to_uri(my_outcome.path);
-                } else {
-                    // ambiguous or missing: key by the WD-joined requested
-                    // path (my_outcome.requested) rather than recomputing
-                    // the join — both variants carry `requested: string`.
-                    callee_uri = this.path_to_uri(my_outcome.requested);
-                }
-            } else {
-                // Roots unset (early startup): fall back to today's
-                // behavior — no case normalization
-                callee_uri = this.path_to_uri(my_call.path);
-            }
+            // Determine the callee URI through the single shared resolver.
+            // Pass caller_dir (not a pre-joined path) so the WD-join and
+            // script-relative candidates are computed from raw_path,
+            // regardless of which producer wrote the call. Empty
+            // workspace_roots → plain-existence semantics (no case
+            // handling), matching the old early-startup behavior.
+            const my_outcome = resolve_forward_call_rich(
+                my_call.raw_path,
+                my_caller_dir,
+                my_call.working_directory,
+                {
+                    workspace_roots: this.workspace_roots,
+                    fs: this.resolve_fs,
+                },
+            );
+            const callee_uri = this.path_to_uri(outcome_fs_path(my_outcome));
 
             // If multiple calls from the same caller to the same callee,
             // keep the earliest call site (first encounter wins)

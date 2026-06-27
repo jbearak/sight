@@ -821,13 +821,14 @@ args single_arg
             expect(result.forward_calls[0].type).toBe('include');
         });
 
-        it('should have empty resolved path for non-static calls', () => {
+        it('should capture raw_path and mark macro calls non-static', () => {
             const result = analyze('do "`macro\'"');
-            
+
             expect(result.forward_calls.length).toBe(1);
             expect(result.forward_calls[0].is_static).toBe(false);
-            // Non-static calls should have empty resolved path
-            expect(result.forward_calls[0].path).toBe('');
+            // The analyzer records the raw path verbatim; it no longer
+            // resolves a filesystem path (consumers do that).
+            expect(result.forward_calls[0].raw_path).toBe("`macro'");
         });
 
         it('should handle braced global macro syntax as non-static', () => {
