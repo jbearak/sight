@@ -99,7 +99,7 @@ describe('Forward Call Relationship Tracking', () => {
 
             const reverse_deps = (resolver as any).reverse_deps;
             expect(reverse_deps.callee_to_callers.get(callee_uri)?.has(caller_uri)).toBe(true);
-            expect(reverse_deps.forward_caller_to_callees.get(caller_uri)?.has(callee_uri)).toBe(true);
+            expect(reverse_deps.caller_to_callees.get(caller_uri)?.has(callee_uri)).toBe(true);
         });
 
         it('should register multiple forward calls', () => {
@@ -129,7 +129,7 @@ describe('Forward Call Relationship Tracking', () => {
             const reverse_deps = (resolver as any).reverse_deps;
             expect(reverse_deps.callee_to_callers.get(callee1_uri)?.has(caller_uri)).toBe(true);
             expect(reverse_deps.callee_to_callers.get(callee2_uri)?.has(caller_uri)).toBe(true);
-            expect(reverse_deps.forward_caller_to_callees.get(caller_uri)?.size).toBe(2);
+            expect(reverse_deps.caller_to_callees.get(caller_uri)?.size).toBe(2);
         });
 
         it('should skip dynamic paths (is_static=false)', () => {
@@ -146,7 +146,7 @@ describe('Forward Call Relationship Tracking', () => {
             (resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
 
             const reverse_deps = (resolver as any).reverse_deps;
-            expect(reverse_deps.forward_caller_to_callees.has(caller_uri)).toBe(false);
+            expect(reverse_deps.caller_to_callees.has(caller_uri)).toBe(false);
         });
 
         it('should clear existing relationships before registration', () => {
@@ -182,7 +182,7 @@ describe('Forward Call Relationship Tracking', () => {
             expect(reverse_deps.callee_to_callers.get(new_callee_uri)?.has(caller_uri)).toBe(true);
         });
 
-        it('should update both callee_to_callers and forward_caller_to_callees', () => {
+        it('should update both callee_to_callers and caller_to_callees', () => {
             const caller_uri = 'file:///caller.do';
             const callee_uri = 'file:///callee.do';
             const forward_calls = [make_forward_call(
@@ -199,7 +199,7 @@ describe('Forward Call Relationship Tracking', () => {
             const reverse_deps = (resolver as any).reverse_deps;
             // Check bidirectional mapping
             expect(reverse_deps.callee_to_callers.get(callee_uri)?.has(caller_uri)).toBe(true);
-            expect(reverse_deps.forward_caller_to_callees.get(caller_uri)?.has(callee_uri)).toBe(true);
+            expect(reverse_deps.caller_to_callees.get(caller_uri)?.has(callee_uri)).toBe(true);
         });
     });
 
@@ -235,7 +235,7 @@ describe('Forward Call Relationship Tracking', () => {
             const callers2 = reverse_deps.callee_to_callers.get(callee2_uri);
             expect(callers1 === undefined || !callers1.has(caller_uri)).toBe(true);
             expect(callers2 === undefined || !callers2.has(caller_uri)).toBe(true);
-            expect(reverse_deps.forward_caller_to_callees.has(caller_uri)).toBe(false);
+            expect(reverse_deps.caller_to_callees.has(caller_uri)).toBe(false);
         });
 
         it('should be no-op when caller has no relationships', () => {
