@@ -762,12 +762,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // index teardown + re-scan). Most settings — severities, formatting,
     // completion, debug — only affect how open documents are
     // validated/resolved, which a revalidation pass handles without
-    // re-scanning. `max_backward_depth` is included because the indexer's
-    // inherited-WD walk (#218) uses it to key closed-file callee edges, so a
-    // depth change must re-index for those edges to stay consistent with the
-    // open-document path. Client/init settings are constant across a
-    // config-file reload, so comparing this subset of project_file_config is
-    // sufficient to detect an effective indexing change.
+    // re-scanning. `max_backward_depth` and `backward_dependencies` are
+    // included because the indexer's inherited-WD walk (#218) uses them to key
+    // closed-file callee edges — the walk's depth limit and its auto-vs-
+    // explicit grandparent recursion — so a change to either must re-index for
+    // those edges to stay consistent with the open-document path. Client/init
+    // settings are constant across a config-file reload, so comparing this
+    // subset of project_file_config is sufficient to detect an effective
+    // indexing change. (This is the project-config reload path; runtime client
+    // settings.json changes do not re-index for any indexing setting — a
+    // pre-existing limitation, uniform across all keys here.)
     function indexing_affecting_signature(
         config: DeepPartial<StataLSPConfig> | undefined
     ): string {
@@ -778,6 +782,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
             max_indexed_files: config?.cross_file?.max_indexed_files ?? null,
             maxFileSizeBytes: config?.indexing?.maxFileSizeBytes ?? null,
             max_backward_depth: config?.cross_file?.max_backward_depth ?? null,
+            backward_dependencies:
+                config?.cross_file?.backward_dependencies ?? null,
         });
     }
 
