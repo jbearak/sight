@@ -9,6 +9,7 @@ import {
     compute_header_width_px,
     compute_sampled_value_width_px,
     describe_browser_row_count,
+    describe_restore_message,
     describe_subset,
     describe_visible_rows,
     get_cell_display_value,
@@ -136,6 +137,15 @@ describe('grid-model helpers', () => {
     it('routes missing metadata to the loading row-count label', () => {
         expect(describe_browser_row_count(null, undefined, 0, 0))
             .toBe('Loading…');
+    });
+
+    it('words the restore message by which prefs apply', () => {
+        expect(describe_restore_message(true, true))
+            .toBe('Applying your saved sort & filter…');
+        expect(describe_restore_message(true, false))
+            .toBe('Applying your saved sort…');
+        expect(describe_restore_message(false, true))
+            .toBe('Applying your saved filter…');
     });
 
     it('exposes variable labels for header subtitles', () => {

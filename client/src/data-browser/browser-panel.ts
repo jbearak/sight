@@ -63,8 +63,15 @@ import type {
     RequestHistogramMessage,
     HistogramDataMessage,
     HistogramBin,
+    RestorePendingMessage,
+    CancelRestoreMessage,
 } from './types.js';
 import { EMPTY_SORT, EMPTY_FILTER } from './types.js';
+
+/** A read aborted via AbortSignal (vs. a genuine read failure). */
+function is_abort_error(err: unknown): boolean {
+    return err instanceof Error && err.name === 'AbortError';
+}
 
 /** %tc / %tC store milliseconds since 1960; other date formats store
  *  days. Consulted when building a {@link FilterColumn} for date
@@ -118,6 +125,19 @@ export class DataBrowserPanel implements vscode.Disposable {
     private filter: FilterState = EMPTY_FILTER;
     private filtered_indices: Uint32Array | null = null;
     private filter_restored = false;
+    // Saved-preference restore on open: aborts the column reads when the
+    // user cancels; `restore_id` (the generation at restore start) keys
+    // the restorePending/cancelRestore handshake so a stale or late
+    // cancel from a prior lifecycle is ignored. `restoring` gates the
+    // in-flight vs. already-completed cancel paths; `restore_cancelled`
+    // tells send_metadata to forget + show natural order;
+    // `restore_failed` records a non-abort read failure (notice + keep
+    // prefs). `restore_id === -1` means "no cancellable restore".
+    private restore_abort: AbortController | null = null;
+    private restore_cancelled = false;
+    private restoring = false;
+    private restore_failed = false;
+    private restore_id = -1;
     // The filter survivor set composed with the sort permutation: the
     // single effective permutation handed to the reader. Recomputed
     // whenever sort or filter changes (null === identity order).
@@ -368,55 +388,245 @@ export class DataBrowserPanel implements vscode.Disposable {
             );
 
             const my_schema_hash = schema_hash(my_variables);
-            await this.maybe_restore_sort(my_schema_hash);
-            if (!this.dta_file) return;
-            await this.maybe_restore_filter(my_schema_hash);
-            if (!this.dta_file) return;
-            this.recompute_effective();
 
-            const my_metadata: MetadataMessage = {
-                type: 'metadata',
-                nobs: this.dta_file.nobs,
-                missing_value_style: my_missing_style,
-                variables: my_variables,
-                schema_hash: my_schema_hash,
-                stored_sort: this.sort.keys.length > 0
-                    ? this.sort
-                    : undefined,
-                stored_filter: this.filter.entries.length > 0
-                    ? this.filter
-                    : undefined,
-                name: this.sidecar.name,
-                dataset_key: this.dataset_key,
-                stored_column_widths:
-                    this.column_width_store.get(
-                        this.dataset_key,
-                        this.dataset_key_aliases
-                    ),
-                stored_hidden_columns:
-                    this.column_visibility_store.get(
-                        this.dataset_key,
-                        this.dataset_key_aliases
-                    ),
-                subsetted: this.sidecar.subsetted,
-                varlist: this.sidecar.varlist,
-                if_condition: this.sidecar.if,
-                in_condition: this.sidecar.in,
-            };
+            // Begin a cancellable restore if saved prefs apply. This
+            // posts `restorePending` before the (potentially long)
+            // column reads so the webview can explain the wait and offer
+            // Cancel. `my_abort` identifies this restore's controller so
+            // the finally only cleans up its own restore, not one a
+            // concurrent refresh may have started.
+            const my_began = this.maybe_begin_restore(my_schema_hash);
+            const my_abort = this.restore_abort;
+            try {
+                const my_signal = my_abort?.signal;
+                await this.maybe_restore_sort(
+                    my_schema_hash, my_signal
+                );
+                if (!this.dta_file) return;
+                // A cancel during the sort read must not kick off a long
+                // filter read; skip it and fall through to forget.
+                if (!this.restore_cancelled) {
+                    await this.maybe_restore_filter(
+                        my_schema_hash, my_signal
+                    );
+                    if (!this.dta_file) return;
+                }
+                if (this.restore_cancelled) {
+                    // Forget the saved prefs and undo any sort that
+                    // completed before the cancel landed, so chips,
+                    // persistence, and effective order all agree on
+                    // "natural".
+                    await this.apply_cancel_forget(my_schema_hash);
+                    if (!this.dta_file) return;
+                }
+                this.recompute_effective();
 
-            this.panel.webview.postMessage(my_metadata);
+                this.post_metadata(my_variables, my_schema_hash, my_missing_style);
 
-            // A restored filter changes the visible row count; the
-            // webview learns the effective count from filterApplied
-            // (metadata.nobs stays the full dataset size).
-            if (this.filtered_indices) {
-                this.post_filter_applied();
+                // A restored filter changes the visible row count; the
+                // webview learns the effective count from filterApplied
+                // (metadata.nobs stays the full dataset size).
+                if (!this.restore_cancelled && this.filtered_indices) {
+                    this.post_filter_applied();
+                }
+                if (this.restore_failed) {
+                    vscode.window.showWarningMessage(
+                        'Could not reapply the saved sort/filter for '
+                        + 'this dataset; showing it unsorted and '
+                        + 'unfiltered.'
+                    );
+                }
+            } finally {
+                // Only the call that began this restore clears its
+                // state, and only if a concurrent refresh hasn't already
+                // swapped in a newer restore controller.
+                if (my_began && this.restore_abort === my_abort) {
+                    this.restoring = false;
+                    this.restore_abort = null;
+                }
             }
         } catch (my_err) {
             vscode.window.showErrorMessage(
                 `Failed to open .dta file: ${my_err}`
             );
         }
+    }
+
+    /** Build and post the metadata message for the current dataset. */
+    private post_metadata(
+        variables: MetadataMessage['variables'],
+        schema_hash_value: string,
+        missing_value_style: MissingValueStyle
+    ): void {
+        if (!this.dta_file) return;
+        const my_metadata: MetadataMessage = {
+            type: 'metadata',
+            nobs: this.dta_file.nobs,
+            missing_value_style: missing_value_style,
+            variables: variables,
+            schema_hash: schema_hash_value,
+            // After a cancel these are EMPTY, so stored_sort/filter
+            // are omitted and the webview renders no chips.
+            stored_sort: this.sort.keys.length > 0
+                ? this.sort
+                : undefined,
+            stored_filter: this.filter.entries.length > 0
+                ? this.filter
+                : undefined,
+            name: this.sidecar.name,
+            dataset_key: this.dataset_key,
+            stored_column_widths:
+                this.column_width_store.get(
+                    this.dataset_key,
+                    this.dataset_key_aliases
+                ),
+            stored_hidden_columns:
+                this.column_visibility_store.get(
+                    this.dataset_key,
+                    this.dataset_key_aliases
+                ),
+            subsetted: this.sidecar.subsetted,
+            varlist: this.sidecar.varlist,
+            if_condition: this.sidecar.if,
+            in_condition: this.sidecar.in,
+        };
+
+        this.panel.webview.postMessage(my_metadata);
+    }
+
+    // -------------------------------------------------------
+    // Saved-preference restore handshake
+    // -------------------------------------------------------
+
+    /**
+     * If a saved sort and/or filter applies to this dataset×schema,
+     * start a cancellable restore: reset the restore flags, create the
+     * AbortController, stamp `restore_id`, and post `restorePending`
+     * before the column reads. Returns true if a restore was begun.
+     *
+     * Gated on the prefs *existing and fitting the schema* (a cheap
+     * store peek) — not on whether they will ultimately yield rows,
+     * which can't be known without the very read this explains.
+     */
+    private maybe_begin_restore(
+        schema_hash_value: string
+    ): boolean {
+        // Restore happens once per lifetime; both flags are set
+        // together on the first send_metadata and reset by refresh().
+        if (this.sort_restored && this.filter_restored) {
+            return false;
+        }
+        const my_has_sort =
+            this.persist_sort_enabled()
+            && this.has_applicable_stored_sort(schema_hash_value);
+        const my_has_filter =
+            this.persist_filters_enabled()
+            && this.has_applicable_stored_filter(schema_hash_value);
+        if (!my_has_sort && !my_has_filter) return false;
+
+        this.restore_cancelled = false;
+        this.restore_failed = false;
+        this.restore_abort = new AbortController();
+        this.restore_id = this.generation;
+        this.restoring = true;
+
+        const my_msg: RestorePendingMessage = {
+            type: 'restorePending',
+            restore_id: this.restore_id,
+            sort: my_has_sort,
+            filter: my_has_filter,
+        };
+        this.panel.webview.postMessage(my_msg);
+        return true;
+    }
+
+    /** Whether a persisted sort with at least one key exists. */
+    private has_applicable_stored_sort(
+        schema_hash_value: string
+    ): boolean {
+        const my_stored = this.sort_state_store.get(
+            this.dataset_key,
+            schema_hash_value
+        );
+        return !!my_stored && my_stored.keys.length > 0;
+    }
+
+    /**
+     * Whether a persisted filter exists with at least one entry whose
+     * predicate still fits its column's current kind (mirrors the
+     * keep-filter logic in maybe_restore_filter).
+     */
+    private has_applicable_stored_filter(
+        schema_hash_value: string
+    ): boolean {
+        if (!this.dta_file) return false;
+        const my_stored = this.filter_state_store.get(
+            this.dataset_key,
+            schema_hash_value
+        );
+        if (!my_stored) return false;
+        return my_stored.entries.some(my_entry => {
+            const my_var =
+                this.dta_file!.variables[my_entry.col_index];
+            return my_var !== undefined
+                && this.predicate_fits_column(
+                    my_entry.predicate,
+                    my_var
+                );
+        });
+    }
+
+    /**
+     * Drop the restored sort/filter from memory and forget the
+     * persisted preferences for this dataset×schema. Used both when an
+     * in-flight restore is cancelled and when a late cancel lands after
+     * the restore completed. Setting `restore_id = -1` consumes the
+     * handshake so a duplicate cancel is ignored.
+     */
+    private async apply_cancel_forget(
+        schema_hash_value: string
+    ): Promise<void> {
+        this.restore_id = -1;
+        this.sort = EMPTY_SORT;
+        this.permutation = null;
+        this.filter = EMPTY_FILTER;
+        this.filtered_indices = null;
+        if (this.persist_sort_enabled()) {
+            await this.sort_state_store.set(
+                this.dataset_key, schema_hash_value, EMPTY_SORT
+            );
+        }
+        if (this.persist_filters_enabled()) {
+            await this.filter_state_store.set(
+                this.dataset_key, schema_hash_value, EMPTY_FILTER
+            );
+        }
+    }
+
+    /**
+     * Handle a webview Cancel of the saved-preference restore. Ignores a
+     * stale/consumed id. While the restore is in flight, aborts the
+     * column reads (send_metadata's cancelled path forgets + posts
+     * natural-order metadata). If the restore already completed (the
+     * cross-window race), honors the click as an explicit clear-and-
+     * forget so it is never silently dropped.
+     */
+    private async handle_cancel_restore(
+        msg: CancelRestoreMessage
+    ): Promise<void> {
+        if (msg.restore_id !== this.restore_id) return;
+        if (this.restoring) {
+            this.restore_cancelled = true;
+            this.restore_abort?.abort();
+            return;
+        }
+        if (!this.dta_file) return;
+        await this.apply_cancel_forget(this.current_schema_hash());
+        this.generation++;
+        this.row_cache.clear();
+        this.recompute_effective();
+        this.post_sort_applied();
+        this.post_filter_applied();
     }
 
     // -------------------------------------------------------
@@ -461,6 +671,9 @@ export class DataBrowserPanel implements vscode.Disposable {
                 break;
             case 'requestHistogram':
                 await this.handle_request_histogram(msg);
+                break;
+            case 'cancelRestore':
+                await this.handle_cancel_restore(msg);
                 break;
             case 'copyColumn':
                 await this.handle_copy_column(
@@ -550,7 +763,8 @@ export class DataBrowserPanel implements vscode.Disposable {
      * No-op on later metadata re-sends (the in-memory sort wins).
      */
     private async maybe_restore_sort(
-        schema_hash_value: string
+        schema_hash_value: string,
+        signal?: AbortSignal
     ): Promise<void> {
         if (this.sort_restored) return;
         this.sort_restored = true;
@@ -566,9 +780,17 @@ export class DataBrowserPanel implements vscode.Disposable {
         let my_permutation: Uint32Array | null = null;
         try {
             my_permutation =
-                await this.compute_sort_permutation(my_stored);
-        } catch {
-            my_permutation = null;
+                await this.compute_sort_permutation(
+                    my_stored, signal
+                );
+        } catch (my_err) {
+            // A user cancel aborts the read; leave natural order
+            // silently. A genuine read failure is recorded so the
+            // caller can warn and keep the saved pref for next time.
+            if (!is_abort_error(my_err)) {
+                this.restore_failed = true;
+            }
+            return;
         }
         if (my_generation !== this.generation) return;
         if (my_permutation) {
@@ -577,16 +799,25 @@ export class DataBrowserPanel implements vscode.Disposable {
         }
     }
 
-    /** Read one full column as raw cells (length === nobs). */
+    /**
+     * Read one full column as raw cells (length === nobs).
+     *
+     * When `signal` is provided, the read is chunked and cancellable:
+     * aborting rejects with an `AbortError`. This is what makes a saved-
+     * preference restore interruptible; the viewport reads pass no signal
+     * and keep the single-shot fast path.
+     */
     private async read_full_column(
-        col_index: number
+        col_index: number,
+        signal?: AbortSignal
     ): Promise<RowCell[]> {
         if (!this.dta_file) return [];
         const the_rows = await this.dta_file.read_rows(
             0,
             this.dta_file.nobs,
             col_index,
-            col_index + 1
+            col_index + 1,
+            signal ? { signal } : undefined
         );
         return the_rows.map(my_row => my_row[0]);
     }
@@ -598,7 +829,8 @@ export class DataBrowserPanel implements vscode.Disposable {
      * after the await, since column reads are asynchronous.
      */
     private async compute_sort_permutation(
-        sort: SortState
+        sort: SortState,
+        signal?: AbortSignal
     ): Promise<Uint32Array | null> {
         if (!this.dta_file || sort.keys.length === 0) {
             return null;
@@ -629,7 +861,8 @@ export class DataBrowserPanel implements vscode.Disposable {
                 has_value_labels: my_has_value_labels,
             });
             const my_values = await this.read_full_column(
-                my_key.col_index
+                my_key.col_index,
+                signal
             );
             // A refresh during the await nulls dta_file; bail so the
             // caller's generation check discards this stale result.
@@ -750,7 +983,8 @@ export class DataBrowserPanel implements vscode.Disposable {
      * metadata re-sends (the in-memory filter wins).
      */
     private async maybe_restore_filter(
-        schema_hash_value: string
+        schema_hash_value: string,
+        signal?: AbortSignal
     ): Promise<void> {
         if (this.filter_restored) return;
         this.filter_restored = true;
@@ -786,9 +1020,17 @@ export class DataBrowserPanel implements vscode.Disposable {
         const my_generation = this.generation;
         let my_indices: Uint32Array | null = null;
         try {
-            my_indices = await this.compute_filter_indices(my_filter);
-        } catch {
-            my_indices = null;
+            my_indices = await this.compute_filter_indices(
+                my_filter, signal
+            );
+        } catch (my_err) {
+            // Cancel → natural order silently; genuine failure →
+            // natural order, record so the caller can warn and keep
+            // the saved filter. Either way, don't restore the chips.
+            if (!is_abort_error(my_err)) {
+                this.restore_failed = true;
+            }
+            return;
         }
         if (my_generation !== this.generation) return;
         this.filter = my_filter;
@@ -849,7 +1091,8 @@ export class DataBrowserPanel implements vscode.Disposable {
      * the await, since column reads are asynchronous.
      */
     private async compute_filter_indices(
-        filter: FilterState
+        filter: FilterState,
+        signal?: AbortSignal
     ): Promise<Uint32Array | null> {
         if (!this.dta_file) return null;
         const the_active = filter.entries.filter(
@@ -872,7 +1115,8 @@ export class DataBrowserPanel implements vscode.Disposable {
         const the_columns = new Map<number, FilterColumn>();
         for (const my_col_index of the_needed) {
             const my_values = await this.read_full_column(
-                my_col_index
+                my_col_index,
+                signal
             );
             // A refresh during the await nulls dta_file; bail so the
             // caller's generation check discards this stale result.

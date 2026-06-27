@@ -295,6 +295,23 @@ export function describe_browser_row_count(
     );
 }
 
+/**
+ * Explains the saved-preference restore wait on open. `sort`/`filter`
+ * say which preferences are being reapplied; at least one is true.
+ */
+export function describe_restore_message(
+    sort: boolean,
+    filter: boolean
+): string {
+    if (sort && filter) {
+        return 'Applying your saved sort & filter…';
+    }
+    if (sort) {
+        return 'Applying your saved sort…';
+    }
+    return 'Applying your saved filter…';
+}
+
 /** Toolbar subset banner, e.g. "Subsetted (vars: make, price; if
  *  foreign == 1; in 1/10)". Returns null when the browse covers the
  *  full dataset, so callers can skip rendering the row entirely. */

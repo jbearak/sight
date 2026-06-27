@@ -22,6 +22,7 @@ import {
     collect_sampled_value_width_hints,
     type BrowserGridColumn,
     describe_browser_row_count,
+    describe_restore_message,
     describe_subset,
     get_cell_display_value,
     get_variable_header_tooltip,
@@ -274,6 +275,9 @@ export function App(): ReactElement {
         histograms,
         request_histogram,
         update_viewport,
+        restore_pending,
+        restore_cancelling,
+        cancel_restore,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
     const [show_formats, set_show_formats] = useState(true);
@@ -827,6 +831,17 @@ export function App(): ReactElement {
     if (filter_pending) the_progress_parts.push('Filtering…');
     const sort_filter_progress_text = the_progress_parts.join(' · ');
 
+    // On open, explain (and let the user cancel) the wait while saved
+    // sort/filter preferences are reapplied.
+    const restore_message = restore_pending
+        ? (restore_cancelling
+            ? 'Cancelling…'
+            : describe_restore_message(
+                restore_pending.sort,
+                restore_pending.filter
+            ))
+        : null;
+
     // Drop the sort/filter chips onto their own row when they would
     // otherwise crowd the action buttons off the toolbar. `hidden_columns.size`
     // is a dependency because it drives the Columns button's count badge,
@@ -1129,6 +1144,20 @@ export function App(): ReactElement {
             {sort_filter_progress_text && (
                 <div className="toolbar-progress" role="status">
                     {sort_filter_progress_text}
+                </div>
+            )}
+            {restore_message && (
+                <div className="toolbar-restore" role="status">
+                    <span>{restore_message}</span>
+                    {!restore_cancelling && (
+                        <button
+                            type="button"
+                            className="restore-cancel"
+                            onClick={cancel_restore}
+                        >
+                            Cancel
+                        </button>
+                    )}
                 </div>
             )}
             {subset_text && (

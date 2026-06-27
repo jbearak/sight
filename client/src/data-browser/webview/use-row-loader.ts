@@ -14,6 +14,7 @@ import type {
     HistogramBin,
     HistogramDataMessage,
     MetadataMessage,
+    RestorePendingMessage,
     RowResponse,
     SortAppliedMessage,
     SortKey,
@@ -26,6 +27,20 @@ import {
     get_needed_page_starts,
     PAGE_SIZE,
 } from './grid-model.js';
+
+/**
+ * Delay before the "applying saved sort/filter" UI appears. A restore
+ * that finishes faster than this (small/fast files) never flashes the
+ * message; only a genuinely slow restore reveals it (and its Cancel).
+ */
+export const RESTORE_DEBOUNCE_MS = 200;
+
+/** Which saved preferences a restore is reapplying. */
+export interface RestorePendingState {
+    restore_id: number;
+    sort: boolean;
+    filter: boolean;
+}
 
 declare function acquireVsCodeApi(): VsCodeApi;
 
@@ -49,6 +64,11 @@ export interface UseRowLoaderResult {
     histograms: Map<number, HistogramBin[]>;
     request_histogram: (col_index: number) => void;
     update_viewport: (start_row: number, end_row: number) => void;
+    // Non-null (after the debounce) while a saved sort/filter is being
+    // reapplied on open and the grid is not yet showing.
+    restore_pending: RestorePendingState | null;
+    restore_cancelling: boolean;
+    cancel_restore: () => void;
 }
 
 type IncomingMessage =
@@ -58,7 +78,8 @@ type IncomingMessage =
     | SortStatusMessage
     | FilterAppliedMessage
     | FilterStatusMessage
-    | HistogramDataMessage;
+    | HistogramDataMessage
+    | RestorePendingMessage;
 
 export function use_row_loader(): UseRowLoaderResult {
     const vscode_api = useMemo(() => acquireVsCodeApi(), []);
@@ -79,6 +100,15 @@ export function use_row_loader(): UseRowLoaderResult {
         useState<number | undefined>(undefined);
     const [histograms, set_histograms] =
         useState<Map<number, HistogramBin[]>>(() => new Map());
+    // Saved-preference restore UI: `restore_pending` is set only after
+    // the debounce timer fires, so a fast restore never flashes it.
+    const [restore_pending, set_restore_pending] =
+        useState<RestorePendingState | null>(null);
+    const [restore_cancelling, set_restore_cancelling] = useState(false);
+    const restore_timer = useRef<ReturnType<typeof setTimeout> | null>(
+        null
+    );
+    const restore_id_ref = useRef<number | null>(null);
     // Columns whose histogram has been requested (pending or arrived), so
     // opening a numeric filter popover repeatedly doesn't re-request.
     const requested_histograms = useRef<Set<number>>(new Set());
@@ -110,7 +140,38 @@ export function use_row_loader(): UseRowLoaderResult {
         function on_message(event: MessageEvent) {
             const my_msg = event.data as IncomingMessage;
 
+            if (my_msg.type === 'restorePending') {
+                // Defer showing the UI until the debounce elapses; a
+                // restore that completes sooner clears the timer on
+                // 'metadata' below and never flashes the message.
+                restore_id_ref.current = my_msg.restore_id;
+                set_restore_cancelling(false);
+                if (restore_timer.current !== null) {
+                    clearTimeout(restore_timer.current);
+                }
+                const my_info: RestorePendingState = {
+                    restore_id: my_msg.restore_id,
+                    sort: my_msg.sort,
+                    filter: my_msg.filter,
+                };
+                restore_timer.current = setTimeout(() => {
+                    set_restore_pending(my_info);
+                    restore_timer.current = null;
+                }, RESTORE_DEBOUNCE_MS);
+                return;
+            }
+
             if (my_msg.type === 'metadata') {
+                // Both the normal and cancelled restore paths end by
+                // posting metadata, so clear the restore UI here.
+                if (restore_timer.current !== null) {
+                    clearTimeout(restore_timer.current);
+                    restore_timer.current = null;
+                }
+                set_restore_pending(null);
+                set_restore_cancelling(false);
+                restore_id_ref.current = null;
+
                 set_metadata(my_msg);
                 set_pages(new Map());
                 pending_pages.current.clear();
@@ -196,8 +257,22 @@ export function use_row_loader(): UseRowLoaderResult {
         vscode_api.postMessage({ type: 'ready' });
         return () => {
             window.removeEventListener('message', on_message);
+            if (restore_timer.current !== null) {
+                clearTimeout(restore_timer.current);
+                restore_timer.current = null;
+            }
         };
     }, [vscode_api, request_page]);
+
+    const cancel_restore = useCallback(() => {
+        const my_id = restore_id_ref.current;
+        if (my_id === null) return;
+        set_restore_cancelling(true);
+        vscode_api.postMessage({
+            type: 'cancelRestore',
+            restore_id: my_id,
+        });
+    }, [vscode_api]);
 
     function ensure_rows(start_row: number, end_row: number) {
         const the_page_starts = get_needed_page_starts(
@@ -287,5 +362,8 @@ export function use_row_loader(): UseRowLoaderResult {
         histograms,
         request_histogram,
         update_viewport,
+        restore_pending,
+        restore_cancelling,
+        cancel_restore,
     };
 }
