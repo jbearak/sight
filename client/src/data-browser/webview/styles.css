@@ -74,9 +74,13 @@ body,
 /* Saved sort/filter is being reapplied on open: explains the wait and
    offers a Cancel that abandons it and shows the data unsorted. */
 .toolbar-restore {
+    /* Stack the message and the skip link so the link reads as the
+       message's own follow-up action rather than a detached control
+       floating at the far right of the row. */
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     padding: 4px 8px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
@@ -84,34 +88,33 @@ body,
     /* Like `.toolbar`, this is a flex item in the column-flex
        `.browser-root`; `min-width: 0` lets the row shrink to the viewport
        so the message truncates (see the span rule below) instead of the
-       row growing to its content width and clipping the Cancel button. */
+       row growing to its content width. */
     min-width: 0;
 }
 
 .toolbar-restore > span {
-    /* Allow the message to shrink so ellipsis applies in narrow panels;
-       a flex item defaults to min-width:auto and would otherwise overflow
-       and push the Cancel button off-screen. */
-    flex: 1 1 auto;
-    min-width: 0;
+    /* Cap the message to the panel width so a long explanation ellipsizes
+       rather than forcing the banner wider than the viewport. */
+    max-width: 100%;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.restore-cancel {
-    flex: 0 0 auto;
-    padding: 1px 8px;
+.restore-skip {
+    /* Styled as a link, not a button: it's a low-stakes alternative to
+       waiting, and a link sits naturally beneath the message it modifies. */
+    padding: 0;
     font-size: 12px;
-    color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
-    background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+    color: var(--vscode-textLink-foreground);
+    background: none;
     border: none;
-    border-radius: 2px;
+    text-decoration: underline;
     cursor: pointer;
 }
 
-.restore-cancel:hover {
-    background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+.restore-skip:hover {
+    color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
 }
 
 /* Sort + filter chip strips. Sits between the row count and the action
