@@ -181,18 +181,41 @@ describe('sight check parallel determinism (#207)', () => {
         expect(files).toEqual(sorted);
     });
 
-    it('drains every target even when max_parallel is below 1', async () => {
-        // The internal max_parallel parameter is clamped to >= 1 for non-empty
-        // target sets, so a degenerate value never silently yields zero workers
-        // and an empty report.
+    it('drains every target for degenerate max_parallel values', async () => {
+        // The internal max_parallel parameter is sanitized to a finite positive
+        // integer, so degenerate values never silently yield zero workers and an
+        // empty report, and never change the (order-normalized) output.
         const root = build_hazard_workspace();
         const config = load_config(root);
 
         const sequential = await render_with_parallelism(root, config, 1);
+        // Below 1 (clamped up to one worker).
         const zero = await render_with_parallelism(root, config, 0);
+        // More workers than targets (clamped down to targets.length).
+        const huge = await render_with_parallelism(root, config, 1000);
 
         expect(zero).toBe(sequential);
-        expect(JSON.parse(zero).length).toBeGreaterThan(0);
+        expect(huge).toBe(sequential);
+        expect(JSON.parse(sequential).length).toBeGreaterThan(0);
+    });
+
+    it('returns no diagnostics for an empty target list', async () => {
+        const root = build_hazard_workspace();
+        const config = load_config(root);
+
+        const context = await build_check_context(root, config);
+        try {
+            const records = await collect_check_diagnostics(
+                context,
+                root,
+                config,
+                [],
+                4
+            );
+            expect(records).toEqual([]);
+        } finally {
+            await context.document_store.dispose();
+        }
     });
 
     it('treats duplicate explicit targets the same as a single mention', async () => {
