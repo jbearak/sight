@@ -292,9 +292,12 @@ cost is negligible next to lex/parse/analyze.
   store." Enumerated contract that must survive: (a) cross-file resolution still
   reads parents from disk (unchanged — same shared resolver); (b) WD inheritance
   still works (the per-worker store is wired with the same scope resolver +
-  config); (c) `set_buffer_directives` still fires (callback preserved); (d)
-  size/index-limit/read-error per-target diagnostics unchanged (logic moved
-  verbatim); (e) output order unchanged (slot-by-index preserved).
+  config); (c) `set_buffer_directives` deliberately no longer fires during
+  `check` because `set_on_backward_directives_parsed` is intentionally not
+  wired (its overlay has no `check` consumer — a dropped capability, reviewed,
+  not a silent regression); (d) size/index-limit/read-error per-target
+  diagnostics unchanged (logic moved verbatim); (e) output order unchanged
+  (slot-by-index preserved).
 - **Determinism of `DiagnosticsProvider.filtered_cache`** (shared, keyed by
   `uri:version:config_hash` — verified in `src/providers/diagnostics.ts`):
   per-worker stores all use `version = 1` and distinct URIs per target, so no

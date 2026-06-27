@@ -193,9 +193,21 @@ describe('sight check parallel determinism (#207)', () => {
         const zero = await render_with_parallelism(root, config, 0);
         // More workers than targets (clamped down to targets.length).
         const huge = await render_with_parallelism(root, config, 1000);
+        // Non-finite values fall back to the default worker count.
+        const not_a_number = await render_with_parallelism(root, config, NaN);
+        const infinite = await render_with_parallelism(
+            root,
+            config,
+            Number.POSITIVE_INFINITY
+        );
+        // Fractional values floor (2.9 -> 2 workers).
+        const fractional = await render_with_parallelism(root, config, 2.9);
 
         expect(zero).toBe(sequential);
         expect(huge).toBe(sequential);
+        expect(not_a_number).toBe(sequential);
+        expect(infinite).toBe(sequential);
+        expect(fractional).toBe(sequential);
         expect(JSON.parse(sequential).length).toBeGreaterThan(0);
     });
 

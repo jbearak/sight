@@ -346,25 +346,33 @@ describe('sight check integration', () => {
         let stores_created = 0;
 
         const make_store = () => {
-            let store_active_opens = 0;
+            // Track the documents this store actually holds open. The counts
+            // stay live from open() until close(), not just for the artificial
+            // parse delay, so max_active_opens_per_store catches a regression
+            // where a worker opens the next target before closing the previous
+            // one on the same store.
+            const the_open_uris = new Set<string>();
             return {
-                open: async () => {
+                open: async (uri: string) => {
                     global_active_opens++;
-                    store_active_opens++;
                     global_max_active_opens = Math.max(
                         global_max_active_opens,
                         global_active_opens
                     );
+                    the_open_uris.add(uri);
                     max_active_opens_per_store = Math.max(
                         max_active_opens_per_store,
-                        store_active_opens
+                        the_open_uris.size
                     );
                     await new Promise((resolve) => setTimeout(resolve, 20));
-                    global_active_opens--;
-                    store_active_opens--;
                 },
-                get: (uri: string) => ({ uri }),
-                close: () => undefined,
+                get: (uri: string) =>
+                    the_open_uris.has(uri) ? { uri } : undefined,
+                close: (uri: string) => {
+                    if (the_open_uris.delete(uri)) {
+                        global_active_opens--;
+                    }
+                },
                 dispose: async () => undefined,
             };
         };
