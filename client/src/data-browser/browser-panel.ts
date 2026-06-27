@@ -768,6 +768,13 @@ export class DataBrowserPanel implements vscode.Disposable {
         msg: SetSortMessage
     ): Promise<void> {
         if (!this.dta_file) return;
+        // Ignore sort commands while a saved-preference restore is in
+        // flight: bumping generation here would make the restore discard
+        // its result without posting metadata, stranding the panel. The
+        // restore posts authoritative metadata momentarily; the user can
+        // re-sort then. (During the initial restore there is no grid to
+        // sort from; this guards the refresh-with-visible-grid case.)
+        if (this.restoring) return;
 
         // Bump the generation so any row request that is already
         // in-flight under the previous permutation is dropped instead of
@@ -994,6 +1001,10 @@ export class DataBrowserPanel implements vscode.Disposable {
         msg: SetFiltersMessage
     ): Promise<void> {
         if (!this.dta_file) return;
+        // Ignore filter commands while a saved-preference restore is in
+        // flight (see handle_set_sort): a generation bump here would
+        // strand the restore with no metadata posted.
+        if (this.restoring) return;
 
         // Bump the generation so an in-flight row request under the old
         // effective permutation is dropped rather than posting stale rows

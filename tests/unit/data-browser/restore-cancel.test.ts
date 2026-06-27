@@ -390,6 +390,37 @@ describe('handle_cancel_restore', () => {
     });
 });
 
+describe('sort/filter ignored while restoring (round 6)', () => {
+    it('handle_set_sort is a no-op while a restore is in flight', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        panel_like.restoring = true;
+        const my_gen_before = panel_like.generation;
+
+        await panel_like.handle_set_sort({
+            type: 'setSort', keys: [{ col_index: 0, direction: 'asc' }],
+            labels_on: true,
+        });
+
+        // No generation bump, no status posted: the command was ignored
+        // so the in-flight restore can post metadata uninterrupted.
+        expect(panel_like.generation).toBe(my_gen_before);
+        expect(posted).toEqual([]);
+    });
+
+    it('handle_set_filters is a no-op while a restore is in flight', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        panel_like.restoring = true;
+        const my_gen_before = panel_like.generation;
+
+        await panel_like.handle_set_filters({
+            type: 'setFilters', entries: [], labels_on: true,
+        });
+
+        expect(panel_like.generation).toBe(my_gen_before);
+        expect(posted).toEqual([]);
+    });
+});
+
 describe('reset_restored_prefs / forget_persisted_prefs', () => {
     it('reset clears memory and consumes the id synchronously', async () => {
         const { panel_like, sort_set, filter_set } =
