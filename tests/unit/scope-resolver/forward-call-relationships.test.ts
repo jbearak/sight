@@ -497,6 +497,11 @@ describe('Forward Call Relationship Tracking', () => {
                 .register_forward_call_relationships_from_cache(
                     caller_uri, both_calls, symbols);
 
+            // Precondition: b is genuinely registered, so the final
+            // assertion proves removal rather than never-present.
+            expect(value_references_uri(
+                (resolver as any).reverse_deps, b_uri)).toBe(true);
+
             // 2. Live edit deletes `do b` -> only `do a` remains.
             const a_only = [
                 make_forward_call(
