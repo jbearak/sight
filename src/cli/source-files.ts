@@ -3,7 +3,6 @@ import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { hasStataExtension, VCS_METADATA_DIRS } from '../utils/file-path-utils';
-import { entry_is_file_sync } from '../utils/symlink-aware-entry';
 import { compare_strings, error_message } from './shared';
 
 export interface ReportTarget {
@@ -82,25 +81,20 @@ function walk_sources(
 
     for (const entry of entries) {
         const entry_path = path.join(dir_path, entry.name);
-        // Recurse into real subdirectories only (unchanged). Symlinked
-        // dirs are not descended: an in-workspace target is already
-        // covered by the direct scan of its real location, and an
-        // external target would crawl an arbitrary tree (issue #219).
-        // Recursing only real subdirs adds no symlink cycle/escape
-        // risk, so no new guard is needed.
+        // `sight check` analyzes each discovered file, and analysis is
+        // keyed by path: the dependency graph keys callee edges by the
+        // resolved (real) path and the workspace index holds real files
+        // only, so analyzing a symlink-alias URI would miss its parents
+        // and could be reported as un-indexed. So this walk, like the
+        // persistent indexer, follows neither symlinked directories nor
+        // symlinked files — real files only (issue #219). In-workspace
+        // symlink targets are covered via their real path; symlink
+        // following lives in the non-analyzing consumers (path
+        // completion, the `.sthlp` lookup).
         if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
             walk_sources(entry_path, out, operator_errors);
-        } else if (
-            // A symlinked source FILE is followed (target may live
-            // anywhere): without this it is neither isFile() nor
-            // isDirectory() and was silently skipped (#219). The cheap
-            // extension check gates the (possibly stat-ing) helper so
-            // irrelevant symlinks (e.g. to a slow/blocked target) are
-            // never followed.
-            hasStataExtension(entry.name) &&
-            entry_is_file_sync(entry, entry_path, fs)
-        ) {
+        } else if (entry.isFile() && hasStataExtension(entry.name)) {
             out.push(entry_path);
         }
     }
@@ -157,31 +151,7 @@ export function collect_report_targets(
         }
     }
 
-    // Dedupe by physical identity, not by path string. Following
-    // symlinked source files (#219) means one physical file can be
-    // reached by several names (a symlink and its target, or two
-    // symlinks to it); report it ONCE so `sight check` does not emit
-    // duplicate diagnostics for the same content. Keep the lexically
-    // smallest name for a deterministic report. A path that cannot be
-    // canonicalized (race) is keyed by itself, never silently dropped.
-    const canonical_to_path = new Map<string, string>();
-    for (const my_path of source_paths) {
-        let my_canonical: string;
-        try {
-            my_canonical = canonicalize_existing_path(my_path);
-        } catch {
-            my_canonical = my_path;
-        }
-        const my_existing = canonical_to_path.get(my_canonical);
-        if (
-            my_existing === undefined ||
-            compare_strings(my_path, my_existing) < 0
-        ) {
-            canonical_to_path.set(my_canonical, my_path);
-        }
-    }
-
-    const targets: ReportTarget[] = Array.from(canonical_to_path.values())
+    const targets: ReportTarget[] = Array.from(new Set(source_paths))
         .map((file_path) => ({
             path: file_path,
             relative_path: relative_path(normalized_root, file_path),

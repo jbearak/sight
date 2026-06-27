@@ -164,10 +164,13 @@ describe('sight check source files', () => {
 });
 
 /**
- * `sight check` source discovery must follow symlinked source FILES (issue
- * #219). Symlinked DIRECTORIES are deliberately NOT descended: an in-workspace
- * target is covered by the direct scan of its real location, and an external
- * target would crawl an arbitrary tree.
+ * `sight check` analyzes each discovered file, and analysis is keyed by path
+ * (the dependency graph keys callee edges by the resolved real path; the
+ * workspace index holds real files only). Analyzing a symlink-alias URI would
+ * miss its parents / be reported as un-indexed, so this walk — like the
+ * persistent indexer — follows neither symlinked directories nor symlinked
+ * files (issue #219). In-workspace symlink targets are covered via their real
+ * path; symlink-following lives in the non-analyzing consumers.
  */
 function try_symlink(target: string, link_path: string): boolean {
     try {
@@ -178,23 +181,11 @@ function try_symlink(target: string, link_path: string): boolean {
     }
 }
 
-describe('sight check follows symlinked files, not symlinked dirs (#219)', () => {
-    it('discovers a symlinked source file whose target is external', () => {
-        // A symlink to a .do outside the checked tree is the only path to
-        // that content, so it must be discovered.
-        const root = temp_dir();
-        const external = temp_dir();
-        const target = path.join(external, 'lib.do');
-        fs.writeFileSync(target, 'display 1\n');
-        if (!try_symlink(target, path.join(root, 'lib.do'))) return;
-
-        const result = collect_report_targets([], root, root);
-        expect(result.targets.map((t) => t.relative_path)).toContain('lib.do');
-    });
-
-    it('reports a symlink + its in-tree target once (dedup by realpath)', () => {
-        // One physical file reachable by two names must be checked once, so
-        // `sight check` does not emit duplicate diagnostics (#219 review).
+describe('sight check analyzes real files only, not symlinks (#219)', () => {
+    it('does NOT discover a symlinked source file', () => {
+        // The real file is checked; the symlink alias is not a separate
+        // target (analysis is path-keyed; analyzing the alias URI would
+        // mismatch the dep-graph / index).
         const root = temp_dir();
         const real = path.join(root, 'real.do');
         fs.writeFileSync(real, 'display 1\n');
@@ -202,14 +193,24 @@ describe('sight check follows symlinked files, not symlinked dirs (#219)', () =>
 
         const result = collect_report_targets([], root, root);
         const rels = result.targets.map((t) => t.relative_path);
-        // Deduped to the lexically-smallest name; not both.
-        expect(rels.filter((r) => r === 'aliased.do' || r === 'real.do'))
-            .toEqual(['aliased.do']);
+        expect(rels).toContain('real.do');
+        expect(rels).not.toContain('aliased.do');
+    });
+
+    it('does NOT discover a symlinked source file with an external target', () => {
+        // An external-target symlink is not checked; declare the external
+        // location as a workspace folder to check it directly.
+        const root = temp_dir();
+        const external = temp_dir();
+        const target = path.join(external, 'lib.do');
+        fs.writeFileSync(target, 'display 1\n');
+        if (!try_symlink(target, path.join(root, 'lib.do'))) return;
+
+        const result = collect_report_targets([], root, root);
+        expect(result.targets.map((t) => t.relative_path)).not.toContain('lib.do');
     });
 
     it('does not discover a symlinked non-source file', () => {
-        // The extension filter gates the symlink stat: a non-source
-        // symlink name is never followed (issue #219 review).
         const root = temp_dir();
         const real = path.join(root, 'notes.txt');
         fs.writeFileSync(real, 'not stata\n');

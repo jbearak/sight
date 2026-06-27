@@ -95,12 +95,13 @@ Each is the PR #216 shape: fast path on the `Dirent` predicate; on
 → `false`/`'other'` on a dangling/erroring link.
 
 `entry_is_directory_sync` / `entry_is_file_sync` serve `resolve_path_rich`
-(which tests *either* dir or file on a given entry, never both) and
-`walk_sources` (`entry_is_file_sync`). `entry_is_file_async` serves the
-on-demand async `.sthlp` lookup. `classify_entry_sync` serves path completion.
-There is deliberately **no** async directory variant or async classifier: the
-recursive walks descend only real subdirectories (`Dirent.isDirectory()`), so
-they never async-classify a directory.
+(which tests *either* dir or file on a given entry, never both — this is the
+PR #216 resolver, which resolves a specific requested path and legitimately
+follows symlinked components). `entry_is_file_async` serves the on-demand async
+`.sthlp` lookup. `classify_entry_sync` serves path completion. There is
+deliberately **no** async directory variant or async classifier: the recursive
+walks descend only real subdirectories (`Dirent.isDirectory()`), so they never
+async-classify a directory.
 
 `file-path-utils.ts`'s private `entry_is_dir` / `entry_is_file` delegate to
 `entry_is_directory_sync` / `entry_is_file_sync` (one source of truth).
@@ -138,15 +139,18 @@ Two realizations shape the policy:
    symlinked dir's target is *inside* the workspace, the direct scan of its
    real location already covers those files; if *outside*, that is precisely
    the escape hazard. So no walk descends symlinked directories.
-2. **The persistent workspace index cannot safely follow symlinked files
-   either.** It keys entries by path (`URI.file(file_path)`) and the file
-   watcher (`onDidChangeWatchedFiles`) re-indexes/removes only the *changed
-   event path*. An `alias.do -> real.do` entry indexed alongside `real.do`
-   would go stale the moment `real.do` is edited (the watcher fires for
-   `real.do`, not `alias.do`), leaving duplicate/stale symbols in
-   completions, go-to-definition, and the dependency graph. (Codex round-7
-   finding.) Rather than add a realpath→aliases invalidation map, the
-   long-lived index holds **real files only**.
+2. **Anything that ANALYZES files cannot safely follow symlinked files,
+   because analysis is keyed by path.** The persistent index keys entries by
+   `URI.file(file_path)` and `onDidChangeWatchedFiles` re-indexes/removes only
+   the *changed event path*, so an `alias.do -> real.do` entry would go stale
+   when `real.do` is edited (watcher fires for `real.do`, not the alias —
+   Codex round-7). `sight check` opens each target under `URI.file(target.path)`
+   and resolves backward scope via `dependency_graph.get_parents(uri)`, whose
+   callee edges are keyed by the **resolved real path**; it also gates on
+   `has_indexed_file(uri)` (real files only). Analyzing a symlink-alias URI
+   would therefore miss its parents (false undefined-symbol diagnostics) and,
+   past the index cap, be reported `SIGHT_FILE_NOT_INDEXED` (Codex round-9). So
+   the analyzing consumers process **real files only**.
 
 So:
 
@@ -159,28 +163,28 @@ So:
   mounts report as real directories via `isDirectory()` and are descended just
   as the pre-existing code descended them — unchanged by this fix, out of
   scope.)
-- **The persistent indexer (`scan_directory`) follows real files only** — its
-  file branch is unchanged (`entry.isFile() && hasStataExtension(name)`), for
-  the staleness reason above. In-workspace symlink targets are covered via
-  their real path; external targets are declared as a workspace folder /
-  ado-path.
-- **One-shot consumers follow symlinked source FILES**, where there is no
-  long-lived path-keyed state to keep fresh, so no staleness can arise:
-  - **path completion** offers symlinked dirs (navigable folders) and files;
-  - **`sight check`** (`walk_sources`) discovers symlinked source files in its
-    single scan;
+- **The analyzing consumers follow real files only** — the persistent indexer
+  (`scan_directory`) and `sight check` (`walk_sources`) keep their file branch
+  unchanged (`entry.isFile() && hasStataExtension(name)`), for the path-keyed
+  reasons above. In-workspace symlink targets are analyzed via their real path;
+  external targets are declared as a workspace folder / ado-path.
+- **The non-analyzing consumers follow symlinked source FILES**, because they
+  only list or look up paths — no path-keyed analysis state to keep consistent:
+  - **path completion** offers symlinked dirs (navigable folders) and files
+    via `classify_entry_sync`;
   - the on-demand **`.sthlp` lookup** (`find_sthlp_file_recursive`, a fresh
     per-request walk that returns a path and never caches into the index)
-    matches a symlinked help file.
+    matches a symlinked help file via `entry_is_file_async`.
   Each keeps its existing **name-based** match (`hasStataExtension(entry.name)`,
-  or `name === basename` for `.sthlp`) and adds `entry_is_file_*` to confirm
-  the target is a regular file. Detection is by the link's own name (matching
-  how regular files are matched): a link named `analysis.do` is followed
-  (target anywhere), a link without a Stata-extension name is not.
+  or `name === basename` for `.sthlp`) plus the symlink-aware classifier to
+  confirm the target is a regular file. Detection is by the link's own name
+  (matching how regular files are matched): a link named `analysis.do` is
+  followed (target anywhere), a link without a Stata-extension name is not.
 
-This is the conscious scope decision: **the persistent index follows neither
-symlinked directories nor symlinked files; one-shot consumers follow symlinked
-files; no walk descends symlinked directories.**
+This is the conscious scope decision: **the analyzing consumers (index,
+`sight check`) follow real files only; the listing/lookup consumers (path
+completion, `.sthlp` lookup) follow symlinked files; no walk descends symlinked
+directories.**
 
 ### 3. Per-site changes
 
@@ -195,15 +199,13 @@ dirs nor symlinked files (staleness reason in §2). A brief comment records why.
 branch becomes `my_dirent.name === basename && await entry_is_file_async(...)`
 so a symlinked `.sthlp` is matched.
 
-**`walk_sources` (sync):** signature unchanged. Directory branch stays
-`entry.isDirectory()` with the `VCS_METADATA_DIRS` skip. File branch becomes
-`hasStataExtension(entry.name) && entry_is_file_sync(entry, entry_path, fs)`
-(cheap name check first, same gating as the other walks). `collect_report_targets`
-then de-duplicates the discovered files by **realpath** (keeping the
-lexically-smallest name) instead of by raw path string, so a symlink and its
-in-tree target are checked once — no duplicate diagnostics. (Explicit top-level
-input paths already `statSync` + `canonicalize_existing_path`, so a
-directly-named symlink already works.)
+**`walk_sources` (sync, `sight check`):** **unchanged from `main`** — directory
+branch `entry.isDirectory()` (real subdirs only) with the `VCS_METADATA_DIRS`
+skip, file branch `entry.isFile() && hasStataExtension(entry.name)`. `sight
+check` analyzes each discovered target by path, so it follows real files only
+for the same path-keyed reason as the indexer (§2); a comment records why.
+(Explicit top-level input paths already `statSync` + `canonicalize_existing_path`,
+so a directly-named symlink given as an argument still works.)
 
 **path completion (sync):** uses `classify_entry_sync(entry, full_path, fs)` and
 offers `'directory'` (incl. symlinked dirs) with a trailing `/` and `'file'`
@@ -217,10 +219,10 @@ skip (`entry.name.startsWith('.')`) and prefix filter unchanged.
   In-workspace targets are covered by the direct scan; external targets must be
   declared as a workspace folder / ado-path. Path completion still *offers*
   symlinked dirs (listing, not recursion).
-- **The persistent workspace index follows real files only** (see §2) — it does
-  not add symlinked-file aliases it could not keep fresh. Symlinked files are
-  followed by the one-shot consumers (completion, `sight check`, `.sthlp`
-  lookup) only.
+- **The analyzing consumers (index, `sight check`) follow real files only**
+  (see §2) — they do not analyze symlinked-file aliases that the path-keyed
+  index/dep-graph could not match. Symlinked files are followed by the
+  listing/lookup consumers (path completion, `.sthlp` lookup) only.
 - **Output paths stay as written.** Indexed URIs / completion labels remain the
   path as encountered, matching non-symlink entries.
 - `resolve_path_rich`'s external behavior is unchanged; the helper extraction is
@@ -250,11 +252,11 @@ them):
 - **`.sthlp` lookup `find_sthlp_file_recursive`:** a symlinked `.sthlp` under a
   real subdir is found; a dangling symlinked `.sthlp` is not returned; a dir
   symlink is not recursed through.
-- **`walk_sources` / `collect_report_targets`:** external-target symlinked
-  source file discovered; a symlink + its in-tree target reported once
-  (realpath dedup); non-source symlink not discovered; symlinked-dir target
-  discovered via its real path; dir symlink not recursed; external dir symlink
-  not descended.
+- **`walk_sources` / `collect_report_targets`:** a symlinked source file is
+  **not** discovered (real files only — the real file is checked, the alias is
+  not a target); an external-target symlinked source file is not discovered;
+  non-source symlink not discovered; symlinked-dir target discovered via its
+  real path; dir symlink not recursed.
 - **path completion:** a symlinked dir and a symlinked `.do` appear as
   completions; an external-target symlinked dir is offered; a dangling symlink
   is not.
@@ -264,14 +266,15 @@ delegation refactor (regression guard for §1) — confirmed.
 
 ## Risks
 
-- **Performance:** in the one-shot consumers, `stat` only on symlinked entries
-  (one syscall, only when the `Dirent` fast path doesn't resolve it). The
-  indexer (the hot startup path) is unchanged.
-- **External symlink targets not indexed:** a symlinked directory or file whose
-  target is outside the workspace is not in the persistent index. Mitigation:
+- **Performance:** in the listing/lookup consumers, `stat` only on symlinked
+  entries (one syscall, only when the `Dirent` fast path doesn't resolve it).
+  The indexer and `sight check` (the bulk-scan paths) are unchanged.
+- **External symlink targets not analyzed:** a symlinked directory or file
+  whose target is outside the workspace is not indexed or checked. Mitigation:
   documented; declare the target as a workspace folder / ado-path. Chosen over
-  crawling symlinked dirs (cycle/escape/aliasing/TOCTOU hazards) and over
-  indexing symlinked-file aliases (path-keyed staleness, Codex round-7) — both
+  crawling symlinked dirs (cycle/escape/aliasing/TOCTOU) and over analyzing
+  symlinked-file aliases (path-keyed staleness in the index, Codex round-7;
+  dep-graph/`has_indexed_file` mismatch in `sight check`, Codex round-9) — both
   for little gain on in-workspace layouts.
 - **Refactor regression in the resolver:** bounded — delegation preserves
   semantics and is covered by the existing symlink test suite (confirmed green).

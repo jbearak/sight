@@ -114,29 +114,25 @@ The indexer is *best-effort* and intentionally bounded:
 
 #### Symlinks
 
-The **persistent workspace index** follows neither symlinked directories nor
-symlinked files. It keys entries by path and the file watcher invalidates by
-the changed file's path, so an alias entry could not be kept in sync when its
-real target changes — rather than serve stale duplicates, the index simply
-holds the real files. If a symlink's target is inside your workspace, its
-content is already indexed via the real path, so cross-file go-to-definition
-and workspace-symbol search still work. If the target is *outside* your
-workspace (for example a symlink to a shared library elsewhere on disk), add
-that location as a workspace folder (or, for `.ado` help/programs, an ado-path)
-to have it indexed directly. This also keeps a stray symlinked directory from
-making the indexer crawl an arbitrary external tree.
+Features that **analyze** files — the persistent workspace index and
+`sight check` — follow neither symlinked directories nor symlinked files; they
+process **real files only**. Both are keyed by path: the index/file-watcher key
+entries by the changed file's path, and the dependency graph keys cross-file
+edges by the resolved real path. Analyzing a symlink-alias path would therefore
+mismatch that state (stale entries, missing parents, false "not indexed"), so
+the alias is not analyzed. If a symlink's target is inside your workspace its
+content is already analyzed via the real path, so cross-file go-to-definition,
+workspace-symbol search, and diagnostics still work. If the target is *outside*
+your workspace (for example a shared library elsewhere on disk), add that
+location as a workspace folder (or, for `.ado` help/programs, an ado-path) to
+have it analyzed directly. This also keeps a stray symlinked directory from
+making a walk crawl an arbitrary external tree.
 
-Symlink-following *is* applied where there is no long-lived, path-keyed state
-to keep fresh:
+Symlink-following *is* applied in the features that only **list or look up**
+paths (no path-keyed analysis state to keep consistent):
 
 - **Path completion** offers symlinked directories (as navigable folders) and
-  symlinked source files, so you can complete and open them.
-- **`sight check`** discovers symlinked source files (a symlink whose own name
-  has a Stata source extension and whose target is a regular file) during its
-  one-shot scan; symlinked directories are still not descended. Discovered
-  files are de-duplicated by physical identity (realpath), so a symlink and its
-  in-tree target are checked once (no duplicate diagnostics), reported under
-  the lexically-smallest of their names.
+  symlinked files, so you can complete and open them.
 - **Help (`.sthlp`) lookup** follows a symlinked help file.
 
 ### Cross-file scope resolution
