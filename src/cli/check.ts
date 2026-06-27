@@ -354,6 +354,12 @@ export interface CheckContext {
     forward_scope_resolver: ForwardScopeResolver;
     document_store: DocumentStore;
     diagnostics_provider: DiagnosticsProvider;
+    // Builds a fresh DocumentStore wired to the shared, read-only check
+    // infrastructure (scope resolver, workspace roots, scope-resolver config).
+    // Each check worker gets its own store from this factory so that a target
+    // is never analyzed while a sibling target is present as an open document —
+    // see the concurrency-invariant comment on `collect_check_diagnostics`.
+    create_document_store: () => DocumentStore;
 }
 
 export async function build_check_context(
@@ -380,7 +386,6 @@ export async function build_check_context(
     const forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
         max_forward_depth: config.cross_file.max_forward_depth,
     });
-    const document_store = new DocumentStore();
     const diagnostics_provider = new DiagnosticsProvider({
         sendDiagnostics: () => undefined,
     });
@@ -399,14 +404,25 @@ export async function build_check_context(
     dependency_graph.set_workspace_roots([workspace_root]);
     scope_resolver.set_workspace_roots([workspace_root]);
     forward_scope_resolver.set_workspace_roots([workspace_root]);
-    document_store.set_workspace_roots([workspace_root]);
-    document_store.set_scope_resolver(scope_resolver);
-    document_store.set_scope_resolver_config(
-        scope_resolver_config_for(config)
-    );
-    document_store.set_on_backward_directives_parsed((uri, directives) => {
-        workspace_indexer.set_buffer_directives(uri, directives);
-    });
+
+    const scope_resolver_config = scope_resolver_config_for(config);
+    // Builds a DocumentStore wired only to the shared, read-only check
+    // infrastructure. Notably it does NOT register
+    // `set_on_backward_directives_parsed`: that callback exists to keep the LSP
+    // server's find-references view fresh against unsaved edits by populating
+    // `WorkspaceIndexer.buffer_directives_overlay`. `check` runs diagnostics
+    // only, never calls `get_related_uris` (the overlay's sole consumer), and
+    // has no unsaved edits (buffer content always equals disk), so the overlay
+    // is dead weight here — and wiring it would add cross-target shared state we
+    // intentionally avoid (see `collect_check_diagnostics`).
+    const create_document_store = (): DocumentStore => {
+        const store = new DocumentStore();
+        store.set_workspace_roots([workspace_root]);
+        store.set_scope_resolver(scope_resolver);
+        store.set_scope_resolver_config(scope_resolver_config);
+        return store;
+    };
+    const document_store = create_document_store();
 
     await workspace_indexer.initialize([workspace_root], config.adoPaths);
 
@@ -417,6 +433,7 @@ export async function build_check_context(
         forward_scope_resolver,
         document_store,
         diagnostics_provider,
+        create_document_store,
     };
 }
 
@@ -437,18 +454,44 @@ function diagnostic_record(
     return { relative_path, diagnostic };
 }
 
+/**
+ * Concurrency invariant
+ * ----------------------
+ * Each target is analyzed in its **own** single-document `DocumentStore`
+ * (one per worker, from `context.create_document_store`). A worker opens its
+ * target, reads diagnostics, then closes it before pulling the next index, so
+ * a store holds at most one document at any instant and **no store ever
+ * contains a sibling target**. A target's diagnostics therefore never depend on
+ * which other targets happen to be open concurrently — parallel output is
+ * byte-identical to a sequential run, matching editor-startup semantics where
+ * the analyzed file is the one open document.
+ *
+ * This holds because cross-file resolution reads parents/callees from disk via
+ * the shared, read-only `ScopeResolver` (its caches are content-hash +
+ * dependency-graph-version keyed, so concurrent fills are deterministic), and
+ * `workspace_symbols` is a single snapshot captured here before any worker
+ * starts. Output order is independent of `max_parallel`: results are written
+ * into `the_slots[index]` by target index and flattened in order.
+ *
+ * Do NOT route per-target analysis through a shared multi-document store, and
+ * do NOT give the CLI an open-buffer-preferring content provider wired to a
+ * shared store, without revisiting this invariant and the
+ * `cli-check-parallel-determinism` regression test.
+ */
 export async function collect_check_diagnostics(
     context: CheckContext,
     workspace_root: string,
     config: StataLSPConfig,
-    targets: ReportTarget[]
+    targets: ReportTarget[],
+    max_parallel: number = CHECK_MAX_PARALLEL
 ): Promise<DiagnosticRecord[]> {
     const workspace_symbols = context.workspace_indexer.get_all_symbols();
     const files_indexed = context.workspace_indexer.get_metrics().files_indexed;
     const the_slots: DiagnosticRecord[][] = new Array(targets.length);
 
     async function collect_target_diagnostics(
-        target: ReportTarget
+        target: ReportTarget,
+        document_store: DocumentStore
     ): Promise<DiagnosticRecord[]> {
         const records: DiagnosticRecord[] = [];
         const uri = URI.file(target.path).toString();
@@ -520,14 +563,14 @@ export async function collect_check_diagnostics(
 
         let opened = false;
         try {
-            await context.document_store.open(
+            await document_store.open(
                 uri,
                 read_result.text,
                 1,
                 workspace_symbols
             );
             opened = true;
-            const state = context.document_store.get(uri);
+            const state = document_store.get(uri);
             if (!state) {
                 throw new Error(`failed to analyze ${target.path}`);
             }
@@ -547,7 +590,7 @@ export async function collect_check_diagnostics(
             }
         } finally {
             if (opened) {
-                context.document_store.close(uri);
+                document_store.close(uri);
             }
         }
 
@@ -555,18 +598,39 @@ export async function collect_check_diagnostics(
     }
 
     let file_index = 0;
-    const worker_count = Math.min(CHECK_MAX_PARALLEL, targets.length);
+    // A worker count must be a finite positive integer. Sanitize the internal,
+    // test-facing max_parallel before clamping: non-finite values (NaN /
+    // Infinity) fall back to the default, and fractional values floor. With no
+    // targets there is nothing to drain (0 workers); otherwise clamp to >= 1 so
+    // a caller passing max_parallel < 1 still drains every target with one
+    // worker rather than silently producing zero workers and an empty result.
+    const requested_parallel = Number.isFinite(max_parallel)
+        ? Math.floor(max_parallel)
+        : CHECK_MAX_PARALLEL;
+    const worker_count =
+        targets.length === 0
+            ? 0
+            : Math.max(1, Math.min(requested_parallel, targets.length));
     const the_workers = Array.from(
         { length: worker_count },
         async () => {
-            while (true) {
-                const my_index = file_index++;
-                if (my_index >= targets.length) {
-                    break;
+            // Per-worker store: see the concurrency invariant above. A worker
+            // reuses one store across the targets it pulls, but each target is
+            // closed before the next opens, so the store never holds a sibling.
+            const document_store = context.create_document_store();
+            try {
+                while (true) {
+                    const my_index = file_index++;
+                    if (my_index >= targets.length) {
+                        break;
+                    }
+                    the_slots[my_index] = await collect_target_diagnostics(
+                        targets[my_index],
+                        document_store
+                    );
                 }
-                the_slots[my_index] = await collect_target_diagnostics(
-                    targets[my_index]
-                );
+            } finally {
+                await document_store.dispose();
             }
         }
     );
