@@ -437,6 +437,12 @@ export class DataBrowserPanel implements vscode.Disposable {
                     my_schema_hash, my_signal
                 );
                 if (!this.dta_file) return;
+                // A refresh/reload during the sort read supersedes this
+                // attempt; bail before maybe_restore_filter consumes its
+                // one-shot flag, so the queued send re-restores fully.
+                // (A user cancel does not bump generation and falls
+                // through to the forget path below.)
+                if (my_generation !== this.generation) return;
                 // A cancel during the sort read must not kick off a long
                 // filter read; skip it and fall through to forget.
                 if (!is_cancelled()) {
