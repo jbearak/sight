@@ -284,6 +284,24 @@ describe('send_metadata restore', () => {
         expect(the_pendings.length).toBe(1);
     });
 
+    it('bails without posting or forgetting if generation changes mid-restore (round 4)', async () => {
+        const { panel_like, posted, sort_set } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+        });
+        // Simulate a refresh / webview-reload bumping generation while
+        // the restore column read is in flight.
+        panel_like.compute_sort_permutation = async () => {
+            panel_like.generation++;
+            return new Uint32Array(10);
+        };
+
+        await panel_like.send_metadata();
+
+        // Stale attempt: no metadata posted, prefs left intact.
+        expect(posted.some(m => m.type === 'metadata')).toBe(false);
+        expect(sort_set).toEqual([]);
+    });
+
     it('real read error keeps prefs and warns (finding #7)', async () => {
         const { panel_like, posted, sort_set, filter_set } =
             await make_restore_panel({ stored_sort: STORED_SORT });

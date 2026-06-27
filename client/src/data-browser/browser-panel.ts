@@ -366,6 +366,12 @@ export class DataBrowserPanel implements vscode.Disposable {
     private async send_metadata_impl(): Promise<void> {
         if (!this.dta_file) return;
 
+        // Snapshot the generation; a refresh or a webview-reload 'ready'
+        // bumps it. If it changes while we read columns, this attempt is
+        // stale — bail before posting so we never ship metadata for an
+        // outdated dataset/schema (a newer queued send_metadata posts).
+        const my_generation = this.generation;
+
         try {
             const my_missing_style =
                 vscode.workspace
@@ -439,6 +445,13 @@ export class DataBrowserPanel implements vscode.Disposable {
                     ) || my_failed;
                     if (!this.dta_file) return;
                 }
+                // A refresh / reload during the reads supersedes this
+                // attempt. Bail before posting (and before forgetting),
+                // leaving prefs intact for the queued send to reapply; a
+                // user cancel does NOT bump generation, so it still falls
+                // through to the forget path below.
+                if (my_generation !== this.generation) return;
+
                 if (is_cancelled()) {
                     // Undo any sort that completed before the cancel
                     // landed (memory only here), so chips and effective
@@ -684,6 +697,21 @@ export class DataBrowserPanel implements vscode.Disposable {
                 } else {
                     this.generation++;
                     this.row_cache.clear();
+                    // If a webview reload interrupts an in-flight
+                    // restore, the bumped generation makes that restore
+                    // discard its result — but it already consumed the
+                    // one-shot restore flags. Clear them so the queued
+                    // re-send reapplies the saved prefs instead of
+                    // showing natural order. (When no restore is in
+                    // flight, the in-memory sort/filter are already set
+                    // and re-sent as-is — no re-read.)
+                    if (this.restoring) {
+                        this.sort_restored = false;
+                        this.filter_restored = false;
+                        this.restoring = false;
+                        this.restore_abort = null;
+                        this.restore_id = -1;
+                    }
                     await this.send_metadata();
                 }
                 break;
