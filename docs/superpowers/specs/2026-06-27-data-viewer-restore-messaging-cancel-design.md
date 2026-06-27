@@ -99,7 +99,7 @@ cancellable API is reusable and keeps sight's call sites simple.
 
 ---
 
-## Part 1 — `@jbearak/dta-parser` (0.1.1 → 0.1.2)
+## Part 1 — `@jbearak/dta-parser` (0.1.1 → 0.2.0)
 
 ### API
 
@@ -167,9 +167,9 @@ release the loop for that handler to run.
 
 ### Release / consumption
 
-Bump to `0.1.2`; build esm + cjs + types; publish. Sight's existing `^0.1.1`
-range accepts `0.1.2`, so no manifest edit is strictly required once published —
-only a lockfile update via `bun install`. For development *before* publish, link
+Bump to `0.2.0`; build esm + cjs + types; publish. Sight's manifests
+(`package.json` and `client/package.json`) are updated to `^0.2.0`, plus a
+lockfile update via `bun install`. For development *before* publish, link
 the local build into the sight worktrees (`bun link`, or a temporary `file:` /
 git dependency) so Part 2 can be built and tested end-to-end.
 
@@ -197,32 +197,41 @@ current restore (see late-cancel handling below). The webview records the latest
 ### Extension side (`browser-panel.ts`)
 
 State added to the panel: `restore_abort: AbortController | null`,
-`restore_cancelled: boolean`, `restoring: boolean`, `restore_id: number`.
+`restoring: boolean`, `restore_id: number`. Cancellation is read directly from
+the restore's `AbortSignal` (there is no separate `restore_cancelled` flag):
+each `send_metadata` captures its own controller as `my_abort` and tests
+`my_abort.signal.aborted` through a local `is_cancelled()`, so a concurrent
+`send_metadata` reassigning `this.restore_abort` cannot change what the
+in-flight call sees. `restore_id` is the `generation` at restore start, with
+`-1` meaning "no active restore".
 
 `send_metadata`, on first restore for the dataset:
 
-1. Peek both stores. If either has a stored pref, **reset the restore state**
-   (`restore_cancelled = false`, fresh `this.restore_abort =
-   new AbortController()`, `restore_id = this.generation`, `restoring = true`),
-   then post `restorePending { restore_id, sort, filter }` **before** the heavy
-   reads. Resetting `restore_cancelled` here (not just on cancel) keeps a prior
-   cancel from poisoning a later restore — see finding #4.
-2. Call `maybe_restore_sort` / `maybe_restore_filter`, threading
-   `this.restore_abort.signal` down:
+1. `maybe_begin_restore(schema_hash)` peeks both stores. If either has a stored
+   pref, it **arms a fresh restore** (`this.restore_abort =
+   new AbortController()`, `restore_id = this.generation`, `restoring = true`)
+   and posts `restorePending { restore_id, sort, filter }` **before** the heavy
+   reads, returning whether a restore began. A fresh `AbortController` per
+   restore (rather than a reused boolean) keeps a prior cancel from poisoning a
+   later restore — see finding #4.
+2. Call `maybe_restore_sort` / `maybe_restore_filter`, threading the
+   **captured** `my_abort.signal` (not `this.restore_abort.signal`, which a
+   concurrent `send_metadata` could reassign) down:
    - `read_full_column(col, signal)` →
    - `compute_sort_permutation(sort, signal)` /
      `compute_filter_indices(filter, signal)` →
    - `read_rows(0, nobs, col, col+1, { signal })`.
-3. Between the two restores, short-circuit if `restore_cancelled` so a cancel
+3. Between the two restores, short-circuit if `is_cancelled()` so a cancel
    during the sort read does not then trigger a long filter read.
 4. **Distinguish abort from real failure.** The compute wrappers must catch and
-   classify: an `AbortError` (or `restore_cancelled === true`) → quiet natural
+   classify via `is_abort_error()`: an `AbortError` (matched by name, since the
+   chunked reads reject with a `DOMException`) → quiet natural
    order; any *other* error (corruption, I/O, parser bug) → natural order **plus**
    a non-blocking notice (e.g. a toolbar note / `showWarningMessage`,
    "Couldn't reapply saved sort/filter"), and the persisted prefs are **kept**
    (only an explicit user cancel forgets them — finding #7). A bare
    `catch { … = null }` that swallows everything is explicitly rejected.
-5. On the **cancelled** path (user cancel, `restore_cancelled === true`),
+5. On the **cancelled** path (user cancel, `is_cancelled()` true),
    `send_metadata`:
    - **resets all in-memory restore effects**, not just the persisted/chip view:
      `this.sort = { keys: [], … }`, `this.permutation = null`,
@@ -237,19 +246,22 @@ State added to the panel: `restore_abort: AbortController | null`,
    - posts `metadata` with `stored_sort` / `stored_filter` **omitted** (so no
      chips render);
    - skips `post_filter_applied` (no filter is active).
-6. **Cleanup in a `finally`,** not only after a successful `postMessage`: clear
-   `restoring`, null `restore_abort`. Tying cleanup to a `finally` ensures an
-   early throw inside `send_metadata` (before `metadata` is posted) cannot strand
-   the panel in a permanent `restoring` state (finding #3). The existing
-   `try/catch` that surfaces "Failed to open .dta file" stays; the cleanup is its
-   `finally`.
+6. **Cleanup in a `finally`,** not only after a successful `postMessage`: when
+   this call still owns the active restore (`my_began && this.restore_abort ===
+   my_abort`), clear `restoring` and null `restore_abort`. The ownership guard
+   keeps a superseded call from clobbering a restore a concurrent refresh
+   started. Tying cleanup to a `finally` ensures an early throw inside
+   `send_metadata` (before `metadata` is posted) cannot strand the panel in a
+   permanent `restoring` state (finding #3). The existing `try/catch` that
+   surfaces "Failed to open .dta file" stays; the cleanup is its `finally`.
 
 `handle_message` gains a `cancelRestore` case keyed on `restore_id`:
 
 - If `msg.restore_id !== this.restore_id`, ignore (stale cancel from a previous
   lifecycle — finding #6).
-- Else if `this.restoring` is still true: `restore_cancelled = true;
-  this.restore_abort?.abort();` (the normal in-flight cancel).
+- Else if `this.restoring` is still true: `this.restore_abort?.abort();` — the
+  in-flight reads observe the aborted signal via `is_cancelled()` and take the
+  cancelled path (the normal in-flight cancel).
 - Else (the restore already completed and posted `metadata` in the cross-window
   race — finding #5): the user still asked to cancel, so honor it as an explicit
   **clear-and-forget**: reset in-memory sort/filter as in step 5, clear both
@@ -301,17 +313,28 @@ arrives.
   sort/filter couldn't be reapplied, and the persisted prefs are **retained** so
   the next reopen can retry. This is deliberately distinct from cancel
   (forget) and must not be silently conflated with it.
-- **Refresh** (`ready` received while `dta_file` is already set): `maybe_restore_*`
-  are one-shot (`sort_restored` / `filter_restored` guards), so a refresh does not
-  re-read columns; `restorePending` may still be posted but the debounce
-  suppresses the flash. The `generation` bump on refresh discards stale in-flight
-  reads, and the fresh `restore_id` (step 1) makes any crossed `cancelRestore`
-  from the prior lifecycle a no-op.
+- **Reload after a completed restore** (`ready` received while `dta_file` is
+  already set and no restore is in flight): the one-shot guards
+  (`sort_restored` / `filter_restored`) are already consumed, so
+  `maybe_begin_restore` returns early — **no** `restorePending` is posted and no
+  columns are re-read; the queued `send_metadata` simply re-sends the in-memory
+  sort/filter.
+- **Reload/refresh that interrupts an in-flight restore:** here the one-shot
+  guards are deliberately re-armed so the saved prefs *are* re-applied. The
+  `ready` branch resets `sort_restored` / `filter_restored` to `false` and
+  `refresh()` resets them as part of its full dataset reset; both then call
+  `abort_and_clear_restore()` (abort the controller, then clear `restoring` /
+  `restore_abort` / `restore_id`) *after* bumping `generation`. The bump makes
+  the abandoned restore bail before posting or forgetting (so prefs survive),
+  and the abort lets the serialized `send_metadata` chain advance at once
+  instead of waiting on the dropped read; the queued send then re-reads and
+  re-restores. The fresh `restore_id` (step 1) also makes any crossed
+  `cancelRestore` from the prior lifecycle a no-op.
 - **Late cancel after completion (finding #5):** handled by the `restore_id`
   match + clear-and-forget fallback in `handle_message`, so the user's click is
   honored rather than dropped.
 - **Cancel during the sort read, with a filter also stored:** the
-  `restore_cancelled` short-circuit (step 3) prevents the subsequent filter read;
+  `is_cancelled()` short-circuit (step 3) prevents the subsequent filter read;
   step 5's in-memory reset guarantees a sort that *did* complete before the cancel
   is also undone (finding #1).
 

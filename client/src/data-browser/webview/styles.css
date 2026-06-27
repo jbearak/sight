@@ -81,9 +81,19 @@ body,
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
     font-size: 12px;
+    /* Like `.toolbar`, this is a flex item in the column-flex
+       `.browser-root`; `min-width: 0` lets the row shrink to the viewport
+       so the message truncates (see the span rule below) instead of the
+       row growing to its content width and clipping the Cancel button. */
+    min-width: 0;
 }
 
 .toolbar-restore > span {
+    /* Allow the message to shrink so ellipsis applies in narrow panels;
+       a flex item defaults to min-width:auto and would otherwise overflow
+       and push the Cancel button off-screen. */
+    flex: 1 1 auto;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
