@@ -268,13 +268,13 @@ Includes LRU eviction and `wait_for_update(uri)` to avoid race conditions betwee
 **Debounce Manager** (`src/utils/debounce-manager.ts`): Batches rapid document
 changes with backpressure handling and metrics.
 
-**Workspace Config** (`src/utils/workspace-config.ts`, `src/utils/config-validator.ts`):
-Loads and validates the workspace-root project config (`sight.toml`, the
-`PROJECT_CONFIG_FILE` in `src/config-file/types.ts`) and maps the public
-schema (README) into the internal config shape used by the server.
-Provides validation and fallback logic for configuration settings. Note:
-`.sight.json` is the unsupported legacy config (`STALE_JSON_CONFIG_FILE`),
-not the current format.
+**Workspace Config** (`src/config-file/`, `src/utils/config-validator.ts`):
+`src/config-file/` discovers and loads the workspace-root project config
+(`sight.toml`, the `PROJECT_CONFIG_FILE` in `src/config-file/types.ts`) via
+`discovery.ts`/`toml-loader.ts`, and maps the public schema (README) into the
+internal config shape with `schema.ts` (`map_public_config_to_partial_config`)
+and `merge.ts`. `src/utils/config-validator.ts` validates the resolved
+`StataLSPConfig` and applies default/fallback values.
 
 **Indexer** (`src/indexer/`): Workspace-wide symbol indexing for cross-file
 navigation. Scans `.do`, `.ado`, `.doh`, and `.mata` files, with size and
