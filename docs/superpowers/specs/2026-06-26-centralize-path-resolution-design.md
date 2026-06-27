@@ -94,13 +94,19 @@ case bypass are in scope (see §3.2).
 
 ## 2. Goal
 
-A single chokepoint for static `do`/`run`/`include` + directive path
-resolution. No `existsSync`-based, case-unaware tiering anywhere outside
-`file-path-utils.ts`. The producers stop computing an authoritative resolved
-path; consumers resolve uniformly from `raw_path` + caller dir (forward) or
-through `compute_directive_real_path` (backward). And the indexer stamps the
-same `working_directory` an opened document would, so dependency-graph callee
-keys are identical across the indexed and open paths (#218).
+A single chokepoint for **authoritative** static `do`/`run`/`include` +
+directive path resolution. The analyzer's case-unaware 3-tier
+(WD → script → workspace-root) resolver is removed entirely; the only
+multi-tier resolution left is the shared `resolve_forward_call_rich` /
+`resolve_path_rich`. The producers stop computing an authoritative resolved
+forward-call path; forward consumers resolve uniformly from `raw_path` +
+caller dir, and backward consumers' authoritative resolution goes through the
+case-aware `compute_directive_real_path`. (The directive parser retains a
+minimal 1-tier `join + .do + existsSync` to populate `Directive.path` as a
+parse-time hint — see §3.2 for why it is kept rather than consolidated.) And
+the indexer stamps the same `working_directory` an opened document would, so
+dependency-graph callee keys are identical across the indexed and open paths
+(#218).
 
 ## 3. Design
 
@@ -187,24 +193,28 @@ it became a pure join (Codex-confirmed):
   `parent.do` (so included-by wins). A pure join would split them and skip the
   conflict normalization.
 
-So `Directive.path` stays the join + existence + `.do` value. The #220 win on
-the directive side is two-fold:
+So `Directive.path` stays the join + existence + `.do` value, produced by the
+existing `resolve_path_with_fallback`. The authoritative, case-aware backward
+resolution is **already** centralized in `compute_directive_real_path` (which
+joins via `resolve_path` then calls `resolve_path_rich`); `Directive.path` is a
+cheap parse-time pre-resolution that a few consumers key by. The #220 win on
+the directive side is therefore:
 
-1. **Single `.do` owner.** Reroute the directive parser's `.do`/existence
-   logic through the shared `resolve_path_rich` so `resolve_path_rich` is the
-   sole implementation of the `.do` fallback. Concretely, have
-   `resolve_path_with_fallback` (`directive-parser/index.ts` :510) delegate to
-   `resolve_path_rich` with **no** `workspace_roots` (→ plain existence + `.do`,
-   case-unaware — behaviorally identical at parse time to today's
-   `existsSync` + `.do`), mapping `exact`/`case_only` → `path` and
-   `ambiguous`/`missing` → `requested` (the joined path, preserving "return the
-   joined path on miss"). This removes the duplicated `.do` branch without
-   changing `Directive.path`'s value. (Verify no import cycle: directive-parser
-   → file-path-utils.) Keep `resolve_path` (pure join — the chokepoint's join
-   step, used by `compute_directive_real_path`).
-   - After 3.1 drops the forward-directive `resolve_path_with_fallback` call
-     (:341), this method's only remaining caller is the backward-directive
-     parse (:181). It stays (now a thin delegator), not deleted.
+1. **Keep `resolve_path_with_fallback` as-is (do NOT consolidate it through
+   `resolve_path_rich`).** The two `.do`-fallback contracts differ:
+   `resolve_path_with_fallback` (`directive-parser/index.ts` :522) appends
+   `.do` to any path **not ending in `.do`** (so `parent.ado` →
+   `parent.ado.do`), whereas `resolve_path_rich` (`file-path-utils.ts` :269)
+   appends `.do` only when the final component has **no extension at all**.
+   Delegating would silently change `Directive.path` for extensioned non-`.do`
+   paths and perturb `normalize_directives` / `get_related_uris` keying. Not
+   worth the risk. The directive parser keeps its small 1-tier join+`.do`
+   helper; it is not the multi-tier duplication #220 targets (that is the
+   analyzer's 3-tier resolver, removed in §3.1). After 3.1 drops the
+   forward-directive call at :341, `resolve_path_with_fallback`'s only caller
+   is the backward-directive parse (:181) — it stays. Keep `resolve_path`
+   (pure join — the chokepoint's join step, used by
+   `compute_directive_real_path`).
 
 2. **Migrate the case bypass in `discover_working_directory`** (the concrete
    #218-adjacent fix). At `scope-resolver/index.ts` :1321 it derives the parent
@@ -254,27 +264,32 @@ observe stale pre-restamp keys.
 **Chosen approach: resolve inherited WD inline, before stamping.** The key
 realization (verified): `ScopeResolver` owns its **own** `file_cache`
 (`scope-resolver/index.ts` :173, :195) and `discover_working_directory` reads
-parent files via `get_parsed_file` from that cache / disk — it does **not**
-read the indexer's `symbol_index` nor call back into `index_do_file`. So a
-WD-only walk is *not* re-entrant with the index loop, and it is
+parent files via `get_parsed_file` (:1331) from that cache / disk — it does
+**not** read the indexer's `symbol_index` nor call back into `index_file` /
+`index_do_file`. So the walk is *not* re-entrant with the index loop, and it is
 order-independent (parents are read from disk, not from the partially-built
 index).
 
 Plan:
-1. Expose a lightweight, symbol-free `resolve_inherited_working_directory(
-   backward_directives, child_uri, config)` on `ScopeResolver` that wraps the
-   existing `discover_working_directory` walk (reuse, not a fourth copy — keeps
-   #220's de-duplication spirit). Give the indexer a `ScopeResolver` handle
-   (constructor/setter; no construction cycle — `get_reachable_symbols`
-   already takes one per-call, the indexer simply doesn't store it yet).
-2. In `index_do_file`, compute the effective WD as
-   `own_wd ?? inherited_wd` **before** the analyzer-call stamping (:538–:554)
-   and the `dependency_graph.update_caller` (:590). Only invoke the inherited
-   walk when the file has backward directives and no own WD directive
+1. Expose `resolve_inherited_working_directory(backward_directives, child_uri,
+   config)` on `ScopeResolver` that wraps the existing
+   `discover_working_directory` walk (reuse, not a fourth copy — keeps #220's
+   de-duplication spirit). Note: this walk is **not symbol-free** —
+   `get_parsed_file` runs the analyzer to parse each parent — but it is
+   non-re-entrant w.r.t. the indexer and does no *full scope resolution*
+   (no symbol-table merging, no forward-call resolution). The cost is one
+   parse per distinct parent file, memoized in `file_cache`. Give the indexer
+   a `ScopeResolver` handle (constructor/setter; no construction cycle —
+   `get_reachable_symbols` already takes one per-call, the indexer simply
+   doesn't store it yet).
+2. In `index_do_file`, compute the effective WD as `own_wd ?? inherited_wd`
+   **before** the analyzer-call stamping (:538–:554) and the
+   `dependency_graph.update_caller` (:590). Only invoke the inherited walk when
+   the file has backward directives and no own WD directive
    (`discover_working_directory` is otherwise skipped — bounded cost; backward
    directives are rare and the WD cache memoizes shared parents).
 
-This sidesteps both Codex blockers: no new forward-call storage and no
+This sidesteps both prior blockers: no new forward-call storage and no
 re-stamp (WD is correct at first stamp), and no `mark_scan_complete` reordering
 (it all happens inside the normal per-file path, before the graph update).
 
@@ -285,9 +300,13 @@ does not transitively re-enter the indexer (it must touch only
 issue option (c): keep the indexer edge best-effort (own-WD only) and rely on
 DocumentStore correcting it on open — documented, not silently divergent.
 
-**Scope guard.** Incremental single-file re-index and the open-document path
-are unchanged (DocumentStore stays authoritative for open files). The inline
-walk only fills the previously-`undefined` inherited WD during indexing.
+**Scope note.** `index_file` (:454) backs both the initial workspace scan and
+the incremental update queue (:743), so the inline walk runs on **both** paths.
+That is intended and desirable: every indexer-produced edge for a WD-dependent
+file gets the correct inherited-WD key, not just initial-scan ones. The
+open-document path is unchanged — DocumentStore stays authoritative for open
+files; the walk only fills the previously-`undefined` inherited WD during
+indexing.
 
 ## 4. Out of scope / non-goals
 
