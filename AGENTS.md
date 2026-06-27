@@ -269,9 +269,12 @@ Includes LRU eviction and `wait_for_update(uri)` to avoid race conditions betwee
 changes with backpressure handling and metrics.
 
 **Workspace Config** (`src/utils/workspace-config.ts`, `src/utils/config-validator.ts`):
-Loads and validates `.sight.json` (workspace-root config) and maps the
-public schema (README) into the internal config shape used by the server.
-Provides validation and fallback logic for configuration settings.
+Loads and validates the workspace-root project config (`sight.toml`, the
+`PROJECT_CONFIG_FILE` in `src/config-file/types.ts`) and maps the public
+schema (README) into the internal config shape used by the server.
+Provides validation and fallback logic for configuration settings. Note:
+`.sight.json` is the unsupported legacy config (`STALE_JSON_CONFIG_FILE`),
+not the current format.
 
 **Indexer** (`src/indexer/`): Workspace-wide symbol indexing for cross-file
 navigation. Scans `.do`, `.ado`, `.doh`, and `.mata` files, with size and
