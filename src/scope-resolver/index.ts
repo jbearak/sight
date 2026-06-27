@@ -1289,6 +1289,37 @@ export class ScopeResolver {
     }
 
     /**
+     * Resolve the working directory a file INHERITS from its backward
+     * directive parents (`@lsp-done-by` / `@lsp-included-by` / `@lsp-run-by`).
+     * Own-directive WD is the caller's responsibility; this returns only the
+     * inherited value (or undefined).
+     *
+     * Safe to call from the workspace indexer: it reads parent files via this
+     * resolver's own `file_cache` / disk through `get_parsed_file` and never
+     * touches the indexer's `symbol_index` nor re-enters `index_file`. Used to
+     * make indexed and open-document dependency-graph callee keys agree for
+     * WD-dependent files (#218).
+     */
+    async resolve_inherited_working_directory(
+        backward_directives: Directive[],
+        current_uri: string,
+        config?: Partial<ScopeResolverConfig>,
+    ): Promise<string | undefined> {
+        if (backward_directives.length === 0) {
+            return undefined;
+        }
+        const my_config: ScopeResolverConfig = { ...DEFAULT_CONFIG, ...config };
+        return this.discover_working_directory(
+            backward_directives,
+            new Set<string>(),
+            0,
+            my_config,
+            new Map(),
+            current_uri,
+        );
+    }
+
+    /**
      * Discover the working directory from the directive chain using lightweight parsing.
      * This method only parses directives (no full AST) to efficiently find the working
      * directory before doing full parsing.

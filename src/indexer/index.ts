@@ -116,12 +116,26 @@ export class WorkspaceIndexer {
     private is_processing_queue = false;
     private on_graph_change_callback?: (changed_callees: Set<string>) => void;
     private workspace_roots: string[] = [];
+    // Optional ScopeResolver used during indexing to resolve a file's
+    // INHERITED working directory (#218). When unset, indexing stamps
+    // only the file's own @lsp-cd / @lsp-wd directive.
+    private scope_resolver?: ScopeResolver;
 
     /**
      * Set the dependency graph for auto backward dependency discovery.
      */
     set_dependency_graph(graph: DependencyGraph): void {
         this.dependency_graph = graph;
+    }
+
+    /**
+     * Provide a ScopeResolver so indexing can resolve inherited working
+     * directories (#218), making indexed and open-document dependency-graph
+     * callee keys agree for WD-dependent files. Optional: when unset,
+     * indexing stamps own-directive WD only (best-effort).
+     */
+    set_scope_resolver(resolver: ScopeResolver): void {
+        this.scope_resolver = resolver;
     }
 
     /**
@@ -518,29 +532,41 @@ export class WorkspaceIndexer {
                 undefined,
             );
 
-            // Resolve effective working directory from @lsp-cd / @lsp-wd
-            // directive via the shared helper so the value is identical to
-            // what DocumentStore stamps — required for dependency-graph edge
-            // keys to be stable across both producers.
+            // Resolve effective working directory: own @lsp-cd / @lsp-wd
+            // directive first (via the shared helper, so the value matches
+            // what DocumentStore stamps), then — when there is no own
+            // directive — the WD inherited from backward-directive parents.
             //
-            // NOTE (inherited WD): DocumentStore can also inherit a working
-            // directory from parent files via ScopeResolver when the current
-            // file has no own @lsp-cd directive. The indexer does not perform
-            // that lookup because ScopeResolver itself calls the indexer
-            // (via file-parse cache) and a recursive call during bulk
-            // indexing would create re-entrant, unbounded recursion. Files
-            // that rely on inherited working-directory resolution will have
-            // their ForwardCall.working_directory set to undefined here; the
-            // dependency graph will fall back to caller-relative path
-            // resolution for those calls, which is the same behaviour as
-            // before the shared-helper alignment.
-            const effective_working_directory: string | undefined =
+            // The inherited lookup (#218) reuses ScopeResolver's WD walk,
+            // which reads parents via the resolver's own file_cache / disk
+            // and never re-enters the indexer's index_file, so it is safe to
+            // call during a bulk scan. When no ScopeResolver is wired (e.g.
+            // `sight check`), inherited WD is skipped and the edge stays
+            // best-effort own-WD-only.
+            const own_working_directory: string | undefined =
                 directive_result.working_directory
                     ? resolve_working_directory_directive(
                           directive_result.working_directory,
                           workspace_root,
                       )
                     : undefined;
+
+            let effective_working_directory = own_working_directory;
+            if (own_working_directory === undefined && this.scope_resolver) {
+                const the_backward_directives = directive_result.directives
+                    .filter(
+                        d => d.type === 'done-by' ||
+                            d.type === 'included-by',
+                    );
+                if (the_backward_directives.length > 0) {
+                    effective_working_directory =
+                        await this.scope_resolver
+                            .resolve_inherited_working_directory(
+                                the_backward_directives,
+                                file_uri,
+                            );
+                }
+            }
 
             // Stamp caller_uri and working_directory onto command-detected
             // forward calls produced by the analyzer.  The analyzer already

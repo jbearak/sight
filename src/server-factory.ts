@@ -1238,6 +1238,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
             definition_provider.set_workspace_roots(active_workspace_roots);
             workspace_indexer.set_dependency_graph(dependency_graph);
             workspace_indexer.set_on_graph_change(invalidate_and_revalidate_callees);
+            // Let the indexer resolve inherited working directories during the
+            // workspace scan so its dependency-graph callee keys match the
+            // open-document path for WD-dependent files (#218).
+            workspace_indexer.set_scope_resolver(scope_resolver);
             scope_resolver.set_dependency_graph(dependency_graph);
             diagnostics_provider.set_dependency_graph(dependency_graph);
 
