@@ -267,7 +267,7 @@ export class ForwardScopeResolver {
         // This ensures earlier calls are processed first, which is important for
         // duplicate detection (the earliest call to a file should win)
         const static_calls = forward_calls
-            .filter(call => call.is_static && call.path)
+            .filter(call => call.is_static && call.raw_path)
             .sort((a, b) => a.call_site_line - b.call_site_line);
 
         for (const my_call of static_calls) {
@@ -294,7 +294,7 @@ export class ForwardScopeResolver {
                         end: { line: my_call.call_site_line, character: 0 }
                     },
                     source: {
-                        source_file: path.basename(my_call.path),
+                        source_file: path.basename(my_call.raw_path),
                         source_line: my_call.call_site_line,
                         original_range: my_call.range
                     }
@@ -809,7 +809,7 @@ export class ForwardScopeResolver {
                 }
             }
             for (const my_call of callee_result.forward_calls) {
-                if (!my_call.is_static || !my_call.path) continue;
+                if (!my_call.is_static || !my_call.raw_path) continue;
                 // Include-only descent. `do`/`run` callees run in a fresh scope
                 // and leave no bindings behind for the caller's end-of-execution
                 // state — promoting them to `include` is a separate fix from the

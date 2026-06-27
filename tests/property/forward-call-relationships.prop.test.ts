@@ -174,14 +174,19 @@ describe('Feature: callee-change-caller-revalidation', () => {
                     
                     // Set up relationships: each caller calls the callee
                     for (const my_caller_uri of caller_uris) {
+                        // raw_path must be the absolute callee path: the
+                        // callee URI is now resolved from raw_path + caller
+                        // dir, not from a pre-joined path field.
+                        const my_callee_fs_path =
+                            URI.parse(callee_uri).fsPath;
                         const forward_calls = [make_forward_call(
-                            URI.parse(callee_uri).fsPath,
+                            my_callee_fs_path,
                             true,
                             'do',
                             0,
-                            'callee.do'
+                            my_callee_fs_path
                         )];
-                        
+
                         (resolver as any).register_forward_call_relationships_from_cache(my_caller_uri, forward_calls, symbols);
                         
                         // Add scope cache entries for callers
@@ -231,14 +236,19 @@ describe('Feature: callee-change-caller-revalidation', () => {
                         const caller_uri = uris[i];
                         const callee_uri = uris[i + 1];
                         
+                        // raw_path must be the absolute callee path: the
+                        // callee URI is now resolved from raw_path + caller
+                        // dir, not from a pre-joined path field.
+                        const my_callee_fs_path =
+                            URI.parse(callee_uri).fsPath;
                         const forward_calls = [make_forward_call(
-                            URI.parse(callee_uri).fsPath,
+                            my_callee_fs_path,
                             true,
                             'do',
                             0,
-                            'callee.do'
+                            my_callee_fs_path
                         )];
-                        
+
                         (test_resolver as any).register_forward_call_relationships_from_cache(caller_uri, forward_calls, symbols);
                     }
                     

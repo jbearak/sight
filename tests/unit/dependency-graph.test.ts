@@ -204,11 +204,11 @@ describe('DependencyGraph', () => {
             expect(the_parents[0].call_site_line).toBe(10);
         });
 
-        it('should skip calls with empty path', () => {
+        it('should skip calls with empty raw_path', () => {
             const my_call: ForwardCall = {
                 type: 'do',
                 path: '',
-                raw_path: 'something.do',
+                raw_path: '',
                 call_site_line: 5,
                 range: {
                     start: { line: 5, character: 0 },

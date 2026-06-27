@@ -2605,56 +2605,53 @@ export class ScopeResolver {
      * uses — required for invalidation to fire on the correct map entry.
      *
      * Algorithm:
-     * 1. Derive caller_dir from my_call.caller_uri (or fall back to
-     *    path.dirname(my_call.path) when caller_uri is absent).
+     * 1. Derive caller_dir from my_call.caller_uri (an empty string when
+     *    no caller URI is available — degrades to relative resolution).
      * 2. Call resolve_forward_call_rich(raw_path, caller_dir, wd, ...)
-     *    which computes both the WD-joined and script-relative candidates
-     *    independently of the pre-joined ForwardCall.path.
+     *    which computes the WD-joined and script-relative candidates from
+     *    raw_path.
      *    - exact or case_only  → use the real-cased path
      *    - ambiguous or missing → key by my_outcome.requested (WD path)
-     * 3. When workspace_roots are empty (early startup) → fall back to
-     *    my_call.path (pre-joined analyzer path), same as today's behavior.
+     * Empty workspace_roots → plain-existence semantics (no case handling),
+     * matching the old early-startup behavior.
      */
     private resolve_callee_uri(
         my_call: ForwardCall,
         caller_uri_override?: string,
     ): string {
-        if (this.workspace_roots.length > 0) {
-            // Use the shared WD-join-with-fallback helper so that
-            // scope-resolver reverse-dep keys agree with dep-graph and
-            // forward-scope-resolver. Passes caller_dir (not the pre-joined
-            // ForwardCall.path) so both candidates are computed correctly
-            // regardless of which producer wrote the call.
-            // Prefer the explicit override (passed by methods that know the
-            // caller), then the call's own caller_uri, then fall back to
-            // the caller file's directory derived from the pre-joined path.
-            const my_effective_caller_uri =
-                caller_uri_override ?? my_call.caller_uri;
-            const my_caller_dir = my_effective_caller_uri
-                ? path.dirname(URI.parse(my_effective_caller_uri).fsPath)
-                : path.dirname(my_call.path);
-            const my_outcome = resolve_forward_call_rich(
-                my_call.raw_path,
-                my_caller_dir,
-                my_call.working_directory,
-                {
-                    workspace_roots: this.workspace_roots,
-                    fs: this.resolve_fs,
-                },
-            );
-            if (
-                my_outcome.kind === 'exact' ||
-                my_outcome.kind === 'case_only'
-            ) {
-                return URI.file(my_outcome.path).toString();
-            }
-            // ambiguous or missing: key by the WD-joined requested path.
-            // Both variants carry `requested: string`.
-            return URI.file(my_outcome.requested).toString();
+        // Resolve the callee URI through the single shared helper so
+        // scope-resolver reverse-dep keys agree with dep-graph and
+        // forward-scope-resolver. Pass caller_dir (derived from the
+        // caller URI, never a pre-joined path) so the WD-join and
+        // script-relative candidates are computed from raw_path,
+        // regardless of which producer wrote the call. Empty
+        // workspace_roots → plain-existence semantics (no case handling),
+        // matching the old early-startup behavior.
+        // Prefer the explicit override (passed by methods that know the
+        // caller), then the call's own caller_uri.
+        const my_effective_caller_uri =
+            caller_uri_override ?? my_call.caller_uri;
+        const my_caller_dir = my_effective_caller_uri
+            ? path.dirname(URI.parse(my_effective_caller_uri).fsPath)
+            : '';
+        const my_outcome = resolve_forward_call_rich(
+            my_call.raw_path,
+            my_caller_dir,
+            my_call.working_directory,
+            {
+                workspace_roots: this.workspace_roots,
+                fs: this.resolve_fs,
+            },
+        );
+        if (
+            my_outcome.kind === 'exact' ||
+            my_outcome.kind === 'case_only'
+        ) {
+            return URI.file(my_outcome.path).toString();
         }
-        // Roots unset (early startup): fall back to as-typed path,
-        // no case normalization — same as today's behavior.
-        return URI.file(my_call.path).toString();
+        // ambiguous or missing: key by the WD-joined requested path.
+        // Both variants carry `requested: string`.
+        return URI.file(my_outcome.requested).toString();
     }
 
     /**
@@ -2756,7 +2753,7 @@ export class ScopeResolver {
         // the map mutations and last_forward_calls write.
         const new_stored: Array<{ call: ForwardCall; resolved_uri: string }> =
             new_forward_calls
-                .filter(c => c.is_static && c.path)
+                .filter(c => c.is_static && c.raw_path)
                 .map(c => ({
                     call: c,
                     resolved_uri: this.resolve_callee_uri(c, caller_uri),
@@ -3197,8 +3194,9 @@ export class ScopeResolver {
         // resolve_callee_uri calls.
         const the_stored: Array<{ call: ForwardCall; resolved_uri: string }> = [];
         for (const my_call of forward_calls) {
-            // Skip dynamic paths (containing macro references)
-            if (!my_call.is_static || !my_call.path) {
+            // Skip dynamic paths (containing macro references) and
+            // degenerate calls with no path text.
+            if (!my_call.is_static || !my_call.raw_path) {
                 continue;
             }
 

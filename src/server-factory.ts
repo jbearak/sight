@@ -1005,11 +1005,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     if (document_state?.forward_calls && document_state?.symbols) {
                         // Log forward calls for debugging (Req 8.2, 8.4)
                         if (is_debug) {
-                            const static_calls = document_state.forward_calls.filter(c => c.is_static && c.path);
+                            const static_calls = document_state.forward_calls.filter(c => c.is_static && c.raw_path);
                             connection.console.log(`[reverse-deps] Updating for ${snapshot_uri}`);
                             connection.console.log(`[reverse-deps]   forward_calls: ${document_state.forward_calls.length} total, ${static_calls.length} static`);
                             for (const my_call of static_calls) {
-                                connection.console.log(`[reverse-deps]   - ${my_call.type} "${my_call.path}" (line ${my_call.call_site_line})`);
+                                connection.console.log(`[reverse-deps]   - ${my_call.type} "${my_call.raw_path}" (line ${my_call.call_site_line})`);
                             }
                         }
 
