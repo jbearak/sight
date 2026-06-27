@@ -1275,25 +1275,6 @@ export class SemanticAnalyzer {
     }
     
     /**
-     * Resolve a path relative to the containing file's directory with .do fallback.
-     * @deprecated Use resolve_forward_call_path for forward calls
-     */
-    private resolve_path_with_fallback(raw_path: string, containing_dir: string): string {
-        // Normalize path separators
-        const normalized = raw_path.replace(/\\/g, '/');
-        
-        // Resolve relative to containing directory
-        let resolved: string;
-        if (path.isAbsolute(normalized) || /^[a-zA-Z]:\//.test(normalized)) {
-            resolved = path.normalize(normalized);
-        } else {
-            resolved = path.normalize(path.join(containing_dir, normalized));
-        }
-        
-        return this.resolve_with_do_fallback(resolved);
-    }
-
-    /**
      * Process a command node.
      *
      * Symbol extraction handled here:

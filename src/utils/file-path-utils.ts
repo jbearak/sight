@@ -61,30 +61,6 @@ export function hasStataExtension(filename: string): boolean {
   return STATA_FILE_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
-/**
- * Resolve file path with .do fallback
- * Returns the path that exists, trying original path first, then with .do extension
- */
-export function resolvePathWithDoFallback(
-  fs_path: string,
-  fs: { existsSync: (path: string) => boolean },
-): string | null {
-  // Try original path first
-  if (fs.existsSync(fs_path)) {
-    return fs_path;
-  }
-
-  // Try .do fallback if original path doesn't end in .do
-  if (!fs_path.endsWith('.do')) {
-    const fallback_path = fs_path + '.do';
-    if (fs.existsSync(fallback_path)) {
-      return fallback_path;
-    }
-  }
-
-  return null;
-}
-
 // ─── Rich path resolver ───────────────────────────────────────────────────────
 
 /**
