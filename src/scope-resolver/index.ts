@@ -49,6 +49,7 @@ import { build_do_include_pattern } from '../utils/stata-call-patterns';
 import {
     resolve_path_rich,
     resolve_forward_call_rich,
+    outcome_fs_path,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -107,7 +108,7 @@ export function build_scope_resolver_config(
 }
 
 export function scope_resolver_config_for(
-    config: StataLSPConfig
+    config: Partial<StataLSPConfig>
 ): Partial<ScopeResolverConfig> {
     return build_scope_resolver_config({
         assume_call_site: config.cross_file?.assume_call_site,
@@ -1289,28 +1290,38 @@ export class ScopeResolver {
     }
 
     /**
-     * Resolve the working directory a file INHERITS from its backward
-     * directive parents (`@lsp-done-by` / `@lsp-included-by` / `@lsp-run-by`).
-     * Own-directive WD is the caller's responsibility; this returns only the
-     * inherited value (or undefined).
+     * Resolve the working directory a file INHERITS from its explicit
+     * backward-directive parents (`@lsp-done-by` / `@lsp-included-by`;
+     * `@lsp-run-by` is parsed as `done-by`). Pass the file's full directive
+     * list — this filters to the backward types itself, so the "which
+     * directives are backward" rule lives in one place. Own-directive WD is
+     * the caller's responsibility; this returns only the inherited value.
      *
      * Safe to call from the workspace indexer: it reads parent files via this
      * resolver's own `file_cache` / disk through `get_parsed_file` and never
      * touches the indexer's `symbol_index` nor re-enters `index_file`. Used to
      * make indexed and open-document dependency-graph callee keys agree for
      * WD-dependent files (#218).
+     *
+     * Covers EXPLICIT backward directives only. WD inherited via
+     * auto-discovered (dependency-graph) parents is not resolved here — that
+     * depends on scan ordering — and stays best-effort during indexing,
+     * corrected when the file is opened.
      */
     async resolve_inherited_working_directory(
-        backward_directives: Directive[],
+        directives: Directive[],
         current_uri: string,
         config?: Partial<ScopeResolverConfig>,
     ): Promise<string | undefined> {
-        if (backward_directives.length === 0) {
+        const the_backward_directives = directives.filter(
+            d => d.type === 'done-by' || d.type === 'included-by',
+        );
+        if (the_backward_directives.length === 0) {
             return undefined;
         }
         const my_config: ScopeResolverConfig = { ...DEFAULT_CONFIG, ...config };
         return this.discover_working_directory(
-            backward_directives,
+            the_backward_directives,
             new Set<string>(),
             0,
             my_config,
@@ -2670,15 +2681,9 @@ export class ScopeResolver {
                 fs: this.resolve_fs,
             },
         );
-        if (
-            my_outcome.kind === 'exact' ||
-            my_outcome.kind === 'case_only'
-        ) {
-            return URI.file(my_outcome.path).toString();
-        }
-        // ambiguous or missing: key by the WD-joined requested path.
-        // Both variants carry `requested: string`.
-        return URI.file(my_outcome.requested).toString();
+        // exact/case_only → real-cased path; ambiguous/missing → the
+        // WD-joined `requested` path (shared with dep-graph keying).
+        return URI.file(outcome_fs_path(my_outcome)).toString();
     }
 
     /**

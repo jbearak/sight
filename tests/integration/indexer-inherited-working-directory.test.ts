@@ -72,4 +72,40 @@ describe('Indexer inherited working directory (#218)', () => {
         expect(the_callees.has(expected_callee)).toBe(true);
         expect(the_callees.has(wrong_callee)).toBe(false);
     });
+
+    it('respects the configured max_backward_depth for inherited WD', async () => {
+        // Only the GRANDPARENT sets @lsp-cd; reaching it requires depth > 0.
+        write_file('grandparent.do', '// @lsp-cd: "data"\nglobal g = 1\n');
+        write_file(
+            'parent.do',
+            '// @lsp-done-by: "grandparent.do"\n',
+        );
+        write_file('child.do', '// @lsp-done-by: "parent.do"\ndo sub.do\n');
+        write_file('data/sub.do', 'global from_sub = 1\n');
+
+        const indexer = new WorkspaceIndexer();
+        // max_backward_depth 0 excludes the grandparent, so the child must
+        // NOT inherit its @lsp-cd (matching the open-document path under the
+        // same setting). With the default depth the grandparent WD would
+        // leak in — this pins that the indexer honors the active config.
+        indexer.configure({ cross_file: { max_backward_depth: 0 } });
+        const graph = new DependencyGraph();
+        graph.set_workspace_roots([temp_dir]);
+        indexer.set_dependency_graph(graph);
+
+        const scope_resolver = new ScopeResolver();
+        scope_resolver.set_workspace_roots([temp_dir]);
+        indexer.set_scope_resolver(scope_resolver);
+
+        await indexer.initialize([temp_dir]);
+
+        const child_uri = URI.file(path.join(temp_dir, 'child.do')).toString();
+        const inherited_callee = URI.file(
+            path.join(temp_dir, 'data', 'sub.do'),
+        ).toString();
+
+        const the_callees = graph.get_callees(child_uri);
+        // Grandparent WD was depth-excluded, so the edge is NOT keyed by it.
+        expect(the_callees.has(inherited_callee)).toBe(false);
+    });
 });

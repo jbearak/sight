@@ -547,6 +547,18 @@ function find_strict_containing_root(
     return best_root;
 }
 
+/**
+ * Project a `PathCaseOutcome` to the filesystem path a callee should be
+ * keyed by: the real on-disk-cased path for `exact`/`case_only`, otherwise
+ * the `requested` (WD-joined) path for `ambiguous`/`missing`. Shared by the
+ * dependency graph and the scope-resolver reverse-dep keying so both agree.
+ */
+export function outcome_fs_path(outcome: PathCaseOutcome): string {
+    return outcome.kind === 'exact' || outcome.kind === 'case_only'
+        ? outcome.path
+        : outcome.requested;
+}
+
 // ─── WD-join / script-relative / workspace-root fallback helper ──────────────
 
 /**

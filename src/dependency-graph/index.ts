@@ -11,6 +11,7 @@ import { ForwardCall, ForwardCallType } from '../types';
 import { logger } from '../utils/logger';
 import {
     resolve_forward_call_rich,
+    outcome_fs_path,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 
@@ -118,11 +119,7 @@ export class DependencyGraph {
                     fs: this.resolve_fs,
                 },
             );
-            const my_callee_fs_path =
-                my_outcome.kind === 'exact' || my_outcome.kind === 'case_only'
-                    ? my_outcome.path
-                    : my_outcome.requested;
-            const callee_uri = this.path_to_uri(my_callee_fs_path);
+            const callee_uri = this.path_to_uri(outcome_fs_path(my_outcome));
 
             // If multiple calls from the same caller to the same callee,
             // keep the earliest call site (first encounter wins)
