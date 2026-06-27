@@ -157,7 +157,31 @@ export function collect_report_targets(
         }
     }
 
-    const targets: ReportTarget[] = Array.from(new Set(source_paths))
+    // Dedupe by physical identity, not by path string. Following
+    // symlinked source files (#219) means one physical file can be
+    // reached by several names (a symlink and its target, or two
+    // symlinks to it); report it ONCE so `sight check` does not emit
+    // duplicate diagnostics for the same content. Keep the lexically
+    // smallest name for a deterministic report. A path that cannot be
+    // canonicalized (race) is keyed by itself, never silently dropped.
+    const canonical_to_path = new Map<string, string>();
+    for (const my_path of source_paths) {
+        let my_canonical: string;
+        try {
+            my_canonical = canonicalize_existing_path(my_path);
+        } catch {
+            my_canonical = my_path;
+        }
+        const my_existing = canonical_to_path.get(my_canonical);
+        if (
+            my_existing === undefined ||
+            compare_strings(my_path, my_existing) < 0
+        ) {
+            canonical_to_path.set(my_canonical, my_path);
+        }
+    }
+
+    const targets: ReportTarget[] = Array.from(canonical_to_path.values())
         .map((file_path) => ({
             path: file_path,
             relative_path: relative_path(normalized_root, file_path),

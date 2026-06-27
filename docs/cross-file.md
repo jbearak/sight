@@ -133,7 +133,10 @@ to keep fresh:
   symlinked source files, so you can complete and open them.
 - **`sight check`** discovers symlinked source files (a symlink whose own name
   has a Stata source extension and whose target is a regular file) during its
-  one-shot scan; symlinked directories are still not descended.
+  one-shot scan; symlinked directories are still not descended. Discovered
+  files are de-duplicated by physical identity (realpath), so a symlink and its
+  in-tree target are checked once (no duplicate diagnostics), reported under
+  the lexically-smallest of their names.
 - **Help (`.sthlp`) lookup** follows a symlinked help file.
 
 ### Cross-file scope resolution

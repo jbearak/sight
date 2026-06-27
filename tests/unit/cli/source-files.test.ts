@@ -179,7 +179,22 @@ function try_symlink(target: string, link_path: string): boolean {
 }
 
 describe('sight check follows symlinked files, not symlinked dirs (#219)', () => {
-    it('discovers a symlinked source file', () => {
+    it('discovers a symlinked source file whose target is external', () => {
+        // A symlink to a .do outside the checked tree is the only path to
+        // that content, so it must be discovered.
+        const root = temp_dir();
+        const external = temp_dir();
+        const target = path.join(external, 'lib.do');
+        fs.writeFileSync(target, 'display 1\n');
+        if (!try_symlink(target, path.join(root, 'lib.do'))) return;
+
+        const result = collect_report_targets([], root, root);
+        expect(result.targets.map((t) => t.relative_path)).toContain('lib.do');
+    });
+
+    it('reports a symlink + its in-tree target once (dedup by realpath)', () => {
+        // One physical file reachable by two names must be checked once, so
+        // `sight check` does not emit duplicate diagnostics (#219 review).
         const root = temp_dir();
         const real = path.join(root, 'real.do');
         fs.writeFileSync(real, 'display 1\n');
@@ -187,8 +202,9 @@ describe('sight check follows symlinked files, not symlinked dirs (#219)', () =>
 
         const result = collect_report_targets([], root, root);
         const rels = result.targets.map((t) => t.relative_path);
-        expect(rels).toContain('aliased.do');
-        expect(rels).toContain('real.do');
+        // Deduped to the lexically-smallest name; not both.
+        expect(rels.filter((r) => r === 'aliased.do' || r === 'real.do'))
+            .toEqual(['aliased.do']);
     });
 
     it('does not discover a symlinked non-source file', () => {

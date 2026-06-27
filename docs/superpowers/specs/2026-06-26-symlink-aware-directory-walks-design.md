@@ -18,10 +18,10 @@ tracks them.
 
 | Site | Function | I/O | Recursive? |
 |------|----------|-----|------------|
-| `src/indexer/index.ts:308` | `scan_directory` | async (`fs.promises.readdir`) | yes, **unbounded** |
-| `src/indexer/index.ts:1298` | `find_sthlp_file_recursive` | async | yes, depth-capped (8) |
-| `src/cli/source-files.ts:67` | `walk_sources` | sync (`fs.readdirSync`) | yes, **unbounded** |
-| `src/providers/completion.ts:~1426` | path completion | sync | no (single dir listing) |
+| `src/indexer/index.ts` | `scan_directory` | async (`fs.promises.readdir`) | yes, **unbounded** |
+| `src/indexer/index.ts` | `find_sthlp_file_recursive` | async | yes, depth-capped (8) |
+| `src/cli/source-files.ts` | `walk_sources` | sync (`fs.readdirSync`) | yes, **unbounded** |
+| `src/providers/completion.ts` | path completion | sync | no (single dir listing) |
 
 Note: `collect_report_targets` (the caller of `walk_sources`) already
 `fs.statSync`s each **explicit** top-level input path, so an explicitly named
@@ -122,12 +122,12 @@ Codex's adversarial reviews of both the spec and the implementation):
 2. **Escape** — a dir symlink to outside the workspace (`/ws/link -> /Users/me`)
    crawls an arbitrary external tree. The indexer's `maxIndexedFiles` cap does
    **not** bound this: it gates *indexing* inside `index_file`
-   (`should_skip_for_max_indexed_files`, `src/indexer/index.ts:421`), while the
-   directory walk keeps recursing regardless.
+   (`should_skip_for_max_indexed_files`), while the directory walk keeps
+   recursing regardless.
 3. **Aliasing / duplicate indexing** — the same physical dir reached via a
    symlink and via its real path is walked/indexed twice under distinct URIs
-   (symbols are keyed by traversal path, `src/indexer/index.ts:450`); a symlink
-   to a *declared root* can even claim that root before its own scan.
+   (`index_file` keys by traversal path, not realpath); a symlink to a
+   *declared root* can even claim that root before its own scan.
 4. **TOCTOU + exclusion bypass** — a parent-side boundary check is racy, and a
    symlink named innocuously but pointing at `.git`/`node_modules` bypasses the
    name-based exclusion.
@@ -198,9 +198,12 @@ so a symlinked `.sthlp` is matched.
 **`walk_sources` (sync):** signature unchanged. Directory branch stays
 `entry.isDirectory()` with the `VCS_METADATA_DIRS` skip. File branch becomes
 `hasStataExtension(entry.name) && entry_is_file_sync(entry, entry_path, fs)`
-(cheap name check first, same gating as the other walks). (Explicit top-level
-input paths in `collect_report_targets` already `statSync` +
-`canonicalize_existing_path`, so a directly-named symlink already works.)
+(cheap name check first, same gating as the other walks). `collect_report_targets`
+then de-duplicates the discovered files by **realpath** (keeping the
+lexically-smallest name) instead of by raw path string, so a symlink and its
+in-tree target are checked once — no duplicate diagnostics. (Explicit top-level
+input paths already `statSync` + `canonicalize_existing_path`, so a
+directly-named symlink already works.)
 
 **path completion (sync):** uses `classify_entry_sync(entry, full_path, fs)` and
 offers `'directory'` (incl. symlinked dirs) with a trailing `/` and `'file'`
@@ -247,10 +250,11 @@ them):
 - **`.sthlp` lookup `find_sthlp_file_recursive`:** a symlinked `.sthlp` under a
   real subdir is found; a dangling symlinked `.sthlp` is not returned; a dir
   symlink is not recursed through.
-- **`walk_sources` / `collect_report_targets`:** symlinked source file
-  discovered; non-source symlink not discovered; symlinked-dir target discovered
-  via its real path; dir symlink not recursed; external dir symlink not
-  descended.
+- **`walk_sources` / `collect_report_targets`:** external-target symlinked
+  source file discovered; a symlink + its in-tree target reported once
+  (realpath dedup); non-source symlink not discovered; symlinked-dir target
+  discovered via its real path; dir symlink not recursed; external dir symlink
+  not descended.
 - **path completion:** a symlinked dir and a symlinked `.do` appear as
   completions; an external-target symlinked dir is offered; a dangling symlink
   is not.
