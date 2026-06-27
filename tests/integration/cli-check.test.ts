@@ -429,4 +429,60 @@ describe('sight check integration', () => {
             targets.map((target) => target.relative_path)
         );
     });
+
+    it('drives a distinct real DocumentStore per worker through the real factory', async () => {
+        // The isolation test above mocks `create_document_store`, and the
+        // byte-identical determinism test would still pass even if the factory
+        // returned a single shared store (shared-store output is already
+        // identical today). This test closes that gap: it runs real collection
+        // over the real `build_check_context` factory and asserts the factory
+        // actually hands out several distinct stores — none of them the primary
+        // context store — so a regression that returns a shared store is caught.
+        const root = temp_dir();
+        const the_target_files = [
+            'a.do', 'b.do', 'c.do', 'd.do', 'e.do', 'f.do',
+        ];
+        for (const my_file of the_target_files) {
+            fs.writeFileSync(path.join(root, my_file), 'display 1\n');
+        }
+
+        const config_result = load_check_config({
+            cwd: root,
+            workspace_root: root,
+            no_config: true,
+        });
+        expect(config_result.kind).toBe('loaded');
+        if (config_result.kind !== 'loaded') return;
+
+        const targets = collect_report_targets([], root, root).targets;
+        const context = await build_check_context(root, config_result.config);
+
+        // Wrap the real factory to capture every store it actually creates.
+        const real_factory = context.create_document_store.bind(context);
+        const created_stores = new Set<unknown>();
+        context.create_document_store = () => {
+            const store = real_factory();
+            created_stores.add(store);
+            return store;
+        };
+
+        try {
+            await collect_check_diagnostics(
+                context,
+                root,
+                config_result.config,
+                targets,
+                4
+            );
+
+            // Several distinct real stores were created (one per worker), so
+            // the factory is not returning a single shared store.
+            expect(created_stores.size).toBeGreaterThan(1);
+            // None of them is the primary context store reused as the analysis
+            // store.
+            expect(created_stores.has(context.document_store)).toBe(false);
+        } finally {
+            await context.document_store.dispose();
+        }
+    });
 });
