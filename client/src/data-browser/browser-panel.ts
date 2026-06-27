@@ -221,6 +221,13 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.filter_restored = false;
         this.effective_perm = null;
         this.histogram_cache.clear();
+        // Reset the saved-preference restore handshake; a fresh restore
+        // begins (if applicable) when initialize() re-sends metadata.
+        this.restore_abort = null;
+        this.restore_cancelled = false;
+        this.restoring = false;
+        this.restore_failed = false;
+        this.restore_id = -1;
 
         // Clean up the old temp file on Windows before
         // overwriting the path (other platforms unlink
@@ -344,6 +351,15 @@ export class DataBrowserPanel implements vscode.Disposable {
     private async send_metadata(): Promise<void> {
         if (!this.dta_file) return;
 
+        // Per-attempt restore flags. Reset here (not only in
+        // maybe_begin_restore, which is skipped when no restore begins)
+        // so a cancel/failure from an earlier open can't leak into a
+        // later send_metadata — e.g. a webview reload that re-sends
+        // 'ready' must not run apply_cancel_forget against a sort the
+        // user applied manually in the meantime.
+        this.restore_cancelled = false;
+        this.restore_failed = false;
+
         try {
             const my_missing_style =
                 vscode.workspace
@@ -412,12 +428,10 @@ export class DataBrowserPanel implements vscode.Disposable {
                     if (!this.dta_file) return;
                 }
                 if (this.restore_cancelled) {
-                    // Forget the saved prefs and undo any sort that
-                    // completed before the cancel landed, so chips,
-                    // persistence, and effective order all agree on
-                    // "natural".
-                    await this.apply_cancel_forget(my_schema_hash);
-                    if (!this.dta_file) return;
+                    // Undo any sort that completed before the cancel
+                    // landed (memory only here), so chips and effective
+                    // order agree on "natural" before metadata is posted.
+                    this.reset_restored_prefs();
                 }
                 this.recompute_effective();
 
@@ -435,6 +449,12 @@ export class DataBrowserPanel implements vscode.Disposable {
                         + 'this dataset; showing it unsorted and '
                         + 'unfiltered.'
                     );
+                }
+                // Persist the "forget" only after metadata is posted, so
+                // a store-write failure cannot strand the webview waiting
+                // on a metadata it never receives.
+                if (this.restore_cancelled) {
+                    await this.forget_persisted_prefs(my_schema_hash);
                 }
             } finally {
                 // Only the call that began this restore clears its
@@ -524,8 +544,8 @@ export class DataBrowserPanel implements vscode.Disposable {
             && this.has_applicable_stored_filter(schema_hash_value);
         if (!my_has_sort && !my_has_filter) return false;
 
-        this.restore_cancelled = false;
-        this.restore_failed = false;
+        // restore_cancelled / restore_failed are reset at the top of
+        // send_metadata, which is this method's only caller.
         this.restore_abort = new AbortController();
         this.restore_id = this.generation;
         this.restoring = true;
@@ -577,20 +597,23 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     /**
-     * Drop the restored sort/filter from memory and forget the
-     * persisted preferences for this dataset×schema. Used both when an
-     * in-flight restore is cancelled and when a late cancel lands after
-     * the restore completed. Setting `restore_id = -1` consumes the
-     * handshake so a duplicate cancel is ignored.
+     * Drop the restored sort/filter from memory (synchronous). Setting
+     * `restore_id = -1` consumes the handshake so a duplicate cancel is
+     * ignored. The caller invalidates caches / posts updates and then
+     * persists the forget via {@link forget_persisted_prefs}.
      */
-    private async apply_cancel_forget(
-        schema_hash_value: string
-    ): Promise<void> {
+    private reset_restored_prefs(): void {
         this.restore_id = -1;
         this.sort = EMPTY_SORT;
         this.permutation = null;
         this.filter = EMPTY_FILTER;
         this.filtered_indices = null;
+    }
+
+    /** Forget the persisted sort/filter for this dataset×schema. */
+    private async forget_persisted_prefs(
+        schema_hash_value: string
+    ): Promise<void> {
         if (this.persist_sort_enabled()) {
             await this.sort_state_store.set(
                 this.dataset_key, schema_hash_value, EMPTY_SORT
@@ -621,12 +644,17 @@ export class DataBrowserPanel implements vscode.Disposable {
             return;
         }
         if (!this.dta_file) return;
-        await this.apply_cancel_forget(this.current_schema_hash());
+        const my_schema_hash = this.current_schema_hash();
+        // Invalidate and re-request synchronously BEFORE awaiting the
+        // store writes, so no in-flight requestRows can land stale
+        // sorted/filtered rows after the user has cancelled.
+        this.reset_restored_prefs();
         this.generation++;
         this.row_cache.clear();
         this.recompute_effective();
         this.post_sort_applied();
         this.post_filter_applied();
+        await this.forget_persisted_prefs(my_schema_hash);
     }
 
     // -------------------------------------------------------

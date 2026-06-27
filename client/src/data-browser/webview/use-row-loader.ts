@@ -154,6 +154,12 @@ export function use_row_loader(): UseRowLoaderResult {
                     sort: my_msg.sort,
                     filter: my_msg.filter,
                 };
+                // If a banner is already visible (a prior restore whose
+                // debounce elapsed), swap its wording to this restore at
+                // once rather than showing stale text until the timer.
+                set_restore_pending(my_prev =>
+                    my_prev ? my_info : my_prev
+                );
                 restore_timer.current = setTimeout(() => {
                     set_restore_pending(my_info);
                     restore_timer.current = null;

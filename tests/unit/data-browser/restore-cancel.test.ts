@@ -349,8 +349,8 @@ describe('handle_cancel_restore', () => {
     });
 });
 
-describe('apply_cancel_forget', () => {
-    it('resets memory, clears stores, and consumes the id', async () => {
+describe('reset_restored_prefs / forget_persisted_prefs', () => {
+    it('reset clears memory and consumes the id synchronously', async () => {
         const { panel_like, sort_set, filter_set } =
             await make_restore_panel();
         panel_like.sort = STORED_SORT;
@@ -359,14 +359,84 @@ describe('apply_cancel_forget', () => {
         panel_like.filtered_indices = new Uint32Array(2);
         panel_like.restore_id = 9;
 
-        await panel_like.apply_cancel_forget('h');
+        panel_like.reset_restored_prefs();
 
         expect(panel_like.sort.keys.length).toBe(0);
         expect(panel_like.permutation).toBeNull();
         expect(panel_like.filter.entries.length).toBe(0);
         expect(panel_like.filtered_indices).toBeNull();
         expect(panel_like.restore_id).toBe(-1);
+        // No persistence writes from the synchronous reset.
+        expect(sort_set).toEqual([]);
+        expect(filter_set).toEqual([]);
+    });
+
+    it('forget writes empty state to both stores', async () => {
+        const { panel_like, sort_set, filter_set } =
+            await make_restore_panel();
+        await panel_like.forget_persisted_prefs('h');
         expect(sort_set[0].keys.length).toBe(0);
         expect(filter_set[0].entries.length).toBe(0);
+    });
+});
+
+describe('late-cancel invalidation ordering (finding C-2)', () => {
+    it('bumps generation and clears cache before awaiting persistence', async () => {
+        const { panel_like } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+        });
+        panel_like.restore_id = 2;
+        panel_like.restoring = false;
+        panel_like.sort = STORED_SORT;
+        panel_like.permutation = new Uint32Array(10);
+        panel_like.current_schema_hash = () => 'h';
+        panel_like.recompute_effective = () => undefined;
+        panel_like.post_sort_applied = () => undefined;
+        panel_like.post_filter_applied = () => undefined;
+
+        let cache_cleared_at: number | null = null;
+        let order = 0;
+        panel_like.row_cache = {
+            clear: () => { cache_cleared_at = order++; },
+        };
+        // A slow store write: generation/cache must already be
+        // invalidated by the time this is awaited.
+        let persisted_at: number | null = null;
+        panel_like.sort_state_store.set = async () => {
+            persisted_at = order++;
+        };
+
+        const my_gen_before = panel_like.generation;
+        await panel_like.handle_cancel_restore({
+            type: 'cancelRestore', restore_id: 2,
+        });
+
+        expect(panel_like.generation).toBe(my_gen_before + 1);
+        expect(cache_cleared_at).toBe(0);
+        // Persistence happened strictly after invalidation.
+        expect(persisted_at).not.toBeNull();
+        expect(persisted_at! > cache_cleared_at!).toBe(true);
+    });
+});
+
+describe('stale restore flags do not leak across opens (code-review root cause)', () => {
+    it('a later send_metadata without a restore does not forget manual prefs', async () => {
+        const { panel_like, sort_set, filter_set } =
+            await make_restore_panel({ stored_sort: STORED_SORT });
+        // Simulate: a prior open was cancelled, then the user manually
+        // applied a sort, then the webview re-sends 'ready'.
+        panel_like.restore_cancelled = true;
+        panel_like.sort_restored = true;
+        panel_like.filter_restored = true;
+        panel_like.sort = STORED_SORT;
+        panel_like.permutation = new Uint32Array(10);
+
+        await panel_like.send_metadata();
+
+        // The manually-applied sort survives; nothing forgotten.
+        expect(panel_like.sort.keys.length).toBe(1);
+        expect(sort_set).toEqual([]);
+        expect(filter_set).toEqual([]);
+        expect(panel_like.restore_cancelled).toBe(false);
     });
 });
