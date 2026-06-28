@@ -44,6 +44,14 @@ const DIRECTIVE_PATTERN = make_directive_pattern(
     String.raw`:?\s+(?:"([^"]+)"|([^\s]+))${CALL_SITE_PARAMS_PATTERN}`,
 );
 
+// Detects a standalone backward-directive head (keyword present but the full
+// DIRECTIVE_PATTERN did not match) so the parser can report it as malformed.
+// Hoisted to module scope so it is not recompiled on every header line.
+const BACKWARD_DIRECTIVE_HEAD_PATTERN = make_directive_pattern(
+    BACKWARD_DIRECTIVE_KEYWORDS,
+    String.raw`:?`,
+);
+
 const FORWARD_CALL_DIRECTIVE_PATTERN = make_directive_pattern(
     FORWARD_DIRECTIVE_KEYWORDS,
     String.raw`:?\s+(?:"([^"]+)"|([^\s]+))${CALL_SITE_PARAMS_PATTERN}`,
@@ -214,7 +222,7 @@ export class DirectiveParser {
                     call_site: my_call_site,
                     range: my_range,
                 });
-            } else if (make_directive_pattern(BACKWARD_DIRECTIVE_KEYWORDS, String.raw`:?`).test(my_trimmed)) {
+            } else if (BACKWARD_DIRECTIVE_HEAD_PATTERN.test(my_trimmed)) {
                 // Malformed directive
                 the_diagnostics.push({
                     message: 'Malformed directive. Expected: ' +
@@ -257,7 +265,8 @@ export class DirectiveParser {
     /**
      * Parse forward call directives from entire file content.
      * Scans the entire file for @lsp-do, @lsp-run, @lsp-include directives.
-     * Respects @lsp-ignore (same line) and @lsp-ignore-next (preceding line).
+     * Respects standalone @lsp-ignore / @lsp-ignore-next comment lines, which
+     * suppress the next statement.
      *
      * @param content - The file content to parse
      * @param _file_uri - The URI of the file (unused; kept for parity

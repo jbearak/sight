@@ -26,14 +26,28 @@ export function make_directive_pattern(
     return new RegExp(`${DIRECTIVE_PREFIX_PATTERN}(${keywords})${suffix}`, flags);
 }
 
+// These probes run once per line/token during analysis and diagnostics, so the
+// regexes are compiled once at module load rather than on every call (see the
+// "RegExp in Loops" guidance in CLAUDE.md). None carry the global flag, so they
+// hold no `lastIndex` state and are safe to share across calls.
+const DIRECTIVE_PREFIX_REGEX = new RegExp(DIRECTIVE_PREFIX_PATTERN);
+const IGNORE_DIRECTIVE_REGEX = new RegExp(`${DIRECTIVE_PREFIX_PATTERN}ignore:?\\s*$`);
+const IGNORE_NEXT_DIRECTIVE_REGEX = new RegExp(`${DIRECTIVE_PREFIX_PATTERN}ignore-next:?\\s*$`);
+
+// Shared compiled pattern for `@lsp-variables` / `sight: variables` declarations.
+// Capture group 1 is the space-separated variable list.
+export const VARIABLES_DIRECTIVE_PATTERN = new RegExp(
+    `${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)\\s*$`,
+);
+
 export function has_directive_prefix(text: string): boolean {
-    return new RegExp(DIRECTIVE_PREFIX_PATTERN).test(text);
+    return DIRECTIVE_PREFIX_REGEX.test(text);
 }
 
 export function has_ignore_directive(text: string): boolean {
-    return new RegExp(`${DIRECTIVE_PREFIX_PATTERN}ignore:?\\s*$`).test(text);
+    return IGNORE_DIRECTIVE_REGEX.test(text);
 }
 
 export function has_ignore_next_directive(text: string): boolean {
-    return new RegExp(`${DIRECTIVE_PREFIX_PATTERN}ignore-next:?\\s*$`).test(text);
+    return IGNORE_NEXT_DIRECTIVE_REGEX.test(text);
 }

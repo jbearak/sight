@@ -32,6 +32,7 @@ import { parse_option_argument, is_valid_identifier } from './option-argument-pa
 import {
     DECLARATION_DIRECTIVE_KEYWORDS,
     DIRECTIVE_PREFIX_PATTERN,
+    VARIABLES_DIRECTIVE_PATTERN,
     has_ignore_directive,
     has_ignore_next_directive,
 } from '../utils/directives';
@@ -306,9 +307,7 @@ export class SemanticAnalyzer {
                     }
                 }
                 // Check for @lsp-variables directive
-                const variables_match = token_content.match(
-                    new RegExp(`${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)\\s*$`)
-                );
+                const variables_match = token_content.match(VARIABLES_DIRECTIVE_PATTERN);
                 if (variables_match) {
                     const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
                     for (const var_name of var_names) {
@@ -513,9 +512,7 @@ export class SemanticAnalyzer {
         }
 
         // Check for @lsp-variables directive
-        const variables_match = content.match(
-            new RegExp(`${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)\\s*$`)
-        );
+        const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
         if (variables_match) {
             const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
             for (const var_name of var_names) {
