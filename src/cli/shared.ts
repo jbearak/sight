@@ -1,6 +1,7 @@
 import { stdout } from 'process';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { error_message } from '../utils/error-message';
+import { StataDiagnosticCode } from '../types';
 
 export { error_message };
 
@@ -96,6 +97,14 @@ export function diagnostic_exceeds_threshold(
     max_severity: SeverityLevel
 ): boolean {
     return severity_level(diagnostic) > max_severity;
+}
+
+// #209: a cap-induced cross-file traversal truncation. Identified by
+// CODE, not severity, so `sight check` keeps it out of the pass/fail
+// tally regardless of the configured `max_depth` severity — a depth-cap
+// hit means "results may be incomplete", never a genuine error.
+export function is_truncation_diagnostic(diagnostic: Diagnostic): boolean {
+    return diagnostic.code === StataDiagnosticCode.CROSS_FILE_TRUNCATED;
 }
 
 // NO_COLOR semantics (https://no-color.org): present and non-empty disables
@@ -220,11 +229,15 @@ export function render_text(
     options: { quiet: boolean; use_color: boolean }
 ): string {
     const counts = { error: 0, warning: 0, info: 0, hint: 0, note: 0 };
+    let truncation_count = 0;
     const lines: string[] = [];
 
     for (const record of sorted_records(records)) {
         const word = severity_word(record.diagnostic);
         counts[word as keyof typeof counts]++;
+        if (is_truncation_diagnostic(record.diagnostic)) {
+            truncation_count++;
+        }
         const code = code_text(record.diagnostic.code);
         const code_suffix = code ? ` [${code}]` : '';
         lines.push(
@@ -245,6 +258,14 @@ export function render_text(
             `${counts.hint} hints, ` +
             `${counts.note} notes)`
         );
+        if (truncation_count > 0) {
+            const noun = truncation_count === 1 ? 'truncation' : 'truncations';
+            lines.push(
+                `${truncation_count} cross-file traversal ${noun} ` +
+                `(depth cap reached — results may be incomplete; ` +
+                `not undefined-symbol errors)`
+            );
+        }
     }
 
     if (lines.length === 0) {

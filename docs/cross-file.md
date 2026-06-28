@@ -689,6 +689,86 @@ via the `crossFile.diagnostics.callSiteIdentification` setting:
 Note: The `included-by` with `do`/`run` mismatch warning cannot be suppressed
 as it indicates a semantic issue that affects symbol inheritance.
 
+## Traversal Depth Limits and Truncation
+
+Cross-file resolution is bounded by three caps (see
+[Configuration](#configuration)): `maxBackwardDepth` (10), `maxForwardDepth`
+(10), and `maxChainDepth` (20). When a workspace's `do`/`run`/`include` graph is
+deep or dense enough to hit one of these caps, the LSP **stops walking** at that
+point and emits a *truncation* diagnostic.
+
+A truncation means "resolution was cut short here, so some cross-file symbols may
+be missing" — it is **not** a genuine error, and it is distinct from an
+undefined-symbol diagnostic. All three depth-cap diagnostics carry the stable
+code **`7002` (`CROSS_FILE_TRUNCATED`)**:
+
+- *Maximum backward directive depth (N) exceeded*
+- *Maximum forward resolution depth (N) exceeded*
+- *Maximum combined resolution depth (N) exceeded when resolving parent forward
+  calls*
+
+In `sight check`, truncations are surfaced like any other diagnostic but are
+**excluded from the pass/fail tally by code** (not by severity). A deep-but-valid
+project therefore never *fails* `sight check` merely because it reached a depth
+cap — even under a strict `--max-severity`. The text report adds a dedicated
+summary line, e.g.:
+
+```text
+3 cross-file traversal truncations (depth cap reached — results may be
+incomplete; not undefined-symbol errors)
+```
+
+Truncation diagnostics honor the `crossFile.diagnostics.maxDepth` setting like
+the other depth diagnostics: it sets their severity, and **`maxDepth = "off"`
+suppresses them entirely** (no `CROSS_FILE_TRUNCATED` diagnostic is emitted).
+The caps themselves still apply — resolution still stops at the cap — you just
+opt out of being told about it.
+
+If you see truncations, either the graph is legitimately deeper than the default
+caps (raise `maxBackwardDepth` / `maxForwardDepth` / `maxChainDepth`) or there is
+an unintended cycle/fan-out worth investigating. Undefined-symbol warnings for
+symbols that were never reached because of a truncation still fire — the summary
+line tells you *why* a symbol may be unresolved.
+
+## Forward-Closure Caching Semantics
+
+A file's **forward-call closure** is the set of symbols and call sites produced
+by following its `do`/`run`/`include` chain. The LSP's design treats this closure
+as a pure function of the file and its resolution context — **caller-independent**
+by construction. Concretely, the closure depends only on:
+
+- the callee file's content,
+- the **effective call type** it is entered under (`do`/`run` vs `include`,
+  which governs local-macro propagation),
+- the **working directory** in force (which resolves the callee's relative
+  `do`/`run`/`include` paths),
+- the forward **depth budget** (raw depth + `maxForwardDepth`), and
+- the dependency-graph version.
+
+The *identity of the calling file* never varies the closure. Backward-walk state
+and parent forward-call resolution are kept isolated (the parent's forward walk
+runs against a *copy* of the backward `visited` set and a *fresh* forward visited
+map), so an earlier-sourced sibling's symbols are always visible to a later
+sibling in execution order — see
+`tests/integration/hub-heavy-sibling-visibility.test.ts`.
+
+**Interaction with a future per-file standalone opt-out.** A planned
+`@lsp-standalone` directive would let a file resolve its own diagnostics as if it
+had no parents (a *backward* concern). It does **not** introduce caller-dependence
+into the *forward* closure: standalone can change the file's *inherited working
+directory* and the *effective call type* it is entered under, but both are inputs
+the closure already depends on (and would key on, were the closure cached).
+Standalone introduces no other forward-closure variation, and never caller
+identity. This is the assumption a caller-independent forward-closure cache relies
+on; it is enforced by the memo correctness gate
+(`tests/integration/forward-closure-memo-gate.test.ts`), which checks that a
+file's forward closure is identical across distinct callers given the same inputs.
+
+> Implementation status: the cache *key contract* and an enable/disable toggle
+> (`set_forward_closure_memo_enabled`, default **off**) are in place; the cache
+> store/serve path is deferred to a follow-up. The toggle is a behavioral no-op
+> until then, guarded by the on/off correctness gate.
+
 ## Configuration
 
 Cross-file resolution is configured via `sight.toml` in your project root.

@@ -1089,6 +1089,22 @@ export class DiagnosticsProvider {
             };
         }
 
+        // ── truncation branch (#209) ─────────────────────────────────────────
+        // Cap-induced cross-file truncation. Preserve the
+        // CROSS_FILE_TRUNCATED code so `sight check` can surface it
+        // distinctly and exclude it from the pass/fail tally by code (not
+        // severity). Severity is left as emitted (respects
+        // `cross_file.diagnostics.max_depth`); the code drives CI gating.
+        if (diagnostic.kind === 'truncation') {
+            return {
+                range: diagnostic.range,
+                message: diagnostic.message,
+                severity: this.semantic_severity_to_lsp(diagnostic.severity),
+                code: diagnostic.code,
+                source: 'sight',
+            };
+        }
+
         // ── missing_file / legacy branch ─────────────────────────────────────
         // Keyed on `kind === 'missing_file'` OR the legacy prose substring.
         const is_missing_file =
