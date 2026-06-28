@@ -71,7 +71,7 @@ local result: list file_global - other
 global file_global value
 ```
 
-**Global macros from other files** also produce warnings unless the LSP can determine the relationship. By default (`crossFile.backwardDependencies: "auto"`), the LSP scans the workspace at startup to discover which files call which, and automatically resolves parent–child symbol inheritance. It also follows `do`, `run`, and `include` commands within each file for forward resolution. For cases where auto-detection doesn't work (e.g., dynamic paths with macros), you can use explicit directives (`@lsp-done-by`, `@lsp-included-by`, `@lsp-do`, `@lsp-run`, `@lsp-include`). The workspace indexer provides globals for completions and go-to-definition, but does not suppress undefined macro warnings. See [Cross-File Awareness](cross-file.md) for details.
+**Global macros from other files** also produce warnings unless the LSP can determine the relationship. By default (`crossFile.backwardDependencies: "auto"`), the LSP scans the workspace at startup to discover which files call which, and automatically resolves parent–child symbol inheritance. It also follows `do`, `run`, and `include` commands within each file for forward resolution. For cases where auto-detection doesn't work (e.g., dynamic paths with macros), you can use explicit directives (`sight: done-by`, `sight: included-by`, `sight: do`, `sight: run`, `sight: include`). The older `@lsp-` forms remain permanent aliases. The workspace indexer provides globals for completions and go-to-definition, but does not suppress undefined macro warnings. See [Cross-File Awareness](cross-file.md) for details.
 
 **First definition wins**: When a macro is defined multiple times, references before the first definition produce warnings, but references after the first definition do not (even if they appear before later redefinitions).
 
@@ -298,7 +298,7 @@ caseMismatch = "auto"
 | `crossFile.assumeCallSite`              | `"end"` \| `"start"` | `"end"`         | Where to assume call site when not specified and inference fails        |
 | `crossFile.diagnostics.missingFile`     | severity             | `"warning"`     | Severity for missing directive file diagnostics                         |
 | `crossFile.diagnostics.callSiteIdentification` | severity      | `"information"` | Severity for call site identification diagnostics                       |
-| `crossFile.diagnostics.caseMismatch`    | severity + `"auto"`  | `"auto"`        | Severity for case-only path mismatch diagnostics. `"auto"` maps to `information` on case-insensitive filesystems (macOS/Windows) and `warning` on case-sensitive ones (Linux/CI). Independent of `missingFile`; not suppressible via `@lsp-ignore` — silence with `"off"` or fix the path. |
+| `crossFile.diagnostics.caseMismatch`    | severity + `"auto"`  | `"auto"`        | Severity for case-only path mismatch diagnostics. `"auto"` maps to `information` on case-insensitive filesystems (macOS/Windows) and `warning` on case-sensitive ones (Linux/CI). Independent of `missingFile`; not suppressible via `sight: ignore` — silence with `"off"` or fix the path. |
 
 Severity options: `"error"`, `"warning"`, `"information"`, `"off"` (alias:
 `"info"` for `"information"`). `crossFile.diagnostics.caseMismatch` also

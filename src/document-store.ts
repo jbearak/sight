@@ -683,7 +683,7 @@ export class DocumentStore {
     const directive_parser = new DirectiveParser();
     let resolved_working_directory: string | undefined;
     try {
-      const directive_result = directive_parser.parse(content, uri);
+      const directive_result = directive_parser.parse(content, uri, lex_result.result!.tokens);
 
       if (this.scope_resolver) {
         this.scope_resolver.sync_backward_directive_dependencies(
@@ -790,7 +790,11 @@ export class DocumentStore {
     let all_forward_calls = analyze_result.result!.forward_calls;
     try {
       const directive_parser = new DirectiveParser();
-      const directive_result = directive_parser.parse_forward_call_directives(content, uri);
+      const directive_result = directive_parser.parse_forward_call_directives(
+        content,
+        uri,
+        lex_result.result!.tokens
+      );
       const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
         type: d.type,
         raw_path: d.raw_path,

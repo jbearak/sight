@@ -225,11 +225,12 @@ describe('Out-of-scope diagnostic cleanup integration', () => {
         ).toBe(false);
     });
 
-    it('suppresses same-line ignore rewrites for same-file, backward, and forward cases', async () => {
+    it('suppresses standalone ignore rewrites for same-file, backward, and forward cases', async () => {
         const same_file_diags = await diagnose_target(
             'same_file_ignore.do',
             [
-                'display `same_file_macro\' // @lsp-ignore',
+                '// @lsp-ignore',
+                'display `same_file_macro\'',
                 'local same_file_macro "value"',
             ].join('\n'),
         );
@@ -245,7 +246,8 @@ describe('Out-of-scope diagnostic cleanup integration', () => {
             'backward_ignore_child.do',
             [
                 '// @lsp-done-by "backward_ignore_parent.do"',
-                'display $after_global // @lsp-ignore',
+                '// @lsp-ignore',
+                'display $after_global',
             ].join('\n'),
             [
                 {
@@ -269,7 +271,8 @@ describe('Out-of-scope diagnostic cleanup integration', () => {
             'forward_ignore_main.do',
             [
                 'do "forward_ignore_child.do"',
-                'display `forward_macro\' // @lsp-ignore',
+                '// @lsp-ignore',
+                'display `forward_macro\'',
             ].join('\n'),
             [
                 {

@@ -570,15 +570,76 @@ display \`undefined_macro'
             expect(undefined_diags.length).toBe(0);
         });
 
-        it('should suppress diagnostics with @lsp-ignore on same line', () => {
+        it('should suppress diagnostics with standalone @lsp-ignore', () => {
             const result = analyze(`
-display \`undefined_macro' // @lsp-ignore
+// @lsp-ignore
+display \`undefined_macro'
 `, { undefined_macro_enabled: true });
             
             const undefined_diags = result.diagnostics.filter(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
             expect(undefined_diags.length).toBe(0);
+        });
+
+        it('should suppress diagnostics with canonical sight ignore directives', () => {
+            const ignore = analyze(`
+// sight: ignore
+display \`undefined_macro'
+`, { undefined_macro_enabled: true });
+            const next_line = analyze(`
+// sight: ignore-next
+display \`undefined_macro'
+`, { undefined_macro_enabled: true });
+
+            expect(ignore.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            ).length).toBe(0);
+            expect(next_line.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            ).length).toBe(0);
+        });
+
+        it('should suppress diagnostics with inline sight ignore comments', () => {
+            const ignore = analyze(`
+display \`inline_macro' // sight: ignore
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = ignore.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.some(d => d.message.includes('inline_macro'))).toBe(false);
+        });
+
+        it('should apply inline sight ignore-next to the following statement', () => {
+            const ignore = analyze(`
+display \`current_macro' // sight: ignore-next
+display \`next_macro'
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = ignore.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.some(d => d.message.includes('current_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('next_macro'))).toBe(false);
+        });
+
+        it('should not suppress diagnostics for sight lookalikes in code', () => {
+            const result = analyze(`
+display \`undefined_macro' * sight: ignore
+display \`another_macro' // sight: ignoreme
+sight: ignore-next
+display \`hash_prefixed_macro' // # sight: ignore
+display \`bare_directive_macro'
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.some(d => d.message.includes('undefined_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('another_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('hash_prefixed_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('bare_directive_macro'))).toBe(true);
         });
 
         it('should declare variables with @lsp-variables', () => {
@@ -593,6 +654,84 @@ summarize age income
                      (d.message.includes('age') || d.message.includes('income'))
             );
             expect(var_diags.length).toBe(0);
+        });
+
+        it('should declare variables with canonical sight directives', () => {
+            const result = analyze(`
+// sight: variables age income
+summarize age income
+`, {
+                undefined_variable_enabled: true,
+            });
+
+            const declared_var_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE &&
+                    (d.message.includes('age') || d.message.includes('income'))
+            );
+            expect(declared_var_diags.length).toBe(0);
+        });
+
+        it('should declare local macros with canonical sight directives', () => {
+            const result = analyze(`
+// sight: local dynamic_macro
+display \`dynamic_macro'
+`, {
+                undefined_macro_enabled: true,
+            });
+
+            expect(result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            ).length).toBe(0);
+        });
+
+        it('should NOT honor declaration directives nested in block comments', () => {
+            // `/* ... */` block comments do not carry directives, even when an
+            // interior line is itself shaped like a `//` or `*` comment.
+            const slash_nested = analyze(`
+/*
+// sight: local fake_macro
+*/
+display \`fake_macro'
+`, { undefined_macro_enabled: true });
+            const star_nested = analyze(`
+/*
+ * sight: local fake_macro
+ */
+display \`fake_macro'
+`, { undefined_macro_enabled: true });
+
+            expect(slash_nested.diagnostics.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('fake_macro')
+            )).toBe(true);
+            expect(star_nested.diagnostics.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('fake_macro')
+            )).toBe(true);
+        });
+
+        it('should NOT honor sight variables/ignore directives nested in block comments', () => {
+            const vars_nested = analyze(`
+/*
+// sight: variables age income
+*/
+summarize age income
+`, { undefined_variable_enabled: true });
+            const ignore_nested = analyze(`
+/*
+// sight: ignore-next
+*/
+display \`block_ignored_macro'
+`, { undefined_macro_enabled: true });
+
+            expect(vars_nested.diagnostics.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE &&
+                    (d.message.includes('age') || d.message.includes('income'))
+            )).toBe(true);
+            expect(ignore_nested.diagnostics.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('block_ignored_macro')
+            )).toBe(true);
         });
     });
 
@@ -785,10 +924,17 @@ args single_arg
 
         it('should mark static path as static', () => {
             const result = analyze('do "static.do"');
-            
+
             expect(result.forward_calls.length).toBe(1);
             expect(result.forward_calls[0].is_static).toBe(true);
             expect(result.forward_calls[0].raw_path).toBe('static.do');
+        });
+
+        it('should suppress a forward call on a line with a trailing sight: ignore', () => {
+            // Requires the tokenized ignore pass; callers that pass tokens
+            // (DocumentStore, indexer, scope-resolver) must all honor this.
+            const result = analyze('do "child.do" // sight: ignore');
+            expect(result.forward_calls.length).toBe(0);
         });
 
         it('should mark path with embedded local macro as non-static', () => {

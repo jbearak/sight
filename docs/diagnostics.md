@@ -12,21 +12,22 @@ tables below) and `source: "sight"`.
 
 ## Quick reference
 
-- **Silence one site** — add `// @lsp-ignore` on the offending line, or
-  `// @lsp-ignore-next` on the line above. Suppresses undefined-symbol
-  (`UNDEFINED_MACRO`, `UNDEFINED_VARIABLE`, `OUT_OF_SCOPE_SYMBOL`) and
-  operator-style diagnostics on the targeted line. Lexer, parser /
-  brace-style, and indentation diagnostics are not silenced this way —
-  fix lexer/parser issues at the source, or turn indentation off via
+- **Silence one site** — add `// sight: ignore` or
+  `// sight: ignore-next` on its own line above the offending statement, or
+  add `// sight: ignore` as a trailing comment on the offending line.
+  Suppresses undefined-symbol (`UNDEFINED_MACRO`, `UNDEFINED_VARIABLE`,
+  `OUT_OF_SCOPE_SYMBOL`) and operator-style diagnostics on the targeted line.
+  Lexer, parser / brace-style, and indentation diagnostics are not silenced
+  this way — fix lexer/parser issues at the source, or turn indentation off via
   `sight.diagnostics.indentation` (it ships off by default).
 - **Declare a symbol the analyzer can't see** — use
-  [`@lsp-local`, `@lsp-global`, `@lsp-variables`, `@lsp-scalar`,
-  `@lsp-matrix`, `@lsp-program`](declaration-directives.md). Forward-only:
+  [`sight: local`, `sight: global`, `sight: variables`, `sight: scalar`,
+  `sight: matrix`, `sight: program`](declaration-directives.md). Forward-only:
   effective at and after the directive line.
 - **Bring a sibling file's symbols into scope** — usually nothing to do:
   Sight auto-discovers `do` / `run` / `include` relationships and
   inherits the parent's symbols. Add a header directive
-  (`@lsp-done-by`, `@lsp-included-by`) only when auto-discovery can't
+  (`sight: done-by`, `sight: included-by`) only when auto-discovery can't
   see the link — for example, when the path is built from macros. See
   [Cross-File Awareness](cross-file.md).
 - **Turn a category off globally** — set the matching severity to
@@ -120,14 +121,14 @@ via the `crossFile.diagnostics.*` keys in `sight.toml`.
 
 | Code | Name | Default | Severity key | Trigger |
 |---|---|---|---|---|
-| 7001 | `PATH_CASE_MISMATCH` | `auto` | `crossFile.diagnostics.caseMismatch` | A `do`/`run`/`include` command or cross-file directive (`@lsp-do`, `@lsp-run`, `@lsp-include`, `@lsp-done-by`, `@lsp-run-by`, `@lsp-included-by`) references a path that differs from the on-disk file by letter case only. The file is resolved and symbols are inherited normally; only the spelling is wrong. |
+| 7001 | `PATH_CASE_MISMATCH` | `auto` | `crossFile.diagnostics.caseMismatch` | A `do`/`run`/`include` command or cross-file directive (`sight: do`, `sight: run`, `sight: include`, `sight: done-by`, `sight: run-by`, `sight: included-by`) references a path that differs from the on-disk file by letter case only. The file is resolved and symbols are inherited normally; only the spelling is wrong. |
 
 ### `PATH_CASE_MISMATCH` (7001)
 
 **Trigger:** A static path in a `do`, `run`, or `include` command — or
-in a forward directive (`@lsp-do`, `@lsp-run`, `@lsp-include`) or
-backward header directive (`@lsp-done-by`, `@lsp-run-by`,
-`@lsp-included-by`) — resolves to an on-disk file that has different
+in a forward directive (`sight: do`, `sight: run`, `sight: include`) or
+backward header directive (`sight: done-by`, `sight: run-by`,
+`sight: included-by`) — resolves to an on-disk file that has different
 letter casing. The file is found and symbols are inherited (no
 undefined-symbol cascade), but the diagnostic asks you to fix the
 spelling.
@@ -142,8 +143,8 @@ Path "helpers/clean" does not match the file on disk
 filesystems (Linux). Update the path to match.
 ```
 
-**Backward message** (`@lsp-done-by`, `@lsp-run-by`,
-`@lsp-included-by`): backward directives are not Stata commands, so the
+**Backward message** (`sight: done-by`, `sight: run-by`,
+`sight: included-by`): backward directives are not Stata commands, so the
 message makes no execution claim:
 
 ```text
@@ -156,7 +157,7 @@ filesystems (macOS/Windows), `warning` on case-sensitive ones (Linux /
 CI). This means the same code is quiet during local development on a Mac
 but surfaces as a build warning in Linux CI — the intended asymmetry.
 
-**Not suppressible** by `@lsp-ignore` or `@lsp-ignore-next`. Suppress
+**Not suppressible** by `sight: ignore` or `sight: ignore-next`. Suppress
 project-wide with `crossFile.diagnostics.caseMismatch = "off"`, or fix
 the path casing. Setting `crossFile.diagnostics.missingFile = "off"`
 does **not** silence this diagnostic — the two settings are independent.
@@ -209,22 +210,29 @@ Each severity key accepts `"error"`, `"warning"`, `"information"`,
   [Why undefined-variable is off by default](#why-undefined-variable-is-off-by-default).
 - `styleWarnings` currently gates `CONTINUATION_NO_SPACE` (1004).
 - Parse and brace-style diagnostics have no per-category control and
-  `@lsp-ignore` does not silence them — fix the underlying issue.
+  `sight: ignore` does not silence them — fix the underlying issue.
 - Indentation diagnostics ship off; turn them on with the boolean
   `sight.diagnostics.indentation`. Both indentation codes emit at
-  `information` severity (there is no severity key), and `@lsp-ignore`
+  `information` severity (there is no severity key), and `sight: ignore`
   does not silence individual sites.
 
 ## Suppressing diagnostics in source
 
 | Directive | Effect |
 |---|---|
-| `// @lsp-ignore` | Suppresses undefined-symbol and operator-style diagnostics on the same line. Does not silence lexer, parser / brace-style, or indentation diagnostics. |
-| `// @lsp-ignore-next` | Same effect as `@lsp-ignore`, but applied to the next non-trivia statement. |
-| `// @lsp-local name [name …]` | Declares one or more local macros from the directive line forward. |
-| `// @lsp-global name [name …]` | Same, for globals. |
-| `// @lsp-variables var [var …]` | Declares variables (e.g., loaded from a `.dta` file). |
-| `// @lsp-scalar name`, `// @lsp-matrix name`, `// @lsp-program name` | Declares scalars, matrices, and programs respectively. |
+| `// sight: ignore` | On its own comment line, suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. As a trailing `//` comment, suppresses those diagnostics on the same line. Does not silence lexer, parser / brace-style, or indentation diagnostics. |
+| `// sight: ignore-next` | Suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. It does not suppress diagnostics on its own source line. |
+| `// sight: local name [name ...]` | Declares one or more local macros from the directive line forward. |
+| `// sight: global name [name ...]` | Same, for globals. |
+| `// sight: variables var [var ...]` | Declares variables (e.g., loaded from a `.dta` file). |
+| `// sight: scalar name`, `// sight: matrix name`, `// sight: program name` | Declares scalars, matrices, and programs respectively. |
+
+Directives other than `sight: ignore` and `sight: ignore-next` must occupy
+their own `//` or line-leading `*` comment line. `sight: ignore` may also be
+used as a trailing `//` comment for same-line suppression; `sight: ignore-next`
+always targets the following statement. `/* ... */` block comments are not
+directive comments. `@lsp-` spellings are permanent aliases for all directive
+forms above.
 
 Declaration directives are forward-only: they suppress warnings at and
 after the directive line, not earlier ones. See
@@ -234,8 +242,8 @@ syntax.
 For cross-file linkage (the usual reason a global appears "undefined"
 when it is defined in a sibling file), prefer the dependency-graph
 mechanism — Sight auto-discovers `do` / `run` / `include` chains and
-inherits the parent's symbols. Header directives (`@lsp-done-by`,
-`@lsp-included-by`) handle cases auto-discovery cannot, such as paths
+inherits the parent's symbols. Header directives (`sight: done-by`,
+`sight: included-by`) handle cases auto-discovery cannot, such as paths
 built from macros. See [Cross-File Awareness](cross-file.md).
 
 ## How scope is decided
@@ -250,7 +258,7 @@ holds:
      (programs, globals, scalars, matrices, variables).
    - `included-by` / `include` inherit all symbols, including local
      macros.
-3. **Declared by directive** (`@lsp-local`, `@lsp-global`, … ) on or
+3. **Declared by directive** (`sight: local`, `sight: global`, … ) on or
    before the reference line.
 
 Workspace indexing alone does **not** suppress diagnostics. A global
@@ -291,11 +299,11 @@ Sight recognizes a variable as defined when it sees one of:
 - `confirm variable` / `confirm var` — treated as an assertion that
   the variable exists; useful for declaring columns loaded from a
   dataset without disabling the diagnostic.
-- `@lsp-variables name [name …]` — manual declaration, forward-only.
+- `sight: variables name [name …]` — manual declaration, forward-only.
 
 Variables loaded from `use`, `import`, or `merge` are **not**
 introspected — Sight does not read `.dta` files. If the diagnostic is
-on and you load data, declare the columns with `@lsp-variables` (or a
+on and you load data, declare the columns with `sight: variables` (or a
 `confirm variable` line if you want a runtime assertion as well).
 
 ## Why undefined-variable is off by default
@@ -307,7 +315,7 @@ listed above, a name may legitimately come from a `use`, `import`, or
 is built from macros. Defaulting the diagnostic to `off` avoids
 drowning users in false positives. To opt in, set
 `sight.diagnostics.severity.undefinedVariable` to any non-`off` value
-and declare dynamically-loaded columns with `@lsp-variables` or
+and declare dynamically-loaded columns with `sight: variables` or
 `confirm variable`.
 
 ## Relationship to completion

@@ -1293,8 +1293,11 @@ display \`result'
             }
         });
 
-        it('should suppress backward-path rewrites with @lsp-ignore', async () => {
-            const content = "display `country_name' // @lsp-ignore";
+        it('should suppress backward-path rewrites with standalone @lsp-ignore', async () => {
+            const content = [
+                '// @lsp-ignore',
+                "display `country_name'",
+            ].join('\n');
             const document = create_real_document_state(content);
 
             const resolved_scope = {
@@ -2207,5 +2210,4 @@ display \`result'
         });
     });
 });
-
 

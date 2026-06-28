@@ -53,6 +53,10 @@ import {
     is_resolvable_static_call,
     type RichResolveFs,
 } from '../utils/file-path-utils';
+import {
+    FORWARD_DIRECTIVE_KEYWORDS,
+    make_directive_pattern,
+} from '../utils/directives';
 
 export {
     get_visible_symbols_at,
@@ -76,8 +80,11 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
 // state to reset between calls.
 const DO_INCLUDE_PATTERN = build_do_include_pattern('prefix');
 
-// Pattern to match @lsp-do, @lsp-run, @lsp-include directives in comment lines.
-const DIRECTIVE_PATTERN = /@lsp-(do|run|include):?\s+/;
+// Pattern to match forward directives in comment lines.
+const DIRECTIVE_PATTERN = make_directive_pattern(
+    FORWARD_DIRECTIVE_KEYWORDS,
+    String.raw`:?\s+`,
+);
 
 /**
  * Build a Partial<ScopeResolverConfig> with undefined values filtered out.
@@ -519,7 +526,7 @@ export class ScopeResolver {
     ): void {
         if (directive_type === 'included-by' && detected_call_type !== 'include') {
             diagnostics.push({
-                message: `Directive @lsp-included-by used but caller uses ${detected_call_type} (not include). Local macros will not be inherited.`,
+                message: `Directive sight: included-by used but caller uses ${detected_call_type} (not include). Local macros will not be inherited.`,
                 range,
                 severity: 'warning',
                 source: {
@@ -548,7 +555,7 @@ export class ScopeResolver {
             const call_site_severity = config.diagnostics?.call_site_identification ?? 'information';
             if (call_site_severity !== 'off') {
                 diagnostics.push({
-                    message: `Directive @lsp-done-by used but caller uses include. Full inheritance (including local macros) will occur.`,
+                    message: `Directive sight: done-by used but caller uses include. Full inheritance (including local macros) will occur.`,
                     range,
                     severity: call_site_severity,
                     source: {
@@ -616,7 +623,7 @@ export class ScopeResolver {
                     the_group.find((d) => d.type === 'included-by')?.range ?? the_group[0].range;
                 diagnostics.push({
                     message:
-                        'Both @lsp-done-by and @lsp-included-by reference the same parent; ' +
+                        'Both sight: done-by and sight: included-by reference the same parent; ' +
                         'treating as included-by (full inheritance).',
                     range: my_range,
                     severity: 'warning',
@@ -1732,7 +1739,7 @@ export class ScopeResolver {
 
                         if (!call_validation) {
                             diagnostics.push({
-                                message: `Specified line=${my_directive.call_site.value} does not contain a do/run/include command or @lsp-do/run/include directive.`,
+                                message: `Specified line=${my_directive.call_site.value} does not contain a do/run/include command or forward directive.`,
                                 range: my_directive.range,
                                 severity: 'warning',
                                 source: {
@@ -2073,7 +2080,7 @@ export class ScopeResolver {
         // calls as resolution context; the analyzer no longer resolves paths.
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
-        });
+        }, my_lex_result.tokens);
 
         // Combine forward calls from commands and directives.
         // Stamp caller_uri and working_directory on directive calls so every

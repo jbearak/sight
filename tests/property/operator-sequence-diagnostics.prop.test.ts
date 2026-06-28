@@ -1745,21 +1745,20 @@ describe('Embedded Context Suppression Property Tests', () => {
 /**
  * Feature: malformed-operator-diagnostics, Property 7: Directive suppression
  *
- * For any malformed operator pair on a line annotated with `@lsp-ignore` (same line)
- * or targeted by `@lsp-ignore-next` (preceding comment line), the analyzer should
+ * For any malformed operator pair targeted by a preceding standalone
+ * `@lsp-ignore` or `@lsp-ignore-next` comment line, the analyzer should
  * emit zero diagnostics for that pair.
  *
  * Validates: Requirements 7.1, 7.2
  */
 describe('Directive Suppression Property Tests', () => {
     /**
-     * Property 7: @lsp-ignore suppresses malformed operator diagnostics on same line
+     * Property 7: @lsp-ignore suppresses malformed operator diagnostics on the following statement
      *
-     * For any malformed operator pair on a line with `@lsp-ignore` comment
-     * (in any comment style: //, *, or block comments), the analyzer should emit zero
-     * operator sequence diagnostics.
+     * For any malformed operator pair targeted by a standalone `@lsp-ignore`
+     * comment line, the analyzer should emit zero operator sequence diagnostics.
      */
-    test('@lsp-ignore suppresses malformed operator diagnostics on same line', () => {
+    test('@lsp-ignore suppresses malformed operator diagnostics on following statement', () => {
         // Define all malformed pairs (both suggestible and invalid)
         const MALFORMED_PAIRS: Array<{ first: string; second: string }> = [
             // Suggestible pairs
@@ -1791,13 +1790,7 @@ describe('Directive Suppression Property Tests', () => {
         // Generator for malformed pairs
         const arbitrary_malformed_pair = fc.constantFrom(...MALFORMED_PAIRS);
 
-        // Generator for comment styles for @lsp-ignore (inline comments)
-        // Note: * comment style cannot be used inline (must be at start of line)
-        // so we test // and /* */ for inline @lsp-ignore
-        const arbitrary_inline_comment_style = fc.constantFrom(
-            '//',     // Slash-slash comment
-            '/* */',  // Block comment
-        );
+        const arbitrary_comment_style = fc.constantFrom('//', '*');
 
         // Default config with default severities
         const my_config: StataLSPConfig = {
@@ -1843,19 +1836,13 @@ describe('Directive Suppression Property Tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_malformed_pair,
-                arbitrary_inline_comment_style,
+                arbitrary_comment_style,
                 arbitrary_identifier(),
                 arbitrary_identifier(),
                 (my_pair, my_comment_style, my_lhs, my_rhs) => {
-                    // Build source with the malformed pair and @lsp-ignore on same line
-                    let my_source: string;
-                    if (my_comment_style === '/* */') {
-                        // Block comment style
-                        my_source = `display ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs} /* @lsp-ignore */`;
-                    } else {
-                        // Slash-slash comment style
-                        my_source = `display ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs} // @lsp-ignore`;
-                    }
+                    const my_source =
+                        `${my_comment_style} @lsp-ignore\n` +
+                        `display ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs}`;
 
                     // Create document state (tokenizes, parses, analyzes)
                     const my_doc_state = create_document_state(my_source);
@@ -1870,7 +1857,7 @@ describe('Directive Suppression Property Tests', () => {
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
-                    // Should emit zero diagnostics because the line has @lsp-ignore
+                    // Should emit zero diagnostics because the preceding line has @lsp-ignore
                     expect(my_operator_diagnostics).toHaveLength(0);
 
                     return true;
@@ -1884,7 +1871,7 @@ describe('Directive Suppression Property Tests', () => {
      * Property 7: @lsp-ignore-next suppresses malformed operator diagnostics on next line
      *
      * For any malformed operator pair on a line targeted by `@lsp-ignore-next`
-     * in a preceding comment (in any comment style: //, *, or block comments), the analyzer
+     * in a preceding // or * comment line, the analyzer
      * should emit zero operator sequence diagnostics.
      */
     test('@lsp-ignore-next suppresses malformed operator diagnostics on next line', () => {
@@ -1919,11 +1906,9 @@ describe('Directive Suppression Property Tests', () => {
         // Generator for malformed pairs
         const arbitrary_malformed_pair = fc.constantFrom(...MALFORMED_PAIRS);
 
-        // Generator for comment styles for @lsp-ignore-next (all three styles)
         const arbitrary_comment_style = fc.constantFrom(
             '//',     // Slash-slash comment
             '*',      // Star comment (at start of line)
-            '/* */',  // Block comment
         );
 
         // Default config with default severities
@@ -1976,16 +1961,8 @@ describe('Directive Suppression Property Tests', () => {
                 (my_pair, my_comment_style, my_lhs, my_rhs) => {
                     // Build source with @lsp-ignore-next on previous line
                     let my_source: string;
-                    if (my_comment_style === '*') {
-                        // Star comment must be at start of line
-                        my_source = `* @lsp-ignore-next\ndisplay ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs}`;
-                    } else if (my_comment_style === '/* */') {
-                        // Block comment style
-                        my_source = `/* @lsp-ignore-next */\ndisplay ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs}`;
-                    } else {
-                        // Slash-slash comment
-                        my_source = `// @lsp-ignore-next\ndisplay ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs}`;
-                    }
+                    my_source = `${my_comment_style} @lsp-ignore-next\n` +
+                        `display ${my_lhs} ${my_pair.first} ${my_pair.second} ${my_rhs}`;
 
                     // Create document state (tokenizes, parses, analyzes)
                     const my_doc_state = create_document_state(my_source);

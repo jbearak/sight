@@ -20,6 +20,7 @@ export const FILE_COMMANDS = new Set([
 // LSP directives that accept file paths
 export const PATH_DIRECTIVES = new Set([
   '@lsp-done-by',
+  '@lsp-run-by',
   '@lsp-included-by', 
   '@lsp-do',
   '@lsp-run',
@@ -47,10 +48,16 @@ export function isFileCommand(command: string): boolean {
 }
 
 /**
- * Check if a directive accepts file paths
+ * Check if a directive accepts file paths.
+ *
+ * Case-sensitive on the keyword: the directive parser matches keywords
+ * case-sensitively (lowercase only), so completion must not offer directive
+ * path completion for a form the parser would silently ignore (e.g. `sight: Do`).
+ * Only the canonical `sight:` prefix is rewritten to its `@lsp-` alias.
  */
 export function isPathDirective(directive: string): boolean {
-  return PATH_DIRECTIVES.has(directive.toLowerCase());
+  const normalized = directive.trim().replace(/^sight:\s*/, '@lsp-');
+  return PATH_DIRECTIVES.has(normalized);
 }
 
 /**

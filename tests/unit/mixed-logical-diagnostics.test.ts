@@ -400,8 +400,8 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
     });
 
     describe('@lsp-ignore Suppression', () => {
-        it('@lsp-ignore suppresses diagnostic on same line', () => {
-            const doc = create_document_state('display x & y | z // @lsp-ignore');
+        it('@lsp-ignore suppresses diagnostic on the following statement', () => {
+            const doc = create_document_state('// @lsp-ignore\ndisplay x & y | z');
             const diagnostics = analyzer.analyze(doc, default_config);
             const mixed = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
@@ -413,6 +413,15 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             const doc = create_document_state(
                 '// @lsp-ignore-next\ndisplay x & y | z'
             );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
+        });
+
+        it('inline sight ignore suppresses diagnostic on the same line', () => {
+            const doc = create_document_state('display x & y | z // sight: ignore');
             const diagnostics = analyzer.analyze(doc, default_config);
             const mixed = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS

@@ -48,7 +48,23 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { resolve_path_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
-import { is_cursor_in_comment } from '../utils/comment-utils';
+import { is_cursor_in_comment, is_cursor_in_block_comment } from '../utils/comment-utils';
+import {
+    BACKWARD_DIRECTIVE_KEYWORDS,
+    FORWARD_DIRECTIVE_KEYWORDS,
+    DIRECTIVE_PREFIX_PATTERN,
+    CALL_SITE_PARAMS_FRAGMENT,
+} from '../utils/directives';
+
+// Path-bearing directive line (`done-by`/`run-by`/`included-by`/`do`/`run`/
+// `include`) with an optional quoted or bare path and trailing call-site
+// params. Compiled once at module load rather than per definition request
+// (see the "RegExp in Loops" guidance in CLAUDE.md). It carries no global
+// flag, so it holds no `lastIndex` state and is safe to share across calls.
+const PATH_BEARING_DIRECTIVE_PATTERN = new RegExp(
+    `${DIRECTIVE_PREFIX_PATTERN}(${BACKWARD_DIRECTIVE_KEYWORDS}|${FORWARD_DIRECTIVE_KEYWORDS})` +
+    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))` + CALL_SITE_PARAMS_FRAGMENT + String.raw`\s*$`
+);
 
 /**
  * Definition Provider class.
@@ -1498,28 +1514,25 @@ export class DefinitionProvider {
             }
         }
 
-        // Check for @lsp-* directives
-        const directive_match = line_text.match(/@lsp-(done-by|included-by|do|run|include):?\s+(?:"([^"]+)"|([^\s]+))/);
-        if (directive_match) {
+        // Check for path-bearing directives. These are only directives inside
+        // Stata comments; bare `sight:` text is ordinary invalid Stata code.
+        const directive_match = line_text.match(PATH_BEARING_DIRECTIVE_PATTERN);
+        if (directive_match &&
+            is_cursor_in_comment(document, position) &&
+            !is_cursor_in_block_comment(document, position)) {
             const quoted_path = directive_match[2];
             const unquoted_path = directive_match[3];
             const file_path = quoted_path || unquoted_path;
             const match_start = directive_match.index!;
 
-            // Locate the path span by walking past the `@lsp-<keyword>:?\s+`
-            // prefix rather than working backward from `match[0].length`. This
-            // stays correct when the path is a substring of the directive
-            // keyword (e.g. `@lsp-do: "do"`) AND when the regex is later
-            // broadened to capture trailing parameters like `line=5` or
-            // `match="..."` in `match[0]`.
-            const DIRECTIVE_PREFIX = '@lsp-';
-            let cursor = match_start + DIRECTIVE_PREFIX.length + directive_match[1].length;
-            if (line_text[cursor] === ':') cursor++;
-            while (cursor < line_text.length && /\s/.test(line_text[cursor])) {
-                cursor++;
-            }
-            if (quoted_path) cursor++; // skip opening quote
-            const path_start = cursor;
+            const keyword_start = directive_match[0].indexOf(directive_match[1]);
+            const path_literal = quoted_path ? `"${file_path}"` : file_path;
+            const path_literal_start = directive_match[0].indexOf(
+                path_literal,
+                keyword_start + directive_match[1].length
+            );
+            if (path_literal_start < 0) return null;
+            const path_start = match_start + path_literal_start + (quoted_path ? 1 : 0);
             const path_end = path_start + file_path.length;
             if (position.character >= path_start &&
                 position.character <= path_end) {

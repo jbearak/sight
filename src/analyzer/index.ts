@@ -1,5 +1,4 @@
 import { Range } from 'vscode-languageserver-textdocument';
-import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import {
     format_undefined_macro_message,
     format_undefined_variable_message,
@@ -29,6 +28,12 @@ import {
 import { DirectiveParser } from '../directive-parser';
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
+import {
+    DECLARATION_DIRECTIVE_PATTERN,
+    VARIABLES_DIRECTIVE_PATTERN,
+    has_ignore_directive,
+    has_ignore_next_directive,
+} from '../utils/directives';
 
 // Diagnostic interface for semantic errors
 export interface SemanticDiagnostic {
@@ -276,41 +281,53 @@ export class SemanticAnalyzer {
         // This avoids issues with multi-line block comments causing line number mismatches
         this.parse_declaration_directives_from_tokens(tokens, symbols);
         
-        // Process other directives (ignore, variables)
+        // Process other directives (ignore, variables). Like declaration
+        // directives, these are only honored in standalone `//` / line-leading
+        // `*` comments; `/* ... */` block comments do not carry directives.
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
-            
-            if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
-                const token_content = token.value.trim();
 
-                // Check for @lsp-ignore-next directive (ignores next line)
-                if (token_content.includes('@lsp-ignore-next')) {
-                    // Find the next non-trivia token's line
-                    for (let j = i + 1; j < tokens.length; j++) {
-                        const next_token = tokens[j];
-                        if (next_token.type !== 'WHITESPACE' && 
-                            next_token.type !== 'COMMENT_LINE' && 
-                            next_token.type !== 'COMMENT_BLOCK' &&
-                            next_token.type !== 'CONTINUATION' &&
-                            next_token.type !== 'STATEMENT_TERMINATOR') {
-                            this.config.ignored_lines.add(next_token.range.start.line);
-                            break;
-                        }
+            if (token.type === 'COMMENT_LINE') {
+                const token_content = token.value.trim();
+                const is_standalone_comment = this.is_standalone_comment_token(tokens, i);
+
+                if (has_ignore_directive(token_content)) {
+                    if (is_standalone_comment) {
+                        this.ignore_next_non_trivia_line(tokens, i);
+                    } else {
+                        this.config.ignored_lines.add(token.range.start.line);
                     }
                 }
-                // Check for @lsp-ignore directive (ignores same line)
-                else if (token_content.includes('@lsp-ignore')) {
-                    this.config.ignored_lines.add(token.range.start.line);
+                if (has_ignore_next_directive(token_content)) {
+                    this.ignore_next_non_trivia_line(tokens, i);
+                }
+
+                if (!is_standalone_comment) {
+                    continue;
                 }
 
                 // Check for @lsp-variables directive
-                const variables_match = token_content.match(/@lsp-variables\s+(.+)/);
+                const variables_match = token_content.match(VARIABLES_DIRECTIVE_PATTERN);
                 if (variables_match) {
                     const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
                     for (const var_name of var_names) {
                         this.config.declared_variables.add(var_name);
                     }
                 }
+            }
+        }
+    }
+
+    private ignore_next_non_trivia_line(tokens: Token[], directive_index: number): void {
+        for (let j = directive_index + 1; j < tokens.length; j++) {
+            const next_token = tokens[j];
+            if (next_token.type !== 'WHITESPACE' &&
+                next_token.type !== 'COMMENT_LINE' &&
+                next_token.type !== 'COMMENT_BLOCK' &&
+                next_token.type !== 'CONTINUATION' &&
+                next_token.type !== 'STATEMENT_TERMINATOR') {
+                this.config.ignored_lines.add(next_token.range.start.line);
+                break;
             }
         }
     }
@@ -324,42 +341,26 @@ export class SemanticAnalyzer {
      * when reconstructing content for the directive parser.
      */
     private parse_declaration_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
-        // Pattern to match declaration directives (captures all remaining text)
-        const DECLARATION_PATTERN = /@lsp-(local|global|scalar|matrix|program)\s+(.+)/;
-
-        for (const token of tokens) {
-            if (token.type !== 'COMMENT_LINE' && token.type !== 'COMMENT_BLOCK') {
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            // Directives live only in standalone `//` / line-leading `*`
+            // comments. `/* ... */` block comments do not carry directives
+            // (see docs/declaration-directives.md), so a directive-looking line
+            // nested inside a block comment must stay inert.
+            if (token.type !== 'COMMENT_LINE') {
+                continue;
+            }
+            if (!this.is_standalone_comment_token(tokens, i)) {
                 continue;
             }
 
-            const token_content = token.value;
-
-            // For block comments, check each line separately
-            if (token.type === 'COMMENT_BLOCK') {
-                const my_doc = { content: token_content, line_offsets: compute_line_offsets(token_content) };
-                const my_line_count = get_line_count(my_doc);
-                for (let line_offset = 0; line_offset < my_line_count; line_offset++) {
-                    const my_line = get_line_text(my_doc, line_offset);
-                    const my_match = my_line.match(DECLARATION_PATTERN);
-                    if (my_match) {
-                        const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
-                        const the_names = my_match[2].split(/\s+/).filter(n => n.length > 0);
-                        const my_actual_line = token.range.start.line + line_offset;
-                        for (const my_name of the_names) {
-                            this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
-                        }
-                    }
-                }
-            } else {
-                // Line comment - check the whole content
-                const my_match = token_content.match(DECLARATION_PATTERN);
-                if (my_match) {
-                    const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
-                    const the_names = my_match[2].split(/\s+/).filter(n => n.length > 0);
-                    const my_actual_line = token.range.start.line;
-                    for (const my_name of the_names) {
-                        this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
-                    }
+            const my_match = token.value.match(DECLARATION_DIRECTIVE_PATTERN);
+            if (my_match) {
+                const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
+                const the_names = my_match[2].split(/\s+/).filter(n => n.length > 0);
+                const my_actual_line = token.range.start.line;
+                for (const my_name of the_names) {
+                    this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
                 }
             }
         }
@@ -480,13 +481,6 @@ export class SemanticAnalyzer {
             }
         }
 
-        // Check trailing trivia
-        if (this.has_trivia(node) && node.trailingTrivia) {
-            for (const trivia of node.trailingTrivia) {
-                this.parse_directive(trivia, node);
-            }
-        }
-
         // Recurse into nested nodes
         if (node.type === 'program') {
             for (const child of node.body) {
@@ -502,21 +496,38 @@ export class SemanticAnalyzer {
     private parse_directive(trivia: TriviaNode, following_node: StataNode): void {
         const content = trivia.content.trim();
 
-        // Check for @lsp-ignore-next directive
-        if (content.includes('@lsp-ignore-next')) {
+        // Standalone ignore directives target the following node.
+        if (has_ignore_directive(content) || has_ignore_next_directive(content)) {
             // Ignore the line of the following node
             const line_to_ignore = following_node.range.start.line;
             this.config.ignored_lines.add(line_to_ignore);
         }
 
         // Check for @lsp-variables directive
-        const variables_match = content.match(/@lsp-variables\s+(.+)/);
+        const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
         if (variables_match) {
             const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
             for (const var_name of var_names) {
                 this.config.declared_variables.add(var_name);
             }
         }
+    }
+
+    private is_standalone_comment_token(tokens: Token[], comment_index: number): boolean {
+        const comment = tokens[comment_index];
+        const line = comment.range.start.line;
+
+        for (let i = comment_index - 1; i >= 0; i--) {
+            const token = tokens[i];
+            if (token.range.start.line !== line) {
+                break;
+            }
+            if (token.type !== 'WHITESPACE') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

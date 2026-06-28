@@ -74,7 +74,7 @@ Control which directory Stata uses when executing your code:
 
 | Option | Description | When to Use |
 |--------|-------------|-------------|
-| **lsp** (default) | Uses working directory from LSP directives | Recommended - leverages `@lsp-cd` or inherited from parent files |
+| **lsp** (default) | Uses working directory from LSP directives | Recommended - leverages `sight: cd` or inherited from parent files |
 | **none** | No directory change | When Stata's current directory is already correct |
 | **file** | Changes to current file's directory | For standalone scripts |
 | **workspace** | Changes to workspace root | For project-relative paths |
@@ -82,8 +82,8 @@ Control which directory Stata uses when executing your code:
 **Configuration**: `sight.sendToStata.workingDirectory`
 
 The **lsp** option reads the working directory from:
-- `@lsp-cd`, `@lsp-working-directory`, or `@lsp-wd` directives in your file
-- Parent files via `@lsp-done-by` or `@lsp-included-by` directives (inherits working directory)
+- `sight: cd`, `sight: working-directory`, or `sight: wd` directives in your file (`@lsp-` forms remain aliases)
+- Parent files via `sight: done-by` or `sight: included-by` directives (inherits working directory)
 - Falls back to "none" if no LSP working directory is available
 
 When set to "none", manual CD commands appear in the toolbar menu for quick directory changes.

@@ -396,7 +396,8 @@ program define main_program
 end
 
 // Test diagnostics with suppression
-local undefined_test \`nonexistent_macro'  // @lsp-ignore
+// @lsp-ignore
+local undefined_test \`nonexistent_macro'
 `;
 
             const main_path = write_file('main.do', main_content);
@@ -422,7 +423,7 @@ local undefined_test \`nonexistent_macro'  // @lsp-ignore
             const document = create_document_state(main_content);
             const diagnostics = await diagnostics_provider.get_diagnostics(document, config);
             const suppressed_diags = diagnostics.filter(
-                d => d.range.start.line === 9 && d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                d => d.range.start.line === 10 && d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
             expect(suppressed_diags).toHaveLength(0); // Should be suppressed by @lsp-ignore
 

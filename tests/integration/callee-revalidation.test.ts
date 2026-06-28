@@ -207,7 +207,7 @@ local result = 1
 
             // Check that a mismatch warning was generated
             const mismatch_warnings = resolved_scope.diagnostics.filter(d =>
-                d.message.includes('Directive @lsp-included-by used but caller uses do')
+                d.message.includes('Directive sight: included-by used but caller uses do')
             );
             expect(mismatch_warnings.length).toBe(1);
             expect(mismatch_warnings[0].severity).toBe('warning');
@@ -232,7 +232,7 @@ local result = 1
 
             // Check that a mismatch warning was generated via text inference
             const mismatch_warnings = resolved_scope.diagnostics.filter(d =>
-                d.message.includes('Directive @lsp-included-by used but caller uses do (not include)')
+                d.message.includes('Directive sight: included-by used but caller uses do (not include)')
             );
             expect(mismatch_warnings.length).toBe(1);
             expect(mismatch_warnings[0].severity).toBe('warning');

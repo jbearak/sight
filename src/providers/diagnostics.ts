@@ -28,6 +28,11 @@ import {
 } from '../utils/out-of-scope-message';
 import { undefined_symbol_data_fields } from '../utils/undefined-symbol-diagnostic';
 import { host_is_case_sensitive } from '../utils/file-path-utils';
+import {
+    has_ignore_directive,
+    has_ignore_next_directive,
+    has_trailing_ignore_directive,
+} from '../utils/directives';
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
@@ -734,24 +739,35 @@ export class DiagnosticsProvider {
         diagnostic_range: Range
     ): boolean {
         const diagnostic_line = diagnostic_range.start.line;
-        const line_count = get_line_count(document);
-        
-        // Check current line for @lsp-ignore
-        if (diagnostic_line < line_count) {
-            const current_line = get_line_text(document, diagnostic_line);
-            if (current_line.includes('// @lsp-ignore')) {
-                return true;
-            }
+
+        if (document.ignored_lines?.has(diagnostic_line)) {
+            return true;
         }
-        
-        // Check previous line for @lsp-ignore-next
+
+        // Raw-line fallback ONLY for synthetic/error document states that never
+        // ran the tokenized analyzer (no tokens). Documents that were lexed have
+        // an authoritative `ignored_lines` above, computed from comment tokens
+        // that correctly distinguish a real `// sight: ignore` from one that
+        // merely appears inside a `/* ... */` block comment; the raw-line regexes
+        // below cannot make that distinction, so applying them to real documents
+        // would over-suppress.
+        if (document.tokens && document.tokens.length > 0) {
+            return false;
+        }
+        // Same-line trailing `// sight: ignore` on the diagnostic line.
+        const current_line = get_line_text(document, diagnostic_line);
+        if (has_trailing_ignore_directive(current_line)) {
+            return true;
+        }
+        // Standalone `// sight: ignore` / `// sight: ignore-next` on the
+        // preceding line targets this (next) statement.
         if (diagnostic_line > 0) {
             const previous_line = get_line_text(document, diagnostic_line - 1);
-            if (previous_line.includes('// @lsp-ignore-next')) {
+            if (has_ignore_directive(previous_line) || has_ignore_next_directive(previous_line)) {
                 return true;
             }
         }
-        
+
         return false;
     }
 

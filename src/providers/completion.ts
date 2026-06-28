@@ -46,6 +46,8 @@ import {
 } from '../scope-resolver';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
+import { DIRECTIVE_BODY_PREFIX_PATTERN } from '../utils/directives';
+import { is_cursor_in_block_comment } from '../utils/comment-utils';
 import { classify_entry_sync } from '../utils/symlink-aware-entry';
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
@@ -59,6 +61,16 @@ import {
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { format_help_link } from '../utils/help-link';
+
+// Directive at the start of its own comment line, applied to the comment body
+// after the `//`/`*` marker has been stripped. Capture group 1 is the
+// directive name, group 2 the remaining path text. Compiled once at module
+// load rather than on every completion request (see the "RegExp in Loops"
+// guidance in CLAUDE.md); it carries no global flag, so it holds no
+// `lastIndex` state and is safe to share across calls.
+const DIRECTIVE_PATH_CONTEXT_PATTERN = new RegExp(
+    `^\\s*(${DIRECTIVE_BODY_PREFIX_PATTERN}[a-zA-Z-]+)\\s*:?\\s*(.*)$`
+);
 
 /**
  * Map ForwardCallSite.effective_type to directive_type for ranking.
@@ -170,9 +182,10 @@ export function detect_completion_context(
         return extended_macro_context;
     }
 
-    // Check for directive path context (e.g., @lsp-done-by:)
+    // Check for directive path context (e.g., @lsp-done-by:). Directives are
+    // inert inside `/* ... */` block comments, so skip block-commented lines.
     const directive_context = detect_directive_context(text_before_cursor);
-    if (directive_context) {
+    if (directive_context && !is_cursor_in_block_comment(document, position)) {
         return directive_context;
     }
 
@@ -422,9 +435,8 @@ function detect_directive_context(text_before_cursor: string): CompletionContext
     
     const comment_content = comment_match[2];
     
-    // Look for @lsp-* directive pattern
-    const directive_pattern = /(@lsp-[a-zA-Z-]+)\s*:\s*(.*)$/;
-    const directive_match = comment_content.match(directive_pattern);
+    // Look for a directive at the start of its own comment line.
+    const directive_match = comment_content.match(DIRECTIVE_PATH_CONTEXT_PATTERN);
     
     if (directive_match) {
         const directive = directive_match[1];
