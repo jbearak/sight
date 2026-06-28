@@ -25,10 +25,7 @@ import {
     DocumentLike,
 } from '../utils/line-utils';
 import { build_do_include_pattern } from '../utils/stata-call-patterns';
-import {
-    block_comment_lines_from_tokens,
-    block_comment_lines_from_content,
-} from '../utils/block-comment-utils';
+import { block_comment_lines } from '../utils/block-comment-utils';
 import {
     BACKWARD_DIRECTIVE_KEYWORDS,
     FORWARD_DIRECTIVE_KEYWORDS,
@@ -124,7 +121,7 @@ export class DirectiveParser {
      * Parse directives from file content.
      * Stops at first non-comment, non-blank line.
      */
-    parse(content: string, file_uri: string): DirectiveParseResult {
+    parse(content: string, file_uri: string, tokens?: Token[]): DirectiveParseResult {
         const doc: DocumentLike = { content, line_offsets: compute_line_offsets(content) };
         const line_count = get_line_count(doc);
         const the_directives: Directive[] = [];
@@ -249,7 +246,7 @@ export class DirectiveParser {
         }
 
         // Parse declaration directives from the entire file (not just header)
-        const declaration_result = this.parse_declaration_directives(content, file_uri);
+        const declaration_result = this.parse_declaration_directives(content, file_uri, tokens);
         the_diagnostics.push(...declaration_result.diagnostics);
 
         // Parse forward call directives from the entire file
@@ -295,17 +292,15 @@ export class DirectiveParser {
         const the_forward_calls: ForwardCallDirective[] = [];
         const the_diagnostics: DirectiveDiagnostic[] = [];
 
-        // Lines inside `/* ... */` block comments do not carry directives.
-        const block_comment_lines = tokens
-            ? block_comment_lines_from_tokens(tokens)
-            : block_comment_lines_from_content(content);
+        // Lines whose leading text is inside a block comment carry no directives.
+        const block_lines = block_comment_lines(content, tokens);
 
         // Track lines to ignore from @lsp-ignore-next
         const ignored_next_lines = new Set<number>();
 
         // First pass: find @lsp-ignore-next directives
         for (let i = 0; i < line_count; i++) {
-            if (block_comment_lines.has(i)) {
+            if (block_lines.has(i)) {
                 continue;
             }
             const my_line = get_line_text(doc, i);
@@ -315,6 +310,9 @@ export class DirectiveParser {
                 (has_ignore_directive(my_trimmed) || has_ignore_next_directive(my_trimmed))) {
                 // Mark the next non-blank, non-comment line as ignored
                 for (let j = i + 1; j < line_count; j++) {
+                    if (block_lines.has(j)) {
+                        continue; // block-commented-out line is not a target
+                    }
                     const next_trimmed = get_line_text(doc, j).trim();
                     if (next_trimmed !== '' &&
                         !next_trimmed.startsWith('*') &&
@@ -334,7 +332,7 @@ export class DirectiveParser {
         }
 
         for (let i = 0; i < line_count; i++) {
-            if (block_comment_lines.has(i)) {
+            if (block_lines.has(i)) {
                 continue;
             }
             const my_line = get_line_text(doc, i);
@@ -437,18 +435,19 @@ export class DirectiveParser {
      */
     parse_declaration_directives(
         content: string,
-        _file_uri: string
+        _file_uri: string,
+        tokens?: Token[]
     ): { declarations: DeclarationDirective[]; diagnostics: DirectiveDiagnostic[] } {
         const doc: DocumentLike = { content, line_offsets: compute_line_offsets(content) };
         const line_count = get_line_count(doc);
         const the_declarations: DeclarationDirective[] = [];
         const the_diagnostics: DirectiveDiagnostic[] = [];
 
-        // Lines inside `/* ... */` block comments do not carry directives.
-        const block_comment_lines = block_comment_lines_from_content(content);
+        // Lines whose leading text is inside a block comment carry no directives.
+        const block_lines = block_comment_lines(content, tokens);
 
         for (let i = 0; i < line_count; i++) {
-            if (block_comment_lines.has(i)) {
+            if (block_lines.has(i)) {
                 continue;
             }
             const my_line = get_line_text(doc, i);
@@ -632,11 +631,11 @@ export class DirectiveParser {
             ? child_basename.slice(0, -3).toLowerCase()
             : child_basename.toLowerCase();
 
-        // Code and directives inside `/* ... */` block comments are inert.
-        const block_comment_lines = block_comment_lines_from_content(parent_content);
+        // Code and directives whose leading text is inside a block comment are inert.
+        const block_lines = block_comment_lines(parent_content);
 
         for (let i = 0; i < line_count; i++) {
-            if (block_comment_lines.has(i)) {
+            if (block_lines.has(i)) {
                 continue;
             }
             const my_line = get_line_text(doc, i);
@@ -713,11 +712,11 @@ export class DirectiveParser {
             ? child_basename.slice(0, -3).toLowerCase()
             : child_basename.toLowerCase();
 
-        // Code and directives inside `/* ... */` block comments are inert.
-        const block_comment_lines = block_comment_lines_from_content(parent_content);
+        // Code and directives whose leading text is inside a block comment are inert.
+        const block_lines = block_comment_lines(parent_content);
 
         for (let i = 0; i < line_count; i++) {
-            if (block_comment_lines.has(i)) {
+            if (block_lines.has(i)) {
                 continue;
             }
             const my_line = get_line_text(doc, i);
@@ -811,11 +810,11 @@ export class DirectiveParser {
             ? child_basename.slice(0, -3).toLowerCase()
             : child_basename.toLowerCase();
 
-        // Code and directives inside `/* ... */` block comments are inert.
-        const block_comment_lines = block_comment_lines_from_content(parent_content);
+        // Code and directives whose leading text is inside a block comment are inert.
+        const block_lines = block_comment_lines(parent_content);
 
         for (let i = 0; i < line_count; i++) {
-            if (block_comment_lines.has(i)) {
+            if (block_lines.has(i)) {
                 continue;
             }
             const my_line = get_line_text(doc, i);

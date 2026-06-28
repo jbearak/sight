@@ -683,7 +683,7 @@ export class DocumentStore {
     const directive_parser = new DirectiveParser();
     let resolved_working_directory: string | undefined;
     try {
-      const directive_result = directive_parser.parse(content, uri);
+      const directive_result = directive_parser.parse(content, uri, lex_result.result!.tokens);
 
       if (this.scope_resolver) {
         this.scope_resolver.sync_backward_directive_dependencies(

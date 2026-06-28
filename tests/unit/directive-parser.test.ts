@@ -159,6 +159,13 @@ gen x = 1`;
             expect(parser.infer_call_site_for_file(real, 'child.do')).toBe(1);
         });
 
+        test('still infers a call site for a real do with a trailing block comment', () => {
+            // Only lines whose leading text is inside a block comment are inert;
+            // a real `do` followed by an inline block comment is a real call.
+            const trailing = 'clear\ndo "child.do" /* run the child */\ngen z = 1';
+            expect(parser.infer_call_site_for_file(trailing, 'child.do')).toBe(1);
+        });
+
         test('parses canonical sight working-directory directives', () => {
             const content = '// sight: wd: "../data"\ngen x = 1';
             const result = parser.parse(content, 'file:///project/scripts/test.do');
