@@ -175,6 +175,24 @@ gen x = 1`;
             expect(r_star_decl.declarations.length).toBe(0);
         });
 
+        test('does not honor directives inside a line-spanning comment (* /* ... */)', () => {
+            // A line-leading `*` followed by a block opener makes the lexer span
+            // a single line comment across the lines; directives on the interior
+            // lines are inert, consistent with the analyzer.
+            const spanning = [
+                '* /*',
+                '// sight: done-by: "parent.do"',
+                '// sight: include: "setup.do"',
+                '// sight: local fake',
+                '*/',
+                'gen x = 1',
+            ].join('\n');
+
+            expect(parser.parse(spanning, 'file:///t.do').directives.length).toBe(0);
+            expect(parser.parse_forward_call_directives(spanning, 'file:///t.do').forward_calls.length).toBe(0);
+            expect(parser.parse_declaration_directives(spanning, 'file:///t.do').declarations.length).toBe(0);
+        });
+
         test('does not infer a call site from a do statement inside a block comment', () => {
             const blocked = 'clear\n/*\ndo "child.do"\n*/\ngen z = 1';
             const real = 'clear\ndo "child.do"\ngen z = 1';

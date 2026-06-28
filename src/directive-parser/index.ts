@@ -144,7 +144,13 @@ export class DirectiveParser {
         let working_directory: WorkingDirectoryDirective | undefined;
         let working_dir_count = 0;
 
+        // Continuation lines of multi-line comments carry no directives.
+        const block_lines = block_comment_lines(content, tokens);
+
         for (let i = 0; i < line_count; i++) {
+            if (block_lines.has(i)) {
+                continue;
+            }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
 
