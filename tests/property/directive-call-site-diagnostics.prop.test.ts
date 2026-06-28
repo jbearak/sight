@@ -235,7 +235,13 @@ describe('Directive Call Site Diagnostics Property Tests', () => {
         test('emits warning when match= string is not found', async () => {
             await fc.assert(
                 fc.asyncProperty(
-                    fc.string({ minLength: 5, maxLength: 20 }).filter(s => !s.includes('\n') && !s.includes('"')),
+                    // `match=` supports `\"` escaped quotes, so a `\` directly
+                    // before the closing quote is an escape, not a literal.
+                    // Exclude trailing backslashes (and `"`/newlines) so the
+                    // generated value is an unambiguous, plain search string.
+                    fc.string({ minLength: 5, maxLength: 20 }).filter(
+                        s => !s.includes('\n') && !s.includes('"') && !s.endsWith('\\')
+                    ),
                     async (match_string) => {
                         // Create parent file without the match string
                         const parent_content = `local x = 1\ndo "other.do"\nlocal z = 3`;

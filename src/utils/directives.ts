@@ -14,6 +14,15 @@ export const DIRECTIVE_PREFIX_PATTERN = String.raw`^\s*(?://|\*)\s*${DIRECTIVE_B
 
 export const FORWARD_DIRECTIVE_KEYWORDS = 'do|run|include';
 export const BACKWARD_DIRECTIVE_KEYWORDS = 'done-by|run-by|included-by';
+
+// Trailing call-site parameters for path-bearing directives: zero or more
+// `line=<n>` / `match="<string>"` params. A `match=` string may embed an
+// escaped quote `\"` (the documented form is `match="do \"analysis.do\""`); a
+// `\` is only special directly before a `"`, so lone backslashes (e.g. Windows
+// paths) stay literal. Non-capturing so it can be embedded in patterns with
+// their own capture groups.
+export const CALL_SITE_PARAMS_FRAGMENT =
+    String.raw`(?:\s+(?:line=\d+|match="(?:\\"|[^"])*"))*`;
 export const WORKING_DIR_DIRECTIVE_KEYWORDS =
     'working-directory|working-dir|current-directory|current-dir|cd|wd';
 export const DECLARATION_DIRECTIVE_KEYWORDS =

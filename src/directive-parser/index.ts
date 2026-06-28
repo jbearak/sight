@@ -29,6 +29,7 @@ import {
     FORWARD_DIRECTIVE_KEYWORDS,
     WORKING_DIR_DIRECTIVE_KEYWORDS,
     DECLARATION_DIRECTIVE_KEYWORDS,
+    CALL_SITE_PARAMS_FRAGMENT,
     make_directive_pattern,
     has_ignore_directive,
     has_ignore_next_directive,
@@ -37,7 +38,9 @@ import {
 // Accept both spec form with colon (@lsp-done-by:) and legacy form without colon.
 // Accept both quoted and unquoted paths.
 // @lsp-run-by is a synonym for @lsp-done-by (semantic clarity for files called via `run` command)
-const CALL_SITE_PARAMS_PATTERN = String.raw`((?:\s+(?:line=\d+|match="[^"]+"))*)\s*$`;
+// Capture group wraps the shared params fragment so callers can read the raw
+// param tail from the match (e.g. `my_match[4]`).
+const CALL_SITE_PARAMS_PATTERN = String.raw`(${CALL_SITE_PARAMS_FRAGMENT})\s*$`;
 
 const DIRECTIVE_PATTERN = make_directive_pattern(
     BACKWARD_DIRECTIVE_KEYWORDS,
@@ -65,7 +68,9 @@ const WORKING_DIR_DIRECTIVE_PATTERN = make_directive_pattern(
 );
 
 const PARAM_LINE = /line=(\d+)/;
-const PARAM_MATCH = /match="([^"]+)"/;
+// Capture the `match=` string body, allowing an escaped quote `\"` so
+// `match="do \"x\""` yields the raw value `do \"x\"` (unescaped in parse_call_site).
+const PARAM_MATCH = /match="((?:\\"|[^"])*)"/;
 
 // Pattern to match declaration directives: @lsp-(local|global|scalar|matrix|program)
 // Captures: [1] = directive type. The declared names (rest of line) are sliced
@@ -475,7 +480,10 @@ export class DirectiveParser {
     private parse_call_site(params: string): CallSite | undefined {
         const my_match_result = params.match(PARAM_MATCH);
         if (my_match_result) {
-            return { type: 'match', value: my_match_result[1] };
+            // Unescape `\"` so `match="do \"x\""` searches the parent for the
+            // literal text `do "x"`. Lone backslashes are left untouched.
+            const my_value = my_match_result[1].replace(/\\"/g, '"');
+            return { type: 'match', value: my_value };
         }
 
         const my_line_result = params.match(PARAM_LINE);

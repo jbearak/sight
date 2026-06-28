@@ -291,6 +291,45 @@ gen x = 1`;
             expect(result.forward_calls![0].call_site_line).toBe(4);
         });
     });
+
+    describe('Call-site match= with escaped quotes', () => {
+        const parser = new DirectiveParser();
+
+        test('backward directive with escaped quotes in match= is recognized (docs/cross-file.md)', () => {
+            // Documented form: match="do \"analysis.do\""
+            const content =
+                '// sight: done-by: "orchestrator.do" match="do \\"analysis.do\\""\nlocal x 1';
+            const result = parser.parse(content, 'file:///child.do');
+
+            expect(result.directives.length).toBe(1);
+            expect(result.directives[0].raw_path).toBe('orchestrator.do');
+            // The captured value is unescaped so it matches the literal parent text.
+            expect(result.directives[0].call_site).toEqual({
+                type: 'match',
+                value: 'do "analysis.do"',
+            });
+            expect(result.diagnostics.length).toBe(0);
+        });
+
+        test('escaped match= value resolves against parent content', () => {
+            const parent = ['clear', 'do "analysis.do"', 'gen z = 1'].join('\n');
+            const line = parser.find_match_line(parent, 'do "analysis.do"');
+            expect(line).toBe(1);
+        });
+
+        test('forward directive with escaped quotes in match= is recognized', () => {
+            // The match= target line exists in this file, so the call site
+            // resolves with no diagnostics.
+            const content =
+                '// sight: do: "callee.do" match="do \\"inner.do\\""\ndo "inner.do"\ngen x = 1';
+            const result = parser.parse(content, 'file:///test.do');
+
+            expect(result.forward_calls?.length ?? 0).toBe(1);
+            expect(result.forward_calls![0].raw_path).toBe('callee.do');
+            expect(result.forward_calls![0].call_site_line).toBe(1);
+            expect(result.diagnostics.length).toBe(0);
+        });
+    });
 });
 
 

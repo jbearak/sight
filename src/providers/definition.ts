@@ -53,6 +53,7 @@ import {
     BACKWARD_DIRECTIVE_KEYWORDS,
     FORWARD_DIRECTIVE_KEYWORDS,
     DIRECTIVE_PREFIX_PATTERN,
+    CALL_SITE_PARAMS_FRAGMENT,
 } from '../utils/directives';
 
 // Path-bearing directive line (`done-by`/`run-by`/`included-by`/`do`/`run`/
@@ -62,7 +63,7 @@ import {
 // flag, so it holds no `lastIndex` state and is safe to share across calls.
 const PATH_BEARING_DIRECTIVE_PATTERN = new RegExp(
     `${DIRECTIVE_PREFIX_PATTERN}(${BACKWARD_DIRECTIVE_KEYWORDS}|${FORWARD_DIRECTIVE_KEYWORDS})` +
-    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(?:line=\d+|match="[^"]+"))*\s*$`
+    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))` + CALL_SITE_PARAMS_FRAGMENT + String.raw`\s*$`
 );
 
 /**
