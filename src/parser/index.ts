@@ -554,13 +554,24 @@ export class StataParser {
     }
 
     const function_name = this.advance().value;
-    this.skipTrivia();
+    this.skipLeadingMacroValueTrivia();
 
     // Collect function arguments.
     // IMPORTANT: Preserve the original token stream verbatim to avoid introducing
     // artificial token boundaries (e.g., turning "0Ea" into "0E a").
     const arg_tokens: Token[] = [];
-    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+      // Bridge `///` continuations onto the next physical line, matching the
+      // standard `= ...` value path.
+      if (this.skipContinuation()) {
+        continue;
+      }
+
+      // Stop at comments (continuations are handled above).
+      if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
+        break;
+      }
+
       const token = this.advance();
       arg_tokens.push(token);
     }
@@ -2467,7 +2478,9 @@ export class StataParser {
   // Stata 18 MP audit: `local x = ///` followed by `1 / 2` succeeds
   // with `_rc == 0` and x == .5, while bare `local x =` errors with
   // invalid syntax rc 198. Bridge continuations here before the missing
-  // RHS check, but leave true empty assignments diagnostic-worthy.
+  // RHS check, but leave true empty assignments diagnostic-worthy. The
+  // extended `local x : <func> ///` path reuses this so a continuation
+  // after the function name does not truncate the arguments.
   private skipLeadingMacroValueTrivia(): void {
     while (!this.isAtEnd()) {
       if (this.skipContinuation()) {
