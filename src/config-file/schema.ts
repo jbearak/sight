@@ -39,6 +39,7 @@ const DIAGNOSTIC_SEVERITY_KEYS = [
     'undefinedVariable',
     'styleWarnings',
     'malformedOperator',
+    'spacedCompoundOperator',
     'invalidOperatorSequence',
     'cStyleLogicalInControlFlow',
     'mixedLogicalOperators',

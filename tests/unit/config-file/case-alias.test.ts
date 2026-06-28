@@ -76,6 +76,7 @@ const PUBLIC_SETTINGS: ReadonlyArray<{ path: string[]; value: unknown }> = [
     { path: ['diagnostics', 'severity', 'undefinedVariable'], value: 'warning' },
     { path: ['diagnostics', 'severity', 'styleWarnings'], value: 'error' },
     { path: ['diagnostics', 'severity', 'malformedOperator'], value: 'error' },
+    { path: ['diagnostics', 'severity', 'spacedCompoundOperator'], value: 'warning' },
     {
         path: ['diagnostics', 'severity', 'invalidOperatorSequence'],
         value: 'warning',

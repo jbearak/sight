@@ -25,7 +25,8 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | `sight.diagnostics.severity.undefinedMacro`    | enum    | `"warning"`     | Severity level for undefined macro references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`    |
 | `sight.diagnostics.severity.undefinedVariable` | enum    | `"off"`         | [Experimental] Severity level for undefined variable references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.styleWarnings`     | enum    | `"hint"`        | Severity level for style warnings. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`                |
-| `sight.diagnostics.severity.malformedOperator` | enum    | `"warning"`     | Severity for spaced compound operator diagnostics (e.g., `< =` → `<=`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
+| `sight.diagnostics.severity.malformedOperator` | enum    | `"warning"`     | Severity for malformed operator diagnostics (e.g., `= =` instead of `==`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
+| `sight.diagnostics.severity.spacedCompoundOperator` | enum | `"information"` | Severity for spaced compound operator diagnostics that Stata accepts as the compact form (e.g., `< =` → `<=`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.invalidOperatorSequence` | enum | `"error"`     | Severity for invalid operator sequence diagnostics (e.g., `< \|`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.cStyleLogicalInControlFlow` | enum | `"information"` | Severity for C-style logical operators (`&&`, `\|\|`) in if/else if control flow statements. These work but are stylistically discouraged. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.indentation`                | boolean | `false`         | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
@@ -237,6 +238,7 @@ undefinedMacro = "warning"
 undefinedVariable = "off"
 styleWarnings = "hint"
 malformedOperator = "warning"
+spacedCompoundOperator = "information"
 invalidOperatorSequence = "error"
 cStyleLogicalInControlFlow = "information"
 mixedLogicalOperators = "warning"

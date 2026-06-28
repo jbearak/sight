@@ -3,14 +3,20 @@ import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token, StataAST, StataNode } from '../types';
 
 /**
- * Suggestible pairs: spaced compound operators with a known intended form.
- * Maps the pair key (e.g., '< =') to the intended compound operator (e.g., '<=').
+ * Spaced compound operators that Stata accepts as their compact form.
  */
-const SUGGESTIBLE_PAIRS: Map<string, string> = new Map([
+const SPACED_COMPOUND_PAIRS: Map<string, string> = new Map([
     ['< =', '<='],
     ['> =', '>='],
     ['! =', '!='],
     ['~ =', '~='],
+]);
+
+/**
+ * Malformed operators with a known intended form. `= =` works as `==` in scalar
+ * expressions but not in all expression contexts such as if qualifiers.
+ */
+const MALFORMED_OPERATOR_PAIRS: Map<string, string> = new Map([
     ['= =', '=='],
 ]);
 
@@ -104,7 +110,7 @@ type OperatorContext = 'control_flow' | 'qualifier' | 'other';
  * Internal classification result for an operator pair.
  */
 interface OperatorPairResult {
-    kind: 'suggestible' | 'invalid' | 'cstyle_control_flow';
+    kind: 'spaced_compound' | 'malformed' | 'invalid' | 'cstyle_control_flow';
     first_token: Token;
     second_token: Token;
     pair_key: string;
@@ -115,11 +121,13 @@ interface OperatorPairResult {
 
 /**
  * OperatorSequenceAnalyzer inspects adjacent OPERATOR tokens in Stata source code
- * to detect three categories of malformed sequences:
+ * to detect operator sequences that are either accepted but stylistically
+ * clearer without whitespace, malformed, invalid, or style-specific:
  * 
- * 1. Suggestible sequences — spaced compound operators like `< =` that likely meant `<=` (Warning severity)
- * 2. Invalid sequences — operator combinations with no valid Stata meaning like `< |` (Error severity)
- * 3. Context-dependent sequences — C-style logical operators (`&&`, `||`) that are valid in
+ * 1. Spaced compound sequences — operators like `< =` that Stata treats as `<=`
+ * 2. Malformed sequences — operators like `= =` that are not equivalent to `==` in all contexts
+ * 3. Invalid sequences — operator combinations with no valid Stata meaning like `< |` (Error severity)
+ * 4. Context-dependent sequences — C-style logical operators (`&&`, `||`) that are valid in
  *    if/else if control flow statements but invalid in if qualifiers
  * 
  * The analyzer follows the established IndentationDiagnosticAnalyzer pattern: a standalone class
@@ -127,20 +135,26 @@ interface OperatorPairResult {
  */
 export class OperatorSequenceAnalyzer {
     /**
-     * Analyze a document's token stream for malformed operator sequences.
-     * Returns diagnostics for suggestible and invalid operator pairs.
+     * Analyze a document's token stream for operator sequence diagnostics.
+     * Returns diagnostics for spaced compound, malformed, and invalid operator pairs.
      * 
      * @param document - The document state containing tokens, AST, and ignored_lines
      * @param config - LSP configuration for diagnostic settings
-     * @returns Array of diagnostics for malformed operator sequences
+     * @returns Array of diagnostics for operator sequences
      */
     analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
-        // Early return if all three config severities are 'off'
+        // Early return if all operator-sequence config severities are 'off'
         const malformed_severity = config.diagnostics?.severity?.malformedOperator ?? 'warning';
+        const spaced_compound_severity = config.diagnostics?.severity?.spacedCompoundOperator ?? 'information';
         const invalid_severity = config.diagnostics?.severity?.invalidOperatorSequence ?? 'error';
         const cstyle_severity = config.diagnostics?.severity?.cStyleLogicalInControlFlow ?? 'information';
         
-        if (malformed_severity === 'off' && invalid_severity === 'off' && cstyle_severity === 'off') {
+        if (
+            malformed_severity === 'off' &&
+            spaced_compound_severity === 'off' &&
+            invalid_severity === 'off' &&
+            cstyle_severity === 'off'
+        ) {
             return [];
         }
 
@@ -197,9 +211,12 @@ export class OperatorSequenceAnalyzer {
             }
 
             // Apply config severity override based on result kind
-            let config_severity: 'error' | 'warning' | 'information' | 'hint' | 'off';
+            let config_severity: 'error' | 'warning' | 'information' | 'hint' | 'off' | undefined;
             switch (pair_result.kind) {
-                case 'suggestible':
+                case 'spaced_compound':
+                    config_severity = spaced_compound_severity;
+                    break;
+                case 'malformed':
                     config_severity = malformed_severity;
                     break;
                 case 'invalid':
@@ -298,12 +315,13 @@ export class OperatorSequenceAnalyzer {
     }
 
     /**
-     * Classify an operator pair as suggestible, invalid, cstyle_control_flow, allowed, or unrecognized.
+     * Classify an operator pair as spaced_compound, malformed, invalid,
+     * cstyle_control_flow, allowed, or unrecognized.
      * 
      * @param first_token - The first OPERATOR token
      * @param second_token - The second OPERATOR token
      * @param ast - The AST for context detection (may be undefined)
-     * @returns OperatorPairResult if the pair is suggestible, invalid, or cstyle_control_flow; null otherwise
+     * @returns OperatorPairResult if the pair is diagnostic-worthy; null otherwise
      */
     private classify_pair(
         first_token: Token,
@@ -314,15 +332,31 @@ export class OperatorSequenceAnalyzer {
         const second_value = second_token.value;
         const pair_key = `${first_value} ${second_value}`;
 
-        // Check if it's a suggestible pair
-        const suggested_compound = SUGGESTIBLE_PAIRS.get(pair_key);
-        if (suggested_compound) {
+        // Check if it's a Stata-accepted spaced compound operator.
+        const spaced_compound = SPACED_COMPOUND_PAIRS.get(pair_key);
+        if (spaced_compound) {
             return {
-                kind: 'suggestible',
+                kind: 'spaced_compound',
                 first_token,
                 second_token,
                 pair_key,
-                message: `Malformed operator '${pair_key}'. Did you mean '${suggested_compound}'?`,
+                message:
+                    `Spaced compound operator '${pair_key}'. Stata treats this as ` +
+                    `'${spaced_compound}'; consider writing '${spaced_compound}'.`,
+                default_severity: DiagnosticSeverity.Information,
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+            };
+        }
+
+        // Check if it's a malformed pair with a compact spelling suggestion.
+        const malformed_suggestion = MALFORMED_OPERATOR_PAIRS.get(pair_key);
+        if (malformed_suggestion) {
+            return {
+                kind: 'malformed',
+                first_token,
+                second_token,
+                pair_key,
+                message: `Malformed operator '${pair_key}'. Did you mean '${malformed_suggestion}'?`,
                 default_severity: DiagnosticSeverity.Warning,
                 code: StataDiagnosticCode.MALFORMED_OPERATOR,
             };

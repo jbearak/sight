@@ -98,10 +98,11 @@ turned off independently.
 
 | Code | Name | Default | Severity key | Trigger |
 |---|---|---|---|---|
-| 6001 | `MALFORMED_OPERATOR` | warning | `malformedOperator` | Compound operators split by whitespace (`< =`, `> =`, `! =`). Stata accepts these but they are usually typos. |
+| 6001 | `MALFORMED_OPERATOR` | warning | `malformedOperator` | `= =`, which Stata does not treat as `==` in all expression contexts. |
 | 6002 | `INVALID_OPERATOR_SEQUENCE` | error | `invalidOperatorSequence` | Token sequences Stata cannot parse (e.g., `< \|`, `= ==`). |
 | 6003 | `CSTYLE_LOGICAL_IN_CONTROL_FLOW` | information | `cStyleLogicalInControlFlow` | `&&` / `\|\|` used in `if` / `else if`. Legal in Stata, but the canonical style uses `&` / `\|`. |
 | 6004 | `MIXED_LOGICAL_OPERATORS` | warning | `mixedLogicalOperators` | `&` and `\|` mixed in one expression without parentheses; precedence is easy to misread. |
+| 6005 | `SPACED_COMPOUND_OPERATOR` | information | `spacedCompoundOperator` | Compound operators split by whitespace that Stata accepts as the compact form: `< =`, `> =`, `! =`, and `~ =`. |
 
 ## Indentation diagnostics
 
@@ -179,6 +180,7 @@ Diagnostics keys live under `sight.*` in VS Code's `settings.json`:
   "sight.diagnostics.severity.undefinedVariable":           "off",
   "sight.diagnostics.severity.styleWarnings":               "hint",
   "sight.diagnostics.severity.malformedOperator":           "warning",
+  "sight.diagnostics.severity.spacedCompoundOperator":      "information",
   "sight.diagnostics.severity.invalidOperatorSequence":     "error",
   "sight.diagnostics.severity.cStyleLogicalInControlFlow":  "information",
   "sight.diagnostics.severity.mixedLogicalOperators":       "warning"

@@ -134,30 +134,73 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
     });
 
     /**
-     * Feature: malformed-operator-diagnostics, Property 1: Suggestible pair detection and diagnostics
+     * Feature: operator-sequence-diagnostics, Property 1: Spaced compound and malformed diagnostics
      *
-     * For any suggestible operator pair (`< =`, `> =`, `! =`, `~ =`, `= =`) embedded
+     * For any compactable operator pair (`< =`, `> =`, `! =`, `~ =`, `= =`) embedded
      * in valid Stata code as adjacent OPERATOR tokens, the analyzer should emit exactly
      * one diagnostic with:
-     * (a) severity Warning
-     * (b) code MALFORMED_OPERATOR (6001)
-     * (c) a message matching "Malformed operator '<op1> <op2>'. Did you mean '<compound>'?"
+     * (a) pair-specific default severity
+     * (b) the pair-specific diagnostic code
+     * (c) a pair-specific message
      * (d) a range spanning from the start of the first token to the end of the second token
      *
      * Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 5.1, 5.3, 9.2
      */
-    test('suggestible pair detection emits correct diagnostic', () => {
-        // Define the suggestible pairs and their expected compound operators
-        const SUGGESTIBLE_PAIRS: Array<{ first: string; second: string; compound: string }> = [
-            { first: '<', second: '=', compound: '<=' },
-            { first: '>', second: '=', compound: '>=' },
-            { first: '!', second: '=', compound: '!=' },
-            { first: '~', second: '=', compound: '~=' },
-            { first: '=', second: '=', compound: '==' },
+    test('compactable pair detection emits correct diagnostic', () => {
+        // Stata accepts the spaced comparison and not-equal forms, but `= =`
+        // is not valid in all expression contexts.
+        const COMPACTABLE_PAIRS: Array<{
+            first: string;
+            second: string;
+            compound: string;
+            default_severity: DiagnosticSeverity;
+            code: StataDiagnosticCode;
+            message: string;
+        }> = [
+            {
+                first: '<',
+                second: '=',
+                compound: '<=',
+                default_severity: DiagnosticSeverity.Information,
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+                message: "Spaced compound operator '< ='. Stata treats this as '<='; consider writing '<='.",
+            },
+            {
+                first: '>',
+                second: '=',
+                compound: '>=',
+                default_severity: DiagnosticSeverity.Information,
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+                message: "Spaced compound operator '> ='. Stata treats this as '>='; consider writing '>='.",
+            },
+            {
+                first: '!',
+                second: '=',
+                compound: '!=',
+                default_severity: DiagnosticSeverity.Information,
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+                message: "Spaced compound operator '! ='. Stata treats this as '!='; consider writing '!='.",
+            },
+            {
+                first: '~',
+                second: '=',
+                compound: '~=',
+                default_severity: DiagnosticSeverity.Information,
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+                message: "Spaced compound operator '~ ='. Stata treats this as '~='; consider writing '~='.",
+            },
+            {
+                first: '=',
+                second: '=',
+                compound: '==',
+                default_severity: DiagnosticSeverity.Warning,
+                code: StataDiagnosticCode.MALFORMED_OPERATOR,
+                message: "Malformed operator '= ='. Did you mean '=='?",
+            },
         ];
 
-        // Generator for suggestible pairs
-        const arbitrary_suggestible_pair = fc.constantFrom(...SUGGESTIBLE_PAIRS);
+        // Generator for compactable pairs
+        const arbitrary_compactable_pair = fc.constantFrom(...COMPACTABLE_PAIRS);
 
         // Generator for whitespace between operators (at least one space)
         // Note: Continuation-spanning cases (e.g., '< /// comment\n =') are tested
@@ -179,6 +222,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     undefinedVariable: 'warning',
                     styleWarnings: 'warning',
                     malformedOperator: 'warning',
+                    spacedCompoundOperator: 'information',
                     invalidOperatorSequence: 'error',
                 },
                 indentation: false,
@@ -213,12 +257,12 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
 
         fc.assert(
             fc.property(
-                arbitrary_suggestible_pair,
+                arbitrary_compactable_pair,
                 arbitrary_trivia_between,
                 arbitrary_identifier(),
                 arbitrary_identifier(),
                 (my_pair, my_trivia, my_lhs, my_rhs) => {
-                    // Build source with the suggestible pair
+                    // Build source with the compactable pair
                     // Use a simple expression context: display lhs <op1> <trivia> <op2> rhs
                     const my_source = `display ${my_lhs} ${my_pair.first}${my_trivia}${my_pair.second} ${my_rhs}`;
 
@@ -228,26 +272,24 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only MALFORMED_OPERATOR diagnostics (code 6001)
-                    const my_suggestible_diagnostics = my_diagnostics.filter(
-                        (my_d) => my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+                    // Filter to only the expected diagnostic code for this pair.
+                    const my_pair_diagnostics = my_diagnostics.filter(
+                        (my_d) => my_d.code === my_pair.code
                     );
 
                     // (a) Should emit exactly one diagnostic
-                    expect(my_suggestible_diagnostics).toHaveLength(1);
+                    expect(my_pair_diagnostics).toHaveLength(1);
 
-                    const my_diag = my_suggestible_diagnostics[0];
+                    const my_diag = my_pair_diagnostics[0];
 
-                    // (b) Severity should be Warning
-                    expect(my_diag.severity).toBe(DiagnosticSeverity.Warning);
+                    // (b) Severity should match the pair-specific default
+                    expect(my_diag.severity).toBe(my_pair.default_severity);
 
-                    // (c) Code should be MALFORMED_OPERATOR (6001)
-                    expect(my_diag.code).toBe(StataDiagnosticCode.MALFORMED_OPERATOR);
-                    expect(my_diag.code).toBe(6001);
+                    // (c) Code should match the pair-specific diagnostic code.
+                    expect(my_diag.code).toBe(my_pair.code);
 
-                    // (d) Message should match the expected template
-                    const my_expected_message = `Malformed operator '${my_pair.first} ${my_pair.second}'. Did you mean '${my_pair.compound}'?`;
-                    expect(my_diag.message).toBe(my_expected_message);
+                    // (d) Message should match the pair-specific text.
+                    expect(my_diag.message).toBe(my_pair.message);
 
                     // (e) Range should span from start of first operator to end of second operator
                     // Find the operator tokens in the document that form the adjacent pair
@@ -621,10 +663,11 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -639,23 +682,57 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
     });
 
     /**
-     * Feature: malformed-operator-diagnostics, Property 8: Config severity override (suggestible)
+     * Feature: operator-sequence-diagnostics, Property 8: Config severity override
      *
-     * For any suggestible operator pair and any `malformedOperator` config severity value
-     * (`'error'`, `'warning'`, `'information'`, `'hint'`), the emitted diagnostic should
-     * use the configured severity. When `malformedOperator` is `'off'`, zero suggestible
-     * diagnostics should be emitted.
+     * For any compactable operator pair and any config severity value for that pair's
+     * diagnostic class, the configured severity should control whether and how the
+     * diagnostic is emitted.
      *
      * Validates: Requirements 8.1, 8.3, 8.5, 8.6
      */
-    test('config severity override for suggestible pairs', () => {
-        // Define the suggestible pairs
-        const SUGGESTIBLE_PAIRS: Array<{ first: string; second: string; compound: string }> = [
-            { first: '<', second: '=', compound: '<=' },
-            { first: '>', second: '=', compound: '>=' },
-            { first: '!', second: '=', compound: '!=' },
-            { first: '~', second: '=', compound: '~=' },
-            { first: '=', second: '=', compound: '==' },
+    test('config severity override for compactable pairs', () => {
+        const COMPACTABLE_PAIRS: Array<{
+            first: string;
+            second: string;
+            compound: string;
+            code: StataDiagnosticCode;
+            config_key: 'malformedOperator' | 'spacedCompoundOperator';
+        }> = [
+            {
+                first: '<',
+                second: '=',
+                compound: '<=',
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+                config_key: 'spacedCompoundOperator',
+            },
+            {
+                first: '>',
+                second: '=',
+                compound: '>=',
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+                config_key: 'spacedCompoundOperator',
+            },
+            {
+                first: '!',
+                second: '=',
+                compound: '!=',
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+                config_key: 'spacedCompoundOperator',
+            },
+            {
+                first: '~',
+                second: '=',
+                compound: '~=',
+                code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR,
+                config_key: 'spacedCompoundOperator',
+            },
+            {
+                first: '=',
+                second: '=',
+                compound: '==',
+                code: StataDiagnosticCode.MALFORMED_OPERATOR,
+                config_key: 'malformedOperator',
+            },
         ];
 
         // All possible severity values
@@ -669,8 +746,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
             'hint': DiagnosticSeverity.Hint,
         };
 
-        // Generator for suggestible pairs
-        const arbitrary_suggestible_pair = fc.constantFrom(...SUGGESTIBLE_PAIRS);
+        const arbitrary_compactable_pair = fc.constantFrom(...COMPACTABLE_PAIRS);
 
         // Generator for severity values
         const arbitrary_severity = fc.constantFrom(...SEVERITY_VALUES);
@@ -686,7 +762,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
 
         fc.assert(
             fc.property(
-                arbitrary_suggestible_pair,
+                arbitrary_compactable_pair,
                 arbitrary_severity,
                 arbitrary_trivia_between,
                 arbitrary_identifier(),
@@ -700,7 +776,12 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                                 undefinedMacro: 'warning',
                                 undefinedVariable: 'warning',
                                 styleWarnings: 'warning',
-                                malformedOperator: my_severity,
+                                malformedOperator:
+                                    my_pair.config_key === 'malformedOperator' ? my_severity : 'warning',
+                                spacedCompoundOperator:
+                                    my_pair.config_key === 'spacedCompoundOperator'
+                                        ? my_severity
+                                        : 'information',
                                 invalidOperatorSequence: 'error',
                             },
                             indentation: false,
@@ -731,7 +812,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                         },
                     };
 
-                    // Build source with the suggestible pair
+                    // Build source with the compactable pair
                     const my_source = `display ${my_lhs} ${my_pair.first}${my_trivia}${my_pair.second} ${my_rhs}`;
 
                     // Create document state
@@ -740,19 +821,17 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only MALFORMED_OPERATOR diagnostics (code 6001)
-                    const my_suggestible_diagnostics = my_diagnostics.filter(
-                        (my_d) => my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+                    // Filter to only diagnostics for this pair's class.
+                    const my_pair_diagnostics = my_diagnostics.filter(
+                        (my_d) => my_d.code === my_pair.code
                     );
 
                     if (my_severity === 'off') {
-                        // When 'off', zero suggestible diagnostics should be emitted
-                        expect(my_suggestible_diagnostics).toHaveLength(0);
+                        expect(my_pair_diagnostics).toHaveLength(0);
                     } else {
-                        // Should emit exactly one diagnostic with the configured severity
-                        expect(my_suggestible_diagnostics).toHaveLength(1);
+                        expect(my_pair_diagnostics).toHaveLength(1);
 
-                        const my_diag = my_suggestible_diagnostics[0];
+                        const my_diag = my_pair_diagnostics[0];
                         const expected_severity = severity_map[my_severity];
                         expect(my_diag.severity).toBe(expected_severity);
                     }
@@ -1114,15 +1193,15 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
         const MALFORMED_PAIRS: Array<{
             first: string;
             second: string;
-            kind: 'suggestible' | 'invalid';
+            kind: 'spaced_compound' | 'malformed' | 'invalid';
             expected_code: number;
         }> = [
             // Suggestible pairs
-            { first: '<', second: '=', kind: 'suggestible', expected_code: 6001 },
-            { first: '>', second: '=', kind: 'suggestible', expected_code: 6001 },
-            { first: '!', second: '=', kind: 'suggestible', expected_code: 6001 },
-            { first: '~', second: '=', kind: 'suggestible', expected_code: 6001 },
-            { first: '=', second: '=', kind: 'suggestible', expected_code: 6001 },
+            { first: '<', second: '=', kind: 'spaced_compound', expected_code: 6005 },
+            { first: '>', second: '=', kind: 'spaced_compound', expected_code: 6005 },
+            { first: '!', second: '=', kind: 'spaced_compound', expected_code: 6005 },
+            { first: '~', second: '=', kind: 'spaced_compound', expected_code: 6005 },
+            { first: '=', second: '=', kind: 'malformed', expected_code: 6001 },
             // Invalid pairs (excluding C-style logical)
             { first: '<', second: '|', kind: 'invalid', expected_code: 6002 },
             { first: '<', second: '&', kind: 'invalid', expected_code: 6002 },
@@ -1209,10 +1288,11 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -1354,10 +1434,11 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -1376,7 +1457,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
 /**
  * Feature: malformed-operator-diagnostics, Property 3: Embedded context suppression
  *
- * For any malformed operator pair (suggestible or invalid) placed inside a Mata or
+ * For any operator sequence pair placed inside a Mata or
  * Python embedded block, the analyzer (via DiagnosticsProvider filtering) should emit
  * zero diagnostics for that pair.
  *
@@ -1393,7 +1474,7 @@ describe('Embedded Context Suppression Property Tests', () => {
         // Import DiagnosticsProvider for full pipeline testing
         const { DiagnosticsProvider } = await import('../../src/providers/diagnostics');
 
-        // Define all malformed pairs (both suggestible and invalid)
+        // Define all diagnostic operator pairs.
         const MALFORMED_PAIRS: Array<{ first: string; second: string }> = [
             // Suggestible pairs
             { first: '<', second: '=' },
@@ -1488,10 +1569,11 @@ describe('Embedded Context Suppression Property Tests', () => {
                         my_config
                     );
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -1515,7 +1597,7 @@ describe('Embedded Context Suppression Property Tests', () => {
         // Import DiagnosticsProvider for full pipeline testing
         const { DiagnosticsProvider } = await import('../../src/providers/diagnostics');
 
-        // Define all malformed pairs (both suggestible and invalid)
+        // Define all diagnostic operator pairs.
         const MALFORMED_PAIRS: Array<{ first: string; second: string }> = [
             // Suggestible pairs
             { first: '<', second: '=' },
@@ -1610,10 +1692,11 @@ describe('Embedded Context Suppression Property Tests', () => {
                         my_config
                     );
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -1637,17 +1720,17 @@ describe('Embedded Context Suppression Property Tests', () => {
         // Import DiagnosticsProvider for full pipeline testing
         const { DiagnosticsProvider } = await import('../../src/providers/diagnostics');
 
-        // Define all malformed pairs (both suggestible and invalid)
+        // Define all diagnostic operator pairs.
         const MALFORMED_PAIRS: Array<{
             first: string;
             second: string;
             expected_code: number;
         }> = [
             // Suggestible pairs
-            { first: '<', second: '=', expected_code: 6001 },
-            { first: '>', second: '=', expected_code: 6001 },
-            { first: '!', second: '=', expected_code: 6001 },
-            { first: '~', second: '=', expected_code: 6001 },
+            { first: '<', second: '=', expected_code: 6005 },
+            { first: '>', second: '=', expected_code: 6005 },
+            { first: '!', second: '=', expected_code: 6005 },
+            { first: '~', second: '=', expected_code: 6005 },
             { first: '=', second: '=', expected_code: 6001 },
             // Invalid pairs
             { first: '<', second: '|', expected_code: 6002 },
@@ -1722,10 +1805,11 @@ describe('Embedded Context Suppression Property Tests', () => {
                         my_config
                     );
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -1759,7 +1843,7 @@ describe('Directive Suppression Property Tests', () => {
      * comment line, the analyzer should emit zero operator sequence diagnostics.
      */
     test('@lsp-ignore suppresses malformed operator diagnostics on following statement', () => {
-        // Define all malformed pairs (both suggestible and invalid)
+        // Define all diagnostic operator pairs.
         const MALFORMED_PAIRS: Array<{ first: string; second: string }> = [
             // Suggestible pairs
             { first: '<', second: '=' },
@@ -1850,10 +1934,11 @@ describe('Directive Suppression Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -1875,7 +1960,7 @@ describe('Directive Suppression Property Tests', () => {
      * should emit zero operator sequence diagnostics.
      */
     test('@lsp-ignore-next suppresses malformed operator diagnostics on next line', () => {
-        // Define all malformed pairs (both suggestible and invalid)
+        // Define all diagnostic operator pairs.
         const MALFORMED_PAIRS: Array<{ first: string; second: string }> = [
             // Suggestible pairs
             { first: '<', second: '=' },
@@ -1970,10 +2055,11 @@ describe('Directive Suppression Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -2066,10 +2152,11 @@ describe('Directive Suppression Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
@@ -2090,17 +2177,17 @@ describe('Directive Suppression Property Tests', () => {
      * the analyzer should emit diagnostics.
      */
     test('without suppression directives, diagnostics are emitted', () => {
-        // Define all malformed pairs (both suggestible and invalid)
+        // Define all diagnostic operator pairs.
         const MALFORMED_PAIRS: Array<{
             first: string;
             second: string;
             expected_code: number;
         }> = [
             // Suggestible pairs
-            { first: '<', second: '=', expected_code: 6001 },
-            { first: '>', second: '=', expected_code: 6001 },
-            { first: '!', second: '=', expected_code: 6001 },
-            { first: '~', second: '=', expected_code: 6001 },
+            { first: '<', second: '=', expected_code: 6005 },
+            { first: '>', second: '=', expected_code: 6005 },
+            { first: '!', second: '=', expected_code: 6005 },
+            { first: '~', second: '=', expected_code: 6005 },
             { first: '=', second: '=', expected_code: 6001 },
             // Invalid pairs
             { first: '<', second: '|', expected_code: 6002 },
@@ -2167,10 +2254,11 @@ describe('Directive Suppression Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only operator sequence diagnostics (codes 6001 and 6002)
+                    // Filter to only operator sequence diagnostics.
                     const my_operator_diagnostics = my_diagnostics.filter(
                         (my_d) =>
                             my_d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                            my_d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                             my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
 
