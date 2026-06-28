@@ -329,6 +329,63 @@ describe('StataParser', () => {
       }
     });
 
+    test('should parse macro assignment continued after the scope keyword', () => {
+      const source = `local ///
+    x = 1`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('macro_def');
+
+      if (node.type === 'macro_def') {
+        expect(node.name).toBe('x');
+        expect(node.hasEquals).toBe(true);
+        expect(node.value).toBe('1');
+      }
+    });
+
+    test('should parse macro assignment continued between name and equals', () => {
+      const source = `local x ///
+    = 1`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('macro_def');
+
+      if (node.type === 'macro_def') {
+        expect(node.name).toBe('x');
+        expect(node.hasEquals).toBe(true);
+        expect(node.value).toBe('1');
+      }
+    });
+
+    test('should parse extended macro definition continued after the colon', () => {
+      const source = `local x : ///
+    display 1 + 2`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('macro_def');
+
+      if (node.type === 'macro_def') {
+        expect(node.name).toBe('x');
+        expect(node.extendedFunction?.name).toBe('display');
+        expect(node.extendedFunction?.args).toBe('1 + 2');
+      }
+    });
+
     test('should parse global macro definition', () => {
       const source = 'global path "/usr/local/stata"';
       const lexResult = lexer.tokenize(source);
