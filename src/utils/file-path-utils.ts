@@ -48,11 +48,15 @@ export function isFileCommand(command: string): boolean {
 }
 
 /**
- * Check if a directive accepts file paths
+ * Check if a directive accepts file paths.
+ *
+ * Case-sensitive on the keyword: the directive parser matches keywords
+ * case-sensitively (lowercase only), so completion must not offer directive
+ * path completion for a form the parser would silently ignore (e.g. `sight: Do`).
+ * Only the canonical `sight:` prefix is rewritten to its `@lsp-` alias.
  */
 export function isPathDirective(directive: string): boolean {
-  const normalized = directive.trim().toLowerCase()
-    .replace(/^sight:\s*/, '@lsp-');
+  const normalized = directive.trim().replace(/^sight:\s*/, '@lsp-');
   return PATH_DIRECTIVES.has(normalized);
 }
 

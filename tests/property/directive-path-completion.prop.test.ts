@@ -3,7 +3,23 @@ import * as fc from 'fast-check';
 import { detect_completion_context } from '../../src/providers/completion';
 import { DocumentState } from '../../src/document-store';
 import { Position } from 'vscode-languageserver';
-import { PATH_DIRECTIVES, STATA_FILE_EXTENSIONS } from '../../src/utils/file-path-utils';
+import { PATH_DIRECTIVES, STATA_FILE_EXTENSIONS, isPathDirective } from '../../src/utils/file-path-utils';
+
+describe('isPathDirective case-sensitivity', () => {
+  it('accepts canonical lowercase directive keywords', () => {
+    expect(isPathDirective('sight: do')).toBe(true);
+    expect(isPathDirective('sight: done-by')).toBe(true);
+    expect(isPathDirective('@lsp-include')).toBe(true);
+  });
+
+  it('rejects uppercase keywords the parser would ignore', () => {
+    // The directive parser matches keywords case-sensitively, so completion
+    // must not offer path completion for forms it would silently drop.
+    expect(isPathDirective('sight: Do')).toBe(false);
+    expect(isPathDirective('sight: Done-By')).toBe(false);
+    expect(isPathDirective('@lsp-Do')).toBe(false);
+  });
+});
 
 /**
  * Property tests for directive path completion functionality.
