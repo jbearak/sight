@@ -317,6 +317,15 @@ gen x = 1`;
             expect(line).toBe(1);
         });
 
+        test('empty match="" does not resolve to a line-0 match call site', () => {
+            // An empty match string matches every line; it must not become an
+            // explicit call site (which would silently resolve to line 0).
+            const content = '// sight: done-by: "parent.do" match=""\nlocal y 1';
+            const result = parser.parse(content, 'file:///child.do');
+
+            expect(result.directives.some(d => d.call_site?.type === 'match')).toBe(false);
+        });
+
         test('forward directive with escaped quotes in match= is recognized', () => {
             // The match= target line exists in this file, so the call site
             // resolves with no diagnostics.

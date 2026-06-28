@@ -68,16 +68,18 @@ const WORKING_DIR_DIRECTIVE_PATTERN = make_directive_pattern(
 );
 
 const PARAM_LINE = /line=(\d+)/;
-// Capture the `match=` string body, allowing an escaped quote `\"` so
+// Capture the non-empty `match=` string body, allowing an escaped quote `\"` so
 // `match="do \"x\""` yields the raw value `do \"x\"` (unescaped in parse_call_site).
-const PARAM_MATCH = /match="((?:\\"|[^"])*)"/;
+const PARAM_MATCH = /match="((?:\\"|[^"])+)"/;
 
-// Pattern to match declaration directives: @lsp-(local|global|scalar|matrix|program)
+// Head pattern to match declaration directives: @lsp-(local|global|scalar|matrix|program)
 // Captures: [1] = directive type. The declared names (rest of line) are sliced
 // from the remainder after the match. A `(?=\s|$)` lookahead keeps the keyword a
 // whole word (so `@lsp-localx` is not matched) without a trailing `.*$` group,
-// which would otherwise trigger a CodeQL polynomial-ReDoS finding.
-const DECLARATION_DIRECTIVE_PATTERN = make_directive_pattern(
+// which would otherwise trigger a CodeQL polynomial-ReDoS finding. Named
+// `_HEAD_` (cf. BACKWARD_DIRECTIVE_HEAD_PATTERN) to distinguish it from the
+// name-capturing DECLARATION_DIRECTIVE_PATTERN exported by utils/directives.ts.
+const DECLARATION_DIRECTIVE_HEAD_PATTERN = make_directive_pattern(
     DECLARATION_DIRECTIVE_KEYWORDS,
     String.raw`:?(?=\s|$)`,
 );
@@ -435,7 +437,7 @@ export class DirectiveParser {
             }
 
             // Check for declaration directive pattern
-            const my_match = my_trimmed.match(DECLARATION_DIRECTIVE_PATTERN);
+            const my_match = my_trimmed.match(DECLARATION_DIRECTIVE_HEAD_PATTERN);
             if (my_match) {
                 const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
                 const my_rest = my_trimmed
