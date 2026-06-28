@@ -277,6 +277,8 @@ gen x = 1`;
                 ['global', 'config'],
                 ['scalar', 'my_scalar'],
             ]);
+            // Alias-equivalence: canonical `sight:` forms parse without warnings.
+            expect(result.diagnostics.length).toBe(0);
         });
     });
 });

@@ -1159,7 +1159,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             );
 
             expect(my_definition).not.toBeNull();
-            expect(my_definition?.uri).toContain('helper');
+            expect(my_definition?.uri).toBe(URI.file(helper_path).toString());
         });
 
         it('should not resolve bare sight directive paths outside comments', async () => {

@@ -120,14 +120,18 @@ gen x = 1`;
         });
 
         test('does not parse bare sight prefix as a Stata comment', () => {
-            const content = 'sight: done-by "parent.do"\ngen x = 1';
+            // Use the canonical `done-by:` body so the test isolates the prefix
+            // rule (bare `sight:` is not a comment) rather than body syntax.
+            const content = 'sight: done-by: "parent.do"\ngen x = 1';
             const result = parser.parse(content, 'file:///test.do');
 
             expect(result.directives.length).toBe(0);
         });
 
         test('does not parse # sight as a directive prefix', () => {
-            const content = '// # sight: done-by "parent.do"\ngen x = 1';
+            // Canonical `done-by:` body isolates the prefix rule (`# sight:` is
+            // not a recognized directive prefix).
+            const content = '// # sight: done-by: "parent.do"\ngen x = 1';
             const result = parser.parse(content, 'file:///test.do');
 
             expect(result.directives.length).toBe(0);
