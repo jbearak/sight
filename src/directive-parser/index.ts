@@ -51,10 +51,12 @@ const DIRECTIVE_PATTERN = make_directive_pattern(
 
 // Detects a standalone backward-directive head (keyword present but the full
 // DIRECTIVE_PATTERN did not match) so the parser can report it as malformed.
-// Hoisted to module scope so it is not recompiled on every header line.
+// Hoisted to module scope so it is not recompiled on every header line. The
+// `(?=:|\s|$)` boundary keeps the keyword whole — it matches `done-by:"x"`
+// (no space) and `done-by` alone, but not words like `done-bytes`.
 const BACKWARD_DIRECTIVE_HEAD_PATTERN = make_directive_pattern(
     BACKWARD_DIRECTIVE_KEYWORDS,
-    String.raw`:?`,
+    String.raw`(?=:|\s|$)`,
 );
 
 const FORWARD_CALL_DIRECTIVE_PATTERN = make_directive_pattern(
@@ -64,11 +66,12 @@ const FORWARD_CALL_DIRECTIVE_PATTERN = make_directive_pattern(
 
 // Detects a standalone forward-directive head (keyword present but the full
 // FORWARD_CALL_DIRECTIVE_PATTERN did not match) so the parser can report it as
-// malformed, mirroring BACKWARD_DIRECTIVE_HEAD_PATTERN. The `(?=\s|$)` lookahead
-// keeps the keyword a whole word so `// sight: doctor` is not treated as `do`.
+// malformed, mirroring BACKWARD_DIRECTIVE_HEAD_PATTERN. The `(?=:|\s|$)` boundary
+// keeps the keyword whole: it matches `do:"x"` (no space) and `do` alone, but
+// not words like `doctor`.
 const FORWARD_CALL_DIRECTIVE_HEAD_PATTERN = make_directive_pattern(
     FORWARD_DIRECTIVE_KEYWORDS,
-    String.raw`:?(?=\s|$)`,
+    String.raw`(?=:|\s|$)`,
 );
 
 // Pattern for working directory directive with all synonyms

@@ -134,6 +134,15 @@ gen x = 1`;
             expect(result.directives.length).toBe(0);
         });
 
+        test('does not flag a non-directive word starting with a backward keyword', () => {
+            // `done-bytes` begins with `done-by` but is not a directive.
+            const content = '// sight: done-bytes are not a directive\ngen x = 1';
+            const result = parser.parse(content, 'file:///test.do');
+
+            expect(result.directives.length).toBe(0);
+            expect(result.diagnostics.some(d => d.message.includes('Malformed'))).toBe(false);
+        });
+
         test('does not honor // or * directives nested in multi-line block comments', () => {
             // A `//` or `*` line inside a /* ... */ block is block-commented out,
             // so the directive must stay inert across all scanners.
@@ -329,6 +338,14 @@ gen x = 1`;
 
             expect(result.forward_calls?.length ?? 0).toBe(0);
             expect(result.diagnostics.length).toBe(0);
+        });
+
+        test('reports a forward directive with no space after the colon as malformed', () => {
+            const content = '// sight: do:"setup.do"\ngen x = 1';
+            const result = parser.parse_forward_call_directives(content, 'file:///test.do');
+
+            expect(result.forward_calls?.length ?? 0).toBe(0);
+            expect(result.diagnostics.some(d => d.message.includes('Malformed directive'))).toBe(true);
         });
 
         test('accepts canonical sight forward directives', () => {
