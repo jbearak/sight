@@ -29,6 +29,12 @@ import {
 import { DirectiveParser } from '../directive-parser';
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
+import {
+    DECLARATION_DIRECTIVE_KEYWORDS,
+    DIRECTIVE_PREFIX_PATTERN,
+    has_ignore_directive,
+    has_ignore_next_directive,
+} from '../utils/directives';
 
 // Diagnostic interface for semantic errors
 export interface SemanticDiagnostic {
@@ -283,8 +289,8 @@ export class SemanticAnalyzer {
             if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
                 const token_content = token.value.trim();
 
-                // Check for @lsp-ignore-next directive (ignores next line)
-                if (token_content.includes('@lsp-ignore-next')) {
+                // Check for ignore-next directive (ignores next line)
+                if (has_ignore_next_directive(token_content)) {
                     // Find the next non-trivia token's line
                     for (let j = i + 1; j < tokens.length; j++) {
                         const next_token = tokens[j];
@@ -298,13 +304,15 @@ export class SemanticAnalyzer {
                         }
                     }
                 }
-                // Check for @lsp-ignore directive (ignores same line)
-                else if (token_content.includes('@lsp-ignore')) {
+                // Check for ignore directive (ignores same line)
+                else if (has_ignore_directive(token_content)) {
                     this.config.ignored_lines.add(token.range.start.line);
                 }
 
                 // Check for @lsp-variables directive
-                const variables_match = token_content.match(/@lsp-variables\s+(.+)/);
+                const variables_match = token_content.match(
+                    new RegExp(`${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)`)
+                );
                 if (variables_match) {
                     const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
                     for (const var_name of var_names) {
@@ -325,7 +333,9 @@ export class SemanticAnalyzer {
      */
     private parse_declaration_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
         // Pattern to match declaration directives (captures all remaining text)
-        const DECLARATION_PATTERN = /@lsp-(local|global|scalar|matrix|program)\s+(.+)/;
+        const DECLARATION_PATTERN = new RegExp(
+            `${DIRECTIVE_PREFIX_PATTERN}(${DECLARATION_DIRECTIVE_KEYWORDS}):?\\s+(.+)`
+        );
 
         for (const token of tokens) {
             if (token.type !== 'COMMENT_LINE' && token.type !== 'COMMENT_BLOCK') {
@@ -502,15 +512,17 @@ export class SemanticAnalyzer {
     private parse_directive(trivia: TriviaNode, following_node: StataNode): void {
         const content = trivia.content.trim();
 
-        // Check for @lsp-ignore-next directive
-        if (content.includes('@lsp-ignore-next')) {
+        // Check for ignore-next directive
+        if (has_ignore_next_directive(content)) {
             // Ignore the line of the following node
             const line_to_ignore = following_node.range.start.line;
             this.config.ignored_lines.add(line_to_ignore);
         }
 
         // Check for @lsp-variables directive
-        const variables_match = content.match(/@lsp-variables\s+(.+)/);
+        const variables_match = content.match(
+            new RegExp(`${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)`)
+        );
         if (variables_match) {
             const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
             for (const var_name of var_names) {

@@ -28,6 +28,7 @@ import {
 } from '../utils/out-of-scope-message';
 import { undefined_symbol_data_fields } from '../utils/undefined-symbol-diagnostic';
 import { host_is_case_sensitive } from '../utils/file-path-utils';
+import { has_ignore_directive, has_ignore_next_directive } from '../utils/directives';
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
@@ -736,18 +737,18 @@ export class DiagnosticsProvider {
         const diagnostic_line = diagnostic_range.start.line;
         const line_count = get_line_count(document);
         
-        // Check current line for @lsp-ignore
+        // Check current line for ignore directive
         if (diagnostic_line < line_count) {
             const current_line = get_line_text(document, diagnostic_line);
-            if (current_line.includes('// @lsp-ignore')) {
+            if (has_ignore_directive(current_line)) {
                 return true;
             }
         }
         
-        // Check previous line for @lsp-ignore-next
+        // Check previous line for ignore-next directive
         if (diagnostic_line > 0) {
             const previous_line = get_line_text(document, diagnostic_line - 1);
-            if (previous_line.includes('// @lsp-ignore-next')) {
+            if (has_ignore_next_directive(previous_line)) {
                 return true;
             }
         }

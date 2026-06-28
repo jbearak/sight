@@ -41,7 +41,7 @@ describe('Call-site mismatch diagnostics with explicit call sites', () => {
         const result = await resolver.resolve(URI.file(child_path).toString(), child_content);
 
         const mismatch_warning = result.diagnostics.find(
-            (d) => d.severity === 'warning' && d.message.includes('@lsp-included-by')
+            (d) => d.severity === 'warning' && d.message.includes('# sight: included-by')
         );
         expect(mismatch_warning).toBeDefined();
     });
@@ -70,7 +70,7 @@ describe('Call-site mismatch diagnostics with explicit call sites', () => {
         );
 
         const done_by_include_info = result.diagnostics.find(
-            (d) => d.message.includes('@lsp-done-by') && d.message.includes('include')
+            (d) => d.message.includes('# sight: done-by') && d.message.includes('include')
         );
         expect(done_by_include_info).toBeUndefined();
     });

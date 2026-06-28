@@ -264,5 +264,19 @@ gen x = 1`;
             expect(result.declaration_directives.length).toBe(1);
             expect(result.declaration_directives[0].type).toBe('local');
         });
+
+        test('canonical # sight declaration directives parse like @lsp aliases', () => {
+            const content = `// # sight: local myvar
+* # sight: global config
+// # sight: scalar: my_scalar`;
+
+            const result = parser.parse(content, 'file:///test.do');
+
+            expect(result.declaration_directives.map(d => [d.type, d.name])).toEqual([
+                ['local', 'myvar'],
+                ['global', 'config'],
+                ['scalar', 'my_scalar'],
+            ]);
+        });
     });
 });

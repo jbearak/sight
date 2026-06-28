@@ -45,7 +45,7 @@ go-to-definition all work across the two files with zero setup.
 
 - **Backward dependencies**: If `parent.do` calls `do "child.do"`, the LSP
   automatically makes the parent's symbols available in the child (equivalent
-  to adding `@lsp-done-by: "parent.do"` to the child's header).
+  to adding `// # sight: done-by: "parent.do"` to the child's header).
 - **Forward calls**: `do`, `run`, and `include` commands in the current file
   are also followed, making callee symbols available after the call site.
 
@@ -71,7 +71,7 @@ backwardDependencies = "explicit"
 ```
 
 In this mode the LSP will not auto-discover parent files — you must add
-`@lsp-done-by` or `@lsp-included-by` directives to each child file's header.
+`# sight: done-by` or `# sight: included-by` directives to each child file's header.
 
 **Per-file opt-out:** Even in auto mode, adding an explicit backward directive
 to a file's header causes the LSP to skip auto-discovery for that file and use
@@ -184,9 +184,12 @@ and follows them for scope resolution. Paths containing macro references (e.g.,
 For cases where auto-detection doesn't work, you can use explicit forward
 directives anywhere in a file's comments:
 
-- `@lsp-do: "path.do"` — Follow a `do` call (excludes locals)
-- `@lsp-run: "path.do"` — Follow a `run` call (excludes locals)
-- `@lsp-include: "path.do"` — Follow an `include` call (includes locals)
+- `# sight: do: "path.do"` — Follow a `do` call (excludes locals)
+- `# sight: run: "path.do"` — Follow a `run` call (excludes locals)
+- `# sight: include: "path.do"` — Follow an `include` call (includes locals)
+
+Use these inside Stata comments, for example `// # sight: do: "path.do"`.
+The older `@lsp-` prefix is a permanent alias (`// @lsp-do: "path.do"`).
 
 **Scope visibility:**
 
@@ -202,23 +205,23 @@ workspace), you can declare parent relationships explicitly.
 
 **Recommended (spec) syntax:**
 
-- `@lsp-done-by: "<path>"` — Parent calls this file via `do` (inherits
+- `# sight: done-by: "<path>"` — Parent calls this file via `do` (inherits
   globals, scalars, matrices, programs; **not** locals)
-- `@lsp-run-by: "<path>"` — Synonym for `@lsp-done-by`; use when the parent
+- `# sight: run-by: "<path>"` — Synonym for `# sight: done-by`; use when the parent
   calls via `run`
-- `@lsp-included-by: "<path>"` — Parent calls this file via `include`
+- `# sight: included-by: "<path>"` — Parent calls this file via `include`
   (inherits all symbols including locals)
 
 Notes:
 - Backward directives are only read from the **top of the file** (header).
   Parsing stops at the first line that is not a comment and not blank after
   trimming whitespace (so whitespace-only lines still count as blank). Forward
-  directives (`@lsp-do`, `@lsp-run`, `@lsp-include`) can appear anywhere in
+  directives (`# sight: do`, `# sight: run`, `# sight: include`) can appear anywhere in
   file comments.
 - The parser also accepts an alternative form without the colon and/or without
-  quotes (e.g. `// @lsp-done-by parent.do`), but the spec form above is
-  preferred.
-- `@lsp-run-by` and `@lsp-done-by` are functionally identical; use whichever
+  quotes (e.g. `// # sight: done-by parent.do`), but the spec form above is
+  preferred. The `@lsp-` forms remain permanent aliases.
+- `# sight: run-by` and `# sight: done-by` are functionally identical; use whichever
   matches the actual Stata command (`run` vs `do`) for semantic clarity.
 
 ## Working Directory
@@ -226,24 +229,24 @@ Notes:
 By default, the LSP resolves relative paths in `do`, `run`, and `include`
 commands relative to the script's containing directory. However, Stata scripts
 are often executed from a different working directory than where they reside.
-The `@lsp-working-directory` directive allows you to specify this working
+The `# sight: working-directory` directive allows you to specify this working
 directory context.
 
 **Directive Syntax:**
 
 ```stata
-// @lsp-working-directory: "/path/to/working/dir"
+// # sight: working-directory: "/path/to/working/dir"
 ```
 
 **Synonym Forms:**
 
 All of the following are equivalent:
-- `@lsp-working-directory`
-- `@lsp-working-dir`
-- `@lsp-current-directory`
-- `@lsp-current-dir`
-- `@lsp-cd`
-- `@lsp-wd`
+- `# sight: working-directory`
+- `# sight: working-dir`
+- `# sight: current-directory`
+- `# sight: current-dir`
+- `# sight: cd`
+- `# sight: wd`
 
 **Path Resolution:**
 
@@ -254,7 +257,7 @@ All of the following are equivalent:
 
 **Limitations:**
 - Filesystem-absolute paths (e.g. `/Users/alice/project/file.do`) are not
-  currently supported by `@lsp-working-directory` because leading `/` is
+  currently supported by `# sight: working-directory` because leading `/` is
   reserved for workspace-root-relative paths.
 
 **Examples:**
@@ -263,7 +266,7 @@ All of the following are equivalent:
 // Script in /project/scripts/analysis.do
 // Executed from /project (workspace root)
 
-// @lsp-working-directory: "/"
+// # sight: working-directory: "/"
 // Paths in do/run/include resolve relative to /project
 
 do "data/load_data.do"  // Resolves to /project/data/load_data.do
@@ -273,7 +276,7 @@ do "data/load_data.do"  // Resolves to /project/data/load_data.do
 // Script in /project/scripts/analysis.do
 // Executed from /project/data
 
-// @lsp-working-directory: "../data"
+// # sight: working-directory: "../data"
 // Paths resolve relative to /project/data
 
 do "clean.do"  // Resolves to /project/data/clean.do
@@ -281,7 +284,7 @@ do "clean.do"  // Resolves to /project/data/clean.do
 
 **Fallback Behavior:**
 
-When no `@lsp-working-directory` directive is present:
+When no `# sight: working-directory` directive is present:
 1. The LSP first tries to resolve paths relative to the script's containing
    directory
 2. If the file is not found, it tries resolving relative to the workspace root
@@ -296,8 +299,8 @@ When no `@lsp-working-directory` directive is present:
   used (with a warning)
 - The directive only affects path resolution for `do`, `run`, and `include`
   **commands in Stata code**
-- Other `@lsp-*` directives (`@lsp-do`, `@lsp-run`, `@lsp-include`,
-  `@lsp-done-by`, `@lsp-included-by`) always resolve paths relative to the
+- Other cross-file directives (`# sight: do`, `# sight: run`, `# sight: include`,
+  `# sight: done-by`, `# sight: included-by`) always resolve paths relative to the
   script's containing directory, unaffected by the working directory directive
 
 **Common Use Case:**
@@ -319,7 +322,7 @@ root:
 
 ```stata
 // scripts/analysis.do
-// @lsp-working-directory: "/"
+// # sight: working-directory: "/"
 do "data/load.do"  // Resolves to /project/data/load.do
 ```
 
@@ -346,7 +349,7 @@ directive when the parent already establishes the working directory context.
 ```text
 project/
 ├── scripts/
-│   ├── loop.do       # Has @lsp-cd: "../" (sets wd to project/)
+│   ├── loop.do       # Has # sight: cd: "../" (sets wd to project/)
 │   └── dhs/
 │       └── survey.do # Inherits working directory from loop.do
 └── data/
@@ -355,7 +358,7 @@ project/
 
 ```stata
 // scripts/loop.do
-// @lsp-cd: "../"
+// # sight: cd: "../"
 // Working directory is now project/ (parent of scripts/)
 global survey_list "dhs"
 foreach survey of global survey_list {
@@ -376,8 +379,8 @@ so paths in `survey.do` resolve relative to `project/` rather than
 
 ## Call Site Parameters
 
-Backward directives (`@lsp-done-by`, `@lsp-run-by`, `@lsp-included-by`) and
-forward call directives (`@lsp-do`, `@lsp-run`, `@lsp-include`) support
+Backward directives (`# sight: done-by`, `# sight: run-by`, `# sight: included-by`) and
+forward call directives (`# sight: do`, `# sight: run`, `# sight: include`) support
 optional call-site parameters. These parameters control the **effective call
 site line** used for call-site filtering and scope visibility.
 
@@ -482,19 +485,19 @@ save "$output_path/results.dta", replace
 ### Explicit Directives
 
 ```stata
-// @lsp-done-by: "setup.do"
+// # sight: done-by: "setup.do"
 local result `global_from_setup'
 ```
 
 ```stata
-// @lsp-included-by: "common.do"
+// # sight: included-by: "common.do"
 local shared_local `local_from_common'
 ```
 
 ### Line-Specific Directives
 
 ```stata
-// @lsp-done-by: "config.do" line=5
+// # sight: done-by: "config.do" line=5
 local data_path `root_path'  // Symbols on or before line 5 are available
 local other `undefined'      // This will still warn
 ```
@@ -502,7 +505,7 @@ local other `undefined'      // This will still warn
 ### Call Site Matching
 
 ```stata
-// @lsp-done-by: "orchestrator.do" match="do \"analysis.do\""
+// # sight: done-by: "orchestrator.do" match="do \"analysis.do\""
 local result `setup_global'  // Symbols before the do call are available
 ```
 
@@ -521,8 +524,8 @@ Rules:
 Example (same depth, lattermost wins):
 
 ```stata
-// @lsp-done-by: "analysis.do"
-// @lsp-done-by: "setup.do"
+// # sight: done-by: "analysis.do"
+// # sight: done-by: "setup.do"
 local path "$data_path"  // Uses definition from setup.do (lattermost)
 ```
 
@@ -541,7 +544,7 @@ the list reflects how Stata actually scopes each construct:
 
 - **Programs, scalars, matrices, and macros** — returned only for files that
   share a dependency-graph edge with the current file (ancestors or
-  descendants via `do`, `run`, `include`, or their `@lsp-*` directive
+  descendants via `do`, `run`, `include`, or their `# sight:` directive
   equivalents, transitively). Same-named symbols in unrelated modules are
   almost always coincidental, so they are omitted.
 - **Variables** — returned for the entire workspace. Stata variables are
@@ -570,7 +573,7 @@ cascade of false undefined-symbol warnings.
 ### Forward calls and directives
 
 For `do`, `run`, and `include` commands in Stata code — and for the
-explicit forward-call directives `@lsp-do`, `@lsp-run`, `@lsp-include`
+explicit forward-call directives `# sight: do`, `# sight: run`, `# sight: include`
 — the diagnostic message notes that Stata will not find the file on
 case-sensitive systems and shows the as-written path alongside the
 on-disk spelling. For example, `do helpers/clean` resolving on-disk
@@ -588,9 +591,9 @@ explicit directive), the range is the path token in the Stata source.
 
 ### Backward header directives
 
-For `@lsp-done-by`, `@lsp-run-by`, and `@lsp-included-by` directives in
+For `# sight: done-by`, `# sight: run-by`, and `# sight: included-by` directives in
 the file header, the LSP resolves paths relative to the **file's own
-containing directory** — no `@lsp-cd` / working-directory is applied
+containing directory** — no `# sight: cd` / working-directory is applied
 here and there is no workspace-root fallback (backward directives have
 never used them). The message makes no Stata-execution claim because
 backward directives are not Stata commands; it simply asks you to fix
@@ -632,8 +635,8 @@ Severity is controlled by `crossFile.diagnostics.caseMismatch` (see
 to `information` on a case-insensitive host (macOS/Windows) and
 `warning` on a case-sensitive host (Linux/CI), so the mismatch is quiet
 during local development but surfaces as a build warning in Linux CI.
-The diagnostic is **not** suppressible by `@lsp-ignore` or
-`@lsp-ignore-next`; silence it project-wide with `caseMismatch = "off"`
+The diagnostic is **not** suppressible by `# sight: ignore` or
+`# sight: ignore-next`; silence it project-wide with `caseMismatch = "off"`
 or by correcting the path casing.
 
 ## Call Site Diagnostics
@@ -651,7 +654,7 @@ an error:
   assumption (configurable via `assumeCallSite`). The diagnostic suggests using
   `line=` or `match=` parameters for explicit call site specification.
 
-- **done-by with include mismatch**: When you use `@lsp-done-by` but the
+- **done-by with include mismatch**: When you use `# sight: done-by` but the
   parent file actually uses `include`, the LSP informs you that full
   inheritance (including local macros) will occur.
 
@@ -659,7 +662,7 @@ an error:
 
 These diagnostics indicate potential issues that may affect your code:
 
-- **included-by with do/run mismatch**: When you use `@lsp-included-by` but
+- **included-by with do/run mismatch**: When you use `# sight: included-by` but
   the parent file uses `do` or `run`, local macros will NOT be inherited. This
   is a semantic issue that may cause undefined macro warnings.
 
@@ -673,7 +676,7 @@ These diagnostics indicate potential issues that may affect your code:
 
 - **line= invalid call statement**: When the specified `line=` points to a
   line that doesn't contain a `do`/`run`/`include` command or
-  `@lsp-do`/`@lsp-run`/`@lsp-include` directive.
+  `# sight: do`/`# sight: run`/`# sight: include` directive.
 
 - **match= not found**: When the specified `match=` string is not found in the
   parent file.
@@ -753,8 +756,8 @@ sibling in execution order — see
 `tests/integration/hub-heavy-sibling-visibility.test.ts`.
 
 **Interaction with a future per-file standalone opt-out.** A planned
-`@lsp-standalone` directive would let a file resolve its own diagnostics as if it
-had no parents (a *backward* concern). It does **not** introduce caller-dependence
+`# sight: standalone` directive would let a file resolve its own diagnostics as
+if it had no parents (a *backward* concern). It does **not** introduce caller-dependence
 into the *forward* closure: standalone can change the file's *inherited working
 directory* and the *effective call type* it is entered under, but both are inputs
 the closure already depends on (and would key on, were the closure cached).

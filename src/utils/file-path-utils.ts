@@ -20,6 +20,7 @@ export const FILE_COMMANDS = new Set([
 // LSP directives that accept file paths
 export const PATH_DIRECTIVES = new Set([
   '@lsp-done-by',
+  '@lsp-run-by',
   '@lsp-included-by', 
   '@lsp-do',
   '@lsp-run',
@@ -50,7 +51,8 @@ export function isFileCommand(command: string): boolean {
  * Check if a directive accepts file paths
  */
 export function isPathDirective(directive: string): boolean {
-  return PATH_DIRECTIVES.has(directive.toLowerCase());
+  const normalized = directive.trim().toLowerCase().replace(/^#\s*sight:\s*/, '@lsp-');
+  return PATH_DIRECTIVES.has(normalized);
 }
 
 /**

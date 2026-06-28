@@ -122,6 +122,30 @@ describe('Directive Path Completion Property Tests', () => {
     );
   });
 
+  it('should detect canonical # sight directive path contexts', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom('done-by', 'run-by', 'included-by', 'do', 'run', 'include', 'wd', 'cd'),
+        arbitrary_partial_path(),
+        (my_keyword, my_partial_path) => {
+          const my_directive = `# sight: ${my_keyword}`;
+          const my_line = `// ${my_directive}: ${my_partial_path}`;
+          const my_document = create_mock_document(my_line);
+          const my_position = Position.create(0, my_line.length);
+
+          const my_context = detect_completion_context(my_document, my_position);
+
+          expect(my_context.type).toBe('directive_path');
+          if (my_context.type === 'directive_path') {
+            expect(my_context.directive).toBe(my_directive);
+            expect(my_context.partial_path).toBe(my_partial_path);
+          }
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
   /**
    * Property 7: Stata File Filtering
    * Directive path completions should prioritize Stata file extensions.

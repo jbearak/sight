@@ -1146,6 +1146,37 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             expect(my_definition?.uri).toContain('helper');
         });
 
+        it('should resolve canonical # sight directive paths with .do fallback', async () => {
+            const helper_path = path.join(temp_dir, 'helper.do');
+            fs.writeFileSync(helper_path, '// Helper file');
+
+            const my_content = '// # sight: do: "helper"';
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 17 }
+            );
+
+            expect(my_definition).not.toBeNull();
+            expect(my_definition?.uri).toContain('helper');
+        });
+
+        it('should not resolve bare # sight directive paths outside comments', async () => {
+            const helper_path = path.join(temp_dir, 'helper.do');
+            fs.writeFileSync(helper_path, '// Helper file');
+
+            const my_content = '# sight: do: "helper"';
+            const my_doc = create_test_document(my_content, undefined, URI.file(path.join(temp_dir, 'test.do')).toString());
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 15 }
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
         it('should resolve @lsp-do directive inside a mata block', async () => {
             const helper_path = path.join(temp_dir, 'helper.do');
             fs.writeFileSync(helper_path, '// Helper file');

@@ -581,6 +581,37 @@ display \`undefined_macro' // @lsp-ignore
             expect(undefined_diags.length).toBe(0);
         });
 
+        it('should suppress diagnostics with canonical # sight ignore directives', () => {
+            const same_line = analyze(`
+display \`undefined_macro' // # sight: ignore
+`, { undefined_macro_enabled: true });
+            const next_line = analyze(`
+// # sight: ignore-next
+display \`undefined_macro'
+`, { undefined_macro_enabled: true });
+
+            expect(same_line.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            ).length).toBe(0);
+            expect(next_line.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            ).length).toBe(0);
+        });
+
+        it('should not suppress diagnostics for # sight lookalikes in code', () => {
+            const result = analyze(`
+display \`undefined_macro' * # sight: ignore
+display \`another_macro' // # sight: ignoreme
+# sight: ignore-next
+display \`bare_directive_macro'
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.length).toBeGreaterThan(0);
+        });
+
         it('should declare variables with @lsp-variables', () => {
             const result = analyze(`
 // @lsp-variables age income status
@@ -593,6 +624,34 @@ summarize age income
                      (d.message.includes('age') || d.message.includes('income'))
             );
             expect(var_diags.length).toBe(0);
+        });
+
+        it('should declare variables with canonical # sight directives', () => {
+            const result = analyze(`
+// # sight: variables age income
+summarize age income
+`, {
+                undefined_variable_enabled: true,
+            });
+
+            const declared_var_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE &&
+                    (d.message.includes('age') || d.message.includes('income'))
+            );
+            expect(declared_var_diags.length).toBe(0);
+        });
+
+        it('should declare local macros with canonical # sight directives', () => {
+            const result = analyze(`
+// # sight: local dynamic_macro
+display \`dynamic_macro'
+`, {
+                undefined_macro_enabled: true,
+            });
+
+            expect(result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            ).length).toBe(0);
         });
     });
 

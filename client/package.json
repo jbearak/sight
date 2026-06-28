@@ -104,7 +104,7 @@
             "off"
           ],
           "default": "off",
-          "description": "[Experimental] Severity level for undefined variable references. Off by default since the LSP cannot statically determine which variables exist in your dataset. Use @lsp-variables directive to declare variables loaded from data files.",
+          "description": "[Experimental] Severity level for undefined variable references. Off by default since the LSP cannot statically determine which variables exist in your dataset. Use the # sight: variables directive to declare variables loaded from data files (@lsp-variables remains an alias).",
           "enumDescriptions": [
             "Show as error",
             "Show as warning",
@@ -356,7 +356,7 @@
           "default": "lsp",
           "description": "Set working directory before executing code",
           "enumDescriptions": [
-            "Use working directory from LSP (from @lsp-cd, @lsp-working-directory, @lsp-wd directives or inherited from parent files)",
+            "Use working directory from LSP (from # sight: cd, # sight: working-directory, # sight: wd directives or inherited from parent files; @lsp- remains an alias)",
             "Do not change working directory",
             "Change to the directory of the current file",
             "Change to the workspace root directory"
