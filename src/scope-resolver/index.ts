@@ -2080,7 +2080,7 @@ export class ScopeResolver {
         // calls as resolution context; the analyzer no longer resolves paths.
         const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
             working_directory: effective_working_directory,
-        });
+        }, my_lex_result.tokens);
 
         // Combine forward calls from commands and directives.
         // Stamp caller_uri and working_directory on directive calls so every

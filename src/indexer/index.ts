@@ -539,6 +539,8 @@ export class WorkspaceIndexer {
                 parseResult.ast,
                 file_uri,
                 undefined,
+                undefined,
+                lexResult.tokens,
             );
 
             // Resolve effective working directory: own @lsp-cd / @lsp-wd

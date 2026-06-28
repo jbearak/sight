@@ -28,7 +28,11 @@ import {
 } from '../utils/out-of-scope-message';
 import { undefined_symbol_data_fields } from '../utils/undefined-symbol-diagnostic';
 import { host_is_case_sensitive } from '../utils/file-path-utils';
-import { has_ignore_directive, has_ignore_next_directive } from '../utils/directives';
+import {
+    has_ignore_directive,
+    has_ignore_next_directive,
+    has_trailing_ignore_directive,
+} from '../utils/directives';
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
@@ -740,14 +744,22 @@ export class DiagnosticsProvider {
             return true;
         }
         
-        // Fallback for tests or synthetic document states that did not run the analyzer.
+        // Fallback for tests or synthetic document states that did not run the
+        // analyzer (real documents use the tokenized `ignored_lines` above).
+        // Same-line trailing `// sight: ignore` on the diagnostic line.
+        const current_line = get_line_text(document, diagnostic_line);
+        if (has_trailing_ignore_directive(current_line)) {
+            return true;
+        }
+        // Standalone `// sight: ignore` / `// sight: ignore-next` on the
+        // preceding line targets this (next) statement.
         if (diagnostic_line > 0) {
             const previous_line = get_line_text(document, diagnostic_line - 1);
             if (has_ignore_directive(previous_line) || has_ignore_next_directive(previous_line)) {
                 return true;
             }
         }
-        
+
         return false;
     }
 

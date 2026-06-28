@@ -70,6 +70,19 @@ export function has_ignore_directive(text: string): boolean {
     return IGNORE_DIRECTIVE_REGEX.test(text);
 }
 
+// Matches a trailing `// sight: ignore` (or `// @lsp-ignore`) on a full source
+// line, i.e. NOT anchored to the start of the line, so it recognizes a same-line
+// suppression comment after code (`gen x = 1 // sight: ignore`). `ignore-next`
+// is excluded by the trailing `$`. Used by the diagnostics fallback for
+// synthetic documents that never ran the tokenized analyzer pass.
+const TRAILING_IGNORE_DIRECTIVE_REGEX = new RegExp(
+    `//\\s*${DIRECTIVE_BODY_PREFIX_PATTERN}ignore:?\\s*$`,
+);
+
+export function has_trailing_ignore_directive(text: string): boolean {
+    return TRAILING_IGNORE_DIRECTIVE_REGEX.test(text);
+}
+
 export function has_ignore_next_directive(text: string): boolean {
     return IGNORE_NEXT_DIRECTIVE_REGEX.test(text);
 }

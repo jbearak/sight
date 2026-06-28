@@ -924,10 +924,17 @@ args single_arg
 
         it('should mark static path as static', () => {
             const result = analyze('do "static.do"');
-            
+
             expect(result.forward_calls.length).toBe(1);
             expect(result.forward_calls[0].is_static).toBe(true);
             expect(result.forward_calls[0].raw_path).toBe('static.do');
+        });
+
+        it('should suppress a forward call on a line with a trailing sight: ignore', () => {
+            // Requires the tokenized ignore pass; callers that pass tokens
+            // (DocumentStore, indexer, scope-resolver) must all honor this.
+            const result = analyze('do "child.do" // sight: ignore');
+            expect(result.forward_calls.length).toBe(0);
         });
 
         it('should mark path with embedded local macro as non-static', () => {

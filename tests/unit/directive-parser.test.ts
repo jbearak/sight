@@ -1,5 +1,20 @@
 import { describe, test, expect } from 'bun:test';
 import { DirectiveParser } from '../../src/directive-parser';
+import { has_trailing_ignore_directive } from '../../src/utils/directives';
+
+describe('has_trailing_ignore_directive', () => {
+    test('matches a trailing same-line ignore comment (both prefixes)', () => {
+        expect(has_trailing_ignore_directive('gen x = 1 // sight: ignore')).toBe(true);
+        expect(has_trailing_ignore_directive('gen x = 1 // @lsp-ignore')).toBe(true);
+    });
+
+    test('does not match ignore-next or non-ignore lines', () => {
+        // ignore-next targets the next statement, not the same line.
+        expect(has_trailing_ignore_directive('gen x = 1 // sight: ignore-next')).toBe(false);
+        expect(has_trailing_ignore_directive('gen x = 1 // a normal comment')).toBe(false);
+        expect(has_trailing_ignore_directive('gen x = 1')).toBe(false);
+    });
+});
 
 describe('DirectiveParser', () => {
     test('resolve_path normalizes Windows-style separators for relative paths', () => {
