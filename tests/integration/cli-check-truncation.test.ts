@@ -167,10 +167,10 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
     // b -> p -> g; at g (backward depth 1) the parent-forward-call resolution
     // has maxChainDepth - depth = 1 - 1 = 0 remaining, tripping the chain cap.
     // g must have a forward call for the cap check to be reached.
-    const write_chain_workspace = (root: string, maxDepthLine: string) => {
+    const write_chain_workspace = (root: string, max_depth_line: string) => {
         fs.writeFileSync(
             path.join(root, 'sight.toml'),
-            '[crossFile]\nmaxChainDepth = 1\n' + maxDepthLine);
+            '[crossFile]\nmaxChainDepth = 1\n' + max_depth_line);
         fs.writeFileSync(path.join(root, 'helper.do'), 'global helper_g 1\n');
         fs.writeFileSync(
             path.join(root, 'g.do'), 'do "p.do"\ndo "helper.do"\n');
@@ -213,6 +213,34 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
                 'Maximum combined resolution depth');
             expect(result.stdout).not.toContain(
                 `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it('emits one truncation per over-depth frame, not one per skipped call', async () => {
+        const root = temp_dir();
+        try {
+            fs.writeFileSync(
+                path.join(root, 'sight.toml'),
+                '[crossFile]\nmaxForwardDepth = 1\n');
+            // main -> a; a does TWO calls (b, c) at depth 1 — both over the cap.
+            // The truncation must be reported once for a's frame, not once per
+            // skipped call (depth is frame-invariant).
+            fs.writeFileSync(path.join(root, 'b.do'), 'global b_g 1\n');
+            fs.writeFileSync(path.join(root, 'c.do'), 'global c_g 1\n');
+            fs.writeFileSync(path.join(root, 'a.do'), 'do "b.do"\ndo "c.do"\n');
+            fs.writeFileSync(path.join(root, 'main.do'), 'do "a.do"\n');
+
+            const result = await run_capture(
+                ['--workspace', root, 'main.do', '--no-color'], root);
+
+            const occurrences = result.stdout.split(
+                `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`).length - 1;
+            expect(occurrences).toBe(1);
+            expect(result.stdout).toContain('1 cross-file traversal truncation');
+            expect(result.stdout).not.toContain(
+                '2 cross-file traversal truncations');
         } finally {
             fs.rmSync(root, { recursive: true, force: true });
         }

@@ -368,13 +368,17 @@ export class ForwardScopeResolver {
                 ? `${call_chain.join(' -> ')}: `
                 : '';
 
-            // Check depth limit
+            // Check depth limit. `my_context.depth` is invariant for this
+            // frame, so once it is at/over the cap EVERY remaining call is
+            // equally truncated: emit ONE diagnostic and `break` (not
+            // `continue`), otherwise `sight check` would count and squiggle the
+            // same truncation once per skipped call (#209).
             if (my_context.depth >= resolved_config.max_forward_depth) {
                 // Cap-induced truncation, not a genuine error (#209). Respect
                 // the configured `max_depth` severity, and suppress entirely
                 // when 'off' — consistent with the backward depth cap (this
                 // previously always emitted at 'information', ignoring the
-                // setting). The call is skipped regardless, to bound recursion.
+                // setting). All calls in this frame are skipped regardless.
                 // Fallback matches the backward and chain depth caps
                 // ('warning') for consistency when `max_depth` is unset; in
                 // production the resolved config supplies it ('information' per
@@ -421,8 +425,9 @@ export class ForwardScopeResolver {
                         },
                     });
                 }
-                // Skip this call to prevent excessive recursion
-                continue;
+                // Depth is frame-invariant: every remaining call is equally
+                // truncated, so stop here rather than re-emitting per call.
+                break;
             }
 
             // Compute effective call type for this call

@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { pathToFileURL } from 'node:url';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { create_test_scope_resolver_logger } from '../test-logger';
@@ -49,7 +50,8 @@ describe('issue #209 — hub-heavy sibling visibility (regression)', () => {
         fs.writeFileSync(file_path, content);
         return file_path;
     };
-    const to_uri = (p: string): string => `file://${p}`;
+    const to_uri = (file_path: string): string =>
+        pathToFileURL(file_path).toString();
 
     // T1: baseline dense sibling. P does A (global S) then does B. B done-by P.
     it('T1 baseline: earlier sibling global visible in later sibling', async () => {

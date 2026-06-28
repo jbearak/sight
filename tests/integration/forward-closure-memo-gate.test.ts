@@ -18,9 +18,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { pathToFileURL } from 'node:url';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
-import type { ResolvedScope, SymbolTable } from '../../src/types';
+import type {
+    ResolvedScope, SymbolTable, ForwardResolvedScope,
+} from '../../src/types';
 import { create_test_scope_resolver_logger } from '../test-logger';
 
 describe('issue #209/#208 — forward-closure memo gate', () => {
@@ -45,7 +48,38 @@ describe('issue #209/#208 — forward-closure memo gate', () => {
         fs.writeFileSync(file_path, content);
         return file_path;
     };
-    const to_uri = (p: string): string => `file://${p}`;
+    const to_uri = (file_path: string): string =>
+        pathToFileURL(file_path).toString();
+
+    // Build a fresh resolver pair so two caller-independence runs cannot share
+    // cache state (when the deferred memo store/serve lands, a shared instance
+    // could serve caller 2 from caller 1's cached closure and mask a
+    // caller-DEPENDENT closure).
+    const make_resolver = (): {
+        scope: ScopeResolver; forward: ForwardScopeResolver;
+    } => {
+        const scope = new ScopeResolver(create_test_scope_resolver_logger());
+        const forward = new ForwardScopeResolver(scope);
+        scope.set_forward_scope_resolver(forward);
+        return { scope, forward };
+    };
+
+    // Full caller-observable surface of a FORWARD resolution (symbols, call
+    // sites incl. effective_type + excluded_locals, and diagnostics) — so the
+    // caller-independence gate regresses if a future memo varies any of them by
+    // caller, not just symbol names + callee URIs.
+    const forward_surface = (r: ForwardResolvedScope) => ({
+        symbols: symbol_names(r.symbols),
+        call_sites: r.call_sites.map(s => ({
+            uri: s.callee_uri,
+            line: s.call_line,
+            type: s.effective_type,
+            excluded: [...(s.excluded_locals?.keys() ?? [])].sort(),
+        })),
+        diagnostics: r.diagnostics.map(d => ({
+            message: d.message, severity: d.severity, code: d.code,
+        })),
+    });
 
     const symbol_names = (t: SymbolTable) => ({
         programs: [...t.programs.keys()].sort(),
@@ -86,11 +120,13 @@ describe('issue #209/#208 — forward-closure memo gate', () => {
         const hub = create_file('hub.do', `run "${helper}"\nglobal hub_g 1\n`);
         const hub_uri = to_uri(hub);
 
-        const parsed = await scope_resolver.get_parsed_file(hub_uri, hub);
-        if ('error' in parsed) throw new Error(parsed.error);
-
-        const resolve_from = async (caller_uri: string) =>
-            forward_resolver.resolve(
+        // Each caller gets its OWN resolver instance (separate cache), so the
+        // gate stays honest once the deferred memo store/serve lands.
+        const resolve_from = async (caller_uri: string) => {
+            const { scope, forward } = make_resolver();
+            const parsed = await scope.get_parsed_file(hub_uri, hub);
+            if ('error' in parsed) throw new Error(parsed.error);
+            return forward.resolve(
                 hub_uri,
                 parsed.forward_calls,
                 'do',
@@ -104,14 +140,14 @@ describe('issue #209/#208 — forward-closure memo gate', () => {
                 },
                 new Set([caller_uri]),
             );
+        };
 
         const r1 = await resolve_from('file:///callers/c1.do');
         const r2 = await resolve_from('file:///callers/c2.do');
 
-        expect(symbol_names(r1.symbols)).toEqual(symbol_names(r2.symbols));
+        // Compare the FULL forward surface, not just symbols + callee URIs.
+        expect(forward_surface(r1)).toEqual(forward_surface(r2));
         expect(r1.symbols.globalMacros.has('helper_g')).toBe(true);
-        expect(r1.call_sites.map(s => s.callee_uri).sort())
-            .toEqual(r2.call_sites.map(s => s.callee_uri).sort());
     });
 
     it('(2) memo on/off equivalence across a hub-heavy battery', async () => {

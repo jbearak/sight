@@ -713,10 +713,16 @@ project therefore never *fails* `sight check` merely because it reached a depth
 cap — even under a strict `--max-severity`. The text report adds a dedicated
 summary line, e.g.:
 
-```
+```text
 3 cross-file traversal truncations (depth cap reached — results may be
 incomplete; not undefined-symbol errors)
 ```
+
+Truncation diagnostics honor the `crossFile.diagnostics.maxDepth` setting like
+the other depth diagnostics: it sets their severity, and **`maxDepth = "off"`
+suppresses them entirely** (no `CROSS_FILE_TRUNCATED` diagnostic is emitted).
+The caps themselves still apply — resolution still stops at the cap — you just
+opt out of being told about it.
 
 If you see truncations, either the graph is legitimately deeper than the default
 caps (raise `maxBackwardDepth` / `maxForwardDepth` / `maxChainDepth`) or there is
