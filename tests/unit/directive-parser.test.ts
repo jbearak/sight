@@ -218,6 +218,26 @@ gen x = 1`;
             expect(parser.parse_forward_call_directives(content, 'file:///t.do').forward_calls.length).toBe(0);
         });
 
+        test('ignore-next skips a single-line block comment to reach the next directive', () => {
+            const content = [
+                '// sight: ignore-next',
+                '/* block */',
+                '// sight: do: "child.do"',
+            ].join('\n');
+            expect(parser.parse_forward_call_directives(content, 'file:///t.do').forward_calls.length).toBe(0);
+        });
+
+        test('a single-line block comment does not stop header directive parsing', () => {
+            const content = [
+                '/* header */',
+                '// sight: done-by: "parent.do"',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///t.do');
+            expect(result.directives.length).toBe(1);
+            expect(result.directives[0].type).toBe('done-by');
+        });
+
         test('does not infer a call site from a do statement inside a block comment', () => {
             const blocked = 'clear\n/*\ndo "child.do"\n*/\ngen z = 1';
             const real = 'clear\ndo "child.do"\ngen z = 1';

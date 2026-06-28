@@ -26,21 +26,22 @@ import { compute_line_offsets, get_line_text, get_line_count } from './line-util
  * multi-line comment token. `tokens` should be the lexer tokens for `content`;
  * when omitted, `content` is lexed.
  *
- * Only multi-line comments are considered: a single-line comment (the common
- * `// sight: ...` directive, or an inline block comment) never hides a
- * directive, so it is excluded and a real directive on its own line still
- * parses. Anchoring on the line's first non-whitespace character means a real
- * code line with a trailing multi-line comment opener (code, then a block
- * opener) is NOT marked — its leading text is the code, not the comment — while
- * a comment opener whose leading text is itself the comment (a bare block
- * opener, or a line-leading-star span) IS marked.
+ * Considered comments are block comments (any — a block comment is never a
+ * directive) and line comments the lexer spans across lines. A single-line
+ * line comment (the common `// sight: ...` directive) is excluded so a real
+ * directive on its own line still parses. Anchoring on the line's first
+ * non-whitespace character means a real code line with a trailing block comment
+ * (code, then a block opener) is NOT marked — its leading text is the code, not
+ * the comment — while a comment whose leading text is itself the comment (a bare
+ * block comment, or a line-leading-star span) IS marked.
  */
 export function block_comment_lines(content: string, tokens?: Token[]): Set<number> {
     const the_tokens = tokens ?? new StataLexer().tokenize(content).tokens;
     const the_comment_ranges = the_tokens
         .filter(my_token =>
-            (my_token.type === 'COMMENT_BLOCK' || my_token.type === 'COMMENT_LINE') &&
-            my_token.range.end.line > my_token.range.start.line)
+            my_token.type === 'COMMENT_BLOCK' ||
+            (my_token.type === 'COMMENT_LINE' &&
+                my_token.range.end.line > my_token.range.start.line))
         .map(my_token => my_token.range);
 
     const the_lines = new Set<number>();

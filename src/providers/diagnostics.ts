@@ -743,9 +743,17 @@ export class DiagnosticsProvider {
         if (document.ignored_lines?.has(diagnostic_line)) {
             return true;
         }
-        
-        // Fallback for tests or synthetic document states that did not run the
-        // analyzer (real documents use the tokenized `ignored_lines` above).
+
+        // Raw-line fallback ONLY for synthetic/error document states that never
+        // ran the tokenized analyzer (no tokens). Documents that were lexed have
+        // an authoritative `ignored_lines` above, computed from comment tokens
+        // that correctly distinguish a real `// sight: ignore` from one that
+        // merely appears inside a `/* ... */` block comment; the raw-line regexes
+        // below cannot make that distinction, so applying them to real documents
+        // would over-suppress.
+        if (document.tokens && document.tokens.length > 0) {
+            return false;
+        }
         // Same-line trailing `// sight: ignore` on the diagnostic line.
         const current_line = get_line_text(document, diagnostic_line);
         if (has_trailing_ignore_directive(current_line)) {
