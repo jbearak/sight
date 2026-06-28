@@ -1,9 +1,12 @@
 /**
  * Shared directive prefix handling.
  *
- * `sight:` is the canonical user-facing directive namespace. Directives must
- * occupy their own Stata line-comment line (`// sight: ...` or `* sight: ...`).
- * The older `@lsp-` prefix remains a permanent alias with the same line shape.
+ * `sight:` is the canonical user-facing directive namespace. Most directives
+ * must occupy their own Stata line-comment line (`// sight: ...` or
+ * `* sight: ...`). `ignore` may also appear as a trailing `//` comment to
+ * suppress diagnostics on that same source line; `ignore-next` always targets
+ * the next non-trivia statement. The older `@lsp-` prefix remains a permanent
+ * alias with the same line shape.
  */
 
 export const DIRECTIVE_BODY_PREFIX_PATTERN = String.raw`(?:@lsp-|sight:\s*)`;

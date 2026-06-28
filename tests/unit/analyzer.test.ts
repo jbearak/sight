@@ -600,13 +600,36 @@ display \`undefined_macro'
             ).length).toBe(0);
         });
 
+        it('should suppress diagnostics with inline sight ignore comments', () => {
+            const ignore = analyze(`
+display \`inline_macro' // sight: ignore
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = ignore.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.some(d => d.message.includes('inline_macro'))).toBe(false);
+        });
+
+        it('should apply inline sight ignore-next to the following statement', () => {
+            const ignore = analyze(`
+display \`current_macro' // sight: ignore-next
+display \`next_macro'
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = ignore.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.some(d => d.message.includes('current_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('next_macro'))).toBe(false);
+        });
+
         it('should not suppress diagnostics for sight lookalikes in code', () => {
             const result = analyze(`
 display \`undefined_macro' * sight: ignore
 display \`another_macro' // sight: ignoreme
 sight: ignore-next
 display \`hash_prefixed_macro' // # sight: ignore
-display \`inline_macro' // sight: ignore
 display \`bare_directive_macro'
 `, { undefined_macro_enabled: true });
 
@@ -616,7 +639,6 @@ display \`bare_directive_macro'
             expect(undefined_diags.some(d => d.message.includes('undefined_macro'))).toBe(true);
             expect(undefined_diags.some(d => d.message.includes('another_macro'))).toBe(true);
             expect(undefined_diags.some(d => d.message.includes('hash_prefixed_macro'))).toBe(true);
-            expect(undefined_diags.some(d => d.message.includes('inline_macro'))).toBe(true);
             expect(undefined_diags.some(d => d.message.includes('bare_directive_macro'))).toBe(true);
         });
 

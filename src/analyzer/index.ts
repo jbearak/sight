@@ -287,25 +287,25 @@ export class SemanticAnalyzer {
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
             
-            if ((token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') &&
-                this.is_standalone_comment_token(tokens, i)) {
+            if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
                 const token_content = token.value.trim();
+                const is_standalone_comment = this.is_standalone_comment_token(tokens, i);
 
-                // Standalone ignore directives target the next non-trivia token.
-                if (has_ignore_directive(token_content) || has_ignore_next_directive(token_content)) {
-                    // Find the next non-trivia token's line
-                    for (let j = i + 1; j < tokens.length; j++) {
-                        const next_token = tokens[j];
-                        if (next_token.type !== 'WHITESPACE' && 
-                            next_token.type !== 'COMMENT_LINE' && 
-                            next_token.type !== 'COMMENT_BLOCK' &&
-                            next_token.type !== 'CONTINUATION' &&
-                            next_token.type !== 'STATEMENT_TERMINATOR') {
-                            this.config.ignored_lines.add(next_token.range.start.line);
-                            break;
-                        }
+                if (has_ignore_directive(token_content)) {
+                    if (is_standalone_comment) {
+                        this.ignore_next_non_trivia_line(tokens, i);
+                    } else if (token.type === 'COMMENT_LINE') {
+                        this.config.ignored_lines.add(token.range.start.line);
                     }
                 }
+                if (has_ignore_next_directive(token_content)) {
+                    this.ignore_next_non_trivia_line(tokens, i);
+                }
+
+                if (!is_standalone_comment) {
+                    continue;
+                }
+
                 // Check for @lsp-variables directive
                 const variables_match = token_content.match(VARIABLES_DIRECTIVE_PATTERN);
                 if (variables_match) {
@@ -314,6 +314,20 @@ export class SemanticAnalyzer {
                         this.config.declared_variables.add(var_name);
                     }
                 }
+            }
+        }
+    }
+
+    private ignore_next_non_trivia_line(tokens: Token[], directive_index: number): void {
+        for (let j = directive_index + 1; j < tokens.length; j++) {
+            const next_token = tokens[j];
+            if (next_token.type !== 'WHITESPACE' &&
+                next_token.type !== 'COMMENT_LINE' &&
+                next_token.type !== 'COMMENT_BLOCK' &&
+                next_token.type !== 'CONTINUATION' &&
+                next_token.type !== 'STATEMENT_TERMINATOR') {
+                this.config.ignored_lines.add(next_token.range.start.line);
+                break;
             }
         }
     }

@@ -419,6 +419,15 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             );
             expect(mixed).toHaveLength(0);
         });
+
+        it('inline sight ignore suppresses diagnostic on the same line', () => {
+            const doc = create_document_state('display x & y | z // sight: ignore');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
+        });
     });
 
     describe('Continuation Lines', () => {

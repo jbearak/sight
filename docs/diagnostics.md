@@ -13,11 +13,12 @@ tables below) and `source: "sight"`.
 ## Quick reference
 
 - **Silence one site** — add `// sight: ignore` or
-  `// sight: ignore-next` on its own line above the offending statement. Suppresses undefined-symbol
-  (`UNDEFINED_MACRO`, `UNDEFINED_VARIABLE`, `OUT_OF_SCOPE_SYMBOL`) and
-  operator-style diagnostics on the targeted line. Lexer, parser /
-  brace-style, and indentation diagnostics are not silenced this way —
-  fix lexer/parser issues at the source, or turn indentation off via
+  `// sight: ignore-next` on its own line above the offending statement, or
+  add `// sight: ignore` as a trailing comment on the offending line.
+  Suppresses undefined-symbol (`UNDEFINED_MACRO`, `UNDEFINED_VARIABLE`,
+  `OUT_OF_SCOPE_SYMBOL`) and operator-style diagnostics on the targeted line.
+  Lexer, parser / brace-style, and indentation diagnostics are not silenced
+  this way — fix lexer/parser issues at the source, or turn indentation off via
   `sight.diagnostics.indentation` (it ships off by default).
 - **Declare a symbol the analyzer can't see** — use
   [`sight: local`, `sight: global`, `sight: variables`, `sight: scalar`,
@@ -219,16 +220,19 @@ Each severity key accepts `"error"`, `"warning"`, `"information"`,
 
 | Directive | Effect |
 |---|---|
-| `// sight: ignore` | Suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. Does not silence lexer, parser / brace-style, or indentation diagnostics. |
-| `// sight: ignore-next` | Same effect as `sight: ignore`. |
+| `// sight: ignore` | On its own comment line, suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. As a trailing `//` comment, suppresses those diagnostics on the same line. Does not silence lexer, parser / brace-style, or indentation diagnostics. |
+| `// sight: ignore-next` | Suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. It does not suppress diagnostics on its own source line. |
 | `// sight: local name [name ...]` | Declares one or more local macros from the directive line forward. |
 | `// sight: global name [name ...]` | Same, for globals. |
 | `// sight: variables var [var ...]` | Declares variables (e.g., loaded from a `.dta` file). |
 | `// sight: scalar name`, `// sight: matrix name`, `// sight: program name` | Declares scalars, matrices, and programs respectively. |
 
-Directives must occupy their own `//` or line-leading `*` comment line. Inline
-trailing comments and `/* ... */` block comments are not directive comments.
-`@lsp-` spellings are permanent aliases for all directive forms above.
+Directives other than `sight: ignore` and `sight: ignore-next` must occupy
+their own `//` or line-leading `*` comment line. `sight: ignore` may also be
+used as a trailing `//` comment for same-line suppression; `sight: ignore-next`
+always targets the following statement. `/* ... */` block comments are not
+directive comments. `@lsp-` spellings are permanent aliases for all directive
+forms above.
 
 Declaration directives are forward-only: they suppress warnings at and
 after the directive line, not earlier ones. See
