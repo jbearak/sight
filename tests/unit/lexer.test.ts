@@ -283,10 +283,10 @@ describe('StataLexer', () => {
       expect(commentToken?.range.end.line).toBe(3);
       expect(commentToken?.value).toContain('display `commented_macro\'');
 
-      const macroTokens = result.tokens.filter(t => t.type === 'MACRO_REF_LOCAL');
-      expect(macroTokens).toHaveLength(1);
-      expect(macroTokens[0].value).toBe('`live_macro\'');
-      expect(macroTokens[0].range.start.line).toBe(4);
+      const the_macro_tokens = result.tokens.filter(t => t.type === 'MACRO_REF_LOCAL');
+      expect(the_macro_tokens).toHaveLength(1);
+      expect(the_macro_tokens[0].value).toBe('`live_macro\'');
+      expect(the_macro_tokens[0].range.start.line).toBe(4);
     });
   });
 
@@ -334,6 +334,21 @@ describe('StataLexer', () => {
       const mata_token = result.tokens.find(t => t.type === 'MATA_INLINE');
       expect(mata_token).toBeDefined();
       expect(mata_token?.value).toBe('mata:');
+    });
+
+    test('should treat mata: followed by a closed nested block comment as block start', () => {
+      // The whole line after the colon is a comment (nested), so this is a
+      // block start, not an inline expression. Requires depth-counted
+      // block-comment scanning in the mata:/python: lookahead.
+      const source = 'mata: /* outer /* inner */ still outer */\nmatrix A = (1, 2)';
+      const result = lexer.tokenize(source);
+
+      expect(result.errors).toHaveLength(0);
+      const mata_start = result.tokens.find(t => t.type === 'MATA_START');
+      expect(mata_start).toBeDefined();
+      expect(mata_start?.value).toBe('mata:');
+      const mata_inline = result.tokens.find(t => t.type === 'MATA_INLINE');
+      expect(mata_inline).toBeUndefined();
     });
 
     test('should recognize python block start', () => {

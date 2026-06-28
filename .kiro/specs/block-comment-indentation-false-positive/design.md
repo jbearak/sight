@@ -175,7 +175,7 @@ No new data models are required. The implementation uses a `Set<number>` to trac
 
 ### Property 3: Nested delimiter handling
 
-*For any* block comment containing `/*` sequences within its content, the `IndentationDiagnosticAnalyzer` should correctly identify the block comment as ending at the first `*/` (since Stata doesn't support nested block comments).
+*For any* block comment containing nested `/*` sequences within its content, the `IndentationDiagnosticAnalyzer` should track comment depth and identify the block comment as ending only at the matching `*/` (Stata block comments nest, matching the lexer and TextMate grammar).
 
 **Validates: Requirements 2.3**
 
