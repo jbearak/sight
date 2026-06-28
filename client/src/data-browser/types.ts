@@ -155,6 +155,23 @@ export interface RestorePendingMessage {
     filter: boolean;
 }
 
+/**
+ * Terminal signal for a paint-first restore: the host has finished
+ * reapplying (or cancelling) the saved sort/filter that a matching
+ * `restorePending` announced. Posted *after* the grid was already painted
+ * in natural order, so this carries the final order to switch to. `sort`
+ * / `filter` are EMPTY when the restore was cancelled, failed, or yielded
+ * nothing. `restore_id` matches the `restorePending` so the webview
+ * ignores a settle from a superseded lifecycle (reload/refresh).
+ */
+export interface RestoreSettledMessage {
+    type: 'restoreSettled';
+    restore_id: number;
+    sort: SortState;
+    filter: FilterState;
+    nobs_effective: number;
+}
+
 export type ExtensionMessage =
     | RowResponse
     | MetadataMessage
@@ -163,7 +180,8 @@ export type ExtensionMessage =
     | FilterAppliedMessage
     | FilterStatusMessage
     | HistogramDataMessage
-    | RestorePendingMessage;
+    | RestorePendingMessage
+    | RestoreSettledMessage;
 
 export interface VariableDescription {
     name: string;

@@ -7,6 +7,7 @@ import {
 } from 'react';
 import {
     DataEditor,
+    type DataEditorRef,
     type DrawHeaderCallback,
     GridCellKind,
     type GridSelection,
@@ -21,9 +22,9 @@ import {
     clamp_column_width,
     collect_sampled_value_width_hints,
     type BrowserGridColumn,
+    describe_browser_row_count,
     describe_restore_message,
     describe_subset,
-    describe_toolbar_row_count,
     get_cell_display_value,
     get_variable_header_tooltip,
     merge_persisted_and_default_widths,
@@ -52,6 +53,7 @@ import {
     apply_sort_pick,
     sort_priority_map,
 } from './sort-actions.js';
+import { visible_cell_damage } from './visible-cell-damage.js';
 import type { FilterEntry, SortKey } from '../types.js';
 
 const HEADER_HEIGHT_PX = 40;
@@ -303,6 +305,7 @@ export function App(): ReactElement {
         useState<ContextMenuState | null>(null);
     const [filter_editor, set_filter_editor] =
         useState<FilterEditorState | null>(null);
+    const data_editor_ref = useRef<DataEditorRef>(null);
     const grid_shell_ref = useRef<HTMLDivElement>(null);
     const toolbar_ref = useRef<HTMLDivElement>(null);
     const row_count_ref = useRef<HTMLSpanElement>(null);
@@ -515,6 +518,24 @@ export function App(): ReactElement {
         () => metadata?.variables.map(my_v => my_v.name) ?? [],
         [metadata]
     );
+
+    useEffect(() => {
+        const my_damage = visible_cell_damage({
+            column_count: the_columns.length,
+            first_row: first_visible_row,
+            row_count: visible_row_count,
+            total_rows: nobs_effective ?? metadata?.nobs ?? 0,
+        });
+        if (my_damage.length === 0) return;
+        data_editor_ref.current?.updateCells(my_damage);
+    }, [
+        pages,
+        the_columns.length,
+        first_visible_row,
+        visible_row_count,
+        nobs_effective,
+        metadata?.nobs,
+    ]);
 
     const sort_info = useMemo(
         () => sort_priority_map(sort.keys),
@@ -815,25 +836,26 @@ export function App(): ReactElement {
         }
     };
 
-    // On open, explain (and let the user cancel) the wait while saved
-    // sort/filter preferences are reapplied.
+    // While saved sort/filter preferences are reapplied, the grid already
+    // shows the data in natural order (paint-first), so the banner just
+    // explains the in-progress reordering and offers Cancel.
     const restore_message = restore_pending
         ? (restore_cancelling
-            ? 'Loading…'
+            ? 'Cancelling…'
             : describe_restore_message(
                 restore_pending.sort,
                 restore_pending.filter
             ))
         : null;
 
-    // While the restore banner is up it explains the wait, so suppress
-    // the bare "Loading…" row-count that would otherwise stack above it.
-    const row_count_text = describe_toolbar_row_count(
+    // Paint-first: the grid shows natural-order data while a saved
+    // sort/filter is reapplied in the background, so show the real row
+    // count alongside the restore banner rather than suppressing it.
+    const row_count_text = describe_browser_row_count(
         metadata,
         nobs_effective,
         first_visible_row,
-        visible_row_count,
-        restore_message !== null
+        visible_row_count
     );
 
     const subset_text = describe_subset(metadata);
@@ -1158,7 +1180,7 @@ export function App(): ReactElement {
                             className="restore-skip"
                             onClick={cancel_restore}
                         >
-                            Skip and show data now
+                            Cancel
                         </button>
                     )}
                 </div>
@@ -1168,6 +1190,7 @@ export function App(): ReactElement {
             )}
             <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
+                    ref={data_editor_ref}
                     theme={vscode_theme}
 
                     width="100%"

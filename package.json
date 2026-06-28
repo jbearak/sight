@@ -54,7 +54,7 @@
   "author": "Jonathan Marc Bearak",
   "license": "GPL-3.0",
   "dependencies": {
-    "@jbearak/dta-parser": "^0.2.0",
+    "@jbearak/dta-parser": "^0.3.0",
     "smol-toml": "^1.6.1",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11",

@@ -296,30 +296,6 @@ export function describe_browser_row_count(
 }
 
 /**
- * The toolbar row-count text. While a saved-preference restore banner is
- * showing (`restore_active`), returns '' so that banner's explanation
- * ("Applying your saved sort…") replaces the unexplained "Loading…"
- * rather than stacking above it.
- */
-export function describe_toolbar_row_count(
-    metadata: MetadataMessage | null,
-    nobs_effective: number | undefined,
-    first_visible_row: number,
-    visible_row_count: number,
-    restore_active: boolean
-): string {
-    if (restore_active) {
-        return '';
-    }
-    return describe_browser_row_count(
-        metadata,
-        nobs_effective,
-        first_visible_row,
-        visible_row_count
-    );
-}
-
-/**
  * Explains the saved-preference restore wait on open. `sort`/`filter`
  * say which preferences are being reapplied; at least one is true.
  */
