@@ -33,6 +33,7 @@ export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): Stata
                 undefinedVariable: 'off',
                 styleWarnings: 'hint',
                 malformedOperator: 'warning',
+                spacedCompoundOperator: 'information',
                 invalidOperatorSequence: 'error',
                 cStyleLogicalInControlFlow: 'information',
             },

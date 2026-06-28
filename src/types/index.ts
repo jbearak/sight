@@ -488,11 +488,12 @@ export enum StataDiagnosticCode {
   UNNECESSARY_INDENTATION = 5001,
   MISSING_INDENTATION = 5002,
 
-  // Malformed operator diagnostics
+  // Operator sequence diagnostics
   MALFORMED_OPERATOR = 6001,
   INVALID_OPERATOR_SEQUENCE = 6002,
   CSTYLE_LOGICAL_IN_CONTROL_FLOW = 6003,
   MIXED_LOGICAL_OPERATORS = 6004,
+  SPACED_COMPOUND_OPERATOR = 6005,
 
   // Cross-file diagnostics
   PATH_CASE_MISMATCH = 7001,
@@ -531,6 +532,7 @@ export interface StataLSPConfig {
       undefinedVariable: 'error' | 'warning' | 'information' | 'hint' | 'off';
       styleWarnings: 'error' | 'warning' | 'information' | 'hint' | 'off';
       malformedOperator: 'error' | 'warning' | 'information' | 'hint' | 'off';
+      spacedCompoundOperator: 'error' | 'warning' | 'information' | 'hint' | 'off';
       invalidOperatorSequence: 'error' | 'warning' | 'information' | 'hint' | 'off';
       cStyleLogicalInControlFlow: 'error' | 'warning' | 'information' | 'hint' | 'off';
       mixedLogicalOperators: 'error' | 'warning' | 'information' | 'hint' | 'off';

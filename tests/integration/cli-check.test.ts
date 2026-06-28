@@ -71,6 +71,20 @@ describe('sight check integration', () => {
         expect(result.stdout).toContain('info:');
     });
 
+    it('does not fail on default spaced comparison diagnostics', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1 < = 2\ndisplay 3 > = 2\n');
+
+        const result = await run_capture(
+            ['--workspace', root, '--max-severity', 'info', '--no-color'],
+            root
+        );
+
+        expect(result.code).toBe(EXIT_OK);
+        expect(result.stdout).toContain('info:');
+        expect(result.stdout).toContain('[6005]');
+    });
+
     it('indexes whole workspace while report paths filter output', async () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, 'parent.do'), 'global project_root /tmp\ndo child.do\n');

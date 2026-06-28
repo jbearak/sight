@@ -16,6 +16,7 @@ describe('map_public_config_to_partial_config', () => {
                     undefinedVariable: 'warning',
                     styleWarnings: 'information',
                     malformedOperator: 'hint',
+                    spacedCompoundOperator: 'warning',
                     invalidOperatorSequence: 'off',
                     cStyleLogicalInControlFlow: 'info',
                     mixedLogicalOperators: 'warning',
@@ -60,6 +61,7 @@ describe('map_public_config_to_partial_config', () => {
         expect(result.lineCommentStyle).toBe('*');
         expect(result.debug).toBe(true);
         expect(result.diagnostics?.enabled).toBe(false);
+        expect(result.diagnostics?.severity?.spacedCompoundOperator).toBe('warning');
         expect(result.diagnostics?.severity?.cStyleLogicalInControlFlow).toBe('information');
         expect(result.formatting?.preserve_alignment).toBe(false);
         expect(result.cross_file?.backward_dependencies).toBe('explicit');

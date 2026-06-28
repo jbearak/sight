@@ -78,6 +78,11 @@ const EXPECTED_CONFIG_FIELDS: ConfigFieldSpec[] = [
         enum_values: ['error', 'warning', 'information', 'hint', 'off'],
     },
     {
+        path: 'sight.diagnostics.severity.spacedCompoundOperator',
+        type: 'string',
+        enum_values: ['error', 'warning', 'information', 'hint', 'off'],
+    },
+    {
         path: 'sight.diagnostics.severity.invalidOperatorSequence',
         type: 'string',
         enum_values: ['error', 'warning', 'information', 'hint', 'off'],

@@ -1,7 +1,7 @@
 /**
  * Integration tests for OperatorSequenceAnalyzer
  * 
- * Tests that malformed operator diagnostics appear alongside other diagnostic types
+ * Tests that operator-sequence diagnostics appear alongside other diagnostic types
  * in the full DiagnosticsProvider pipeline, and that config changes propagate correctly.
  * 
  * Requirements covered:
@@ -35,6 +35,7 @@ describe('Operator Sequence Diagnostics Integration', () => {
                 severity: {
                     ...DEFAULT_SETTINGS.diagnostics.severity,
                     malformedOperator: 'warning',
+                    spacedCompoundOperator: 'information',
                     invalidOperatorSequence: 'error',
                 },
             },
@@ -42,8 +43,8 @@ describe('Operator Sequence Diagnostics Integration', () => {
     });
 
     describe('Full Pipeline Integration', () => {
-        it('should emit malformed operator diagnostics alongside semantic diagnostics', async () => {
-            // Code with both undefined macro and malformed operator
+        it('should emit spaced compound operator diagnostics alongside semantic diagnostics', async () => {
+            // Code with both undefined macro and a spaced compound operator
             const my_content = `display \`undefined_macro'
 gen x = y < = z`;
             const my_uri = 'file:///test_combined.do';
@@ -55,18 +56,18 @@ gen x = y < = z`;
                 default_config
             );
 
-            // Should have both undefined macro and malformed operator diagnostics
+            // Should have both undefined macro and spaced compound operator diagnostics
             const the_undefined_macro = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
-            const the_malformed_operator = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const the_spaced_compound_operator = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
 
             expect(the_undefined_macro.length).toBeGreaterThanOrEqual(1);
-            expect(the_malformed_operator).toHaveLength(1);
-            expect(the_malformed_operator[0].message).toBe(
-                "Malformed operator '< ='. Did you mean '<='?"
+            expect(the_spaced_compound_operator).toHaveLength(1);
+            expect(the_spaced_compound_operator[0].message).toBe(
+                "Spaced compound operator '< ='. Stata treats this as '<='; consider writing '<='."
             );
         });
 
@@ -107,14 +108,14 @@ gen z = e | | f`;
                 default_config
             );
 
-            const the_suggestible = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const the_spaced_compound = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
             const the_invalid = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
 
-            expect(the_suggestible).toHaveLength(2);
+            expect(the_spaced_compound).toHaveLength(2);
             expect(the_invalid).toHaveLength(1);
         });
     });
@@ -139,6 +140,7 @@ display "after mata"`;
             // Should have no operator diagnostics from inside Mata block
             const the_operator_diagnostics = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                     d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                      d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
 
@@ -164,6 +166,7 @@ display "after python"`;
             // Should have no operator diagnostics from inside Python block
             const the_operator_diagnostics = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                     d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                      d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
 
@@ -185,21 +188,21 @@ gen z = e > = f`;
                 default_config
             );
 
-            const the_suggestible = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const the_spaced_compound = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
 
             // Should have 2 diagnostics (lines 1 and 5), not 3 (line 3 is in Mata)
-            expect(the_suggestible).toHaveLength(2);
+            expect(the_spaced_compound).toHaveLength(2);
             
             // Verify they are on the correct lines (0-indexed)
-            const the_lines = the_suggestible.map(d => d.range.start.line).sort((a, b) => a - b);
+            const the_lines = the_spaced_compound.map(d => d.range.start.line).sort((a, b) => a - b);
             expect(the_lines).toEqual([0, 4]);
         });
     });
 
     describe('Config Severity Propagation (Requirements 8.1-8.7)', () => {
-        it('should use configured severity for suggestible pairs', async () => {
+        it('should use configured severity for spaced compound pairs', async () => {
             const my_content = `gen x = a < = b`;
             const my_uri = 'file:///test_severity.do';
             await document_store.open(my_uri, my_content, 1);
@@ -212,7 +215,7 @@ gen z = e > = f`;
                     ...default_config.diagnostics,
                     severity: {
                         ...default_config.diagnostics.severity,
-                        malformedOperator: 'error',
+                        spacedCompoundOperator: 'error',
                     },
                 },
             };
@@ -222,12 +225,12 @@ gen z = e > = f`;
                 error_config
             );
 
-            const the_suggestible = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const the_spaced_compound = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
 
-            expect(the_suggestible).toHaveLength(1);
-            expect(the_suggestible[0].severity).toBe(DiagnosticSeverity.Error);
+            expect(the_spaced_compound).toHaveLength(1);
+            expect(the_spaced_compound[0].severity).toBe(DiagnosticSeverity.Error);
         });
 
         it('should use configured severity for invalid pairs', async () => {
@@ -261,10 +264,10 @@ gen z = e > = f`;
             expect(the_invalid[0].severity).toBe(DiagnosticSeverity.Warning);
         });
 
-        it('should suppress suggestible diagnostics when malformedOperator is "off"', async () => {
-            const my_content = `gen x = a < = b
+        it('should suppress malformed diagnostics when malformedOperator is "off"', async () => {
+            const my_content = `gen x = a = = b
 gen y = c | | d`;
-            const my_uri = 'file:///test_off_suggestible.do';
+            const my_uri = 'file:///test_off_malformed.do';
             await document_store.open(my_uri, my_content, 1);
             const my_document = document_store.get(my_uri)!;
 
@@ -284,15 +287,50 @@ gen y = c | | d`;
                 off_config
             );
 
-            const the_suggestible = the_diagnostics.filter(
+            const the_malformed = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
             );
             const the_invalid = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
 
-            // Suggestible should be suppressed, invalid should still appear
-            expect(the_suggestible).toHaveLength(0);
+            // Malformed should be suppressed, invalid should still appear
+            expect(the_malformed).toHaveLength(0);
+            expect(the_invalid).toHaveLength(1);
+        });
+
+        it('should suppress spaced compound diagnostics when spacedCompoundOperator is "off"', async () => {
+            const my_content = `gen x = a < = b
+gen y = c | | d`;
+            const my_uri = 'file:///test_off_spaced_compound.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const off_config: StataLSPConfig = {
+                ...default_config,
+                diagnostics: {
+                    ...default_config.diagnostics,
+                    severity: {
+                        ...default_config.diagnostics.severity,
+                        spacedCompoundOperator: 'off',
+                    },
+                },
+            };
+
+            const the_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                off_config
+            );
+
+            const the_spaced_compound = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
+            );
+            const the_invalid = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+
+            // Spaced compound should be suppressed, invalid should still appear
+            expect(the_spaced_compound).toHaveLength(0);
             expect(the_invalid).toHaveLength(1);
         });
 
@@ -319,21 +357,22 @@ gen y = c | | d`;
                 off_config
             );
 
-            const the_suggestible = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const the_spaced_compound = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
             const the_invalid = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
 
-            // Invalid should be suppressed, suggestible should still appear
-            expect(the_suggestible).toHaveLength(1);
+            // Invalid should be suppressed, spaced compound should still appear
+            expect(the_spaced_compound).toHaveLength(1);
             expect(the_invalid).toHaveLength(0);
         });
 
-        it('should suppress all operator diagnostics when both are "off"', async () => {
+        it('should suppress all operator diagnostics when operator severities are "off"', async () => {
             const my_content = `gen x = a < = b
-gen y = c | | d`;
+gen y = c = = d
+gen z = e | | f`;
             const my_uri = 'file:///test_both_off.do';
             await document_store.open(my_uri, my_content, 1);
             const my_document = document_store.get(my_uri)!;
@@ -345,6 +384,7 @@ gen y = c | | d`;
                     severity: {
                         ...default_config.diagnostics.severity,
                         malformedOperator: 'off',
+                        spacedCompoundOperator: 'off',
                         invalidOperatorSequence: 'off',
                     },
                 },
@@ -357,13 +397,14 @@ gen y = c | | d`;
 
             const the_operator_diagnostics = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                     d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                      d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
 
             expect(the_operator_diagnostics).toHaveLength(0);
         });
 
-        it('should support all severity levels for suggestible pairs', async () => {
+        it('should support all severity levels for spaced compound pairs', async () => {
             const my_content = `gen x = a < = b`;
 
             const severity_map: Record<string, DiagnosticSeverity> = {
@@ -386,7 +427,7 @@ gen y = c | | d`;
                         ...default_config.diagnostics,
                         severity: {
                             ...default_config.diagnostics.severity,
-                            malformedOperator: config_severity as any,
+                            spacedCompoundOperator: config_severity as any,
                         },
                     },
                 };
@@ -396,13 +437,53 @@ gen y = c | | d`;
                     test_config
                 );
 
-                const the_suggestible = the_diagnostics.filter(
-                    d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+                const the_spaced_compound = the_diagnostics.filter(
+                    d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
                 );
 
-                expect(the_suggestible).toHaveLength(1);
-                expect(the_suggestible[0].severity).toBe(expected_severity);
+                expect(the_spaced_compound).toHaveLength(1);
+                expect(the_spaced_compound[0].severity).toBe(expected_severity);
             }
+        });
+
+        it('should keep = = at warning by default but allow explicit information', async () => {
+            const my_content = `gen x = a = = b`;
+            const my_uri = 'file:///test_equals_equals_default.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const default_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                default_config
+            );
+            const default_suggestible = default_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            );
+
+            expect(default_suggestible).toHaveLength(1);
+            expect(default_suggestible[0].severity).toBe(DiagnosticSeverity.Warning);
+
+            const info_config: StataLSPConfig = {
+                ...default_config,
+                diagnostics: {
+                    ...default_config.diagnostics,
+                    severity: {
+                        ...default_config.diagnostics.severity,
+                        malformedOperator: 'information',
+                    },
+                },
+            };
+
+            const info_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                info_config
+            );
+            const info_suggestible = info_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            );
+
+            expect(info_suggestible).toHaveLength(1);
+            expect(info_suggestible[0].severity).toBe(DiagnosticSeverity.Information);
         });
     });
 
@@ -434,7 +515,7 @@ display "not indented"
                      d.code === StataDiagnosticCode.UNNECESSARY_INDENTATION
             );
             const the_operator_diagnostics = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
 
             // Should have both types of diagnostics
@@ -442,13 +523,13 @@ display "not indented"
             expect(the_operator_diagnostics).toHaveLength(1);
         });
 
-        it('should emit all suggestible pair types correctly', async () => {
+        it('should emit spaced compound and malformed pair types correctly', async () => {
             const my_content = `gen a = x < = 1
 gen b = x > = 2
 gen c = x ! = 3
 gen d = x ~ = 4
 gen e = x = = 5`;
-            const my_uri = 'file:///test_all_suggestible.do';
+            const my_uri = 'file:///test_spaced_compound_and_malformed.do';
             await document_store.open(my_uri, my_content, 1);
             const my_document = document_store.get(my_uri)!;
 
@@ -457,18 +538,31 @@ gen e = x = = 5`;
                 default_config
             );
 
-            const the_suggestible = the_diagnostics.filter(
+            const the_spaced_compound = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
+            );
+            const the_malformed = the_diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
             );
 
-            expect(the_suggestible).toHaveLength(5);
+            expect(the_spaced_compound).toHaveLength(4);
+            expect(the_malformed).toHaveLength(1);
             
-            const the_messages = the_suggestible.map(d => d.message);
-            expect(the_messages).toContain("Malformed operator '< ='. Did you mean '<='?");
-            expect(the_messages).toContain("Malformed operator '> ='. Did you mean '>='?");
-            expect(the_messages).toContain("Malformed operator '! ='. Did you mean '!='?");
-            expect(the_messages).toContain("Malformed operator '~ ='. Did you mean '~='?");
-            expect(the_messages).toContain("Malformed operator '= ='. Did you mean '=='?");
+            const the_spaced_messages = the_spaced_compound.map(d => d.message);
+            const the_malformed_messages = the_malformed.map(d => d.message);
+            expect(the_spaced_messages).toContain(
+                "Spaced compound operator '< ='. Stata treats this as '<='; consider writing '<='."
+            );
+            expect(the_spaced_messages).toContain(
+                "Spaced compound operator '> ='. Stata treats this as '>='; consider writing '>='."
+            );
+            expect(the_spaced_messages).toContain(
+                "Spaced compound operator '! ='. Stata treats this as '!='; consider writing '!='."
+            );
+            expect(the_spaced_messages).toContain(
+                "Spaced compound operator '~ ='. Stata treats this as '~='; consider writing '~='."
+            );
+            expect(the_malformed_messages).toContain("Malformed operator '= ='. Did you mean '=='?");
         });
 
         it('should emit all invalid pair types with correct messages', async () => {
@@ -507,7 +601,7 @@ gen c = x | = y`;
         it('should update diagnostics when document content changes', async () => {
             const my_uri = 'file:///test_update.do';
             
-            // Initial content with malformed operator
+            // Initial content with a spaced compound operator
             const initial_content = `gen x = a < = b`;
             await document_store.open(my_uri, initial_content, 1);
             let my_document = document_store.get(my_uri)!;
@@ -518,7 +612,7 @@ gen c = x | = y`;
             );
 
             let the_operator_diagnostics = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
             expect(the_operator_diagnostics).toHaveLength(1);
 
@@ -537,7 +631,7 @@ gen c = x | = y`;
             );
 
             the_operator_diagnostics = the_diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
             expect(the_operator_diagnostics).toHaveLength(0);
         });

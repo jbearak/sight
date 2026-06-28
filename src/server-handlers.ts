@@ -101,6 +101,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
             undefinedVariable: 'off',
             styleWarnings: 'hint',
             malformedOperator: 'warning',
+            spacedCompoundOperator: 'information',
             invalidOperatorSequence: 'error',
             cStyleLogicalInControlFlow: 'information',
             mixedLogicalOperators: 'warning',

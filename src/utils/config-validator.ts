@@ -182,6 +182,13 @@ export function validate_comment_formatting_config(
                 validated_config.diagnostics.severity.malformedOperator = diagnostics.severity.malformedOperator;
             }
             if (
+                diagnostics.severity.spacedCompoundOperator &&
+                valid_severities.includes(diagnostics.severity.spacedCompoundOperator)
+            ) {
+                validated_config.diagnostics.severity.spacedCompoundOperator =
+                    diagnostics.severity.spacedCompoundOperator;
+            }
+            if (
                 diagnostics.severity.invalidOperatorSequence &&
                 valid_severities.includes(diagnostics.severity.invalidOperatorSequence)
             ) {

@@ -6,7 +6,7 @@
  * 
  * Requirements covered:
  * - 4.2: Compound operators without spaces produce single tokens
- * - 5.4-5.8: Exact message strings for suggestible pairs
+ * - 5.4-5.8: Exact message strings for spaced compound and malformed pairs
  * - 5.9: Exact message strings for general invalid pairs
  * - 5.10-5.11: Exact message strings for C-style logical pairs
  * - 5.12: Exact message string for | =
@@ -37,6 +37,7 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
                 severity: {
                     ...DEFAULT_SETTINGS.diagnostics.severity,
                     malformedOperator: 'warning',
+                    spacedCompoundOperator: 'information',
                     invalidOperatorSequence: 'error',
                 },
             },
@@ -55,11 +56,19 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
         it('CSTYLE_LOGICAL_IN_CONTROL_FLOW should equal 6003', () => {
             expect(StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW).toBe(6003);
         });
+
+        it('SPACED_COMPOUND_OPERATOR should equal 6005', () => {
+            expect(StataDiagnosticCode.SPACED_COMPOUND_OPERATOR).toBe(6005);
+        });
     });
 
     describe('Default Severity Values (Requirements 8.6, 8.7, 8.9)', () => {
         it('DEFAULT_SETTINGS.diagnostics.severity.malformedOperator should be "warning"', () => {
             expect(DEFAULT_SETTINGS.diagnostics.severity.malformedOperator).toBe('warning');
+        });
+
+        it('DEFAULT_SETTINGS.diagnostics.severity.spacedCompoundOperator should be "information"', () => {
+            expect(DEFAULT_SETTINGS.diagnostics.severity.spacedCompoundOperator).toBe('information');
         });
 
         it('DEFAULT_SETTINGS.diagnostics.severity.invalidOperatorSequence should be "error"', () => {
@@ -127,45 +136,53 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
         });
     });
 
-    describe('Exact Message Strings for Suggestible Pairs (Requirements 5.4-5.8)', () => {
-        it('< = produces message: Malformed operator \'< =\'. Did you mean \'<=\'?', () => {
+    describe('Exact Message Strings for Spaced Compound Pairs (Requirements 5.4-5.8)', () => {
+        it('< = produces a spaced compound operator message', () => {
             const doc = create_document_state('display x < = y');
             const diagnostics = analyzer.analyze(doc, default_config);
-            const suggestible = diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const spaced_compound = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
-            expect(suggestible).toHaveLength(1);
-            expect(suggestible[0].message).toBe("Malformed operator '< ='. Did you mean '<='?");
+            expect(spaced_compound).toHaveLength(1);
+            expect(spaced_compound[0].message).toBe(
+                "Spaced compound operator '< ='. Stata treats this as '<='; consider writing '<='."
+            );
         });
 
-        it('> = produces message: Malformed operator \'> =\'. Did you mean \'>=\'?', () => {
+        it('> = produces a spaced compound operator message', () => {
             const doc = create_document_state('display x > = y');
             const diagnostics = analyzer.analyze(doc, default_config);
-            const suggestible = diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const spaced_compound = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
-            expect(suggestible).toHaveLength(1);
-            expect(suggestible[0].message).toBe("Malformed operator '> ='. Did you mean '>='?");
+            expect(spaced_compound).toHaveLength(1);
+            expect(spaced_compound[0].message).toBe(
+                "Spaced compound operator '> ='. Stata treats this as '>='; consider writing '>='."
+            );
         });
 
-        it('! = produces message: Malformed operator \'! =\'. Did you mean \'!=\'?', () => {
+        it('! = produces a spaced compound operator message', () => {
             const doc = create_document_state('display x ! = y');
             const diagnostics = analyzer.analyze(doc, default_config);
-            const suggestible = diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const spaced_compound = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
-            expect(suggestible).toHaveLength(1);
-            expect(suggestible[0].message).toBe("Malformed operator '! ='. Did you mean '!='?");
+            expect(spaced_compound).toHaveLength(1);
+            expect(spaced_compound[0].message).toBe(
+                "Spaced compound operator '! ='. Stata treats this as '!='; consider writing '!='."
+            );
         });
 
-        it('~ = produces message: Malformed operator \'~ =\'. Did you mean \'~=\'?', () => {
+        it('~ = produces a spaced compound operator message', () => {
             const doc = create_document_state('display x ~ = y');
             const diagnostics = analyzer.analyze(doc, default_config);
-            const suggestible = diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const spaced_compound = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
-            expect(suggestible).toHaveLength(1);
-            expect(suggestible[0].message).toBe("Malformed operator '~ ='. Did you mean '~='?");
+            expect(spaced_compound).toHaveLength(1);
+            expect(spaced_compound[0].message).toBe(
+                "Spaced compound operator '~ ='. Stata treats this as '~='; consider writing '~='."
+            );
         });
 
         it('= = produces message: Malformed operator \'= =\'. Did you mean \'==\'?', () => {
@@ -354,6 +371,7 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             const diagnostics = analyzer.analyze(doc, default_config);
             const operator_diagnostics = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                     d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                      d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
             // No diagnostic because comment breaks adjacency
@@ -365,6 +383,7 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             const diagnostics = analyzer.analyze(doc, default_config);
             const operator_diagnostics = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                     d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                      d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
             // No diagnostic because comment breaks adjacency
@@ -377,6 +396,7 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             const diagnostics = analyzer.analyze(doc, default_config);
             const operator_diagnostics = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
+                     d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
                      d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
             // No diagnostic because comment breaks adjacency
@@ -385,8 +405,18 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
     });
 
     describe('Diagnostic Severity', () => {
-        it('suggestible pairs emit Warning severity by default', () => {
+        it('spaced compound pairs emit Information severity by default', () => {
             const doc = create_document_state('display x < = y');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const spaced_compound = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
+            );
+            expect(spaced_compound).toHaveLength(1);
+            expect(spaced_compound[0].severity).toBe(DiagnosticSeverity.Information);
+        });
+
+        it('= = emits Warning severity by default', () => {
+            const doc = create_document_state('display x = = y');
             const diagnostics = analyzer.analyze(doc, default_config);
             const suggestible = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
@@ -410,10 +440,10 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
         it('diagnostic range spans from first operator start to second operator end', () => {
             const doc = create_document_state('display x < = y');
             const diagnostics = analyzer.analyze(doc, default_config);
-            const suggestible = diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            const spaced_compound = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
-            expect(suggestible).toHaveLength(1);
+            expect(spaced_compound).toHaveLength(1);
             
             // Find the < and = tokens
             const operators = doc.tokens.filter(t => t.type === 'OPERATOR');
@@ -424,10 +454,10 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             expect(eq_token).toBeDefined();
             
             if (lt_token && eq_token) {
-                expect(suggestible[0].range.start.line).toBe(lt_token.range.start.line);
-                expect(suggestible[0].range.start.character).toBe(lt_token.range.start.character);
-                expect(suggestible[0].range.end.line).toBe(eq_token.range.end.line);
-                expect(suggestible[0].range.end.character).toBe(eq_token.range.end.character);
+                expect(spaced_compound[0].range.start.line).toBe(lt_token.range.start.line);
+                expect(spaced_compound[0].range.start.character).toBe(lt_token.range.start.character);
+                expect(spaced_compound[0].range.end.line).toBe(eq_token.range.end.line);
+                expect(spaced_compound[0].range.end.character).toBe(eq_token.range.end.character);
             }
         });
     });
