@@ -7,6 +7,7 @@ scripts/
 .test-cache-monotonicity/
 .tmp/
 .kiro/
+.gitattributes
 *.test.ts
 *.test.js
 tsconfig.json
@@ -29,7 +30,14 @@ client/
 # Documentation and config (keep README, LICENSE)
 AGENTS.md
 COMMENT_NORMALIZATION.md
+DEVELOPMENT.md
+docs/
+examples/
+Formula/
+specs/
+stata/
 setup.sh
+eslint.config.js
 *.json
 !package.json
 *.do

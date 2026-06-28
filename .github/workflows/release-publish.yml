@@ -22,18 +22,20 @@ concurrency:
   group: release-publish-${{ inputs.tag }}
   cancel-in-progress: false
 
-# Needs actions:read to find/download build artifacts, and contents:write to
-# create the GitHub release.
+# Needs actions:read to find/download build artifacts, contents:write to
+# create the GitHub release, and id-token:write for npm Trusted Publishing.
 permissions:
   actions: read
   contents: write
+  id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
 
-    # IMPORTANT: configure this Environment in GitHub with required reviewers,
-    # and store publish tokens as *environment secrets*.
+    # IMPORTANT: configure this Environment in GitHub with required reviewers.
+    # npm Trusted Publishing binds to this exact workflow + environment and
+    # uses OIDC, so no long-lived NPM_TOKEN secret is required.
     environment: release
 
     steps:
@@ -88,6 +90,8 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
+        with:
+          registry-url: https://registry.npmjs.org
 
       - name: Download build artifacts
         shell: bash
@@ -122,6 +126,12 @@ jobs:
           if ls client/*.vsix.sha256 >/dev/null 2>&1; then
             (cd client && sha256sum -c *.vsix.sha256)
           fi
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        run: npm publish --ignore-scripts --access public
 
       - name: Publish to VS Code Marketplace
         if: ${{ inputs.publish_vscode }}

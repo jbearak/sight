@@ -435,17 +435,20 @@ function expect_step_before(
 }
 
 describe('binary command name', () => {
-    it('uses the shipped bundle for package main and npm executables', () => {
+    it('uses the shipped bundle for package main and the npm executable', () => {
         const package_json_path = join(__dirname, '../../package.json');
         const package_content = JSON.parse(
             readFileSync(package_json_path, 'utf8')
         );
 
+        expect(package_content.name).toBe('@jbearak/sight');
+        expect(package_content.description).toBe(
+            'A static analyzer and language server for the Stata statistical programming language'
+        );
         expect(package_content.main).toBe('dist/sight-server.js');
         expect(package_content.main).toBe(package_content.bin.sight);
         expect(package_content.bin).toEqual({
             sight: 'dist/sight-server.js',
-            'sight-language-server': 'dist/sight-server.js',
         });
     });
 
@@ -580,7 +583,7 @@ describe('binary command name', () => {
         }
     });
 
-    it('source install writes primary and legacy command names', () => {
+    it('source install writes only the primary command name', () => {
         const temp_root = make_temp_dir();
         const source_path = join(temp_root, 'source-binary');
         const user_bin_path = join(temp_root, 'bin');
@@ -600,19 +603,17 @@ describe('binary command name', () => {
             );
 
             expect(the_target_paths.map((target_path) => basename(target_path)))
-                .toEqual(['sight', 'sight-language-server']);
+                .toEqual(['sight']);
             expect(readFileSync(join(user_bin_path, 'sight'), 'utf8'))
                 .toBe('new-binary');
-            expect(readFileSync(
-                join(user_bin_path, 'sight-language-server'),
-                'utf8'
-            )).toBe('new-binary');
+            expect(existsSync(join(user_bin_path, 'sight-language-server')))
+                .toBe(false);
         } finally {
             rmSync(temp_root, { recursive: true, force: true });
         }
     });
 
-    it('source install replaces legacy source-installed native binary', () => {
+    it('source install removes legacy source-installed native binary', () => {
         const temp_root = make_temp_dir();
         const source_path = join(temp_root, 'source-binary');
         const user_bin_path = join(temp_root, 'bin');
@@ -627,7 +628,7 @@ describe('binary command name', () => {
 
             expect(readFileSync(join(user_bin_path, 'sight'), 'utf8'))
                 .toBe('new-binary');
-            expect(readFileSync(legacy_path, 'utf8')).toBe('new-binary');
+            expect(existsSync(legacy_path)).toBe(false);
         } finally {
             rmSync(temp_root, { recursive: true, force: true });
         }
@@ -686,7 +687,7 @@ describe('binary command name', () => {
         }
     });
 
-    it('source install validates all targets before replacing symlinks', () => {
+    it('source install leaves unrelated legacy aliases during cleanup', () => {
         if (process.platform === 'win32') {
             return;
         }
@@ -705,15 +706,17 @@ describe('binary command name', () => {
             symlinkSync(managed_path, existing_sight_path);
             write_version_script(legacy_path, 'other 1.0.0');
 
-            expect(() => install_binary_files(
+            const the_target_paths = install_binary_files(
                 source_path,
                 user_bin_path,
                 'linux'
-            )).toThrow(/Refusing to overwrite/);
+            );
 
-            expect(lstatSync(existing_sight_path).isSymbolicLink()).toBe(true);
+            expect(the_target_paths.map((target_path) => basename(target_path)))
+                .toEqual(['sight']);
+            expect(lstatSync(existing_sight_path).isSymbolicLink()).toBe(false);
             expect(readFileSync(existing_sight_path, 'utf8'))
-                .toContain(CLI_DESCRIPTION);
+                .toBe('new-binary');
             expect(readFileSync(legacy_path, 'utf8'))
                 .toContain('other 1.0.0');
         } finally {
@@ -776,7 +779,7 @@ describe('binary command name', () => {
         }
     });
 
-    it('source install refuses to overwrite unrelated legacy alias', () => {
+    it('source install leaves unrelated legacy alias in place', () => {
         const temp_root = make_temp_dir();
         const source_path = join(temp_root, 'source-binary');
         const user_bin_path = join(temp_root, 'bin');
@@ -787,13 +790,16 @@ describe('binary command name', () => {
             mkdirSync(user_bin_path, { recursive: true });
             write_version_script(legacy_path, 'other 1.0.0');
 
-            expect(() => install_binary_files(
+            const the_target_paths = install_binary_files(
                 source_path,
                 user_bin_path,
                 'linux'
-            )).toThrow(/Refusing to overwrite/);
+            );
 
-            expect(existsSync(join(user_bin_path, 'sight'))).toBe(false);
+            expect(the_target_paths.map((target_path) => basename(target_path)))
+                .toEqual(['sight']);
+            expect(readFileSync(join(user_bin_path, 'sight'), 'utf8'))
+                .toBe('new-binary');
             expect(readFileSync(legacy_path, 'utf8'))
                 .toContain('other 1.0.0');
         } finally {
@@ -934,7 +940,7 @@ describe('binary command name', () => {
         }
     });
 
-    it('source install writes Windows primary and legacy command names', () => {
+    it('source install writes only the Windows primary command name', () => {
         const temp_root = make_temp_dir();
         const source_path = join(temp_root, 'source-binary.exe');
         const user_bin_path = join(temp_root, 'bin');
@@ -950,13 +956,12 @@ describe('binary command name', () => {
             );
 
             expect(the_target_paths.map((target_path) => basename(target_path)))
-                .toEqual(['sight.exe', 'sight-language-server.exe']);
+                .toEqual(['sight.exe']);
             expect(readFileSync(join(user_bin_path, 'sight.exe'), 'utf8'))
                 .toBe('new-binary');
-            expect(readFileSync(
-                join(user_bin_path, 'sight-language-server.exe'),
-                'utf8'
-            )).toBe('new-binary');
+            expect(existsSync(
+                join(user_bin_path, 'sight-language-server.exe')
+            )).toBe(false);
         } finally {
             rmSync(temp_root, { recursive: true, force: true });
         }
@@ -1130,19 +1135,10 @@ describe('binary command name', () => {
         )).toBe(true);
     });
 
-    it('tracks primary and legacy source-install names', () => {
-        expect(get_binary_names_to_install('darwin')).toEqual([
-            'sight',
-            'sight-language-server',
-        ]);
-        expect(get_binary_names_to_install('linux')).toEqual([
-            'sight',
-            'sight-language-server',
-        ]);
-        expect(get_binary_names_to_install('win32')).toEqual([
-            'sight.exe',
-            'sight-language-server.exe',
-        ]);
+    it('tracks primary source-install names and legacy cleanup names', () => {
+        expect(get_binary_names_to_install('darwin')).toEqual(['sight']);
+        expect(get_binary_names_to_install('linux')).toEqual(['sight']);
+        expect(get_binary_names_to_install('win32')).toEqual(['sight.exe']);
         expect(get_binary_shadow_paths_to_check('/bin', 'win32').map(
             (target_path) => basename(target_path)
         )).toEqual([
@@ -1150,10 +1146,6 @@ describe('binary command name', () => {
             'sight.cmd',
             'sight.bat',
             'sight.ps1',
-            'sight-language-server',
-            'sight-language-server.cmd',
-            'sight-language-server.bat',
-            'sight-language-server.ps1',
         ]);
         expect(get_binary_shadow_paths_to_check('/bin', 'linux')).toEqual([]);
 
@@ -1208,7 +1200,7 @@ describe('binary command name', () => {
         expect(workflow_content).toMatch(
             /sight --help \| grep 'static analyzer and language server for Stata'/
         );
-        expect(workflow_content).toContain(
+        expect(workflow_content).not.toContain(
             'sight-language-server --version | grep -E "$VERSION_PATTERN"'
         );
         expect_workflow_runs_stdio_smoke_helper(
@@ -1454,6 +1446,28 @@ describe('binary command name', () => {
 
         expect(workflow_content).toContain('actions: read');
         expect(workflow_content).toContain('contents: write');
+        expect(workflow_content).toContain('id-token: write');
+        expect(workflow_content).toContain(
+            'registry-url: https://registry.npmjs.org'
+        );
+        expect(workflow_content).toContain(
+            'npm install -g npm@latest'
+        );
+        expect(workflow_content).toContain(
+            'npm publish --ignore-scripts --access public'
+        );
+        expect_step_before(
+            workflow_content,
+            'publish',
+            'Verify checksums',
+            'Publish to npm'
+        );
+        expect_step_before(
+            workflow_content,
+            'publish',
+            'Publish to npm',
+            'Create GitHub Release'
+        );
         expect(workflow_content).toContain(
             'build_run_id:'
         );

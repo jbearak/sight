@@ -41,6 +41,13 @@ To install the VSIX manually in VS Code:
 
 The LSP server can be built as a standalone binary for use with coding agents (like Kiro CLI), CI/CD pipelines, and editors other than VS Code.
 
+For the published npm package:
+
+```bash
+npm install -g @jbearak/sight
+sight --version
+```
+
 ### CLI Flags
 
 | Flag | Short | Description |

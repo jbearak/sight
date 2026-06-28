@@ -2,7 +2,8 @@
 /**
  * Install script for the Sight LSP binary.
  * 
- * Copies the platform binary to ~/bin/sight and the legacy alias.
+ * Copies the platform binary to ~/bin/sight.
+ * Removes Sight-owned stale legacy aliases from earlier installs.
  * Provides PATH setup instructions after install.
  * 
  * Usage:
@@ -23,6 +24,7 @@ import {
 import { detect_platform } from './build-binary';
 import {
     get_binary_shadow_paths_to_check,
+    get_legacy_binary_paths_to_cleanup,
     get_binary_paths_to_install,
 } from './binary-names';
 import { ensure_sight_binary_target } from './binary-ownership';
@@ -108,7 +110,35 @@ function ensure_existing_target_is_replaceable(
 }
 
 /**
- * Copy the source binary to every supported command name.
+ * Remove stale legacy command names when they are owned by Sight.
+ */
+function remove_stale_legacy_aliases(
+    user_bin_path: string,
+    platform: NodeJS.Platform,
+    check_existing_target: ExistingTargetChecker
+): void {
+    for (const my_target_path of get_legacy_binary_paths_to_cleanup(
+        user_bin_path,
+        platform
+    )) {
+        const my_target = get_existing_target(my_target_path);
+
+        if (!my_target.exists_or_is_symlink || !existsSync(my_target.path)) {
+            continue;
+        }
+
+        try {
+            check_existing_target(my_target.path, platform);
+        } catch {
+            continue;
+        }
+
+        unlinkSync(my_target.path);
+    }
+}
+
+/**
+ * Copy the source binary to the supported command name.
  */
 export function install_binary_files(
     source_path: string,
@@ -155,6 +185,12 @@ export function install_binary_files(
     for (const my_target_path of the_target_paths) {
         copyFileSync(source_path, my_target_path);
     }
+
+    remove_stale_legacy_aliases(
+        user_bin_path,
+        platform,
+        check_existing_target
+    );
 
     return the_target_paths;
 }
@@ -230,7 +266,7 @@ function detect_shell(): string {
 }
 
 /**
- * Install the Sight binary to ~/bin command names.
+ * Install the Sight binary to ~/bin.
  */
 async function install(): Promise<InstallResult> {
     // Detect platform
@@ -284,7 +320,7 @@ async function install(): Promise<InstallResult> {
         }
     }
 
-    // Copy the binary to the primary command and legacy alias.
+    // Copy the binary to the primary command and remove stale legacy aliases.
     let the_target_paths: string[] = [];
     try {
         the_target_paths = install_binary_files(source_path, user_bin);
