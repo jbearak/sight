@@ -21,9 +21,9 @@ import {
     clamp_column_width,
     collect_sampled_value_width_hints,
     type BrowserGridColumn,
+    describe_browser_row_count,
     describe_restore_message,
     describe_subset,
-    describe_toolbar_row_count,
     get_cell_display_value,
     get_variable_header_tooltip,
     merge_persisted_and_default_widths,
@@ -815,25 +815,26 @@ export function App(): ReactElement {
         }
     };
 
-    // On open, explain (and let the user cancel) the wait while saved
-    // sort/filter preferences are reapplied.
+    // While saved sort/filter preferences are reapplied, the grid already
+    // shows the data in natural order (paint-first), so the banner just
+    // explains the in-progress reordering and offers Cancel.
     const restore_message = restore_pending
         ? (restore_cancelling
-            ? 'Loading…'
+            ? 'Cancelling…'
             : describe_restore_message(
                 restore_pending.sort,
                 restore_pending.filter
             ))
         : null;
 
-    // While the restore banner is up it explains the wait, so suppress
-    // the bare "Loading…" row-count that would otherwise stack above it.
-    const row_count_text = describe_toolbar_row_count(
+    // Paint-first: the grid shows natural-order data while a saved
+    // sort/filter is reapplied in the background, so show the real row
+    // count alongside the restore banner rather than suppressing it.
+    const row_count_text = describe_browser_row_count(
         metadata,
         nobs_effective,
         first_visible_row,
-        visible_row_count,
-        restore_message !== null
+        visible_row_count
     );
 
     const subset_text = describe_subset(metadata);
@@ -1158,7 +1159,7 @@ export function App(): ReactElement {
                             className="restore-skip"
                             onClick={cancel_restore}
                         >
-                            Skip and show data now
+                            Cancel
                         </button>
                     )}
                 </div>

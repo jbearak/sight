@@ -15,6 +15,7 @@ import type {
     HistogramDataMessage,
     MetadataMessage,
     RestorePendingMessage,
+    RestoreSettledMessage,
     RowResponse,
     SortAppliedMessage,
     SortKey,
@@ -79,7 +80,8 @@ type IncomingMessage =
     | FilterAppliedMessage
     | FilterStatusMessage
     | HistogramDataMessage
-    | RestorePendingMessage;
+    | RestorePendingMessage
+    | RestoreSettledMessage;
 
 export function use_row_loader(): UseRowLoaderResult {
     const vscode_api = useMemo(() => acquireVsCodeApi(), []);
@@ -121,6 +123,19 @@ export function use_row_loader(): UseRowLoaderResult {
         end: 0,
     });
 
+    // Dismiss the saved-preference restore banner (timer + state). Used
+    // when a restore settles, when the user supersedes it with their own
+    // sort/filter, and on fresh metadata.
+    const clear_restore_ui = useCallback(() => {
+        if (restore_timer.current !== null) {
+            clearTimeout(restore_timer.current);
+            restore_timer.current = null;
+        }
+        set_restore_pending(null);
+        set_restore_cancelling(false);
+        restore_id_ref.current = null;
+    }, []);
+
     const request_page = useCallback(
         (page_start: number) => {
             pending_pages.current.add(page_start);
@@ -135,6 +150,24 @@ export function use_row_loader(): UseRowLoaderResult {
         },
         [vscode_api]
     );
+
+    // The visible order changed (a sort/filter applied or a restore
+    // settled to a non-natural order): drop the cached pages and re-request
+    // the viewport so the host serves rows in the new order. The host has
+    // cleared its own cache and bumped its generation, so any in-flight
+    // row read under the old order is discarded host-side.
+    const reset_pages_and_refetch_viewport = useCallback(() => {
+        set_pages(new Map());
+        pending_pages.current.clear();
+        const my_viewport = viewport_ref.current;
+        for (const my_start of get_needed_page_starts(
+            my_viewport.start,
+            my_viewport.end,
+            PAGE_SIZE
+        )) {
+            request_page(my_start);
+        }
+    }, [request_page]);
 
     useEffect(() => {
         function on_message(event: MessageEvent) {
@@ -168,15 +201,10 @@ export function use_row_loader(): UseRowLoaderResult {
             }
 
             if (my_msg.type === 'metadata') {
-                // Both the normal and cancelled restore paths end by
-                // posting metadata, so clear the restore UI here.
-                if (restore_timer.current !== null) {
-                    clearTimeout(restore_timer.current);
-                    restore_timer.current = null;
-                }
-                set_restore_pending(null);
-                set_restore_cancelling(false);
-                restore_id_ref.current = null;
+                // Metadata is posted first (paint-first); a `restorePending`
+                // for this dataset follows and re-arms the banner. Clearing
+                // here resets any stale banner from a prior lifecycle.
+                clear_restore_ui();
 
                 set_metadata(my_msg);
                 set_pages(new Map());
@@ -192,6 +220,11 @@ export function use_row_loader(): UseRowLoaderResult {
             }
 
             if (my_msg.type === 'rowData') {
+                // No generation/epoch guard is needed here: the host never
+                // posts stale rows — handle_row_request re-checks its
+                // generation after every read and drops the response on a
+                // mismatch, so a row read started under the old order can't
+                // land after a sort/filter/settle changed it.
                 pending_pages.current.delete(my_msg.start);
                 set_pages(my_previous => {
                     const my_next = new Map(my_previous);
@@ -202,21 +235,13 @@ export function use_row_loader(): UseRowLoaderResult {
             }
 
             if (my_msg.type === 'sortApplied') {
+                // A user sort during a background restore supersedes it;
+                // dismiss the restore banner (the host aborted the restore).
+                clear_restore_ui();
                 set_sort(my_msg.sort);
                 set_nobs_effective(my_msg.nobs_effective);
-                set_pages(new Map());
-                pending_pages.current.clear();
                 set_sort_pending(false);
-                // Re-request the current viewport in the new order;
-                // the host has cleared its cache for this permutation.
-                const my_viewport = viewport_ref.current;
-                for (const my_start of get_needed_page_starts(
-                    my_viewport.start,
-                    my_viewport.end,
-                    PAGE_SIZE
-                )) {
-                    request_page(my_start);
-                }
+                reset_pages_and_refetch_viewport();
                 return;
             }
 
@@ -226,26 +251,50 @@ export function use_row_loader(): UseRowLoaderResult {
             }
 
             if (my_msg.type === 'filterApplied') {
+                // A user filter during a background restore supersedes it;
+                // dismiss the restore banner (the host aborted the restore).
+                clear_restore_ui();
                 set_filter(my_msg.filter);
                 set_nobs_effective(my_msg.nobs_filtered);
-                set_pages(new Map());
-                pending_pages.current.clear();
                 set_filter_pending(false);
-                // Re-request the current viewport in the new (filtered)
-                // order; the host cleared its cache for this permutation.
-                const my_viewport = viewport_ref.current;
-                for (const my_start of get_needed_page_starts(
-                    my_viewport.start,
-                    my_viewport.end,
-                    PAGE_SIZE
-                )) {
-                    request_page(my_start);
-                }
+                reset_pages_and_refetch_viewport();
                 return;
             }
 
             if (my_msg.type === 'filterStatus') {
                 set_filter_pending(my_msg.state === 'pending');
+                return;
+            }
+
+            if (my_msg.type === 'restoreSettled') {
+                // Ignore a settle from a superseded lifecycle (a reload /
+                // refresh started a newer restore, or a user action already
+                // dismissed the banner and nulled the id).
+                if (my_msg.restore_id !== restore_id_ref.current) {
+                    return;
+                }
+                clear_restore_ui();
+                // Switch the (already painted, natural-order) grid to the
+                // restored order.
+                set_sort(my_msg.sort);
+                set_filter(my_msg.filter);
+                set_nobs_effective(my_msg.nobs_effective);
+                set_sort_pending(false);
+                set_filter_pending(false);
+                // Only re-request when the settle actually changed the
+                // order. A settle that leaves natural order — no sort keys
+                // and no ENABLED filter entry (e.g. Skip, an empty restore,
+                // or a restored filter whose entries are all disabled) —
+                // leaves the already-painted natural rows valid, so
+                // blanking and reloading them would be a pointless flicker.
+                const my_order_changed =
+                    my_msg.sort.keys.length > 0
+                    || my_msg.filter.entries.some(
+                        my_entry => my_entry.enabled
+                    );
+                if (my_order_changed) {
+                    reset_pages_and_refetch_viewport();
+                }
                 return;
             }
 
@@ -268,7 +317,7 @@ export function use_row_loader(): UseRowLoaderResult {
                 restore_timer.current = null;
             }
         };
-    }, [vscode_api, request_page]);
+    }, [vscode_api, reset_pages_and_refetch_viewport, clear_restore_ui]);
 
     const cancel_restore = useCallback(() => {
         const my_id = restore_id_ref.current;
@@ -320,24 +369,29 @@ export function use_row_loader(): UseRowLoaderResult {
 
     const apply_sort = useCallback(
         (keys: SortKey[], labels_on: boolean) => {
+            // Dismiss the restore banner at once: the host's sortApplied
+            // can be seconds away for a large user sort, and the saved
+            // restore is already superseded.
+            clear_restore_ui();
             vscode_api.postMessage({
                 type: 'setSort',
                 keys,
                 labels_on,
             });
         },
-        [vscode_api]
+        [vscode_api, clear_restore_ui]
     );
 
     const apply_filter = useCallback(
         (entries: FilterEntry[], labels_on: boolean) => {
+            clear_restore_ui();
             vscode_api.postMessage({
                 type: 'setFilters',
                 entries,
                 labels_on,
             });
         },
-        [vscode_api]
+        [vscode_api, clear_restore_ui]
     );
 
     const request_histogram = useCallback(

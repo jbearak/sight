@@ -93,6 +93,7 @@ async function make_restore_panel(opts: {
     panel_like.restore_id = -1;
     panel_like.send_metadata_chain = Promise.resolve();
     panel_like.row_cache = { clear: () => undefined };
+    panel_like.disposed = false;
 
     panel_like.panel = {
         webview: {
@@ -119,14 +120,16 @@ async function make_restore_panel(opts: {
 
 beforeEach(() => { warnings = []; });
 
-describe('maybe_begin_restore', () => {
-    it('posts restorePending and arms the restore when prefs apply', async () => {
+describe('restore_applies / maybe_begin_restore', () => {
+    it('maybe_begin_restore posts restorePending and arms the restore', async () => {
         const { panel_like, posted } = await make_restore_panel({
             stored_sort: STORED_SORT,
             stored_filter: STORED_FILTER,
         });
 
-        const my_began = panel_like.maybe_begin_restore('h');
+        const my_began = panel_like.maybe_begin_restore({
+            sort: true, filter: true,
+        });
 
         expect(my_began).toBe(true);
         expect(panel_like.restoring).toBe(true);
@@ -140,28 +143,33 @@ describe('maybe_begin_restore', () => {
         });
     });
 
-    it('does not begin when no prefs are stored', async () => {
+    it('maybe_begin_restore does not begin when nothing applies', async () => {
         const { panel_like, posted } = await make_restore_panel();
-        expect(panel_like.maybe_begin_restore('h')).toBe(false);
+        expect(panel_like.maybe_begin_restore({
+            sort: false, filter: false,
+        })).toBe(false);
         expect(panel_like.restoring).toBe(false);
         expect(posted).toEqual([]);
     });
 
-    it('does not begin once already restored', async () => {
-        const { panel_like, posted } = await make_restore_panel({
+    it('restore_applies reports nothing once already restored', async () => {
+        const { panel_like } = await make_restore_panel({
             stored_sort: STORED_SORT,
         });
         panel_like.sort_restored = true;
         panel_like.filter_restored = true;
-        expect(panel_like.maybe_begin_restore('h')).toBe(false);
-        expect(posted).toEqual([]);
+        expect(panel_like.restore_applies('h')).toEqual({
+            sort: false, filter: false,
+        });
     });
 
-    it('flags sort-only vs filter-only correctly', async () => {
+    it('restore_applies flags sort-only vs filter-only correctly', async () => {
         const { panel_like, posted } = await make_restore_panel({
             stored_filter: STORED_FILTER,
         });
-        panel_like.maybe_begin_restore('h');
+        const my_applies = panel_like.restore_applies('h');
+        expect(my_applies).toEqual({ sort: false, filter: true });
+        panel_like.maybe_begin_restore(my_applies);
         expect(posted[0].sort).toBe(false);
         expect(posted[0].filter).toBe(true);
     });
@@ -199,17 +207,50 @@ describe('send_metadata restore', () => {
         expect(filter_set.length).toBe(1);
         expect(filter_set[0].entries.length).toBe(0);
 
-        // restorePending preceded metadata; metadata carries no chips.
-        expect(posted[0].type).toBe('restorePending');
-        const my_meta = posted.find(m => m.type === 'metadata');
-        expect(my_meta).toBeDefined();
-        expect(my_meta.stored_sort).toBeUndefined();
-        expect(my_meta.stored_filter).toBeUndefined();
+        // Paint-first: metadata is posted first (natural order, no chips),
+        // then restorePending arms the banner.
+        expect(posted[0].type).toBe('metadata');
+        expect(posted[0].stored_sort).toBeUndefined();
+        expect(posted[0].stored_filter).toBeUndefined();
+        expect(posted[1].type).toBe('restorePending');
 
-        // No spurious filterApplied, and restore state cleaned up.
-        expect(posted.some(m => m.type === 'filterApplied')).toBe(false);
+        // The cancelled restore settles to natural order (EMPTY), and
+        // restore state is cleaned up.
+        const my_settled = posted.find(m => m.type === 'restoreSettled');
+        expect(my_settled).toBeDefined();
+        expect(my_settled.sort.keys.length).toBe(0);
+        expect(my_settled.filter.entries.length).toBe(0);
         expect(panel_like.restoring).toBe(false);
         expect(panel_like.restore_abort).toBeNull();
+    });
+
+    it('a Skip racing a successful settle is ignored, keeping prefs (code-review HIGH)', async () => {
+        const { panel_like, posted, sort_set, filter_set } =
+            await make_restore_panel({
+                stored_sort: STORED_SORT,
+                stored_filter: STORED_FILTER,
+            });
+        panel_like.compute_sort_permutation = async () =>
+            new Uint32Array(10);
+        panel_like.compute_filter_indices = async () =>
+            new Uint32Array([0, 1, 2]);
+        panel_like.current_schema_hash = () => 'h';
+
+        await panel_like.send_metadata();
+
+        // A successful settle consumes the handshake.
+        expect(panel_like.restore_id).toBe(-1);
+        expect(panel_like.sort.keys.length).toBe(1);
+        expect(posted.some(m => m.type === 'restoreSettled')).toBe(true);
+
+        // A Skip that raced the settle still carries the original id; it
+        // must now be ignored rather than forgetting the restored prefs.
+        await panel_like.handle_cancel_restore({
+            type: 'cancelRestore', restore_id: 0,
+        });
+        expect(sort_set).toEqual([]);
+        expect(filter_set).toEqual([]);
+        expect(panel_like.sort.keys.length).toBe(1);
     });
 
     it('normal completion applies and ships the saved prefs', async () => {
@@ -231,29 +272,45 @@ describe('send_metadata restore', () => {
         expect(sort_set).toEqual([]);
         expect(filter_set).toEqual([]);
 
-        expect(posted[0].type).toBe('restorePending');
-        const my_meta = posted.find(m => m.type === 'metadata');
-        expect(my_meta.stored_sort).toEqual(STORED_SORT);
-        expect(my_meta.stored_filter).toEqual(STORED_FILTER);
-        // Active filter → effective count announced.
-        expect(posted.some(m => m.type === 'filterApplied')).toBe(true);
+        // Paint-first: metadata first (natural, no chips), then the
+        // restored sort/filter (with chips) arrive via restoreSettled.
+        expect(posted[0].type).toBe('metadata');
+        expect(posted[0].stored_sort).toBeUndefined();
+        expect(posted[0].stored_filter).toBeUndefined();
+        expect(posted[1].type).toBe('restorePending');
+
+        const my_settled = posted.find(m => m.type === 'restoreSettled');
+        expect(my_settled).toBeDefined();
+        expect(my_settled.restore_id).toBe(0);
+        expect(my_settled.sort).toEqual(STORED_SORT);
+        expect(my_settled.filter).toEqual(STORED_FILTER);
+        // Active filter → effective (post-filter) count announced.
+        expect(my_settled.nobs_effective).toBe(3);
     });
 
-    it('clears restoring even if it throws before metadata (finding #3)', async () => {
-        const { panel_like } = await make_restore_panel({
+    it('a settle-phase throw still dismisses the banner and clears state (finding #3)', async () => {
+        const { panel_like, posted } = await make_restore_panel({
             stored_sort: STORED_SORT,
         });
         panel_like.compute_sort_permutation = async () =>
             new Uint32Array(10);
-        // Throw after the restore began but before metadata is posted.
+        // Throw during the settle, before post_restore_settled runs.
         panel_like.recompute_effective = () => {
             throw new Error('boom');
         };
 
         await panel_like.send_metadata();
 
+        // The inner finally releases the restore state...
         expect(panel_like.restoring).toBe(false);
         expect(panel_like.restore_abort).toBeNull();
+        expect(panel_like.restore_id).toBe(-1);
+        // ...and a best-effort EMPTY settle was still posted so the webview
+        // banner can't stay stuck on "Applying…".
+        const my_settled = posted.find(m => m.type === 'restoreSettled');
+        expect(my_settled).toBeDefined();
+        expect(my_settled.sort.keys.length).toBe(0);
+        expect(my_settled.filter.entries.length).toBe(0);
     });
 
     it('serializes send_metadata so a reload cannot start a concurrent restore', async () => {
@@ -295,8 +352,11 @@ describe('send_metadata restore', () => {
 
         await panel_like.send_metadata();
 
-        // Stale attempt: no metadata posted, prefs left intact.
-        expect(posted.some(m => m.type === 'metadata')).toBe(false);
+        // Paint-first posts metadata up front, but a generation change
+        // mid-restore makes the attempt bail before settling: no
+        // restoreSettled, and prefs left intact.
+        expect(posted.some(m => m.type === 'metadata')).toBe(true);
+        expect(posted.some(m => m.type === 'restoreSettled')).toBe(false);
         expect(sort_set).toEqual([]);
     });
 
@@ -343,6 +403,48 @@ describe('send_metadata restore', () => {
         expect(filter_set).toEqual([]);
         const my_meta = posted.find(m => m.type === 'metadata');
         expect(my_meta.stored_sort).toBeUndefined();
+    });
+
+    it('a settle to natural order does not bump generation or clear cache (Codex round 4)', async () => {
+        const { panel_like, posted } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+        });
+        // The sort restore is cancelled → the restore settles to natural.
+        panel_like.compute_sort_permutation = async () => {
+            panel_like.restore_abort?.abort();
+            throw abort_error();
+        };
+        let cache_cleared = 0;
+        panel_like.row_cache = { clear: () => { cache_cleared++; } };
+        const my_gen_before = panel_like.generation;
+
+        await panel_like.send_metadata();
+
+        // Natural order: do NOT invalidate, so natural-order pages and any
+        // row read in flight during restore stay valid (no stranded blanks).
+        expect(panel_like.effective_perm).toBeNull();
+        expect(panel_like.generation).toBe(my_gen_before);
+        expect(cache_cleared).toBe(0);
+        const my_settled = posted.find(m => m.type === 'restoreSettled');
+        expect(my_settled.sort.keys.length).toBe(0);
+    });
+
+    it('a settle that changes order bumps generation and clears cache', async () => {
+        const { panel_like } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+        });
+        panel_like.compute_sort_permutation = async () =>
+            new Uint32Array(10);
+        let cache_cleared = 0;
+        panel_like.row_cache = { clear: () => { cache_cleared++; } };
+        const my_gen_before = panel_like.generation;
+
+        await panel_like.send_metadata();
+
+        // Order changed: invalidate the natural-order pages/reads.
+        expect(panel_like.effective_perm).not.toBeNull();
+        expect(panel_like.generation).toBe(my_gen_before + 1);
+        expect(cache_cleared).toBe(1);
     });
 });
 
@@ -441,7 +543,12 @@ describe('refresh during restore (PullFrog finding)', () => {
         const my_ctrl = new AbortController();
         panel_like.restore_abort = my_ctrl;
         panel_like.histogram_cache = { clear: () => undefined };
-        panel_like.dta_file = { close: () => undefined };
+        // The restore must already be aborted by the time the file is
+        // closed, so an in-flight chunked read never races a closed fd.
+        let aborted_at_close = false;
+        panel_like.dta_file = {
+            close: () => { aborted_at_close = my_ctrl.signal.aborted; },
+        };
         // Isolate refresh handling from the full re-open.
         let reinit = false;
         panel_like.initialize = async () => { reinit = true; };
@@ -452,8 +559,10 @@ describe('refresh during restore (PullFrog finding)', () => {
         );
 
         // The old read must be aborted (not just dropped) so the queued
-        // send_metadata for the new dataset is not stuck behind it.
+        // send_metadata for the new dataset is not stuck behind it...
         expect(my_ctrl.signal.aborted).toBe(true);
+        // ...and the abort must precede the close (finding: close-before-abort).
+        expect(aborted_at_close).toBe(true);
         expect(panel_like.restore_abort).toBeNull();
         expect(panel_like.restoring).toBe(false);
         expect(panel_like.restore_id).toBe(-1);
@@ -530,34 +639,122 @@ describe('restore_id consumed on user pref change (PullFrog finding)', () => {
     });
 });
 
-describe('sort/filter ignored while restoring (round 6)', () => {
-    it('handle_set_sort is a no-op while a restore is in flight', async () => {
-        const { panel_like, posted } = await make_restore_panel();
+describe('user sort/filter supersedes an in-flight restore (paint-first)', () => {
+    it('handle_set_sort aborts the restore and applies the user sort', async () => {
+        const { panel_like, posted, sort_set } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+            stored_filter: STORED_FILTER,
+        });
+        // A background restore is in flight (grid is live under paint-first).
         panel_like.restoring = true;
+        panel_like.restore_id = 0;
+        const my_ctrl = new AbortController();
+        panel_like.restore_abort = my_ctrl;
+        panel_like.current_schema_hash = () => 'h';
+        panel_like.post_sort_status = (s: string) =>
+            posted.push({ type: 'sortStatus', state: s });
+        panel_like.post_sort_applied = () =>
+            posted.push({ type: 'sortApplied' });
+        panel_like.compute_sort_permutation =
+            async () => new Uint32Array(10);
         const my_gen_before = panel_like.generation;
 
         await panel_like.handle_set_sort({
-            type: 'setSort', keys: [{ col_index: 0, direction: 'asc' }],
+            type: 'setSort',
+            keys: [{ col_index: 1, direction: 'desc' }],
             labels_on: true,
         });
 
-        // No generation bump, no status posted: the command was ignored
-        // so the in-flight restore can post metadata uninterrupted.
-        expect(panel_like.generation).toBe(my_gen_before);
-        expect(posted).toEqual([]);
+        // The restore is aborted and its handshake consumed; the user's
+        // sort is applied and persisted.
+        expect(my_ctrl.signal.aborted).toBe(true);
+        expect(panel_like.restoring).toBe(false);
+        expect(panel_like.restore_abort).toBeNull();
+        expect(panel_like.restore_id).toBe(-1);
+        expect(panel_like.generation).toBe(my_gen_before + 1);
+        expect(panel_like.sort.keys[0].direction).toBe('desc');
+        expect(sort_set.length).toBe(1);
+        // Superseding does NOT forget the saved filter (no filter write).
+        expect(posted.some(m => m.type === 'sortApplied')).toBe(true);
+        // The restore attempt is marked consumed so a later reload cannot
+        // resurrect the not-yet-applied saved filter.
+        expect(panel_like.sort_restored).toBe(true);
+        expect(panel_like.filter_restored).toBe(true);
     });
 
-    it('handle_set_filters is a no-op while a restore is in flight', async () => {
-        const { panel_like, posted } = await make_restore_panel();
+    it('a reload after superseding does not resurrect the skipped saved filter (Codex round 2)', async () => {
+        const { panel_like, posted } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+            stored_filter: STORED_FILTER,
+        });
+        // State mid-restore: the saved-sort read set sort_restored, but the
+        // saved filter has not been fetched yet (filter_restored false).
         panel_like.restoring = true;
+        panel_like.restore_id = 0;
+        panel_like.sort_restored = true;
+        panel_like.filter_restored = false;
+        panel_like.restore_abort = new AbortController();
+        panel_like.current_schema_hash = () => 'h';
+        panel_like.post_sort_status = () => undefined;
+        panel_like.post_sort_applied = () =>
+            posted.push({ type: 'sortApplied' });
+        panel_like.compute_sort_permutation =
+            async () => new Uint32Array(10);
+
+        // The user sorts, superseding the restore during the saved-sort read.
+        await panel_like.handle_set_sort({
+            type: 'setSort',
+            keys: [{ col_index: 1, direction: 'desc' }],
+            labels_on: true,
+        });
+
+        // Both one-shot flags are now consumed, so a subsequent reload sees
+        // nothing to restore (it would otherwise refetch the saved filter
+        // that the user never applied and apply it over their sort).
+        expect(panel_like.filter_restored).toBe(true);
+        expect(panel_like.restore_applies('h')).toEqual({
+            sort: false, filter: false,
+        });
+    });
+
+    it('handle_set_filters aborts the restore and applies the user filter', async () => {
+        const { panel_like, posted, filter_set } = await make_restore_panel({
+            stored_sort: STORED_SORT,
+            stored_filter: STORED_FILTER,
+        });
+        panel_like.restoring = true;
+        panel_like.restore_id = 0;
+        const my_ctrl = new AbortController();
+        panel_like.restore_abort = my_ctrl;
+        panel_like.current_schema_hash = () => 'h';
+        panel_like.post_filter_status = (s: string) =>
+            posted.push({ type: 'filterStatus', state: s });
+        panel_like.post_filter_applied = () =>
+            posted.push({ type: 'filterApplied' });
+        panel_like.compute_filter_indices =
+            async () => new Uint32Array([0, 1]);
         const my_gen_before = panel_like.generation;
 
         await panel_like.handle_set_filters({
-            type: 'setFilters', entries: [], labels_on: true,
+            type: 'setFilters',
+            entries: [{
+                id: 'f9',
+                col_index: 0,
+                predicate: { kind: 'isNotEmpty' },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on: true,
         });
 
-        expect(panel_like.generation).toBe(my_gen_before);
-        expect(posted).toEqual([]);
+        expect(my_ctrl.signal.aborted).toBe(true);
+        expect(panel_like.restoring).toBe(false);
+        expect(panel_like.restore_abort).toBeNull();
+        expect(panel_like.restore_id).toBe(-1);
+        expect(panel_like.generation).toBe(my_gen_before + 1);
+        expect(panel_like.filter.entries.length).toBe(1);
+        expect(filter_set.length).toBe(1);
+        expect(posted.some(m => m.type === 'filterApplied')).toBe(true);
     });
 });
 
@@ -653,5 +850,149 @@ describe('stale restore state does not leak across opens (code-review root cause
         expect(panel_like.sort.keys.length).toBe(1);
         expect(sort_set).toEqual([]);
         expect(filter_set).toEqual([]);
+    });
+
+    it('a reload after a consumed restore re-announces the effective filter count (code-review round 3)', async () => {
+        const { panel_like, posted } = await make_restore_panel({
+            stored_filter: STORED_FILTER,
+        });
+        // Webview reload after the saved filter was already restored: the
+        // one-shot flags are consumed and the filter is active in memory.
+        panel_like.sort_restored = true;
+        panel_like.filter_restored = true;
+        panel_like.filter = STORED_FILTER;
+        panel_like.filtered_indices = new Uint32Array([0, 1, 2]);
+        panel_like.effective_perm = new Uint32Array([0, 1, 2]);
+
+        await panel_like.send_metadata();
+
+        // No fresh restore begins, but the effective (post-filter) count is
+        // re-announced so the grid does not size for the full dataset.
+        expect(posted.some(m => m.type === 'restorePending')).toBe(false);
+        const my_applied = posted.find(m => m.type === 'filterApplied');
+        expect(my_applied).toBeDefined();
+        expect(my_applied.nobs_filtered).toBe(3);
+    });
+});
+
+describe('user action mid-restore supersedes (paint-first race)', () => {
+    it('a user sort during the restore read: no settle, no forget', async () => {
+        const { panel_like, posted, sort_set, filter_set } =
+            await make_restore_panel({
+                stored_sort: STORED_SORT,
+                stored_filter: STORED_FILTER,
+            });
+        let release: (() => void) | null = null;
+        const my_gate = new Promise<void>(r => { release = r; });
+        let calls = 0;
+        // Gate only the restore's read; the user's later sort runs at once.
+        panel_like.compute_sort_permutation = async () => {
+            if (calls++ === 0) await my_gate;
+            return new Uint32Array(10);
+        };
+        panel_like.current_schema_hash = () => 'h';
+        panel_like.post_sort_status = () => undefined;
+        panel_like.post_sort_applied = () =>
+            posted.push({ type: 'sortApplied' });
+
+        const p = panel_like.send_metadata();
+        // Let the restore begin and park at the gated column read.
+        await new Promise(r => setTimeout(r, 0));
+        expect(panel_like.restoring).toBe(true);
+
+        // The user applies their own sort over the live (natural) grid.
+        await panel_like.handle_set_sort({
+            type: 'setSort',
+            keys: [{ col_index: 1, direction: 'desc' }],
+            labels_on: true,
+        });
+
+        release!();
+        await p;
+
+        // User's sort applied + persisted; the superseded restore neither
+        // settled nor forgot the saved filter.
+        expect(panel_like.sort.keys[0].direction).toBe('desc');
+        expect(sort_set.length).toBe(1);
+        expect(filter_set).toEqual([]);
+        expect(posted.some(m => m.type === 'restoreSettled')).toBe(false);
+    });
+
+    it('a user filter does not inherit the restore\'s committed sort (Codex HIGH)', async () => {
+        const { panel_like, posted, filter_set } =
+            await make_restore_panel({
+                stored_sort: STORED_SORT,
+                stored_filter: STORED_FILTER,
+            });
+        // The restore commits the saved sort, then parks in the filter
+        // read (this is the window the bug lived in).
+        panel_like.compute_sort_permutation =
+            async () => new Uint32Array(10);
+        let release: (() => void) | null = null;
+        const my_gate = new Promise<void>(r => { release = r; });
+        let filter_calls = 0;
+        panel_like.compute_filter_indices = async () => {
+            if (filter_calls++ === 0) await my_gate;
+            return new Uint32Array([0, 1]);
+        };
+        panel_like.current_schema_hash = () => 'h';
+        panel_like.post_filter_status = () => undefined;
+        panel_like.post_filter_applied = () =>
+            posted.push({ type: 'filterApplied' });
+
+        const p = panel_like.send_metadata();
+        await new Promise(r => setTimeout(r, 0));
+        // Precondition: the restore has committed the sort in memory.
+        expect(panel_like.sort.keys.length).toBe(1);
+        expect(panel_like.permutation).not.toBeNull();
+
+        // The user applies their own filter, superseding the restore.
+        await panel_like.handle_set_filters({
+            type: 'setFilters',
+            entries: [{
+                id: 'u1',
+                col_index: 0,
+                predicate: { kind: 'isNotEmpty' },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on: true,
+        });
+
+        release!();
+        await p;
+
+        // The committed restored sort is discarded — no hidden sort under
+        // the filter-only chip — and the restore does not settle.
+        expect(panel_like.sort.keys.length).toBe(0);
+        expect(panel_like.permutation).toBeNull();
+        expect(panel_like.filter.entries.length).toBe(1);
+        expect(filter_set.length).toBe(1);
+        expect(posted.some(m => m.type === 'restoreSettled')).toBe(false);
+    });
+});
+
+describe('dispose during restore (paint-first, finding #5)', () => {
+    it('aborts the in-flight restore reads before closing the file', async () => {
+        const { panel_like } = await make_restore_panel();
+        panel_like.restoring = true;
+        panel_like.restore_id = 0;
+        const my_ctrl = new AbortController();
+        panel_like.restore_abort = my_ctrl;
+        panel_like.disposables = [];
+        panel_like.dta_file = { close: () => undefined };
+        panel_like.panel = {
+            ...panel_like.panel,
+            dispose: () => undefined,
+        };
+        const my_gen_before = panel_like.generation;
+
+        panel_like.dispose();
+
+        expect(my_ctrl.signal.aborted).toBe(true);
+        expect(panel_like.restoring).toBe(false);
+        expect(panel_like.restore_abort).toBeNull();
+        expect(panel_like.generation).toBe(my_gen_before + 1);
+        expect(panel_like.disposed).toBe(true);
     });
 });
