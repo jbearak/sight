@@ -1243,6 +1243,73 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             expect(my_definition).toBeNull();
         });
 
+        it('should not navigate a do command path inside a block comment', async () => {
+            // A commented-out `do "child.do"` is never executed by Stata, so
+            // go-to-definition must be inert inside the /* ... */ block (#241).
+            const child_path = path.join(temp_dir, 'child.do');
+            fs.writeFileSync(child_path, '// Child file');
+
+            const my_content = '/*\ndo "child.do"\n*/';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                URI.file(path.join(temp_dir, 'test.do')).toString()
+            );
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 8 } // Position on "child.do" inside block
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
+        it('should still navigate the same do command path outside a block comment', async () => {
+            // Positive control for the block-comment gate above: identical line,
+            // not commented out, must still resolve.
+            const child_path = path.join(temp_dir, 'child.do');
+            fs.writeFileSync(child_path, '// Child file');
+
+            const my_content = 'do "child.do"';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                URI.file(path.join(temp_dir, 'test.do')).toString()
+            );
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 0, character: 8 } // Position on "child.do"
+            );
+
+            expect(my_definition).not.toBeNull();
+            expect(my_definition?.uri).toContain('child.do');
+        });
+
+        it('should not navigate a do command path inside an unterminated block comment at EOF', async () => {
+            // Unterminated /* runs to EOF; the cursor sits at the exclusive token
+            // end, which is_cursor_in_block_comment must still treat as inside.
+            const child_path = path.join(temp_dir, 'child.do');
+            fs.writeFileSync(child_path, '// Child file');
+
+            const my_content = '/*\ndo "child.do"';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                URI.file(path.join(temp_dir, 'test.do')).toString()
+            );
+
+            // Cursor at the very end of the buffer (line 1, char 13) — the
+            // unterminated COMMENT_BLOCK's exclusive end, which the EOF-inclusive
+            // branch of is_cursor_in_block_comment must still treat as inside.
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 'do "child.do"'.length }
+            );
+
+            expect(my_definition).toBeNull();
+        });
+
         it('should not navigate to directive target when cursor is on a word outside the quoted path', async () => {
             const helper_path = path.join(temp_dir, 'helper.do');
             fs.writeFileSync(helper_path, '// Helper file');

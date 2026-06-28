@@ -39,8 +39,20 @@ function is_cursor_in_comment_from_tokens(tokens: Token[], position: Position): 
  * `//` / line-leading `*` line comment). Directives are inert inside block
  * comments, so providers use this to avoid resolving/completing a
  * directive-looking line that is actually block-commented out.
+ *
+ * With lexer tokens present, detection uses precise COMMENT_BLOCK ranges.
+ * Without them (a rare lexer error/timeout state) it falls back to a string
+ * heuristic that can misread `/*` inside strings or `//` comments. Callers that
+ * drive blanket suppression (returning nothing for a whole position) should pass
+ * `require_tokens: true` to opt out of that heuristic rather than risk hiding
+ * live code; callers that only suppress a narrow directive-looking line can rely
+ * on the best-effort fallback.
  */
-export function is_cursor_in_block_comment(document: DocumentState, position: Position): boolean {
+export function is_cursor_in_block_comment(
+    document: DocumentState,
+    position: Position,
+    options?: { require_tokens?: boolean }
+): boolean {
     if (document.tokens && document.tokens.length > 0) {
         for (const my_token of document.tokens) {
             // A block comment is always inert; a line comment is inert only when
@@ -49,11 +61,30 @@ export function is_cursor_in_block_comment(document: DocumentState, position: Po
             const is_block = my_token.type === 'COMMENT_BLOCK';
             const is_spanned_line = my_token.type === 'COMMENT_LINE' &&
                 my_token.range.end.line > my_token.range.start.line;
-            if ((is_block || is_spanned_line) &&
-                is_position_in_range(position, my_token.range)) {
-                return true;
+            if (is_block || is_spanned_line) {
+                if (is_position_in_range(position, my_token.range)) {
+                    return true;
+                }
+                // An unterminated `/* ... */` (a block, or a line-leading `*`
+                // that opened a block) runs to EOF with an exclusive token end,
+                // so a cursor typed at the very end of the buffer sits exactly
+                // on that end and would otherwise read as outside the comment.
+                // Treat that EOF end as inclusive so providers stay inert while
+                // the user is still typing the comment body. A terminated
+                // comment's value ends with `*/`, so it keeps exclusive-end
+                // behavior (e.g. the char immediately after an inline block).
+                if (!my_token.value.endsWith('*/') &&
+                    position.line === my_token.range.end.line &&
+                    position.character === my_token.range.end.character) {
+                    return true;
+                }
             }
         }
+        return false;
+    }
+
+    // No tokens: only the imprecise string heuristic is available.
+    if (options?.require_tokens) {
         return false;
     }
 
