@@ -313,6 +313,24 @@ gen x = 1`;
             expect(result.forward_calls![0].call_site_line).toBe(4); // 0-indexed
         });
 
+        test('reports a forward directive head with empty match="" as malformed', () => {
+            // Parity with backward directives: a forward-directive head that does
+            // not fully parse should warn rather than be silently dropped.
+            const content = '// sight: do: "setup.do" match=""\ngen x = 1';
+            const result = parser.parse_forward_call_directives(content, 'file:///test.do');
+
+            expect(result.forward_calls?.length ?? 0).toBe(0);
+            expect(result.diagnostics.some(d => d.message.includes('Malformed directive'))).toBe(true);
+        });
+
+        test('does not flag a non-directive word starting with a keyword', () => {
+            const content = '// sight: doctor notes here\ngen x = 1';
+            const result = parser.parse_forward_call_directives(content, 'file:///test.do');
+
+            expect(result.forward_calls?.length ?? 0).toBe(0);
+            expect(result.diagnostics.length).toBe(0);
+        });
+
         test('accepts canonical sight forward directives', () => {
             const content = '// sight: include: "callee.do" line=5\ngen x = 1';
             const result = parser.parse(content, 'file:///test.do');

@@ -62,6 +62,15 @@ const FORWARD_CALL_DIRECTIVE_PATTERN = make_directive_pattern(
     String.raw`:?\s+(?:"([^"]+)"|([^\s]+))${CALL_SITE_PARAMS_PATTERN}`,
 );
 
+// Detects a standalone forward-directive head (keyword present but the full
+// FORWARD_CALL_DIRECTIVE_PATTERN did not match) so the parser can report it as
+// malformed, mirroring BACKWARD_DIRECTIVE_HEAD_PATTERN. The `(?=\s|$)` lookahead
+// keeps the keyword a whole word so `// sight: doctor` is not treated as `do`.
+const FORWARD_CALL_DIRECTIVE_HEAD_PATTERN = make_directive_pattern(
+    FORWARD_DIRECTIVE_KEYWORDS,
+    String.raw`:?(?=\s|$)`,
+);
+
 // Pattern for working directory directive with all synonyms
 // Matches: @lsp-working-directory, @lsp-working-dir, @lsp-current-directory, @lsp-current-dir, @lsp-cd, @lsp-wd
 const WORKING_DIR_DIRECTIVE_PATTERN = make_directive_pattern(
@@ -416,6 +425,18 @@ export class DirectiveParser {
                     call_site_line: my_call_site_line,
                     call_site: my_call_site,
                     range: my_range,
+                });
+            } else if (!ignored_next_lines.has(i) &&
+                FORWARD_CALL_DIRECTIVE_HEAD_PATTERN.test(my_trimmed)) {
+                // Forward-directive head present but the full directive did not
+                // parse (e.g. missing path or empty match=""). Report it as
+                // malformed, mirroring backward directives, so the user is not
+                // left guessing why the directive was silently ignored.
+                the_diagnostics.push({
+                    message: 'Malformed directive. Expected: ' +
+                        '// sight: do: "path.do" or // sight: run: "path.do" or // sight: include: "path.do"',
+                    range: { start: { line: i, character: 0 }, end: { line: i, character: my_line.length } },
+                    severity: 'warning',
                 });
             }
         }
