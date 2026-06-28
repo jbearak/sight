@@ -46,8 +46,8 @@ Globals, programs, scalars, and matrices defined in unrelated workspace
 files are not hidden. They appear at the bottom of the list with a
 `(out of scope — from <path>)` detail. Accepting one produces an
 undefined-symbol diagnostic — the cue to add a `do` / `run` / `include`
-statement or a cross-file directive (`# sight: do`, `# sight: done-by`,
-`# sight: included-by`, …) to bring the symbol into scope. `@lsp-`
+statement or a cross-file directive (`sight: do`, `sight: done-by`,
+`sight: included-by`, …) to bring the symbol into scope. `@lsp-`
 spellings remain aliases.
 
 ### 4. Built-ins win over out-of-scope programs
@@ -73,7 +73,7 @@ analyses.
 
 ### Resolved-scope mode
 
-Active when the file has `# sight:` / `@lsp-` directives or auto-discovered
+Active when the file has `sight:` / `@lsp-` directives or auto-discovered
 parents via the dependency graph. The in-scope set is the current
 file plus the call-site-filtered scope chain. Entries the resolver
 ruled out (after the call site, or excluded by `do` / `run`

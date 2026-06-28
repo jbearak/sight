@@ -19,7 +19,7 @@ Sight's sister project [Raven](https://github.com/jbearak/raven) implements a la
 - **Go-to-Definition**: Jump to definitions of local/global macros and programs across the workspace
 - **[Find References](docs/find-references.md)**: Locate every use of a macro, program, or variable across related files
 - **[Cross-file awareness](docs/cross-file.md)**: Symbol resolution across `do`/`include` chains with position-aware scope
-- **[Declaration directives](docs/declaration-directives.md)**: Suppress diagnostics for dynamically-created symbols (`# sight: local`, `# sight: global`; `@lsp-` remains an alias)
+- **[Declaration directives](docs/declaration-directives.md)**: Suppress diagnostics for dynamically-created symbols (`sight: local`, `sight: global`; `@lsp-` remains an alias)
 - **[Document Outline](docs/document-outline.md)**: Hierarchical code navigation with programs, macros, variables, and code sections
 - **Workspace Symbols**: Search for symbols across the entire workspace
 

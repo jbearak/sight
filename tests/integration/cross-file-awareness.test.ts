@@ -348,7 +348,7 @@ describe('Cross-File Awareness Integration', () => {
 
             // Should warn about conflicting directives
             const conflict_warning = resolved_scope.diagnostics.find((d) =>
-                d.message.includes('Both # sight: done-by and # sight: included-by')
+                d.message.includes('Both sight: done-by and sight: included-by')
             );
             expect(conflict_warning).toBeDefined();
         });

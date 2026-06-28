@@ -195,6 +195,6 @@ describe('Property 6: @lsp-run-by Parsing Equivalence', () => {
         expect(result.directives.length).toBe(0);
         expect(result.diagnostics.length).toBe(1);
         expect(result.diagnostics[0].severity).toBe('warning');
-        expect(result.diagnostics[0].message).toContain('# sight: run-by');
+        expect(result.diagnostics[0].message).toContain('sight: run-by');
     });
 });

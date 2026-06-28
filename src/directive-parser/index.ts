@@ -192,7 +192,7 @@ export class DirectiveParser {
                 if (!my_quoted_path && my_unquoted_path && !looks_like_unquoted_path_token(my_unquoted_path)) {
                     the_diagnostics.push({
                         message: 'Malformed directive. Expected: ' +
-                            '// # sight: done-by: "path.do" or // # sight: run-by: "path.do" or // # sight: included-by: "path.do"',
+                            '// sight: done-by: "path.do" or // sight: run-by: "path.do" or // sight: included-by: "path.do"',
                         range: {
                             start: { line: i, character: 0 },
                             end: { line: i, character: my_line.length },
@@ -221,11 +221,11 @@ export class DirectiveParser {
                     call_site: my_call_site,
                     range: my_range,
                 });
-            } else if (/(?:@lsp-|#\s*sight:\s*)(?:done-by|run-by|included-by)/.test(my_trimmed)) {
+            } else if (/(?:@lsp-|(?:^|\/\/|\*)\s*sight:\s*)(?:done-by|run-by|included-by)/.test(my_trimmed)) {
                 // Malformed directive
                 the_diagnostics.push({
                     message: 'Malformed directive. Expected: ' +
-                        '// # sight: done-by "path" or // # sight: run-by "path" or // # sight: included-by "path"',
+                        '// sight: done-by "path" or // sight: run-by "path" or // sight: included-by "path"',
                     range: {
                         start: { line: i, character: 0 },
                         end: { line: i, character: my_line.length },
@@ -353,7 +353,7 @@ export class DirectiveParser {
                 if (!my_quoted_path && my_unquoted_path && !looks_like_unquoted_path_token(my_unquoted_path)) {
                     the_diagnostics.push({
                         message: 'Malformed directive. Expected: ' +
-                            '// # sight: do: "path.do" or // # sight: run: "path.do" or // # sight: include: "path.do"',
+                            '// sight: do: "path.do" or // sight: run: "path.do" or // sight: include: "path.do"',
                         range: { start: { line: i, character: 0 }, end: { line: i, character: my_line.length } },
                         severity: 'warning',
                     });

@@ -51,7 +51,8 @@ export function isFileCommand(command: string): boolean {
  * Check if a directive accepts file paths
  */
 export function isPathDirective(directive: string): boolean {
-  const normalized = directive.trim().toLowerCase().replace(/^#\s*sight:\s*/, '@lsp-');
+  const normalized = directive.trim().toLowerCase()
+    .replace(/^sight:\s*/, '@lsp-');
   return PATH_DIRECTIVES.has(normalized);
 }
 

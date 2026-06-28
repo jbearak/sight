@@ -91,9 +91,9 @@ describe('DirectiveParser', () => {
             expect(result.directives[0].type).toBe('done-by');
         });
 
-        test('parses canonical # sight prefix in Stata comments', () => {
-            const content = `// # sight: done-by: "parent.do"
-* # sight: included-by utils.do
+        test('parses canonical sight prefix in Stata comments', () => {
+            const content = `// sight: done-by: "parent.do"
+* sight: included-by utils.do
 gen x = 1`;
             const result = parser.parse(content, 'file:///test.do');
 
@@ -104,15 +104,22 @@ gen x = 1`;
             expect(result.directives[1].raw_path).toBe('utils.do');
         });
 
-        test('does not parse bare # sight prefix as a Stata comment', () => {
-            const content = '# sight: done-by "parent.do"\ngen x = 1';
+        test('does not parse bare sight prefix as a Stata comment', () => {
+            const content = 'sight: done-by "parent.do"\ngen x = 1';
             const result = parser.parse(content, 'file:///test.do');
 
             expect(result.directives.length).toBe(0);
         });
 
-        test('parses canonical # sight working-directory directives', () => {
-            const content = '// # sight: wd: "../data"\ngen x = 1';
+        test('does not parse # sight as a directive prefix', () => {
+            const content = '// # sight: done-by "parent.do"\ngen x = 1';
+            const result = parser.parse(content, 'file:///test.do');
+
+            expect(result.directives.length).toBe(0);
+        });
+
+        test('parses canonical sight working-directory directives', () => {
+            const content = '// sight: wd: "../data"\ngen x = 1';
             const result = parser.parse(content, 'file:///project/scripts/test.do');
 
             expect(result.working_directory?.path).toBe('../data');
@@ -258,8 +265,8 @@ gen x = 1`;
             expect(result.forward_calls![0].call_site_line).toBe(4); // 0-indexed
         });
 
-        test('accepts canonical # sight forward directives', () => {
-            const content = '// # sight: include: "callee.do" line=5\ngen x = 1';
+        test('accepts canonical sight forward directives', () => {
+            const content = '// sight: include: "callee.do" line=5\ngen x = 1';
             const result = parser.parse(content, 'file:///test.do');
 
             expect(result.forward_calls?.length ?? 0).toBe(1);

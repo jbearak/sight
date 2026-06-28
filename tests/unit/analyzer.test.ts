@@ -581,12 +581,12 @@ display \`undefined_macro' // @lsp-ignore
             expect(undefined_diags.length).toBe(0);
         });
 
-        it('should suppress diagnostics with canonical # sight ignore directives', () => {
+        it('should suppress diagnostics with canonical sight ignore directives', () => {
             const same_line = analyze(`
-display \`undefined_macro' // # sight: ignore
+display \`undefined_macro' // sight: ignore
 `, { undefined_macro_enabled: true });
             const next_line = analyze(`
-// # sight: ignore-next
+// sight: ignore-next
 display \`undefined_macro'
 `, { undefined_macro_enabled: true });
 
@@ -598,18 +598,22 @@ display \`undefined_macro'
             ).length).toBe(0);
         });
 
-        it('should not suppress diagnostics for # sight lookalikes in code', () => {
+        it('should not suppress diagnostics for sight lookalikes in code', () => {
             const result = analyze(`
-display \`undefined_macro' * # sight: ignore
-display \`another_macro' // # sight: ignoreme
-# sight: ignore-next
+display \`undefined_macro' * sight: ignore
+display \`another_macro' // sight: ignoreme
+sight: ignore-next
+display \`hash_prefixed_macro' // # sight: ignore
 display \`bare_directive_macro'
 `, { undefined_macro_enabled: true });
 
             const undefined_diags = result.diagnostics.filter(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
-            expect(undefined_diags.length).toBeGreaterThan(0);
+            expect(undefined_diags.some(d => d.message.includes('undefined_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('another_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('hash_prefixed_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('bare_directive_macro'))).toBe(true);
         });
 
         it('should declare variables with @lsp-variables', () => {
@@ -626,9 +630,9 @@ summarize age income
             expect(var_diags.length).toBe(0);
         });
 
-        it('should declare variables with canonical # sight directives', () => {
+        it('should declare variables with canonical sight directives', () => {
             const result = analyze(`
-// # sight: variables age income
+// sight: variables age income
 summarize age income
 `, {
                 undefined_variable_enabled: true,
@@ -641,9 +645,9 @@ summarize age income
             expect(declared_var_diags.length).toBe(0);
         });
 
-        it('should declare local macros with canonical # sight directives', () => {
+        it('should declare local macros with canonical sight directives', () => {
             const result = analyze(`
-// # sight: local dynamic_macro
+// sight: local dynamic_macro
 display \`dynamic_macro'
 `, {
                 undefined_macro_enabled: true,

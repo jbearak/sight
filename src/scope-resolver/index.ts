@@ -526,7 +526,7 @@ export class ScopeResolver {
     ): void {
         if (directive_type === 'included-by' && detected_call_type !== 'include') {
             diagnostics.push({
-                message: `Directive # sight: included-by used but caller uses ${detected_call_type} (not include). Local macros will not be inherited.`,
+                message: `Directive sight: included-by used but caller uses ${detected_call_type} (not include). Local macros will not be inherited.`,
                 range,
                 severity: 'warning',
                 source: {
@@ -555,7 +555,7 @@ export class ScopeResolver {
             const call_site_severity = config.diagnostics?.call_site_identification ?? 'information';
             if (call_site_severity !== 'off') {
                 diagnostics.push({
-                    message: `Directive # sight: done-by used but caller uses include. Full inheritance (including local macros) will occur.`,
+                    message: `Directive sight: done-by used but caller uses include. Full inheritance (including local macros) will occur.`,
                     range,
                     severity: call_site_severity,
                     source: {
@@ -623,7 +623,7 @@ export class ScopeResolver {
                     the_group.find((d) => d.type === 'included-by')?.range ?? the_group[0].range;
                 diagnostics.push({
                     message:
-                        'Both # sight: done-by and # sight: included-by reference the same parent; ' +
+                        'Both sight: done-by and sight: included-by reference the same parent; ' +
                         'treating as included-by (full inheritance).',
                     range: my_range,
                     severity: 'warning',

@@ -1504,7 +1504,7 @@ export class DefinitionProvider {
         }
 
         // Check for path-bearing directives. These are only directives inside
-        // Stata comments; bare `# sight:` text is ordinary invalid Stata code.
+        // Stata comments; bare `sight:` text is ordinary invalid Stata code.
         const directive_match = line_text.match(
             new RegExp(
                 `${DIRECTIVE_PREFIX_PATTERN}(${BACKWARD_DIRECTIVE_KEYWORDS}|${FORWARD_DIRECTIVE_KEYWORDS})` +
@@ -1519,7 +1519,7 @@ export class DefinitionProvider {
 
             // The match ends at the path (including the closing quote when
             // quoted), so compute the span from the end. This is insensitive to
-            // whether the directive used `@lsp-` or `# sight:`.
+            // whether the directive used `@lsp-` or `sight:`.
             const path_start = match_start + directive_match[0].length -
                 file_path.length - (quoted_path ? 1 : 0);
             const path_end = path_start + file_path.length;
