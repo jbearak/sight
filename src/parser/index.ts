@@ -484,7 +484,7 @@ export class StataParser {
       has_equals = true;
       this.advance();
     }
-    this.skipTrivia();
+    this.skipLeadingMacroValueTrivia();
 
     // Collect the rest of the line as the macro value (stop at comment or terminator)
     let value = prefixOp || ''; // If prefixOp exists and no = value follows, it signifies increment
@@ -2461,6 +2461,21 @@ export class StataParser {
   private skipTrivia(): void {
     while (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK') || this.check('CONTINUATION') || this.check('WHITESPACE')) {
       this.advance();
+    }
+  }
+
+  private skipLeadingMacroValueTrivia(): void {
+    while (!this.isAtEnd()) {
+      if (this.skipContinuation()) {
+        continue;
+      }
+
+      if (this.check('WHITESPACE') || this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
+        this.advance();
+        continue;
+      }
+
+      break;
     }
   }
 
