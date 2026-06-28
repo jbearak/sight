@@ -10,6 +10,13 @@ The action should mirror the shape and behavior of `jbearak/setup-raven`: a
 small composite action backed by a shell installer script, with documentation,
 license, and CI in the action repository.
 
+## Implementation Status
+
+The action implementation is intentionally outside this Sight repository. The
+standalone repository has been created at
+[`jbearak/setup-sight`](https://github.com/jbearak/setup-sight); this repository
+keeps the design and implementation plan as project documentation.
+
 ## User-Facing Behavior
 
 Users can install Sight in a workflow with:

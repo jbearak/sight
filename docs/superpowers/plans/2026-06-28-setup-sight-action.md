@@ -12,7 +12,21 @@
 
 ## File Structure
 
-Create the standalone repository at `/Users/jmb/.codex/worktrees/48cf/setup-sight` unless the user requests a different location.
+The standalone action implementation is intentionally not stored in this Sight
+repository. It has been published at
+[`jbearak/setup-sight`](https://github.com/jbearak/setup-sight); this plan is
+kept here as the implementation record.
+
+When executing this plan from another machine, choose local checkout paths and
+export them before running the commands:
+
+```bash
+export SIGHT_REPO=/path/to/sight
+export SETUP_SIGHT_REPO=/path/to/setup-sight
+```
+
+Create the standalone repository at `$SETUP_SIGHT_REPO` unless the user requests
+a different location.
 
 - `action.yml`: Composite action metadata, one `version` input, and env wiring into `setup-sight.sh`.
 - `setup-sight.sh`: Installer implementation.
@@ -26,18 +40,18 @@ Create the standalone repository at `/Users/jmb/.codex/worktrees/48cf/setup-sigh
 ## Task 1: Scaffold Standalone Repository
 
 **Files:**
-- Create: `/Users/jmb/.codex/worktrees/48cf/setup-sight/action.yml`
-- Create: `/Users/jmb/.codex/worktrees/48cf/setup-sight/setup-sight.sh`
-- Create: `/Users/jmb/.codex/worktrees/48cf/setup-sight/README.md`
-- Create: `/Users/jmb/.codex/worktrees/48cf/setup-sight/LICENSE`
-- Create: `/Users/jmb/.codex/worktrees/48cf/setup-sight/.github/workflows/ci.yml`
+- Create: `$SETUP_SIGHT_REPO/action.yml`
+- Create: `$SETUP_SIGHT_REPO/setup-sight.sh`
+- Create: `$SETUP_SIGHT_REPO/README.md`
+- Create: `$SETUP_SIGHT_REPO/LICENSE`
+- Create: `$SETUP_SIGHT_REPO/.github/workflows/ci.yml`
 
 - [ ] **Step 1: Create the repository directory**
 
 Run:
 
 ```bash
-mkdir -p /Users/jmb/.codex/worktrees/48cf/setup-sight/.github/workflows
+mkdir -p "$SETUP_SIGHT_REPO"/.github/workflows
 ```
 
 Expected: directory exists.
@@ -47,7 +61,7 @@ Expected: directory exists.
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 git init
 ```
 
@@ -58,14 +72,14 @@ Expected: `Initialized empty Git repository`.
 Run:
 
 ```bash
-cp /Users/jmb/.codex/worktrees/48cf/sight/LICENSE /Users/jmb/.codex/worktrees/48cf/setup-sight/LICENSE
+cp "$SIGHT_REPO/LICENSE" "$SETUP_SIGHT_REPO/LICENSE"
 ```
 
 Expected: `LICENSE` exists and matches Sight's GPL-3.0 license.
 
 - [ ] **Step 4: Create minimal action metadata**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/action.yml`:
+Write `$SETUP_SIGHT_REPO/action.yml`:
 
 ```yaml
 name: Setup Sight
@@ -90,7 +104,7 @@ runs:
 
 - [ ] **Step 5: Create placeholder installer that fails**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/setup-sight.sh`:
+Write `$SETUP_SIGHT_REPO/setup-sight.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -103,14 +117,14 @@ exit 1
 Run:
 
 ```bash
-chmod +x /Users/jmb/.codex/worktrees/48cf/setup-sight/setup-sight.sh
+chmod +x "$SETUP_SIGHT_REPO"/setup-sight.sh
 ```
 
 Expected: script is executable.
 
 - [ ] **Step 6: Create initial README**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/README.md`:
+Write `$SETUP_SIGHT_REPO/README.md`:
 
 ```markdown
 # setup-sight
@@ -136,7 +150,7 @@ from prebuilt release binaries.
 
 - [ ] **Step 7: Create placeholder CI**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/.github/workflows/ci.yml`:
+Write `$SETUP_SIGHT_REPO/.github/workflows/ci.yml`:
 
 ```yaml
 name: CI
@@ -158,7 +172,7 @@ jobs:
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 git add action.yml setup-sight.sh README.md LICENSE .github/workflows/ci.yml
 git commit -m "chore: scaffold setup-sight action"
 ```
@@ -168,13 +182,13 @@ Expected: commit succeeds.
 ## Task 2: Add Failing Installer Tests
 
 **Files:**
-- Create: `/Users/jmb/.codex/worktrees/48cf/setup-sight/tests/setup-sight-test.sh`
-- Create: `/Users/jmb/.codex/worktrees/48cf/setup-sight/tests/fixtures/bin/sight`
-- Create: `/Users/jmb/.codex/worktrees/48cf/setup-sight/tests/fixtures/bin/sight.exe`
+- Create: `$SETUP_SIGHT_REPO/tests/setup-sight-test.sh`
+- Create: `$SETUP_SIGHT_REPO/tests/fixtures/bin/sight`
+- Create: `$SETUP_SIGHT_REPO/tests/fixtures/bin/sight.exe`
 
 - [ ] **Step 1: Create fake Sight executables**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/tests/fixtures/bin/sight`:
+Write `$SETUP_SIGHT_REPO/tests/fixtures/bin/sight`:
 
 ```bash
 #!/usr/bin/env bash
@@ -189,19 +203,19 @@ echo "unexpected fake sight args: $*" >&2
 exit 1
 ```
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/tests/fixtures/bin/sight.exe` with the same content.
+Write `$SETUP_SIGHT_REPO/tests/fixtures/bin/sight.exe` with the same content.
 
 Run:
 
 ```bash
-chmod +x /Users/jmb/.codex/worktrees/48cf/setup-sight/tests/fixtures/bin/sight /Users/jmb/.codex/worktrees/48cf/setup-sight/tests/fixtures/bin/sight.exe
+chmod +x "$SETUP_SIGHT_REPO"/tests/fixtures/bin/sight "$SETUP_SIGHT_REPO"/tests/fixtures/bin/sight.exe
 ```
 
 Expected: both fixtures are executable.
 
 - [ ] **Step 2: Write the failing Bash test harness**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/tests/setup-sight-test.sh`:
+Write `$SETUP_SIGHT_REPO/tests/setup-sight-test.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -305,7 +319,7 @@ echo "setup-sight tests passed"
 Run:
 
 ```bash
-chmod +x /Users/jmb/.codex/worktrees/48cf/setup-sight/tests/setup-sight-test.sh
+chmod +x "$SETUP_SIGHT_REPO"/tests/setup-sight-test.sh
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -313,7 +327,7 @@ chmod +x /Users/jmb/.codex/worktrees/48cf/setup-sight/tests/setup-sight-test.sh
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 bash tests/setup-sight-test.sh
 ```
 
@@ -324,7 +338,7 @@ Expected: FAIL because `setup-sight installer is not implemented yet`.
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 git add tests/setup-sight-test.sh tests/fixtures/bin/sight tests/fixtures/bin/sight.exe
 git commit -m "test: cover setup-sight installer behavior"
 ```
@@ -334,12 +348,12 @@ Expected: commit succeeds with failing tests recorded.
 ## Task 3: Implement Installer
 
 **Files:**
-- Modify: `/Users/jmb/.codex/worktrees/48cf/setup-sight/setup-sight.sh`
-- Test: `/Users/jmb/.codex/worktrees/48cf/setup-sight/tests/setup-sight-test.sh`
+- Modify: `$SETUP_SIGHT_REPO/setup-sight.sh`
+- Test: `$SETUP_SIGHT_REPO/tests/setup-sight-test.sh`
 
 - [ ] **Step 1: Replace placeholder with installer implementation**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/setup-sight.sh`:
+Write `$SETUP_SIGHT_REPO/setup-sight.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -464,7 +478,7 @@ fi
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 bash tests/setup-sight-test.sh
 ```
 
@@ -475,7 +489,7 @@ Expected: PASS with `setup-sight tests passed`.
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 bash -n setup-sight.sh
 bash -n tests/setup-sight-test.sh
 ```
@@ -487,7 +501,7 @@ Expected: no output and exit code 0.
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 git add setup-sight.sh
 git commit -m "feat: install verified sight release binaries"
 ```
@@ -497,12 +511,12 @@ Expected: commit succeeds.
 ## Task 4: Finish README and CI
 
 **Files:**
-- Modify: `/Users/jmb/.codex/worktrees/48cf/setup-sight/README.md`
-- Modify: `/Users/jmb/.codex/worktrees/48cf/setup-sight/.github/workflows/ci.yml`
+- Modify: `$SETUP_SIGHT_REPO/README.md`
+- Modify: `$SETUP_SIGHT_REPO/.github/workflows/ci.yml`
 
 - [ ] **Step 1: Expand README**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/README.md`:
+Write `$SETUP_SIGHT_REPO/README.md`:
 
 ```markdown
 # setup-sight
@@ -571,7 +585,7 @@ macOS x64 is not supported because Sight does not publish a macOS x64 binary.
 
 - [ ] **Step 2: Expand CI**
 
-Write `/Users/jmb/.codex/worktrees/48cf/setup-sight/.github/workflows/ci.yml`:
+Write `$SETUP_SIGHT_REPO/.github/workflows/ci.yml`:
 
 ```yaml
 name: CI
@@ -614,7 +628,7 @@ jobs:
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 bash -n setup-sight.sh
 bash -n tests/setup-sight-test.sh
 bash tests/setup-sight-test.sh
@@ -627,7 +641,7 @@ Expected: syntax checks pass and tests print `setup-sight tests passed`.
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 git add README.md .github/workflows/ci.yml
 git commit -m "docs: document setup-sight usage"
 ```
@@ -644,7 +658,7 @@ Expected: commit succeeds.
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 git log --oneline --decorate -5
 ```
 
@@ -655,7 +669,7 @@ Expected: commits for scaffold, tests, installer, docs/CI.
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 git status --short
 ```
 
@@ -666,7 +680,7 @@ Expected: no output.
 Run:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 bash -n setup-sight.sh
 bash -n tests/setup-sight-test.sh
 bash tests/setup-sight-test.sh
@@ -679,7 +693,7 @@ Expected: all commands pass.
 Tell the user the repository is ready locally and can be pushed with:
 
 ```bash
-cd /Users/jmb/.codex/worktrees/48cf/setup-sight
+cd "$SETUP_SIGHT_REPO"
 gh repo create jbearak/setup-sight --public --source=. --remote=origin --push
 git tag v1
 git push origin v1
