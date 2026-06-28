@@ -23,14 +23,20 @@ import { compute_line_offsets, get_line_text, get_line_count } from './line-util
 
 /**
  * Line indices (0-based) whose first non-whitespace character is inside a
- * multi-line comment that opened on an earlier line. `tokens` should be the
- * lexer tokens for `content`; when omitted, `content` is lexed.
+ * multi-line comment token. `tokens` should be the lexer tokens for `content`;
+ * when omitted, `content` is lexed.
+ *
+ * Only multi-line comments are considered: a single-line comment (the common
+ * `// sight: ...` directive, or an inline block comment) never hides a
+ * directive, so it is excluded and a real directive on its own line still
+ * parses. Anchoring on the line's first non-whitespace character means a real
+ * code line with a trailing multi-line comment opener (code, then a block
+ * opener) is NOT marked — its leading text is the code, not the comment — while
+ * a comment opener whose leading text is itself the comment (a bare block
+ * opener, or a line-leading-star span) IS marked.
  */
 export function block_comment_lines(content: string, tokens?: Token[]): Set<number> {
     const the_tokens = tokens ?? new StataLexer().tokenize(content).tokens;
-    // Only multi-line comments have continuation lines to skip. A single-line
-    // comment (the common `// sight: ...` directive, or an inline `/* */`)
-    // never hides a directive on a later line.
     const the_comment_ranges = the_tokens
         .filter(my_token =>
             (my_token.type === 'COMMENT_BLOCK' || my_token.type === 'COMMENT_LINE') &&
@@ -51,14 +57,11 @@ export function block_comment_lines(content: string, tokens?: Token[]): Set<numb
             continue; // blank line
         }
         for (const my_range of the_comment_ranges) {
-            // Only continuation lines (the comment opened on an earlier line)
-            // count; the opening line may legitimately start a directive.
-            if (my_range.start.line >= my_line) {
-                continue;
-            }
+            const after_start = my_line > my_range.start.line ||
+                (my_line === my_range.start.line && my_col >= my_range.start.character);
             const before_end = my_line < my_range.end.line ||
                 (my_line === my_range.end.line && my_col < my_range.end.character);
-            if (before_end) {
+            if (after_start && before_end) {
                 the_lines.add(my_line);
                 break;
             }

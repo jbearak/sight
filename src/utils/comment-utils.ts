@@ -43,7 +43,13 @@ function is_cursor_in_comment_from_tokens(tokens: Token[], position: Position): 
 export function is_cursor_in_block_comment(document: DocumentState, position: Position): boolean {
     if (document.tokens && document.tokens.length > 0) {
         for (const my_token of document.tokens) {
-            if (my_token.type === 'COMMENT_BLOCK' &&
+            // A block comment is always inert; a line comment is inert only when
+            // the lexer spans it across lines (e.g. a line-leading `*` followed
+            // by a block opener), matching block_comment_lines for the parser.
+            const is_block = my_token.type === 'COMMENT_BLOCK';
+            const is_spanned_line = my_token.type === 'COMMENT_LINE' &&
+                my_token.range.end.line > my_token.range.start.line;
+            if ((is_block || is_spanned_line) &&
                 is_position_in_range(position, my_token.range)) {
                 return true;
             }

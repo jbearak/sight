@@ -193,6 +193,31 @@ gen x = 1`;
             expect(parser.parse_declaration_directives(spanning, 'file:///t.do').declarations.length).toBe(0);
         });
 
+        test('does not honor a directive on the opening line of a line-spanning comment', () => {
+            // `* sight: local fake /*` opens a comment span; the directive-looking
+            // opening line is part of the comment and must be inert.
+            const span_opener = [
+                '* sight: local fake /*',
+                '// sight: local inner',
+                '*/',
+                "display `fake'",
+            ].join('\n');
+            expect(parser.parse_declaration_directives(span_opener, 'file:///t.do').declarations.length).toBe(0);
+        });
+
+        test('ignore-next skips a block comment to reach the next directive', () => {
+            const content = [
+                '// sight: ignore-next',
+                '/*',
+                'note',
+                '*/',
+                '// sight: do: "child.do"',
+            ].join('\n');
+            // The block comment is trivia; ignore-next targets the do directive,
+            // so no forward call is registered.
+            expect(parser.parse_forward_call_directives(content, 'file:///t.do').forward_calls.length).toBe(0);
+        });
+
         test('does not infer a call site from a do statement inside a block comment', () => {
             const blocked = 'clear\n/*\ndo "child.do"\n*/\ngen z = 1';
             const real = 'clear\ndo "child.do"\ngen z = 1';
