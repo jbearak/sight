@@ -755,15 +755,7 @@ export class StataLexer {
         this.advance(); // consume /
         this.advance(); // consume *
 
-        // Scan until */ or EOF (like scanBlockComment)
-        while (!this.isAtEnd()) {
-          if (this.peek() === '*' && this.peekNext() === '/') {
-            this.advance(); // consume *
-            this.advance(); // consume /
-            break;
-          }
-          this.advance();
-        }
+        this.consumeBlockCommentBody();
 
         // Only warn when /* causes multi-line comment behavior
         // (i.e., */ is on a different line, or unclosed and spans lines)
@@ -820,15 +812,7 @@ export class StataLexer {
   }
 
   private scanBlockComment(startLine: number, startColumn: number): Token {
-    // Consume until */
-    while (!this.isAtEnd()) {
-      if (this.peek() === '*' && this.peekNext() === '/') {
-        this.advance(); // consume *
-        this.advance(); // consume /
-        break;
-      }
-      this.advance();
-    }
+    this.consumeBlockCommentBody();
 
     const value = this.source.substring(this.position_to_offset(startLine, startColumn), this.position);
     return {
@@ -836,6 +820,28 @@ export class StataLexer {
       value,
       range: this.makeRange(startLine, startColumn, this.line, this.column),
     };
+  }
+
+  private consumeBlockCommentBody(): void {
+    let depth = 1;
+
+    while (!this.isAtEnd() && depth > 0) {
+      if (this.peek() === '/' && this.peekNext() === '*') {
+        this.advance(); // consume /
+        this.advance(); // consume *
+        depth++;
+        continue;
+      }
+
+      if (this.peek() === '*' && this.peekNext() === '/') {
+        this.advance(); // consume *
+        this.advance(); // consume /
+        depth--;
+        continue;
+      }
+
+      this.advance();
+    }
   }
 
   private scanDelimitDirective(startLine: number, startColumn: number): Token {

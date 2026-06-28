@@ -75,6 +75,29 @@ const config: StataLSPConfig = {
 describe('Block Comment Indentation Exclusion Property Tests', () => {
     const analyzer = new IndentationDiagnosticAnalyzer();
 
+    it('excludes lines between an inner block close and the outer block close', () => {
+        const my_source = [
+            '/* outer',
+            '/* inner */',
+            'display "commented but not indented"',
+            '*/',
+            'if 1 {',
+            'display "live and not indented"',
+            '}',
+        ].join('\n');
+        const my_document = create_document_for_indentation(my_source);
+        const my_diagnostics = analyzer.analyze(my_document, config);
+        const my_block_comment_lines = analyzer.compute_block_comment_lines(my_source.split('\n'));
+
+        expect(my_block_comment_lines.has(2)).toBe(true);
+        expect(my_block_comment_lines.has(4)).toBe(false);
+        expect(my_diagnostics.some(d => d.range.start.line === 2)).toBe(false);
+        expect(my_diagnostics.some(
+            d => d.code === StataDiagnosticCode.MISSING_INDENTATION &&
+                d.range.start.line === 5
+        )).toBe(true);
+    });
+
     // Generator for random block comment content lines (without /* or */)
     const arbitrary_comment_line = fc.oneof(
         // Line starting with asterisk (common style)

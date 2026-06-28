@@ -264,6 +264,30 @@ describe('StataLexer', () => {
       expect(commentToken).toBeDefined();
       expect(commentToken?.value).toBe('/* block comment */');
     });
+
+    test('should keep outer block comment active across nested block comment', () => {
+      const source = [
+        '/* outer',
+        '/* inner */',
+        'display `commented_macro\'',
+        '*/',
+        'display `live_macro\'',
+      ].join('\n');
+      const result = lexer.tokenize(source);
+
+      expect(result.errors).toHaveLength(0);
+
+      const commentToken = result.tokens.find(t => t.type === 'COMMENT_BLOCK');
+      expect(commentToken).toBeDefined();
+      expect(commentToken?.range.start.line).toBe(0);
+      expect(commentToken?.range.end.line).toBe(3);
+      expect(commentToken?.value).toContain('display `commented_macro\'');
+
+      const macroTokens = result.tokens.filter(t => t.type === 'MACRO_REF_LOCAL');
+      expect(macroTokens).toHaveLength(1);
+      expect(macroTokens[0].value).toBe('`live_macro\'');
+      expect(macroTokens[0].range.start.line).toBe(4);
+    });
   });
 
   describe('statement terminators', () => {

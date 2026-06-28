@@ -257,34 +257,31 @@ export class IndentationDiagnosticAnalyzer {
    * - It is entirely within an open block comment
    * - It contains the closing delimiter (from start of line to that point)
    * 
-   * Note: Stata doesn't support nested block comments, so the first
-   * closing delimiter ends the comment regardless of any opening
-   * sequences inside.
+   * Nested block openers increase comment depth, matching the lexer and
+   * TextMate grammar.
    */
   compute_block_comment_lines(lines: string[]): Set<number> {
     const block_comment_lines = new Set<number>();
-    let in_block_comment = false;
+    let block_comment_depth = 0;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       let j = 0;
 
       while (j < line.length) {
-        if (!in_block_comment) {
-          // Look for /* (with bounds check for j + 1)
-          if (j + 1 < line.length && line[j] === '/' && line[j + 1] === '*') {
-            in_block_comment = true;
-            block_comment_lines.add(i);
-            j += 2;
-            continue;
-          }
-        } else {
+        if (j + 1 < line.length && line[j] === '/' && line[j + 1] === '*') {
+          block_comment_depth++;
+          block_comment_lines.add(i);
+          j += 2;
+          continue;
+        }
+
+        if (block_comment_depth > 0) {
           // Already in block comment - this line is inside
           block_comment_lines.add(i);
 
-          // Look for */ (with bounds check for j + 1)
           if (j + 1 < line.length && line[j] === '*' && line[j + 1] === '/') {
-            in_block_comment = false;
+            block_comment_depth--;
             j += 2;
             continue;
           }
@@ -293,7 +290,7 @@ export class IndentationDiagnosticAnalyzer {
       }
 
       // If we're still in a block comment at end of line, mark this line
-      if (in_block_comment) {
+      if (block_comment_depth > 0) {
         block_comment_lines.add(i);
       }
     }
