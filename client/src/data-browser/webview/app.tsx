@@ -819,7 +819,7 @@ export function App(): ReactElement {
     // sort/filter preferences are reapplied.
     const restore_message = restore_pending
         ? (restore_cancelling
-            ? 'Cancelling…'
+            ? 'Loading…'
             : describe_restore_message(
                 restore_pending.sort,
                 restore_pending.filter
@@ -1155,10 +1155,10 @@ export function App(): ReactElement {
                     {!restore_cancelling && (
                         <button
                             type="button"
-                            className="restore-cancel"
+                            className="restore-skip"
                             onClick={cancel_restore}
                         >
-                            Cancel
+                            Skip and show data now
                         </button>
                     )}
                 </div>
