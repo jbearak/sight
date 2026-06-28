@@ -48,7 +48,7 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { resolve_path_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
-import { is_cursor_in_comment } from '../utils/comment-utils';
+import { is_cursor_in_comment, is_cursor_in_block_comment } from '../utils/comment-utils';
 import {
     BACKWARD_DIRECTIVE_KEYWORDS,
     FORWARD_DIRECTIVE_KEYWORDS,
@@ -1517,7 +1517,9 @@ export class DefinitionProvider {
         // Check for path-bearing directives. These are only directives inside
         // Stata comments; bare `sight:` text is ordinary invalid Stata code.
         const directive_match = line_text.match(PATH_BEARING_DIRECTIVE_PATTERN);
-        if (directive_match && is_cursor_in_comment(document, position)) {
+        if (directive_match &&
+            is_cursor_in_comment(document, position) &&
+            !is_cursor_in_block_comment(document, position)) {
             const quoted_path = directive_match[2];
             const unquoted_path = directive_match[3];
             const file_path = quoted_path || unquoted_path;

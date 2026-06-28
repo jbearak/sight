@@ -47,6 +47,7 @@ import {
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
 import { DIRECTIVE_BODY_PREFIX_PATTERN } from '../utils/directives';
+import { is_cursor_in_block_comment } from '../utils/comment-utils';
 import { classify_entry_sync } from '../utils/symlink-aware-entry';
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
@@ -181,9 +182,10 @@ export function detect_completion_context(
         return extended_macro_context;
     }
 
-    // Check for directive path context (e.g., @lsp-done-by:)
+    // Check for directive path context (e.g., @lsp-done-by:). Directives are
+    // inert inside `/* ... */` block comments, so skip block-commented lines.
     const directive_context = detect_directive_context(text_before_cursor);
-    if (directive_context) {
+    if (directive_context && !is_cursor_in_block_comment(document, position)) {
         return directive_context;
     }
 

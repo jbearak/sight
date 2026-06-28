@@ -16,6 +16,7 @@ import {
     DeclarationDirective,
     ForwardCallDirective,
     WorkingDirectoryDirective,
+    Token,
 } from '../types';
 import {
     get_line_text,
@@ -24,6 +25,10 @@ import {
     DocumentLike,
 } from '../utils/line-utils';
 import { build_do_include_pattern } from '../utils/stata-call-patterns';
+import {
+    block_comment_lines_from_tokens,
+    block_comment_lines_from_content,
+} from '../utils/block-comment-utils';
 import {
     BACKWARD_DIRECTIVE_KEYWORDS,
     FORWARD_DIRECTIVE_KEYWORDS,
@@ -282,18 +287,27 @@ export class DirectiveParser {
      */
     parse_forward_call_directives(
         content: string,
-        _file_uri: string
+        _file_uri: string,
+        tokens?: Token[]
     ): { forward_calls: ForwardCallDirective[]; diagnostics: DirectiveDiagnostic[] } {
         const doc: DocumentLike = { content, line_offsets: compute_line_offsets(content) };
         const line_count = get_line_count(doc);
         const the_forward_calls: ForwardCallDirective[] = [];
         const the_diagnostics: DirectiveDiagnostic[] = [];
 
+        // Lines inside `/* ... */` block comments do not carry directives.
+        const block_comment_lines = tokens
+            ? block_comment_lines_from_tokens(tokens)
+            : block_comment_lines_from_content(content);
+
         // Track lines to ignore from @lsp-ignore-next
         const ignored_next_lines = new Set<number>();
 
         // First pass: find @lsp-ignore-next directives
         for (let i = 0; i < line_count; i++) {
+            if (block_comment_lines.has(i)) {
+                continue;
+            }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
 
@@ -320,6 +334,9 @@ export class DirectiveParser {
         }
 
         for (let i = 0; i < line_count; i++) {
+            if (block_comment_lines.has(i)) {
+                continue;
+            }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
 
@@ -427,7 +444,13 @@ export class DirectiveParser {
         const the_declarations: DeclarationDirective[] = [];
         const the_diagnostics: DirectiveDiagnostic[] = [];
 
+        // Lines inside `/* ... */` block comments do not carry directives.
+        const block_comment_lines = block_comment_lines_from_content(content);
+
         for (let i = 0; i < line_count; i++) {
+            if (block_comment_lines.has(i)) {
+                continue;
+            }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
 
@@ -609,7 +632,13 @@ export class DirectiveParser {
             ? child_basename.slice(0, -3).toLowerCase()
             : child_basename.toLowerCase();
 
+        // Code and directives inside `/* ... */` block comments are inert.
+        const block_comment_lines = block_comment_lines_from_content(parent_content);
+
         for (let i = 0; i < line_count; i++) {
+            if (block_comment_lines.has(i)) {
+                continue;
+            }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
 
@@ -684,7 +713,13 @@ export class DirectiveParser {
             ? child_basename.slice(0, -3).toLowerCase()
             : child_basename.toLowerCase();
 
+        // Code and directives inside `/* ... */` block comments are inert.
+        const block_comment_lines = block_comment_lines_from_content(parent_content);
+
         for (let i = 0; i < line_count; i++) {
+            if (block_comment_lines.has(i)) {
+                continue;
+            }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
 
@@ -776,7 +811,13 @@ export class DirectiveParser {
             ? child_basename.slice(0, -3).toLowerCase()
             : child_basename.toLowerCase();
 
+        // Code and directives inside `/* ... */` block comments are inert.
+        const block_comment_lines = block_comment_lines_from_content(parent_content);
+
         for (let i = 0; i < line_count; i++) {
+            if (block_comment_lines.has(i)) {
+                continue;
+            }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
 

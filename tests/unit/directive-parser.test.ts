@@ -134,6 +134,31 @@ gen x = 1`;
             expect(result.directives.length).toBe(0);
         });
 
+        test('does not honor // or * directives nested in multi-line block comments', () => {
+            // A `//` or `*` line inside a /* ... */ block is block-commented out,
+            // so the directive must stay inert across all scanners.
+            const slash = '/*\n// sight: include: "setup.do"\n// sight: local fake\n*/\ngen x = 1';
+            const star = '/*\n * sight: do: "setup.do"\n * sight: local fake\n */\ngen x = 1';
+
+            const r_slash = parser.parse_forward_call_directives(slash, 'file:///t.do');
+            const r_slash_decl = parser.parse_declaration_directives(slash, 'file:///t.do');
+            const r_star = parser.parse_forward_call_directives(star, 'file:///t.do');
+            const r_star_decl = parser.parse_declaration_directives(star, 'file:///t.do');
+
+            expect(r_slash.forward_calls.length).toBe(0);
+            expect(r_slash_decl.declarations.length).toBe(0);
+            expect(r_star.forward_calls.length).toBe(0);
+            expect(r_star_decl.declarations.length).toBe(0);
+        });
+
+        test('does not infer a call site from a do statement inside a block comment', () => {
+            const blocked = 'clear\n/*\ndo "child.do"\n*/\ngen z = 1';
+            const real = 'clear\ndo "child.do"\ngen z = 1';
+
+            expect(parser.infer_call_site_for_file(blocked, 'child.do')).toBeUndefined();
+            expect(parser.infer_call_site_for_file(real, 'child.do')).toBe(1);
+        });
+
         test('parses canonical sight working-directory directives', () => {
             const content = '// sight: wd: "../data"\ngen x = 1';
             const result = parser.parse(content, 'file:///project/scripts/test.do');
