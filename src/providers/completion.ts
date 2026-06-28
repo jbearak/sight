@@ -61,6 +61,16 @@ import {
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { format_help_link } from '../utils/help-link';
 
+// Directive at the start of its own comment line, applied to the comment body
+// after the `//`/`*` marker has been stripped. Capture group 1 is the
+// directive name, group 2 the remaining path text. Compiled once at module
+// load rather than on every completion request (see the "RegExp in Loops"
+// guidance in CLAUDE.md); it carries no global flag, so it holds no
+// `lastIndex` state and is safe to share across calls.
+const DIRECTIVE_PATH_CONTEXT_PATTERN = new RegExp(
+    `^\\s*(${DIRECTIVE_BODY_PREFIX_PATTERN}[a-zA-Z-]+)\\s*:?\\s*(.*)$`
+);
+
 /**
  * Map ForwardCallSite.effective_type to directive_type for ranking.
  * 'include' -> 'included-by', else 'done-by'
@@ -424,8 +434,7 @@ function detect_directive_context(text_before_cursor: string): CompletionContext
     const comment_content = comment_match[2];
     
     // Look for a directive at the start of its own comment line.
-    const directive_pattern = new RegExp(`^\\s*(${DIRECTIVE_BODY_PREFIX_PATTERN}[a-zA-Z-]+)\\s*:?\\s*(.*)$`);
-    const directive_match = comment_content.match(directive_pattern);
+    const directive_match = comment_content.match(DIRECTIVE_PATH_CONTEXT_PATTERN);
     
     if (directive_match) {
         const directive = directive_match[1];

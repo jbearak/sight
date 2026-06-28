@@ -55,6 +55,16 @@ import {
     DIRECTIVE_PREFIX_PATTERN,
 } from '../utils/directives';
 
+// Path-bearing directive line (`done-by`/`run-by`/`included-by`/`do`/`run`/
+// `include`) with an optional quoted or bare path and trailing call-site
+// params. Compiled once at module load rather than per definition request
+// (see the "RegExp in Loops" guidance in CLAUDE.md). It carries no global
+// flag, so it holds no `lastIndex` state and is safe to share across calls.
+const PATH_BEARING_DIRECTIVE_PATTERN = new RegExp(
+    `${DIRECTIVE_PREFIX_PATTERN}(${BACKWARD_DIRECTIVE_KEYWORDS}|${FORWARD_DIRECTIVE_KEYWORDS})` +
+    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(?:line=\d+|match="[^"]+"))*\s*$`
+);
+
 /**
  * Definition Provider class.
  */
@@ -1505,12 +1515,7 @@ export class DefinitionProvider {
 
         // Check for path-bearing directives. These are only directives inside
         // Stata comments; bare `sight:` text is ordinary invalid Stata code.
-        const directive_match = line_text.match(
-            new RegExp(
-                `${DIRECTIVE_PREFIX_PATTERN}(${BACKWARD_DIRECTIVE_KEYWORDS}|${FORWARD_DIRECTIVE_KEYWORDS})` +
-                String.raw`:?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(?:line=\d+|match="[^"]+"))*\s*$`
-            )
-        );
+        const directive_match = line_text.match(PATH_BEARING_DIRECTIVE_PATTERN);
         if (directive_match && is_cursor_in_comment(document, position)) {
             const quoted_path = directive_match[2];
             const unquoted_path = directive_match[3];

@@ -43,6 +43,15 @@ export const VARIABLES_DIRECTIVE_PATTERN = new RegExp(
     `${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)\\s*$`,
 );
 
+// Shared compiled pattern for declaration directives (`local`/`global`/
+// `scalar`/`matrix`/`program`). Capture group 1 is the keyword, group 2 the
+// space-separated name list. Like the probes above it requires a `//` or
+// line-leading `*` comment prefix, so it never matches text inside a
+// `/* ... */` block comment.
+export const DECLARATION_DIRECTIVE_PATTERN = new RegExp(
+    `${DIRECTIVE_PREFIX_PATTERN}(${DECLARATION_DIRECTIVE_KEYWORDS}):?\\s+(.+)\\s*$`,
+);
+
 export function has_directive_prefix(text: string): boolean {
     return DIRECTIVE_PREFIX_REGEX.test(text);
 }

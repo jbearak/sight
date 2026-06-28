@@ -683,6 +683,56 @@ display \`dynamic_macro'
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             ).length).toBe(0);
         });
+
+        it('should NOT honor declaration directives nested in block comments', () => {
+            // `/* ... */` block comments do not carry directives, even when an
+            // interior line is itself shaped like a `//` or `*` comment.
+            const slash_nested = analyze(`
+/*
+// sight: local fake_macro
+*/
+display \`fake_macro'
+`, { undefined_macro_enabled: true });
+            const star_nested = analyze(`
+/*
+ * sight: local fake_macro
+ */
+display \`fake_macro'
+`, { undefined_macro_enabled: true });
+
+            expect(slash_nested.diagnostics.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('fake_macro')
+            )).toBe(true);
+            expect(star_nested.diagnostics.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('fake_macro')
+            )).toBe(true);
+        });
+
+        it('should NOT honor sight variables/ignore directives nested in block comments', () => {
+            const vars_nested = analyze(`
+/*
+// sight: variables age income
+*/
+summarize age income
+`, { undefined_variable_enabled: true });
+            const ignore_nested = analyze(`
+/*
+// sight: ignore-next
+*/
+display \`block_ignored_macro'
+`, { undefined_macro_enabled: true });
+
+            expect(vars_nested.diagnostics.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE &&
+                    (d.message.includes('age') || d.message.includes('income'))
+            )).toBe(true);
+            expect(ignore_nested.diagnostics.some(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('block_ignored_macro')
+            )).toBe(true);
+        });
     });
 
     describe('token macro forward reference detection', () => {
