@@ -97,6 +97,17 @@ npm install -g @jbearak/sight
 sight --help
 ```
 
+### From Homebrew (macOS, Apple Silicon)
+
+```bash
+brew install jbearak/sight/sight
+sight --help
+```
+
+Installs the prebuilt `sight` CLI from the
+[`jbearak/sight`](https://github.com/jbearak/homebrew-sight) tap. Apple Silicon
+macOS only.
+
 ### Other Methods
 
 - **Standalone CLI / Build from Source**: See [Standalone Installation](docs/standalone-installation.md)

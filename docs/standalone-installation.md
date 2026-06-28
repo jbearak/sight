@@ -2,8 +2,8 @@
 
 In addition to the VS Code extension, you can install the standalone tool to
 use the LSP directly with other editors (e.g., vim, neovim, and emacs) or in
-CI/CD. To do this, install from npm, download a release binary, or
-[build from source](#build-from-source).
+CI/CD. To do this, install from npm, install from Homebrew (macOS, Apple
+Silicon), download a release binary, or [build from source](#build-from-source).
 
 ## npm
 
@@ -14,6 +14,17 @@ sight --help
 
 The npm package installs the `sight` command. Configure LSP clients to run
 `sight --stdio`.
+
+## Homebrew (macOS, Apple Silicon)
+
+```bash
+brew install jbearak/sight/sight
+sight --help
+```
+
+Installs the prebuilt `sight` CLI from the
+[`jbearak/sight`](https://github.com/jbearak/homebrew-sight) tap. Apple Silicon
+macOS only. Configure LSP clients to run `sight --stdio`.
 
 ## Release Binary
 

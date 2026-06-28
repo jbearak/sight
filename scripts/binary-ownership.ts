@@ -10,6 +10,7 @@ import { extname } from 'path';
 import {
     CLI_DESCRIPTION,
     PRIMARY_BINARY_NAME,
+    WINDOWS_SHIM_EXTENSIONS,
 } from '../src/cli-binary-names';
 
 const BUNDLED_SERVER_ENTRYPOINT = 'sight-server.js';
@@ -41,7 +42,7 @@ function has_sight_npm_shim_content(
 ): boolean {
     const extension = extname(binary_path).toLowerCase();
     const the_allowed_extensions = platform === 'win32'
-        ? ['', '.cmd', '.bat', '.ps1']
+        ? WINDOWS_SHIM_EXTENSIONS
         : [''];
 
     if (!the_allowed_extensions.includes(extension)) {

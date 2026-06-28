@@ -6,6 +6,7 @@ import { join } from 'path';
 import {
     LEGACY_BINARY_NAME,
     PRIMARY_BINARY_NAME,
+    WINDOWS_SHIM_EXTENSIONS,
 } from '../src/cli-binary-names';
 
 export {
@@ -80,7 +81,7 @@ export function get_binary_shadow_paths_to_check(
     }
 
     const the_base_names = [PRIMARY_BINARY_NAME];
-    const the_extensions = ['', '.cmd', '.bat', '.ps1'];
+    const the_extensions = WINDOWS_SHIM_EXTENSIONS;
 
     return the_base_names.flatMap((my_binary_name) =>
         the_extensions.map((my_extension) => join(
@@ -104,12 +105,13 @@ export function get_legacy_binary_paths_to_cleanup(
         return [join(user_bin_path, legacy_binary_name)];
     }
 
+    // On Windows, reclaim the platform .exe plus the bare legacy name and every
+    // npm command-shim extension.
     return [
         join(user_bin_path, legacy_binary_name),
-        join(user_bin_path, LEGACY_BINARY_NAME),
-        join(user_bin_path, `${LEGACY_BINARY_NAME}.cmd`),
-        join(user_bin_path, `${LEGACY_BINARY_NAME}.bat`),
-        join(user_bin_path, `${LEGACY_BINARY_NAME}.ps1`),
+        ...WINDOWS_SHIM_EXTENSIONS.map((my_extension) =>
+            join(user_bin_path, `${LEGACY_BINARY_NAME}${my_extension}`)
+        ),
     ];
 }
 

@@ -133,7 +133,17 @@ function remove_stale_legacy_aliases(
             continue;
         }
 
-        unlinkSync(my_target.path);
+        // Cleanup is best-effort: the primary command is already installed, so
+        // a failed unlink (locked file, EPERM/EACCES) must not fail an install
+        // that has otherwise succeeded.
+        try {
+            unlinkSync(my_target.path);
+        } catch (error) {
+            console.warn(
+                `Warning: could not remove stale legacy alias ` +
+                `${my_target.path}: ${error}`
+            );
+        }
     }
 }
 
