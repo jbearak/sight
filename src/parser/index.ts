@@ -2464,6 +2464,10 @@ export class StataParser {
     }
   }
 
+  // Stata 18 MP audit: `local x = ///` followed by `1 / 2` succeeds
+  // with `_rc == 0` and x == .5, while bare `local x =` errors with
+  // invalid syntax rc 198. Bridge continuations here before the missing
+  // RHS check, but leave true empty assignments diagnostic-worthy.
   private skipLeadingMacroValueTrivia(): void {
     while (!this.isAtEnd()) {
       if (this.skipContinuation()) {
