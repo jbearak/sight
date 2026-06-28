@@ -22,16 +22,19 @@ concurrency:
   group: release-publish-${{ inputs.tag }}
   cancel-in-progress: false
 
-# Needs actions:read to find/download build artifacts, contents:write to
-# create the GitHub release, and id-token:write for npm Trusted Publishing.
+# Default to read-only permissions. The publish job requests the write scopes
+# it needs for GitHub Releases and npm Trusted Publishing.
 permissions:
   actions: read
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
 
     # IMPORTANT: configure this Environment in GitHub with required reviewers.
     # npm Trusted Publishing binds to this exact workflow + environment and
@@ -128,7 +131,7 @@ jobs:
           fi
 
       - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.5.1
 
       - name: Publish to npm
         run: npm publish --ignore-scripts --access public

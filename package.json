@@ -8,7 +8,7 @@
   "description": "A static analyzer and language server for the Stata statistical programming language",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jbearak/sight.git"
+    "url": "git+https://github.com/jbearak/sight.git"
   },
   "bugs": {
     "url": "https://github.com/jbearak/sight/issues"
@@ -27,8 +27,8 @@
     "build:npm": "bun run build:bundle && npm run validate:npm",
     "validate:npm": "node dist/sight-server.js --version && echo 'NPM build validation passed'",
     "prepublishOnly": "npm run build:npm",
-    "publish:npm": "npm publish --ignore-scripts --access public",
-    "publish:dry-run": "npm publish --dry-run --access public",
+    "publish:npm": "npm run build:npm && npm publish --ignore-scripts --access public",
+    "publish:dry-run": "npm run build:npm && npm publish --dry-run --ignore-scripts --access public",
     "install:binary": "bun scripts/install.ts",
     "uninstall:binary": "bun scripts/uninstall.ts",
     "watch": "tsc --watch",

@@ -41,10 +41,10 @@ Publishing from `release-publish.yml` keeps npm aligned with the same approved r
 
 The publish job will:
 
-- grant `id-token: write` for npm Trusted Publishing;
+- grant `id-token: write` on the publish job for npm Trusted Publishing;
 - use the existing `release` environment;
 - configure npm with `registry-url: https://registry.npmjs.org`;
-- upgrade npm to a Trusted Publishing-capable version before publish;
+- install a pinned Trusted Publishing-capable npm CLI before publish;
 - publish with `npm publish --ignore-scripts --access public`.
 
 One-time npm setup:

@@ -445,11 +445,20 @@ describe('binary command name', () => {
         expect(package_content.description).toBe(
             'A static analyzer and language server for the Stata statistical programming language'
         );
+        expect(package_content.repository.url).toBe(
+            'git+https://github.com/jbearak/sight.git'
+        );
         expect(package_content.main).toBe('dist/sight-server.js');
         expect(package_content.main).toBe(package_content.bin.sight);
         expect(package_content.bin).toEqual({
             sight: 'dist/sight-server.js',
         });
+        expect(package_content.scripts['publish:npm']).toBe(
+            'npm run build:npm && npm publish --ignore-scripts --access public'
+        );
+        expect(package_content.scripts['publish:dry-run']).toBe(
+            'npm run build:npm && npm publish --dry-run --ignore-scripts --access public'
+        );
     });
 
     it('uses shared command names for supported platforms', () => {
@@ -1444,6 +1453,25 @@ describe('binary command name', () => {
         );
         const workflow_content = readFileSync(workflow_path, 'utf8');
 
+        const workflow_header = workflow_content.split('\njobs:\n')[0];
+        expect(workflow_header).toContain(
+            'permissions:\n' +
+            '  actions: read\n' +
+            '  contents: read'
+        );
+        expect(workflow_header).not.toContain('contents: write');
+        expect(workflow_header).not.toContain('id-token: write');
+
+        const publish_job = get_workflow_job_block(
+            workflow_content,
+            'publish'
+        );
+        expect(publish_job).toContain(
+            'permissions:\n' +
+            '      actions: read\n' +
+            '      contents: write\n' +
+            '      id-token: write'
+        );
         expect(workflow_content).toContain('actions: read');
         expect(workflow_content).toContain('contents: write');
         expect(workflow_content).toContain('id-token: write');
@@ -1451,8 +1479,9 @@ describe('binary command name', () => {
             'registry-url: https://registry.npmjs.org'
         );
         expect(workflow_content).toContain(
-            'npm install -g npm@latest'
+            'npm install -g npm@11.5.1'
         );
+        expect(workflow_content).not.toContain('npm@latest');
         expect(workflow_content).toContain(
             'npm publish --ignore-scripts --access public'
         );

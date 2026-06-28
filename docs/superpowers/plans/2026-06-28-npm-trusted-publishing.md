@@ -10,6 +10,8 @@
 
 ---
 
+## Tasks
+
 ### Task 1: Lock Package Bin Contract
 
 **Files:**
@@ -78,7 +80,7 @@ Use the existing binary-command workflow guard tests to ensure CI no longer refe
 
 - [ ] **Step 2: Implement workflow**
 
-Grant `id-token: write`, pass `registry-url` to setup, upgrade npm, and publish with `npm publish --ignore-scripts --access public`.
+Grant `id-token: write` on the publish job, pass `registry-url` to setup, install a pinned Trusted Publishing-capable npm CLI, and publish with `npm publish --ignore-scripts --access public`.
 
 - [ ] **Step 3: Update release script messaging**
 
