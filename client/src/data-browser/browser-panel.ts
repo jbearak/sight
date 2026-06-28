@@ -381,6 +381,32 @@ export class DataBrowserPanel implements vscode.Disposable {
         return my_next;
     }
 
+    /**
+     * Serialize expensive user actions that mutate the effective row
+     * order. Without this, a filter and sort can overlap: the later
+     * action bumps `generation`, the earlier action discards its result,
+     * and its pending status is never cleared in the webview.
+     */
+    private action_chain: Promise<void> = Promise.resolve();
+
+    private enqueue_user_action(
+        action: () => Promise<void>
+    ): Promise<void> {
+        const my_dta_file = this.dta_file;
+        const my_next = this.action_chain
+            .catch(() => {})
+            .then(() => {
+                // A queued action belongs to the dataset that produced
+                // the webview message. If refresh/dispose swaps or clears
+                // the file before this action starts, no pending status has
+                // been posted for it yet, so silently drop the stale click.
+                if (this.dta_file !== my_dta_file) return;
+                return action();
+            });
+        this.action_chain = my_next.catch(() => {});
+        return my_next;
+    }
+
     private async send_metadata_impl(): Promise<void> {
         if (!this.dta_file) return;
 
@@ -494,10 +520,31 @@ export class DataBrowserPanel implements vscode.Disposable {
         let my_settled = false;
         try {
             const my_signal = my_abort?.signal;
+            let my_restore_columns:
+                Map<number, RowCell[]> | undefined;
+            try {
+                my_restore_columns =
+                    await this.read_restore_columns(
+                        my_schema_hash,
+                        my_signal
+                    );
+            } catch (my_err) {
+                // If the unified read is aborted, the existing
+                // maybe_restore_* paths observe the aborted signal and
+                // settle/forget just as they did when their own reads were
+                // interrupted. For a non-abort failure, fall back to the
+                // older per-column reads so warning behavior stays local to
+                // the sort/filter phase that actually fails.
+                if (!is_abort_error(my_err)) {
+                    my_restore_columns = undefined;
+                }
+            }
+            if (!this.dta_file || this.disposed) return;
+            if (my_generation !== this.generation) return;
             // Track sort/filter failure separately so the warning names
             // only what actually failed (the other may have applied).
             const my_sort_failed = await this.maybe_restore_sort(
-                my_schema_hash, my_signal
+                my_schema_hash, my_signal, my_restore_columns
             );
             if (!this.dta_file || this.disposed) return;
             // A refresh/reload/user-sort during the sort read bumps
@@ -511,7 +558,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             let my_filter_failed = false;
             if (!is_cancelled()) {
                 my_filter_failed = await this.maybe_restore_filter(
-                    my_schema_hash, my_signal
+                    my_schema_hash, my_signal, my_restore_columns
                 );
                 if (!this.dta_file || this.disposed) return;
             }
@@ -906,6 +953,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 }
                 break;
             case 'columnWidthsChanged':
+                if (msg.dataset_key !== this.dataset_key) break;
                 await this.column_width_store.set(
                     this.dataset_key,
                     msg.widths,
@@ -913,6 +961,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 );
                 break;
             case 'columnVisibilityChanged':
+                if (msg.dataset_key !== this.dataset_key) break;
                 await this.column_visibility_store.set(
                     this.dataset_key,
                     msg.hidden_columns,
@@ -923,10 +972,14 @@ export class DataBrowserPanel implements vscode.Disposable {
                 await this.handle_row_request(msg);
                 break;
             case 'setSort':
-                await this.handle_set_sort(msg);
+                await this.enqueue_user_action(
+                    () => this.handle_set_sort(msg)
+                );
                 break;
             case 'setFilters':
-                await this.handle_set_filters(msg);
+                await this.enqueue_user_action(
+                    () => this.handle_set_filters(msg)
+                );
                 break;
             case 'requestHistogram':
                 await this.handle_request_histogram(msg);
@@ -976,8 +1029,9 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         // Bump the generation so any row request that is already
         // in-flight under the previous permutation is dropped instead of
-        // posting stale rows after this sort lands, and so that a later
-        // setSort supersedes an earlier (slower) one rather than racing.
+        // posting stale rows after this sort lands. User sort/filter
+        // messages are serialized by handle_message, so this generation
+        // marks this action's row-order boundary.
         this.generation++;
         const my_generation = this.generation;
         this.post_sort_status('pending');
@@ -1046,7 +1100,8 @@ export class DataBrowserPanel implements vscode.Disposable {
      */
     private async maybe_restore_sort(
         schema_hash_value: string,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        column_values?: Map<number, RowCell[]>
     ): Promise<boolean> {
         if (this.sort_restored) return false;
         this.sort_restored = true;
@@ -1063,7 +1118,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         try {
             my_permutation =
                 await this.compute_sort_permutation(
-                    my_stored, signal
+                    my_stored, signal, column_values
                 );
         } catch (my_err) {
             // A user cancel aborts the read → natural order, silent. A
@@ -1092,14 +1147,81 @@ export class DataBrowserPanel implements vscode.Disposable {
         signal?: AbortSignal
     ): Promise<RowCell[]> {
         if (!this.dta_file) return [];
-        const the_rows = await this.dta_file.read_rows(
-            0,
-            this.dta_file.nobs,
-            col_index,
-            col_index + 1,
+        const the_columns = await this.read_columns(
+            [col_index],
+            signal
+        );
+        return the_columns.get(col_index) ?? [];
+    }
+
+    /**
+     * Read several full columns in one row-major scan. Used by saved
+     * preference restore to avoid one full data-section scan per sort key
+     * or filter column.
+     */
+    private async read_columns(
+        col_indices: Iterable<number>,
+        signal?: AbortSignal
+    ): Promise<Map<number, RowCell[]>> {
+        if (!this.dta_file) return new Map();
+        const the_indices = [...new Set(col_indices)];
+        if (the_indices.length === 0) return new Map();
+        return this.dta_file.read_columns(
+            the_indices,
             signal ? { signal } : undefined
         );
-        return the_rows.map(my_row => my_row[0]);
+    }
+
+    /**
+     * Collect and pre-read the distinct columns that a saved sort/filter
+     * restore will need. Invalid stale columns are skipped here; the
+     * compute paths still validate and treat those prefs as inapplicable.
+     */
+    private async read_restore_columns(
+        schema_hash_value: string,
+        signal?: AbortSignal
+    ): Promise<Map<number, RowCell[]>> {
+        if (!this.dta_file) return new Map();
+        const the_needed = new Set<number>();
+        const my_nvar = this.dta_file.nvar;
+
+        if (!this.sort_restored && this.persist_sort_enabled()) {
+            const my_stored_sort = this.sort_state_store.get(
+                this.dataset_key,
+                schema_hash_value
+            );
+            for (const my_key of my_stored_sort?.keys ?? []) {
+                if (
+                    my_key.col_index >= 0
+                    && my_key.col_index < my_nvar
+                ) {
+                    the_needed.add(my_key.col_index);
+                }
+            }
+        }
+
+        if (!this.filter_restored && this.persist_filters_enabled()) {
+            const my_stored_filter = this.filter_state_store.get(
+                this.dataset_key,
+                schema_hash_value
+            );
+            for (const my_entry of my_stored_filter?.entries ?? []) {
+                if (!my_entry.enabled) continue;
+                const my_var =
+                    this.dta_file.variables[my_entry.col_index];
+                if (
+                    my_var !== undefined
+                    && this.predicate_fits_column(
+                        my_entry.predicate,
+                        my_var
+                    )
+                ) {
+                    the_needed.add(my_entry.col_index);
+                }
+            }
+        }
+
+        return this.read_columns(the_needed, signal);
     }
 
     /**
@@ -1110,7 +1232,8 @@ export class DataBrowserPanel implements vscode.Disposable {
      */
     private async compute_sort_permutation(
         sort: SortState,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        column_values?: Map<number, RowCell[]>
     ): Promise<Uint32Array | null> {
         if (!this.dta_file || sort.keys.length === 0) {
             return null;
@@ -1140,10 +1263,11 @@ export class DataBrowserPanel implements vscode.Disposable {
                 format: my_var.format,
                 has_value_labels: my_has_value_labels,
             });
-            const my_values = await this.read_full_column(
-                my_key.col_index,
-                signal
-            );
+            const my_values = column_values?.get(my_key.col_index)
+                ?? await this.read_full_column(
+                    my_key.col_index,
+                    signal
+                );
             // A refresh during the await nulls dta_file; bail so the
             // caller's generation check discards this stale result.
             if (!this.dta_file) return null;
@@ -1216,8 +1340,9 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         // Bump the generation so an in-flight row request under the old
         // effective permutation is dropped rather than posting stale rows
-        // after this filter lands, and so a later setFilters supersedes an
-        // earlier (slower) one.
+        // after this filter lands. User sort/filter messages are
+        // serialized by handle_message, so this generation marks this
+        // action's row-order boundary.
         this.generation++;
         const my_generation = this.generation;
         this.post_filter_status('pending');
@@ -1278,7 +1403,8 @@ export class DataBrowserPanel implements vscode.Disposable {
      */
     private async maybe_restore_filter(
         schema_hash_value: string,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        column_values?: Map<number, RowCell[]>
     ): Promise<boolean> {
         if (this.filter_restored) return false;
         this.filter_restored = true;
@@ -1317,7 +1443,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         let my_indices: Uint32Array | null = null;
         try {
             my_indices = await this.compute_filter_indices(
-                my_filter, signal
+                my_filter, signal, column_values
             );
         } catch (my_err) {
             // Cancel → natural order silently; genuine failure →
@@ -1386,7 +1512,8 @@ export class DataBrowserPanel implements vscode.Disposable {
      */
     private async compute_filter_indices(
         filter: FilterState,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        column_values?: Map<number, RowCell[]>
     ): Promise<Uint32Array | null> {
         if (!this.dta_file) return null;
         const the_active = filter.entries.filter(
@@ -1408,10 +1535,11 @@ export class DataBrowserPanel implements vscode.Disposable {
 
         const the_columns = new Map<number, FilterColumn>();
         for (const my_col_index of the_needed) {
-            const my_values = await this.read_full_column(
-                my_col_index,
-                signal
-            );
+            const my_values = column_values?.get(my_col_index)
+                ?? await this.read_full_column(
+                    my_col_index,
+                    signal
+                );
             // A refresh during the await nulls dta_file; bail so the
             // caller's generation check discards this stale result.
             if (!this.dta_file) return null;

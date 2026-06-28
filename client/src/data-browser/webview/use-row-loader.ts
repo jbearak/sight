@@ -28,6 +28,20 @@ import {
     get_needed_page_starts,
     PAGE_SIZE,
 } from './grid-model.js';
+import {
+    build_pending_filter,
+    filter_applied_outcome,
+    filter_work_pending,
+    visible_filter_state,
+} from './filter-intent.js';
+import { page_starts_to_refetch } from './refetch-page-starts.js';
+import { RowRequestTracker } from './row-request-tracker.js';
+import {
+    build_pending_sort,
+    sort_applied_outcome,
+    sort_work_pending,
+    visible_sort_state,
+} from './sort-intent.js';
 
 /**
  * Delay before the "applying saved sort/filter" UI appears. A restore
@@ -91,9 +105,16 @@ export function use_row_loader(): UseRowLoaderResult {
     const [pages, set_pages] = useState<Map<number, CellValue[][]>>(
         () => new Map()
     );
+    const pages_ref = useRef<Map<number, CellValue[][]>>(new Map());
     const [sort, set_sort] = useState<SortState>(EMPTY_SORT);
+    const [pending_sort, set_pending_sort] =
+        useState<SortState | null>(null);
+    const pending_sort_ref = useRef<SortState | null>(null);
     const [sort_pending, set_sort_pending] = useState(false);
     const [filter, set_filter] = useState<FilterState>(EMPTY_FILTER);
+    const [pending_filter, set_pending_filter] =
+        useState<FilterState | null>(null);
+    const pending_filter_ref = useRef<FilterState | null>(null);
     const [filter_pending, set_filter_pending] = useState(false);
     // The visible row count after sort+filter. Both sortApplied and
     // filterApplied carry the host's effective count, so a single state
@@ -114,8 +135,7 @@ export function use_row_loader(): UseRowLoaderResult {
     // Columns whose histogram has been requested (pending or arrived), so
     // opening a numeric filter popover repeatedly doesn't re-request.
     const requested_histograms = useRef<Set<number>>(new Set());
-    const pending_pages = useRef<Set<number>>(new Set());
-    const request_counter = useRef(0);
+    const pending_pages = useRef(new RowRequestTracker());
     // Last visible window [start, end), kept in a ref so the message
     // handler (registered once) can re-request it after a sort lands.
     const viewport_ref = useRef<{ start: number; end: number }>({
@@ -136,19 +156,52 @@ export function use_row_loader(): UseRowLoaderResult {
         restore_id_ref.current = null;
     }, []);
 
+    const set_pending_sort_state = useCallback((
+        next_sort: SortState | null
+    ) => {
+        pending_sort_ref.current = next_sort;
+        set_pending_sort(next_sort);
+    }, []);
+
+    const set_pending_filter_state = useCallback((
+        next_filter: FilterState | null
+    ) => {
+        pending_filter_ref.current = next_filter;
+        set_pending_filter(next_filter);
+    }, []);
+
     const request_page = useCallback(
         (page_start: number) => {
-            pending_pages.current.add(page_start);
-            request_counter.current += 1;
+            const request_id = pending_pages.current.track(page_start);
             vscode_api.postMessage({
                 type: 'requestRows',
                 start: page_start,
                 count: PAGE_SIZE,
-                request_id:
-                    'req_' + String(request_counter.current),
+                request_id,
             });
         },
         [vscode_api]
+    );
+
+    useEffect(() => {
+        pages_ref.current = pages;
+    }, [pages]);
+
+    const visible_sort = useMemo(
+        () => visible_sort_state(sort, pending_sort),
+        [sort, pending_sort]
+    );
+    const visible_filter = useMemo(
+        () => visible_filter_state(filter, pending_filter),
+        [filter, pending_filter]
+    );
+    const visible_sort_pending = useMemo(
+        () => sort_work_pending(sort_pending, pending_sort),
+        [sort_pending, pending_sort]
+    );
+    const visible_filter_pending = useMemo(
+        () => filter_work_pending(filter_pending, pending_filter),
+        [filter_pending, pending_filter]
     );
 
     // The visible order changed (a sort/filter applied or a restore
@@ -157,14 +210,20 @@ export function use_row_loader(): UseRowLoaderResult {
     // cleared its own cache and bumped its generation, so any in-flight
     // row read under the old order is discarded host-side.
     const reset_pages_and_refetch_viewport = useCallback(() => {
-        set_pages(new Map());
-        pending_pages.current.clear();
+        const my_pages = new Map<number, CellValue[][]>();
+        const my_loaded_page_starts = pages_ref.current.keys();
         const my_viewport = viewport_ref.current;
-        for (const my_start of get_needed_page_starts(
-            my_viewport.start,
-            my_viewport.end,
-            PAGE_SIZE
-        )) {
+        const the_page_starts = page_starts_to_refetch({
+            viewport_start: my_viewport.start,
+            viewport_end: my_viewport.end,
+            page_size: PAGE_SIZE,
+            loaded_page_starts: my_loaded_page_starts,
+        });
+
+        pages_ref.current = my_pages;
+        set_pages(my_pages);
+        pending_pages.current.clear();
+        for (const my_start of the_page_starts) {
             request_page(my_start);
         }
     }, [request_page]);
@@ -206,12 +265,16 @@ export function use_row_loader(): UseRowLoaderResult {
                 // here resets any stale banner from a prior lifecycle.
                 clear_restore_ui();
 
+                const my_pages = new Map<number, CellValue[][]>();
+                pages_ref.current = my_pages;
                 set_metadata(my_msg);
-                set_pages(new Map());
+                set_pages(my_pages);
                 pending_pages.current.clear();
                 set_sort(my_msg.stored_sort ?? EMPTY_SORT);
+                set_pending_sort_state(null);
                 set_sort_pending(false);
                 set_filter(my_msg.stored_filter ?? EMPTY_FILTER);
+                set_pending_filter_state(null);
                 set_filter_pending(false);
                 set_nobs_effective(undefined);
                 set_histograms(new Map());
@@ -220,15 +283,19 @@ export function use_row_loader(): UseRowLoaderResult {
             }
 
             if (my_msg.type === 'rowData') {
-                // No generation/epoch guard is needed here: the host never
-                // posts stale rows — handle_row_request re-checks its
-                // generation after every read and drops the response on a
-                // mismatch, so a row read started under the old order can't
-                // land after a sort/filter/settle changed it.
-                pending_pages.current.delete(my_msg.start);
+                // Accept only the response for the currently pending request
+                // for this page. Sort/filter resets can clear and re-request
+                // a page while an older response is still in flight.
+                if (!pending_pages.current.accepts(
+                    my_msg.start,
+                    my_msg.request_id
+                )) {
+                    return;
+                }
                 set_pages(my_previous => {
                     const my_next = new Map(my_previous);
                     my_next.set(my_msg.start, my_msg.rows);
+                    pages_ref.current = my_next;
                     return my_next;
                 });
                 return;
@@ -238,10 +305,19 @@ export function use_row_loader(): UseRowLoaderResult {
                 // A user sort during a background restore supersedes it;
                 // dismiss the restore banner (the host aborted the restore).
                 clear_restore_ui();
+                const my_outcome = sort_applied_outcome(
+                    my_msg.sort,
+                    pending_sort_ref.current
+                );
                 set_sort(my_msg.sort);
-                set_nobs_effective(my_msg.nobs_effective);
+                set_pending_sort_state(my_outcome.pending_sort);
+                if (my_outcome.refetch_rows) {
+                    set_nobs_effective(my_msg.nobs_effective);
+                }
                 set_sort_pending(false);
-                reset_pages_and_refetch_viewport();
+                if (my_outcome.refetch_rows) {
+                    reset_pages_and_refetch_viewport();
+                }
                 return;
             }
 
@@ -254,10 +330,19 @@ export function use_row_loader(): UseRowLoaderResult {
                 // A user filter during a background restore supersedes it;
                 // dismiss the restore banner (the host aborted the restore).
                 clear_restore_ui();
+                const my_outcome = filter_applied_outcome(
+                    my_msg.filter,
+                    pending_filter_ref.current
+                );
                 set_filter(my_msg.filter);
-                set_nobs_effective(my_msg.nobs_filtered);
+                set_pending_filter_state(my_outcome.pending_filter);
+                if (my_outcome.refetch_rows) {
+                    set_nobs_effective(my_msg.nobs_filtered);
+                }
                 set_filter_pending(false);
-                reset_pages_and_refetch_viewport();
+                if (my_outcome.refetch_rows) {
+                    reset_pages_and_refetch_viewport();
+                }
                 return;
             }
 
@@ -277,7 +362,9 @@ export function use_row_loader(): UseRowLoaderResult {
                 // Switch the (already painted, natural-order) grid to the
                 // restored order.
                 set_sort(my_msg.sort);
+                set_pending_sort_state(null);
                 set_filter(my_msg.filter);
+                set_pending_filter_state(null);
                 set_nobs_effective(my_msg.nobs_effective);
                 set_sort_pending(false);
                 set_filter_pending(false);
@@ -317,7 +404,13 @@ export function use_row_loader(): UseRowLoaderResult {
                 restore_timer.current = null;
             }
         };
-    }, [vscode_api, reset_pages_and_refetch_viewport, clear_restore_ui]);
+    }, [
+        vscode_api,
+        reset_pages_and_refetch_viewport,
+        clear_restore_ui,
+        set_pending_sort_state,
+        set_pending_filter_state,
+    ]);
 
     const cancel_restore = useCallback(() => {
         const my_id = restore_id_ref.current;
@@ -339,7 +432,7 @@ export function use_row_loader(): UseRowLoaderResult {
         for (const my_page_start of the_page_starts) {
             if (
                 pages.has(my_page_start)
-                || pending_pages.current.has(my_page_start)
+                || pending_pages.current.has_pending(my_page_start)
             ) {
                 continue;
             }
@@ -373,25 +466,29 @@ export function use_row_loader(): UseRowLoaderResult {
             // can be seconds away for a large user sort, and the saved
             // restore is already superseded.
             clear_restore_ui();
+            set_pending_sort_state(build_pending_sort(keys, labels_on));
             vscode_api.postMessage({
                 type: 'setSort',
                 keys,
                 labels_on,
             });
         },
-        [vscode_api, clear_restore_ui]
+        [vscode_api, clear_restore_ui, set_pending_sort_state]
     );
 
     const apply_filter = useCallback(
         (entries: FilterEntry[], labels_on: boolean) => {
             clear_restore_ui();
+            set_pending_filter_state(
+                build_pending_filter(entries, labels_on)
+            );
             vscode_api.postMessage({
                 type: 'setFilters',
                 entries,
                 labels_on,
             });
         },
-        [vscode_api, clear_restore_ui]
+        [vscode_api, clear_restore_ui, set_pending_filter_state]
     );
 
     const request_histogram = useCallback(
@@ -412,10 +509,10 @@ export function use_row_loader(): UseRowLoaderResult {
         get_row,
         pages,
         vscode_api,
-        sort,
-        sort_pending,
-        filter,
-        filter_pending,
+        sort: visible_sort,
+        sort_pending: visible_sort_pending,
+        filter: visible_filter,
+        filter_pending: visible_filter_pending,
         nobs_effective,
         apply_sort,
         apply_filter,

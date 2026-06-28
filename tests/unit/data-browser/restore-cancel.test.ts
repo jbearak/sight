@@ -31,6 +31,17 @@ function abort_error(): unknown {
     return new DOMException('The read was aborted', 'AbortError');
 }
 
+function deferred<T = void>(): {
+    promise: Promise<T>;
+    resolve: (value: T | PromiseLike<T>) => void;
+} {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>(my_resolve => {
+        resolve = my_resolve;
+    });
+    return { promise, resolve };
+}
+
 interface RestoreHarness {
     panel_like: any;
     posted: any[];
@@ -92,6 +103,7 @@ async function make_restore_panel(opts: {
     panel_like.restoring = false;
     panel_like.restore_id = -1;
     panel_like.send_metadata_chain = Promise.resolve();
+    panel_like.action_chain = Promise.resolve();
     panel_like.row_cache = { clear: () => undefined };
     panel_like.disposed = false;
 
@@ -286,6 +298,87 @@ describe('send_metadata restore', () => {
         expect(my_settled.filter).toEqual(STORED_FILTER);
         // Active filter → effective (post-filter) count announced.
         expect(my_settled.nobs_effective).toBe(3);
+    });
+
+    it('pre-reads distinct restore sort/filter columns once', async () => {
+        const my_sort: SortState = {
+            keys: [
+                { col_index: 0, direction: 'asc' },
+                { col_index: 1, direction: 'desc' },
+            ],
+            labels_on_when_sorted: true,
+        };
+        const my_filter: FilterState = {
+            entries: [{
+                id: 'f3',
+                col_index: 2,
+                predicate: {
+                    kind: 'strContains',
+                    value: 'keep',
+                    case_sensitive: true,
+                    negate: false,
+                },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on_when_filtered: true,
+        };
+        const { panel_like, posted } =
+            await make_restore_panel({
+                stored_sort: my_sort,
+                stored_filter: my_filter,
+            });
+        const the_values = new Map<number, unknown[]>([
+            [0, [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]],
+            [1, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']],
+            [2, [
+                'keep', 'drop', 'keep', 'drop', 'keep',
+                'drop', 'keep', 'drop', 'keep', 'drop',
+            ]],
+        ]);
+        const the_read_columns_calls: number[][] = [];
+        let read_rows_calls = 0;
+        panel_like.dta_file = {
+            ...panel_like.dta_file,
+            nvar: 3,
+            variables: [
+                { name: 'a', type: 'int', format: '%9.0g',
+                    label: '', value_label_name: '' },
+                { name: 'b', type: 'str10', format: '%10s',
+                    label: '', value_label_name: '' },
+                { name: 'c', type: 'str10', format: '%10s',
+                    label: '', value_label_name: '' },
+            ],
+            read_columns: async (
+                col_indices: number[],
+                options?: { signal?: AbortSignal }
+            ) => {
+                expect(options?.signal).toBe(
+                    panel_like.restore_abort.signal
+                );
+                the_read_columns_calls.push([...col_indices]);
+                const out = new Map<number, unknown[]>();
+                for (const my_col of col_indices) {
+                    out.set(my_col, the_values.get(my_col) ?? []);
+                }
+                return out;
+            },
+            read_rows: async () => {
+                read_rows_calls++;
+                throw new Error('per-column fallback should not run');
+            },
+        };
+
+        await panel_like.send_metadata();
+
+        expect(the_read_columns_calls).toEqual([[0, 1, 2]]);
+        expect(read_rows_calls).toBe(0);
+        expect(panel_like.sort).toEqual(my_sort);
+        expect(panel_like.filter).toEqual(my_filter);
+        const my_settled = posted.find(
+            m => m.type === 'restoreSettled'
+        );
+        expect(my_settled.nobs_effective).toBe(5);
     });
 
     it('a settle-phase throw still dismisses the banner and clears state (finding #3)', async () => {
@@ -755,6 +848,433 @@ describe('user sort/filter supersedes an in-flight restore (paint-first)', () =>
         expect(panel_like.filter.entries.length).toBe(1);
         expect(filter_set.length).toBe(1);
         expect(posted.some(m => m.type === 'filterApplied')).toBe(true);
+    });
+});
+
+describe('interactive row ordering', () => {
+    it('fresh user sort maps the next row request through the new permutation', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        const the_rows = [
+            [3, 'c'],
+            [1, 'a'],
+            [2, 'b'],
+        ];
+        let cache_cleared = 0;
+        panel_like.dta_file = {
+            ...panel_like.dta_file,
+            nobs: the_rows.length,
+            nvar: 2,
+            variables: [
+                { name: 'x', type: 'int', format: '%9.0g',
+                    label: '', value_label_name: '' },
+                { name: 'name', type: 'str10', format: '%10s',
+                    label: '', value_label_name: '' },
+            ],
+            value_label_tables: new Map(),
+            read_rows: async (
+                start: number,
+                count: number,
+                col_start = 0,
+                col_end = 2
+            ) => the_rows
+                .slice(start, start + count)
+                .map(my_row => my_row.slice(col_start, col_end)),
+            read_columns: async (cols: number[]) => new Map(
+                cols.map(my_col => [
+                    my_col,
+                    the_rows.map(my_row => my_row[my_col]),
+                ])
+            ),
+        };
+        panel_like.row_cache = {
+            clear: () => { cache_cleared++; },
+            get_page: () => undefined,
+            set_page: () => undefined,
+        };
+
+        await panel_like.handle_set_sort({
+            type: 'setSort',
+            keys: [{ col_index: 0, direction: 'asc' }],
+            labels_on: true,
+        });
+        await panel_like.handle_row_request({
+            type: 'requestRows',
+            start: 0,
+            count: 3,
+            request_id: 'req_1',
+        });
+
+        expect([...panel_like.permutation]).toEqual([1, 2, 0]);
+        expect([...panel_like.effective_perm]).toEqual([1, 2, 0]);
+        expect(cache_cleared).toBe(1);
+        const my_response = posted[posted.length - 1];
+        expect(my_response.type).toBe('rowData');
+        expect(my_response.rows.map((my_row: any[]) => my_row[0].raw))
+            .toEqual([1, 2, 3]);
+    });
+
+    it('fresh user sort reads the sort column through read_columns', async () => {
+        const { panel_like } = await make_restore_panel();
+        const the_sort_values = [3, 1, 2];
+        panel_like.dta_file = {
+            ...panel_like.dta_file,
+            nobs: the_sort_values.length,
+            nvar: 1,
+            variables: [
+                { name: 'x', type: 'int', format: '%9.0g',
+                    label: '', value_label_name: '' },
+            ],
+            value_label_tables: new Map(),
+            read_rows: async () => {
+                throw new Error('full row scan should not be used');
+            },
+            read_columns: async (cols: number[]) => {
+                expect(cols).toEqual([0]);
+                return new Map([[0, the_sort_values]]);
+            },
+        };
+        panel_like.row_cache = { clear: () => undefined };
+
+        await panel_like.handle_set_sort({
+            type: 'setSort',
+            keys: [{ col_index: 0, direction: 'asc' }],
+            labels_on: true,
+        });
+
+        expect([...panel_like.permutation]).toEqual([1, 2, 0]);
+        expect([...panel_like.effective_perm]).toEqual([1, 2, 0]);
+    });
+
+    it('fresh user filter reads filter columns through read_columns', async () => {
+        const { panel_like } = await make_restore_panel();
+        const the_filter_values = ['', 'a', 'b'];
+        panel_like.dta_file = {
+            ...panel_like.dta_file,
+            nobs: the_filter_values.length,
+            nvar: 1,
+            variables: [
+                { name: 'name', type: 'str10', format: '%10s',
+                    label: '', value_label_name: '' },
+            ],
+            value_label_tables: new Map(),
+            read_rows: async () => {
+                throw new Error('full row scan should not be used');
+            },
+            read_columns: async (cols: number[]) => {
+                expect(cols).toEqual([0]);
+                return new Map([[0, the_filter_values]]);
+            },
+        };
+        panel_like.row_cache = { clear: () => undefined };
+
+        await panel_like.handle_set_filters({
+            type: 'setFilters',
+            entries: [{
+                id: 'f1',
+                col_index: 0,
+                predicate: { kind: 'isNotEmpty' },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on: true,
+        });
+
+        expect([...panel_like.filtered_indices]).toEqual([1, 2]);
+        expect([...panel_like.effective_perm]).toEqual([1, 2]);
+    });
+});
+
+describe('interactive action queue', () => {
+    it('serializes filter then sort so neither pending state is stranded', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        let cache_cleared = 0;
+        panel_like.row_cache = { clear: () => { cache_cleared++; } };
+        panel_like.current_schema_hash = () => 'h';
+
+        const filter_started = deferred();
+        const release_filter = deferred();
+        panel_like.compute_filter_indices = async () => {
+            filter_started.resolve();
+            await release_filter.promise;
+            return new Uint32Array([1, 2]);
+        };
+        panel_like.compute_sort_permutation = async () =>
+            new Uint32Array([2, 1, 0]);
+
+        const my_filter_promise = panel_like.handle_message({
+            type: 'setFilters',
+            entries: [{
+                id: 'f1',
+                col_index: 1,
+                predicate: { kind: 'isNotEmpty' },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on: true,
+        });
+        await filter_started.promise;
+
+        const my_sort_promise = panel_like.handle_message({
+            type: 'setSort',
+            keys: [{ col_index: 0, direction: 'asc' }],
+            labels_on: true,
+        });
+
+        await Promise.resolve();
+        expect(posted.filter(m => m.type === 'sortStatus'))
+            .toEqual([]);
+
+        release_filter.resolve();
+        await Promise.all([my_filter_promise, my_sort_promise]);
+
+        expect(posted
+            .filter(m =>
+                m.type === 'filterStatus'
+                || m.type === 'sortStatus'
+            )
+            .map(m => `${m.type}:${m.state}`))
+            .toEqual([
+                'filterStatus:pending',
+                'filterStatus:idle',
+                'sortStatus:pending',
+                'sortStatus:idle',
+            ]);
+        expect([...panel_like.filtered_indices]).toEqual([1, 2]);
+        expect([...panel_like.permutation]).toEqual([2, 1, 0]);
+        expect([...panel_like.effective_perm]).toEqual([2, 1]);
+        expect(cache_cleared).toBe(2);
+    });
+
+    it('serializes sort then filter so neither pending state is stranded', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        let cache_cleared = 0;
+        panel_like.row_cache = { clear: () => { cache_cleared++; } };
+        panel_like.current_schema_hash = () => 'h';
+
+        const sort_started = deferred();
+        const release_sort = deferred();
+        panel_like.compute_sort_permutation = async () => {
+            sort_started.resolve();
+            await release_sort.promise;
+            return new Uint32Array([2, 1, 0]);
+        };
+        panel_like.compute_filter_indices = async () =>
+            new Uint32Array([1, 2]);
+
+        const my_sort_promise = panel_like.handle_message({
+            type: 'setSort',
+            keys: [{ col_index: 0, direction: 'asc' }],
+            labels_on: true,
+        });
+        await sort_started.promise;
+
+        const my_filter_promise = panel_like.handle_message({
+            type: 'setFilters',
+            entries: [{
+                id: 'f1',
+                col_index: 1,
+                predicate: { kind: 'isNotEmpty' },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on: true,
+        });
+
+        await Promise.resolve();
+        expect(posted.filter(m => m.type === 'filterStatus'))
+            .toEqual([]);
+
+        release_sort.resolve();
+        await Promise.all([my_sort_promise, my_filter_promise]);
+
+        expect(posted
+            .filter(m =>
+                m.type === 'filterStatus'
+                || m.type === 'sortStatus'
+            )
+            .map(m => `${m.type}:${m.state}`))
+            .toEqual([
+                'sortStatus:pending',
+                'sortStatus:idle',
+                'filterStatus:pending',
+                'filterStatus:idle',
+            ]);
+        expect([...panel_like.permutation]).toEqual([2, 1, 0]);
+        expect([...panel_like.filtered_indices]).toEqual([1, 2]);
+        expect([...panel_like.effective_perm]).toEqual([2, 1]);
+        expect(cache_cleared).toBe(2);
+    });
+
+    it('drops a queued sort if the dataset changes before it starts', async () => {
+        const { panel_like, posted, sort_set } =
+            await make_restore_panel();
+        panel_like.current_schema_hash = () => 'h';
+
+        const filter_started = deferred();
+        const release_filter = deferred();
+        panel_like.compute_filter_indices = async () => {
+            filter_started.resolve();
+            await release_filter.promise;
+            return new Uint32Array([1, 2]);
+        };
+        let sort_calls = 0;
+        panel_like.compute_sort_permutation = async () => {
+            sort_calls++;
+            return new Uint32Array([2, 1, 0]);
+        };
+
+        const my_filter_promise = panel_like.handle_message({
+            type: 'setFilters',
+            entries: [{
+                id: 'f1',
+                col_index: 1,
+                predicate: { kind: 'isNotEmpty' },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on: true,
+        });
+        await filter_started.promise;
+
+        const my_sort_promise = panel_like.handle_message({
+            type: 'setSort',
+            keys: [{ col_index: 0, direction: 'asc' }],
+            labels_on: true,
+        });
+
+        // Simulate refresh() switching the panel to a new dataset while
+        // the sort is still queued behind the old filter.
+        panel_like.generation++;
+        panel_like.dta_file = {
+            ...panel_like.dta_file,
+            nobs: 3,
+            variables: [
+                { name: 'new_x', type: 'int', format: '%9.0g',
+                    label: '', value_label_name: '' },
+                { name: 'new_name', type: 'str10', format: '%10s',
+                    label: '', value_label_name: '' },
+            ],
+        };
+        panel_like.dataset_key = 'new_dataset';
+        panel_like.sort = EMPTY_SORT;
+        panel_like.permutation = null;
+        panel_like.filter = EMPTY_FILTER;
+        panel_like.filtered_indices = null;
+        panel_like.effective_perm = null;
+
+        release_filter.resolve();
+        await Promise.all([my_filter_promise, my_sort_promise]);
+
+        expect(sort_calls).toBe(0);
+        expect(posted.filter(m => m.type === 'sortStatus'))
+            .toEqual([]);
+        expect(panel_like.sort.keys).toEqual([]);
+        expect(sort_set).toEqual([]);
+    });
+
+    it('drops a queued filter if the dataset changes before it starts', async () => {
+        const { panel_like, posted, filter_set } =
+            await make_restore_panel();
+        panel_like.current_schema_hash = () => 'h';
+
+        const sort_started = deferred();
+        const release_sort = deferred();
+        panel_like.compute_sort_permutation = async () => {
+            sort_started.resolve();
+            await release_sort.promise;
+            return new Uint32Array([2, 1, 0]);
+        };
+        let filter_calls = 0;
+        panel_like.compute_filter_indices = async () => {
+            filter_calls++;
+            return new Uint32Array([1, 2]);
+        };
+
+        const my_sort_promise = panel_like.handle_message({
+            type: 'setSort',
+            keys: [{ col_index: 0, direction: 'asc' }],
+            labels_on: true,
+        });
+        await sort_started.promise;
+
+        const my_filter_promise = panel_like.handle_message({
+            type: 'setFilters',
+            entries: [{
+                id: 'f1',
+                col_index: 1,
+                predicate: { kind: 'isNotEmpty' },
+                enabled: true,
+                include_missing: false,
+            }],
+            labels_on: true,
+        });
+
+        // Simulate refresh() switching the panel to a new dataset while
+        // the filter is still queued behind the old sort.
+        panel_like.generation++;
+        panel_like.dta_file = {
+            ...panel_like.dta_file,
+            nobs: 3,
+            variables: [
+                { name: 'new_x', type: 'int', format: '%9.0g',
+                    label: '', value_label_name: '' },
+                { name: 'new_name', type: 'str10', format: '%10s',
+                    label: '', value_label_name: '' },
+            ],
+        };
+        panel_like.dataset_key = 'new_dataset';
+        panel_like.sort = EMPTY_SORT;
+        panel_like.permutation = null;
+        panel_like.filter = EMPTY_FILTER;
+        panel_like.filtered_indices = null;
+        panel_like.effective_perm = null;
+
+        release_sort.resolve();
+        await Promise.all([my_sort_promise, my_filter_promise]);
+
+        expect(filter_calls).toBe(0);
+        expect(posted.filter(m => m.type === 'filterStatus'))
+            .toEqual([]);
+        expect(panel_like.filter.entries).toEqual([]);
+        expect(filter_set).toEqual([]);
+    });
+});
+
+describe('dataset-scoped webview messages', () => {
+    it('ignores stale column width messages from a previous dataset', async () => {
+        const { panel_like } = await make_restore_panel();
+        const the_writes: any[] = [];
+        panel_like.dataset_key = 'current_dataset';
+        panel_like.dataset_key_aliases = [];
+        panel_like.column_width_store = {
+            set: async (...args: any[]) => { the_writes.push(args); },
+        };
+
+        await panel_like.handle_message({
+            type: 'columnWidthsChanged',
+            dataset_key: 'previous_dataset',
+            widths: { x: 120 },
+        });
+
+        expect(the_writes).toEqual([]);
+    });
+
+    it('ignores stale column visibility messages from a previous dataset', async () => {
+        const { panel_like } = await make_restore_panel();
+        const the_writes: any[] = [];
+        panel_like.dataset_key = 'current_dataset';
+        panel_like.dataset_key_aliases = [];
+        panel_like.column_visibility_store = {
+            set: async (...args: any[]) => { the_writes.push(args); },
+        };
+
+        await panel_like.handle_message({
+            type: 'columnVisibilityChanged',
+            dataset_key: 'previous_dataset',
+            hidden_columns: ['x'],
+        });
+
+        expect(the_writes).toEqual([]);
     });
 });
 

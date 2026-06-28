@@ -7,6 +7,7 @@ import {
 } from 'react';
 import {
     DataEditor,
+    type DataEditorRef,
     type DrawHeaderCallback,
     GridCellKind,
     type GridSelection,
@@ -52,6 +53,7 @@ import {
     apply_sort_pick,
     sort_priority_map,
 } from './sort-actions.js';
+import { visible_cell_damage } from './visible-cell-damage.js';
 import type { FilterEntry, SortKey } from '../types.js';
 
 const HEADER_HEIGHT_PX = 40;
@@ -303,6 +305,7 @@ export function App(): ReactElement {
         useState<ContextMenuState | null>(null);
     const [filter_editor, set_filter_editor] =
         useState<FilterEditorState | null>(null);
+    const data_editor_ref = useRef<DataEditorRef>(null);
     const grid_shell_ref = useRef<HTMLDivElement>(null);
     const toolbar_ref = useRef<HTMLDivElement>(null);
     const row_count_ref = useRef<HTMLSpanElement>(null);
@@ -515,6 +518,24 @@ export function App(): ReactElement {
         () => metadata?.variables.map(my_v => my_v.name) ?? [],
         [metadata]
     );
+
+    useEffect(() => {
+        const my_damage = visible_cell_damage({
+            column_count: the_columns.length,
+            first_row: first_visible_row,
+            row_count: visible_row_count,
+            total_rows: nobs_effective ?? metadata?.nobs ?? 0,
+        });
+        if (my_damage.length === 0) return;
+        data_editor_ref.current?.updateCells(my_damage);
+    }, [
+        pages,
+        the_columns.length,
+        first_visible_row,
+        visible_row_count,
+        nobs_effective,
+        metadata?.nobs,
+    ]);
 
     const sort_info = useMemo(
         () => sort_priority_map(sort.keys),
@@ -1169,6 +1190,7 @@ export function App(): ReactElement {
             )}
             <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
+                    ref={data_editor_ref}
                     theme={vscode_theme}
 
                     width="100%"
