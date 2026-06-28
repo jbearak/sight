@@ -58,14 +58,14 @@ describe('Diagnostic Suppression Property Tests', () => {
     });
 
     /**
-     * Property: @lsp-ignore suppresses diagnostics on same line
+     * Property: @lsp-ignore suppresses diagnostics on following statement
      */
-    it('should suppress undefined macro diagnostics with @lsp-ignore on same line', async () => {
+    it('should suppress undefined macro diagnostics with standalone @lsp-ignore', async () => {
         await fc.assert(
             fc.asyncProperty(
                 arbitrary_non_reserved_identifier(),
                 async (macro_name: string) => {
-                    const content = `local result \`${macro_name}' // @lsp-ignore`;
+                    const content = `// @lsp-ignore\nlocal result \`${macro_name}'`;
                     const my_document = create_document_state(content);
                     
                     const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
@@ -123,7 +123,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                 fc.constantFrom('@lsp-ignore', '@lsp-ignore-next'),
                 async (var_name: string, suppress_type: string) => {
                     const content = suppress_type === '@lsp-ignore'
-                        ? `summarize ${var_name} // @lsp-ignore`
+                        ? `// @lsp-ignore\nsummarize ${var_name}`
                         : `// @lsp-ignore-next\nsummarize ${var_name}`;
                     
                     const my_document = create_document_state(content);
@@ -184,7 +184,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                 async (macro1: string, macro2: string) => {
                     fc.pre(macro1 !== macro2); // Ensure different macro names
                     
-                    const content = `local result1 \`${macro1}' // @lsp-ignore\nlocal result2 \`${macro2}'`;
+                    const content = `// @lsp-ignore\nlocal result1 \`${macro1}'\nlocal result2 \`${macro2}'`;
                     const my_document = create_document_state(content);
                     
                     const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
@@ -198,7 +198,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                     );
                     
                     return undefined_macro_diags.length === 1 &&
-                           undefined_macro_diags[0].range.start.line === 1; // Second line (0-indexed)
+                           undefined_macro_diags[0].range.start.line === 2; // Third line (0-indexed)
                 }
             ),
             { numRuns: 50 }
@@ -344,7 +344,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                 fc.constantFrom('@lsp-ignore', '@lsp-ignore-next'),
                 async (macro_name: string, suppress_type: string) => {
                     const suppressed_content = suppress_type === '@lsp-ignore'
-                        ? `display \`${macro_name}' // @lsp-ignore\nlocal ${macro_name} value`
+                        ? `// @lsp-ignore\ndisplay \`${macro_name}'\nlocal ${macro_name} value`
                         : `// @lsp-ignore-next\ndisplay \`${macro_name}'\nlocal ${macro_name} value`;
                     const control_content = `display \`${macro_name}'\nlocal ${macro_name} value`;
 

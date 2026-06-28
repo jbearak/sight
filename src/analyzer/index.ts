@@ -286,11 +286,12 @@ export class SemanticAnalyzer {
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
             
-            if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
+            if ((token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') &&
+                this.is_standalone_comment_token(tokens, i)) {
                 const token_content = token.value.trim();
 
-                // Check for ignore-next directive (ignores next line)
-                if (has_ignore_next_directive(token_content)) {
+                // Standalone ignore directives target the next non-trivia token.
+                if (has_ignore_directive(token_content) || has_ignore_next_directive(token_content)) {
                     // Find the next non-trivia token's line
                     for (let j = i + 1; j < tokens.length; j++) {
                         const next_token = tokens[j];
@@ -304,14 +305,9 @@ export class SemanticAnalyzer {
                         }
                     }
                 }
-                // Check for ignore directive (ignores same line)
-                else if (has_ignore_directive(token_content)) {
-                    this.config.ignored_lines.add(token.range.start.line);
-                }
-
                 // Check for @lsp-variables directive
                 const variables_match = token_content.match(
-                    new RegExp(`${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)`)
+                    new RegExp(`${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)\\s*$`)
                 );
                 if (variables_match) {
                     const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
@@ -334,11 +330,15 @@ export class SemanticAnalyzer {
     private parse_declaration_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
         // Pattern to match declaration directives (captures all remaining text)
         const DECLARATION_PATTERN = new RegExp(
-            `${DIRECTIVE_PREFIX_PATTERN}(${DECLARATION_DIRECTIVE_KEYWORDS}):?\\s+(.+)`
+            `${DIRECTIVE_PREFIX_PATTERN}(${DECLARATION_DIRECTIVE_KEYWORDS}):?\\s+(.+)\\s*$`
         );
 
-        for (const token of tokens) {
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
             if (token.type !== 'COMMENT_LINE' && token.type !== 'COMMENT_BLOCK') {
+                continue;
+            }
+            if (!this.is_standalone_comment_token(tokens, i)) {
                 continue;
             }
 
@@ -490,13 +490,6 @@ export class SemanticAnalyzer {
             }
         }
 
-        // Check trailing trivia
-        if (this.has_trivia(node) && node.trailingTrivia) {
-            for (const trivia of node.trailingTrivia) {
-                this.parse_directive(trivia, node);
-            }
-        }
-
         // Recurse into nested nodes
         if (node.type === 'program') {
             for (const child of node.body) {
@@ -512,8 +505,8 @@ export class SemanticAnalyzer {
     private parse_directive(trivia: TriviaNode, following_node: StataNode): void {
         const content = trivia.content.trim();
 
-        // Check for ignore-next directive
-        if (has_ignore_next_directive(content)) {
+        // Standalone ignore directives target the following node.
+        if (has_ignore_directive(content) || has_ignore_next_directive(content)) {
             // Ignore the line of the following node
             const line_to_ignore = following_node.range.start.line;
             this.config.ignored_lines.add(line_to_ignore);
@@ -521,7 +514,7 @@ export class SemanticAnalyzer {
 
         // Check for @lsp-variables directive
         const variables_match = content.match(
-            new RegExp(`${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)`)
+            new RegExp(`${DIRECTIVE_PREFIX_PATTERN}variables:?\\s+(.+)\\s*$`)
         );
         if (variables_match) {
             const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
@@ -529,6 +522,23 @@ export class SemanticAnalyzer {
                 this.config.declared_variables.add(var_name);
             }
         }
+    }
+
+    private is_standalone_comment_token(tokens: Token[], comment_index: number): boolean {
+        const comment = tokens[comment_index];
+        const line = comment.range.start.line;
+
+        for (let i = comment_index - 1; i >= 0; i--) {
+            const token = tokens[i];
+            if (token.range.start.line !== line) {
+                break;
+            }
+            if (token.type !== 'WHITESPACE') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

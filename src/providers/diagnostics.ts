@@ -735,20 +735,15 @@ export class DiagnosticsProvider {
         diagnostic_range: Range
     ): boolean {
         const diagnostic_line = diagnostic_range.start.line;
-        const line_count = get_line_count(document);
-        
-        // Check current line for ignore directive
-        if (diagnostic_line < line_count) {
-            const current_line = get_line_text(document, diagnostic_line);
-            if (has_ignore_directive(current_line)) {
-                return true;
-            }
+
+        if (document.ignored_lines?.has(diagnostic_line)) {
+            return true;
         }
         
-        // Check previous line for ignore-next directive
+        // Fallback for tests or synthetic document states that did not run the analyzer.
         if (diagnostic_line > 0) {
             const previous_line = get_line_text(document, diagnostic_line - 1);
-            if (has_ignore_next_directive(previous_line)) {
+            if (has_ignore_directive(previous_line) || has_ignore_next_directive(previous_line)) {
                 return true;
             }
         }

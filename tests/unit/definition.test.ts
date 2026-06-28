@@ -1268,7 +1268,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             expect(my_definition).toBeNull();
         });
 
-        it('should still navigate to directive target when cursor is on the quoted path', async () => {
+        it('should not navigate to directive target when the directive is embedded in prose', async () => {
             const helper_path = path.join(temp_dir, 'helper.do');
             fs.writeFileSync(helper_path, '// Helper file');
 
@@ -1288,10 +1288,7 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
                 context_tracker
             );
 
-            expect(my_definition).not.toBeNull();
-            expect(my_definition).not.toBeInstanceOf(Array);
-            const single = my_definition as { uri: string };
-            expect(single.uri).toContain('helper');
+            expect(my_definition).toBeNull();
         });
 
         // Regression tests: parameterized @lsp-* directives (line=, match="...")

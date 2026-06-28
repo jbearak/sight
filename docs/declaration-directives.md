@@ -4,20 +4,23 @@
 
 You can suppress diagnostics on specific lines using comment directives:
 
-- `sight: ignore` - Suppresses all diagnostics on the same line
-- `sight: ignore-next` - Suppresses all diagnostics on the next line
+- `sight: ignore` - Suppresses diagnostics on the next statement
+- `sight: ignore-next` - Also suppresses diagnostics on the next statement
 
 `sight:` is the preferred directive prefix. It must appear inside a Stata
-comment, such as `// sight: ...` or `* sight: ...`. The older `@lsp-`
-forms remain permanent aliases, so `// @lsp-ignore` still works.
+line comment, on a line by itself, such as `// sight: ...` or `* sight: ...`.
+Block comments (`/* ... */`) and inline trailing comments do not carry
+directives. The older `@lsp-` forms remain permanent aliases, so
+`// @lsp-ignore` still works.
 
 ```stata
 // Suppress warning on the next line
 // sight: ignore-next
 local result `macro_from_program'
 
-// Suppress warning on the same line
-local result `macro_from_program'  // sight: ignore
+// Suppress warning on the next statement
+// sight: ignore
+local result `macro_from_program'
 ```
 
 <a id="what-the-lsp-can-detect"></a>
@@ -75,7 +78,8 @@ my_utility arg1 arg2
 - Directives can appear anywhere in the file (not just in the header)
 - The declaration takes effect from the line where it appears through the end of the file
 - References to the symbol before the directive line will still produce warnings
-- Both `*` and `//` comment styles are supported
+- Directives must be standalone `//` or line-leading `*` comments
+- `/* ... */` block comments are not directive comments
 - Trailing whitespace after the symbol name is allowed
 
 **When to use declaration directives:**

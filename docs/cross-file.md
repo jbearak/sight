@@ -188,8 +188,10 @@ directives anywhere in a file's comments:
 - `sight: run: "path.do"` — Follow a `run` call (excludes locals)
 - `sight: include: "path.do"` — Follow an `include` call (includes locals)
 
-Use these inside Stata comments, for example `// sight: do: "path.do"`.
-The older `@lsp-` prefix is a permanent alias (`// @lsp-do: "path.do"`).
+Use these as standalone Stata line comments, for example
+`// sight: do: "path.do"` or `* sight: do: "path.do"`. Inline trailing
+comments and `/* ... */` block comments are not directive comments. The older
+`@lsp-` prefix is a permanent alias (`// @lsp-do: "path.do"`).
 
 **Scope visibility:**
 
@@ -216,8 +218,8 @@ Notes:
 - Backward directives are only read from the **top of the file** (header).
   Parsing stops at the first line that is not a comment and not blank after
   trimming whitespace (so whitespace-only lines still count as blank). Forward
-  directives (`sight: do`, `sight: run`, `sight: include`) can appear anywhere in
-  file comments.
+  directives (`sight: do`, `sight: run`, `sight: include`) can appear anywhere
+  as standalone `//` or line-leading `*` comment lines.
 - The parser also accepts an alternative form without the colon and/or without
   quotes (e.g. `// sight: done-by parent.do`), but the spec form above is
   preferred. The `@lsp-` forms remain permanent aliases.

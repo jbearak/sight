@@ -46,7 +46,7 @@ import {
 } from '../scope-resolver';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
-import { DIRECTIVE_PREFIX_PATTERN } from '../utils/directives';
+import { DIRECTIVE_BODY_PREFIX_PATTERN } from '../utils/directives';
 import { classify_entry_sync } from '../utils/symlink-aware-entry';
 import { logger } from '../utils/logger';
 import * as fs from 'fs';
@@ -423,8 +423,8 @@ function detect_directive_context(text_before_cursor: string): CompletionContext
     
     const comment_content = comment_match[2];
     
-    // Look for @lsp-* directive pattern
-    const directive_pattern = new RegExp(`(${DIRECTIVE_PREFIX_PATTERN}[a-zA-Z-]+)\\s*:?\\s*(.*)$`);
+    // Look for a directive at the start of its own comment line.
+    const directive_pattern = new RegExp(`^\\s*(${DIRECTIVE_BODY_PREFIX_PATTERN}[a-zA-Z-]+)\\s*:?\\s*(.*)$`);
     const directive_match = comment_content.match(directive_pattern);
     
     if (directive_match) {

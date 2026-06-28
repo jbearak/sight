@@ -37,27 +37,23 @@ import {
 // Accept both spec form with colon (@lsp-done-by:) and legacy form without colon.
 // Accept both quoted and unquoted paths.
 // @lsp-run-by is a synonym for @lsp-done-by (semantic clarity for files called via `run` command)
-// These patterns match only the directive head (keyword + path). They do NOT
-// anchor to end-of-line or capture a trailing params group: an unanchored
-// `@lsp-...` prefix combined with a trailing `(?:\s+(.*))?$` triggers a
-// CodeQL polynomial-ReDoS finding (each `@lsp-` start position can drive an
-// O(n) scan to `$`). Any call-site params after the path are extracted by
-// slicing the remainder of the line (see parse()/parse_forward_call_directives).
+const CALL_SITE_PARAMS_PATTERN = String.raw`((?:\s+(?:line=\d+|match="[^"]+"))*)\s*$`;
+
 const DIRECTIVE_PATTERN = make_directive_pattern(
     BACKWARD_DIRECTIVE_KEYWORDS,
-    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))`,
+    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))${CALL_SITE_PARAMS_PATTERN}`,
 );
 
 const FORWARD_CALL_DIRECTIVE_PATTERN = make_directive_pattern(
     FORWARD_DIRECTIVE_KEYWORDS,
-    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))`,
+    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))${CALL_SITE_PARAMS_PATTERN}`,
 );
 
 // Pattern for working directory directive with all synonyms
 // Matches: @lsp-working-directory, @lsp-working-dir, @lsp-current-directory, @lsp-current-dir, @lsp-cd, @lsp-wd
 const WORKING_DIR_DIRECTIVE_PATTERN = make_directive_pattern(
     WORKING_DIR_DIRECTIVE_KEYWORDS,
-    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))$`,
+    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))\s*$`,
 );
 
 const PARAM_LINE = /line=(\d+)/;
@@ -81,7 +77,7 @@ const DO_INCLUDE_PATTERN = build_do_include_pattern('capture');
 // Shared pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments.
 const CALL_DIRECTIVE_PATTERN = make_directive_pattern(
     FORWARD_DIRECTIVE_KEYWORDS,
-    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))`,
+    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))${CALL_SITE_PARAMS_PATTERN}`,
 );
 
 function looks_like_unquoted_path_token(token: string): boolean {
@@ -173,7 +169,6 @@ export class DirectiveParser {
                 continue;
             }
 
-            // Allow directives to appear anywhere in the comment line
             const my_match = my_trimmed.match(DIRECTIVE_PATTERN);
             if (my_match) {
                 // Map 'run-by' to 'done-by' (synonym for semantic clarity)
@@ -182,9 +177,7 @@ export class DirectiveParser {
                 const my_quoted_path = my_match[2] as string | undefined;
                 const my_unquoted_path = my_match[3] as string | undefined;
                 const my_raw_path = (my_quoted_path || my_unquoted_path) as string;
-                const my_params = my_trimmed
-                    .slice((my_match.index ?? 0) + my_match[0].length)
-                    .trim();
+                const my_params = my_match[4]?.trim() ?? '';
 
                 // If the path is unquoted, require that it resembles a path token.
                 // This keeps malformed cases like "@lsp-done-by missing-quotes" from being
@@ -221,7 +214,7 @@ export class DirectiveParser {
                     call_site: my_call_site,
                     range: my_range,
                 });
-            } else if (/(?:@lsp-|(?:^|\/\/|\*)\s*sight:\s*)(?:done-by|run-by|included-by)/.test(my_trimmed)) {
+            } else if (make_directive_pattern(BACKWARD_DIRECTIVE_KEYWORDS, String.raw`:?`).test(my_trimmed)) {
                 // Malformed directive
                 the_diagnostics.push({
                     message: 'Malformed directive. Expected: ' +
@@ -289,7 +282,7 @@ export class DirectiveParser {
             const my_trimmed = my_line.trim();
 
             if ((my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) &&
-                has_ignore_next_directive(my_trimmed)) {
+                (has_ignore_directive(my_trimmed) || has_ignore_next_directive(my_trimmed))) {
                 // Mark the next non-blank, non-comment line as ignored
                 for (let j = i + 1; j < line_count; j++) {
                     const next_trimmed = get_line_text(doc, j).trim();
@@ -321,12 +314,7 @@ export class DirectiveParser {
 
             const my_match = my_trimmed.match(FORWARD_CALL_DIRECTIVE_PATTERN);
             if (my_match) {
-                // Check if this line should be ignored
-                // @lsp-ignore on same line
-                if (has_ignore_directive(my_trimmed) && !has_ignore_next_directive(my_trimmed)) {
-                    continue;
-                }
-                // @lsp-ignore-next from preceding line
+                // @lsp-ignore/@lsp-ignore-next from preceding directive line
                 if (ignored_next_lines.has(i)) {
                     continue;
                 }
@@ -335,9 +323,7 @@ export class DirectiveParser {
                 const my_quoted_path = my_match[2];
                 const my_unquoted_path = my_match[3];
                 const my_raw_path = my_quoted_path || my_unquoted_path;
-                const my_params = my_trimmed
-                    .slice((my_match.index ?? 0) + my_match[0].length)
-                    .trim();
+                const my_params = my_match[4]?.trim() ?? '';
 
                 if (!my_raw_path) {
                     the_diagnostics.push({

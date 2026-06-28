@@ -570,9 +570,10 @@ display \`undefined_macro'
             expect(undefined_diags.length).toBe(0);
         });
 
-        it('should suppress diagnostics with @lsp-ignore on same line', () => {
+        it('should suppress diagnostics with standalone @lsp-ignore', () => {
             const result = analyze(`
-display \`undefined_macro' // @lsp-ignore
+// @lsp-ignore
+display \`undefined_macro'
 `, { undefined_macro_enabled: true });
             
             const undefined_diags = result.diagnostics.filter(
@@ -582,15 +583,16 @@ display \`undefined_macro' // @lsp-ignore
         });
 
         it('should suppress diagnostics with canonical sight ignore directives', () => {
-            const same_line = analyze(`
-display \`undefined_macro' // sight: ignore
+            const ignore = analyze(`
+// sight: ignore
+display \`undefined_macro'
 `, { undefined_macro_enabled: true });
             const next_line = analyze(`
 // sight: ignore-next
 display \`undefined_macro'
 `, { undefined_macro_enabled: true });
 
-            expect(same_line.diagnostics.filter(
+            expect(ignore.diagnostics.filter(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             ).length).toBe(0);
             expect(next_line.diagnostics.filter(
@@ -604,6 +606,7 @@ display \`undefined_macro' * sight: ignore
 display \`another_macro' // sight: ignoreme
 sight: ignore-next
 display \`hash_prefixed_macro' // # sight: ignore
+display \`inline_macro' // sight: ignore
 display \`bare_directive_macro'
 `, { undefined_macro_enabled: true });
 
@@ -613,6 +616,7 @@ display \`bare_directive_macro'
             expect(undefined_diags.some(d => d.message.includes('undefined_macro'))).toBe(true);
             expect(undefined_diags.some(d => d.message.includes('another_macro'))).toBe(true);
             expect(undefined_diags.some(d => d.message.includes('hash_prefixed_macro'))).toBe(true);
+            expect(undefined_diags.some(d => d.message.includes('inline_macro'))).toBe(true);
             expect(undefined_diags.some(d => d.message.includes('bare_directive_macro'))).toBe(true);
         });
 

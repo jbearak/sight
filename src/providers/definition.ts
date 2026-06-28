@@ -1508,7 +1508,7 @@ export class DefinitionProvider {
         const directive_match = line_text.match(
             new RegExp(
                 `${DIRECTIVE_PREFIX_PATTERN}(${BACKWARD_DIRECTIVE_KEYWORDS}|${FORWARD_DIRECTIVE_KEYWORDS})` +
-                String.raw`:?\s+(?:"([^"]+)"|([^\s]+))`
+                String.raw`:?\s+(?:"([^"]+)"|([^\s]+))(?:\s+(?:line=\d+|match="[^"]+"))*\s*$`
             )
         );
         if (directive_match && is_cursor_in_comment(document, position)) {
@@ -1517,11 +1517,14 @@ export class DefinitionProvider {
             const file_path = quoted_path || unquoted_path;
             const match_start = directive_match.index!;
 
-            // The match ends at the path (including the closing quote when
-            // quoted), so compute the span from the end. This is insensitive to
-            // whether the directive used `@lsp-` or `sight:`.
-            const path_start = match_start + directive_match[0].length -
-                file_path.length - (quoted_path ? 1 : 0);
+            const keyword_start = directive_match[0].indexOf(directive_match[1]);
+            const path_literal = quoted_path ? `"${file_path}"` : file_path;
+            const path_literal_start = directive_match[0].indexOf(
+                path_literal,
+                keyword_start + directive_match[1].length
+            );
+            if (path_literal_start < 0) return null;
+            const path_start = match_start + path_literal_start + (quoted_path ? 1 : 0);
             const path_end = path_start + file_path.length;
             if (position.character >= path_start &&
                 position.character <= path_end) {

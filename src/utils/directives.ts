@@ -1,12 +1,13 @@
 /**
  * Shared directive prefix handling.
  *
- * `sight:` is the canonical user-facing directive namespace. In Stata files
- * it appears inside a Stata comment (`// sight: ...` or `* sight: ...`).
- * The older `@lsp-` prefix remains a permanent alias.
+ * `sight:` is the canonical user-facing directive namespace. Directives must
+ * occupy their own Stata line-comment line (`// sight: ...` or `* sight: ...`).
+ * The older `@lsp-` prefix remains a permanent alias with the same line shape.
  */
 
-export const DIRECTIVE_PREFIX_PATTERN = String.raw`(?:@lsp-|(?:^|//|\*)\s*sight:\s*)`;
+export const DIRECTIVE_BODY_PREFIX_PATTERN = String.raw`(?:@lsp-|sight:\s*)`;
+export const DIRECTIVE_PREFIX_PATTERN = String.raw`^\s*(?://|\*)\s*${DIRECTIVE_BODY_PREFIX_PATTERN}`;
 
 export const FORWARD_DIRECTIVE_KEYWORDS = 'do|run|include';
 export const BACKWARD_DIRECTIVE_KEYWORDS = 'done-by|run-by|included-by';
@@ -26,29 +27,13 @@ export function make_directive_pattern(
 }
 
 export function has_directive_prefix(text: string): boolean {
-    return /@lsp-|(?:^|\/\/|\*)\s*sight:\s*/.test(text);
+    return new RegExp(DIRECTIVE_PREFIX_PATTERN).test(text);
 }
 
 export function has_ignore_directive(text: string): boolean {
-    return /@lsp-ignore(?!-next)(?=\s|$|[:])|(?:^|\/\/|\*)\s*sight:\s*ignore(?!-next)(?=\s|$|[:])/.test(
-        comment_region(text),
-    );
+    return new RegExp(`${DIRECTIVE_PREFIX_PATTERN}ignore:?\\s*$`).test(text);
 }
 
 export function has_ignore_next_directive(text: string): boolean {
-    return /@lsp-ignore-next(?=\s|$|[:])|(?:^|\/\/|\*)\s*sight:\s*ignore-next(?=\s|$|[:])/.test(
-        comment_region(text),
-    );
-}
-
-function comment_region(text: string): string {
-    const trimmed = text.trimStart();
-    if (trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*')) {
-        return trimmed;
-    }
-
-    const slash_comment = text.indexOf('//');
-    if (slash_comment >= 0) return text.slice(slash_comment);
-
-    return '';
+    return new RegExp(`${DIRECTIVE_PREFIX_PATTERN}ignore-next:?\\s*$`).test(text);
 }

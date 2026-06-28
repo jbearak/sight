@@ -118,6 +118,22 @@ gen x = 1`;
             expect(result.directives.length).toBe(0);
         });
 
+        test('does not parse directives embedded in prose comments', () => {
+            const content = `// note sight: done-by: "parent.do"
+* note @lsp-included-by: "utils.do"
+gen x = 1`;
+            const result = parser.parse(content, 'file:///test.do');
+
+            expect(result.directives.length).toBe(0);
+        });
+
+        test('does not parse directives from block comments', () => {
+            const content = '/* sight: done-by: "parent.do" */\ngen x = 1';
+            const result = parser.parse(content, 'file:///test.do');
+
+            expect(result.directives.length).toBe(0);
+        });
+
         test('parses canonical sight working-directory directives', () => {
             const content = '// sight: wd: "../data"\ngen x = 1';
             const result = parser.parse(content, 'file:///project/scripts/test.do');
