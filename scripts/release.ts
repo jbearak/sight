@@ -92,6 +92,7 @@ This script will:
 
 Distribution Channels:
 🚀 GitHub Releases        - Direct binary downloads
+📦 npm                    - Published as @jbearak/sight
 🎨 VS Code Marketplace    - Published only when RELEASE_PUBLISH_VSCODE=true
 🌐 OpenVSX Registry       - Published only when RELEASE_PUBLISH_VSCODE=true
 
@@ -146,11 +147,13 @@ async function main(): Promise<void> {
 
 What happens next:
 1. 🚀 GitHub Action builds all artifacts and creates release
-2. 📦 If RELEASE_PUBLISH_VSCODE=true, it publishes extension registry artifacts
+2. 📦 The publish workflow publishes @jbearak/sight to npm with Trusted Publishing
+3. 🎨 If RELEASE_PUBLISH_VSCODE=true, it publishes extension registry artifacts
 
 Next steps:
 1. Check GitHub Actions: https://github.com/jbearak/sight/actions
 2. Once release is created, test installations:
+   - npm: npm install -g @jbearak/sight && sight --version
    - VS Code: Search for "jbearak.sight" in Extensions
    - Standalone: Download the matching sight-* release binary
 `);

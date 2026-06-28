@@ -6,6 +6,7 @@ import { join } from 'path';
 import {
     LEGACY_BINARY_NAME,
     PRIMARY_BINARY_NAME,
+    WINDOWS_SHIM_EXTENSIONS,
 } from '../src/cli-binary-names';
 
 export {
@@ -41,10 +42,7 @@ export function get_legacy_binary_name(
 export function get_binary_names_to_install(
     platform: NodeJS.Platform = process.platform
 ): string[] {
-    return [
-        get_binary_name(platform),
-        get_legacy_binary_name(platform),
-    ];
+    return [get_binary_name(platform)];
 }
 
 /**
@@ -53,7 +51,10 @@ export function get_binary_names_to_install(
 export function get_binary_names_to_uninstall(
     platform: NodeJS.Platform = process.platform
 ): string[] {
-    return get_binary_names_to_install(platform);
+    return [
+        get_binary_name(platform),
+        get_legacy_binary_name(platform),
+    ];
 }
 
 /**
@@ -79,11 +80,8 @@ export function get_binary_shadow_paths_to_check(
         return [];
     }
 
-    const the_base_names = [
-        PRIMARY_BINARY_NAME,
-        LEGACY_BINARY_NAME,
-    ];
-    const the_extensions = ['', '.cmd', '.bat', '.ps1'];
+    const the_base_names = [PRIMARY_BINARY_NAME];
+    const the_extensions = WINDOWS_SHIM_EXTENSIONS;
 
     return the_base_names.flatMap((my_binary_name) =>
         the_extensions.map((my_extension) => join(
@@ -91,6 +89,30 @@ export function get_binary_shadow_paths_to_check(
             `${my_binary_name}${my_extension}`
         ))
     );
+}
+
+/**
+ * Get stale legacy command paths that source install should remove when they
+ * are Sight-owned.
+ */
+export function get_legacy_binary_paths_to_cleanup(
+    user_bin_path: string,
+    platform: NodeJS.Platform = process.platform
+): string[] {
+    const legacy_binary_name = get_legacy_binary_name(platform);
+
+    if (platform !== 'win32') {
+        return [join(user_bin_path, legacy_binary_name)];
+    }
+
+    // On Windows, reclaim the platform .exe plus the bare legacy name and every
+    // npm command-shim extension.
+    return [
+        join(user_bin_path, legacy_binary_name),
+        ...WINDOWS_SHIM_EXTENSIONS.map((my_extension) =>
+            join(user_bin_path, `${LEGACY_BINARY_NAME}${my_extension}`)
+        ),
+    ];
 }
 
 /**

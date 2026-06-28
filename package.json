@@ -1,15 +1,22 @@
 {
-  "name": "sight-language-server",
+  "name": "@jbearak/sight",
   "version": "0.8.4",
   "type": "module",
   "workspaces": [
     "client"
   ],
-  "description": "Language Server Protocol implementation for Stata",
+  "description": "A static analyzer and language server for the Stata statistical programming language",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jbearak/sight.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jbearak/sight/issues"
+  },
+  "homepage": "https://github.com/jbearak/sight#readme",
   "main": "dist/sight-server.js",
   "bin": {
-    "sight": "dist/sight-server.js",
-    "sight-language-server": "dist/sight-server.js"
+    "sight": "dist/sight-server.js"
   },
   "scripts": {
     "build": "tsc && cp -r src/command-database/caches dist/command-database/ && bun run build:bundle && cd client && npm run compile && npm run copy-server && cd ..",
@@ -20,8 +27,8 @@
     "build:npm": "bun run build:bundle && npm run validate:npm",
     "validate:npm": "node dist/sight-server.js --version && echo 'NPM build validation passed'",
     "prepublishOnly": "npm run build:npm",
-    "publish:npm": "npm publish",
-    "publish:dry-run": "npm publish --dry-run",
+    "publish:npm": "npm run build:npm && npm publish --ignore-scripts --access public",
+    "publish:dry-run": "npm run build:npm && npm publish --dry-run --ignore-scripts --access public",
     "install:binary": "bun scripts/install.ts",
     "uninstall:binary": "bun scripts/uninstall.ts",
     "watch": "tsc --watch",

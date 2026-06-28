@@ -2,8 +2,29 @@
 
 In addition to the VS Code extension, you can install the standalone tool to
 use the LSP directly with other editors (e.g., vim, neovim, and emacs) or in
-CI/CD. To do this, either download a release binary or
-[build from source](#build-from-source).
+CI/CD. To do this, install from npm, install from Homebrew (macOS, Apple
+Silicon), download a release binary, or [build from source](#build-from-source).
+
+## npm
+
+```bash
+npm install -g @jbearak/sight
+sight --help
+```
+
+The npm package installs the `sight` command. Configure LSP clients to run
+`sight --stdio`.
+
+## Homebrew (macOS, Apple Silicon)
+
+```bash
+brew install jbearak/sight/sight
+sight --help
+```
+
+Installs the prebuilt `sight` CLI from the
+[`jbearak/sight`](https://github.com/jbearak/homebrew-sight) tap. Apple Silicon
+macOS only. Configure LSP clients to run `sight --stdio`.
 
 ## Release Binary
 
@@ -55,22 +76,7 @@ If `sight` is not found after this, add `%USERPROFILE%\bin` to your user
 `Path`.
 
 Existing editor configs that still call `sight-language-server` should be
-updated to `sight --stdio`. If you need temporary compatibility while updating
-those configs on macOS or Linux, add a legacy alias:
-
-```bash
-test ! -e ~/bin/sight-language-server || {
-  echo "~/bin/sight-language-server already exists; update configs to sight"
-  exit 1
-}
-ln -s ~/bin/sight ~/bin/sight-language-server
-```
-
-On Windows, copy the executable instead:
-
-```powershell
-Copy-Item "$HOME\bin\sight.exe" "$HOME\bin\sight-language-server.exe"
-```
+updated to `sight --stdio`.
 
 After installation, the `sight` command should be available globally. Use it
 with:

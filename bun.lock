@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "stata-lsp",
+      "name": "@jbearak/sight",
       "dependencies": {
         "@jbearak/dta-parser": "^0.3.0",
         "smol-toml": "^1.6.1",

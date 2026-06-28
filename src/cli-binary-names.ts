@@ -4,6 +4,15 @@
 
 export const PRIMARY_BINARY_NAME = 'sight';
 export const LEGACY_BINARY_NAME = 'sight-language-server';
+// Windows command-shim extensions npm writes for a `bin` entry, plus the bare
+// (extension-less) name. Shared by install shadow checks, legacy-alias cleanup,
+// and Sight-ownership shim detection so the set cannot drift between them.
+export const WINDOWS_SHIM_EXTENSIONS: readonly string[] = [
+    '',
+    '.cmd',
+    '.bat',
+    '.ps1',
+];
 // Version-less tagline. The help banner composes this with the version
 // (`sight <version>, <description>`); keeping it version-less lets it double as
 // a stable identity marker for compiled binaries across releases.
