@@ -287,6 +287,48 @@ describe('StataParser', () => {
       }
     });
 
+    test('should parse global macro assignment continued after equals', () => {
+      const source = `global x = ///
+    1 + 2`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('macro_def');
+
+      if (node.type === 'macro_def') {
+        expect(node.scope).toBe('global');
+        expect(node.name).toBe('x');
+        expect(node.hasEquals).toBe(true);
+        expect(node.value).toBe('1+2');
+        expect(node.range.end.line).toBe(1);
+      }
+    });
+
+    test('should parse macro assignment continued across stacked continuations', () => {
+      const source = `local x = ///
+    1 + ///
+    2`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('macro_def');
+
+      if (node.type === 'macro_def') {
+        expect(node.name).toBe('x');
+        expect(node.hasEquals).toBe(true);
+        expect(node.value).toBe('1+2');
+        expect(node.range.end.line).toBe(2);
+      }
+    });
+
     test('should parse global macro definition', () => {
       const source = 'global path "/usr/local/stata"';
       const lexResult = lexer.tokenize(source);
