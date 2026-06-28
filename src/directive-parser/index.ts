@@ -250,7 +250,7 @@ export class DirectiveParser {
         the_diagnostics.push(...declaration_result.diagnostics);
 
         // Parse forward call directives from the entire file
-        const forward_call_result = this.parse_forward_call_directives(content, file_uri);
+        const forward_call_result = this.parse_forward_call_directives(content, file_uri, tokens);
         the_diagnostics.push(...forward_call_result.diagnostics);
 
         // Emit warning if multiple working directory directives were found
