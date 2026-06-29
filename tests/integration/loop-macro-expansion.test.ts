@@ -163,6 +163,49 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).not.toContain('x_a_foo');
     });
 
+    it('does not rebind a pre-loop helper that references the iterator', () => {
+        // `suffix' is defined BEFORE the loop with value `i'. Stata expands `i'
+        // at that (pre-loop) point, where `i' is undefined, so suffix = "" and
+        // the loop body defines `x_' — NOT x_a / x_b. We must not inject x_a/x_b
+        // (that would falsely suppress the genuine undefined-macro warnings).
+        const source = [
+            "local suffix `i'",
+            'foreach i in a b {',
+            "    local x_`suffix'",
+            '}',
+            "display `x_a'",
+            "display `x_b'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(symbols.localMacros.has('x_b')).toBe(false);
+        const undef = undefined_macros(source);
+        expect(undef).toContain('x_a');
+        expect(undef).toContain('x_b');
+    });
+
+    it('folds a pre-loop helper against the iterator\'s prior (pre-loop) value', () => {
+        // `i' exists before the loop (= "old"), so `local suffix `i'` freezes
+        // suffix = "old" and the loop defines x_old on every iteration — never
+        // x_a / x_b. The expander resolves suffix against i's pre-loop value.
+        const source = [
+            'local i old',
+            "local suffix `i'",
+            'foreach i in a b {',
+            "    local x_`suffix'",
+            '}',
+            "display `x_old'",
+            "display `x_a'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_old')).toBe(true);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(symbols.localMacros.has('x_b')).toBe(false);
+        const undef = undefined_macros(source);
+        expect(undef).not.toContain('x_old');
+        expect(undef).toContain('x_a');
+    });
+
     it('does not inject digit-leading (invalid) names from integer iterators', () => {
         const source = [
             'forvalues i = 1/3 {',

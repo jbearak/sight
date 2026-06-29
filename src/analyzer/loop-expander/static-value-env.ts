@@ -7,11 +7,35 @@
  * extended functions, command-created placeholders, unknown macros, cycles)
  * yields `null`.
  *
- * The optional `overlay` binds names to concrete values for the current
- * cartesian tuple (loop iterators). Overlay values are already concrete and are
- * never re-folded, so iterator-dependent macros resolve correctly:
- * `local suffix \`i'` then `local x_\`suffix'` folds `suffix` to the template
- * `` `i' ``, whose `` `i' `` slot then resolves from the overlay.
+ * The optional `overlay` binds the loop iterator name(s) to their value for the
+ * current cartesian tuple. Stata expands macro references EAGERLY, so where a
+ * `` `i' `` sits determines whether it sees the loop value:
+ *
+ *   - A `` `i' `` written DIRECTLY in the constructed name (loop body) is
+ *     re-evaluated every iteration and takes the loop value. The overlay
+ *     supplies it — but only at the top level (`resolve_local`/`resolve_global`
+ *     at recursion depth 0).
+ *         local i = 1
+ *         forvalues i = 2/10 { local x_`i' }     // x_2 .. x_10 (NOT x_1)
+ *
+ *   - A `` `i' `` that was captured into a SEPARATE macro's value assigned
+ *     before the loop is expanded once, at that assignment, and the iterator
+ *     token is gone thereafter. Folding such a stored value (depth > 0) must
+ *     therefore NOT consult the overlay; it resolves the captured reference
+ *     against the value `i` held when the helper was defined.
+ *         local i old
+ *         local suffix `i'                        // suffix is the literal "old"
+ *         foreach i in a b { local x_`suffix' }   // x_old every iteration
+ *
+ * Consulting the overlay while folding a stored value would rebind the captured
+ * `` `i' `` to the loop iterator and fabricate names that never exist at runtime
+ * (`x_a`/`x_b`), falsely suppressing undefined-macro warnings. When the captured
+ * value is not statically known (e.g. `local i = 1` uses `=`), the helper is
+ * unresolvable and the constructed name is skipped (a conservative miss). This
+ * is an INTENTIONAL, by-design limitation — declining to expand such a name is
+ * always preferred over fabricating one, because a fabricated name is exactly
+ * the false suppression this feature must never produce. (See the design spec's
+ * "Out of scope" section.)
  */
 import { MacroSymbol, SymbolTable } from '../../types';
 
@@ -139,8 +163,16 @@ export function build_static_value_env(
         visited: Set<string>,
         depth: number
     ): StaticValue => {
-        const overlaid = overlay?.get(name);
-        if (overlaid !== undefined) return overlaid;
+        // The overlay (loop iterator value) supplies a `` `i' `` written
+        // directly in the constructed name (depth 0), which Stata re-evaluates
+        // each iteration. A `` `i' `` reached by folding a stored macro's value
+        // (depth > 0) was captured/expanded once at that macro's own assignment,
+        // so it must resolve from the stored symbols, not the loop binding.
+        // See the file header for worked examples.
+        if (depth === 0) {
+            const overlaid = overlay?.get(name);
+            if (overlaid !== undefined) return overlaid;
+        }
         const key = `local:${name}`;
         if (visited.has(key)) return null; // cycle
         const symbol = symbols.localMacros.get(name);

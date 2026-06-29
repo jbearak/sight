@@ -112,14 +112,19 @@ independently testable modules, plus a thin orchestrator the analyzer calls from
 overlay?: Map<string,string>): StaticValueEnv` returning `{ resolve_local(name),
 resolve_global(name) }` where each yields `string | UNKNOWN`.
 
-- **Per-tuple overlay (R1).** The optional `overlay` maps macro names to concrete
-  values for the *current cartesian tuple* (iterator bindings, and any in-body
-  macro whose value itself depends on an iterator). `resolve_local` checks the
-  overlay first, then the symbol table. The overlay is consulted recursively, so
-  `local suffix \`i'` followed by `local x_\`suffix'` folds correctly: `suffix`
-  resolves via the symbol table to the *template* `` `i' ``, whose `` `i' `` slot
-  then resolves from the overlay to the current tuple value.
-- A symbol-table value is statically known iff its `MacroSymbol.value` is present
+- **Per-tuple overlay (R1, corrected R3).** The optional `overlay` maps the loop
+  iterator name(s) to their value for the *current cartesian tuple*. Stata
+  expands macro references eagerly, so position decides whether a `` `i' `` sees
+  the loop value: a `` `i' `` written **directly** in the constructed name is
+  re-evaluated each iteration and takes the loop value (the overlay supplies it,
+  consulted only at recursion **depth 0**); a `` `i' `` that was **captured into
+  a separate macro's value before the loop** (`local suffix \`i'`) was expanded
+  once at that assignment, so folding that stored value (depth > 0) must **not**
+  consult the overlay — it resolves the captured reference against the value `i`
+  held when the helper was defined. Consulting the overlay there would rebind the
+  captured reference to the loop iterator and fabricate names that never exist at
+  runtime.
+  A symbol-table value is statically known iff its `MacroSymbol.value` is present
   and not produced by a dynamic construct, and any macro refs it contains are
   themselves resolvable (recursive, cycle-guarded by a `visited` set + depth cap).
 - **Dynamic ⇒ `UNKNOWN`** when: `value === undefined`; `extendedFunction` set
@@ -328,6 +333,22 @@ matters for globals.
   pre-existing warning behavior remains; never a false suppression).
   Independent nested lists (`foreach i in a b { foreach j in x y { … } }`) are
   fully supported.
+- **The iterator name captured into a pre-loop helper macro.** When a
+  constructed name interpolates a helper macro that was assigned **before** the
+  loop and whose value captured the iterator name (e.g. `local suffix \`i'`
+  before `foreach i …`), Stata had already expanded that `` `i' `` at the
+  helper's assignment, so it resolves against the value `i` held *then* (its
+  prior value, or unknown if it did not exist) — never the loop binding. If that
+  captured value is unknown, the constructed name is **not expanded** (a
+  conservative miss — the pre-existing warning behavior remains; never a false
+  suppression). This does **not** affect a `` `i' `` written *directly* in the
+  constructed name (that takes the loop value), nor helpers whose value does not
+  reference the iterator (`local suffix foo` is still fully resolved). This is an
+  **intentional, by-design limitation**, not a gap to be closed later: the
+  alternative (fabricating the iterator-rebound names) is exactly the
+  false-suppression the feature must never produce. Enforced by the depth-0
+  overlay gate in `static-value-env.ts` and covered by the "pre-loop helper"
+  tests in `tests/unit/loop-expander/*` and `tests/integration/loop-macro-expansion.test.ts`.
 - **Program-body macro scope in diagnostics.** Macros defined inside a `program`
   body are added to the file-wide symbol table and are not scope-isolated from
   file-scope references by `is_macro_defined` — this is **pre-existing analyzer
@@ -409,3 +430,33 @@ Required integration coverage (R1): pre-loop reference (still undefined),
 in-(defining-)loop reference (still warns), post-loop reference (defined),
 nested-loop cartesian, cross-file call-site for a constructed **global**, and
 name **collision** (two loops / loop + real `local`).
+
+### Adversarial review resolutions (R3 — third Codex pass on the diff)
+
+- **Pre-loop helper that captured the iterator name (false-suppression fix).**
+  The R1 overlay description allowed a stored macro's `` `i' `` to be rebound to
+  the loop iterator during recursive folding. Stata expands macro references
+  eagerly, so a `` `i' `` *captured into a separate macro before the loop* is
+  expanded once at that assignment — it does not re-evaluate to the iterator
+  later. (Contrast a `` `i' `` written **directly** in the loop body, which
+  *does* take the loop value each iteration — e.g. `local i = 1` then
+  `forvalues i = 2/10 { local x_\`i' }` defines `x_2 … x_10`, handled correctly
+  by the depth-0 overlay.) The unsound case:
+
+  ```stata
+  local suffix `i'        // i undefined here -> suffix = ""
+  foreach i in a b {
+      local x_`suffix'    // suffix is still "" -> runtime defines x_  (NOT x_a / x_b)
+  }
+  ```
+
+  The old code injected `x_a`/`x_b` and suppressed the genuine
+  undefined-macro warnings for `` `x_a' ``/`` `x_b' ``. **Resolved:** the
+  per-tuple overlay is now consulted only at recursion depth 0 (a reference
+  written directly at the constructed name). Folding a stored macro's value
+  resolves a captured iterator reference against the value `i` held when the
+  helper was defined — so a prior `local i old` yields `x_old` (matching Stata),
+  and when that value is not statically known (e.g. `local i = 1` uses `=`) the
+  helper is unresolvable and the constructed name is **skipped** (a conservative
+  miss, never a false suppression). See the documented limitation in
+  *Out of scope* below.

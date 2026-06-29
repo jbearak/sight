@@ -88,10 +88,24 @@ describe('build_static_value_env', () => {
         expect(env.resolve_local('i')).toBe('a');
     });
 
-    it('resolves overlay through an iterator-dependent macro', () => {
-        // local suffix `i' ; with overlay i=a, suffix folds to "a"
+    it('does NOT rebind a stored macro\'s iterator ref to the overlay', () => {
+        // A helper defined before the loop with value `i' was already expanded
+        // at its (pre-loop) definition time, so the overlay (loop binding) must
+        // NOT apply when folding it. With no pre-loop value for `i`, `suffix`
+        // is unresolvable (conservative) rather than folding to "a".
         const env = build_static_value_env(locals(macro('suffix', '`i\'')), new Map([['i', 'a']]));
-        expect(env.resolve_local('suffix')).toBe('a');
+        expect(env.resolve_local('suffix')).toBeNull();
+    });
+
+    it('folds a stored macro\'s iterator ref against the iterator\'s PRE-LOOP value', () => {
+        // `local i old` then `local suffix `i'` (both before the loop): the
+        // overlay binds i=a for the loop, but `suffix' must resolve to i's
+        // pre-loop value ("old"), the value Stata froze at suffix's definition.
+        const env = build_static_value_env(
+            locals(macro('i', 'old'), macro('suffix', '`i\'')),
+            new Map([['i', 'a']])
+        );
+        expect(env.resolve_local('suffix')).toBe('old');
     });
 
     it('returns null when a referenced macro is dynamic', () => {

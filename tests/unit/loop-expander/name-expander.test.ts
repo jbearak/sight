@@ -133,10 +133,21 @@ describe('expand_template', () => {
         expect(expand_template(t, frames_i, maps(macro('suffix', 'foo'))).sort()).toEqual(['a_foo', 'b_foo', 'c_foo']);
     });
 
-    it('resolves an iterator-dependent local in the name', () => {
-        // local suffix `i' ; then local x_`suffix'  -> x_a, x_b, x_c
+    it('does not rebind a pre-loop helper\'s iterator ref to the loop binding', () => {
+        // `suffix' is a (pre-loop) helper whose value is `i'. Stata froze that
+        // `i' at suffix's earlier definition, so it must NOT be rebound to the
+        // loop iterator: x_a/x_b/x_c are never defined at runtime. With no
+        // pre-loop value for `i', suffix is unresolvable -> no names (the
+        // conservative miss; never a false suppression).
         const t: NameTemplate = { scope: 'local', parts: [{ kind: 'literal', text: 'x_' }, { kind: 'local_ref', name: 'suffix' }] };
-        expect(expand_template(t, frames_i, maps(macro('suffix', "`i'"))).sort()).toEqual(['x_a', 'x_b', 'x_c']);
+        expect(expand_template(t, frames_i, maps(macro('suffix', "`i'")))).toEqual([]);
+    });
+
+    it('folds a pre-loop helper\'s iterator ref against the iterator\'s pre-loop value', () => {
+        // `i' = "old" before the loop, then `suffix' = `i' = "old". The single
+        // constructed name is x_old (frozen), independent of the loop binding.
+        const t: NameTemplate = { scope: 'local', parts: [{ kind: 'literal', text: 'x_' }, { kind: 'local_ref', name: 'suffix' }] };
+        expect(expand_template(t, frames_i, maps(macro('i', 'old'), macro('suffix', "`i'")))).toEqual(['x_old']);
     });
 
     it('drops names that are not valid Stata identifiers (digit-leading)', () => {
