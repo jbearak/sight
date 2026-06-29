@@ -179,6 +179,11 @@ interface AdditionalDefinitionEntry {
     index: number;
     line: number;
     location: { uri: string; range: Range };
+    // True for a loop-expanded definition, whose location is the loop-body
+    // template statement (text that does not contain the concrete name). Such
+    // entries are excluded from the redefinition footer, consistent with
+    // find-references and go-to-definition.
+    is_expanded?: boolean;
 }
 
 /**
@@ -740,9 +745,12 @@ export class HoverProvider {
         current_uri: string,
     ): AdditionalDefinitionEntry[] {
         const the_accumulated: AdditionalDefinitionEntry[] = [];
-        // Start with the primary's own same-file additional_definitions.
+        // Start with the primary's own same-file additional_definitions,
+        // skipping loop-expanded synthetic entries (their line points at a
+        // template statement, not a literal occurrence of the name).
         if (primary?.additional_definitions) {
             for (const my_extra of primary.additional_definitions) {
+                if (my_extra.is_expanded) continue;
                 the_accumulated.push(my_extra);
             }
         }
@@ -812,6 +820,7 @@ export class HoverProvider {
                     : undefined;
             if (the_extras) {
                 for (const my_extra of the_extras) {
+                    if (my_extra.is_expanded) continue;
                     if (the_candidate_uris && !the_candidate_uris.has(my_extra.location.uri)) {
                         continue;
                     }

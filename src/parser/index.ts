@@ -2030,7 +2030,8 @@ export class StataParser {
 
     if (is_forvalues_spec || is_foreach_spec) {
       const specType = this.advance().value;
-      let needs_space = false;
+      let loop_spec_body = '';
+      let prev_spec_token: Token | null = null;
 
       // Collect specification until {
       while (!this.check('LBRACE') && !this.isAtEnd()) {
@@ -2043,20 +2044,26 @@ export class StataParser {
           break;
         }
         const token = this.advance();
-        // Preserve whitespace tokens as-is, don't add extra spaces
-        if (token.type === 'WHITESPACE') {
-          loopSpec += token.value;
-          needs_space = false;
-        } else {
-          // Add space between non-whitespace tokens only if needed
-          if (needs_space && loopSpec.length > 0 && !loopSpec.endsWith(' ')) {
-            loopSpec += ' ';
-          }
-          loopSpec += token.value;
-          needs_space = true;
+        // Spacing is derived from token ranges, not from WHITESPACE/CONTINUATION
+        // token values.
+        if (token.type === 'WHITESPACE' || token.type === 'CONTINUATION') {
+          continue;
         }
+        if (prev_spec_token !== null) {
+          const same_line = prev_spec_token.range.end.line === token.range.start.line;
+          const gap = token.range.start.character - prev_spec_token.range.end.character;
+          // Insert a separator on ANY non-adjacency: a same-line gap, or a line
+          // break (a `#delimit ;` newline, or a `///`-continued item). Only
+          // truly adjacent fragments (e.g. `a`m'`) join into one list item, so
+          // `a`m'` stays one value rather than splitting into `a` and `m`.
+          if (!same_line || gap > 0) {
+            loop_spec_body += ' ';
+          }
+        }
+        loop_spec_body += token.value;
+        prev_spec_token = token;
       }
-      loopSpec = specType + ' ' + loopSpec.trim();
+      loopSpec = specType + ' ' + loop_spec_body.trim();
     }
 
     // Parse body
@@ -3292,10 +3299,14 @@ export class StataParser {
 
   /**
    * Reconstruct a macro value from its tokens, collapsing any inter-token gap
-   * (same-line whitespace or a `///` line break) to a single space and joining
-   * adjacent tokens directly. Unlike `reconstructTokensWithSpacing`, this does
-   * not preserve exact widths or continued-line indentation, so values read
-   * cleanly (e.g. `local x = 1 + 2` ⇒ `"1 + 2"`, not `"1 +    2"`).
+   * to a single space and joining truly adjacent tokens directly.
+   *
+   * A `///` continuation removes the `///` and the newline but keeps the next
+   * line's leading indentation as part of the value, so a continued token that
+   * starts at column 0 joins with NO space (`local x = ab///\ncd` ⇒ `"abcd"`,
+   * `1///\n+2` ⇒ `"1+2"`) while an indented continuation keeps a single space
+   * (`local x = 1 + ///\n    2` ⇒ `"1 + 2"`). Unlike `reconstructTokensWithSpacing`,
+   * exact widths and indentation are collapsed, so values read cleanly.
    */
   private reconstruct_value_tokens(tokens: Token[]): string {
     const the_parts: string[] = [];
@@ -3303,8 +3314,13 @@ export class StataParser {
     for (const my_token of tokens) {
       if (prev_token !== null) {
         const same_line = prev_token.range.end.line === my_token.range.start.line;
-        const gap = my_token.range.start.character - prev_token.range.end.character;
-        if (!same_line || gap > 0) {
+        // On a line break (always a `///` continuation in cr mode) the gap is
+        // the continued token's own indentation; on the same line it is the
+        // span between the two tokens.
+        const gap = same_line
+          ? my_token.range.start.character - prev_token.range.end.character
+          : my_token.range.start.character;
+        if (gap > 0) {
           the_parts.push(' ');
         }
       }

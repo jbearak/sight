@@ -329,6 +329,20 @@ describe('StataParser', () => {
       }
     });
 
+    test('joins a /// continuation with no space when the next line is unindented', () => {
+      // `///` removes itself and the newline; an unindented continued token
+      // joins directly (Stata: `local x = ab///\ncd` -> "abcd").
+      const source = `local x = ab///
+cd`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('macro_def');
+      if (node.type === 'macro_def') {
+        expect(node.value).toBe('abcd');
+      }
+    });
+
     test('should parse macro assignment continued after the scope keyword', () => {
       const source = `local ///
     x = 1`;

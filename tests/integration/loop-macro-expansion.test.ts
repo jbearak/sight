@@ -111,6 +111,64 @@ describe('Loop macro expansion (integration)', () => {
         expect(undef).not.toContain('prefix_b_foo');
     });
 
+    it('does not expand a static loop nested inside a conditional block', () => {
+        // The `if 0` block may not execute, so x_a must not be injected — a
+        // reference after the block must still warn.
+        const source = [
+            'if 0 {',
+            '    foreach i in a b {',
+            "        local x_`i'",
+            '    }',
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(symbols.localMacros.has('x_b')).toBe(false);
+    });
+
+    it('does not expand a static loop nested inside a dynamic loop', () => {
+        // The outer `of varlist` loop may iterate zero times, so the inner
+        // static loop's constructed names are not guaranteed to be defined.
+        const source = [
+            'foreach v of varlist somevar {',
+            '    foreach i in a b {',
+            "        local x_`i'",
+            '    }',
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(symbols.localMacros.has('x_b')).toBe(false);
+    });
+
+    it('keeps an earlier body-literal definition as the primary on collision', () => {
+        // The loop constructs the name `a`, colliding with the literal `local a`
+        // defined earlier in the same body. The literal (line 1) must stay the
+        // primary so the reference on line 2 is in scope, not flagged forward.
+        const source = [
+            'foreach i in a {',
+            '    local a = 1',
+            "    display `a'",
+            "    local `i'",
+            '}',
+        ].join('\n');
+        expect(undefined_macros(source)).not.toContain('a');
+    });
+
+    it('does not fragment an adjacent macro-ref list item', () => {
+        // `foreach i in a`m'` is ONE runtime value (a + m), not two. The old
+        // loopSpec reconstruction split it into `a` and `m`, fabricating x_a/x_b.
+        const source = [
+            'local m b',
+            "foreach i in a`m' {",
+            "    local x_`i'",
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(symbols.localMacros.has('x_b')).toBe(false);
+    });
+
     it('does not fabricate a name from a forward-defined helper macro', () => {
         // `suffix` captures `` `i' `` while `i` is still undefined (Stata freezes
         // suffix = ""), and `i` is defined only AFTER. Folding suffix must not

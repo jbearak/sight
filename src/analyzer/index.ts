@@ -205,6 +205,13 @@ export class SemanticAnalyzer {
     // bindings for loop-expanded macro names.
     private loop_frames: BindingFrame[] = [];
 
+    // Depth of enclosing bodies that are NOT guaranteed to execute: `if`/
+    // `else`/`while` blocks, and dynamic or empty-value-set loops. While this
+    // is > 0, loop-macro expansion is suppressed — a constructed name inside a
+    // block that may never run must not be injected, or it would falsely
+    // suppress a legitimate undefined-macro warning after the block.
+    private nonexec_depth = 0;
+
     /**
      * Analyze an AST and build symbol tables.
      * 
@@ -228,6 +235,7 @@ export class SemanticAnalyzer {
         this.cd_commands = []; // Reset cd commands (issue #252)
         this.cd_nesting_depth = 0;
         this.loop_frames = []; // Reset loop iterator frames
+        this.nonexec_depth = 0; // Reset non-executing-context depth
         this.workspace_symbols = workspace_symbols; // Store workspace symbols
         this.tokens = tokens; // Keep tokens for command-level pattern checks
 
@@ -774,11 +782,16 @@ export class SemanticAnalyzer {
         // against the enclosing do-file iterator. Uses build_symbols_in_body so
         // cd-nesting tracking (issue #252) still applies inside the program.
         const saved_loop_frames = this.loop_frames;
+        const saved_nonexec_depth = this.nonexec_depth;
         this.loop_frames = [];
+        // A program body executes top-level when the program is called, so reset
+        // the non-executing-context depth for its own internal loops.
+        this.nonexec_depth = 0;
         try {
             this.build_symbols_in_body(node.body, symbols, program_scope, all_scopes);
         } finally {
             this.loop_frames = saved_loop_frames;
+            this.nonexec_depth = saved_nonexec_depth;
         }
 
         // Guard body-metadata extractions on first definition only.
@@ -2318,26 +2331,39 @@ export class SemanticAnalyzer {
         if (pushed) {
             this.loop_frames.push({
                 var: node.loopVar!,
-                values: value_set.values,
+                values: (value_set as { kind: 'static'; values: string[] }).values,
             });
         }
 
+        // The loop body is guaranteed to execute (≥1 iteration) only when the
+        // value-set is static AND non-empty. A dynamic or empty-value-set loop
+        // body may not run, so a constructed name inside it must not be
+        // expanded — and any nested static loop must be suppressed too.
+        const guaranteed = pushed
+            && (value_set as { kind: 'static'; values: string[] }).values.length > 0;
+        // Expand only when this loop runs unconditionally AND the whole
+        // enclosing context does too (no `if`/`while` or non-guaranteed loop
+        // above us). Snapshot the pre-loop macros (cloning additional_definitions
+        // so body redefinitions cannot retroactively poison the fold) so the
+        // fold sees only macros visible before the loop, and expand AFTER the
+        // body is walked so a body-literal definition of the same concrete name
+        // remains the primary symbol.
+        const can_expand = guaranteed && this.tokens !== null && this.nonexec_depth === 0;
+        const pre_loop_macros = can_expand
+            ? this.snapshot_macro_maps(symbols)
+            : undefined;
+        if (!guaranteed) this.nonexec_depth++;
         try {
-            // Expand constructed names BEFORE walking the body. At this point
-            // `symbols` holds exactly the macros visible before the loop, which
-            // is the scope a constructed name resolves against (plus the loop
-            // iterators via the per-tuple overlay) — never body-local
-            // definitions whose execution order relative to the constructed
-            // statement is unknown. Expanding first keeps that soundness without
-            // cloning the macro maps, and is immune to body redefinitions
-            // mutating shared MacroSymbol objects. An unresolved helper means a
-            // name is skipped (a conservative miss), never wrongly suppressed.
-            if (pushed && this.tokens) {
+            // Process loop body with the same scope (loop doesn't create new
+            // scope). build_symbols_in_body tracks cd-nesting depth (issue #252).
+            this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+
+            if (can_expand && pre_loop_macros && this.tokens) {
                 const the_expanded = expand_loop_body(
                     node,
                     this.tokens,
                     this.loop_frames,
-                    symbols
+                    pre_loop_macros
                 );
                 for (const my_macro of the_expanded) {
                     this.inject_expanded_macro(
@@ -2348,15 +2374,42 @@ export class SemanticAnalyzer {
                     );
                 }
             }
-
-            // Process loop body with the same scope (loop doesn't create new
-            // scope). build_symbols_in_body tracks cd-nesting depth (issue #252).
-            this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
         } finally {
+            if (!guaranteed) this.nonexec_depth--;
             if (pushed) {
                 this.loop_frames.pop();
             }
         }
+    }
+
+    /**
+     * Snapshot the macro maps for loop expansion. Each `MacroSymbol` is cloned
+     * (with its own `additional_definitions` array) so that processing the loop
+     * body — which may redefine a pre-loop helper and append to the original
+     * symbol's `additional_definitions` — cannot retroactively change what the
+     * pre-loop fold sees.
+     */
+    private snapshot_macro_maps(
+        symbols: SymbolTable
+    ): Pick<SymbolTable, 'localMacros' | 'globalMacros'> {
+        const clone_map = (
+            src: Map<string, MacroSymbol>
+        ): Map<string, MacroSymbol> => {
+            const out = new Map<string, MacroSymbol>();
+            for (const [my_name, my_symbol] of src) {
+                out.set(my_name, {
+                    ...my_symbol,
+                    additional_definitions: my_symbol.additional_definitions
+                        ? [...my_symbol.additional_definitions]
+                        : undefined,
+                });
+            }
+            return out;
+        };
+        return {
+            localMacros: clone_map(symbols.localMacros),
+            globalMacros: clone_map(symbols.globalMacros),
+        };
     }
 
     /**
@@ -2415,8 +2468,17 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         all_scopes: ScopeInfo[]
     ): void {
-        // Process body with the same scope
-        this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+        // `if`/`else`/`while` bodies may not execute, so loop-macro expansion
+        // inside them must be suppressed. `frame X { ... }` always runs, so it
+        // does not gate expansion.
+        const is_conditional = node.type !== 'frame';
+        if (is_conditional) this.nonexec_depth++;
+        try {
+            // Process body with the same scope
+            this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+        } finally {
+            if (is_conditional) this.nonexec_depth--;
+        }
     }
 
     /**

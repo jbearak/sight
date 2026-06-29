@@ -34,6 +34,12 @@ interface ListItem {
     quoted: boolean;
 }
 
+/** Stata list separators: spaces, tabs, and newlines (the latter appear in
+ * folded `#delimit ;` macro values). */
+function is_list_separator(ch: string): boolean {
+    return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
+}
+
 /**
  * Split a Stata list on whitespace, keeping `"..."` and compound `` `"..."' ``
  * spans together as single (quoted) elements with their quotes stripped.
@@ -44,7 +50,7 @@ function split_quote_aware(text: string): ListItem[] {
     const length = text.length;
     while (i < length) {
         const my_char = text[i];
-        if (my_char === ' ' || my_char === '\t') {
+        if (is_list_separator(my_char)) {
             i++;
             continue;
         }
@@ -66,7 +72,7 @@ function split_quote_aware(text: string): ListItem[] {
             i = end + 1;
         } else {
             let j = i;
-            while (j < length && text[j] !== ' ' && text[j] !== '\t') j++;
+            while (j < length && !is_list_separator(text[j])) j++;
             items.push({ text: text.slice(i, j), quoted: false });
             i = j;
         }

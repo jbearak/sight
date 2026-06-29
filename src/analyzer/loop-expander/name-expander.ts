@@ -8,6 +8,7 @@
  */
 import { SymbolTable, Token } from '../../types';
 import { is_valid_identifier } from '../option-argument-parser';
+import { SINGLE_LINE_PREFIX_COMMANDS } from '../../utils/stata-prefix-commands';
 import { build_static_value_env } from './static-value-env';
 import { scan_macro_refs } from './macro-ref-scanner';
 
@@ -29,9 +30,6 @@ export interface BindingFrame {
 /** Cap on concrete names produced per template; overflow ⇒ skip the template. */
 export const EXPANSION_CAP = 5000;
 
-const PREFIX_COMMANDS = new Set([
-    'capture', 'cap', 'quietly', 'qui', 'quie', 'noisily', 'noi',
-]);
 // NUMBER is included so a digit adjacent to a macro ref joins the name,
 // e.g. `local v`i'1` -> v`i'1 -> v<i>1, not a truncated v<i>. Digits become
 // literal parts in parse_template_string. The adjacency check still excludes a
@@ -91,7 +89,7 @@ function parse_macro_def_head(statement_tokens: Token[]): MacroDefHead | null {
     // Skip leading single-line prefix commands (capture/quietly/noisily),
     // including a trailing colon (e.g. `quietly: local ...`, `cap noi: local`).
     while (i < statement_tokens.length && statement_tokens[i].type === 'WORD'
-        && PREFIX_COMMANDS.has(statement_tokens[i].value)) {
+        && SINGLE_LINE_PREFIX_COMMANDS.has(statement_tokens[i].value)) {
         i++;
         if (i < statement_tokens.length && statement_tokens[i].type === 'COLON') {
             i++;
@@ -216,6 +214,12 @@ export function expand_template(
     let tuple_count = 1;
     for (const my_frame of the_needed) {
         tuple_count *= my_frame.values.length;
+        // Overflow: bail with no names. This intentionally falls back to
+        // pre-feature behavior — references to the (un-enumerated) names will
+        // warn — rather than risk fabricating or partially injecting. A loop
+        // producing more than EXPANSION_CAP (5000) concrete names is
+        // pathological; warning on them is the conservative, never-falsely-
+        // suppress choice.
         if (tuple_count > EXPANSION_CAP) return [];
     }
     const the_names = new Set<string>();
