@@ -281,9 +281,8 @@ export class SemanticAnalyzer {
         // This avoids issues with multi-line block comments causing line number mismatches
         this.parse_declaration_directives_from_tokens(tokens, symbols);
         
-        // Process other directives (ignore, variables). Like declaration
-        // directives, these are only honored in standalone `//` / line-leading
-        // `*` comments; `/* ... */` block comments do not carry directives.
+        // Process other directives. `ignore` and variable declarations may
+        // appear in trailing `//` comments.
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
 
@@ -302,11 +301,7 @@ export class SemanticAnalyzer {
                     this.ignore_next_non_trivia_line(tokens, i);
                 }
 
-                if (!is_standalone_comment) {
-                    continue;
-                }
-
-                // Check for @lsp-variables directive
+                // Check for @lsp-variables / @lsp-var directive
                 const variables_match = token_content.match(VARIABLES_DIRECTIVE_PATTERN);
                 if (variables_match) {
                     const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
@@ -343,14 +338,12 @@ export class SemanticAnalyzer {
     private parse_declaration_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
-            // Directives live only in standalone `//` / line-leading `*`
-            // comments. `/* ... */` block comments do not carry directives
-            // (see docs/declaration-directives.md), so a directive-looking line
-            // nested inside a block comment must stay inert.
+            // Declaration directives live in real line comments. A `//`
+            // directive may trail code on the same line, while `*` comments
+            // only exist when line-leading. `/* ... */` block comments do not
+            // carry directives (see docs/declaration-directives.md), so a
+            // directive-looking line nested inside a block comment stays inert.
             if (token.type !== 'COMMENT_LINE') {
-                continue;
-            }
-            if (!this.is_standalone_comment_token(tokens, i)) {
                 continue;
             }
 
@@ -358,6 +351,9 @@ export class SemanticAnalyzer {
             if (my_match) {
                 const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
                 const the_names = my_match[2].split(/\s+/).filter(n => n.length > 0);
+                // Declarations are intentionally line-scoped, not
+                // character-scoped. A trailing `// sight: local x` applies to
+                // the whole physical line as well as following lines.
                 const my_actual_line = token.range.start.line;
                 for (const my_name of the_names) {
                     this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
@@ -503,7 +499,7 @@ export class SemanticAnalyzer {
             this.config.ignored_lines.add(line_to_ignore);
         }
 
-        // Check for @lsp-variables directive
+        // Check for @lsp-variables / @lsp-var directive
         const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
         if (variables_match) {
             const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
