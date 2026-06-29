@@ -112,30 +112,51 @@ export class DefinitionProvider {
             return null;
         }
 
+        // Prefer the explicit argument, but fall back to the document's own
+        // tracker so the block-comment guard and embedded-macro path use the
+        // real context even when a caller omits the optional argument (the
+        // completion provider does the same).
+        const my_context_tracker = context_tracker ?? document.context_tracker;
+        const my_context = my_context_tracker
+            ? my_context_tracker.get_context_at_position(position)
+            : LanguageContext.STATA;
+
+        // A Stata `/* ... */` block comment is inert: a commented-out
+        // `do "child.do"` is never executed, so neither command-path navigation
+        // nor symbol go-to-def should fire from inside one. Line comments are
+        // unaffected — `@lsp-*` directive navigation still works there via the
+        // directive branch below, which already excludes block comments.
+        //
+        // Restricted to STATA context: inside embedded Mata/Python the lexer can
+        // emit COMMENT_BLOCK for `/* */` that is actually part of an embedded
+        // string (e.g. a Python single-quoted string, where `'` is lexed as an
+        // operator), and macros are valid there — those resolve via the embedded
+        // handler below. `require_tokens` keeps the imprecise tokenless heuristic
+        // from hiding live code.
+        if (my_context === LanguageContext.STATA &&
+            is_cursor_in_block_comment(document, position, { require_tokens: true })) {
+            return null;
+        }
+
         // File-path / directive resolution runs first so cross-file directives
         // like `@lsp-done-by` and `do "..."` work from every context — including
-        // inside embedded-language blocks and inside comments.
+        // inside embedded-language blocks and inside line comments.
         const file_definition = this.get_include_definition(document, position);
         if (file_definition) {
             return file_definition;
         }
 
-        // Check if we're in an embedded language context
-        if (context_tracker) {
-            const my_context = context_tracker.get_context_at_position(position);
-
-            // In embedded language context, only resolve macros, not programs
-            if (my_context !== LanguageContext.STATA) {
-                return await this.get_macro_definition_only(
-                    document,
-                    position,
-                    workspace_symbols,
-                    scope_resolver,
-                    workspace_indexer,
-                    cross_file_config,
-                    cancellation_token
-                );
-            }
+        // In embedded language context, only resolve macros, not programs
+        if (my_context !== LanguageContext.STATA) {
+            return await this.get_macro_definition_only(
+                document,
+                position,
+                workspace_symbols,
+                scope_resolver,
+                workspace_indexer,
+                cross_file_config,
+                cancellation_token
+            );
         }
 
         // Get the word at the cursor position
@@ -1482,13 +1503,15 @@ export class DefinitionProvider {
     /**
      * Handle navigation for "do", "run", "include" commands and @lsp-* directives.
      *
-     * `do`/`run`/`include` only match when they are the first non-whitespace
-     * token on the line, so command navigation does not trigger from inside
-     * comments. The `@lsp-*` regex is intentionally unanchored, which lets
-     * directives nested inside comments still resolve. We still only navigate
-     * when the cursor actually sits on the quoted path — otherwise clicking an
-     * unrelated word on a line like `// note: @lsp-do: "helper"` would also
-     * jump to helper.do.
+     * Callers gate this on block comments: `get_definition` returns early when
+     * the cursor is inside a block comment, so a commented-out `do "x"` never
+     * reaches here. Within line comments, `do`/`run`/`include` only match when
+     * they are the first non-whitespace token on the line, so command navigation
+     * does not trigger from a `//` or `*` line. The `@lsp-*` regex is
+     * intentionally unanchored, so directives nested in line comments resolve.
+     * We still only navigate when the cursor actually sits on the quoted path —
+     * otherwise clicking an unrelated word on a line like
+     * `// note: @lsp-do: "helper"` would also jump to helper.do.
      */
     private get_include_definition(document: DocumentState, position: Position): Definition | null {
         const line_text = get_line_text(document, position.line);
