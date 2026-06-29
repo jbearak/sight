@@ -88,4 +88,14 @@ describe('resolve_loop_value_set: forvalues', () => {
     it('is dynamic for a zero step', () => {
         expect(resolve_loop_value_set('forvalues', '= 1(0)9', EMPTY)).toEqual({ kind: 'dynamic' });
     });
+
+    it('handles adversarial stepped-range punctuation as dynamic', () => {
+        const input = `= ${'!('.repeat(200)}${'!)!'.repeat(200)}`;
+        expect(resolve_loop_value_set('forvalues', input, EMPTY)).toEqual({ kind: 'dynamic' });
+    });
+
+    it('handles adversarial slash-range punctuation as dynamic', () => {
+        const input = `= ${'!/!'.repeat(500)}`;
+        expect(resolve_loop_value_set('forvalues', input, EMPTY)).toEqual({ kind: 'dynamic' });
+    });
 });

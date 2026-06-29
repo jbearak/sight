@@ -123,27 +123,61 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
     return { kind: 'static', values };
 }
 
+interface SteppedRange {
+    start: string;
+    step: string;
+    end: string;
+}
+
+function parse_stepped_range(text: string): SteppedRange | null {
+    const close = text.lastIndexOf(')');
+    if (close <= 0 || close === text.length - 1) return null;
+
+    const open = text.lastIndexOf('(', close - 1);
+    if (open <= 0 || open === close - 1) return null;
+
+    return {
+        start: text.slice(0, open),
+        step: text.slice(open + 1, close),
+        end: text.slice(close + 1),
+    };
+}
+
+interface SlashRange {
+    start: string;
+    end: string;
+}
+
+function parse_slash_range(text: string): SlashRange | null {
+    const slash = text.lastIndexOf('/');
+    if (slash <= 0 || slash === text.length - 1) return null;
+    return {
+        start: text.slice(0, slash),
+        end: text.slice(slash + 1),
+    };
+}
+
 function resolve_forvalues(spec_tail: string, env: StaticValueEnv): IteratorValueSet {
     // The parser reconstructs loopSpec with spaces between tokens (e.g.
     // "1 / 3", "1 ( 2 ) 9"); numeric ranges carry no meaningful whitespace,
     // so collapse it before matching.
     const text = spec_tail.replace(/\s+/g, '');
     // a(step)b
-    const stepped = text.match(/^(\S+)\((\S+)\)(\S+)$/);
+    const stepped = parse_stepped_range(text);
     if (stepped) {
-        const start = resolve_int(stepped[1], env);
-        const step = resolve_int(stepped[2], env);
-        const end = resolve_int(stepped[3], env);
+        const start = resolve_int(stepped.start, env);
+        const step = resolve_int(stepped.step, env);
+        const end = resolve_int(stepped.end, env);
         if (start === null || step === null || end === null || step === 0) {
             return { kind: 'dynamic' };
         }
         return sequence(start, step, end);
     }
     // a/b
-    const ranged = text.match(/^(\S+)\/(\S+)$/);
+    const ranged = parse_slash_range(text);
     if (ranged) {
-        const start = resolve_int(ranged[1], env);
-        const end = resolve_int(ranged[2], env);
+        const start = resolve_int(ranged.start, env);
+        const end = resolve_int(ranged.end, env);
         if (start === null || end === null) return { kind: 'dynamic' };
         return sequence(start, 1, end);
     }
