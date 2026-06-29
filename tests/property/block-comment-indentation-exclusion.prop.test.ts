@@ -17,6 +17,7 @@ import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-d
 import { DocumentState } from '../../src/document-store';
 import { ContextTracker } from '../../src/context-tracker';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
+import { create_document_state } from './helpers/document-utils';
 
 /**
  * Create a minimal DocumentState for indentation analysis.
@@ -96,6 +97,53 @@ describe('Block Comment Indentation Exclusion Property Tests', () => {
             d => d.code === StataDiagnosticCode.MISSING_INDENTATION &&
                 d.range.start.line === 5
         )).toBe(true);
+    });
+
+    it('does not treat /* inside a string literal as a block comment', () => {
+        // The `/*` sequences live inside a string, not a comment, so
+        // no line is inside a block comment and the unindented live
+        // `display` must still be flagged. Uses a fully-lexed document
+        // so the analyzer takes the token-aware path.
+        const my_source = [
+            'display "/* outer /* inner */"',
+            'if 1 {',
+            'display "live and not indented"',
+            '}',
+        ].join('\n');
+        const my_document = create_document_state(my_source);
+        const my_diagnostics = analyzer.analyze(my_document, config);
+        const my_block_comment_lines = analyzer.compute_block_comment_lines(
+            my_source.split('\n'),
+            my_document.tokens
+        );
+
+        expect(my_block_comment_lines.size).toBe(0);
+        expect(my_diagnostics.some(
+            d => d.code === StataDiagnosticCode.MISSING_INDENTATION &&
+                d.range.start.line === 2
+        )).toBe(true);
+    });
+
+    it('excludes lines inside a multi-line star-led comment span', () => {
+        // A line-leading `*` comment that absorbs an unclosed `/*` is
+        // lexed as one multi-line COMMENT_LINE token; its inside lines
+        // must be excluded from indentation checks too.
+        const my_source = [
+            'if 1 {',
+            '* /* outer',
+            'display "commented and not indented"',
+            '*/',
+            '}',
+        ].join('\n');
+        const my_document = create_document_state(my_source);
+        const my_diagnostics = analyzer.analyze(my_document, config);
+        const my_block_comment_lines = analyzer.compute_block_comment_lines(
+            my_source.split('\n'),
+            my_document.tokens
+        );
+
+        expect(my_block_comment_lines.has(2)).toBe(true);
+        expect(my_diagnostics.some(d => d.range.start.line === 2)).toBe(false);
     });
 
     // Generator for random block comment content lines (without /* or */)

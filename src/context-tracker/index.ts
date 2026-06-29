@@ -17,10 +17,11 @@ const CONTEXT_TRIVIA_TOKEN_TYPES: Set<TokenType> = new Set([
   'COMMENT_BLOCK',
   'CONTINUATION',
   'WHITESPACE',
-  // The newline / `;` that ends a line is a separator, not live code. It
-  // matters here because the terminator after a comment's closing `*/`
-  // starts on that closing line (e.g. `program define foo */`), and must
-  // not make an otherwise fully-commented line look like live code.
+  // The newline / `;` that ends a line is a separator, not live
+  // code. It matters here because the terminator after a comment's
+  // closing `*/` starts on that closing line (e.g.
+  // `program define foo */`), and must not make an otherwise
+  // fully-commented line look like live code.
   'STATEMENT_TERMINATOR',
   'EOF',
 ]);
@@ -59,12 +60,13 @@ export class ContextTracker implements IContextTracker {
       this.document_content = document_content;
     }
 
-    // Pre-compute the lines that sit inside multi-line block comments so
-    // the raw-line block-structure validations can skip them. Derived from
-    // the same tokens, so nested block comments are handled by the lexer.
-    // A line that also carries a live code token (e.g. `/* c */ end`, where
-    // the comment closes mid-line) must still be scanned, so drop any line
-    // that has a non-trivia token starting on it.
+    // Pre-compute the lines that sit inside multi-line block comments
+    // so the raw-line block-structure validations can skip them.
+    // Derived from the same tokens, so nested block comments are
+    // handled by the lexer. A line that also carries a live code token
+    // (e.g. `/* c */ end`, where the comment closes mid-line) must
+    // still be scanned, so drop any line that has a non-trivia token
+    // starting on it.
     const my_comment_lines = block_comment_lines(this.document_content, tokens);
     for (const my_token of tokens) {
       if (!CONTEXT_TRIVIA_TOKEN_TYPES.has(my_token.type)) {
@@ -515,8 +517,8 @@ export class ContextTracker implements IContextTracker {
     const my_line_count = get_line_count(doc);
     
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
-      // Lines inside a multi-line block comment are not live code, so they
-      // neither open nor close program/embedded blocks.
+      // Lines inside a multi-line block comment are not live code, so
+      // they neither open nor close program/embedded blocks.
       if (this.block_comment_continuation_lines.has(my_line_number)) {
         continue;
       }

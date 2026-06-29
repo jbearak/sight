@@ -337,9 +337,9 @@ describe('StataLexer', () => {
     });
 
     test('should treat mata: followed by a closed nested block comment as block start', () => {
-      // The whole line after the colon is a comment (nested), so this is a
-      // block start, not an inline expression. Requires depth-counted
-      // block-comment scanning in the mata:/python: lookahead.
+      // The whole line after the colon is a comment (nested), so this
+      // is a block start, not an inline expression. Requires depth-
+      // counted block-comment scanning in the mata:/python: lookahead.
       const source = 'mata: /* outer /* inner */ still outer */\nmatrix A = (1, 2)';
       const result = lexer.tokenize(source);
 

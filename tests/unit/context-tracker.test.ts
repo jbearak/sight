@@ -435,10 +435,11 @@ end`;
     });
 
     test('should treat a commented program on the closing comment line as not live', () => {
-      // `program define foo */` is the line that closes the block comment,
-      // so the program definition is commented out. The terminator after
-      // `*/` starts on this line, so it must not make the line look live;
-      // the following `end` is then a real orphan and must be flagged.
+      // `program define foo */` is the line that closes the block
+      // comment, so the program definition is commented out. The
+      // terminator after `*/` starts on this line, so it must not make
+      // the line look live; the following `end` is then a real orphan
+      // and must be flagged.
       const my_source = `/*
 program define foo */
 end`;

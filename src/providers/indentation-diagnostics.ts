@@ -21,8 +21,11 @@ export class IndentationDiagnosticAnalyzer {
     // Get Stata-only ranges (exclude embedded language blocks)
     const stataRanges = this.getStataRanges(document);
     
-    // Compute block comment lines to exclude from indentation checks
-    const block_comment_lines = this.compute_block_comment_lines(lines);
+    // Compute block comment lines to exclude from indentation checks.
+    // Prefer the lexer tokens so `/*` inside strings/code is not
+    // mistaken for a comment opener; fall back to a raw scan when
+    // tokens are absent.
+    const block_comment_lines = this.compute_block_comment_lines(lines, document.tokens);
     
     // Compute continuation lines from tokens for efficient lookup
     const continuation_lines = document.tokens 
@@ -259,8 +262,18 @@ export class IndentationDiagnosticAnalyzer {
    * 
    * Nested block openers increase comment depth, matching the lexer and
    * TextMate grammar.
+   *
+   * When `tokens` are supplied, the lines are derived from the lexer's
+   * COMMENT_BLOCK token ranges, which already exclude `/*` sequences
+   * that appear inside string literals or other code. Without tokens, a
+   * raw text scan is used as a fallback (it cannot tell a real opener
+   * from one inside a string).
    */
-  compute_block_comment_lines(lines: string[]): Set<number> {
+  compute_block_comment_lines(lines: string[], tokens?: Token[]): Set<number> {
+    if (tokens && tokens.length > 0) {
+      return this.block_comment_lines_from_tokens(tokens);
+    }
+
     const block_comment_lines = new Set<number>();
     let block_comment_depth = 0;
 
@@ -296,6 +309,39 @@ export class IndentationDiagnosticAnalyzer {
     }
 
     return block_comment_lines;
+  }
+
+  /**
+   * Derive the set of block-comment lines from the lexer's comment
+   * tokens. A COMMENT_BLOCK token already spans its full (possibly
+   * nested) extent, and a line-leading `*` comment that absorbs an
+   * unclosed `/*` becomes a COMMENT_LINE token spanning several lines;
+   * both put their covered lines inside a comment. `/*` inside strings
+   * or code never produces a comment token, so it is correctly ignored.
+   * Single-line `//` / `*` comments are excluded (handled elsewhere).
+   */
+  private block_comment_lines_from_tokens(tokens: Token[]): Set<number> {
+    const the_block_comment_lines = new Set<number>();
+
+    for (const my_token of tokens) {
+      const my_spans_lines =
+        my_token.range.end.line > my_token.range.start.line;
+      const my_is_multiline_comment =
+        my_token.type === 'COMMENT_BLOCK' ||
+        (my_token.type === 'COMMENT_LINE' && my_spans_lines);
+      if (!my_is_multiline_comment) {
+        continue;
+      }
+      for (
+        let my_line = my_token.range.start.line;
+        my_line <= my_token.range.end.line;
+        my_line++
+      ) {
+        the_block_comment_lines.add(my_line);
+      }
+    }
+
+    return the_block_comment_lines;
   }
 
   /**
