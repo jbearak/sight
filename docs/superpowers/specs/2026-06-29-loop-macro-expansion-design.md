@@ -1,7 +1,7 @@
 # Static Loop Macro Expansion — Design
 
 **Date:** 2026-06-29
-**Status:** Proposed (pre-implementation) — revised after Codex adversarial review (round 1)
+**Status:** Implemented — revised after Codex adversarial review (round 1)
 
 ## Revision log
 

@@ -27,6 +27,18 @@ describe('resolve_loop_value_set: foreach in', () => {
             .toEqual({ kind: 'static', values: ['a', 'b', 'x', 'y', 'z', 'c', 'l', 'm'] });
     });
 
+    it('expands valid braced and unbraced global refs in the list', () => {
+        const env = env_from({}, { looped: 'x y', also: 'z' });
+        expect(resolve_loop_value_set('foreach', 'in $looped ${also}', env))
+            .toEqual({ kind: 'static', values: ['x', 'y', 'z'] });
+    });
+
+    it('does not resolve half-braced global refs as pure globals', () => {
+        const env = env_from({}, { looped: 'x y' });
+        expect(resolve_loop_value_set('foreach', 'in ${looped $looped}', env))
+            .toEqual({ kind: 'static', values: ['${looped', '$looped}'] });
+    });
+
     it('drops an unresolvable macro item (partial dynamic)', () => {
         expect(resolve_loop_value_set('foreach', "in a `unknown' c", EMPTY))
             .toEqual({ kind: 'static', values: ['a', 'c'] });
@@ -79,6 +91,16 @@ describe('resolve_loop_value_set: forvalues', () => {
     it('resolves macro range bounds that fold to integers', () => {
         const env = env_from({ n: '3' });
         expect(resolve_loop_value_set('forvalues', "= 1/`n'", env)).toEqual({ kind: 'static', values: ['1', '2', '3'] });
+    });
+
+    it('resolves braced and unbraced global range bounds that fold to integers', () => {
+        const env = env_from({}, { start: '1', end: '3' });
+        expect(resolve_loop_value_set('forvalues', '= $start/${end}', env)).toEqual({ kind: 'static', values: ['1', '2', '3'] });
+    });
+
+    it('is dynamic for half-braced global range bounds', () => {
+        const env = env_from({}, { start: '1', end: '3' });
+        expect(resolve_loop_value_set('forvalues', '= ${start/$end}', env)).toEqual({ kind: 'dynamic' });
     });
 
     it('is dynamic for non-integer bounds', () => {

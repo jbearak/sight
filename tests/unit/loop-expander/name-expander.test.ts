@@ -3,6 +3,7 @@ import { StataLexer } from '../../../src/lexer';
 import {
     extract_name_template,
     expand_template,
+    EXPANSION_CAP,
     NameTemplate,
     BindingFrame,
 } from '../../../src/analyzer/loop-expander/name-expander';
@@ -13,20 +14,28 @@ function stmt_tokens(source: string): Token[] {
     return result.tokens.filter((t) => t.type !== 'EOF');
 }
 
-function macro(name: string, value: string): MacroSymbol {
+function macro(name: string, value: string, extras: Partial<MacroSymbol> = {}): MacroSymbol {
     return {
         name,
         scope: 'local',
         location: { uri: 'file:///t.do', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } },
         sourceUri: 'file:///t.do',
         value,
+        ...extras,
     };
 }
 
 function maps(...syms: MacroSymbol[]): Pick<SymbolTable, 'localMacros' | 'globalMacros'> {
     const localMacros = new Map<string, MacroSymbol>();
-    for (const s of syms) localMacros.set(s.name, s);
-    return { localMacros, globalMacros: new Map() };
+    const globalMacros = new Map<string, MacroSymbol>();
+    for (const s of syms) {
+        if (s.scope === 'global') {
+            globalMacros.set(s.name, s);
+        } else {
+            localMacros.set(s.name, s);
+        }
+    }
+    return { localMacros, globalMacros };
 }
 
 describe('extract_name_template', () => {
@@ -133,6 +142,11 @@ describe('expand_template', () => {
         expect(expand_template(t, frames_i, maps(macro('suffix', 'foo'))).sort()).toEqual(['a_foo', 'b_foo', 'c_foo']);
     });
 
+    it('folds a static global in the name', () => {
+        const t: NameTemplate = { scope: 'local', parts: [{ kind: 'literal', text: 'p_' }, { kind: 'global_ref', name: 'suffix' }] };
+        expect(expand_template(t, frames_i, maps(macro('suffix', 'g', { scope: 'global' })))).toEqual(['p_g']);
+    });
+
     it('does not rebind a pre-loop helper\'s iterator ref to the loop binding', () => {
         // `suffix' is a (pre-loop) helper whose value is `i'. Stata froze that
         // `i' at suffix's earlier definition, so it must NOT be rebound to the
@@ -148,6 +162,25 @@ describe('expand_template', () => {
         // constructed name is x_old (frozen), independent of the loop binding.
         const t: NameTemplate = { scope: 'local', parts: [{ kind: 'literal', text: 'x_' }, { kind: 'local_ref', name: 'suffix' }] };
         expect(expand_template(t, frames_i, maps(macro('i', 'old'), macro('suffix', "`i'")))).toEqual(['x_old']);
+    });
+
+    it('does not count helper-internal iterator refs toward the expansion cap', () => {
+        const frames: BindingFrame[] = [{
+            var: 'i',
+            values: Array.from({ length: EXPANSION_CAP + 1 }, (_, n) => `v${n}`),
+        }];
+        const t: NameTemplate = { scope: 'local', parts: [{ kind: 'literal', text: 'x_' }, { kind: 'local_ref', name: 'suffix' }] };
+        expect(expand_template(t, frames, maps(macro('i', 'old'), macro('suffix', "`i'")))).toEqual(['x_old']);
+    });
+
+    it('uses only the innermost frame for a shadowed iterator name', () => {
+        const outer = Array.from({ length: 1000 }, (_, n) => `o${n}`);
+        const frames: BindingFrame[] = [
+            { var: 'i', values: outer },
+            { var: 'i', values: ['a', 'b', 'c', 'd', 'e', 'f'] },
+        ];
+        const t: NameTemplate = { scope: 'local', parts: [{ kind: 'local_ref', name: 'i' }, { kind: 'literal', text: '_x' }] };
+        expect(expand_template(t, frames, maps()).sort()).toEqual(['a_x', 'b_x', 'c_x', 'd_x', 'e_x', 'f_x']);
     });
 
     it('drops names that are not valid Stata identifiers (digit-leading)', () => {

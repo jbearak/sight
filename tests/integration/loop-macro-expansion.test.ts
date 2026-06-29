@@ -3,7 +3,8 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
 import { DocumentStore } from '../../src/document-store';
-import { DiagnosticsProvider } from '../../src/providers/diagnostics';
+import { DiagnosticsConnection, DiagnosticsProvider } from '../../src/providers/diagnostics';
+import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 
 describe('Loop macro expansion (integration)', () => {
@@ -37,19 +38,23 @@ describe('Loop macro expansion (integration)', () => {
         const uri = 'file:///test.do';
         const document_store = new DocumentStore();
         await document_store.open(uri, source, 1);
-        const diagnostics_provider = new DiagnosticsProvider({
+        const connection: DiagnosticsConnection = {
             sendDiagnostics: () => {},
-        } as any);
-        const config = {
+        };
+        const diagnostics_provider = new DiagnosticsProvider(connection);
+        const config: StataLSPConfig = {
+            ...DEFAULT_SETTINGS,
             diagnostics: {
+                ...DEFAULT_SETTINGS.diagnostics,
                 enabled: true,
                 severity: {
+                    ...DEFAULT_SETTINGS.diagnostics.severity,
                     undefinedMacro: 'warning',
                     undefinedVariable: 'warning',
                     styleWarnings: 'warning',
                 },
             },
-        } as StataLSPConfig;
+        };
         const diagnostics = await diagnostics_provider.get_diagnostics(
             document_store.get(uri)!,
             config,

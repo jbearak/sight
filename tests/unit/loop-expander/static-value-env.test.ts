@@ -24,6 +24,19 @@ function locals(...syms: MacroSymbol[]): { localMacros: Map<string, MacroSymbol>
 }
 
 describe('build_static_value_env', () => {
+    it('resolves globals and braced global refs', () => {
+        const env = build_static_value_env({
+            localMacros: new Map([
+                ['x', macro('x', 'p_${g}')],
+            ]),
+            globalMacros: new Map([
+                ['g', macro('g', 'q', { scope: 'global' })],
+            ]),
+        });
+        expect(env.resolve_global('g')).toBe('q');
+        expect(env.resolve_local('x')).toBe('p_q');
+    });
+
     it('resolves a bare literal value', () => {
         const env = build_static_value_env(locals(macro('mylist', 'a b c')));
         expect(env.resolve_local('mylist')).toBe('a b c');

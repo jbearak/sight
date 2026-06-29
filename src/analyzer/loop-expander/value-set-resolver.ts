@@ -22,8 +22,12 @@ export type IteratorValueSet =
 export const VALUE_SET_CAP = 1000;
 
 const LOCAL_REF = /^`([A-Za-z_][A-Za-z0-9_]*)'$/;
-const GLOBAL_REF = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/;
+const GLOBAL_REF = /^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$/;
 const INT_LITERAL = /^-?\d+$/;
+
+function global_ref_name(match: RegExpMatchArray): string {
+    return match[1] ?? match[2];
+}
 
 interface ListItem {
     text: string;
@@ -88,7 +92,7 @@ function resolve_int(token: string, env: StaticValueEnv): number | null {
         if (folded === null) return null;
         text = folded.trim();
     } else if (global_match) {
-        const folded = env.resolve_global(global_match[1]);
+        const folded = env.resolve_global(global_ref_name(global_match));
         if (folded === null) return null;
         text = folded.trim();
     }
@@ -109,7 +113,7 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
         if (local_match || global_match) {
             const folded = local_match
                 ? env.resolve_local(local_match[1])
-                : env.resolve_global(global_match![1]);
+                : env.resolve_global(global_ref_name(global_match!));
             if (folded === null) continue; // partial: drop unresolvable item
             for (const my_value of split_list(folded)) {
                 values.push(my_value);

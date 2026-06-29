@@ -36,7 +36,6 @@ const PREFIX_COMMANDS = new Set([
 // space-separated trailing value (e.g. `local `i' 1`).
 const NAME_TOKEN_TYPES = new Set(['WORD', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'NUMBER']);
 const VALID_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const LOCAL_REF_IN_VALUE = /`([A-Za-z_][A-Za-z0-9_]*)'/g;
 
 function tokens_adjacent(a: Token, b: Token): boolean {
     return (
@@ -154,38 +153,24 @@ export function extract_name_template(statement_tokens: Token[]): NameTemplate |
     return { scope, parts: my_parts };
 }
 
-/** Compute the subset of frames whose iterator the template (transitively) needs. */
+/** Compute the subset of frames whose iterator is referenced directly by the template. */
 function relevant_frames(
     template: NameTemplate,
-    frames: BindingFrame[],
-    symbols: Pick<SymbolTable, 'localMacros'>
+    frames: BindingFrame[]
 ): BindingFrame[] {
-    const frame_by_var = new Map(frames.map((f) => [f.var, f]));
-    const relevant = new Set<string>();
-    const visited = new Set<string>();
-    const the_queue: string[] = [];
-    for (const my_part of template.parts) {
-        if (my_part.kind === 'local_ref') the_queue.push(my_part.name);
+    const innermost_frame_by_var = new Map<string, BindingFrame>();
+    for (const my_frame of frames) {
+        innermost_frame_by_var.set(my_frame.var, my_frame);
     }
-    while (the_queue.length > 0) {
-        const my_name = the_queue.shift()!;
-        if (visited.has(my_name)) continue;
-        visited.add(my_name);
-        if (frame_by_var.has(my_name)) {
-            relevant.add(my_name);
-            continue;
-        }
-        const symbol = symbols.localMacros.get(my_name);
-        if (symbol?.value) {
-            let my_match: RegExpExecArray | null;
-            LOCAL_REF_IN_VALUE.lastIndex = 0;
-            while ((my_match = LOCAL_REF_IN_VALUE.exec(symbol.value)) !== null) {
-                the_queue.push(my_match[1]);
-            }
-        }
+
+    const relevant = new Set<BindingFrame>();
+    for (const my_part of template.parts) {
+        if (my_part.kind !== 'local_ref') continue;
+        const my_frame = innermost_frame_by_var.get(my_part.name);
+        if (my_frame) relevant.add(my_frame);
     }
     // Preserve frame stack order for deterministic cartesian iteration.
-    return frames.filter((f) => relevant.has(f.var));
+    return frames.filter((f) => relevant.has(f));
 }
 
 /**
@@ -198,7 +183,7 @@ export function expand_template(
     frames: BindingFrame[],
     symbols: Pick<SymbolTable, 'localMacros' | 'globalMacros'>
 ): string[] {
-    const the_needed = relevant_frames(template, frames, symbols);
+    const the_needed = relevant_frames(template, frames);
     let tuple_count = 1;
     for (const my_frame of the_needed) {
         tuple_count *= my_frame.values.length;
