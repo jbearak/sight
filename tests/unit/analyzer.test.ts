@@ -733,6 +733,8 @@ display \`dynamic_macro'
                 { directive: 'sight: scalar', name: 'sight_declared_scalar', has_symbol: (symbols: SymbolTable) => symbols.scalars.has('sight_declared_scalar') },
                 { directive: '@lsp-matrix', name: 'declared_matrix', has_symbol: (symbols: SymbolTable) => symbols.matrices.has('declared_matrix') },
                 { directive: 'sight: matrix', name: 'sight_declared_matrix', has_symbol: (symbols: SymbolTable) => symbols.matrices.has('sight_declared_matrix') },
+                { directive: '@lsp-program', name: 'declared_program', has_symbol: (symbols: SymbolTable) => symbols.programs.has('declared_program') },
+                { directive: 'sight: program', name: 'sight_declared_program', has_symbol: (symbols: SymbolTable) => symbols.programs.has('sight_declared_program') },
             ];
 
             for (const test_case of cases) {

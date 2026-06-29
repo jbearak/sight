@@ -338,11 +338,16 @@ export class SemanticAnalyzer {
     private parse_declaration_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
-            // Declaration directives live in real line comments. A `//`
-            // directive may trail code on the same line, while `*` comments
-            // only exist when line-leading. `/* ... */` block comments do not
-            // carry directives (see docs/declaration-directives.md), so a
-            // directive-looking line nested inside a block comment stays inert.
+            // Declaration directives live in real line comments and are
+            // honored whether standalone or trailing code on the same
+            // line: the pattern is anchored to the comment token's own
+            // text, which begins at `//` or `*`. The lexer may treat a
+            // mid-line `*` as a comment (e.g. after a string or `;`), so
+            // such a directive is honored too. `/* ... */` block
+            // comments do not carry directives (see
+            // docs/declaration-directives.md): they lex as a single
+            // COMMENT_BLOCK token, never COMMENT_LINE, so a
+            // directive-looking line nested inside one stays inert.
             if (token.type !== 'COMMENT_LINE') {
                 continue;
             }
