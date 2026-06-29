@@ -136,6 +136,48 @@ Configure workspace indexing behavior for cross-file features.
 | `sight.indexWorkspace`            | boolean | `true`   | Enable workspace-wide symbol indexing            |
 | `sight.indexing.maxFileSizeBytes` | number  | `500000` | Maximum file size in bytes for indexing (~500KB) |
 
+## Excluding files and directories
+
+Exclude generated or vendored directories from analysis with workspace-relative
+glob patterns. This is most useful for repositories that mix hand-written Stata
+source with generated output (for example, downloaded `.do` files under
+`output/`) that would otherwise dominate `sight check` results.
+
+| Setting          | Type  | Default | Description                                                          |
+| ---------------- | ----- | ------- | -------------------------------------------------------------------- |
+| `sight.exclude`  | array | `[]`    | Workspace-relative glob patterns to skip during bulk analysis        |
+
+```jsonc
+{
+  "sight.exclude": ["output/**", "**/_generated/**", "**/*.gen.do"]
+}
+```
+
+Or in `sight.toml`:
+
+```toml
+exclude = ["output/**", "**/_generated/**"]
+```
+
+Behavior:
+
+- **`sight check`** does not read or report diagnostics for excluded paths when
+  walking a directory (including the default workspace-root walk).
+- The **workspace indexer** skips excluded paths when building cross-file
+  context.
+- **Explicitly-named files are always checked.** `sight check output/foo.do`
+  analyzes that file even when `output/**` is excluded; exclusion only filters
+  directory walks.
+- **Files opened directly in the editor are still analyzed.** Exclusion governs
+  bulk scanning and `sight check`, not in-editor live diagnostics — if you open
+  a generated file you still get diagnostics and navigation for it.
+
+Patterns use [picomatch](https://github.com/micromatch/picomatch) glob syntax
+(`*`, `**`, `?`, `{a,b}`) and are matched relative to the workspace root. A
+leading `!` re-includes a previously-excluded path (e.g.
+`["output/**", "!output/manifest.do"]`). Paths outside the workspace (such as
+configured ADO paths) are never excluded.
+
 ## ADO Paths
 
 Configure additional search paths for ADO files.
@@ -226,6 +268,7 @@ canonical spelling wins.
 ```toml
 indexWorkspace = true
 adoPaths = []
+exclude = ["output/**"]
 lineCommentStyle = "//"
 debug = false
 
@@ -281,6 +324,7 @@ caseMismatch = "auto"
 | --------------------------------------- | -------------------- | --------------- | ----------------------------------------------------------------------- |
 | `indexWorkspace`                        | boolean              | `true`          | Global workspace-indexing switch                                        |
 | `adoPaths`                              | string array         | `[]`            | Additional ADO search paths                                             |
+| `exclude`                               | string array         | `[]`            | Workspace-relative globs to skip during `sight check` and indexing      |
 | `lineCommentStyle`                      | `"//"` \| `"*"`      | `"//"`         | Line comment style used when formatting resolves `"line"`               |
 | `debug`                                 | boolean              | `false`         | Enable debug logging                                                    |
 | `diagnostics.enabled`                   | boolean              | `true`          | Enable diagnostics                                                      |

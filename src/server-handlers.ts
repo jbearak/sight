@@ -128,6 +128,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
     },
     adoPaths: [],
     indexWorkspace: true,
+    exclude: [],
     cross_file: {
         index_workspace: true,
         max_indexed_files: 1000,

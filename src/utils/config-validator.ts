@@ -247,6 +247,11 @@ export function validate_comment_formatting_config(
         validated_config.adoPaths = config.adoPaths;
     }
 
+    if (Array.isArray(config.exclude)
+        && config.exclude.every((item) => typeof item === 'string')) {
+        validated_config.exclude = config.exclude;
+    }
+
     if (typeof config.indexWorkspace === 'boolean') {
         validated_config.indexWorkspace = config.indexWorkspace;
     }

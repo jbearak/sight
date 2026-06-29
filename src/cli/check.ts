@@ -30,6 +30,7 @@ import {
     size_limit_diagnostic,
     unreadable_diagnostic,
 } from './source-files';
+import { create_exclude_matcher } from '../utils/exclude-matcher';
 import {
     ColorChoice,
     DiagnosticRecord,
@@ -488,6 +489,7 @@ export async function collect_check_diagnostics(
 ): Promise<DiagnosticRecord[]> {
     const workspace_symbols = context.workspace_indexer.get_all_symbols();
     const files_indexed = context.workspace_indexer.get_metrics().files_indexed;
+    const exclude_matcher = create_exclude_matcher(config.exclude);
     const the_slots: DiagnosticRecord[][] = new Array(targets.length);
 
     async function collect_target_diagnostics(
@@ -532,10 +534,16 @@ export async function collect_check_diagnostics(
         // it for every in-workspace target (not just explicit ones, so the
         // default `sight check .` surfaces the problem too) rather than emitting
         // silently-wrong results.
+        //
+        // Excluded files are deliberately never indexed (not a cap casualty),
+        // and the only way one becomes a target is an explicit name on the CLI,
+        // which is always honored (#255). So skip this guard for them rather
+        // than emitting a misleading "not indexed" diagnostic.
         if (
             is_within_workspace(workspace_root, target.path) &&
             files_indexed >= config.cross_file.max_indexed_files &&
-            !context.workspace_indexer.has_indexed_file(uri)
+            !context.workspace_indexer.has_indexed_file(uri) &&
+            !exclude_matcher.is_excluded_file(target.path, [workspace_root])
         ) {
             records.push(diagnostic_record(
                 target.relative_path,
@@ -725,7 +733,8 @@ export async function run_check_with_cwd(
     const target_result = collect_report_targets(
         result.args.paths,
         workspace_root,
-        cwd
+        cwd,
+        config_result.config.exclude
     );
     if (target_result.operator_errors.length > 0) {
         for (const message of target_result.operator_errors) {

@@ -54,8 +54,8 @@ describe('Comprehensive Rename Validation Property Tests', () => {
                         // Verify valid categories
                         const valid_categories = [
                             'diagnostics', 'formatting', 'indexing',
-                            'indexWorkspace', 'adoPaths', 'sendToStata',
-                            'lineCommentStyle', 'personalAdoDir',
+                            'indexWorkspace', 'adoPaths', 'exclude',
+                            'sendToStata', 'lineCommentStyle', 'personalAdoDir',
                             'dataBrowser', 'depthColors'
                         ];
                         
