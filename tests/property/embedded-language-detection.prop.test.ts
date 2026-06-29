@@ -2,6 +2,7 @@ import { init_tracker_from_source } from '../test-context-helper';
 import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { ContextTracker } from '../../src/context-tracker';
+import { ContextErrorCode } from '../../src/types';
 import { LanguageContext } from '../../src/context-tracker/types';
 import { Position } from 'vscode-languageserver-textdocument';
 
@@ -180,8 +181,8 @@ x = 5`;
           // Should have at least one diagnostic for unclosed block
           const my_unclosed_diagnostics = my_diagnostics.filter(
             (d) =>
-              d.code === 4001 || // UNCLOSED_MATA_BLOCK
-              d.code === 4002 // UNCLOSED_PYTHON_BLOCK
+              d.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
+              d.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK
           );
 
           expect(my_unclosed_diagnostics.length).toBeGreaterThan(0);

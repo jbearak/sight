@@ -108,19 +108,37 @@ describe('cli shared severity gates', () => {
     it('uses strict greater-than comparison for max severity', () => {
         expect(
             diagnostic_exceeds_threshold(
-                diag(DiagnosticSeverity.Information, 0, 0, 'info', 6003),
+                diag(
+                    DiagnosticSeverity.Information,
+                    0,
+                    0,
+                    'info',
+                    'CSTYLE_LOGICAL_IN_CONTROL_FLOW'
+                ),
                 SeverityLevel.Info
             )
         ).toBe(false);
         expect(
             diagnostic_exceeds_threshold(
-                diag(DiagnosticSeverity.Hint, 0, 0, 'hint', 1004),
+                diag(
+                    DiagnosticSeverity.Hint,
+                    0,
+                    0,
+                    'hint',
+                    'CONTINUATION_NO_SPACE'
+                ),
                 SeverityLevel.Info
             )
         ).toBe(false);
         expect(
             diagnostic_exceeds_threshold(
-                diag(DiagnosticSeverity.Warning, 0, 0, 'warning', 2001),
+                diag(
+                    DiagnosticSeverity.Warning,
+                    0,
+                    0,
+                    'warning',
+                    'UNDEFINED_MACRO'
+                ),
                 SeverityLevel.Info
             )
         ).toBe(true);
@@ -151,12 +169,24 @@ describe('cli shared renderers', () => {
         {
             path: '/repo/b.do',
             relative_path: 'b.do',
-            diagnostic: diag(DiagnosticSeverity.Warning, 2, 4, 'B warning', 2001),
+            diagnostic: diag(
+                DiagnosticSeverity.Warning,
+                2,
+                4,
+                'B warning',
+                'UNDEFINED_MACRO'
+            ),
         },
         {
             path: '/repo/a.do',
             relative_path: 'a.do',
-            diagnostic: diag(DiagnosticSeverity.Error, 0, 1, 'A error', 3000),
+            diagnostic: diag(
+                DiagnosticSeverity.Error,
+                0,
+                1,
+                'A error',
+                'SYNTAX_ERROR'
+            ),
         },
     ];
 
@@ -170,8 +200,8 @@ describe('cli shared renderers', () => {
 
     it('renders text with one-based coordinates and summary', () => {
         const text = render_text(records, { quiet: false, use_color: false });
-        expect(text).toContain('a.do:1:2 error: A error [3000]');
-        expect(text).toContain('b.do:3:5 warning: B warning [2001]');
+        expect(text).toContain('a.do:1:2 error: A error [SYNTAX_ERROR]');
+        expect(text).toContain('b.do:3:5 warning: B warning [UNDEFINED_MACRO]');
         expect(text).toContain('2 issues (1 errors, 1 warnings, 0 infos, 0 hints, 0 notes)');
     });
 
@@ -187,7 +217,7 @@ describe('cli shared renderers', () => {
         expect(parsed.version).toBe('2.1.0');
         expect(parsed.runs[0].tool.driver.name).toBe('sight');
         expect(parsed.runs[0].tool.driver.version).toBe('0.7.2');
-        expect(parsed.runs[0].results[0].ruleId).toBe('SIGHT3000');
+        expect(parsed.runs[0].results[0].ruleId).toBe('SYNTAX_ERROR');
     });
 });
 ```

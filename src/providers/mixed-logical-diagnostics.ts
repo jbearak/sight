@@ -1,6 +1,7 @@
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
+import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 
 /**
  * Logical operator values tracked for mixed-operator detection.
@@ -272,6 +273,9 @@ export class MixedLogicalOperatorAnalyzer {
                 severity: my_severity,
                 source: 'sight',
                 code: StataDiagnosticCode.MIXED_LOGICAL_OPERATORS,
+                ...diagnostic_code_description_fields(
+                    StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+                ),
             });
         }
     }

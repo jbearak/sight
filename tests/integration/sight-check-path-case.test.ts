@@ -6,8 +6,8 @@
  * caller references.
  *
  * Assertions (per spec section "`sight check`"):
- *   (a) EXACTLY ONE path_case_mismatch diagnostic (code 7001) at the call
- *       site, at the regime-expected severity.
+ *   (a) EXACTLY ONE path_case_mismatch diagnostic at the call site, at the
+ *       regime-expected severity.
  *   (b) NO undefined-symbol cascade: symbols from the callee do NOT produce
  *       UNDEFINED_MACRO / UNDEFINED_VARIABLE diagnostics in the caller.
  *   (c) With `crossFile.diagnostics.missingFile = "off"` in config, the
@@ -226,11 +226,11 @@ describe('sight check — case-only path mismatch', () => {
     );
 
     it(
-        'text output renders [7001] for path_case_mismatch in run_check_with_cwd',
+        'text output renders [PATH_CASE_MISMATCH] for path_case_mismatch in run_check_with_cwd',
         async () => {
             // Verify the code suffix appears in text output via the
             // run_check_with_cwd wrapper (consistent with how other diagnostic
-            // codes appear, e.g. [2001] for UNDEFINED_MACRO).
+            // codes appear, e.g. [UNDEFINED_MACRO]).
             const root = build_fixture();
             try {
                 const { run_check_with_cwd } = await import('../../src/cli/check');
@@ -244,12 +244,15 @@ describe('sight check — case-only path mismatch', () => {
                     }
                 );
                 const the_output = stdout_lines.join('');
-                // The PATH_CASE_MISMATCH code is numeric 7001
-                expect(the_output).toContain('[7001]');
+                expect(the_output).toContain(
+                    `[${StataDiagnosticCode.PATH_CASE_MISMATCH}]`
+                );
                 // Must point at main.do (the caller)
                 expect(the_output).toContain('main.do:');
-                // Must NOT contain [2001] (undefined macro) — no cascade
-                expect(the_output).not.toContain('[2001]');
+                // Must NOT contain undefined macro diagnostics: no cascade.
+                expect(the_output).not.toContain(
+                    `[${StataDiagnosticCode.UNDEFINED_MACRO}]`
+                );
             } finally {
                 fs.rmSync(root, { recursive: true, force: true });
             }

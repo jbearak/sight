@@ -1,6 +1,7 @@
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token, StataAST, StataNode } from '../types';
+import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 
 /**
  * Spaced compound operators that Stata accepts as their compact form.
@@ -244,6 +245,7 @@ export class OperatorSequenceAnalyzer {
                 severity,
                 source: 'sight',
                 code: pair_result.code,
+                ...diagnostic_code_description_fields(pair_result.code),
             };
 
             the_diagnostics.push(diagnostic);

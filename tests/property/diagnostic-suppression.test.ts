@@ -425,7 +425,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                     
                     // Should not have any missing file diagnostics
                     const missing_file_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.MISSING_FILE
+                        d => d.code === StataDiagnosticCode.CROSS_FILE_MISSING_FILE
                     );
                     
                     return missing_file_diags.length === 0;
@@ -475,7 +475,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                     const cross_file_diags = the_diagnostics.filter(
                         d => d.code === StataDiagnosticCode.UNDEFINED_MACRO ||
                              d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL ||
-                             d.code === StataDiagnosticCode.MISSING_FILE
+                             d.code === StataDiagnosticCode.CROSS_FILE_MISSING_FILE
                     );
                     return cross_file_diags.length === 0;
                 }
@@ -532,7 +532,7 @@ describe('Diagnostic Suppression Property Tests', () => {
                     
                     // Should not have any missing file diagnostics
                     const missing_file_diags = the_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.MISSING_FILE
+                        d => d.code === StataDiagnosticCode.CROSS_FILE_MISSING_FILE
                     );
                     
                     return missing_file_diags.length === 0;

@@ -31,8 +31,8 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
     });
 
     describe('Diagnostic Code', () => {
-        it('MIXED_LOGICAL_OPERATORS should equal 6004', () => {
-            expect(StataDiagnosticCode.MIXED_LOGICAL_OPERATORS).toBe(6004);
+        it('MIXED_LOGICAL_OPERATORS should use its symbolic rule id', () => {
+            expect(StataDiagnosticCode.MIXED_LOGICAL_OPERATORS).toBe('MIXED_LOGICAL_OPERATORS');
         });
     });
 

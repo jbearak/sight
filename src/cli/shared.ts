@@ -2,6 +2,7 @@ import { stdout } from 'process';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { error_message } from '../utils/error-message';
 import { StataDiagnosticCode } from '../types';
+import { diagnostic_code_description } from '../utils/diagnostic-code-description';
 
 export { error_message };
 
@@ -152,7 +153,7 @@ function code_text(code: Diagnostic['code']): string {
 
 function sarif_rule_id(code: Diagnostic['code']): string {
     const value = code_text(code);
-    return /^\d+$/.test(value) ? `SIGHT${value}` : value || 'SIGHT';
+    return value || 'SIGHT';
 }
 
 function severity_word(diagnostic: Diagnostic): string {
@@ -304,11 +305,17 @@ export function render_sarif(
                 driver: {
                     name: 'sight',
                     version,
-                    rules: rule_ids.map((id) => ({
-                        id,
-                        name: id,
-                        shortDescription: { text: id },
-                    })),
+                    rules: rule_ids.map((id) => {
+                        const description = id === 'SIGHT'
+                            ? undefined
+                            : diagnostic_code_description(id);
+                        return {
+                            id,
+                            name: id,
+                            shortDescription: { text: id },
+                            ...(description ? { helpUri: description.href } : {}),
+                        };
+                    }),
                 },
             },
             results: sorted.map((record) => ({

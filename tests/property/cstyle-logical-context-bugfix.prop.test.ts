@@ -4,7 +4,7 @@
  *
  * Verifies that C-style logical operators (`& &`, `| |`) in if
  * qualifiers inside control flow bodies are correctly classified
- * as 'qualifier' context and emit Error diagnostics (code 6002).
+ * as 'qualifier' context and emit INVALID_OPERATOR_SEQUENCE errors.
  */
 
 import { describe, test, beforeEach, expect } from 'bun:test';
@@ -131,7 +131,7 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
      * depth within control flow structures, the analyzer should
      * emit exactly one diagnostic with:
      * (a) severity Error
-     * (b) code INVALID_OPERATOR_SEQUENCE (6002)
+     * (b) code INVALID_OPERATOR_SEQUENCE
      * (c) a message noting that Stata uses single `|` or `&`
      *     for logical operations
      *
@@ -187,7 +187,7 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
                         );
 
                     // Filter to INVALID_OPERATOR_SEQUENCE
-                    // diagnostics (code 6002)
+                    // diagnostics.
                     const my_error_diags =
                         my_diagnostics.filter(
                             (my_d) =>
@@ -209,13 +209,11 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
                         DiagnosticSeverity.Error
                     );
 
-                    // (c) Code should be
-                    // INVALID_OPERATOR_SEQUENCE (6002)
+                    // (c) Code should be INVALID_OPERATOR_SEQUENCE.
                     expect(my_diag.code).toBe(
                         StataDiagnosticCode
                             .INVALID_OPERATOR_SEQUENCE
                     );
-                    expect(my_diag.code).toBe(6002);
 
                     // (d) Message should note Stata uses
                     // single operators
@@ -224,7 +222,7 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
                     );
 
                     // Should NOT emit a control flow
-                    // diagnostic (6003) for the qualifier
+                    // diagnostic for the qualifier
                     const my_cf_diags =
                         my_diagnostics.filter(
                             (my_d) =>
@@ -264,7 +262,7 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
      * flow statement, regardless of nesting depth, the
      * analyzer should emit exactly one diagnostic with:
      * (a) severity Information (when config is not 'off')
-     * (b) code CSTYLE_LOGICAL_IN_CONTROL_FLOW (6003)
+     * (b) code CSTYLE_LOGICAL_IN_CONTROL_FLOW
      * (c) a message suggesting the use of single operators
      *     for consistency
      *
@@ -351,7 +349,7 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
 
                     // Filter to
                     // CSTYLE_LOGICAL_IN_CONTROL_FLOW
-                    // diagnostics (code 6003)
+                    // diagnostics.
                     const my_cf_diags =
                         my_diagnostics.filter(
                             (my_d) =>
@@ -422,16 +420,12 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
 
                     // (b) Code should be
                     // CSTYLE_LOGICAL_IN_CONTROL_FLOW
-                    // (6003)
                     expect(
                         my_target_diag!.code
                     ).toBe(
                         StataDiagnosticCode
                             .CSTYLE_LOGICAL_IN_CONTROL_FLOW
                     );
-                    expect(
-                        my_target_diag!.code
-                    ).toBe(6003);
 
                     // (c) Message should suggest using
                     // single operators
@@ -442,7 +436,7 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
                         `${my_pair.second}'`
                     );
 
-                    // Should NOT emit an Error (6002)
+                    // Should NOT emit an Error
                     // for the condition operator
                     const my_error_diags =
                         my_diagnostics.filter(
@@ -465,4 +459,3 @@ describe('C-Style Logical Context Detection Bugfix Property Tests', () => {
         );
     });
 });
-

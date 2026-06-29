@@ -358,7 +358,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
      * in valid Stata code as adjacent OPERATOR tokens, the analyzer should emit exactly
      * one diagnostic with:
      * (a) severity Error
-     * (b) code INVALID_OPERATOR_SEQUENCE (6002)
+     * (b) code INVALID_OPERATOR_SEQUENCE
      * (c) a message containing the specific pair string
      * (d) for `| =`, the message should note that Stata does not support compound assignment operators
      *
@@ -466,7 +466,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only INVALID_OPERATOR_SEQUENCE diagnostics (code 6002)
+                    // Filter to only INVALID_OPERATOR_SEQUENCE diagnostics.
                     const my_invalid_diagnostics = my_diagnostics.filter(
                         (my_d) => my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
@@ -479,9 +479,8 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // (b) Severity should be Error
                     expect(my_diag.severity).toBe(DiagnosticSeverity.Error);
 
-                    // (c) Code should be INVALID_OPERATOR_SEQUENCE (6002)
+                    // (c) Code should be INVALID_OPERATOR_SEQUENCE.
                     expect(my_diag.code).toBe(StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE);
-                    expect(my_diag.code).toBe(6002);
 
                     // (d) Message should contain the specific pair string
                     const my_pair_key = `${my_pair.first} ${my_pair.second}`;
@@ -849,7 +848,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
      * For any C-style logical operator pair (`| |`, `& &`) appearing in an if qualifier context
      * (e.g., `gen x = 1 if a == 1 && b == 1`), the analyzer should emit exactly one diagnostic with:
      * (a) severity Error
-     * (b) code INVALID_OPERATOR_SEQUENCE (6002)
+     * (b) code INVALID_OPERATOR_SEQUENCE
      * (c) a message noting that Stata uses single `|` or `&` for logical operations
      *
      * Validates: Requirements 2.6, 5.10, 5.11, 9.3
@@ -953,7 +952,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only INVALID_OPERATOR_SEQUENCE diagnostics (code 6002)
+                    // Filter to only INVALID_OPERATOR_SEQUENCE diagnostics.
                     const my_invalid_diagnostics = my_diagnostics.filter(
                         (my_d) => my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
@@ -966,9 +965,8 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // (b) Severity should be Error
                     expect(my_diag.severity).toBe(DiagnosticSeverity.Error);
 
-                    // (c) Code should be INVALID_OPERATOR_SEQUENCE (6002)
+                    // (c) Code should be INVALID_OPERATOR_SEQUENCE.
                     expect(my_diag.code).toBe(StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE);
-                    expect(my_diag.code).toBe(6002);
 
                     // (d) Message should contain the pair key and the expected message part
                     const my_pair_key = `${my_pair.first} ${my_pair.second}`;
@@ -1152,7 +1150,7 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only INVALID_OPERATOR_SEQUENCE diagnostics (code 6002)
+                    // Filter to only INVALID_OPERATOR_SEQUENCE diagnostics.
                     const my_invalid_diagnostics = my_diagnostics.filter(
                         (my_d) => my_d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
                     );
@@ -1194,30 +1192,30 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
             first: string;
             second: string;
             kind: 'spaced_compound' | 'malformed' | 'invalid';
-            expected_code: number;
+            expected_code: StataDiagnosticCode;
         }> = [
             // Suggestible pairs
-            { first: '<', second: '=', kind: 'spaced_compound', expected_code: 6005 },
-            { first: '>', second: '=', kind: 'spaced_compound', expected_code: 6005 },
-            { first: '!', second: '=', kind: 'spaced_compound', expected_code: 6005 },
-            { first: '~', second: '=', kind: 'spaced_compound', expected_code: 6005 },
-            { first: '=', second: '=', kind: 'malformed', expected_code: 6001 },
+            { first: '<', second: '=', kind: 'spaced_compound', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '>', second: '=', kind: 'spaced_compound', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '!', second: '=', kind: 'spaced_compound', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '~', second: '=', kind: 'spaced_compound', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '=', second: '=', kind: 'malformed', expected_code: StataDiagnosticCode.MALFORMED_OPERATOR },
             // Invalid pairs (excluding C-style logical)
-            { first: '<', second: '|', kind: 'invalid', expected_code: 6002 },
-            { first: '<', second: '&', kind: 'invalid', expected_code: 6002 },
-            { first: '>', second: '|', kind: 'invalid', expected_code: 6002 },
-            { first: '>', second: '&', kind: 'invalid', expected_code: 6002 },
-            { first: '|', second: '<', kind: 'invalid', expected_code: 6002 },
-            { first: '|', second: '>', kind: 'invalid', expected_code: 6002 },
-            { first: '&', second: '<', kind: 'invalid', expected_code: 6002 },
-            { first: '&', second: '>', kind: 'invalid', expected_code: 6002 },
-            { first: '|', second: '=', kind: 'invalid', expected_code: 6002 },
-            { first: '|', second: '&', kind: 'invalid', expected_code: 6002 },
-            { first: '&', second: '|', kind: 'invalid', expected_code: 6002 },
-            { first: '<', second: '<', kind: 'invalid', expected_code: 6002 },
-            { first: '>', second: '>', kind: 'invalid', expected_code: 6002 },
-            { first: '<', second: '>', kind: 'invalid', expected_code: 6002 },
-            { first: '>', second: '<', kind: 'invalid', expected_code: 6002 },
+            { first: '<', second: '|', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '<', second: '&', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '>', second: '|', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '>', second: '&', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '|', second: '<', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '|', second: '>', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '&', second: '<', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '&', second: '>', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '|', second: '=', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '|', second: '&', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '&', second: '|', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '<', second: '<', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '>', second: '>', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '<', second: '>', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '>', second: '<', kind: 'invalid', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
         ];
 
         // Generator for malformed pairs
@@ -1724,18 +1722,18 @@ describe('Embedded Context Suppression Property Tests', () => {
         const MALFORMED_PAIRS: Array<{
             first: string;
             second: string;
-            expected_code: number;
+            expected_code: StataDiagnosticCode;
         }> = [
             // Suggestible pairs
-            { first: '<', second: '=', expected_code: 6005 },
-            { first: '>', second: '=', expected_code: 6005 },
-            { first: '!', second: '=', expected_code: 6005 },
-            { first: '~', second: '=', expected_code: 6005 },
-            { first: '=', second: '=', expected_code: 6001 },
+            { first: '<', second: '=', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '>', second: '=', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '!', second: '=', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '~', second: '=', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '=', second: '=', expected_code: StataDiagnosticCode.MALFORMED_OPERATOR },
             // Invalid pairs
-            { first: '<', second: '|', expected_code: 6002 },
-            { first: '|', second: '|', expected_code: 6002 },
-            { first: '&', second: '&', expected_code: 6002 },
+            { first: '<', second: '|', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '|', second: '|', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '&', second: '&', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
         ];
 
         // Generator for malformed pairs
@@ -2181,18 +2179,18 @@ describe('Directive Suppression Property Tests', () => {
         const MALFORMED_PAIRS: Array<{
             first: string;
             second: string;
-            expected_code: number;
+            expected_code: StataDiagnosticCode;
         }> = [
             // Suggestible pairs
-            { first: '<', second: '=', expected_code: 6005 },
-            { first: '>', second: '=', expected_code: 6005 },
-            { first: '!', second: '=', expected_code: 6005 },
-            { first: '~', second: '=', expected_code: 6005 },
-            { first: '=', second: '=', expected_code: 6001 },
+            { first: '<', second: '=', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '>', second: '=', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '!', second: '=', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '~', second: '=', expected_code: StataDiagnosticCode.SPACED_COMPOUND_OPERATOR },
+            { first: '=', second: '=', expected_code: StataDiagnosticCode.MALFORMED_OPERATOR },
             // Invalid pairs
-            { first: '<', second: '|', expected_code: 6002 },
-            { first: '|', second: '|', expected_code: 6002 },
-            { first: '&', second: '&', expected_code: 6002 },
+            { first: '<', second: '|', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '|', second: '|', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
+            { first: '&', second: '&', expected_code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE },
         ];
 
         // Generator for malformed pairs
@@ -2282,7 +2280,7 @@ describe('C-Style Logical Control Flow Property Tests', () => {
      * control flow statement condition (e.g., `if a == 1 && b == 1 { ... }`), the analyzer should:
      * (a) NOT emit an error diagnostic
      * (b) when `cStyleLogicalInControlFlow` config is not `'off'`, emit an informational diagnostic
-     *     with code CSTYLE_LOGICAL_IN_CONTROL_FLOW (6003) and a message suggesting the use of
+     *     with code CSTYLE_LOGICAL_IN_CONTROL_FLOW and a message suggesting the use of
      *     single operators for consistency
      *
      * Validates: Requirements 2a.1, 2a.2, 5.13, 5.14, 9.4
@@ -2404,9 +2402,8 @@ describe('C-Style Logical Control Flow Property Tests', () => {
                     // Severity should be Information (default)
                     expect(my_diag.severity).toBe(DiagnosticSeverity.Information);
 
-                    // Code should be CSTYLE_LOGICAL_IN_CONTROL_FLOW (6003)
+                    // Code should be CSTYLE_LOGICAL_IN_CONTROL_FLOW.
                     expect(my_diag.code).toBe(StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW);
-                    expect(my_diag.code).toBe(6003);
 
                     // Message should match the expected message
                     expect(my_diag.message).toBe(my_pair.expected_message);
@@ -2582,7 +2579,7 @@ describe('C-Style Logical Control Flow Property Tests', () => {
                     // Run the operator sequence analyzer
                     const my_diagnostics = my_analyzer.analyze(my_doc_state, my_config);
 
-                    // Filter to only CSTYLE_LOGICAL_IN_CONTROL_FLOW diagnostics (code 6003)
+                    // Filter to only CSTYLE_LOGICAL_IN_CONTROL_FLOW diagnostics.
                     const my_cstyle_diagnostics = my_diagnostics.filter(
                         (my_d) => my_d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
                     );
@@ -2607,9 +2604,8 @@ describe('C-Style Logical Control Flow Property Tests', () => {
                         const expected_severity = severity_map[my_severity];
                         expect(my_diag.severity).toBe(expected_severity);
 
-                        // Verify the diagnostic code is CSTYLE_LOGICAL_IN_CONTROL_FLOW (6003)
+                        // Verify the diagnostic code is CSTYLE_LOGICAL_IN_CONTROL_FLOW.
                         expect(my_diag.code).toBe(StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW);
-                        expect(my_diag.code).toBe(6003);
 
                         // Also verify no INVALID_OPERATOR_SEQUENCE diagnostic is emitted
                         // (C-style logical in control flow should NOT be treated as invalid)

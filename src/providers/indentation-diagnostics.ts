@@ -2,6 +2,7 @@ import { Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode-language
 import { DocumentState } from '../document-store';
 import { LanguageContext } from '../context-tracker/types';
 import { StataDiagnosticCode, StataLSPConfig, StataNode, StataAST, ControlFlowNode, ProgramNode, Token } from '../types';
+import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 
 const CONTROL_FLOW_RE = /^(if|foreach|while|program|mata|python)\b/;
 const FIRST_WORD_RE = /^(\w+)\b/;
@@ -152,6 +153,9 @@ export class IndentationDiagnosticAnalyzer {
             message: 'Line appears unnecessarily indented after comment. Use Format Document to fix.',
             source: 'sight',
             code: StataDiagnosticCode.UNNECESSARY_INDENTATION,
+            ...diagnostic_code_description_fields(
+              StataDiagnosticCode.UNNECESSARY_INDENTATION
+            ),
           });
         }
       }
@@ -230,6 +234,9 @@ export class IndentationDiagnosticAnalyzer {
               message: 'Line should be indented inside brace block. Use Format Document to fix.',
               source: 'sight',
               code: StataDiagnosticCode.MISSING_INDENTATION,
+              ...diagnostic_code_description_fields(
+                StataDiagnosticCode.MISSING_INDENTATION
+              ),
             });
           }
         }
@@ -589,6 +596,9 @@ export class IndentationDiagnosticAnalyzer {
           message: 'Line appears unnecessarily indented. Use Format Document to fix.',
           source: 'sight',
           code: StataDiagnosticCode.UNNECESSARY_INDENTATION,
+          ...diagnostic_code_description_fields(
+            StataDiagnosticCode.UNNECESSARY_INDENTATION
+          ),
         });
       }
     }

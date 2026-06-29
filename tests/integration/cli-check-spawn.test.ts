@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { StataDiagnosticCode } from '../../src/types';
 
 function temp_dir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'sight-check-spawn-'));
@@ -37,7 +38,7 @@ describe('sight check spawned CLI', () => {
         );
 
         expect(result.status).toBe(1);
-        expect(result.stdout).toContain('[2001]');
+        expect(result.stdout).toContain(`[${StataDiagnosticCode.UNDEFINED_MACRO}]`);
     });
 
     it('returns exit 2 for an unknown flag (operator error)', () => {

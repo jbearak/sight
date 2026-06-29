@@ -1684,6 +1684,7 @@ export class ScopeResolver {
                     range: my_directive.range,
                     severity: 'warning',
                     kind: 'missing_file',
+                    code: StataDiagnosticCode.CROSS_FILE_MISSING_FILE,
                     source: {
                         source_file: source_filename,
                         // Omit source_line - call site unknown (file unreadable)

@@ -45,20 +45,20 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
     });
 
     describe('Diagnostic Codes (Requirements 9.1-9.4)', () => {
-        it('MALFORMED_OPERATOR should equal 6001', () => {
-            expect(StataDiagnosticCode.MALFORMED_OPERATOR).toBe(6001);
+        it('MALFORMED_OPERATOR should use its symbolic rule id', () => {
+            expect(StataDiagnosticCode.MALFORMED_OPERATOR).toBe('MALFORMED_OPERATOR');
         });
 
-        it('INVALID_OPERATOR_SEQUENCE should equal 6002', () => {
-            expect(StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE).toBe(6002);
+        it('INVALID_OPERATOR_SEQUENCE should use its symbolic rule id', () => {
+            expect(StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE).toBe('INVALID_OPERATOR_SEQUENCE');
         });
 
-        it('CSTYLE_LOGICAL_IN_CONTROL_FLOW should equal 6003', () => {
-            expect(StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW).toBe(6003);
+        it('CSTYLE_LOGICAL_IN_CONTROL_FLOW should use its symbolic rule id', () => {
+            expect(StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW).toBe('CSTYLE_LOGICAL_IN_CONTROL_FLOW');
         });
 
-        it('SPACED_COMPOUND_OPERATOR should equal 6005', () => {
-            expect(StataDiagnosticCode.SPACED_COMPOUND_OPERATOR).toBe(6005);
+        it('SPACED_COMPOUND_OPERATOR should use its symbolic rule id', () => {
+            expect(StataDiagnosticCode.SPACED_COMPOUND_OPERATOR).toBe('SPACED_COMPOUND_OPERATOR');
         });
     });
 

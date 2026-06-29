@@ -1,4 +1,7 @@
 import { Range, Position } from 'vscode-languageserver-textdocument';
+import { ContextErrorCode } from '../types';
+
+export { ContextErrorCode };
 
 /**
  * Represents the current language context during parsing.
@@ -40,19 +43,6 @@ export interface ContextDiagnostic {
   range: Range;
   severity: 'error' | 'warning' | 'information';
   code: ContextErrorCode;
-}
-
-/**
- * Error codes for context-related diagnostics.
- */
-export enum ContextErrorCode {
-  UNCLOSED_MATA_BLOCK = 4001,
-  UNCLOSED_PYTHON_BLOCK = 4002,
-  UNEXPECTED_END = 4003,
-  UNEXPECTED_END_COMMAND = 4004,
-  MISMATCHED_END_PYTHON = 4005,
-  NESTED_BLOCK_ERROR = 4006,
-  INVALID_DELIMITER_POSITION = 4007,
 }
 
 /**

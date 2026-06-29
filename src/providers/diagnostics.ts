@@ -27,6 +27,7 @@ import {
     OutOfScopeSymbolKind,
 } from '../utils/out-of-scope-message';
 import { undefined_symbol_data_fields } from '../utils/undefined-symbol-diagnostic';
+import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 import { host_is_case_sensitive } from '../utils/file-path-utils';
 import {
     has_ignore_directive,
@@ -53,6 +54,28 @@ type OutOfScopeRewriteMatch = {
     symbol_kind: OutOfScopeSymbolKind;
     reason: OutOfScopeMessageReason;
 };
+
+const LEXER_ERROR_CODES = new Set<string>(Object.values(LexerErrorCode));
+const PARSER_ERROR_CODES = new Set<string>(Object.values(ParseErrorCode));
+const STATA_DIAGNOSTIC_CODES = new Set<string>(
+    Object.values(StataDiagnosticCode)
+);
+const STRUCTURAL_EMBEDDED_ERROR_CODES = new Set<string>([
+    LexerErrorCode.UNBALANCED_QUOTES,
+    LexerErrorCode.UNBALANCED_BLOCK_COMMENT,
+]);
+
+function is_lexer_error_code(code: unknown): code is LexerErrorCode {
+    return typeof code === 'string' && LEXER_ERROR_CODES.has(code);
+}
+
+function is_parser_error_code(code: unknown): code is ParseErrorCode {
+    return typeof code === 'string' && PARSER_ERROR_CODES.has(code);
+}
+
+function is_stata_diagnostic_code(code: unknown): code is StataDiagnosticCode {
+    return typeof code === 'string' && STATA_DIAGNOSTIC_CODES.has(code);
+}
 
 // ─── Testability seam for host_is_case_sensitive ─────────────────────────────
 // Production code calls the real implementation. Tests can override this
@@ -554,16 +577,12 @@ export class DiagnosticsProvider {
         // We identify them by their source and code range
         const lexer_errors: LexerError[] = [];
         for (const diag of document.diagnostics) {
-            if (diag.code && typeof diag.code === 'number') {
-                const code = diag.code as number;
-                if (code >= 1001 && code <= 1004) {
-                    // This is a lexer error code
-                    lexer_errors.push({
-                        message: diag.message,
-                        range: diag.range,
-                        code: code as LexerErrorCode,
-                    });
-                }
+            if (is_lexer_error_code(diag.code)) {
+                lexer_errors.push({
+                    message: diag.message,
+                    range: diag.range,
+                    code: diag.code,
+                });
             }
         }
         return lexer_errors;
@@ -575,16 +594,12 @@ export class DiagnosticsProvider {
     private extract_parser_errors(document: DocumentState): ParseError[] {
         const parser_errors: ParseError[] = [];
         for (const diag of document.diagnostics) {
-            if (diag.code && typeof diag.code === 'number') {
-                const code = diag.code as number;
-                if (code >= 3000 && code <= 3014) {
-                    // This is a parser error code
-                    parser_errors.push({
-                        message: diag.message,
-                        range: diag.range,
-                        code: code as ParseErrorCode,
-                    });
-                }
+            if (is_parser_error_code(diag.code)) {
+                parser_errors.push({
+                    message: diag.message,
+                    range: diag.range,
+                    code: diag.code,
+                });
             }
         }
         return parser_errors;
@@ -596,30 +611,31 @@ export class DiagnosticsProvider {
     private extract_semantic_diagnostics(document: DocumentState): SemanticDiagnostic[] {
         const semantic_diags: SemanticDiagnostic[] = [];
         for (const diag of document.diagnostics) {
-            if (diag.code && typeof diag.code === 'number') {
-                const code = diag.code as StataDiagnosticCode;
-                if (code === StataDiagnosticCode.UNDEFINED_MACRO
-                    || code === StataDiagnosticCode.UNDEFINED_VARIABLE
-                    || code === StataDiagnosticCode.MISSING_VARIABLE_NAME) {
-                    // This is a semantic error code
-                    const severity_map: Record<DiagnosticSeverity, 'error' | 'warning' | 'information' | 'hint'> = {
-                        [DiagnosticSeverity.Error]: 'error',
-                        [DiagnosticSeverity.Warning]: 'warning',
-                        [DiagnosticSeverity.Information]: 'information',
-                        [DiagnosticSeverity.Hint]: 'hint',
-                    };
-                    const data = diag.data as
-                        | UndefinedSymbolDiagnosticData
-                        | undefined;
-                    semantic_diags.push({
-                        message: diag.message,
-                        range: diag.range,
-                        code,
-                        severity: severity_map[diag.severity ?? DiagnosticSeverity.Error],
-                        symbol_name: data?.symbol_name,
-                        reference_kind: data?.reference_kind,
-                    });
-                }
+            if (!is_stata_diagnostic_code(diag.code)) {
+                continue;
+            }
+            const code = diag.code;
+            if (code === StataDiagnosticCode.UNDEFINED_MACRO
+                || code === StataDiagnosticCode.UNDEFINED_VARIABLE
+                || code === StataDiagnosticCode.INVALID_MACRO_CHAR
+                || code === StataDiagnosticCode.MISSING_VARIABLE_NAME) {
+                const severity_map: Record<DiagnosticSeverity, 'error' | 'warning' | 'information' | 'hint'> = {
+                    [DiagnosticSeverity.Error]: 'error',
+                    [DiagnosticSeverity.Warning]: 'warning',
+                    [DiagnosticSeverity.Information]: 'information',
+                    [DiagnosticSeverity.Hint]: 'hint',
+                };
+                const data = diag.data as
+                    | UndefinedSymbolDiagnosticData
+                    | undefined;
+                semantic_diags.push({
+                    message: diag.message,
+                    range: diag.range,
+                    code,
+                    severity: severity_map[diag.severity ?? DiagnosticSeverity.Error],
+                    symbol_name: data?.symbol_name,
+                    reference_kind: data?.reference_kind,
+                });
             }
         }
         return semantic_diags;
@@ -690,6 +706,7 @@ export class DiagnosticsProvider {
             severity,
             code: error.code,
             source: 'sight',
+            ...diagnostic_code_description_fields(error.code),
         };
     }
 
@@ -728,6 +745,7 @@ export class DiagnosticsProvider {
             severity,
             code: error.code,
             source: 'sight',
+            ...diagnostic_code_description_fields(error.code),
         };
     }
 
@@ -824,6 +842,7 @@ export class DiagnosticsProvider {
             severity,
             code: diagnostic.code,
             source: 'sight',
+            ...diagnostic_code_description_fields(diagnostic.code),
             // Propagate the structured payload so the diagnostic published to
             // the client carries symbol_name/reference_kind too (omitted when
             // absent, e.g. out-of-scope rewrites).
@@ -1018,13 +1037,8 @@ export class DiagnosticsProvider {
      */
     private is_stata_specific_error(error_code: string | number): boolean {
         // Structural errors that should be reported even in embedded contexts
-        const structural_errors = [
-            LexerErrorCode.UNBALANCED_QUOTES,
-            LexerErrorCode.UNBALANCED_BLOCK_COMMENT,
-        ];
-
-        if (typeof error_code === 'number') {
-            return !structural_errors.includes(error_code);
+        if (is_lexer_error_code(error_code)) {
+            return !STRUCTURAL_EMBEDDED_ERROR_CODES.has(error_code);
         }
 
         // String error codes - check if they're structural
@@ -1052,6 +1066,7 @@ export class DiagnosticsProvider {
             severity: severity_map[diagnostic.severity],
             code: diagnostic.code,
             source: 'sight',
+            ...diagnostic_code_description_fields(diagnostic.code),
         };
     }
 
@@ -1102,6 +1117,7 @@ export class DiagnosticsProvider {
                 severity,
                 code: diagnostic.code,
                 source: 'sight',
+                ...diagnostic_code_description_fields(diagnostic.code),
             };
         }
 
@@ -1118,6 +1134,7 @@ export class DiagnosticsProvider {
                 severity: this.semantic_severity_to_lsp(diagnostic.severity),
                 code: diagnostic.code,
                 source: 'sight',
+                ...diagnostic_code_description_fields(diagnostic.code),
             };
         }
 
@@ -1146,7 +1163,9 @@ export class DiagnosticsProvider {
             range: diagnostic.range,
             message: diagnostic.message,
             severity,
+            code: diagnostic.code,
             source: 'sight',
+            ...diagnostic_code_description_fields(diagnostic.code),
         };
     }
 

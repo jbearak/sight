@@ -3,6 +3,7 @@ import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { hasStataExtension, VCS_METADATA_DIRS } from '../utils/file-path-utils';
+import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 import { compare_strings, error_message } from './shared';
 
 export interface ReportTarget {
@@ -172,6 +173,7 @@ function file_level_diagnostic(code: string, message: string): Diagnostic {
         source: 'sight',
         code,
         message,
+        ...diagnostic_code_description_fields(code),
     };
 }
 

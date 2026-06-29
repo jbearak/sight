@@ -16,6 +16,7 @@ import {
     EXIT_OK,
     EXIT_OPERATOR_ERROR,
 } from '../../src/cli/shared';
+import { StataDiagnosticCode } from '../../src/types';
 import { create_empty_symbol_table } from '../../src/analyzer';
 
 function temp_dir(): string {
@@ -41,7 +42,7 @@ describe('sight check integration', () => {
 
         expect(result.code).toBe(EXIT_CHECK_FAILED);
         expect(result.stdout).toContain('main.do:1:');
-        expect(result.stdout).toContain('[2001]');
+        expect(result.stdout).toContain(`[${StataDiagnosticCode.UNDEFINED_MACRO}]`);
     });
 
     it('honors editor default undefinedVariable off', async () => {
@@ -82,7 +83,9 @@ describe('sight check integration', () => {
 
         expect(result.code).toBe(EXIT_OK);
         expect(result.stdout).toContain('info:');
-        expect(result.stdout).toContain('[6005]');
+        expect(result.stdout).toContain(
+            `[${StataDiagnosticCode.SPACED_COMPOUND_OPERATOR}]`
+        );
     });
 
     it('indexes whole workspace while report paths filter output', async () => {
