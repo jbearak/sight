@@ -53,7 +53,8 @@ const IGNORE_NEXT_DIRECTIVE_REGEX = new RegExp(`${DIRECTIVE_PREFIX_PATTERN}ignor
 // `@lsp-var(s|iable|iables)` and `sight: var(s|iable|iables)`.
 // Capture group 1 is the space-separated variable list.
 export const VARIABLES_DIRECTIVE_PATTERN = new RegExp(
-    `${DIRECTIVE_PREFIX_PATTERN}(?:${VARIABLES_DIRECTIVE_KEYWORDS}):?\\s+(.+)\\s*$`,
+    `${DIRECTIVE_PREFIX_PATTERN}` +
+        `(?:${VARIABLES_DIRECTIVE_KEYWORDS}):?\\s+(.+)\\s*$`,
 );
 
 // Shared compiled pattern for declaration directives (`local`/`global`/
@@ -62,7 +63,8 @@ export const VARIABLES_DIRECTIVE_PATTERN = new RegExp(
 // line-leading `*` comment prefix, so it never matches text inside a
 // `/* ... */` block comment.
 export const DECLARATION_DIRECTIVE_PATTERN = new RegExp(
-    `${DIRECTIVE_PREFIX_PATTERN}(${DECLARATION_DIRECTIVE_KEYWORDS}):?\\s+(.+)\\s*$`,
+    `${DIRECTIVE_PREFIX_PATTERN}` +
+        `(${DECLARATION_DIRECTIVE_KEYWORDS}):?\\s+(.+)\\s*$`,
 );
 
 export function has_directive_prefix(text: string): boolean {
