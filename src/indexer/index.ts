@@ -55,6 +55,10 @@ import {
     VCS_METADATA_DIRS,
 } from '../utils/file-path-utils';
 import { entry_is_file_async } from '../utils/symlink-aware-entry';
+import {
+    create_exclude_matcher,
+    type ExcludeMatcher,
+} from '../utils/exclude-matcher';
 
 const MAX_PARALLEL = 4;
 const YIELD_INTERVAL_MS = 100;
@@ -109,6 +113,7 @@ export class WorkspaceIndexer {
     };
     private cancelled = false;
     private size_threshold_bytes: number = 512 * 1024; // 500KB default
+    private exclude_matcher: ExcludeMatcher = create_exclude_matcher([]);
     private skipped_files: Map<string, number> = new Map();
     private max_indexed_files: number = 1000;
     private max_files_reached = false;
@@ -364,11 +369,32 @@ export class WorkspaceIndexer {
                     if (VCS_METADATA_DIRS.has(entry.name)) {
                         continue;
                     }
+                    // Prune directories whose every descendant is excluded by
+                    // the workspace `exclude` patterns (issue #255). Paths
+                    // outside the workspace roots (ado paths) never match.
+                    if (
+                        !this.exclude_matcher.is_empty &&
+                        this.exclude_matcher.is_excluded_dir(
+                            entry_path,
+                            this.workspace_roots
+                        )
+                    ) {
+                        continue;
+                    }
                     await this.scan_directory(entry_path, generation);
                 } else if (
                     entry.isFile() &&
                     hasStataExtension(entry.name)
                 ) {
+                    if (
+                        !this.exclude_matcher.is_empty &&
+                        this.exclude_matcher.is_excluded_file(
+                            entry_path,
+                            this.workspace_roots
+                        )
+                    ) {
+                        continue;
+                    }
                     file_paths.push(entry_path);
                 }
             }
@@ -480,6 +506,18 @@ export class WorkspaceIndexer {
     ): Promise<void> {
         if (!this.is_active_generation(generation) || !this.enabled) return;
         const file_uri = URI.file(file_path).toString();
+        // Honor workspace `exclude` patterns on the incremental update path
+        // (issue #255): scan_directory already prunes excluded files on the
+        // bulk scan, but schedule_update -> index_file bypasses it. Clearing a
+        // previously-indexed entry drops stale symbols/edges when a file
+        // becomes excluded (e.g. a new pattern, or a moved file).
+        if (
+            !this.exclude_matcher.is_empty &&
+            this.exclude_matcher.is_excluded_file(file_path, this.workspace_roots)
+        ) {
+            this.clear_stale_entry(file_uri);
+            return;
+        }
         // Re-indexing a file already in the index does not grow the distinct-
         // file count, so the cap must not block it; otherwise an edit to an
         // already-indexed file is silently skipped once the cap is reached,
@@ -830,6 +868,8 @@ export class WorkspaceIndexer {
         // walk during indexing uses the same config as open-document
         // resolution.
         this.scope_resolver_config = scope_resolver_config_for(config);
+
+        this.exclude_matcher = create_exclude_matcher(config.exclude ?? []);
 
         const threshold = config?.indexing?.maxFileSizeBytes;
         if (typeof threshold === 'number' && threshold > 0) {

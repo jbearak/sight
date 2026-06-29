@@ -74,6 +74,50 @@ describe('sight check integration', () => {
         expect(result.stdout).toContain('info:');
     });
 
+    it('excludes paths matching sight.toml exclude from the default walk', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(
+            path.join(root, 'sight.toml'),
+            'exclude = ["output/**"]\n'
+        );
+        fs.mkdirSync(path.join(root, 'output'));
+        // Both files contain an undefined-macro error; only src/main.do should
+        // be reported, since output/** is excluded from the default walk.
+        fs.writeFileSync(path.join(root, 'main.do'), "display \"`bad_main'\"\n");
+        fs.writeFileSync(
+            path.join(root, 'output', 'gen.do'),
+            "display \"`bad_gen'\"\n"
+        );
+
+        const result = await run_capture(['--workspace', root, '--quiet'], root);
+
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain('main.do:1:');
+        expect(result.stdout).not.toContain('output/gen.do');
+        expect(result.stdout).not.toContain('bad_gen');
+    });
+
+    it('still checks an explicitly-named file under an excluded path', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(
+            path.join(root, 'sight.toml'),
+            'exclude = ["output/**"]\n'
+        );
+        fs.mkdirSync(path.join(root, 'output'));
+        fs.writeFileSync(
+            path.join(root, 'output', 'gen.do'),
+            "display \"`bad_gen'\"\n"
+        );
+
+        const result = await run_capture(
+            ['--workspace', root, 'output/gen.do', '--quiet'],
+            root
+        );
+
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain('output/gen.do:1:');
+    });
+
     it('does not fail on default spaced comparison diagnostics', async () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, 'main.do'), 'display 1 < = 2\ndisplay 3 > = 2\n');
@@ -189,6 +233,32 @@ describe('sight check integration', () => {
         expect(result.code).toBe(EXIT_CHECK_FAILED);
         expect(result.stdout).toContain('was not indexed');
         expect(result.stdout).toContain('maxIndexedFiles');
+    });
+
+    it('checks an explicit excluded file even at the max-indexed-files cap', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(
+            path.join(root, 'sight.toml'),
+            'exclude = ["output/**"]\n[crossFile]\nmaxIndexedFiles = 1\n'
+        );
+        // a.do is indexed and fills the cap; output/ is excluded from indexing.
+        fs.writeFileSync(path.join(root, 'a.do'), 'display 1\n');
+        fs.mkdirSync(path.join(root, 'output'));
+        fs.writeFileSync(
+            path.join(root, 'output', 'gen.do'),
+            "display \"`bad_gen'\"\n"
+        );
+
+        const result = await run_capture(
+            ['--workspace', root, 'output/gen.do', '--quiet'],
+            root
+        );
+
+        // The explicit excluded file is analyzed (real undefined-macro
+        // diagnostic), not blocked with a misleading "not indexed" message.
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain('output/gen.do:1:');
+        expect(result.stdout).not.toContain('was not indexed');
     });
 
     it('reports explicit .mata files skipped by max indexed files', async () => {

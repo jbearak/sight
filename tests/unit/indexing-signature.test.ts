@@ -81,6 +81,16 @@ describe('indexing_affecting_signature', () => {
         );
     });
 
+    it('differs when exclude changes', () => {
+        // exclude governs which files are scanned/indexed (#255), so changing
+        // it must trigger a full re-scan rather than leaving stale symbols for
+        // newly-excluded (or newly-included) paths.
+        const changed = with_change((c) => { c.exclude = ['output/**']; });
+        expect(indexing_affecting_signature(changed)).not.toBe(
+            indexing_affecting_signature(base)
+        );
+    });
+
     it('is equal when only a non-indexing field changes', () => {
         // A severity / debug tweak must NOT trigger a re-index.
         const changed = with_change((c) => {

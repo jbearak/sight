@@ -6,6 +6,7 @@ describe('map_public_config_to_partial_config', () => {
         const result = map_public_config_to_partial_config({
             indexWorkspace: false,
             adoPaths: ['/ado'],
+            exclude: ['output/**', '!output/keep.do'],
             lineCommentStyle: '*',
             debug: true,
             diagnostics: {
@@ -58,6 +59,7 @@ describe('map_public_config_to_partial_config', () => {
 
         expect(result.indexWorkspace).toBe(false);
         expect(result.adoPaths).toEqual(['/ado']);
+        expect(result.exclude).toEqual(['output/**', '!output/keep.do']);
         expect(result.lineCommentStyle).toBe('*');
         expect(result.debug).toBe(true);
         expect(result.diagnostics?.enabled).toBe(false);
@@ -80,6 +82,17 @@ describe('map_public_config_to_partial_config', () => {
 
         expect(result.cross_file?.backward_dependencies).toBe('auto');
         expect(result.cross_file?.diagnostics?.missing_file).toBe('information');
+    });
+
+    it('warns and ignores a non-string-array exclude', () => {
+        const warnings: string[] = [];
+        const result = map_public_config_to_partial_config(
+            { exclude: ['output/**', 42] },
+            (warning) => warnings.push(warning.message)
+        );
+
+        expect(result.exclude).toBeUndefined();
+        expect(warnings.join('\n')).toContain('exclude');
     });
 
     it('warns and ignores colliding aliases when no canonical spelling exists', () => {

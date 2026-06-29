@@ -59,6 +59,7 @@ const BACKWARD_DEPENDENCY_VALUES = ['auto', 'explicit'] as const;
 const SERVER_TOP_LEVEL_KEYS = [
     'indexWorkspace',
     'adoPaths',
+    'exclude',
     'lineCommentStyle',
     'debug',
     'diagnostics',
@@ -647,6 +648,16 @@ export function map_public_config_to_partial_config(
             mapped.adoPaths = ado_paths;
         } else {
             warn_invalid_value('adoPaths', ado_paths, warn);
+        }
+    }
+
+    const exclude = pick_key(raw, 'exclude', warn, 'exclude');
+    if (exclude !== undefined) {
+        if (Array.isArray(exclude)
+            && exclude.every((item) => typeof item === 'string')) {
+            mapped.exclude = exclude;
+        } else {
+            warn_invalid_value('exclude', exclude, warn);
         }
     }
 

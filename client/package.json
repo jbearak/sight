@@ -329,6 +329,14 @@
           "default": [],
           "description": "Additional paths to search for ADO files"
         },
+        "sight.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Workspace-relative glob patterns to exclude from `sight check` and workspace indexing (e.g. [\"output/**\"]). Files opened directly in the editor are still analyzed."
+        },
         "sight.sendToStata.stataApp": {
           "type": "string",
           "default": "",

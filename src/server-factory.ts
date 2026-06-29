@@ -207,6 +207,7 @@ export function indexing_affecting_signature(
 ): string {
     return JSON.stringify({
         adoPaths: config?.adoPaths ?? null,
+        exclude: config?.exclude ?? null,
         indexWorkspace: config?.indexWorkspace ?? null,
         index_workspace: config?.cross_file?.index_workspace ?? null,
         max_indexed_files: config?.cross_file?.max_indexed_files ?? null,

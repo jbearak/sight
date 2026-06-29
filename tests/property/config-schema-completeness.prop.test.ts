@@ -149,6 +149,10 @@ const EXPECTED_CONFIG_FIELDS: ConfigFieldSpec[] = [
         type: 'array',
     },
     {
+        path: 'sight.exclude',
+        type: 'array',
+    },
+    {
         path: 'sight.indexWorkspace',
         type: 'boolean',
     },
