@@ -28,7 +28,6 @@ jobs:
       server: ${{ steps.filter.outputs.server }}
       client: ${{ steps.filter.outputs.client }}
       binaries: ${{ steps.filter.outputs.binaries }}
-      formula: ${{ steps.filter.outputs.formula }}
     steps:
       # Pinned action SHAs for supply-chain safety.
       # How to update:
@@ -88,10 +87,6 @@ jobs:
               - 'scripts/install.ts'
               - 'scripts/smoke-stdio-startup.ts'
               - 'scripts/uninstall.ts'
-
-            formula:
-              - 'Formula/**'
-              - 'scripts/test-formula.ts'
 
   verify:
     name: Verify (typecheck + tests)
@@ -233,31 +228,3 @@ jobs:
           esac
 
           bun scripts/smoke-stdio-startup.ts "$BINARY"
-
-  homebrew:
-    name: Homebrew formula
-    needs: [changes, verify]
-    if: needs.changes.outputs.formula == 'true'
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - name: Setup
-        uses: ./.github/actions/setup
-        with:
-          node-version: "24"
-      - name: Build binaries
-        run: bun run build:binary
-      - name: Test formula syntax
-        shell: bash
-        run: |
-          if command -v brew >/dev/null 2>&1; then
-            brew audit --strict Formula/sight-language-server.rb
-          else
-            echo "Homebrew not available, skipping audit"
-          fi
-      - name: Test formula installation
-        if: runner.os == 'macOS'
-        run: bun scripts/test-formula.ts
