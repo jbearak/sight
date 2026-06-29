@@ -2461,9 +2461,9 @@ export class ScopeResolver {
         ): Map<string, T> => {
             const filtered = new Map<string, T>();
             for (const [name, symbol] of map) {
-                // Use the effective definition line so loop-expanded macros
-                // (location = in-loop body, definition_line = after the brace)
-                // are filtered by when they actually become defined.
+                // Use the effective definition line so symbols with a
+                // diagnostic visibility line that differs from their
+                // navigation location are call-site filtered correctly.
                 const defined_line = effective_definition_line(symbol);
                 if (defined_line <= call_site_line) {
                     filtered.set(name, symbol);

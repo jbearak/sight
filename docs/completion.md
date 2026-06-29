@@ -39,6 +39,9 @@ local is offered once the cursor sits at or below its definition line —
 before that point the macro does not yet exist at the execution
 point. Locals inherited via an `include` chain are placed in scope by
 the resolver upstream and require no further filtering.
+For statically expanded `foreach` / `forvalues` constructed macro
+names, the definition line is the loop-body `local` statement that
+creates each concrete name.
 
 ### 3. Workspace non-variable symbols surface as out of scope
 

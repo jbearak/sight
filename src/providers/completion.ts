@@ -1789,19 +1789,6 @@ export class CompletionProvider {
                 }
             }
 
-            // Loop-expanded globals are only defined after the loop's closing
-            // brace (definition_line), though their location is the in-loop
-            // statement. Gate just those; ordinary globals (definition_line ===
-            // location line) keep their existing position-independent behavior.
-            if (scope === 'global' && macro.sourceUri === document.uri) {
-                const def_line = macro.definition_line;
-                const loc_line = macro.location?.range?.start?.line;
-                if (typeof def_line === 'number' && def_line !== loc_line
-                    && def_line > position.line) {
-                    continue;
-                }
-            }
-
             // For local macro completions, respect program scoping.
             // - If cursor is inside a program: include locals defined in that program + locals defined at file scope.
             // - If cursor is outside any program: exclude locals defined inside programs.

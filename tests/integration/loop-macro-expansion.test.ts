@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { SemanticAnalyzer } from '../../src/analyzer';
-import { StataDiagnosticCode } from '../../src/types';
+import { DocumentStore } from '../../src/document-store';
+import { DiagnosticsProvider } from '../../src/providers/diagnostics';
+import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 
 describe('Loop macro expansion (integration)', () => {
     let lexer: StataLexer;
@@ -25,6 +27,34 @@ describe('Loop macro expansion (integration)', () => {
         return analyze(source)
             .diagnostics.filter((d) => d.code === StataDiagnosticCode.UNDEFINED_MACRO)
             .map((d) => d.symbol_name ?? '');
+    }
+
+    function diagnostic_codes(source: string): StataDiagnosticCode[] {
+        return analyze(source).diagnostics.map((d) => d.code);
+    }
+
+    async function provider_diagnostic_codes(source: string) {
+        const uri = 'file:///test.do';
+        const document_store = new DocumentStore();
+        await document_store.open(uri, source, 1);
+        const diagnostics_provider = new DiagnosticsProvider({
+            sendDiagnostics: () => {},
+        } as any);
+        const config = {
+            diagnostics: {
+                enabled: true,
+                severity: {
+                    undefinedMacro: 'warning',
+                    undefinedVariable: 'warning',
+                    styleWarnings: 'warning',
+                },
+            },
+        } as StataLSPConfig;
+        const diagnostics = await diagnostics_provider.get_diagnostics(
+            document_store.get(uri)!,
+            config,
+        );
+        return diagnostics.map((d) => d.code);
     }
 
     it('defines the four constructed-name forms after the loop', () => {
@@ -53,7 +83,7 @@ describe('Loop macro expansion (integration)', () => {
         }
     });
 
-    it('makes constructed names visible only after the closing brace', () => {
+    it('makes constructed names visible from the defining statement', () => {
         const source = [
             'foreach i in a b {',
             "    local `i'_x = 1",
@@ -62,15 +92,42 @@ describe('Loop macro expansion (integration)', () => {
         const { symbols } = analyze(source);
         const ax = symbols.localMacros.get('a_x');
         expect(ax).toBeDefined();
-        // closing brace is line 2 (0-indexed); visible on line 3.
-        expect(ax!.definition_line).toBe(3);
+        expect(ax!.definition_line).toBe(1);
     });
 
-    it('still warns for an in-body reference to a sibling constructed name', () => {
+    it('allows a later same-body reference to a constructed name', () => {
         const source = [
             'foreach i in a b {',
             "    local `i'_x = 1",
             "    display `a_x'",
+            '}',
+        ].join('\n');
+        expect(undefined_macros(source)).not.toContain('a_x');
+    });
+
+    it('allows the nested macro-reference shape from the same loop body', async () => {
+        const source = [
+            'foreach my_x in a b {',
+            "    local `my_x'_exists 1",
+            "    display ``my_x'_exists'",
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('a_exists')).toBe(true);
+        expect(symbols.localMacros.has('b_exists')).toBe(true);
+        const codes = diagnostic_codes(source);
+        expect(codes).not.toContain(StataDiagnosticCode.UNDEFINED_MACRO);
+        expect(codes).not.toContain(StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL);
+        const provider_codes = await provider_diagnostic_codes(source);
+        expect(provider_codes).not.toContain(StataDiagnosticCode.UNDEFINED_MACRO);
+        expect(provider_codes).not.toContain(StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL);
+    });
+
+    it('still warns for a reference before the constructed definition statement', () => {
+        const source = [
+            'foreach i in a b {',
+            "    display `a_x'",
+            "    local `i'_x = 1",
             '}',
         ].join('\n');
         expect(undefined_macros(source)).toContain('a_x');

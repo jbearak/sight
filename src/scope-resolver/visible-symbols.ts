@@ -33,9 +33,8 @@ type AnySymbol =
  * in the half-open window `(after_line, up_to_line]`. The window models "was
  * this name redefined strictly after the forward call ran, and at-or-before the
  * cursor we're resolving?" Primary lines come from the symbol's effective
- * definition line (after-brace for loop-expanded macros, otherwise the
- * location line); additional lines come from `additional_definitions` (macros
- * only).
+ * definition line when present, otherwise the location line; additional lines
+ * come from `additional_definitions` (macros only).
  */
 function has_definition_in_window(
     symbol: AnySymbol,

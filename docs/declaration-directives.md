@@ -103,3 +103,8 @@ my_utility arg1 arg2
 - When symbols are defined by external Stata commands or plugins
 - When symbols are conditionally defined in ways the LSP cannot analyze
 - When working with dynamically generated code
+
+You usually do not need a declaration for macro names constructed in a
+`foreach` or `forvalues` loop when the iterator values are statically known.
+Sight expands those names and treats each concrete macro as defined from the
+loop-body `local` or `global` statement that creates it.

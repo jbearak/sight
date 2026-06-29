@@ -201,9 +201,9 @@ export class SemanticAnalyzer {
     private workspace_symbols?: SymbolTable;
     private tokens?: Token[];
     private current_diagnostics: SemanticDiagnostic[] = [];
-    // Active loop iterator frames (innermost last). Source of both cartesian
-    // bindings and the after-the-brace visibility line for loop-expanded macros.
-    private loop_frames: Array<BindingFrame & { endLine: number }> = [];
+    // Active loop iterator frames (innermost last). Source of cartesian
+    // bindings for loop-expanded macro names.
+    private loop_frames: BindingFrame[] = [];
 
     /**
      * Analyze an AST and build symbol tables.
@@ -2319,7 +2319,6 @@ export class SemanticAnalyzer {
             this.loop_frames.push({
                 var: node.loopVar!,
                 values: value_set.values,
-                endLine: node.range.end.line,
             });
         }
 
@@ -2348,16 +2347,11 @@ export class SemanticAnalyzer {
                     this.loop_frames,
                     pre_loop_macros
                 );
-                // Visibility = after the OUTERMOST active loop's closing brace,
-                // so a constructed name is never treated as defined inside any
-                // enclosing loop body.
-                const visibility_line = this.outermost_active_end_line() + 1;
                 for (const my_macro of the_expanded) {
                     this.inject_expanded_macro(
                         my_macro,
                         symbols,
                         current_scope,
-                        visibility_line,
                         node_index
                     );
                 }
@@ -2369,44 +2363,32 @@ export class SemanticAnalyzer {
         }
     }
 
-    /** Maximum closing-brace line across all active loop frames. */
-    private outermost_active_end_line(): number {
-        let max_line = 0;
-        for (const my_frame of this.loop_frames) {
-            if (my_frame.endLine > max_line) {
-                max_line = my_frame.endLine;
-            }
-        }
-        return max_line;
-    }
-
     /**
-     * Inject a loop-expanded concrete macro into the symbol table. Visible only
-     * on/after `visibility_line` (via definition_line; definition_index left
-     * undefined so the line gate governs). Collisions append to
-     * additional_definitions, matching ordinary first-def-wins handling.
+     * Inject a loop-expanded concrete macro into the symbol table. The source
+     * range points at the defining body statement for navigation, and
+     * definition_line is that same statement line so later references in the
+     * loop body are in scope while earlier references still warn.
      */
     private inject_expanded_macro(
         macro: { name: string; scope: 'local' | 'global'; sourceRange: Range },
         symbols: SymbolTable,
         current_scope: ScopeInfo,
-        visibility_line: number,
         node_index: number
     ): void {
         const target = macro.scope === 'local'
             ? symbols.localMacros
             : symbols.globalMacros;
+        const definition_line = macro.sourceRange.start.line;
         const existing = target.get(macro.name);
         if (existing) {
-            // Collision (two loops, or a loop + a real definition): append rather
-            // than drop. Record the after-brace visibility line (not the in-loop
-            // source line) so execution-order consumers see when it is defined.
+            // Collision (two loops, or a loop + a real definition): append
+            // rather than drop, preserving redeclaration locations.
             if (!existing.additional_definitions) {
                 existing.additional_definitions = [];
             }
             existing.additional_definitions.push({
                 index: node_index,
-                line: visibility_line,
+                line: definition_line,
                 location: { uri: this.uri, range: macro.sourceRange },
             });
             return;
@@ -2417,7 +2399,7 @@ export class SemanticAnalyzer {
             location: { uri: this.uri, range: macro.sourceRange },
             sourceUri: this.uri,
             containingScope: current_scope.type,
-            definition_line: visibility_line,
+            definition_line,
         };
         target.set(macro.name, symbol);
         if (macro.scope === 'local') {

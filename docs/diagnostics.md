@@ -104,6 +104,9 @@ current scope. All four codes are gated by the `undefinedMacro` or
 A second class — *forward references* — also surfaces under
 `UNDEFINED_MACRO` when a macro is used earlier in the same file than its
 first definition (see [Forward references](#forward-references)).
+For statically expanded `foreach` / `forvalues` constructed macro names,
+the definition line is the `local` or `global` statement inside the loop
+body that creates the concrete name.
 
 Positional macro arguments (`` `0' ``, `` `1' ``, …) bypass position
 and scope checks: they are bound by the caller, not by lexical position.

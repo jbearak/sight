@@ -11,12 +11,16 @@
   `src/lexer/index.ts:405`); `MacroSymbol` needs a **`hasEquals` flag** because
   `process_macro_def` currently drops it, so `local n = 2+2` and `local n 2+2`
   both store `value:"2+2"`; cross-file execution-order filters must use an
-  **effective definition line**; nested-loop visibility uses the **outermost
-  active loop frame**; iterator bindings are a **save/restore stack** with
-  program-scope isolation and `try/finally`; duplicate concrete names **append to
-  `additional_definitions`** rather than being dropped; the static env supports a
-  **per-tuple overlay** for recursive folding; **quote-aware** list splitting and
-  an explicit static rule for `= "literal"`; deterministic cap behavior.
+  **effective definition line**; iterator bindings are a **save/restore stack**
+  with program-scope isolation and `try/finally`; duplicate concrete names
+  **append to `additional_definitions`** rather than being dropped; the static
+  env supports a **per-tuple overlay** for recursive folding; **quote-aware**
+  list splitting and an explicit static rule for `= "literal"`; deterministic
+  cap behavior.
+- **R4 (#259).** Changed the visibility contract: expanded concrete macros are
+  visible from their defining `local`/`global` statement line, not only after the
+  loop's closing brace. This matches code that defines a constructed macro and
+  references it later in the same loop body.
 
 ## Problem
 
@@ -38,7 +42,7 @@ foreach i in a b c {            // also: foreach i of local mylist; forvalues i 
     local prefix_`i'            // -> prefix_a, prefix_b, prefix_c
     local prefix_`i'_`suffix'   // -> prefix_a_foo, prefix_b_foo, prefix_c_foo
 }
-// after the closing brace, all of the above concrete names are DEFINED
+// from each defining statement onward, the concrete names are DEFINED
 display `a_suffix'              // no warning; autocompletes; F12 -> the body line
 ```
 
@@ -57,10 +61,9 @@ display `a_suffix'              // no warning; autocompletes; F12 -> the body li
 3. **Full symbols.** Inject concrete `MacroSymbol`s so completion,
    go-to-definition (jump to the body `local` statement), find-references, and
    hover all work.
-4. **Visibility.** Defined only on/after the line *after* the loop's closing
-   brace. References *inside* the loop body to sibling constructed names are
-   **not** suppressed (matches a single static pass; avoids modeling
-   per-iteration timing).
+4. **Visibility.** Defined on/after the source `local`/`global` statement that
+   created the concrete name. References earlier in the same loop body still
+   warn as forward references; references later in the same loop body do not.
 5. **Nested loops.** Cartesian product across all enclosing iterator value-sets.
 6. **Partial dynamic.** Expand the resolvable items; skip the dynamic ones.
 
@@ -222,10 +225,10 @@ limitations chosen to never introduce false suppression, not silent gaps.
 ### Analyzer integration (`src/analyzer/index.ts`)
 
 **Active loop-frame stack (R1).** Add a class field
-`private loop_frames: Array<{ var: string; values: string[]; endLine: number }>
-= []`, reset at the top of `analyze()`. This is both the iterator-binding source
-and the source of the visibility line. Shadowing is handled naturally because the
-expander reads the stack innermost-first; we never `delete` by name.
+`private loop_frames: Array<{ var: string; values: string[] }> = []`, reset at
+the top of `analyze()`. This is the iterator-binding source. Shadowing is
+handled naturally because the expander reads the stack innermost-first; we never
+`delete` by name.
 
 Rewrite `process_loop`:
 
@@ -235,27 +238,20 @@ const pre_env = build_static_value_env(symbols)         // before body: list ref
 const value_set = resolve_loop_value_set(node.type, node.loopSpec, pre_env)
 // existing loopVar registration stays (iterator visible inside body)
 const pushed = value_set.kind === 'static'
-if (pushed) this.loop_frames.push({ var: node.loopVar, values: value_set.values, endLine: node.range.end.line })
+if (pushed) this.loop_frames.push({ var: node.loopVar, values: value_set.values })
+const pre_loop_macros = pushed ? snapshot_macro_maps(symbols) : undefined
 try {
     this.build_symbols(node.body, symbols, current_scope, all_scopes) // nested process_loop sees the frame
-    if (pushed) {
-        // env rebuilt AFTER body so a slot like `suffix' can resolve to a
-        // macro defined earlier in this body; per-tuple overlay added inside expand.
-        const expanded = expand_loop_body(node, this.tokens ?? [], this.loop_frames, symbols, this.uri)
-        const visibility_line = this.outermost_active_end_line() + 1   // R1: outermost frame, not this one
-        for (const m of expanded) this.inject_expanded_macro(m, symbols, current_scope, visibility_line)
+    if (pushed && pre_loop_macros) {
+        // names resolve against a pre-loop macro snapshot plus the per-tuple
+        // iterator overlay added inside expand.
+        const expanded = expand_loop_body(node, this.tokens ?? [], this.loop_frames, pre_loop_macros)
+        for (const m of expanded) this.inject_expanded_macro(m, symbols, current_scope)
     }
 } finally {
     if (pushed) this.loop_frames.pop()                  // try/finally: never leak across analyses (R1)
 }
 ```
-
-- `outermost_active_end_line()` returns the **maximum `endLine` across all active
-  `loop_frames`** (R1). For a single loop this is the loop's own `}` line; for
-  nested loops it is the outermost loop's `}`, so a constructed name is never
-  treated as defined *inside* any enclosing loop body — honoring requirement 4
-  conservatively (the safe direction: at worst a few legitimate post-inner-loop
-  references in the outer body keep today's behavior; we never falsely suppress).
 
 - **Program-scope isolation (R1).** `process_program` (`:693`) must save the
   current `loop_frames`, set it to `[]` for the program body, and restore it after
@@ -264,10 +260,9 @@ try {
 
 - `inject_expanded_macro` builds `MacroSymbol { name, scope,
   location:{uri,range:m.sourceRange}, sourceUri:uri, containingScope:
-  current_scope.type, definition_line: visibility_line, definition_index:
-  undefined }` and registers it via the **existing `add_or_append_definition`
-  helper** (`:656`): first occurrence becomes the primary; later collisions
-  (two loops, or a loop name colliding with a real `local`) append to
+  current_scope.type, definition_line: m.sourceRange.start.line,
+  definition_index: undefined }`. First occurrence becomes the primary; later
+  collisions (two loops, or a loop name colliding with a real `local`) append to
   `additional_definitions` (R1 — preserves hover/references/redefinition data
   instead of silently dropping). First-def-wins primary behavior is retained.
 
@@ -280,25 +275,18 @@ computed against `location.range.start.line` today:
 `scope-resolver/index.ts:2405` (`filter_by_call_site`) and
 `forward-scope-resolver/index.ts:~905` (effective-end-state walk). This is
 **monotonic and safe**: for every existing symbol `definition_line` equals (or is
-absent and falls back to) `location.range.start.line`, so behavior is unchanged;
-only our injected symbols (whose `location` is the in-loop body line but whose
-`definition_line` is after the brace) are corrected, so an inherited constructed
-**global** is not treated as visible cross-file until after the loop.
+absent and falls back to) `location.range.start.line`, so behavior is unchanged.
+It also keeps call-site filtering correct for any analyzer-created symbol whose
+diagnostic visibility line differs from its navigation location.
 
 ### Full-symbol behavior — scope and what is/ isn't "free" (R1)
 
-Diagnostics get exact after-brace visibility via `is_macro_defined`'s
-`definition_line` gate (verified through both the AST and token reference passes;
-the index gate no-ops when `definition_index` is `undefined`). Completion,
-go-to-definition, and hover read the symbol maps directly and **do not** filter
-current-file locals by `definition_line` — but this is the **pre-existing
-behavior for every local** (a `local x` on line 50 is already offered/navigable
-from line 10). Our injected symbols therefore behave **identically to ordinary
-locals** for those features; we are not introducing an inconsistency, and we
-deliberately do **not** change same-file completion/goto/hover visibility (that
-would be a broad behavior change beyond this feature). The only execution-order
-filtering we touch is the cross-file path above, where correctness genuinely
-matters for globals.
+Diagnostics get statement-line visibility via `is_macro_defined`'s
+`definition_line` gate (verified through both the AST and token reference
+passes; the index gate no-ops when `definition_index` is `undefined`).
+Completion, go-to-definition, and hover keep their existing symbol-map behavior:
+go-to-definition points at the body statement, and current-file local
+completion is filtered by the same effective line used for diagnostics.
 
 ## Caps (perf / safety)
 
@@ -372,11 +360,12 @@ matters for globals.
 - **Integration** (`tests/integration/loop-macro-expansion.test.ts`): full
   lex→parse→analyze. Assert each of the four body examples + `of local` +
   `forvalues` + nested cartesian produce the expected names in
-  `symbols.localMacros` with `definition_line == brace+1`; post-loop references
-  emit no `UNDEFINED_MACRO`; in-body sibling references still warn (req 4);
-  dynamic `of local` (unknown macro) injects nothing; completion at a post-loop
-  position lists the names; go-to-definition for an expanded name points at the
-  body statement.
+  `symbols.localMacros` with `definition_line` equal to the defining statement
+  line; references later in the same loop body and post-loop references emit no
+  `UNDEFINED_MACRO`/`OUT_OF_SCOPE_SYMBOL`; references before the defining
+  statement still warn; dynamic `of local` (unknown macro) injects nothing;
+  completion at an in-scope position lists the names; go-to-definition for an
+  expanded name points at the body statement.
 - `bun run test` (typecheck + tests, the CI gate) and `bun run lint` (manual,
   not in CI) before PR.
 
@@ -401,9 +390,9 @@ matters for globals.
 7. **Collisions** — append to `additional_definitions` (existing
    `add_or_append_definition`) rather than dropping. **Resolved.**
 
-Additional blockers from R1 folded into the design above: token **range-adjacency**
-name extraction (lexer skips whitespace in `cr` mode); **outermost-active-frame**
-nested visibility; **program-scope** binding isolation.
+Additional blockers from R1 folded into the design above: token
+**range-adjacency** name extraction (lexer skips whitespace in `cr` mode);
+**program-scope** binding isolation.
 
 ### Adversarial review resolutions (R2 — second Codex pass on the diff)
 
@@ -426,10 +415,11 @@ nested visibility; **program-scope** binding isolation.
   commands (`quietly: local …`). `++`/`--` increments are not treated as
   definitions.
 
-Required integration coverage (R1): pre-loop reference (still undefined),
-in-(defining-)loop reference (still warns), post-loop reference (defined),
-nested-loop cartesian, cross-file call-site for a constructed **global**, and
-name **collision** (two loops / loop + real `local`).
+Required integration coverage: reference before the constructed definition
+(still undefined), reference later in the same loop body (defined), post-loop
+reference (defined), nested-loop cartesian, cross-file call-site for a
+constructed **global**, and name **collision** (two loops / loop + real
+`local`).
 
 ### Adversarial review resolutions (R3 — third Codex pass on the diff)
 

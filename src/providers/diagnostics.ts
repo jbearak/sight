@@ -901,10 +901,9 @@ export class DiagnosticsProvider {
             if (symbol_uri !== current_document_uri) {
                 return null;
             }
-            // Use the effective definition line: a loop-expanded macro's location
-            // is its in-loop statement but it is only defined after the loop's
-            // closing brace (definition_line). For ordinary macros the two are
-            // equal, so this is a no-op.
+            // Use definition_line when present. Some analyzer-created symbols
+            // are anchored at a source location for navigation but carry a
+            // separate execution-order line for diagnostics.
             const definition_line = symbol.definition_line
                 ?? symbol.location?.range?.start?.line;
             return typeof definition_line === 'number' ? definition_line : null;

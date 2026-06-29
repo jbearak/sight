@@ -983,9 +983,9 @@ export class ForwardScopeResolver {
                 // (location.range.start) so the sort key is internally
                 // consistent — analyzer emits definition_line equal to
                 // location.range.start.line for primary definitions.
-                // Effective line so loop-expanded locals order by when they
-                // actually become defined (after the brace), not their in-loop
-                // definition location. Equal to location line for normal locals.
+                // Effective line so analyzer-created symbols order by their
+                // execution line when it differs from their navigation
+                // location. Equal to location line for normal locals.
                 const primary_line = effective_definition_line(my_symbol);
                 const primary_char = my_symbol.location.range.start.character;
                 the_events.push({
