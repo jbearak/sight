@@ -30,6 +30,9 @@ Options:
 - `--color auto|always|never`: colorize text output.
 - `--no-color`: alias for `--color never`.
 
+Text output prints diagnostic rule IDs in lowercase bracketed form, such as
+`[undefined_macro]`. JSON and SARIF keep the canonical uppercase codes.
+
 Exit codes:
 
 - `0`: no diagnostic exceeded `--max-severity`.

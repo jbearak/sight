@@ -28,6 +28,10 @@ async function run_capture(argv: string[], cwd: string) {
     return { code, stdout: stdout.join(''), stderr: stderr.join('') };
 }
 
+function text_code(code: StataDiagnosticCode): string {
+    return code.toLowerCase();
+}
+
 describe('sight check — cap-truncation surfacing (#209)', () => {
     it('does not fail the check on a backward depth-cap hit, and surfaces it', async () => {
         const root = temp_dir();
@@ -62,7 +66,7 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
             expect(result.code).toBe(EXIT_OK);
             // It must still be surfaced, tagged with the truncation code.
             expect(result.stdout).toContain(
-                `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`
+                `[${text_code(StataDiagnosticCode.CROSS_FILE_TRUNCATED)}]`
             );
             // A dedicated summary line explains the truncation is a depth-cap
             // hit, distinct from undefined-symbol errors.
@@ -94,7 +98,7 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
                 ['--workspace', root, 'main.do', '--no-color'], root);
 
             expect(result.stdout).toContain(
-                `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`);
+                `[${text_code(StataDiagnosticCode.CROSS_FILE_TRUNCATED)}]`);
             // Reported at main.do line 4 (the do "a.do" call site), not line 1.
             expect(result.stdout).toMatch(
                 /main\.do:4:\d+ \w+: .*Maximum forward resolution depth/);
@@ -127,7 +131,7 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
             expect(result.stdout).not.toContain(
                 'Maximum forward resolution depth');
             expect(result.stdout).not.toContain(
-                `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`);
+                `[${text_code(StataDiagnosticCode.CROSS_FILE_TRUNCATED)}]`);
         } finally {
             fs.rmSync(root, { recursive: true, force: true });
         }
@@ -157,7 +161,7 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
             expect(result.stdout).not.toContain(
                 'Maximum backward directive depth');
             expect(result.stdout).not.toContain(
-                `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`);
+                `[${text_code(StataDiagnosticCode.CROSS_FILE_TRUNCATED)}]`);
         } finally {
             fs.rmSync(root, { recursive: true, force: true });
         }
@@ -193,7 +197,7 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
             expect(result.code).toBe(EXIT_OK);
             expect(result.stdout).toContain('Maximum combined resolution depth');
             expect(result.stdout).toContain(
-                `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`);
+                `[${text_code(StataDiagnosticCode.CROSS_FILE_TRUNCATED)}]`);
         } finally {
             fs.rmSync(root, { recursive: true, force: true });
         }
@@ -212,7 +216,7 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
             expect(result.stdout).not.toContain(
                 'Maximum combined resolution depth');
             expect(result.stdout).not.toContain(
-                `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`);
+                `[${text_code(StataDiagnosticCode.CROSS_FILE_TRUNCATED)}]`);
         } finally {
             fs.rmSync(root, { recursive: true, force: true });
         }
@@ -236,7 +240,7 @@ describe('sight check — cap-truncation surfacing (#209)', () => {
                 ['--workspace', root, 'main.do', '--no-color'], root);
 
             const occurrences = result.stdout.split(
-                `[${StataDiagnosticCode.CROSS_FILE_TRUNCATED}]`).length - 1;
+                `[${text_code(StataDiagnosticCode.CROSS_FILE_TRUNCATED)}]`).length - 1;
             expect(occurrences).toBe(1);
             expect(result.stdout).toContain('1 cross-file traversal truncation');
             expect(result.stdout).not.toContain(

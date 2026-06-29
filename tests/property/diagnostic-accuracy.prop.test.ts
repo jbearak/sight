@@ -8,7 +8,12 @@
 import { describe, it, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
-import { StataLSPConfig } from '../../src/types';
+import {
+  ContextErrorCode,
+  LexerErrorCode,
+  ParseErrorCode,
+  StataLSPConfig,
+} from '../../src/types';
 import {
   arbitrary_stata_document,
   arbitrary_malformed_document,
@@ -18,6 +23,16 @@ import {
   create_document_state,
   parse_and_analyze,
 } from './helpers/document-utils';
+
+const STRUCTURAL_SYNTAX_CODES = new Set<unknown>([
+  LexerErrorCode.UNBALANCED_QUOTES,
+  LexerErrorCode.UNBALANCED_BLOCK_COMMENT,
+  LexerErrorCode.UNTERMINATED_STATEMENT,
+  ...Object.values(ParseErrorCode),
+  ...Object.values(ContextErrorCode),
+]);
+
+const PARSER_ERROR_CODES = new Set<unknown>(Object.values(ParseErrorCode));
 
 describe('Diagnostic Accuracy Property Tests', () => {
   let my_diagnostics_provider: DiagnosticsProvider;
@@ -126,18 +141,7 @@ describe('Diagnostic Accuracy Property Tests', () => {
 
         // Filter for syntax errors (not style warnings)
         const my_syntax_errors = my_diagnostics.filter((my_diag) => {
-          // Syntax errors have codes in specific ranges
-          if (typeof my_diag.code === 'number') {
-            // Lexer errors: 1001-1004
-            // Parser errors: 3000-3009
-            // Context errors: 4001-4006
-            return (
-              (my_diag.code >= 1001 && my_diag.code <= 1004) ||
-              (my_diag.code >= 3000 && my_diag.code <= 3009) ||
-              (my_diag.code >= 4001 && my_diag.code <= 4006)
-            );
-          }
-          return false;
+          return STRUCTURAL_SYNTAX_CODES.has(my_diag.code);
         });
 
         // Valid documents should have no syntax errors
@@ -171,10 +175,7 @@ describe('Diagnostic Accuracy Property Tests', () => {
 
           // Should have at least one error
           const my_broken_errors = my_broken_diagnostics.filter(
-            (my_diag) =>
-              typeof my_diag.code === 'number' &&
-              my_diag.code >= 3000 &&
-              my_diag.code <= 3009
+            (my_diag) => PARSER_ERROR_CODES.has(my_diag.code)
           );
 
           if (my_broken_errors.length === 0) {
@@ -193,10 +194,7 @@ describe('Diagnostic Accuracy Property Tests', () => {
 
           // Should have no errors after fix
           const my_fixed_errors = my_fixed_diagnostics.filter(
-            (my_diag) =>
-              typeof my_diag.code === 'number' &&
-              my_diag.code >= 3000 &&
-              my_diag.code <= 3009
+            (my_diag) => PARSER_ERROR_CODES.has(my_diag.code)
           );
 
           return my_fixed_errors.length === 0;
@@ -228,9 +226,9 @@ describe('Diagnostic Accuracy Property Tests', () => {
             return true; // Skip if no diagnostics
           }
 
-          // At least one should be a quote error (code 1001)
+          // At least one should be a quote error.
           const my_quote_errors = my_diagnostics.filter(
-            (my_diag) => my_diag.code === 1001
+            (my_diag) => my_diag.code === LexerErrorCode.UNBALANCED_QUOTES
           );
 
           return my_quote_errors.length > 0;
@@ -262,12 +260,9 @@ describe('Diagnostic Accuracy Property Tests', () => {
             return true; // Skip if no diagnostics
           }
 
-          // At least one should be a parser error (code 3000-3009)
+          // At least one should be a parser error.
           const my_block_errors = my_diagnostics.filter(
-            (my_diag) =>
-              typeof my_diag.code === 'number' &&
-              my_diag.code >= 3000 &&
-              my_diag.code <= 3009
+            (my_diag) => PARSER_ERROR_CODES.has(my_diag.code)
           );
 
           return my_block_errors.length > 0;
@@ -299,12 +294,9 @@ describe('Diagnostic Accuracy Property Tests', () => {
             return true; // Skip if no diagnostics
           }
 
-          // At least one should be a parser error (code 3000-3009)
+          // At least one should be a parser error.
           const my_program_errors = my_diagnostics.filter(
-            (my_diag) =>
-              typeof my_diag.code === 'number' &&
-              my_diag.code >= 3000 &&
-              my_diag.code <= 3009
+            (my_diag) => PARSER_ERROR_CODES.has(my_diag.code)
           );
 
           return my_program_errors.length > 0;
@@ -336,12 +328,9 @@ describe('Diagnostic Accuracy Property Tests', () => {
             return true; // Skip if no diagnostics
           }
 
-          // At least one should be a parser error (code 3000-3009)
+          // At least one should be a parser error.
           const my_brace_errors = my_diagnostics.filter(
-            (my_diag) =>
-              typeof my_diag.code === 'number' &&
-              my_diag.code >= 3000 &&
-              my_diag.code <= 3009
+            (my_diag) => PARSER_ERROR_CODES.has(my_diag.code)
           );
 
           return my_brace_errors.length > 0;
@@ -373,12 +362,9 @@ describe('Diagnostic Accuracy Property Tests', () => {
             return true; // Skip if no diagnostics
           }
 
-          // At least one should be a parser error (code 3000-3009)
+          // At least one should be a parser error.
           const my_brace_errors = my_diagnostics.filter(
-            (my_diag) =>
-              typeof my_diag.code === 'number' &&
-              my_diag.code >= 3000 &&
-              my_diag.code <= 3009
+            (my_diag) => PARSER_ERROR_CODES.has(my_diag.code)
           );
 
           return my_brace_errors.length > 0;

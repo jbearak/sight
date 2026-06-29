@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { run_check_with_cwd } from '../../src/cli/check';
+import { StataDiagnosticCode } from '../../src/types';
 
 function temp_dir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'sight-check-output-'));
@@ -39,6 +40,11 @@ describe('sight check machine output', () => {
 
         expect(parsed.version).toBe('2.1.0');
         expect(parsed.runs[0].tool.driver.name).toBe('sight');
-        expect(parsed.runs[0].results[0].ruleId).toMatch(/^SIGHT/);
+        expect(parsed.runs[0].results[0].ruleId).toBe(
+            StataDiagnosticCode.UNDEFINED_MACRO
+        );
+        expect(parsed.runs[0].tool.driver.rules[0].helpUri).toContain(
+            '#undefined-macro'
+        );
     });
 });

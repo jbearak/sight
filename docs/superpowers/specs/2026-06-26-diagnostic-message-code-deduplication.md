@@ -14,7 +14,7 @@ code. Several analyzer messages restate their stable rule id in prose:
 - `Undefined global macro: $x` with code `UNDEFINED_MACRO`
 - `Potentially undefined variable: x` with code `UNDEFINED_VARIABLE`
 
-In text output these read as `Undefined local macro: \`x' [UNDEFINED_MACRO]` —
+In text output these read as `Undefined local macro: \`x' [undefined_macro]` —
 the words "Undefined ... macro" duplicate the code, which is the suppression
 handle. The human message should add context (what is not defined) and let the
 code carry the rule classification.
@@ -198,9 +198,9 @@ export function format_undefined_variable_message(name: string): string {
 ```
 
 Resulting text output:
-- `` `x' is not defined [UNDEFINED_MACRO] `` (local)
-- `$x is not defined [UNDEFINED_MACRO]` (global)
-- `x may not be defined [UNDEFINED_VARIABLE]`
+- `` `x' is not defined [undefined_macro] `` (local)
+- `$x is not defined [undefined_macro]` (global)
+- `x may not be defined [undefined_variable]`
 
 Wording rationale:
 - Macros: the sigil (`` `x' `` for local, `$x` for global) already conveys both

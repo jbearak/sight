@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
+import { DiagnosticSeverity } from 'vscode-languageserver';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { StataLexer } from '../../src/lexer';
@@ -313,6 +314,35 @@ end
             );
 
             expect(the_end_errors.length).toBe(0);
+        });
+
+        it('should publish a multi-line block-comment-in-star-comment warning', async () => {
+            // Regression guard for the numeric→symbolic diagnostic-code
+            // migration. The old extract_lexer_errors range check
+            // (1001-1004) silently dropped BLOCK_COMMENT_IN_STAR_COMMENT
+            // (1005); the new Set over the full LexerErrorCode enum admits it,
+            // matching convert_lexer_error's explicit Warning handling, the
+            // fallback publish path, and docs/diagnostics.md.
+            const my_content =
+                '* star comment /* opens block\nstill comment */ end\ngen x = 1\n';
+            const my_document_uri = 'file:///test_block_comment.do';
+            await document_store.open(my_document_uri, my_content, 1);
+            const my_document = document_store.get(my_document_uri)!;
+
+            const the_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                DEFAULT_CONFIG
+            );
+
+            const the_block_comment_diag = the_diagnostics.find(
+                (my_diag) =>
+                    my_diag.code ===
+                    StataDiagnosticCode.BLOCK_COMMENT_IN_STAR_COMMENT
+            );
+            expect(the_block_comment_diag).toBeDefined();
+            expect(the_block_comment_diag?.severity).toBe(
+                DiagnosticSeverity.Warning
+            );
         });
 
         it('should handle frame name { } without false positives', async () => {

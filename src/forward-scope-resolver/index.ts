@@ -505,6 +505,7 @@ export class ForwardScopeResolver {
                     // Structural kind for routing; substring fallback in
                     // the converter is preserved for backward compat.
                     kind: 'missing_file',
+                    code: StataDiagnosticCode.CROSS_FILE_MISSING_FILE,
                     source: {
                         source_file: my_source_filename,
                         source_line: my_call.call_site_line,
@@ -597,6 +598,8 @@ export class ForwardScopeResolver {
                     message: `${source_prefix}Cannot read file: ${my_call.raw_path}${error_suffix}`,
                     range: my_call.range,
                     severity: 'warning',
+                    kind: 'missing_file',
+                    code: StataDiagnosticCode.CROSS_FILE_MISSING_FILE,
                     source: {
                         source_file: source_filename,
                         source_line: my_call.call_site_line,

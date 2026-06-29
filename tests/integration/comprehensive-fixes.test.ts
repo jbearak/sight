@@ -119,7 +119,7 @@ gen new_var = undefined_var`;
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO ||
                      d.code === StataDiagnosticCode.UNDEFINED_VARIABLE ||
                      d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL ||
-                     d.code === StataDiagnosticCode.MISSING_FILE
+                     d.code === StataDiagnosticCode.CROSS_FILE_MISSING_FILE
             );
             
             expect(cross_file_diags).toHaveLength(0);
@@ -153,7 +153,7 @@ local result \`undefined_macro'`;
             
             // Should have undefined symbol diagnostic but not missing file
             const undefined_diags = diagnostics.filter(d => d.code === StataDiagnosticCode.UNDEFINED_MACRO);
-            const missing_file_diags = diagnostics.filter(d => d.code === StataDiagnosticCode.MISSING_FILE);
+            const missing_file_diags = diagnostics.filter(d => d.code === StataDiagnosticCode.CROSS_FILE_MISSING_FILE);
             
             expect(undefined_diags.length).toBeGreaterThan(0);
             expect(missing_file_diags).toHaveLength(0);

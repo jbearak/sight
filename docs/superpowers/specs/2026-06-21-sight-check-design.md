@@ -255,7 +255,7 @@ finding. The message should include the byte offset where decoding failed.
 Text output should be concise and grep-friendly:
 
 ```text
-analysis/main.do:12:8 warning: Undefined macro: project_root [2001]
+analysis/main.do:12:8 warning: Undefined macro: project_root [undefined_macro]
 ```
 
 Rules:
@@ -287,7 +287,7 @@ JSON output should be an array:
         "end": { "line": 11, "character": 19 }
       },
       "severity": 2,
-      "code": 2001,
+      "code": "UNDEFINED_MACRO",
       "source": "sight",
       "message": "Undefined macro: project_root"
     }
@@ -295,11 +295,10 @@ JSON output should be an array:
 ]
 ```
 
-SARIF output should emit SARIF 2.1.0 with diagnostic codes as rule IDs. A
-pragmatic v1 mapping is enough: `error` and `warning` map directly; information
-and hint map to SARIF `note`. Rule IDs must be strings, using `SIGHT<code>` for
-numeric diagnostic codes. Include `tool.driver.name = "sight"` and the package
-version in `tool.driver.version`.
+SARIF output should emit SARIF 2.1.0 with symbolic diagnostic codes as stable
+rule IDs. A pragmatic v1 mapping is enough: `error` and `warning` map directly;
+information and hint map to SARIF `note`. Include `tool.driver.name = "sight"`
+and the package version in `tool.driver.version`.
 
 Color applies only to text output. `--color auto` should respect terminal TTY
 status plus `NO_COLOR` and `FORCE_COLOR`. `--no-color` is an alias for

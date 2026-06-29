@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { DiagnosticSeverity } from 'vscode-languageserver';
+import { StataDiagnosticCode } from '../../../src/types';
 import {
     ColorChoice,
     EXIT_CHECK_FAILED,
@@ -136,11 +137,23 @@ describe('cli shared renderers', () => {
     const records = [
         {
             relative_path: 'b.do',
-            diagnostic: diag(DiagnosticSeverity.Warning, 2, 4, 'B warning', 2001),
+            diagnostic: diag(
+                DiagnosticSeverity.Warning,
+                2,
+                4,
+                'B warning',
+                StataDiagnosticCode.UNDEFINED_MACRO
+            ),
         },
         {
             relative_path: 'a.do',
-            diagnostic: diag(DiagnosticSeverity.Error, 0, 1, 'A error', 3000),
+            diagnostic: diag(
+                DiagnosticSeverity.Error,
+                0,
+                1,
+                'A error',
+                StataDiagnosticCode.SYNTAX_ERROR
+            ),
         },
     ];
 
@@ -154,8 +167,8 @@ describe('cli shared renderers', () => {
 
     it('renders text with one-based coordinates and summary', () => {
         const text = render_text(records, { quiet: false, use_color: false });
-        expect(text).toContain('a.do:1:2 error: A error [3000]');
-        expect(text).toContain('b.do:3:5 warning: B warning [2001]');
+        expect(text).toContain('a.do:1:2 error: A error [syntax_error]');
+        expect(text).toContain('b.do:3:5 warning: B warning [undefined_macro]');
         expect(text).toContain('2 issues (1 errors, 1 warnings, 0 infos, 0 hints, 0 notes)');
     });
 
@@ -171,6 +184,9 @@ describe('cli shared renderers', () => {
         expect(parsed.version).toBe('2.1.0');
         expect(parsed.runs[0].tool.driver.name).toBe('sight');
         expect(parsed.runs[0].tool.driver.version).toBe('0.7.2');
-        expect(parsed.runs[0].results[0].ruleId).toBe('SIGHT3000');
+        expect(parsed.runs[0].results[0].ruleId).toBe('SYNTAX_ERROR');
+        expect(parsed.runs[0].tool.driver.rules[0].helpUri).toContain(
+            '#syntax-error'
+        );
     });
 });

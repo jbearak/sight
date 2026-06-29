@@ -467,7 +467,7 @@ exactly once regardless of how many consumers touch the path.
 `sight check` already shares the diagnostics phase with the LSP (scope-resolver
 → forward-scope-resolver → diagnostics provider). No new wiring beyond the
 diagnostic flowing through. The `[code]` suffix in text output
-(`src/cli/shared.ts`) shows `[PATH_CASE_MISMATCH]` (or its code), consistent
+(`src/cli/shared.ts`) shows `[path_case_mismatch]` (or its code), consistent
 with other diagnostics. `--max-severity` gating is automatic.
 
 ## Edge cases / invariants

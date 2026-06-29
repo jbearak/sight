@@ -7,8 +7,10 @@ documents the configuration keys that control severity.
 
 Diagnostics are deferred until the workspace scan completes, so
 cross-file warnings reflect the full project rather than just the open
-buffer. Each diagnostic carries a numeric `code` (the values in the
-tables below) and `source: "sight"`.
+buffer. Each diagnostic carries a symbolic `code` (the rule IDs below)
+and `source: "sight"`. LSP diagnostics, JSON, and SARIF use the
+canonical uppercase rule IDs. `sight check` text output lowercases the
+same rule IDs in its bracketed suffixes, for example `[undefined_macro]`.
 
 ## Quick reference
 
@@ -39,13 +41,13 @@ tables below) and `source: "sight"`.
 Reported by the lexer. Most are hard errors; `CONTINUATION_NO_SPACE` is
 gated by the `styleWarnings` severity.
 
-| Code | Name | Default | Trigger |
-|---|---|---|---|
-| 1001 | `UNBALANCED_QUOTES` | error | A string literal is opened but never closed on the same statement. |
-| 1002 | `UNBALANCED_BLOCK_COMMENT` | error | `/*` is not matched by `*/`. |
-| 1003 | `UNTERMINATED_STATEMENT` | error | A statement runs off the end of the file in `#delimit ;` mode without a terminating `;`. |
-| 1004 | `CONTINUATION_NO_SPACE` | hint (`styleWarnings`) | `///` continuation marker not preceded by whitespace (`foo///` instead of `foo ///`). |
-| 1005 | `BLOCK_COMMENT_IN_STAR_COMMENT` | warning | A `/* … */` block appears inside a `*` line comment, which Stata parses unexpectedly. |
+| Rule ID | Default | Trigger |
+|---|---|---|
+| <a id="unbalanced-quotes"></a>`UNBALANCED_QUOTES` | error | A string literal is opened but never closed on the same statement. |
+| <a id="unbalanced-block-comment"></a>`UNBALANCED_BLOCK_COMMENT` | error | `/*` is not matched by `*/`. |
+| <a id="unterminated-statement"></a>`UNTERMINATED_STATEMENT` | error | A statement runs off the end of the file in `#delimit ;` mode without a terminating `;`. |
+| <a id="continuation-no-space"></a>`CONTINUATION_NO_SPACE` | hint (`styleWarnings`) | `///` continuation marker not preceded by whitespace (`foo///` instead of `foo ///`). |
+| <a id="block-comment-in-star-comment"></a>`BLOCK_COMMENT_IN_STAR_COMMENT` | warning | A `/* ... */` block appears inside a `*` line comment, which Stata parses unexpectedly. |
 
 ## Parse and structural errors
 
@@ -53,23 +55,37 @@ Reported by the parser and context tracker. Severity is fixed (no
 configuration key); two entries are warnings rather than errors because
 Stata still runs the code.
 
-| Code | Name | Default | Trigger |
-|---|---|---|---|
-| 3000 | `SYNTAX_ERROR` | error | Generic parser failure not covered by a more specific code. |
-| 3001 | `BRACE_ELSE_SAME_LINE` | error | `} else {` style — Stata requires the closing brace and `else` on separate lines. |
-| 3002 | `BRACE_NOT_ALONE` | error | A closing `}` shares a line with other code. |
-| 3003 | `MISSING_PROGRAM_END` | error | A `program` / `mata` / `python` block is not closed by `end`. |
-| 3004 | `OPEN_BRACE_ALONE` | error | An opening `{` appears alone on a line where Stata expects it on the control statement. |
-| 3005 | `UNCLOSED_BLOCK` | error | An `if` / `foreach` / `forvalues` / `while` / frame / mata / python block is not closed. |
-| 3006 | `CODE_AFTER_OPEN_BRACE` | warning | Tokens follow `{` on the same line as the opening brace. Stata runs the block but ignores trailing code on that line. |
-| 3008 | `FORVALUES_SYNTAX` | error | Malformed `forvalues` range (e.g., missing `=` or bad `to`/`/` separators). |
-| 3009 | `REDUNDANT_MACRO_SUFFIX` | warning | A macro reference includes redundant trailing characters that Stata ignores. |
-| 3010 | `INVALID_MACRO_CHAR` | error | A macro name contains a character Stata does not allow in identifiers. (Analyzer-emitted; shares numeric code 3010 with the parser-emitted `MISSING_EXPRESSION_AFTER_EQUALS` below.) |
-| 3010 | `MISSING_EXPRESSION_AFTER_EQUALS` | error | An `=` is followed by no expression — e.g., `gen x =`, an empty `if` / `while` condition, or an empty qualifier. |
-| 3011 | `UNBALANCED_PARENTHESES` | error | Mismatched `(` / `)` in an expression, `if` / `while` condition, or `by` / `bysort` qualifier. |
-| 3012 | `ORPHAN_CLOSE_BRACE` | error | A `}` appears with no matching opening block. |
-| 3013 | `STRAY_TOKEN_IN_CONDITION` | error | Unexpected token inside an `if` / `while` / qualifier condition. |
-| 3014 | `SPLIT_LITERAL_IN_CONDITION` | error | A string or compound literal is split across the condition boundary, leaving an unterminated literal in an `if` / `while` condition. |
+| Rule ID | Default | Trigger |
+|---|---|---|
+| <a id="syntax-error"></a>`SYNTAX_ERROR` | error | Generic parser failure not covered by a more specific rule. |
+| <a id="brace-else-same-line"></a>`BRACE_ELSE_SAME_LINE` | error | `} else {` style: Stata requires the closing brace and `else` on separate lines. |
+| <a id="brace-not-alone"></a>`BRACE_NOT_ALONE` | error | A closing `}` shares a line with other code. |
+| <a id="missing-program-end"></a>`MISSING_PROGRAM_END` | error | A `program` / `mata` / `python` block is not closed by `end`. |
+| <a id="open-brace-alone"></a>`OPEN_BRACE_ALONE` | error | An opening `{` appears alone on a line where Stata expects it on the control statement. |
+| <a id="unclosed-block"></a>`UNCLOSED_BLOCK` | error | An `if` / `foreach` / `forvalues` / `while` / frame / mata / python block is not closed. |
+| <a id="code-after-open-brace"></a>`CODE_AFTER_OPEN_BRACE` | warning | Tokens follow `{` on the same line as the opening brace. Stata runs the block but ignores trailing code on that line. |
+| <a id="forvalues-syntax"></a>`FORVALUES_SYNTAX` | error | Malformed `forvalues` range (e.g., missing `=` or bad `to`/`/` separators). |
+| <a id="redundant-macro-suffix"></a>`REDUNDANT_MACRO_SUFFIX` | warning | A macro reference includes redundant trailing characters that Stata ignores. |
+| <a id="invalid-macro-char"></a>`INVALID_MACRO_CHAR` | error | A macro name contains a character Stata does not allow in identifiers. |
+| <a id="missing-expression-after-equals"></a>`MISSING_EXPRESSION_AFTER_EQUALS` | error | An `=` is followed by no expression: e.g., `gen x =`, an empty `if` / `while` condition, or an empty qualifier. |
+| <a id="unbalanced-parentheses"></a>`UNBALANCED_PARENTHESES` | error | Mismatched `(` / `)` in an expression, `if` / `while` condition, or `by` / `bysort` qualifier. |
+| <a id="orphan-close-brace"></a>`ORPHAN_CLOSE_BRACE` | error | A `}` appears with no matching opening block. |
+| <a id="stray-token-in-condition"></a>`STRAY_TOKEN_IN_CONDITION` | error | Unexpected token inside an `if` / `while` / qualifier condition. |
+| <a id="split-literal-in-condition"></a>`SPLIT_LITERAL_IN_CONDITION` | error | A string or compound literal is split across the condition boundary, leaving an unterminated literal in an `if` / `while` condition. |
+
+## Embedded language context diagnostics
+
+Reported by the context tracker for Mata and Python block structure.
+
+| Rule ID | Default | Trigger |
+|---|---|---|
+| <a id="unclosed-mata-block"></a>`UNCLOSED_MATA_BLOCK` | error | A Mata block is opened but not closed. |
+| <a id="unclosed-python-block"></a>`UNCLOSED_PYTHON_BLOCK` | error | A Python block is opened but not closed. |
+| <a id="unexpected-end"></a>`UNEXPECTED_END` | error | An `end` appears where no embedded language block is open. |
+| <a id="unexpected-end-command"></a>`UNEXPECTED_END_COMMAND` | error | An `end` command does not match the current embedded language context. |
+| <a id="mismatched-end-python"></a>`MISMATCHED_END_PYTHON` | error | A Python block is closed with a mismatched delimiter. |
+| <a id="nested-block-error"></a>`NESTED_BLOCK_ERROR` | error | Embedded language block nesting is invalid. |
+| <a id="invalid-delimiter-position"></a>`INVALID_DELIMITER_POSITION` | error | A Mata or Python delimiter appears where it cannot start or end a valid block. |
 
 ## Semantic / scope diagnostics
 
@@ -77,12 +93,12 @@ The analyzer flags references it cannot resolve to a definition in the
 current scope. All four codes are gated by the `undefinedMacro` or
 `undefinedVariable` severity (see [How scope is decided](#how-scope-is-decided)).
 
-| Code | Name | Default | Severity key | Trigger |
-|---|---|---|---|---|
-| 2001 | `UNDEFINED_MACRO` | warning | `undefinedMacro` | `` `name' ``, `$name`, or `${name}` references a macro that is not in scope at the reference line. Also covers undefined scalars, matrices, and programs. |
-| 2002 | `UNDEFINED_VARIABLE` | off | `undefinedVariable` | A varlist position references a name Sight has not seen defined. See [What counts as a variable definition](#what-counts-as-a-variable-definition). |
-| 2003 | `OUT_OF_SCOPE_SYMBOL` | inherits | matches the underlying symbol's key | A reference resolves to a symbol that exists in the workspace but is not reachable from this file's scope chain. The diagnostic message names the file the symbol was found in. |
-| 2004 | `MISSING_VARIABLE_NAME` | error | n/a | A command position requires a variable name and the parser found no token (e.g., `gen = 1`). |
+| Rule ID | Default | Severity key | Trigger |
+|---|---|---|---|
+| <a id="undefined-macro"></a>`UNDEFINED_MACRO` | warning | `undefinedMacro` | `` `name' ``, `$name`, or `${name}` references a macro that is not in scope at the reference line. Also covers undefined scalars, matrices, and programs. |
+| <a id="undefined-variable"></a>`UNDEFINED_VARIABLE` | off | `undefinedVariable` | A varlist position references a name Sight has not seen defined. See [What counts as a variable definition](#what-counts-as-a-variable-definition). |
+| <a id="out-of-scope-symbol"></a>`OUT_OF_SCOPE_SYMBOL` | inherits | matches the underlying symbol's key | A reference resolves to a symbol that exists in the workspace but is not reachable from this file's scope chain. The diagnostic message names the file the symbol was found in. |
+| <a id="missing-variable-name"></a>`MISSING_VARIABLE_NAME` | error | n/a | A command position requires a variable name and the parser found no token (e.g., `gen = 1`). |
 
 A second class — *forward references* — also surfaces under
 `UNDEFINED_MACRO` when a macro is used earlier in the same file than its
@@ -96,13 +112,13 @@ and scope checks: they are bound by the caller, not by lexical position.
 Each operator diagnostic has its own severity key, and each can be
 turned off independently.
 
-| Code | Name | Default | Severity key | Trigger |
-|---|---|---|---|---|
-| 6001 | `MALFORMED_OPERATOR` | warning | `malformedOperator` | `= =`, which Stata does not treat as `==` in all expression contexts. |
-| 6002 | `INVALID_OPERATOR_SEQUENCE` | error | `invalidOperatorSequence` | Token sequences Stata cannot parse (e.g., `< \|`, `= ==`). |
-| 6003 | `CSTYLE_LOGICAL_IN_CONTROL_FLOW` | information | `cStyleLogicalInControlFlow` | `&&` / `\|\|` used in `if` / `else if`. Legal in Stata, but the canonical style uses `&` / `\|`. |
-| 6004 | `MIXED_LOGICAL_OPERATORS` | warning | `mixedLogicalOperators` | `&` and `\|` mixed in one expression without parentheses; precedence is easy to misread. |
-| 6005 | `SPACED_COMPOUND_OPERATOR` | information | `spacedCompoundOperator` | Compound operators split by whitespace that Stata accepts as the compact form: `< =`, `> =`, `! =`, and `~ =`. |
+| Rule ID | Default | Severity key | Trigger |
+|---|---|---|---|
+| <a id="malformed-operator"></a>`MALFORMED_OPERATOR` | warning | `malformedOperator` | `= =`, which Stata does not treat as `==` in all expression contexts. |
+| <a id="invalid-operator-sequence"></a>`INVALID_OPERATOR_SEQUENCE` | error | `invalidOperatorSequence` | Token sequences Stata cannot parse (e.g., `< \|`, `= ==`). |
+| <a id="cstyle-logical-in-control-flow"></a>`CSTYLE_LOGICAL_IN_CONTROL_FLOW` | information | `cStyleLogicalInControlFlow` | `&&` / `\|\|` used in `if` / `else if`. Legal in Stata, but the canonical style uses `&` / `\|`. |
+| <a id="mixed-logical-operators"></a>`MIXED_LOGICAL_OPERATORS` | warning | `mixedLogicalOperators` | `&` and `\|` mixed in one expression without parentheses; precedence is easy to misread. |
+| <a id="spaced-compound-operator"></a>`SPACED_COMPOUND_OPERATOR` | information | `spacedCompoundOperator` | Compound operators split by whitespace that Stata accepts as the compact form: `< =`, `> =`, `! =`, and `~ =`. |
 
 ## Indentation diagnostics
 
@@ -110,21 +126,23 @@ Off by default. Enable with `sight.diagnostics.indentation: true`.
 This is an on/off toggle — there is no severity key; both codes are
 emitted at `information` severity.
 
-| Code | Name | Trigger |
-|---|---|---|
-| 5001 | `UNNECESSARY_INDENTATION` | A line is indented past the AST-computed depth. |
-| 5002 | `MISSING_INDENTATION` | A line is at a shallower indent than its block depth. |
+| Rule ID | Trigger |
+|---|---|
+| <a id="unnecessary-indentation"></a>`UNNECESSARY_INDENTATION` | A line is indented past the AST-computed depth. |
+| <a id="missing-indentation"></a>`MISSING_INDENTATION` | A line is at a shallower indent than its block depth. |
 
 ## Cross-file diagnostics
 
 Reported during cross-file scope resolution. Severity is configurable
 via the `crossFile.diagnostics.*` keys in `sight.toml`.
 
-| Code | Name | Default | Severity key | Trigger |
-|---|---|---|---|---|
-| 7001 | `PATH_CASE_MISMATCH` | `auto` | `crossFile.diagnostics.caseMismatch` | A `do`/`run`/`include` command or cross-file directive (`sight: do`, `sight: run`, `sight: include`, `sight: done-by`, `sight: run-by`, `sight: included-by`) references a path that differs from the on-disk file by letter case only. The file is resolved and symbols are inherited normally; only the spelling is wrong. |
+| Rule ID | Default | Severity key | Trigger |
+|---|---|---|---|
+| <a id="path-case-mismatch"></a>`PATH_CASE_MISMATCH` | `auto` | `crossFile.diagnostics.caseMismatch` | A `do`/`run`/`include` command or cross-file directive (`sight: do`, `sight: run`, `sight: include`, `sight: done-by`, `sight: run-by`, `sight: included-by`) references a path that differs from the on-disk file by letter case only. The file is resolved and symbols are inherited normally; only the spelling is wrong. |
+| <a id="cross-file-missing-file"></a>`CROSS_FILE_MISSING_FILE` | warning | `crossFile.diagnostics.missingFile` | A `do`/`run`/`include` command or cross-file directive references a target file Sight cannot read. |
+| <a id="cross-file-truncated"></a>`CROSS_FILE_TRUNCATED` | warning | `crossFile.diagnostics.maxDepth` | Cross-file scope resolution hit a configured traversal depth cap. Results may be incomplete, but this is not treated as an undefined-symbol error by `sight check`. |
 
-### `PATH_CASE_MISMATCH` (7001)
+### `PATH_CASE_MISMATCH`
 
 **Trigger:** A static path in a `do`, `run`, or `include` command — or
 in a forward directive (`sight: do`, `sight: run`, `sight: include`) or
@@ -168,6 +186,19 @@ does **not** silence this diagnostic — the two settings are independent.
 folders. Only static paths in the cross-file execution graph
 (`do`/`run`/`include` and their directive equivalents) are covered.
 
+## File-level check diagnostics
+
+`sight check` can also emit diagnostics for files that could not be
+analyzed. These use the same symbolic `code` field as analyzer
+diagnostics.
+
+| Rule ID | Trigger |
+|---|---|
+| <a id="sight-file-too-large"></a>`SIGHT_FILE_TOO_LARGE` | An explicitly checked source file exceeds `indexing.maxFileSizeBytes`. |
+| <a id="sight-file-not-indexed"></a>`SIGHT_FILE_NOT_INDEXED` | An explicitly checked source file was skipped because `crossFile.maxIndexedFiles` was reached. |
+| <a id="sight-unreadable"></a>`SIGHT_UNREADABLE` | A target file could not be read or decoded when `sight check` tried to analyze it. |
+| <a id="sight-invalid-encoding"></a>`SIGHT_INVALID_ENCODING` | A target file is not valid UTF-8, so `sight check` could not decode its contents. |
+
 ## Configuration
 
 Diagnostics keys live under `sight.*` in VS Code's `settings.json`:
@@ -175,7 +206,7 @@ Diagnostics keys live under `sight.*` in VS Code's `settings.json`:
 ```jsonc
 {
   "sight.diagnostics.enabled": true,           // master switch
-  "sight.diagnostics.indentation": false,      // enable 5001/5002
+  "sight.diagnostics.indentation": false,      // enable indentation diagnostics
   "sight.diagnostics.severity.undefinedMacro":              "warning",
   "sight.diagnostics.severity.undefinedVariable":           "off",
   "sight.diagnostics.severity.styleWarnings":               "hint",
@@ -210,11 +241,11 @@ Each severity key accepts `"error"`, `"warning"`, `"information"`,
   and the `OUT_OF_SCOPE_SYMBOL` variants of those categories.
 - `undefinedVariable` is experimental and ships off — see
   [Why undefined-variable is off by default](#why-undefined-variable-is-off-by-default).
-- `styleWarnings` currently gates `CONTINUATION_NO_SPACE` (1004).
+- `styleWarnings` currently gates `CONTINUATION_NO_SPACE`.
 - Parse and brace-style diagnostics have no per-category control and
   `sight: ignore` does not silence them — fix the underlying issue.
 - Indentation diagnostics ship off; turn them on with the boolean
-  `sight.diagnostics.indentation`. Both indentation codes emit at
+  `sight.diagnostics.indentation`. Both indentation rule IDs emit at
   `information` severity (there is no severity key), and `sight: ignore`
   does not silence individual sites.
 

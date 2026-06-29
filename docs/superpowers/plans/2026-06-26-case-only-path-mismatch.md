@@ -246,7 +246,7 @@ it('rejects auto for missingFile', () => {
 - `convert_directive_diagnostic` routes on `kind`:
   - `'path_case_mismatch'` → severity from `config.cross_file.diagnostics.case_mismatch`; `'auto'` → `host_is_case_sensitive(diagnostic.case_mismatch_seed_dir) ? warning : information`; `'off'` → return `null`. Independent of `missing_file`.
   - else (missing_file / legacy `'Cannot read file'`) → existing path, unchanged.
-- The returned LSP `Diagnostic` now includes `code: diagnostic.code` (so `[PATH_CASE_MISMATCH]` reaches `sight check`). Missing-file diagnostics keep `code` undefined.
+- The returned LSP `Diagnostic` now includes `code: diagnostic.code` (so `[path_case_mismatch]` reaches `sight check` text output).
 
 - [ ] **Step 1: Write failing tests** — feed a `DirectiveDiagnostic` with `kind: 'path_case_mismatch'`, `code: PATH_CASE_MISMATCH`, `case_mismatch_seed_dir: '/ws'` through `convert_directive_diagnostic` with: (a) `case_mismatch: 'off'` → returns null; (b) `case_mismatch: 'warning'` → severity Warning, code propagated; (c) `case_mismatch: 'auto'` + injected host probe → Warning vs Information; (d) `missingFile: 'off'` does NOT null a `path_case_mismatch`. (Inject `host_is_case_sensitive` via a seam — e.g. module mock or a thin internal indirection the test can stub.)
 - [ ] **Step 2: Run, verify fail.**

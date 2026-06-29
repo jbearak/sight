@@ -3,12 +3,13 @@
  *
  * Verifies that C-style logical operators (`&&`, `||`) inside
  * if qualifiers within control flow bodies are correctly
- * classified as 'qualifier' context (Error, code 6002), not
- * 'control_flow' context (Information, code 6003).
+ * classified as 'qualifier' context (Error, INVALID_OPERATOR_SEQUENCE),
+ * not 'control_flow' context (Information,
+ * CSTYLE_LOGICAL_IN_CONTROL_FLOW).
  *
  * Requirements covered:
- * - 2.1: qualifier context → Error diagnostic (6002)
- * - 2.2: control_flow context → Information diagnostic (6003)
+ * - 2.1: qualifier context -> Error diagnostic
+ * - 2.2: control_flow context -> Information diagnostic
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
@@ -38,13 +39,13 @@ describe('C-Style Logical Context Detection Bugfix', () => {
     });
 
     describe('Reproduction case (Requirements 2.1, 2.2)', () => {
-        it('if (1 && 1) gets code 6003, gen if 1 && 2 gets code 6002', () => {
+        it('if (1 && 1) gets control-flow code, gen if 1 && 2 gets invalid-operator code', () => {
             const doc = create_document_state(
                 'if (1 & & 1) {\n    gen x = y if 1 & & 2\n}'
             );
             const diagnostics = analyzer.analyze(doc, default_config);
 
-            // Line 0: if condition → Information (6003)
+            // Line 0: if condition -> Information
             const control_flow_diags = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
             );
@@ -54,7 +55,7 @@ describe('C-Style Logical Context Detection Bugfix', () => {
                 DiagnosticSeverity.Information
             );
 
-            // Line 1: if qualifier → Error (6002)
+            // Line 1: if qualifier -> Error
             const qualifier_diags = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );
@@ -67,7 +68,7 @@ describe('C-Style Logical Context Detection Bugfix', () => {
     });
 
     describe('Nested control flow (Requirement 2.1)', () => {
-        it('if qualifier inside foreach inside if gets code 6002', () => {
+        it('if qualifier inside foreach inside if gets invalid-operator code', () => {
             const source = [
                 'if (1) {',
                 '    foreach x of local vars {',
@@ -96,7 +97,7 @@ describe('C-Style Logical Context Detection Bugfix', () => {
     });
 
     describe('Nested if conditions (Requirement 2.2)', () => {
-        it('inner if condition gets code 6003', () => {
+        it('inner if condition gets control-flow code', () => {
             const source = [
                 'if (a) {',
                 '    if (b & & c) {',
@@ -125,7 +126,7 @@ describe('C-Style Logical Context Detection Bugfix', () => {
     });
 
     describe('Mixed nesting (Requirements 2.1, 2.2)', () => {
-        it('condition gets 6003, qualifier in body gets 6002', () => {
+        it('condition gets control-flow code, qualifier in body gets invalid-operator code', () => {
             const source = [
                 'if (x | | y) {',
                 '    gen a = 1 if c | | d',
@@ -134,14 +135,14 @@ describe('C-Style Logical Context Detection Bugfix', () => {
             const doc = create_document_state(source);
             const diagnostics = analyzer.analyze(doc, default_config);
 
-            // Condition → Information (6003)
+            // Condition -> Information
             const control_flow_diags = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
             );
             expect(control_flow_diags).toHaveLength(1);
             expect(control_flow_diags[0].range.start.line).toBe(0);
 
-            // Qualifier → Error (6002)
+            // Qualifier -> Error
             const qualifier_diags = diagnostics.filter(
                 d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
             );

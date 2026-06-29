@@ -12,6 +12,7 @@ import {
   ScopeResolverConfig,
 } from './types';
 import { undefined_symbol_data_fields } from './utils/undefined-symbol-diagnostic';
+import { diagnostic_code_description_fields } from './utils/diagnostic-code-description';
 import { StataLexer } from './lexer';
 import { StataParser } from './parser';
 import { SemanticAnalyzer, SemanticDiagnostic } from './analyzer';
@@ -999,6 +1000,7 @@ export class DocumentStore {
         severity: DiagnosticSeverity.Error,
         code: error.code,
         source: 'sight',
+        ...diagnostic_code_description_fields(error.code),
       })),
       // Convert parser errors to diagnostics
       ...parser_errors.map((error) => ({
@@ -1007,6 +1009,7 @@ export class DocumentStore {
         severity: DiagnosticSeverity.Error,
         code: error.code,
         source: 'sight',
+        ...diagnostic_code_description_fields(error.code),
       })),
       // Convert semantic analyzer results to diagnostics. Carry the analyzer's
       // structured symbol_name/reference_kind on the `data` field so the
@@ -1024,6 +1027,7 @@ export class DocumentStore {
                 : DiagnosticSeverity.Hint,
         code: diag.code,
         source: 'sight',
+        ...diagnostic_code_description_fields(diag.code),
         ...undefined_symbol_data_fields(diag),
       })),
     ];
