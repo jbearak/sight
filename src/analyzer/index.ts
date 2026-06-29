@@ -306,9 +306,9 @@ export class SemanticAnalyzer {
                 // Check for @lsp-variables / @lsp-var directive
                 const variables_match = token_content.match(VARIABLES_DIRECTIVE_PATTERN);
                 if (variables_match) {
-                    const the_var_names = variables_match[1]
-                        .split(/\s+/)
-                        .filter(v => v.length > 0 && is_valid_identifier(v));
+                    const the_var_names = this.parse_identifier_list(
+                        variables_match[1]
+                    );
                     for (const my_var_name of the_var_names) {
                         this.register_declared_variable(
                             my_var_name,
@@ -332,6 +332,21 @@ export class SemanticAnalyzer {
         if (existing === undefined || line < existing.line) {
             this.config.declared_variables.set(name, { line });
         }
+    }
+
+    /**
+     * Split a directive's raw argument string into declared identifiers,
+     * dropping blanks and any token that is not a valid Stata identifier.
+     * The identifier check guards against artifacts such as the
+     * terminating `;` that `#delimit ;` mode lexes into a trailing `*`
+     * comment (e.g. `* sight: local foo ;` would otherwise register a
+     * bogus symbol named `;`). Shared by the variable and declaration
+     * directive paths so the parse contract lives in one place.
+     */
+    private parse_identifier_list(raw: string): string[] {
+        return raw
+            .split(/\s+/)
+            .filter(name => name.length > 0 && is_valid_identifier(name));
     }
 
     private ignore_next_non_trivia_line(tokens: Token[], directive_index: number): void {
@@ -376,13 +391,7 @@ export class SemanticAnalyzer {
             const my_match = token.value.match(DECLARATION_DIRECTIVE_PATTERN);
             if (my_match) {
                 const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
-                // Keep only valid identifiers: a trailing `*` directive in
-                // `#delimit ;` mode lexes the terminating `;` into the
-                // comment token (e.g. `* sight: local foo ;`), which would
-                // otherwise register a bogus symbol named `;`.
-                const the_names = my_match[2]
-                    .split(/\s+/)
-                    .filter(n => n.length > 0 && is_valid_identifier(n));
+                const the_names = this.parse_identifier_list(my_match[2]);
                 // Declarations are intentionally line-scoped, not
                 // character-scoped. A trailing `// sight: local x`
                 // applies to the whole physical line as well as
@@ -535,9 +544,7 @@ export class SemanticAnalyzer {
         // Check for @lsp-variables / @lsp-var directive
         const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
         if (variables_match) {
-            const the_var_names = variables_match[1]
-                .split(/\s+/)
-                .filter(v => v.length > 0 && is_valid_identifier(v));
+            const the_var_names = this.parse_identifier_list(variables_match[1]);
             for (const my_var_name of the_var_names) {
                 this.register_declared_variable(
                     my_var_name,
