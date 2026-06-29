@@ -112,8 +112,13 @@ export class DefinitionProvider {
             return null;
         }
 
-        const my_context = context_tracker
-            ? context_tracker.get_context_at_position(position)
+        // Prefer the explicit argument, but fall back to the document's own
+        // tracker so the block-comment guard and embedded-macro path use the
+        // real context even when a caller omits the optional argument (the
+        // completion provider does the same).
+        const my_context_tracker = context_tracker ?? document.context_tracker;
+        const my_context = my_context_tracker
+            ? my_context_tracker.get_context_at_position(position)
             : LanguageContext.STATA;
 
         // A Stata `/* ... */` block comment is inert: a commented-out

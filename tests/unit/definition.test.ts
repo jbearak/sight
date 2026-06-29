@@ -1310,6 +1310,31 @@ describe('DefinitionProvider - Context-Aware Behavior', () => {
             expect(my_definition).toBeNull();
         });
 
+        it('does not suppress navigation when the document has no tokens', async () => {
+            // The block-comment guard uses require_tokens: true, so a document
+            // without lexer tokens (a rare lexer error/timeout state) must not be
+            // blanket-suppressed via the imprecise string heuristic — navigation
+            // still resolves. Same block-comment-looking content, but tokenless.
+            const child_path = path.join(temp_dir, 'child.do');
+            fs.writeFileSync(child_path, '// Child file');
+
+            const my_content = '/*\ndo "child.do"\n*/';
+            const my_doc = create_test_document(
+                my_content,
+                undefined,
+                URI.file(path.join(temp_dir, 'test.do')).toString()
+            );
+            (my_doc as unknown as { tokens: unknown[] }).tokens = [];
+
+            const my_definition = await definition_provider.get_definition(
+                my_doc,
+                { line: 1, character: 8 } // Position on "child.do"
+            );
+
+            expect(my_definition).not.toBeNull();
+            expect(my_definition?.uri).toContain('child.do');
+        });
+
         it('should not navigate to directive target when cursor is on a word outside the quoted path', async () => {
             const helper_path = path.join(temp_dir, 'helper.do');
             fs.writeFileSync(helper_path, '// Helper file');

@@ -54,7 +54,16 @@ export function is_cursor_in_block_comment(
     options?: { require_tokens?: boolean }
 ): boolean {
     if (document.tokens && document.tokens.length > 0) {
-        for (const my_token of document.tokens) {
+        // Prefer the line-bucketed index for an O(B) lookup (B = tokens spanning
+        // the cursor line) instead of scanning the whole token array on every
+        // completion/definition request. build_token_line_index buckets a token
+        // under every line it spans, so a multi-line block comment is found from
+        // any of its lines (including its EOF end line). Fall back to a full scan
+        // for documents built without the index (e.g. some test fixtures).
+        const the_candidates = document.token_line_index?.size
+            ? (document.token_line_index.get(position.line) ?? [])
+            : document.tokens;
+        for (const my_token of the_candidates) {
             // A block comment is always inert; a line comment is inert only when
             // the lexer spans it across lines (e.g. a line-leading `*` followed
             // by a block opener), matching block_comment_lines for the parser.
