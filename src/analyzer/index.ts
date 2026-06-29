@@ -335,13 +335,14 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * Split a directive's raw argument string into declared identifiers,
-     * dropping blanks and any token that is not a valid Stata identifier.
-     * The identifier check guards against artifacts such as the
-     * terminating `;` that `#delimit ;` mode lexes into a trailing `*`
-     * comment (e.g. `* sight: local foo ;` would otherwise register a
-     * bogus symbol named `;`). Shared by the variable and declaration
-     * directive paths so the parse contract lives in one place.
+     * Split a directive's raw argument string into declared
+     * identifiers, dropping blanks and any token that is not a valid
+     * Stata identifier. The identifier check guards against artifacts
+     * such as the terminating `;` that `#delimit ;` mode lexes into a
+     * trailing `*` comment (e.g. `* sight: local foo ;` would otherwise
+     * register a bogus symbol named `;`). Shared by the variable and
+     * declaration directive paths so the parse contract lives in one
+     * place.
      */
     private parse_identifier_list(raw: string): string[] {
         return raw
@@ -544,7 +545,9 @@ export class SemanticAnalyzer {
         // Check for @lsp-variables / @lsp-var directive
         const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
         if (variables_match) {
-            const the_var_names = this.parse_identifier_list(variables_match[1]);
+            const the_var_names = this.parse_identifier_list(
+                variables_match[1]
+            );
             for (const my_var_name of the_var_names) {
                 this.register_declared_variable(
                     my_var_name,
