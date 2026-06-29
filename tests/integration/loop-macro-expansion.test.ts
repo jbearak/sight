@@ -88,6 +88,29 @@ describe('Loop macro expansion (integration)', () => {
         }
     });
 
+    it('expands against the pre-loop helper value even when the body redefines it', () => {
+        // The helper `suffix` is statically known before the loop (foo). A body
+        // redefinition must not retroactively make the pre-loop value look
+        // dynamic (it previously did, via a shared MacroSymbol object in the
+        // pre-loop snapshot), which would drop the expansion and emit a false
+        // undefined-macro warning for the post-loop references.
+        const source = [
+            'local suffix foo',
+            'foreach i in a b {',
+            "    local prefix_`i'_`suffix'",
+            '    local suffix bar',
+            '}',
+            "display `prefix_a_foo'",
+            "display `prefix_b_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('prefix_a_foo')).toBe(true);
+        expect(symbols.localMacros.has('prefix_b_foo')).toBe(true);
+        const undef = undefined_macros(source);
+        expect(undef).not.toContain('prefix_a_foo');
+        expect(undef).not.toContain('prefix_b_foo');
+    });
+
     it('makes constructed names visible from the defining statement', () => {
         const source = [
             'foreach i in a b {',

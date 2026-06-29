@@ -38,6 +38,7 @@
  * "Out of scope" section.)
  */
 import { MacroSymbol, SymbolTable } from '../../types';
+import { scan_macro_refs } from './macro-ref-scanner';
 
 /** A resolved static value, or `null` when the value is dynamic/unknown. */
 export type StaticValue = string | null;
@@ -50,22 +51,49 @@ export interface StaticValueEnv {
 type MacroMaps = Pick<SymbolTable, 'localMacros' | 'globalMacros'>;
 
 const MAX_FOLD_DEPTH = 8;
-const VALID_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Synthetic values written by the analyzer for command-created macros.
 const PLACEHOLDER =
     /^__(tempvar|unab|args|gettoken|file_read|option_local|option_global)_.*__$/;
-const MACRO_NAME_PART = /[A-Za-z0-9_]/;
 
 /**
- * If `text` is a single pure string literal (`"..."` or compound `` `"..."' ``),
+ * If `text` is a SINGLE pure string literal (`"..."` or compound `` `"..."' ``),
  * return its inner contents; otherwise return `null`.
+ *
+ * The whole text must be exactly one literal: a value like `"a" + "b"` is an
+ * expression (Stata evaluates it to `ab`), not a literal, so it must NOT be
+ * folded — returning its mis-stripped inner (`a" + "b`) would fabricate a value
+ * and bypass the `= expr` dynamic guard.
  */
 function strip_string_literal(text: string): string | null {
-    if (text.startsWith('`"') && text.endsWith('"\'') && text.length >= 4) {
-        return text.slice(2, -2);
+    // Compound double-quoted string `"..."', which may nest. Scan from the
+    // opening delimiter tracking nesting depth; it is a single pure literal
+    // only if depth returns to zero exactly at the end of the text.
+    if (text.startsWith('`"')) {
+        let depth = 0;
+        let i = 0;
+        while (i < text.length) {
+            if (text[i] === '`' && text[i + 1] === '"') {
+                depth++;
+                i += 2;
+            } else if (text[i] === '"' && text[i + 1] === '\'') {
+                depth--;
+                i += 2;
+                if (depth === 0) {
+                    return i === text.length ? text.slice(2, -2) : null;
+                }
+            } else {
+                i++;
+            }
+        }
+        return null; // unbalanced
     }
+    // Simple double-quoted string "...". A simple Stata string cannot contain a
+    // literal `"`, so an interior quote means this is multiple literals or an
+    // expression (e.g. `"a" + "b"`), not a single literal.
     if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) {
-        return text.slice(1, -1);
+        const inner = text.slice(1, -1);
+        if (inner.includes('"')) return null;
+        return inner;
     }
     return null;
 }
@@ -84,51 +112,22 @@ export function build_static_value_env(
     ): StaticValue => {
         if (depth > MAX_FOLD_DEPTH) return null;
         const parts: string[] = [];
-        let i = 0;
-        while (i < text.length) {
-            const c = text[i];
-            if (c === '`') {
-                // `=expr' (expression evaluation) and nested `...` are dynamic.
-                if (text[i + 1] === '=') return null;
-                let j = i + 1;
-                let name = '';
-                while (j < text.length && text[j] !== '\'' && text[j] !== '`') {
-                    name += text[j];
-                    j++;
-                }
-                if (j >= text.length || text[j] === '`') return null; // unbalanced/nested
-                if (!VALID_NAME.test(name)) return null;
+        const ok = scan_macro_refs(text, {
+            literal: (ch) => { parts.push(ch); },
+            local_ref: (name) => {
                 const resolved = resolve_local_internal(name, visited, depth + 1);
-                if (resolved === null) return null;
+                if (resolved === null) return false;
                 parts.push(resolved);
-                i = j + 1;
-            } else if (c === '$') {
-                let name = '';
-                let j = i + 1;
-                let braced = false;
-                if (text[j] === '{') {
-                    braced = true;
-                    j++;
-                }
-                while (j < text.length && MACRO_NAME_PART.test(text[j])) {
-                    name += text[j];
-                    j++;
-                }
-                if (braced) {
-                    if (text[j] !== '}') return null;
-                    j++;
-                }
-                if (!VALID_NAME.test(name)) return null;
+                return true;
+            },
+            global_ref: (name) => {
                 const resolved = resolve_global_internal(name, visited, depth + 1);
-                if (resolved === null) return null;
+                if (resolved === null) return false;
                 parts.push(resolved);
-                i = j;
-            } else {
-                parts.push(c);
-                i++;
-            }
-        }
-        return parts.join('');
+                return true;
+            },
+        });
+        return ok ? parts.join('') : null;
     };
 
     const fold_symbol = (

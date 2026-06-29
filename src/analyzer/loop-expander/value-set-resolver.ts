@@ -191,13 +191,13 @@ function resolve_forvalues(spec_tail: string, env: StaticValueEnv): IteratorValu
 function sequence(start: number, step: number, end: number): IteratorValueSet {
     const values: string[] = [];
     if (step > 0) {
-        for (let v = start; v <= end; v += step) {
-            values.push(String(v));
+        for (let my_value = start; my_value <= end; my_value += step) {
+            values.push(String(my_value));
             if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
         }
     } else {
-        for (let v = start; v >= end; v += step) {
-            values.push(String(v));
+        for (let my_value = start; my_value >= end; my_value += step) {
+            values.push(String(my_value));
             if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
         }
     }

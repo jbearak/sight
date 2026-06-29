@@ -2322,30 +2322,22 @@ export class SemanticAnalyzer {
             });
         }
 
-        // Snapshot the macros visible BEFORE the loop body executes. Constructed
-        // names resolve helper macros against this snapshot (plus loop iterators
-        // via the per-tuple overlay), never against body-local definitions whose
-        // execution order relative to the constructed statement is unknown. This
-        // keeps expansion sound: an unresolved helper means a name is skipped
-        // (a conservative miss), never wrongly suppressed.
-        const pre_loop_macros = pushed
-            ? {
-                localMacros: new Map(symbols.localMacros),
-                globalMacros: new Map(symbols.globalMacros),
-            }
-            : undefined;
-
         try {
-            // Process loop body with the same scope (loop doesn't create new
-            // scope). build_symbols_in_body tracks cd-nesting depth (issue #252).
-            this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
-
-            if (pushed && pre_loop_macros && this.tokens) {
+            // Expand constructed names BEFORE walking the body. At this point
+            // `symbols` holds exactly the macros visible before the loop, which
+            // is the scope a constructed name resolves against (plus the loop
+            // iterators via the per-tuple overlay) — never body-local
+            // definitions whose execution order relative to the constructed
+            // statement is unknown. Expanding first keeps that soundness without
+            // cloning the macro maps, and is immune to body redefinitions
+            // mutating shared MacroSymbol objects. An unresolved helper means a
+            // name is skipped (a conservative miss), never wrongly suppressed.
+            if (pushed && this.tokens) {
                 const the_expanded = expand_loop_body(
                     node,
                     this.tokens,
                     this.loop_frames,
-                    pre_loop_macros
+                    symbols
                 );
                 for (const my_macro of the_expanded) {
                     this.inject_expanded_macro(
@@ -2356,6 +2348,10 @@ export class SemanticAnalyzer {
                     );
                 }
             }
+
+            // Process loop body with the same scope (loop doesn't create new
+            // scope). build_symbols_in_body tracks cd-nesting depth (issue #252).
+            this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
         } finally {
             if (pushed) {
                 this.loop_frames.pop();
@@ -2390,6 +2386,7 @@ export class SemanticAnalyzer {
                 index: node_index,
                 line: definition_line,
                 location: { uri: this.uri, range: macro.sourceRange },
+                is_expanded: true,
             });
             return;
         }
@@ -2400,6 +2397,7 @@ export class SemanticAnalyzer {
             sourceUri: this.uri,
             containingScope: current_scope.type,
             definition_line,
+            is_expanded: true,
         };
         target.set(macro.name, symbol);
         if (macro.scope === 'local') {

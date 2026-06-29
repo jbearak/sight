@@ -404,7 +404,12 @@ export interface MacroSymbol {
   extendedFunction?: ExtendedMacroFunction;
   definition_index?: number;  // Preorder index where macro was defined
   definition_line?: number;   // Line number where macro was first defined
-  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
+  // True when this symbol was synthesized by the loop expander from a
+  // constructed name (e.g. `local x_`i'`). Its `location` points at the
+  // loop-body template statement, whose text does NOT contain the concrete
+  // name, so find-references must not surface it as a textual occurrence.
+  is_expanded?: boolean;
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range }, is_expanded?: boolean }>;
 }
 
 export interface VariableSymbol {

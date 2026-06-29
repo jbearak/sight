@@ -7,7 +7,9 @@
  * mode (src/lexer/index.ts) — a space manifests as a gap between token ranges.
  */
 import { SymbolTable, Token } from '../../types';
+import { is_valid_identifier } from '../option-argument-parser';
 import { build_static_value_env } from './static-value-env';
+import { scan_macro_refs } from './macro-ref-scanner';
 
 export type NamePart =
     | { kind: 'literal'; text: string }
@@ -35,7 +37,6 @@ const PREFIX_COMMANDS = new Set([
 // literal parts in parse_template_string. The adjacency check still excludes a
 // space-separated trailing value (e.g. `local `i' 1`).
 const NAME_TOKEN_TYPES = new Set(['WORD', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'NUMBER']);
-const VALID_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function tokens_adjacent(a: Token, b: Token): boolean {
     return (
@@ -52,53 +53,18 @@ function tokens_adjacent(a: Token, b: Token): boolean {
 function parse_template_string(raw: string): NamePart[] | null {
     const parts: NamePart[] = [];
     let literal = '';
-    let i = 0;
     const flush = () => {
         if (literal.length > 0) {
             parts.push({ kind: 'literal', text: literal });
             literal = '';
         }
     };
-    while (i < raw.length) {
-        const c = raw[i];
-        if (c === '`') {
-            if (raw[i + 1] === '=') return null; // `=expr'
-            let j = i + 1;
-            let name = '';
-            while (j < raw.length && raw[j] !== '\'' && raw[j] !== '`') {
-                name += raw[j];
-                j++;
-            }
-            if (j >= raw.length || raw[j] === '`') return null; // unbalanced/nested
-            if (!VALID_NAME.test(name)) return null;
-            flush();
-            parts.push({ kind: 'local_ref', name });
-            i = j + 1;
-        } else if (c === '$') {
-            let j = i + 1;
-            let braced = false;
-            if (raw[j] === '{') {
-                braced = true;
-                j++;
-            }
-            let name = '';
-            while (j < raw.length && /[A-Za-z0-9_]/.test(raw[j])) {
-                name += raw[j];
-                j++;
-            }
-            if (braced) {
-                if (raw[j] !== '}') return null;
-                j++;
-            }
-            if (!VALID_NAME.test(name)) return null;
-            flush();
-            parts.push({ kind: 'global_ref', name });
-            i = j;
-        } else {
-            literal += c;
-            i++;
-        }
-    }
+    const ok = scan_macro_refs(raw, {
+        literal: (ch) => { literal += ch; },
+        local_ref: (name) => { flush(); parts.push({ kind: 'local_ref', name }); return true; },
+        global_ref: (name) => { flush(); parts.push({ kind: 'global_ref', name }); return true; },
+    });
+    if (!ok) return null;
     flush();
     return parts;
 }
@@ -190,15 +156,18 @@ export function expand_template(
         if (tuple_count > EXPANSION_CAP) return [];
     }
     const the_names = new Set<string>();
+    // Build the env once over a single overlay Map that we re-bind per tuple;
+    // the env's resolvers read the overlay live, so there is no need to rebuild
+    // (and reallocate) it for each of the up-to-EXPANSION_CAP iterations.
+    const the_overlay = new Map<string, string>();
+    const my_env = build_static_value_env(symbols, the_overlay);
     for (let i = 0; i < tuple_count; i++) {
-        const my_overlay = new Map<string, string>();
         let my_divisor = 1;
         for (const my_frame of the_needed) {
             const my_pick = Math.floor(i / my_divisor) % my_frame.values.length;
-            my_overlay.set(my_frame.var, my_frame.values[my_pick]);
+            the_overlay.set(my_frame.var, my_frame.values[my_pick]);
             my_divisor *= my_frame.values.length;
         }
-        const my_env = build_static_value_env(symbols, my_overlay);
         let my_name = '';
         let my_ok = true;
         for (const my_part of template.parts) {
@@ -218,7 +187,7 @@ export function expand_template(
         // (e.g. `forvalues i = 1/3` with `local `i'_suffix` -> "1_suffix") is
         // not a valid macro name and would never be defined at runtime, so
         // injecting it would falsely suppress a reference to it.
-        if (my_ok && VALID_NAME.test(my_name)) the_names.add(my_name);
+        if (my_ok && is_valid_identifier(my_name)) the_names.add(my_name);
     }
     return [...the_names];
 }

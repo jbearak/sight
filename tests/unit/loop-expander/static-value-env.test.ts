@@ -57,6 +57,26 @@ describe('build_static_value_env', () => {
         expect(env.resolve_local('n')).toBeNull();
     });
 
+    it('treats a multi-literal = expression as dynamic (not one literal)', () => {
+        // `local x = "a" + "b"` evaluates to "ab" in Stata; the value text is an
+        // expression, not a single string literal, so it must NOT be folded as
+        // the mis-stripped inner `a" + "b`.
+        const env = build_static_value_env(locals(macro('x', '"a" + "b"', { hasEquals: true })));
+        expect(env.resolve_local('x')).toBeNull();
+    });
+
+    it('treats concatenated compound literals as dynamic', () => {
+        const env = build_static_value_env(
+            locals(macro('x', '`"a"\' + `"b"\'', { hasEquals: true }))
+        );
+        expect(env.resolve_local('x')).toBeNull();
+    });
+
+    it('still folds a single compound `"..."\' literal', () => {
+        const env = build_static_value_env(locals(macro('x', '`"a b"\'')));
+        expect(env.resolve_local('x')).toBe('a b');
+    });
+
     it('treats command placeholders as dynamic', () => {
         const env = build_static_value_env(locals(macro('t', '__tempvar_t__')));
         expect(env.resolve_local('t')).toBeNull();
