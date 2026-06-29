@@ -2233,4 +2233,37 @@ display \`result'
             expect(missing_diag_off).toBeUndefined();
         });
     });
+
+    describe('is_stata_specific_error (embedded-context suppression)', () => {
+        // Regression guard for the numeric→symbolic diagnostic-code migration.
+        // Parser errors are suppressed inside embedded (Mata/Python) blocks only
+        // when they are "Stata-specific". The classifier must keep ALL parser
+        // codes Stata-specific and treat only the structural lexer codes
+        // (unbalanced quotes / block comments) as non-Stata-specific.
+        //
+        // A regression briefly classified codes by substring (`includes('brace')`),
+        // which flipped parser brace codes (e.g. OPEN_BRACE_ALONE) to
+        // non-Stata-specific and would have leaked them into embedded blocks.
+        it('treats every parser code as Stata-specific (including brace codes)', () => {
+            const the_parser_codes = Object.values(ParseErrorCode);
+            for (const my_code of the_parser_codes) {
+                expect(
+                    (provider as any).is_stata_specific_error(my_code)
+                ).toBe(true);
+            }
+        });
+
+        it('treats structural lexer codes as NOT Stata-specific', () => {
+            expect(
+                (provider as any).is_stata_specific_error(
+                    LexerErrorCode.UNBALANCED_QUOTES
+                )
+            ).toBe(false);
+            expect(
+                (provider as any).is_stata_specific_error(
+                    LexerErrorCode.UNBALANCED_BLOCK_COMMENT
+                )
+            ).toBe(false);
+        });
+    });
 });

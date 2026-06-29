@@ -1035,17 +1035,16 @@ export class DiagnosticsProvider {
      * Check if an error code represents a Stata-specific error.
      * Structural errors like unbalanced quotes/braces are not Stata-specific.
      */
-    private is_stata_specific_error(error_code: string | number): boolean {
-        // Structural errors that should be reported even in embedded contexts
-        if (is_lexer_error_code(error_code)) {
-            return !STRUCTURAL_EMBEDDED_ERROR_CODES.has(error_code);
-        }
-
-        // String error codes - check if they're structural
-        const error_code_str = String(error_code).toLowerCase();
-        return !(error_code_str.includes('quote') || 
-                 error_code_str.includes('comment') ||
-                 error_code_str.includes('brace'));
+    private is_stata_specific_error(error_code: string): boolean {
+        // Structural errors (unbalanced quotes / block comments) must surface
+        // even inside embedded (Mata/Python) blocks, so they are NOT
+        // Stata-specific. Every other code — including parser brace/syntax
+        // errors — is Stata-specific and suppressed inside embedded blocks.
+        //
+        // NOTE: do not switch this to substring matching on the symbolic code
+        // (e.g. `includes('brace')`). Parser codes like OPEN_BRACE_ALONE would
+        // then be misclassified as structural and leak into embedded blocks.
+        return !STRUCTURAL_EMBEDDED_ERROR_CODES.has(error_code);
     }
 
     /**

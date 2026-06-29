@@ -3,6 +3,11 @@ import { Diagnostic } from 'vscode-languageserver';
 export const DIAGNOSTICS_DOCUMENTATION_URL =
     'https://github.com/jbearak/sight/blob/main/docs/diagnostics.md';
 
+// Diagnostic codes come from a small fixed set of enum members, so the
+// slug for a given code never changes. Memoize to avoid re-running the
+// regex passes on every published diagnostic (can be thousands per run).
+const anchor_cache = new Map<string, string>();
+
 export function diagnostic_code_anchor(
     code: Diagnostic['code']
 ): string | null {
@@ -13,10 +18,16 @@ export function diagnostic_code_anchor(
     if (value.length === 0) {
         return null;
     }
-    return value
+    const cached = anchor_cache.get(value);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const anchor = value
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
+    anchor_cache.set(value, anchor);
+    return anchor;
 }
 
 export function diagnostic_code_description(

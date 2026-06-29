@@ -197,6 +197,7 @@ diagnostics.
 | <a id="sight-file-too-large"></a>`SIGHT_FILE_TOO_LARGE` | An explicitly checked source file exceeds `indexing.maxFileSizeBytes`. |
 | <a id="sight-file-not-indexed"></a>`SIGHT_FILE_NOT_INDEXED` | An explicitly checked source file was skipped because `crossFile.maxIndexedFiles` was reached. |
 | <a id="sight-unreadable"></a>`SIGHT_UNREADABLE` | A target file could not be read or decoded when `sight check` tried to analyze it. |
+| <a id="sight-invalid-encoding"></a>`SIGHT_INVALID_ENCODING` | A target file is not valid UTF-8, so `sight check` could not decode its contents. |
 
 ## Configuration
 
