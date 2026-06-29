@@ -198,7 +198,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BUILD_RUN_ID: ${{ inputs.build_run_id }}
           TAG: ${{ inputs.tag }}
-        run: gh run download "$BUILD_RUN_ID" --name "release-$TAG" --dir art
+        run: gh run download "$BUILD_RUN_ID" --repo jbearak/sight --name "release-$TAG" --dir art
 
       - name: Checkout Homebrew tap
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
