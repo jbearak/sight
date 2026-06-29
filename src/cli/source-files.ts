@@ -3,6 +3,10 @@ import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { hasStataExtension, VCS_METADATA_DIRS } from '../utils/file-path-utils';
+import {
+    create_exclude_matcher,
+    type ExcludeMatcher,
+} from '../utils/exclude-matcher';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 import { compare_strings, error_message } from './shared';
 
@@ -68,7 +72,9 @@ export function is_within_workspace(
 function walk_sources(
     dir_path: string,
     out: string[],
-    operator_errors: string[]
+    operator_errors: string[],
+    workspace_roots: readonly string[],
+    exclude_matcher: ExcludeMatcher
 ): void {
     let entries: fs.Dirent[];
     try {
@@ -94,8 +100,29 @@ function walk_sources(
         // completion, the `.sthlp` lookup).
         if (entry.isDirectory()) {
             if (VCS_METADATA_DIRS.has(entry.name)) continue;
-            walk_sources(entry_path, out, operator_errors);
+            // Prune directories excluded by workspace `exclude` patterns
+            // (issue #255). Explicitly-named files bypass exclusion (handled in
+            // collect_report_targets); only walked descendants are filtered.
+            if (
+                !exclude_matcher.is_empty &&
+                exclude_matcher.is_excluded_dir(entry_path, workspace_roots)
+            ) {
+                continue;
+            }
+            walk_sources(
+                entry_path,
+                out,
+                operator_errors,
+                workspace_roots,
+                exclude_matcher
+            );
         } else if (entry.isFile() && hasStataExtension(entry.name)) {
+            if (
+                !exclude_matcher.is_empty &&
+                exclude_matcher.is_excluded_file(entry_path, workspace_roots)
+            ) {
+                continue;
+            }
             out.push(entry_path);
         }
     }
@@ -104,7 +131,8 @@ function walk_sources(
 export function collect_report_targets(
     input_paths: string[],
     workspace_root: string,
-    cwd: string
+    cwd: string,
+    exclude_patterns: readonly string[] = []
 ): ReportTargetResult {
     const operator_errors: string[] = [];
     const source_paths: string[] = [];
@@ -114,6 +142,8 @@ export function collect_report_targets(
     } catch {
         // Workspace validation happens before target collection in check.ts.
     }
+    const exclude_matcher = create_exclude_matcher(exclude_patterns);
+    const exclude_roots = [normalized_root];
     const has_explicit_paths = input_paths.length > 0;
     const paths_to_collect = input_paths.length > 0
         ? input_paths
@@ -146,7 +176,16 @@ export function collect_report_targets(
             continue;
         }
         if (stat.isDirectory()) {
-            walk_sources(absolute_path, source_paths, operator_errors);
+            // Directory inputs (including the default workspace root) walk with
+            // exclusion applied to descendants. An explicitly-named file below
+            // is always honored regardless of `exclude` (issue #255).
+            walk_sources(
+                absolute_path,
+                source_paths,
+                operator_errors,
+                exclude_roots,
+                exclude_matcher
+            );
         } else if (stat.isFile() && hasStataExtension(absolute_path)) {
             source_paths.push(absolute_path);
         }

@@ -70,6 +70,39 @@ describe('sight check source files', () => {
         expect(result.operator_errors).toEqual([]);
     });
 
+    it('skips excluded directories when walking, honoring explicit files', () => {
+        const root = temp_dir();
+        fs.mkdirSync(path.join(root, 'output'));
+        fs.mkdirSync(path.join(root, 'src'));
+        fs.writeFileSync(path.join(root, 'src', 'main.do'), 'display 1\n');
+        fs.writeFileSync(path.join(root, 'output', 'gen.do'), 'display 2\n');
+
+        // Default walk excludes output/**.
+        const walked = collect_report_targets([], root, root, ['output/**']);
+        expect(walked.operator_errors).toEqual([]);
+        expect(walked.targets.map((t) => t.relative_path)).toEqual(['src/main.do']);
+
+        // An explicitly-named file under an excluded path is still checked.
+        const explicit = collect_report_targets(
+            ['output/gen.do'],
+            root,
+            root,
+            ['output/**']
+        );
+        expect(explicit.targets.map((t) => t.relative_path)).toEqual([
+            'output/gen.do',
+        ]);
+    });
+
+    it('excludes individual files matching a glob during a walk', () => {
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, 'keep.do'), 'display 1\n');
+        fs.writeFileSync(path.join(root, 'build.gen.do'), 'display 2\n');
+
+        const result = collect_report_targets([], root, root, ['**/*.gen.do']);
+        expect(result.targets.map((t) => t.relative_path)).toEqual(['keep.do']);
+    });
+
     it('turns oversize explicit targets into error diagnostics', () => {
         const diagnostic = size_limit_diagnostic(11, 10);
 
