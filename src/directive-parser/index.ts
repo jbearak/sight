@@ -25,7 +25,11 @@ import {
     DocumentLike,
 } from '../utils/line-utils';
 import { build_do_include_pattern } from '../utils/stata-call-patterns';
-import { block_comment_lines } from '../utils/block-comment-utils';
+import {
+    block_comment_lines,
+    block_comment_ranges,
+    position_in_block_comment,
+} from '../utils/block-comment-utils';
 import {
     BACKWARD_DIRECTIVE_KEYWORDS,
     FORWARD_DIRECTIVE_KEYWORDS,
@@ -98,16 +102,16 @@ const DECLARATION_DIRECTIVE_HEAD_PATTERN = make_directive_pattern(
     String.raw`:?(?=\s|$)`,
 );
 
-// Shared pattern to match do/include/run statements with optional prefix commands.
-// Prefix alternatives live in utils/stata-call-patterns so this pattern and the
-// prefix-only variant in scope-resolver stay in lockstep.
+// Shared pattern to match do/include/run statements with optional prefix
+// commands, capturing the called path. Prefix alternatives live in
+// utils/stata-call-patterns. The scope-resolver classifies call lines via
+// classify_call_line() in this module, so there is no separate copy to keep in
+// lockstep.
 const DO_INCLUDE_PATTERN = build_do_include_pattern('capture');
 
-// Shared pattern to match @lsp-do, @lsp-run, @lsp-include directives in comments.
-const CALL_DIRECTIVE_PATTERN = make_directive_pattern(
-    FORWARD_DIRECTIVE_KEYWORDS,
-    String.raw`:?\s+(?:"([^"]+)"|([^\s]+))${CALL_SITE_PARAMS_PATTERN}`,
-);
+// Forward-call directives (@lsp-do/run/include, sight: do/run/include) in
+// comments are matched with FORWARD_CALL_DIRECTIVE_PATTERN above; the inference
+// scanners and classify_call_line share that single constant.
 
 function looks_like_unquoted_path_token(token: string): boolean {
     // Heuristic for valid unquoted paths:
@@ -407,8 +411,10 @@ export class DirectiveParser {
                     // line= is 1-indexed in directive, convert to 0-indexed and clamp
                     my_call_site_line = Math.max(0, my_call_site.value - 1);
                 } else if (my_call_site?.type === 'match' && typeof my_call_site.value === 'string') {
-                    // Search current file content for match string
-                    const match_line = this.find_match_line(content, my_call_site.value);
+                    // Search current file content for match string (reuse the
+                    // already-lexed tokens for block-comment span detection).
+                    const match_line = this.find_match_line(
+                        content, my_call_site.value, block_comment_ranges(content, tokens));
                     if (match_line !== undefined) {
                         my_call_site_line = match_line;
                     } else {
@@ -614,15 +620,80 @@ export class DirectiveParser {
      */
     find_match_line(
         parent_content: string,
-        match_string: string
+        match_string: string,
+        block_ranges?: Range[]
     ): number | undefined {
         const doc: DocumentLike = { content: parent_content, line_offsets: compute_line_offsets(parent_content) };
         const line_count = get_line_count(doc);
+        // A match= occurrence inside a /* ... */ block comment is inert in Stata,
+        // so it must never become a call site. find_match_line does an unanchored
+        // substring search, so it checks the POSITION of each occurrence (not the
+        // whole line): an inline comment like `display 1 /* do "x" */` must not
+        // match, while a real `do "x"` after a `*/` on the same line must. Callers
+        // that already computed the ranges can pass them to avoid re-lexing.
+        const the_block_ranges = block_ranges ?? block_comment_ranges(parent_content);
         for (let i = 0; i < line_count; i++) {
-            if (get_line_text(doc, i).includes(match_string)) {
-                return i; // 0-indexed line number
+            const my_text = get_line_text(doc, i);
+            // `my_from <= length` bounds the scan: for an empty match_string,
+            // indexOf('') returns my_from up to the line length and then clamps,
+            // so without this bound the loop would never terminate.
+            let my_from = 0;
+            while (my_from <= my_text.length) {
+                const my_col = my_text.indexOf(match_string, my_from);
+                if (my_col < 0) {
+                    break;
+                }
+                if (!position_in_block_comment(i, my_col, the_block_ranges)) {
+                    return i; // first non-block-commented occurrence
+                }
+                my_from = my_col + 1; // a later occurrence on this line may be live
             }
         }
+        return undefined;
+    }
+
+    /**
+     * Classify a single line as a do/run/include call statement, applying the
+     * SAME validation as the directive scanners: a real command must carry a
+     * path; a forward directive must carry a valid path plus a well-formed
+     * line=/match= tail. Returns the call type, or undefined.
+     *
+     * Does NOT consider block comments — callers must first skip lines inside
+     * a /* ... *\/ block (see block_comment_lines), since this operates on a
+     * single line with no surrounding context.
+     */
+    classify_call_line(
+        line_content: string
+    ): 'do' | 'run' | 'include' | undefined {
+        const my_trimmed = line_content.trim();
+
+        // Real do/include/run command — require a path (capture variant),
+        // matching infer_call_type_for_file / find_all_call_sites_for_file.
+        const command_match = my_trimmed.match(DO_INCLUDE_PATTERN);
+        if (command_match) {
+            const my_path = command_match[2] || command_match[3];
+            if (my_path) {
+                return command_match[1] as 'do' | 'run' | 'include';
+            }
+        }
+
+        // Forward directive in a comment line — full validation (path required
+        // plus a well-formed param tail, rejecting param-like unquoted tokens),
+        // matching parse_forward_call_directives.
+        if (my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) {
+            const directive_match = my_trimmed.match(FORWARD_CALL_DIRECTIVE_PATTERN);
+            if (directive_match) {
+                const my_quoted_path = directive_match[2];
+                const my_unquoted_path = directive_match[3];
+                const my_path = my_quoted_path || my_unquoted_path;
+                if (my_path &&
+                    (my_quoted_path ||
+                        looks_like_unquoted_path_token(my_unquoted_path))) {
+                    return directive_match[1] as 'do' | 'run' | 'include';
+                }
+            }
+        }
+
         return undefined;
     }
 
@@ -697,13 +768,19 @@ export class DirectiveParser {
 
             // Also check for @lsp-do, @lsp-run, @lsp-include directives in comment lines
             if (my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) {
-                const directive_match = my_trimmed.match(CALL_DIRECTIVE_PATTERN);
+                const directive_match = my_trimmed.match(FORWARD_CALL_DIRECTIVE_PATTERN);
                 if (directive_match) {
                     const my_quoted_path = directive_match[2];
                     const my_unquoted_path = directive_match[3];
                     const my_target_path = my_quoted_path || my_unquoted_path;
 
-                    if (my_target_path) {
+                    // Reject param-like unquoted tokens (line=.../match=...),
+                    // matching parse_forward_call_directives, so a directive like
+                    // `// sight: do line=5` is not mis-read as a call to a
+                    // pathologically-named child such as `line=5.do`.
+                    if (my_target_path &&
+                        (my_quoted_path ||
+                            looks_like_unquoted_path_token(my_unquoted_path))) {
                         const my_target_basename = path.basename(my_target_path);
                         const my_target_without_ext = my_target_basename.toLowerCase().endsWith('.do')
                             ? my_target_basename.slice(0, -3).toLowerCase()
@@ -779,14 +856,20 @@ export class DirectiveParser {
 
             // Also check for @lsp-do, @lsp-run, @lsp-include directives in comment lines
             if (my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) {
-                const directive_match = my_trimmed.match(CALL_DIRECTIVE_PATTERN);
+                const directive_match = my_trimmed.match(FORWARD_CALL_DIRECTIVE_PATTERN);
                 if (directive_match) {
                     const my_call_type = directive_match[1] as 'do' | 'run' | 'include';
                     const my_quoted_path = directive_match[2];
                     const my_unquoted_path = directive_match[3];
                     const my_target_path = my_quoted_path || my_unquoted_path;
 
-                    if (my_target_path) {
+                    // Reject param-like unquoted tokens (line=.../match=...),
+                    // matching parse_forward_call_directives, so a directive like
+                    // `// sight: do line=5` is not mis-read as a call to a
+                    // pathologically-named child such as `line=5.do`.
+                    if (my_target_path &&
+                        (my_quoted_path ||
+                            looks_like_unquoted_path_token(my_unquoted_path))) {
                         const my_target_basename = path.basename(my_target_path);
                         const my_target_without_ext = my_target_basename.toLowerCase().endsWith('.do')
                             ? my_target_basename.slice(0, -3).toLowerCase()
@@ -877,14 +960,20 @@ export class DirectiveParser {
 
             // Also check for @lsp-do, @lsp-run, @lsp-include directives in comment lines
             if (my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) {
-                const directive_match = my_trimmed.match(CALL_DIRECTIVE_PATTERN);
+                const directive_match = my_trimmed.match(FORWARD_CALL_DIRECTIVE_PATTERN);
                 if (directive_match) {
                     const my_call_type = directive_match[1] as 'do' | 'run' | 'include';
                     const my_quoted_path = directive_match[2];
                     const my_unquoted_path = directive_match[3];
                     const my_target_path = my_quoted_path || my_unquoted_path;
 
-                    if (my_target_path) {
+                    // Reject param-like unquoted tokens (line=.../match=...),
+                    // matching parse_forward_call_directives, so a directive like
+                    // `// sight: do line=5` is not mis-read as a call to a
+                    // pathologically-named child such as `line=5.do`.
+                    if (my_target_path &&
+                        (my_quoted_path ||
+                            looks_like_unquoted_path_token(my_unquoted_path))) {
                         const my_target_basename = path.basename(my_target_path);
                         const my_target_without_ext = my_target_basename.toLowerCase().endsWith('.do')
                             ? my_target_basename.slice(0, -3).toLowerCase()
