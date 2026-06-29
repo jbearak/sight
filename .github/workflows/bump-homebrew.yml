@@ -1,0 +1,75 @@
+name: Bump Homebrew
+
+"on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to bump Homebrew to (e.g., v1.2.3)'
+        required: true
+        type: string
+      build_run_id:
+        description: 'release-build workflow run ID containing artifacts'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  bump-homebrew:
+    if: vars.ENABLE_HOMEBREW_BUMP == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the macOS arm64 binary from the build run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          TAG: ${{ inputs.tag }}
+        run: gh run download "$BUILD_RUN_ID" --repo jbearak/sight --name "release-$TAG" --dir art
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          repository: jbearak/homebrew-sight
+          persist-credentials: false
+          path: tap
+
+      - name: Bump formula
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          tap/bin/update-formula.sh "$VERSION" art/bin/sight-darwin-arm64
+
+      - name: Open bump PR + enable auto-merge
+        working-directory: tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          if git diff --quiet; then
+            echo "Formula already at $VERSION - nothing to do."
+            exit 0
+          fi
+          BRANCH="bump-sight-$VERSION"
+          git config user.name "sight-release-bot"
+          git config user.email "sight-release-bot@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add Formula/sight.rb
+          git commit -m "sight $VERSION"
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c http.extraheader="$AUTH_HEADER" push --force origin "HEAD:$BRANCH"
+          if ! gh pr create --base main --head "$BRANCH" \
+                --title "sight $VERSION" \
+                --body "Automated formula bump for [sight $VERSION](https://github.com/jbearak/sight/releases/tag/$TAG). Checksum recomputed from the release artifact."; then
+            if gh pr view "$BRANCH" --json url >/dev/null 2>&1; then
+              echo "PR for $BRANCH already exists; the force-push updated it."
+            else
+              echo "::error::gh pr create failed for $BRANCH" >&2
+              exit 1
+            fi
+          fi
+          gh pr merge "$BRANCH" --auto --squash \
+            || echo "::warning::could not enable auto-merge; merge $BRANCH manually."
