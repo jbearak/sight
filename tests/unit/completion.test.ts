@@ -18,6 +18,7 @@ import { DocumentState } from '../../src/document-store';
 import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol, ScalarSymbol, MatrixSymbol } from '../../src/types';
 import { ContextTracker } from '../../src/context-tracker';
 import { LanguageContext } from '../../src/context-tracker/types';
+import { StataLexer } from '../../src/lexer';
 
 /**
  * Helper to create a minimal document state for testing.
@@ -2117,5 +2118,112 @@ describe('Path completion preserves on-disk casing', () => {
         expect(the_labels).toContain('loadData.do');
         expect(the_labels).not.toContain('clean.do');
         expect(the_labels).not.toContain('loaddata.do');
+    });
+});
+
+// ─── Regression guard: completions inert inside block comments (#241) ──────────
+// A do/run/include path (and any other completion) inside a /* ... */ block
+// comment is commented-out code, so get_completions must return nothing. Tokens
+// are populated (the production path) so the token-based block-comment detector
+// is exercised, not just the string heuristic.
+describe('Completion inert inside block comments', () => {
+    let temp_dir: string;
+    let provider: CompletionProvider;
+
+    beforeEach(() => {
+        temp_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-block-comment-'));
+        fs.mkdirSync(path.join(temp_dir, '.git'));
+        fs.mkdirSync(path.join(temp_dir, 'Helpers'));
+        fs.writeFileSync(path.join(temp_dir, 'Helpers', 'Clean.do'), '');
+        fs.writeFileSync(path.join(temp_dir, 'Helpers', 'loadData.do'), '');
+        provider = new CompletionProvider(new CommandDatabase());
+    });
+
+    afterEach(() => {
+        fs.rmSync(temp_dir, { recursive: true, force: true });
+    });
+
+    // Build a DocumentState with real lexer tokens so the token-based
+    // is_cursor_in_block_comment path runs.
+    function make_lexed_doc(content: string): DocumentState {
+        const tokens = new StataLexer().tokenize(content).tokens;
+        return {
+            uri: `file://${path.join(temp_dir, 'main.do')}`,
+            version: 1,
+            content,
+            tokens,
+            ast: null,
+            symbols: {
+                programs: new Map(),
+                localMacros: new Map(),
+                globalMacros: new Map(),
+                variables: new Map(),
+                scalars: new Map(),
+                matrices: new Map(),
+            },
+            diagnostics: [],
+            context_ranges: [],
+        } as unknown as DocumentState;
+    }
+
+    it('offers no command-path completions inside a closed block comment', async () => {
+        const content = '/*\ndo Helpers/C\n*/';
+        const doc = make_lexed_doc(content);
+        const position = Position.create(1, 'do Helpers/C'.length);
+
+        const completions = await provider.get_completions(doc, position);
+
+        expect(completions.length).toBe(0);
+    });
+
+    it('still offers command-path completions for the same line outside a block comment', async () => {
+        // Positive control: identical path line, not commented out.
+        const content = 'do Helpers/C';
+        const doc = make_lexed_doc(content);
+        const position = Position.create(0, content.length);
+
+        const completions = await provider.get_completions(doc, position);
+
+        const the_labels = completions.map(c => c.label);
+        expect(completions.length).toBeGreaterThan(0);
+        expect(the_labels).toContain('Clean.do');
+    });
+
+    it('offers no command-path completions inside an unterminated block comment at EOF', async () => {
+        const content = '/*\ndo Helpers/C';
+        const doc = make_lexed_doc(content);
+        const position = Position.create(1, 'do Helpers/C'.length);
+
+        const completions = await provider.get_completions(doc, position);
+
+        expect(completions.length).toBe(0);
+    });
+
+    it('offers no macro/quote-trigger completions inside a block comment', async () => {
+        // The backtick trigger path runs before the context switch; the early
+        // return must suppress it too.
+        const content = '/*\ndo `\n*/';
+        const doc = make_lexed_doc(content);
+        const position = Position.create(1, 'do `'.length);
+
+        const completions = await provider.get_completions(doc, position, '`');
+
+        expect(completions.length).toBe(0);
+    });
+
+    it('does not suppress completions when the document has no tokens', async () => {
+        // The early return is gated on having lexer tokens: without them (a rare
+        // lexer error/timeout state), the block-comment string heuristic is too
+        // unreliable to justify blanket suppression, so command-path completion
+        // still runs. Same content as the closed-block case, but tokenless.
+        const content = '/*\ndo Helpers/C\n*/';
+        const doc = make_lexed_doc(content);
+        (doc as unknown as { tokens: unknown[] }).tokens = [];
+        const position = Position.create(1, 'do Helpers/C'.length);
+
+        const completions = await provider.get_completions(doc, position);
+
+        // Not suppressed: command-path completion lists the on-disk file.
+        expect(completions.map(c => c.label)).toContain('Clean.do');
     });
 });

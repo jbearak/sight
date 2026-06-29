@@ -5,8 +5,26 @@ import {
   ContextDiagnostic,
   IContextTracker,
 } from './types';
-import { ContextErrorCode, Token } from '../types';
+import { ContextErrorCode, Token, TokenType } from '../types';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
+import { block_comment_lines } from '../utils/block-comment-utils';
+
+// Token types that carry no live code. A line whose only tokens are
+// these (and that the lexer placed inside a block comment) is safe to
+// skip in the raw-line block-structure scans.
+const CONTEXT_TRIVIA_TOKEN_TYPES: Set<TokenType> = new Set([
+  'COMMENT_LINE',
+  'COMMENT_BLOCK',
+  'CONTINUATION',
+  'WHITESPACE',
+  // The newline / `;` that ends a line is a separator, not live
+  // code. It matters here because the terminator after a comment's
+  // closing `*/` starts on that closing line (e.g.
+  // `program define foo */`), and must not make an otherwise
+  // fully-commented line look like live code.
+  'STATEMENT_TERMINATOR',
+  'EOF',
+]);
 
 /**
  * Context Tracker maintains language context state during parsing.
@@ -19,6 +37,11 @@ export class ContextTracker implements IContextTracker {
   private context_stack: LanguageContext[] = [LanguageContext.STATA];
   private document_content: string = '';
   private diagnostics: ContextDiagnostic[] = [];
+  // Lines (0-based) that are entirely inside a multi-line block comment
+  // (leading text commented, no live code token). The raw-line block-
+  // structure scans below skip these so commented-out `end`/`program`/
+  // `mata` lines do not produce spurious diagnostics.
+  private block_comment_continuation_lines: Set<number> = new Set();
 
   /**
    * Initialize context tracker from tokens instead of raw content.
@@ -36,7 +59,22 @@ export class ContextTracker implements IContextTracker {
     if (document_content !== undefined) {
       this.document_content = document_content;
     }
-    
+
+    // Pre-compute the lines that sit inside multi-line block comments
+    // so the raw-line block-structure validations can skip them.
+    // Derived from the same tokens, so nested block comments are
+    // handled by the lexer. A line that also carries a live code token
+    // (e.g. `/* c */ end`, where the comment closes mid-line) must
+    // still be scanned, so drop any line that has a non-trivia token
+    // starting on it.
+    const my_comment_lines = block_comment_lines(this.document_content, tokens);
+    for (const my_token of tokens) {
+      if (!CONTEXT_TRIVIA_TOKEN_TYPES.has(my_token.type)) {
+        my_comment_lines.delete(my_token.range.start.line);
+      }
+    }
+    this.block_comment_continuation_lines = my_comment_lines;
+
     // Extract context ranges from tokens
     // Tokens already have position information (range) and type information
     // that can be used to detect context blocks
@@ -312,6 +350,10 @@ export class ContextTracker implements IContextTracker {
     const my_valid_end_lines = this.find_valid_end_lines(my_doc);
 
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
+      // Lines inside a multi-line block comment are not live code
+      if (this.block_comment_continuation_lines.has(my_line_number)) {
+        continue;
+      }
       const my_line = get_line_text(my_doc, my_line_number);
       const my_code_part = this.extract_code_before_comment(my_line);
       const my_code_trimmed = my_code_part.trim();
@@ -475,6 +517,11 @@ export class ContextTracker implements IContextTracker {
     const my_line_count = get_line_count(doc);
     
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
+      // Lines inside a multi-line block comment are not live code, so
+      // they neither open nor close program/embedded blocks.
+      if (this.block_comment_continuation_lines.has(my_line_number)) {
+        continue;
+      }
       const my_line = get_line_text(doc, my_line_number);
       const my_code_part = this.extract_code_before_comment(my_line);
       const my_code_trimmed = my_code_part.trim();
@@ -816,6 +863,11 @@ export class ContextTracker implements IContextTracker {
 
     // Search forward from start_line for a likely end position
     for (let my_i = start_line + 1; my_i < my_line_count; my_i++) {
+      // Skip lines inside a multi-line block comment - a commented-out
+      // `end`/`mata`/`python` is not a real recovery point.
+      if (this.block_comment_continuation_lines.has(my_i)) {
+        continue;
+      }
       const my_line = get_line_text(my_doc, my_i);
       const my_code_part = this.extract_code_before_comment(my_line);
       const my_code_trimmed = my_code_part.trim();

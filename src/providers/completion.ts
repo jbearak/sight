@@ -978,6 +978,22 @@ export class CompletionProvider {
                 ? this.context_tracker.get_context_at_position(position)
                 : LanguageContext.STATA;
 
+            // A Stata `/* ... */` block comment is inert: it is commented-out
+            // code, so offer no completions — path, command, variable, or the
+            // macro/quote snippet completions the trigger handling below would
+            // otherwise add. Placed before the quote/backtick trigger branch so
+            // those are also suppressed. Line comments are unaffected.
+            //
+            // Restricted to STATA context: inside embedded Mata/Python the lexer
+            // can emit COMMENT_BLOCK for `/* */` that is actually part of an
+            // embedded string (e.g. a Python single-quoted string, where `'` is
+            // lexed as an operator), and macros are valid there. `require_tokens`
+            // keeps the imprecise tokenless heuristic from suppressing live code.
+            if (my_current_context === LanguageContext.STATA &&
+                is_cursor_in_block_comment(document, position, { require_tokens: true })) {
+                return [];
+            }
+
             // Detect completion context (sync)
             const context = detect_completion_context(document, position, undefined, this.command_db);
 

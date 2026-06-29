@@ -45,7 +45,6 @@ import {
     get_workspace_root_for_uri,
     get_workspace_root_for_path,
 } from '../utils/workspace-roots';
-import { build_do_include_pattern } from '../utils/stata-call-patterns';
 import {
     resolve_path_rich,
     resolve_forward_call_rich,
@@ -54,9 +53,9 @@ import {
     type RichResolveFs,
 } from '../utils/file-path-utils';
 import {
-    FORWARD_DIRECTIVE_KEYWORDS,
-    make_directive_pattern,
-} from '../utils/directives';
+    block_comment_ranges,
+    position_in_block_comment,
+} from '../utils/block-comment-utils';
 
 export {
     get_visible_symbols_at,
@@ -72,19 +71,6 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
     max_forward_depth: 10,
     max_chain_depth: 20,
 };
-
-// Pattern to match do/include/run commands with optional prefix commands.
-// Prefix alternatives live in utils/stata-call-patterns so this pattern and the
-// path-capturing variant in directive-parser stay in lockstep. Built once at
-// module load; neither pattern uses the `g` flag, so there is no `lastIndex`
-// state to reset between calls.
-const DO_INCLUDE_PATTERN = build_do_include_pattern('prefix');
-
-// Pattern to match forward directives in comment lines.
-const DIRECTIVE_PATTERN = make_directive_pattern(
-    FORWARD_DIRECTIVE_KEYWORDS,
-    String.raw`:?\s+`,
-);
 
 /**
  * Build a Partial<ScopeResolverConfig> with undefined values filtered out.
@@ -463,29 +449,40 @@ export class ScopeResolver {
     }
 
     /**
-     * Check if a line contains a valid call statement (do/run/include command or @lsp-do/run/include directive).
-     * @param line_content - The content of the line to check
-     * @returns The detected call_type, or undefined if no call found
+     * Check if a given parent line is a valid call statement (do/run/include
+     * command or @lsp-do/run/include forward directive).
+     *
+     * Delegates to DirectiveParser.classify_call_line so validation matches the
+     * directive parser exactly (path required; forward directives need a
+     * well-formed line=/match= tail and a non-param-like unquoted path). A line
+     * whose leading text is inside a block comment is inert in Stata and is
+     * never a call statement.
+     *
+     * @param parent_content - Full content of the parent file
+     * @param line_number - 0-indexed line to check
+     * @param block_ranges - Block-comment spans in the parent file
+     * @returns The detected call_type, or undefined if no valid call found
      */
-    private validate_call_statement(line_content: string): 'do' | 'run' | 'include' | undefined {
-        const my_trimmed = line_content.trim();
-
-        // Check for command pattern (uses module-level DO_INCLUDE_PATTERN)
-        const command_match = my_trimmed.match(DO_INCLUDE_PATTERN);
-        if (command_match) {
-            return command_match[1] as 'do' | 'run' | 'include';
+    private validate_call_statement(
+        parent_content: string,
+        line_number: number,
+        block_ranges: Range[]
+    ): 'do' | 'run' | 'include' | undefined {
+        const doc = {
+            content: parent_content,
+            line_offsets: compute_line_offsets(parent_content),
+        };
+        const line_content = get_line_text(doc, line_number);
+        // classify_call_line is anchored, so it already ignores a call inside a
+        // trailing inline comment; the only case it cannot see is a line whose
+        // leading text is itself inside a block comment (a continuation line of a
+        // multi-line /* ... */). Skip those here.
+        const leading_col = line_content.search(/\S/);
+        if (leading_col >= 0 &&
+            position_in_block_comment(line_number, leading_col, block_ranges)) {
+            return undefined;
         }
-
-        // Check for directive pattern in comment lines
-        if (my_trimmed.startsWith('*') || my_trimmed.startsWith('//')) {
-            const directive_match = my_trimmed.match(DIRECTIVE_PATTERN);
-            if (directive_match) {
-                return directive_match[1] as 'do' | 'run' | 'include';
-            }
-        }
-
-        // No valid call statement found
-        return undefined;
+        return this.directive_parser.classify_call_line(line_content);
     }
 
     /**
@@ -1711,6 +1708,10 @@ export class ScopeResolver {
             let effective_call_type: 'do' | 'run' | 'include' = my_directive.type === 'included-by' ? 'include' : 'do';
 
             if (my_directive.call_site) {
+                // Block-comment spans are inert, so a call site must never
+                // resolve into one. Computed once and shared by the line= and
+                // match= validation below.
+                const my_block_ranges = block_comment_ranges(my_parent_content);
                 if (my_directive.call_site.type === 'line') {
                     // User-provided line=N is 1-indexed; convert to 0-indexed
                     my_call_site_line = (my_directive.call_site.value as number) - 1;
@@ -1733,10 +1734,11 @@ export class ScopeResolver {
                             ? Number.MAX_SAFE_INTEGER
                             : 0;
                     } else {
-                        // Validate line contains a call statement (Req 1.4)
-                        const doc = { content: my_parent_content, line_offsets: compute_line_offsets(my_parent_content) };
-                        const line_content = get_line_text(doc, my_call_site_line);
-                        const call_validation = this.validate_call_statement(line_content);
+                        // Validate line contains a call statement (Req 1.4).
+                        // A malformed/block-commented line returns undefined, so
+                        // it no longer flips effective_call_type/inheritance.
+                        const call_validation = this.validate_call_statement(
+                            my_parent_content, my_call_site_line, my_block_ranges);
 
                         if (!call_validation) {
                             diagnostics.push({
@@ -1760,10 +1762,12 @@ export class ScopeResolver {
                         }
                     }
                 } else {
-                    // find_match_line returns 0-indexed line number
+                    // find_match_line returns 0-indexed line number. Pass the
+                    // already-computed block lines to avoid re-lexing the parent.
                     const my_match_line = this.directive_parser.find_match_line(
                         my_parent_content,
-                        my_directive.call_site.value as string
+                        my_directive.call_site.value as string,
+                        my_block_ranges
                     );
                     if (my_match_line === undefined) {
                         // Req 1.6: match= not found emits warning
@@ -1785,9 +1789,8 @@ export class ScopeResolver {
                         my_call_site_line = my_match_line;
 
                         // Try to infer call type from the matched line so we can emit mismatch diagnostics
-                        const doc = { content: my_parent_content, line_offsets: compute_line_offsets(my_parent_content) };
-                        const line_content = get_line_text(doc, my_call_site_line);
-                        const matched_call_type = this.validate_call_statement(line_content);
+                        const matched_call_type = this.validate_call_statement(
+                            my_parent_content, my_call_site_line, my_block_ranges);
                         if (matched_call_type) {
                             effective_call_type = matched_call_type;
 
