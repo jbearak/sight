@@ -685,9 +685,10 @@ summarize age income
         });
 
         it('should treat variable declarations as forward-only', () => {
-            // The `@lsp-variables` directive is effective on its own line
-            // and after, so a reference on an earlier line still warns
-            // while a reference on a later line is suppressed.
+            // The `@lsp-variables` directive is effective on its
+            // own line and after, so a reference on an earlier line
+            // still warns while a reference on a later line is
+            // suppressed.
             const result = analyze(`
 summarize early_var
 display 1 // @lsp-variables early_var
@@ -699,7 +700,8 @@ summarize early_var
                     d.message.includes('early_var')
             );
 
-            // Exactly one warning: the reference before the directive line.
+            // Exactly one warning: the reference before the
+            // directive line.
             expect(early_var_diags.length).toBe(1);
             expect(early_var_diags[0].range.start.line).toBe(1);
         });

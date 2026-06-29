@@ -62,8 +62,9 @@ export interface AnalysisResult {
 export interface AnalyzerConfig {
     undefined_macro_enabled: boolean;
     undefined_variable_enabled: boolean;
-    // Variables declared via @lsp-variables directive, with the line the
-    // directive appears on (forward-only, like the other declaration maps).
+    // Variables declared via @lsp-variables directive, with the
+    // line the directive appears on (forward-only, like the other
+    // declaration maps).
     declared_variables: Map<string, { line: number }>;
     // Lines to ignore via @lsp-ignore-next directive
     ignored_lines: Set<number>;
@@ -2526,8 +2527,9 @@ export class SemanticAnalyzer {
         }
 
         // Check declared variables from @lsp-variables directive.
-        // Forward-only: the declaration is effective on its own line and
-        // after, so a reference on an earlier line still warns.
+        // Forward-only: the declaration is effective on its own
+        // line and after, so a reference on an earlier line still
+        // warns.
         const declared = this.config.declared_variables.get(name);
         if (declared !== undefined && reference_line >= declared.line) {
             return true;
