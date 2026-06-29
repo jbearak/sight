@@ -170,7 +170,12 @@ describe('find_match_line Returns 0-Indexed Line Numbers', () => {
         fc.assert(
             fc.property(
                 fc.string({ minLength: 3, maxLength: 30 })
-                    .filter(s => !s.includes('\n') && s.trim().length > 0),
+                    // Exclude content whose leading text opens a block comment:
+                    // find_match_line now skips block-commented lines, so such a
+                    // single line is inert and correctly yields undefined (this
+                    // property is about position semantics, not comment handling).
+                    .filter(s => !s.includes('\n') && s.trim().length > 0
+                        && !s.trimStart().startsWith('/*')),
                 (match_string) => {
                     const content = match_string;
                     const result = parser.find_match_line(content, match_string);
