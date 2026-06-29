@@ -21,8 +21,11 @@ export class IndentationDiagnosticAnalyzer {
     // Get Stata-only ranges (exclude embedded language blocks)
     const stataRanges = this.getStataRanges(document);
     
-    // Compute block comment lines to exclude from indentation checks
-    const block_comment_lines = this.compute_block_comment_lines(lines);
+    // Compute block comment lines to exclude from indentation checks.
+    // Prefer the lexer tokens so `/*` inside strings/code is not
+    // mistaken for a comment opener; fall back to a raw scan when
+    // tokens are absent.
+    const block_comment_lines = this.compute_block_comment_lines(lines, document.tokens);
     
     // Compute continuation lines from tokens for efficient lookup
     const continuation_lines = document.tokens 
@@ -257,34 +260,41 @@ export class IndentationDiagnosticAnalyzer {
    * - It is entirely within an open block comment
    * - It contains the closing delimiter (from start of line to that point)
    * 
-   * Note: Stata doesn't support nested block comments, so the first
-   * closing delimiter ends the comment regardless of any opening
-   * sequences inside.
+   * Nested block openers increase comment depth, matching the lexer and
+   * TextMate grammar.
+   *
+   * When `tokens` are supplied, the lines are derived from the lexer's
+   * COMMENT_BLOCK token ranges, which already exclude `/*` sequences
+   * that appear inside string literals or other code. Without tokens, a
+   * raw text scan is used as a fallback (it cannot tell a real opener
+   * from one inside a string).
    */
-  compute_block_comment_lines(lines: string[]): Set<number> {
+  compute_block_comment_lines(lines: string[], tokens?: Token[]): Set<number> {
+    if (tokens && tokens.length > 0) {
+      return this.block_comment_lines_from_tokens(tokens);
+    }
+
     const block_comment_lines = new Set<number>();
-    let in_block_comment = false;
+    let block_comment_depth = 0;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       let j = 0;
 
       while (j < line.length) {
-        if (!in_block_comment) {
-          // Look for /* (with bounds check for j + 1)
-          if (j + 1 < line.length && line[j] === '/' && line[j + 1] === '*') {
-            in_block_comment = true;
-            block_comment_lines.add(i);
-            j += 2;
-            continue;
-          }
-        } else {
+        if (j + 1 < line.length && line[j] === '/' && line[j + 1] === '*') {
+          block_comment_depth++;
+          block_comment_lines.add(i);
+          j += 2;
+          continue;
+        }
+
+        if (block_comment_depth > 0) {
           // Already in block comment - this line is inside
           block_comment_lines.add(i);
 
-          // Look for */ (with bounds check for j + 1)
           if (j + 1 < line.length && line[j] === '*' && line[j + 1] === '/') {
-            in_block_comment = false;
+            block_comment_depth--;
             j += 2;
             continue;
           }
@@ -293,12 +303,45 @@ export class IndentationDiagnosticAnalyzer {
       }
 
       // If we're still in a block comment at end of line, mark this line
-      if (in_block_comment) {
+      if (block_comment_depth > 0) {
         block_comment_lines.add(i);
       }
     }
 
     return block_comment_lines;
+  }
+
+  /**
+   * Derive the set of block-comment lines from the lexer's comment
+   * tokens. A COMMENT_BLOCK token already spans its full (possibly
+   * nested) extent, and a line-leading `*` comment that absorbs an
+   * unclosed `/*` becomes a COMMENT_LINE token spanning several lines;
+   * both put their covered lines inside a comment. `/*` inside strings
+   * or code never produces a comment token, so it is correctly ignored.
+   * Single-line `//` / `*` comments are excluded (handled elsewhere).
+   */
+  private block_comment_lines_from_tokens(tokens: Token[]): Set<number> {
+    const the_block_comment_lines = new Set<number>();
+
+    for (const my_token of tokens) {
+      const my_spans_lines =
+        my_token.range.end.line > my_token.range.start.line;
+      const my_is_multiline_comment =
+        my_token.type === 'COMMENT_BLOCK' ||
+        (my_token.type === 'COMMENT_LINE' && my_spans_lines);
+      if (!my_is_multiline_comment) {
+        continue;
+      }
+      for (
+        let my_line = my_token.range.start.line;
+        my_line <= my_token.range.end.line;
+        my_line++
+      ) {
+        the_block_comment_lines.add(my_line);
+      }
+    }
+
+    return the_block_comment_lines;
   }
 
   /**

@@ -388,6 +388,83 @@ end // close mata block`;
       expect(my_ranges).toHaveLength(1);
       expect(my_ranges[0].end_delimiter?.command).toBe('end');
     });
+
+    test('should not flag an orphan end inside a block comment', () => {
+      const my_source = `/* outer
+end
+*/
+display "live"`;
+
+      init_tracker_from_source(tracker, my_source);
+      const my_diagnostics = tracker.validate_context_structure();
+
+      expect(my_diagnostics.some(
+        my_d => my_d.code === ContextErrorCode.UNEXPECTED_END
+      )).toBe(false);
+    });
+
+    test('should not flag an orphan end inside a nested block comment', () => {
+      const my_source = `/* outer
+/* inner */
+end
+*/
+display "live"`;
+
+      init_tracker_from_source(tracker, my_source);
+      const my_diagnostics = tracker.validate_context_structure();
+
+      expect(my_diagnostics.some(
+        my_d => my_d.code === ContextErrorCode.UNEXPECTED_END
+      )).toBe(false);
+    });
+
+    test('should still flag a live orphan end after a block comment', () => {
+      const my_source = `/* program foo
+end
+*/
+end`;
+
+      init_tracker_from_source(tracker, my_source);
+      const my_diagnostics = tracker.validate_context_structure();
+
+      const my_orphan = my_diagnostics.find(
+        my_d => my_d.code === ContextErrorCode.UNEXPECTED_END
+      );
+      expect(my_orphan).toBeDefined();
+      expect(my_orphan?.range.start.line).toBe(3);
+    });
+
+    test('should treat a commented program on the closing comment line as not live', () => {
+      // `program define foo */` is the line that closes the block
+      // comment, so the program definition is commented out. The
+      // terminator after `*/` starts on this line, so it must not make
+      // the line look live; the following `end` is then a real orphan
+      // and must be flagged.
+      const my_source = `/*
+program define foo */
+end`;
+
+      init_tracker_from_source(tracker, my_source);
+      const my_diagnostics = tracker.validate_context_structure();
+
+      const my_orphan = my_diagnostics.find(
+        my_d => my_d.code === ContextErrorCode.UNEXPECTED_END
+      );
+      expect(my_orphan).toBeDefined();
+      expect(my_orphan?.range.start.line).toBe(2);
+    });
+
+    test('should not flag "end mata"/"end python" inside a block comment', () => {
+      const my_source = `/* outer
+end mata
+end python
+*/`;
+
+      init_tracker_from_source(tracker, my_source);
+      const my_diagnostics = tracker.validate_context_structure();
+
+      expect(my_diagnostics).toHaveLength(0);
+    });
   });
 
   describe('edge case handling - malformed blocks', () => {

@@ -242,6 +242,30 @@ describe('DiagnosticsProvider', () => {
             expect(macro_diagnostic).toBeUndefined();
         });
 
+        it('should suppress undefined macro diagnostics inside nested block comments', async () => {
+            const document = create_real_document_state([
+                '/* MM: outer comment starts',
+                '/* inner comment */',
+                'display `commented_macro\'',
+                '*/',
+                'display `live_macro\'',
+            ].join('\n'));
+            const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG);
+
+            const commented_macro = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('commented_macro')
+            );
+            expect(commented_macro).toBeUndefined();
+
+            const live_macro = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('live_macro')
+            );
+            expect(live_macro).toBeDefined();
+            expect(live_macro?.range.start.line).toBe(4);
+        });
+
         it('should respect severity configuration for undefined macros', async () => {
             const document = create_document_state('display `undefined\'\n');
             
@@ -2210,4 +2234,3 @@ display \`result'
         });
     });
 });
-
