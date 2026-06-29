@@ -11,6 +11,7 @@ import { CancellationToken } from 'vscode-languageserver/node';
 import {
     SymbolTable,
     ForwardCall,
+    CdCommand,
     ForwardCallType,
     EffectiveCallType,
     ForwardResolveContext,
@@ -25,6 +26,8 @@ import { ScopeResolver } from '../scope-resolver';
 import {
     resolve_forward_call_rich,
     is_resolvable_static_call,
+    build_cd_timeline,
+    wd_for_position,
     type RichResolveFs,
     type PathCaseOutcome,
 } from '../utils/file-path-utils';
@@ -348,6 +351,49 @@ export class ForwardScopeResolver {
         const the_call_sites: ForwardCallSite[] = [];
         let accumulated_symbols = create_empty_symbol_table();
 
+        // Build the working-directory timeline for THIS file's in-script `cd`
+        // commands (issue #252), starting from the call-site WD inherited into
+        // this frame (my_context.working_directory). Recomputing here — rather
+        // than trusting the WD stamped at parse time — is what makes nested
+        // callee resolution correct: a callee reached via a parent's `cd A; do
+        // child` resolves child's relative paths from A even though parse-time
+        // stamping could not know the call-site WD.
+        const my_caller_dir = path.dirname(URI.parse(file_uri).fsPath);
+        const { timeline: cd_timeline, diagnostics: cd_diagnostics } =
+            build_cd_timeline({
+                starting_wd: my_context.working_directory,
+                caller_dir: my_caller_dir,
+                cd_commands: my_context.cd_commands ?? [],
+                workspace_roots: this.workspace_roots.length > 0
+                    ? this.workspace_roots
+                    : undefined,
+                fs: this.resolve_fs,
+            });
+
+        // Emit cd diagnostics only for the diagnostic-owner file at depth 0 —
+        // the same single-emission guard used for do/run/include
+        // path_case_mismatch. Nested/ancestor passes resolve the timeline
+        // leniently but suppress emission to avoid cascade / double-emit.
+        if (
+            my_context.diagnostic_owner_uri !== undefined &&
+            file_uri === my_context.diagnostic_owner_uri &&
+            my_context.depth === 0
+        ) {
+            const my_source_filename = path.basename(
+                URI.parse(file_uri).fsPath,
+            );
+            for (const my_cd_diag of cd_diagnostics) {
+                my_context.diagnostics.push({
+                    ...my_cd_diag,
+                    source: {
+                        source_file: my_source_filename,
+                        source_line: my_cd_diag.range.start.line,
+                        original_range: my_cd_diag.range,
+                    },
+                });
+            }
+        }
+
         // Filter to only static calls and sort by call_site_line
         // This ensures earlier calls are processed first, which is important for
         // duplicate detection (the earliest call to a file should win)
@@ -356,6 +402,15 @@ export class ForwardScopeResolver {
             .sort((a, b) => a.call_site_line - b.call_site_line);
 
         for (const my_call of static_calls) {
+            // The effective working directory for THIS call: for command-
+            // detected calls, the WD active at the call's position per the cd
+            // timeline; for directive calls, their own stamped WD (directive
+            // behavior is unchanged). Used uniformly below for path resolution,
+            // callee scope fetch, end-state computation, and nested recursion.
+            const effective_call_wd: string | undefined =
+                my_call.source === 'command'
+                    ? wd_for_position(cd_timeline, my_call.range.start)
+                    : (my_call.working_directory ?? my_context.working_directory);
             // Check cancellation in loop
             if (token?.isCancellationRequested) {
                 my_stack.delete(file_uri);
@@ -441,7 +496,7 @@ export class ForwardScopeResolver {
             const my_path_result = this.resolve_call_path(
                 my_call.raw_path,
                 file_uri,
-                my_context.working_directory,
+                effective_call_wd,
             );
             const resolved_path = my_path_result.resolved_path;
             const callee_uri = URI.file(resolved_path).toString();
@@ -539,7 +594,7 @@ export class ForwardScopeResolver {
             }
 
             // Get callee symbols
-            const callee_result = await this.get_callee_scope(resolved_path, callee_uri, my_context.working_directory);
+            const callee_result = await this.get_callee_scope(resolved_path, callee_uri, effective_call_wd);
 
             if (decision.action === 'boundary_only') {
                 // Dedup'd do/run re-visit at the outermost resolve()
@@ -562,7 +617,7 @@ export class ForwardScopeResolver {
                 const effective_end_state = await this.compute_effective_end_state_locals(
                     callee_uri,
                     resolved_path,
-                    callee_result.working_directory ?? my_context.working_directory,
+                    callee_result.working_directory ?? effective_call_wd,
                     new Set(my_stack),
                     my_context.depth + 1,
                     resolved_config,
@@ -647,7 +702,7 @@ export class ForwardScopeResolver {
                 const effective_end_state = await this.compute_effective_end_state_locals(
                     callee_uri,
                     resolved_path,
-                    callee_result.working_directory ?? my_context.working_directory,
+                    callee_result.working_directory ?? effective_call_wd,
                     new Set(my_stack),
                     my_context.depth + 1,
                     resolved_config,
@@ -679,7 +734,10 @@ export class ForwardScopeResolver {
                         effective_call_type: my_effective_type,
                         depth: my_context.depth + 1,
                         diagnostics: my_context.diagnostics,
-                        working_directory: callee_result.working_directory ?? my_context.working_directory,
+                        working_directory: callee_result.working_directory ?? effective_call_wd,
+                        // The callee's own in-script cd commands drive its
+                        // frame's timeline (issue #252).
+                        cd_commands: callee_result.cd_commands,
                         call_chain: [...(my_context.call_chain ?? []), my_call.raw_path],
                         // Pass the original owner through unchanged so the
                         // single-emission guard remains correct: nested
@@ -962,12 +1020,30 @@ export class ForwardScopeResolver {
             the_events.sort((a, b) => a.line - b.line || a.character - b.character);
 
             const the_effective = new Map<string, MacroSymbol>();
-            const nested_working_dir = callee_result.working_directory ?? working_directory;
+            // Working-directory timeline for the callee's own in-script `cd`
+            // commands (issue #252), starting from the WD it was entered with.
+            // Each nested `include` resolves against the WD active at its
+            // position, so a `cd` before an include in the callee is honored.
+            const nested_base_wd = callee_result.working_directory ?? working_directory;
+            const { timeline: nested_cd_timeline } = build_cd_timeline({
+                starting_wd: nested_base_wd,
+                caller_dir: path.dirname(URI.parse(callee_uri).fsPath),
+                cd_commands: callee_result.cd_commands,
+                workspace_roots: this.workspace_roots.length > 0
+                    ? this.workspace_roots
+                    : undefined,
+                fs: this.resolve_fs,
+            });
             for (const my_event of the_events) {
                 if (token?.isCancellationRequested) break;
                 if (my_event.kind === 'local') {
                     the_effective.set(my_event.name, my_event.symbol);
                 } else {
+                    // WD active at this include's position (honors callee cd).
+                    const event_wd = wd_for_position(
+                        nested_cd_timeline,
+                        my_event.call.range.start,
+                    );
                     // Use the simple resolver here: compute_effective_end_state_locals
                     // does not emit diagnostics, so the rich resolve_path_rich
                     // classification is unnecessary and its walk-from-root
@@ -975,7 +1051,7 @@ export class ForwardScopeResolver {
                     const nested_resolved = this.resolve_call_path_simple(
                         my_event.call.raw_path,
                         callee_uri,
-                        nested_working_dir,
+                        event_wd,
                     );
                     // null → ambiguous or missing; the nested callee is
                     // unresolved so it contributes nothing to end-state locals.
@@ -986,7 +1062,7 @@ export class ForwardScopeResolver {
                     const nested_effective = await this.compute_effective_end_state_locals(
                         nested_uri,
                         nested_resolved,
-                        nested_working_dir,
+                        event_wd,
                         stack,
                         depth + 1,
                         resolved_config,
@@ -1013,7 +1089,7 @@ export class ForwardScopeResolver {
         fs_path: string,
         uri: string,
         working_directory?: string
-    ): Promise<{ symbols: SymbolTable; forward_calls: ForwardCall[]; working_directory?: string } | { error: string }> {
+    ): Promise<{ symbols: SymbolTable; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string } | { error: string }> {
         let final_fs_path = fs_path;
         let final_uri = uri;
         const paths_tried: string[] = [fs_path];
@@ -1042,6 +1118,8 @@ export class ForwardScopeResolver {
         return {
             symbols: parsed_result.symbols,
             forward_calls: parsed_result.forward_calls,
+            // Defensive default: older/mocked parse results may omit cd_commands.
+            cd_commands: parsed_result.cd_commands ?? [],
             working_directory: parsed_result.working_directory,
         };
     }

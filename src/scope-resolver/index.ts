@@ -20,6 +20,7 @@ import {
     ScopeCacheMetrics,
     ScopeResolverLogger,
     ForwardCall,
+    CdCommand,
     EffectiveCallType,
     ForwardResolvedScope,
     CallEdge,
@@ -50,6 +51,8 @@ import {
     resolve_forward_call_rich,
     outcome_fs_path,
     is_resolvable_static_call,
+    build_cd_timeline,
+    apply_cd_timeline,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 import {
@@ -124,7 +127,7 @@ export function scope_resolver_config_for(
  * Cache for file parsing results within a single resolution request.
  * Ensures we only read/parse each file once per request.
  */
-type ParsedFileResult = { content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } | { error: string };
+type ParsedFileResult = { content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } | { error: string };
 type RequestCache = Map<string, Promise<ParsedFileResult>>;
 
 /**
@@ -143,6 +146,8 @@ interface ForwardScopeResolverInterface {
             depth: number;
             diagnostics: DirectiveDiagnostic[];
             working_directory?: string;
+            /** Top-level cd commands of the file being resolved (issue #252). */
+            cd_commands?: CdCommand[];
             call_chain?: string[];
             /** See ForwardResolveContext.diagnostic_owner_uri. */
             diagnostic_owner_uri?: string;
@@ -164,8 +169,7 @@ export class ScopeResolver {
     private parser: StataParser;
     private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] }>;
+    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     // Secondary index: uri -> Set<cache_keys> for O(1) scope cache invalidation by URI
     private uri_to_cache_keys: Map<string, Set<string>>;
@@ -1060,7 +1064,12 @@ export class ScopeResolver {
         let forward_call_symbols: import('../types').ForwardCallSite[] | undefined;
         const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
-        if (this.forward_scope_resolver && my_parse_result.forward_calls.length > 0) {
+        // Enter forward resolution when there are forward calls OR in-script
+        // `cd` commands: the latter must run even with no do/run/include so a
+        // lone `cd` with a casing/missing issue is still diagnosed (issue #252).
+        if (this.forward_scope_resolver &&
+            (my_parse_result.forward_calls.length > 0 ||
+             my_parse_result.cd_commands.length > 0)) {
             const forward_result = await this.forward_scope_resolver.resolve(
                 file_uri,
                 my_parse_result.forward_calls,
@@ -1071,6 +1080,8 @@ export class ScopeResolver {
                     depth: 0,
                     diagnostics: the_diagnostics,
                     working_directory: effective_working_directory,
+                    // The owner file's own cd commands drive its frame timeline.
+                    cd_commands: my_parse_result.cd_commands,
                     call_chain: [],
                     // Thread the owner so path_case_mismatch fires for
                     // case-only do/run/include written in THIS file at
@@ -1196,6 +1207,7 @@ export class ScopeResolver {
     private async resolve_parent_forward_calls(
         parent_uri: string,
         parent_forward_calls: ForwardCall[],
+        parent_cd_commands: CdCommand[],
         call_site_line: number,
         backward_directive_type: 'done-by' | 'included-by',
         working_directory: string | undefined,
@@ -1322,6 +1334,9 @@ export class ScopeResolver {
                 depth: 0,
                 diagnostics: the_diagnostics,
                 working_directory,
+                // Parent's own cd commands make its forward calls line-sensitive
+                // (issue #252).
+                cd_commands: parent_cd_commands,
                 call_chain: [],
             },
             recursion_stack,
@@ -1484,7 +1499,22 @@ export class ScopeResolver {
                 continue;
             }
 
-            // If the parent has a working_directory directive, resolve it for inheritance
+            // Backward working-directory inheritance is DIRECTIVE-BASED only.
+            //
+            // Issue #252 (in-script `cd`) is intentionally scoped to make a
+            // file's OWN later calls line-sensitive, starting from "the existing
+            // directive or inherited working directory". A parent's in-script
+            // `cd` is deliberately NOT propagated as the inherited starting WD
+            // of a child opened standalone: doing so would require call-site
+            // matching inside this cache-keyed backward walk and is a separate
+            // enhancement. The FORWARD direction is fully handled — resolving
+            // the parent as the owner recurses into the child using the call-
+            // site WD (see ForwardScopeResolver effective_call_wd). Keeping
+            // backward inheritance directive-only also keeps the owner file's
+            // producer and resolver timelines identical, preserving dep-graph
+            // edge parity (acceptance criterion 4).
+            //
+            // If the parent has a working_directory directive, resolve it for inheritance.
             if (my_parent_result.working_directory_directive) {
                 let resolved_path = my_parent_result.working_directory_directive.resolved_path;
                 
@@ -1951,6 +1981,7 @@ export class ScopeResolver {
             const forward_result = await this.resolve_parent_forward_calls(
                 my_parent_uri,
                 my_parent_result.forward_calls,
+                my_parent_result.cd_commands,
                 my_call_site_line,
                 inheritance_type,
                 effective_working_directory,
@@ -2000,11 +2031,11 @@ export class ScopeResolver {
     private parse_file(
         uri: string,
         content: string
-    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; diagnostics: DirectiveDiagnostic[] } {
+    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; diagnostics: DirectiveDiagnostic[] } {
         const content_hash = this.hash_content(content);
         const cached = this.file_cache.get(uri);
         if (cached && cached.content_hash === content_hash) {
-            return { symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, diagnostics: cached.diagnostics };
+            return { symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, cd_commands: cached.cd_commands, diagnostics: cached.diagnostics };
         }
 
         try {
@@ -2017,6 +2048,7 @@ export class ScopeResolver {
                 symbols: my_parse_result.symbols,
                 directives: my_parse_result.directives,
                 forward_calls: my_parse_result.forward_calls,
+                cd_commands: my_parse_result.cd_commands,
                 working_directory: my_parse_result.working_directory,
                 working_directory_directive: my_parse_result.working_directory_directive,
                 diagnostics: my_parse_result.diagnostics,
@@ -2026,6 +2058,7 @@ export class ScopeResolver {
                 symbols: my_parse_result.symbols,
                 directives: my_parse_result.directives,
                 forward_calls: my_parse_result.forward_calls,
+                cd_commands: my_parse_result.cd_commands,
                 diagnostics: my_parse_result.diagnostics,
             };
         } catch (error) {
@@ -2037,6 +2070,7 @@ export class ScopeResolver {
                 symbols: empty_symbols,
                 directives: [],
                 forward_calls: [],
+                cd_commands: [],
                 diagnostics: [{
                     message: `Parse error in file: ${uri}`,
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
@@ -2058,7 +2092,7 @@ export class ScopeResolver {
         uri: string,
         content: string,
         inherited_working_directory?: string
-    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } {
+    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } {
         const my_directive_result = this.directive_parser.parse(content, uri);
         const my_lex_result = this.lexer.tokenize(content);
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
@@ -2086,12 +2120,29 @@ export class ScopeResolver {
             working_directory: effective_working_directory,
         }, my_lex_result.tokens);
 
+        // Re-stamp command-detected forward calls with the line-sensitive
+        // working directory implied by in-script `cd` commands (issue #252),
+        // so the reverse-dependency keys this file feeds (resolve_callee_uri)
+        // agree with the dep-graph edges DocumentStore/Indexer build. The
+        // timeline starts from the file's effective WD. Diagnostics from the
+        // helper are discarded here — ForwardScopeResolver emits cd diagnostics
+        // for the owner file (single emission); see resolve().
+        const my_caller_dir = path.dirname(URI.parse(uri).fsPath);
+        const { timeline: cd_timeline } = build_cd_timeline({
+            starting_wd: effective_working_directory,
+            caller_dir: my_caller_dir,
+            cd_commands: my_analysis.cd_commands,
+            workspace_roots: this.workspace_roots,
+            fs: this.resolve_fs,
+        });
+        const restamped_command_calls = apply_cd_timeline(
+            my_analysis.forward_calls,
+            cd_timeline,
+        );
+
         // Combine forward calls from commands and directives.
-        // Stamp caller_uri and working_directory on directive calls so every
-        // ForwardCall carries the resolution context needed by Tasks 6/7.
-        // Analyzer-produced calls already carry these fields (caller_uri was
-        // set by SemanticAnalyzer; effective_working_directory is threaded in
-        // above via the analyzer config).
+        // Directive calls keep the file-wide working directory (directive
+        // behavior is intentionally unchanged by cd tracking).
         const directive_forward_calls: ForwardCall[] = (my_directive_result.forward_calls ?? []).map(d => ({
             type: d.type,
             raw_path: d.raw_path,
@@ -2104,7 +2155,7 @@ export class ScopeResolver {
         }));
 
         const all_forward_calls: ForwardCall[] = [
-            ...my_analysis.forward_calls,
+            ...restamped_command_calls,
             ...directive_forward_calls,
         ];
 
@@ -2113,6 +2164,7 @@ export class ScopeResolver {
             symbols: my_analysis.symbols,
             directives: my_directive_result.directives,
             forward_calls: all_forward_calls,
+            cd_commands: my_analysis.cd_commands,
             working_directory: effective_working_directory,
             working_directory_directive: my_directive_result.working_directory,
             diagnostics: my_directive_result.diagnostics,
@@ -2178,6 +2230,7 @@ export class ScopeResolver {
                 symbols: cached.symbols,
                 directives: cached.directives,
                 forward_calls: cached.forward_calls,
+                cd_commands: cached.cd_commands,
                 working_directory: cached.working_directory,
                 working_directory_directive: cached.working_directory_directive,
                 diagnostics: cached.diagnostics
@@ -2203,6 +2256,7 @@ export class ScopeResolver {
                     symbols: cached.symbols,
                     directives: cached.directives,
                     forward_calls: cached.forward_calls,
+                    cd_commands: cached.cd_commands,
                     working_directory: cached.working_directory,
                     working_directory_directive: cached.working_directory_directive,
                     diagnostics: cached.diagnostics
@@ -2240,6 +2294,7 @@ export class ScopeResolver {
                                 symbols: fallback_cached.symbols,
                                 directives: fallback_cached.directives,
                                 forward_calls: fallback_cached.forward_calls,
+                                cd_commands: fallback_cached.cd_commands,
                                 working_directory: fallback_cached.working_directory,
                                 diagnostics: fallback_cached.diagnostics
                             };
@@ -2277,6 +2332,7 @@ export class ScopeResolver {
                 symbols: actual_cached.symbols,
                 directives: actual_cached.directives,
                 forward_calls: actual_cached.forward_calls,
+                cd_commands: actual_cached.cd_commands,
                 working_directory: actual_cached.working_directory,
                 working_directory_directive: actual_cached.working_directory_directive,
                 diagnostics: actual_cached.diagnostics
@@ -2306,6 +2362,7 @@ export class ScopeResolver {
                 symbols: parse_result.symbols,
                 directives: parse_result.directives,
                 forward_calls: parse_result.forward_calls,
+                cd_commands: parse_result.cd_commands,
                 working_directory: parse_result.working_directory,
                 working_directory_directive: parse_result.working_directory_directive,
                 diagnostics: parse_result.diagnostics,
@@ -2332,6 +2389,7 @@ export class ScopeResolver {
                 symbols: empty_symbols,
                 directives: [],
                 forward_calls: [],
+                cd_commands: [],
                 working_directory: undefined,
                 diagnostics: [{
                     message: `Parse error in file: ${actual_uri}`,

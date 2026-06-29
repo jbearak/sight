@@ -46,7 +46,7 @@ import * as path from 'path';
 // vscode-uri is a small standalone library for parsing file:// URIs.
 // It does not require VS Code at runtime; it is safe for running the LSP standalone.
 import { URI } from 'vscode-uri';
-import { resolve_path_rich } from '../utils/file-path-utils';
+import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
 import { is_cursor_in_comment, is_cursor_in_block_comment } from '../utils/comment-utils';
 import {
@@ -1524,7 +1524,19 @@ export class DefinitionProvider {
                 include_match[0].length - file_path.length - (include_match[2] ? 1 : 0);
             const path_end = path_start + file_path.length;
             if (position.character >= path_start && position.character <= path_end) {
-                const resolved_path = this.resolve_file_path(document.uri, file_path);
+                // When a tracked command call matches this cursor, resolve it
+                // EXCLUSIVELY via the per-call working directory implied by any
+                // in-script `cd` (issue #252) — do NOT fall back to plain
+                // document-relative resolution, since Stata would not run the
+                // file from there (that fallback could jump to a same-named
+                // file beside the caller). Only when no command call matches
+                // (e.g. dynamic/macro paths the analyzer did not record) do we
+                // use the legacy document-relative resolution.
+                const my_cmd = this.resolve_command_path_at(
+                    document, position, file_path);
+                const resolved_path = my_cmd.matched
+                    ? my_cmd.path
+                    : this.resolve_file_path(document.uri, file_path);
                 if (resolved_path) {
                     return {
                         uri: URI.file(resolved_path).toString(),
@@ -1596,6 +1608,49 @@ export class DefinitionProvider {
         // Allow start of line or semicolon delimiter as anchor
         const extended_macro_pattern = /(?:^|;)\s*(local|global)\s+\w+\s*:\s*(list|word|piece)\s+/;
         return extended_macro_pattern.test(text_before_cursor);
+    }
+
+    /**
+     * Resolve a `do`/`run`/`include` command path using the per-call working
+     * directory recorded on the document's forward calls (issue #252).
+     *
+     * Correlates the cursor with the forward call whose range contains it AND
+     * whose `raw_path` matches the clicked path — range containment (not line
+     * alone) disambiguates same-line `#delimit ;` calls like
+     * `cd A; do x; cd B; do x`.
+     *
+     * Returns `{ matched: false }` when no tracked command call sits under the
+     * cursor (the caller may then fall back to document-relative resolution).
+     * Returns `{ matched: true, path }` with the real-cased on-disk path for
+     * exact/case-only outcomes, or `{ matched: true, path: null }` when the
+     * cwd-aware target is missing/ambiguous — in which case the caller MUST NOT
+     * fall back (Stata would not run it from the document directory either).
+     */
+    private resolve_command_path_at(
+        document: DocumentState,
+        position: Position,
+        file_path: string
+    ): { matched: boolean; path: string | null } {
+        const the_call = (document.forward_calls ?? []).find(
+            my_call =>
+                my_call.source === 'command' &&
+                my_call.raw_path === file_path &&
+                this.position_in_range(position, my_call.range)
+        );
+        if (!the_call) {
+            return { matched: false, path: null };
+        }
+        const current_dir = path.dirname(URI.parse(document.uri).fsPath);
+        const my_outcome = resolve_forward_call_rich(
+            file_path,
+            current_dir,
+            the_call.working_directory,
+            { workspace_roots: this.workspace_roots },
+        );
+        if (my_outcome.kind === 'exact' || my_outcome.kind === 'case_only') {
+            return { matched: true, path: my_outcome.path };
+        }
+        return { matched: true, path: null };
     }
 
     /**

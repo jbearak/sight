@@ -4,10 +4,18 @@
 
 import * as node_fs from 'fs';
 import * as node_path from 'path';
+import type { Position } from 'vscode-languageserver-textdocument';
 import {
     entry_is_directory_sync,
     entry_is_file_sync,
 } from './symlink-aware-entry';
+import {
+    type CdCommand,
+    type DirectiveDiagnostic,
+    type ForwardCall,
+    StataDiagnosticCode,
+} from '../types';
+import { get_workspace_root_for_path } from './workspace-roots';
 
 // Commands that accept file paths as their first argument
 export const FILE_COMMANDS = new Set([
@@ -108,6 +116,16 @@ export interface RichResolveFs {
 export interface RichResolveOptions {
     /** Append `.do` when the final component has no extension (default true). */
     try_do_fallback?: boolean;
+    /**
+     * What the final path component must resolve to (default `'file'`).
+     *
+     * `'directory'` (used for Stata `cd` targets, issue #252) matches the leaf
+     * via directory entries (`entry_is_dir`) instead of files, never applies
+     * the `.do` fallback, and — outside all workspace roots — requires
+     * `statSync(...).isDirectory()` rather than plain existence so a file named
+     * like the target is not accepted as a directory. File mode is unchanged.
+     */
+    target_kind?: 'file' | 'directory';
     /**
      * Directories that form the workspace boundary. The walk starts at the
      * deepest root that is a prefix of `resolved_fs_path`. Paths outside all
@@ -214,7 +232,10 @@ export function resolve_path_rich(
     // default. The default reads the real filesystem, so it only runs in
     // production / integration paths, never in the injected-fs unit tests.
     const the_fs: RichResolveFs = options?.fs ?? make_default_fs();
-    const try_do_fallback = options?.try_do_fallback ?? true;
+    const target_kind = options?.target_kind ?? 'file';
+    // Directory targets (cd) never get a `.do` extension fallback.
+    const try_do_fallback =
+        target_kind === 'directory' ? false : (options?.try_do_fallback ?? true);
     const the_roots = options?.workspace_roots ?? [];
 
     // Normalise path separators (OS-agnostic; tests use '/' on all platforms)
@@ -245,6 +266,22 @@ export function resolve_path_rich(
     // the analyzed file's own root as a workspace_roots entry when they want
     // case handling. Without roots we cannot know which volume to probe.
     if (chosen_root === null) {
+        if (target_kind === 'directory') {
+            // Directory target: require it to exist AND be a directory, so a
+            // file named like the target is not accepted as a cd destination.
+            // No case handling outside roots (we cannot probe a volume), and
+            // never a `.do` fallback for directories.
+            if (the_fs.existsSync(norm_path)) {
+                try {
+                    if (the_fs.statSync(norm_path).isDirectory()) {
+                        return { kind: 'exact', path: norm_path };
+                    }
+                } catch {
+                    // Dangling/inaccessible → treat as missing.
+                }
+            }
+            return { kind: 'missing', requested: resolved_fs_path };
+        }
         // Try exact path first.
         if (the_fs.existsSync(norm_path)) {
             return { kind: 'exact', path: norm_path };
@@ -343,19 +380,30 @@ export function resolve_path_rich(
         }
 
         // ── Final component ───────────────────────────────────────────────────
+        // For directory targets (cd) the leaf must be a directory; otherwise a
+        // file. The predicate follows symlinks via the shared entry helpers.
+        const entry_matches_target = (
+            e: { name: string; isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean },
+            full: string,
+        ): boolean =>
+            target_kind === 'directory'
+                ? entry_is_dir(e, full, the_fs)
+                : entry_is_file(e, full, the_fs);
+
         // Candidate names: the component itself, plus (when no extension and
-        // try_do_fallback) the component + '.do'.
+        // try_do_fallback) the component + '.do'. Directory mode disables the
+        // `.do` fallback, so the candidate list is just the component.
         const the_candidates: string[] = [my_component];
         if (try_do_fallback && !has_extension(my_component)) {
             the_candidates.push(`${my_component}.do`);
         }
 
-        // Step 1: exact file match (candidates in order); symlinks followed
-        // via entry_is_file so a symlinked file is treated as a file.
+        // Step 1: exact leaf match (candidates in order); symlinks followed so
+        // a symlinked file/directory is treated as its target kind.
         for (const my_cand of the_candidates) {
             const my_exact_file = my_entries.find(
                 e => e.name === my_cand &&
-                    entry_is_file(e, join_path(current_dir, e.name), the_fs),
+                    entry_matches_target(e, join_path(current_dir, e.name)),
             );
             if (my_exact_file !== undefined) {
                 const my_full = join_path(current_dir, my_exact_file.name);
@@ -370,19 +418,18 @@ export function resolve_path_rich(
             }
         }
 
-        // Step 2: case-insensitive file matches over the candidate set.
-        // Collect all (distinct) file entries whose names ci-match any
-        // candidate; symlinks are followed via entry_is_file.
+        // Step 2: case-insensitive leaf matches over the candidate set.
+        // Collect all (distinct) entries whose names ci-match any candidate
+        // and are of the target kind; symlinks are followed.
         const the_ci_files: string[] = [];
         const seen_names = new Set<string>();
         for (const my_cand of the_candidates) {
             for (const my_entry of my_entries) {
                 if (
                     ascii_ci_equal(my_entry.name, my_cand) &&
-                    entry_is_file(
+                    entry_matches_target(
                         my_entry,
                         join_path(current_dir, my_entry.name),
-                        the_fs,
                     ) &&
                     !seen_names.has(my_entry.name)
                 ) {
@@ -696,4 +743,213 @@ export function resolve_forward_call_rich(
     // Unreachable: the candidate list always has at least the script-relative
     // entry. Return a well-formed missing outcome to satisfy the type.
     return { kind: 'missing', requested: raw_path };
+}
+
+// ─── cd working-directory timeline (issue #252) ──────────────────────────────
+
+/** One step of the effective-working-directory timeline. */
+export interface CdTimelineEntry {
+    /** Start position of the `cd` command that established `wd`. */
+    cd_pos: Position;
+    /** Effective WD after this `cd` (undefined => script-relative). */
+    wd: string | undefined;
+}
+
+/** Source-ordered working-directory timeline produced by `build_cd_timeline`. */
+export interface CdTimeline {
+    /** Effective WD before the first `cd` (undefined => script-relative). */
+    starting_wd: string | undefined;
+    /** Entries in ascending `cd_pos` order. */
+    entries: CdTimelineEntry[];
+}
+
+/** True when `a` is strictly before `b` (line, then character). */
+function position_before(a: Position, b: Position): boolean {
+    return a.line < b.line || (a.line === b.line && a.character < b.character);
+}
+
+/**
+ * The effective working directory for a call at `pos`: the WD established by
+ * the latest `cd` whose position is STRICTLY before `pos`, else the timeline's
+ * starting WD. Ordering is by full source position (line, then character) — not
+ * line alone — so it stays correct if a `cd` and a call ever share a line. (In
+ * practice each top-level statement occupies its own line under the default
+ * `#delimit cr`; `#delimit ;` multi-statement lines are not produced as cd
+ * commands today — see detect_cd_command's known limitation.)
+ */
+export function wd_for_position(
+    timeline: CdTimeline,
+    pos: Position,
+): string | undefined {
+    let my_wd = timeline.starting_wd;
+    for (const my_entry of timeline.entries) {
+        if (position_before(my_entry.cd_pos, pos)) {
+            my_wd = my_entry.wd;
+        } else {
+            // Entries are sorted ascending; once one is not before pos, none
+            // after it can be either.
+            break;
+        }
+    }
+    return my_wd;
+}
+
+/**
+ * Build the effective working-directory timeline for a file by walking its
+ * top-level `cd` commands in source (position) order, resolving each target
+ * directory against the filesystem so the WD carries the REAL on-disk casing.
+ *
+ * Using the real-cased directory prevents a cascade: if `cd "raw"` (on-disk
+ * `Raw`) left the WD lower-cased, every later `do`/`run`/`include` resolved
+ * through it would also be flagged as a case mismatch. Resolving once here
+ * keeps later calls exact.
+ *
+ * Outcomes per static `cd`:
+ *  - `exact`     → WD becomes the real path; no diagnostic.
+ *  - `case_only` → WD becomes the real-cased path; emit `path_case_mismatch`.
+ *  - `missing`   → WD becomes the normalized joined path (preserve the author's
+ *                  intent so later calls resolve against where they MEANT to
+ *                  be); emit a `missing_directory` warning.
+ *  - `ambiguous` → WD is LEFT UNCHANGED (no safe choice); emit a warning.
+ *
+ * Non-static `cd` commands are ignored entirely (the analyzer only records
+ * static ones), so dynamic/`capture`/bare `cd` never poison the timeline.
+ *
+ * The returned `diagnostics` are always computed; callers decide whether to
+ * emit them (only the diagnostic-owner file at depth 0 should — every producer
+ * that merely re-stamps forward calls discards them to avoid double emission).
+ */
+export function build_cd_timeline(params: {
+    starting_wd: string | undefined;
+    caller_dir: string;
+    cd_commands: CdCommand[];
+    workspace_roots?: string[];
+    fs?: RichResolveFs;
+}): { timeline: CdTimeline; diagnostics: DirectiveDiagnostic[] } {
+    const { starting_wd, caller_dir, cd_commands, workspace_roots, fs } = params;
+    const the_diagnostics: DirectiveDiagnostic[] = [];
+    const the_entries: CdTimelineEntry[] = [];
+
+    // Process static cd commands in ascending position order. Tolerate an
+    // absent list (defensive: some callers/mocks omit cd_commands).
+    const the_statics = (cd_commands ?? [])
+        .filter(c => c.is_static && c.raw_path.length > 0)
+        .sort((a, b) =>
+            position_before(a.range.start, b.range.start) ? -1 :
+            position_before(b.range.start, a.range.start) ? 1 : 0,
+        );
+
+    let current_wd = starting_wd;
+    for (const my_cd of the_statics) {
+        // Stata resolves `cd` against the CURRENT working directory only (or an
+        // absolute path) — NOT via do/run/include's script-relative or
+        // workspace-root fallbacks. Build the single candidate accordingly so a
+        // missing WD-relative target stays missing (and is diagnosed) instead
+        // of silently snapping to a same-named directory beside the script.
+        const my_normalized_raw = my_cd.raw_path.replace(/\\/g, '/');
+        const my_is_abs =
+            node_path.isAbsolute(my_normalized_raw) ||
+            /^[a-zA-Z]:\//.test(my_normalized_raw);
+        const my_candidate = my_is_abs
+            ? node_path.normalize(my_normalized_raw)
+            : current_wd
+                ? node_path.normalize(node_path.join(current_wd, my_normalized_raw))
+                : node_path.resolve(caller_dir, my_cd.raw_path);
+        const my_outcome = resolve_path_rich(my_candidate, {
+            workspace_roots,
+            fs,
+            target_kind: 'directory',
+        });
+
+        if (my_outcome.kind === 'exact') {
+            current_wd = my_outcome.path;
+        } else if (my_outcome.kind === 'case_only') {
+            current_wd = my_outcome.path;
+            the_diagnostics.push(
+                make_cd_case_mismatch_diagnostic(my_cd, my_outcome, caller_dir, workspace_roots),
+            );
+        } else if (my_outcome.kind === 'missing') {
+            // Preserve the author's intent: later relative calls resolve against
+            // where the cd MEANT to go, even though it is not on disk now.
+            current_wd = my_outcome.requested;
+            the_diagnostics.push({
+                message:
+                    `Cannot change directory: "${my_cd.raw_path}" ` +
+                    `(directory not found)`,
+                range: my_cd.range,
+                severity: 'warning',
+                kind: 'missing_directory',
+                code: StataDiagnosticCode.CROSS_FILE_MISSING_FILE,
+            });
+        } else {
+            // ambiguous: two or more case-insensitive matches — no safe choice.
+            // Leave the WD unchanged so we do not poison later resolution.
+            the_diagnostics.push({
+                message:
+                    `Ambiguous directory for cd: "${my_cd.raw_path}" ` +
+                    `(multiple case-insensitive matches)`,
+                range: my_cd.range,
+                severity: 'warning',
+                kind: 'missing_directory',
+                code: StataDiagnosticCode.CROSS_FILE_MISSING_FILE,
+            });
+        }
+        the_entries.push({ cd_pos: my_cd.range.start, wd: current_wd });
+    }
+
+    return {
+        timeline: { starting_wd, entries: the_entries },
+        diagnostics: the_diagnostics,
+    };
+}
+
+/** Build the `path_case_mismatch` diagnostic for a case-only `cd` target. */
+function make_cd_case_mismatch_diagnostic(
+    cd: CdCommand,
+    outcome: { kind: 'case_only'; path: string; requested: string },
+    caller_dir: string,
+    workspace_roots?: string[],
+): DirectiveDiagnostic {
+    const my_req_disp = node_path
+        .relative(caller_dir, outcome.requested)
+        .replace(/\\/g, '/') || outcome.requested;
+    const my_real_disp = node_path
+        .relative(caller_dir, outcome.path)
+        .replace(/\\/g, '/') || outcome.path;
+    const my_seed = workspace_roots
+        ? (get_workspace_root_for_path(workspace_roots, outcome.path) ??
+           node_path.dirname(outcome.path))
+        : node_path.dirname(outcome.path);
+    return {
+        message:
+            `Path "${my_req_disp}" does not match the directory on disk ` +
+            `"${my_real_disp}"; Stata will not find it on case-sensitive ` +
+            `filesystems (Linux). Update the path to match.`,
+        range: cd.range,
+        severity: 'warning',
+        kind: 'path_case_mismatch',
+        code: StataDiagnosticCode.PATH_CASE_MISMATCH,
+        case_mismatch_seed_dir: my_seed,
+    };
+}
+
+/**
+ * Re-stamp each command-sourced forward call's `working_directory` from the
+ * cd timeline (issue #252). Directive-sourced calls keep their WD unchanged
+ * (directive behavior is intentionally untouched). Returns a new array; the
+ * input calls are not mutated.
+ */
+export function apply_cd_timeline(
+    forward_calls: ForwardCall[],
+    timeline: CdTimeline,
+): ForwardCall[] {
+    return forward_calls.map(my_call => {
+        if (my_call.source !== 'command') {
+            return my_call;
+        }
+        return {
+            ...my_call,
+            working_directory: wd_for_position(timeline, my_call.range.start),
+        };
+    });
 }

@@ -23,6 +23,7 @@ import {
     OptionSpec,
     ProgramSignature,
     ForwardCall,
+    CdCommand,
     IdentifierNode,
 } from '../types';
 import { DirectiveParser } from '../directive-parser';
@@ -55,6 +56,10 @@ export interface AnalysisResult {
     diagnostics: SemanticDiagnostic[];
     scopes: ScopeInfo[];
     forward_calls: ForwardCall[];
+    // Top-level literal `cd` commands in source order (issue #252). Consumers
+    // resolve these via `build_cd_timeline` to derive the line-sensitive
+    // working directory for re-stamping forward calls.
+    cd_commands: CdCommand[];
     ignored_lines: Set<number>;
 }
 
@@ -180,6 +185,13 @@ export class SemanticAnalyzer {
     private preorder_index: number = 0;
     private directive_parser = new DirectiveParser();
     private forward_calls: ForwardCall[] = [];
+    // Top-level literal `cd` commands recorded in source order (issue #252).
+    private cd_commands: CdCommand[] = [];
+    // Nesting depth for the symbol-building walk. Incremented around recursion
+    // into program/loop/control-flow bodies. Only `cd` commands at depth 0 are
+    // recorded; `do`/`run`/`include` detection is intentionally NOT gated by
+    // this (its behavior must stay unchanged at every nesting level).
+    private cd_nesting_depth: number = 0;
     private workspace_symbols?: SymbolTable;
     private tokens?: Token[];
     private current_diagnostics: SemanticDiagnostic[] = [];
@@ -204,6 +216,8 @@ export class SemanticAnalyzer {
         this.uri = uri;
         this.config = { ...create_default_config(), ...config };
         this.forward_calls = []; // Reset forward calls
+        this.cd_commands = []; // Reset cd commands (issue #252)
+        this.cd_nesting_depth = 0;
         this.workspace_symbols = workspace_symbols; // Store workspace symbols
         this.tokens = tokens; // Keep tokens for command-level pattern checks
 
@@ -259,6 +273,7 @@ export class SemanticAnalyzer {
             diagnostics,
             scopes,
             forward_calls: this.forward_calls,
+            cd_commands: this.cd_commands,
             ignored_lines: this.config.ignored_lines,
         };
     }
@@ -589,6 +604,26 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * Build symbols for a nested body (program/loop/control-flow), tracking
+     * nesting depth so that `detect_cd_command` records `cd` only at the top
+     * level (issue #252). Forward-call detection is unaffected — it fires at
+     * every depth, exactly as before.
+     */
+    private build_symbols_in_body(
+        nodes: StataNode[],
+        symbols: SymbolTable,
+        current_scope: ScopeInfo,
+        all_scopes: ScopeInfo[]
+    ): void {
+        this.cd_nesting_depth++;
+        try {
+            this.build_symbols(nodes, symbols, current_scope, all_scopes);
+        } finally {
+            this.cd_nesting_depth--;
+        }
+    }
+
+    /**
      * Traverse AST nodes in preorder, calling callback for each node.
      * CRITICAL: Both symbol building and reference checking MUST use this method.
      * Note: Does NOT recurse into program/control_flow bodies - callers handle that
@@ -723,7 +758,7 @@ export class SemanticAnalyzer {
         // Process program body with the new scope — unconditional for the
         // same reason: locals defined inside each body deserve diagnostic
         // coverage regardless of which definition is "primary".
-        this.build_symbols(node.body, symbols, program_scope, all_scopes);
+        this.build_symbols_in_body(node.body, symbols, program_scope, all_scopes);
 
         // Guard body-metadata extractions on first definition only.
         // These all mutate program_symbol.* and must follow first-def-wins
@@ -1145,48 +1180,33 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * Detect forward call commands (do, run, include).
+     * Extract the first file-path argument from a file command's varlist.
+     *
+     * Shared by `detect_forward_call` (do/run/include) and `detect_cd_command`
+     * (cd). Surrounding quotes are stripped; `has_macro` is true when the path
+     * contains a `` ` `` or `$` macro reference (the lexer splits a quoted path
+     * with a macro into multiple tokens, so partial-quoted paths are
+     * concatenated until the closing quote).
+     *
+     * Returns `null` when the command has no varlist argument (e.g. bare `cd`).
      */
-    private detect_forward_call(node: CommandNode): void {
-        const cmd_name = node.name;
-        
-        // Check for do, run, include commands (with abbreviations)
-        // do has no abbreviation - must be spelled out fully
-        // run can be abbreviated to 'ru'
-        // include has no abbreviation
-        const is_do = cmd_name === 'do';
-        const is_run = cmd_name === 'run' || cmd_name === 'ru';
-        const is_include = cmd_name === 'include';
-        
-        if (!is_do && !is_run && !is_include) {
-            return;
-        }
-        
-        // Skip if this line is ignored via @lsp-ignore or @lsp-ignore-next
-        if (this.config.ignored_lines.has(node.range.start.line)) {
-            return;
-        }
-        
-        // Get the first argument (path) - subsequent arguments are script arguments
-        // e.g., `do "wfs/survey.do" Cameroon 1978` - only "wfs/survey.do" is the path
+    private extract_command_path(
+        node: CommandNode
+    ): { raw_path: string; has_macro: boolean } | null {
         if (!node.varlist || node.varlist.length === 0) {
-            return;
+            return null;
         }
-        
-        // Extract the file path from varlist
-        // When a quoted path contains macro references, the lexer splits it into multiple tokens
-        // e.g., `do "`macro'"` becomes varlist: ['"', '`macro\'', '"']
-        // We need to detect this and concatenate items to form the complete path
+
         let raw_path = '';
         let has_macro = false;
-        
+
         const first_item = node.varlist[0];
         const first_name = first_item.name;
-        
+
         // Check if this is a complete quoted string (starts and ends with same quote)
         const is_complete_double_quoted = first_name.startsWith('"') && first_name.endsWith('"') && first_name.length > 1;
         const is_complete_single_quoted = first_name.startsWith("'") && first_name.endsWith("'") && first_name.length > 1;
-        
+
         if (is_complete_double_quoted || is_complete_single_quoted) {
             // Complete quoted path - use only the first item
             // Subsequent items are script arguments
@@ -1198,16 +1218,16 @@ export class SemanticAnalyzer {
             const quote_char = first_name[0];
             raw_path = first_name;
             has_macro = raw_path.includes('`') || raw_path.includes('$');
-            
+
             for (let i = 1; i < node.varlist.length; i++) {
                 const item_name = node.varlist[i].name;
                 raw_path += item_name;
-                
+
                 // Check for macro references in this item
                 if (item_name.includes('`') || item_name.includes('$')) {
                     has_macro = true;
                 }
-                
+
                 // Stop when we find the closing quote
                 if (item_name.endsWith(quote_char)) {
                     break;
@@ -1219,13 +1239,47 @@ export class SemanticAnalyzer {
             raw_path = first_name;
             has_macro = raw_path.includes('`') || raw_path.includes('$');
         }
-        
+
         // Strip surrounding quotes if present
         if ((raw_path.startsWith('"') && raw_path.endsWith('"')) ||
             (raw_path.startsWith("'") && raw_path.endsWith("'"))) {
             raw_path = raw_path.slice(1, -1);
         }
-        
+
+        return { raw_path, has_macro };
+    }
+
+    /**
+     * Detect forward call commands (do, run, include).
+     */
+    private detect_forward_call(node: CommandNode): void {
+        const cmd_name = node.name;
+
+        // Check for do, run, include commands (with abbreviations)
+        // do has no abbreviation - must be spelled out fully
+        // run can be abbreviated to 'ru'
+        // include has no abbreviation
+        const is_do = cmd_name === 'do';
+        const is_run = cmd_name === 'run' || cmd_name === 'ru';
+        const is_include = cmd_name === 'include';
+
+        if (!is_do && !is_run && !is_include) {
+            return;
+        }
+
+        // Skip if this line is ignored via @lsp-ignore or @lsp-ignore-next
+        if (this.config.ignored_lines.has(node.range.start.line)) {
+            return;
+        }
+
+        // Get the first argument (path) - subsequent arguments are script arguments
+        // e.g., `do "wfs/survey.do" Cameroon 1978` - only "wfs/survey.do" is the path
+        const extracted = this.extract_command_path(node);
+        if (!extracted) {
+            return;
+        }
+        const { raw_path, has_macro } = extracted;
+
         const call_type: 'do' | 'run' | 'include' = is_do ? 'do' : is_run ? 'run' : 'include';
 
         // No path resolution here: consumers (dependency graph,
@@ -1242,6 +1296,56 @@ export class SemanticAnalyzer {
             is_static: !has_macro,
             caller_uri: this.uri,
             working_directory: this.config.working_directory,
+        });
+    }
+
+    /**
+     * Detect a top-level `cd` command and record it for the working-directory
+     * timeline (issue #252).
+     *
+     * Conservative recognition — only records `cd` when ALL hold:
+     *  - the command name is exactly lowercase `cd` (Stata is case-sensitive),
+     *  - it is at the top level of the file (`cd_nesting_depth === 0`): `cd`
+     *    inside loops/programs/branches is out of scope,
+     *  - it has NO prefix (skips `capture cd`, `quietly cd`, etc. — conditional
+     *    or error-swallowing forms that must not change the timeline),
+     *  - it has a path argument (bare `cd`, which changes to the home
+     *    directory, is unmodelable and is skipped — leaving the WD unchanged).
+     *
+     * No path resolution happens here (the analyzer is filesystem-pure);
+     * `build_cd_timeline` resolves the recorded paths in source order.
+     *
+     * KNOWN LIMITATION — `#delimit ;` files: the parser does not attach a file
+     * command's path as a `varlist` argument under semicolon delimiting
+     * (`cd "raw";` parses as a `cd` node with no varlist plus a separate
+     * `"raw"` node), so `extract_command_path` returns null and the `cd` is
+     * skipped. This is a PRE-EXISTING parser limitation that affects ALL
+     * file-path commands equally — `do`/`run`/`include` forward-call detection
+     * (`detect_forward_call`) is already a no-op for `#delimit ;` files for the
+     * same reason. `cd` tracking is therefore consistent with the existing
+     * cross-file feature; full `#delimit ;` support is a separate parser change,
+     * out of scope for issue #252.
+     */
+    private detect_cd_command(node: CommandNode): void {
+        if (node.name !== 'cd') {
+            return;
+        }
+        // Top-level only; prefixed forms (capture/quietly/...) are skipped.
+        if (this.cd_nesting_depth !== 0) {
+            return;
+        }
+        if (node.prefix && node.prefix.length > 0) {
+            return;
+        }
+        const extracted = this.extract_command_path(node);
+        if (!extracted) {
+            // Bare `cd` (home directory) — unmodelable; leave WD unchanged.
+            return;
+        }
+        this.cd_commands.push({
+            raw_path: extracted.raw_path,
+            range: node.range,
+            is_static: !extracted.has_macro,
         });
     }
 
@@ -1266,7 +1370,10 @@ export class SemanticAnalyzer {
     ): void {
         // Detect forward calls first
         this.detect_forward_call(node);
-        
+        // Detect top-level `cd` commands for the working-directory timeline
+        // (issue #252). Gated to depth 0 inside detect_cd_command.
+        this.detect_cd_command(node);
+
         const cmd_name = node.fullName;
 
         // Check for variable-creating commands
@@ -2178,7 +2285,7 @@ export class SemanticAnalyzer {
         }
 
         // Process loop body with the same scope (loop doesn't create new scope)
-        this.build_symbols(node.body, symbols, current_scope, all_scopes);
+        this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
     }
 
     /**
@@ -2192,7 +2299,7 @@ export class SemanticAnalyzer {
         all_scopes: ScopeInfo[]
     ): void {
         // Process body with the same scope
-        this.build_symbols(node.body, symbols, current_scope, all_scopes);
+        this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
     }
 
     /**

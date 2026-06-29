@@ -1137,6 +1137,32 @@ export class DiagnosticsProvider {
             };
         }
 
+        // ── missing_directory branch (issue #252) ────────────────────────────
+        // A static in-script `cd` whose target directory is not found (or is
+        // case-insensitively ambiguous). Defaults to Warning (per design), but
+        // reuses the `missing_file` config toggle so users can downgrade or
+        // suppress it ('off' → hidden) — keeping the new diagnostic low-noise
+        // and configurable.
+        if (diagnostic.kind === 'missing_directory') {
+            const missing_file_setting =
+                config.cross_file?.diagnostics?.missing_file;
+            if (missing_file_setting === 'off') {
+                return null;
+            }
+            const severity = missing_file_setting
+                ? this.get_severity_from_config(missing_file_setting)
+                    ?? DiagnosticSeverity.Warning
+                : DiagnosticSeverity.Warning;
+            return {
+                range: diagnostic.range,
+                message: diagnostic.message,
+                severity,
+                code: diagnostic.code,
+                source: 'sight',
+                ...diagnostic_code_description_fields(diagnostic.code),
+            };
+        }
+
         // ── missing_file / legacy branch ─────────────────────────────────────
         // Keyed on `kind === 'missing_file'` OR the legacy prose substring.
         const is_missing_file =

@@ -25,8 +25,11 @@ import {
   get_workspace_root_for_uri,
   resolve_working_directory_directive,
 } from './utils/workspace-roots';
+import { build_cd_timeline, apply_cd_timeline } from './utils/file-path-utils';
 
 import * as fs from 'fs';
+import * as path from 'path';
+import { URI } from 'vscode-uri';
 
 export interface DocumentState {
   uri: string;
@@ -784,11 +787,36 @@ export class DocumentStore {
       analyze_result.result!.diagnostics
     );
 
+    // Re-stamp command-detected forward calls with the line-sensitive working
+    // directory implied by in-script `cd` commands (issue #252). The timeline
+    // starts from the file's resolved working directory (own/inherited) and
+    // resolves each top-level `cd` target in source order. Diagnostics from the
+    // helper are DISCARDED here — they are emitted only by ForwardScopeResolver
+    // for the diagnostic-owner file, to avoid double emission. Guard the whole
+    // block: a malformed URI (URI.parse throws) must not abort the parse — fall
+    // back to the analyzer's calls unchanged.
+    let restamped_command_calls = analyze_result.result!.forward_calls;
+    try {
+      const my_caller_dir = path.dirname(URI.parse(uri).fsPath);
+      const { timeline: cd_timeline } = build_cd_timeline({
+        starting_wd: resolved_working_directory,
+        caller_dir: my_caller_dir,
+        cd_commands: analyze_result.result!.cd_commands,
+        workspace_roots: this.workspace_roots,
+      });
+      restamped_command_calls = apply_cd_timeline(
+        analyze_result.result!.forward_calls,
+        cd_timeline,
+      );
+    } catch {
+      // Malformed URI or resolution error - use analyzer calls unchanged.
+    }
+
     // Parse directive-based forward calls and merge with analyzer's
     // command-detected calls.  Stamp caller_uri and working_directory on
-    // directive calls; analyzer calls already carry these fields because
-    // we passed resolved_working_directory into analyze() above.
-    let all_forward_calls = analyze_result.result!.forward_calls;
+    // directive calls; directive calls keep the file-wide working directory
+    // (directive behavior is intentionally unchanged by cd tracking).
+    let all_forward_calls = restamped_command_calls;
     try {
       const directive_parser = new DirectiveParser();
       const directive_result = directive_parser.parse_forward_call_directives(
@@ -807,7 +835,7 @@ export class DocumentStore {
         working_directory: resolved_working_directory,
       }));
       all_forward_calls = [
-        ...analyze_result.result!.forward_calls,
+        ...restamped_command_calls,
         ...directive_forward_calls,
       ];
     } catch {
