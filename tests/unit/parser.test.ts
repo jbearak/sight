@@ -243,7 +243,7 @@ describe('StataParser', () => {
         expect(node.scope).toBe('local');
         expect(node.name).toBe('x');
         expect(node.hasEquals).toBe(true);
-        expect(node.value).toBe('1/2');
+        expect(node.value).toBe('1 / 2');
         expect(node.range.end.line).toBe(1);
       }
     });
@@ -303,7 +303,7 @@ describe('StataParser', () => {
         expect(node.scope).toBe('global');
         expect(node.name).toBe('x');
         expect(node.hasEquals).toBe(true);
-        expect(node.value).toBe('1+2');
+        expect(node.value).toBe('1 + 2');
         expect(node.range.end.line).toBe(1);
       }
     });
@@ -324,7 +324,7 @@ describe('StataParser', () => {
       if (node.type === 'macro_def') {
         expect(node.name).toBe('x');
         expect(node.hasEquals).toBe(true);
-        expect(node.value).toBe('1+2');
+        expect(node.value).toBe('1 + 2');
         expect(node.range.end.line).toBe(2);
       }
     });

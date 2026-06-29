@@ -301,7 +301,7 @@ export class DefinitionProvider {
             { include_only: true }
         );
 
-        if (local_macro) {
+        if (local_macro && !this.is_loop_macro_pending(local_macro, position, document.uri)) {
             const out: Location[] = this.macro_symbol_to_locations(local_macro);
             out.push(...cross_file_locs);
             return this.locations_to_definition(this.dedupe_locations(out));
@@ -344,7 +344,7 @@ export class DefinitionProvider {
                 position.line
             );
             const global_macro = visible.globalMacros.get(word);
-            if (global_macro) {
+            if (global_macro && !this.is_loop_macro_pending(global_macro, position, document.uri)) {
                 // Walk chain and forward call sites (do/run/include all
                 // propagate globals) to collect cross-file redeclarations.
                 const out: Location[] =
@@ -394,7 +394,7 @@ export class DefinitionProvider {
             workspace_indexer
         );
 
-        if (global_macro) {
+        if (global_macro && !this.is_loop_macro_pending(global_macro, position, document.uri)) {
             const out: Location[] =
                 this.macro_symbol_to_locations(global_macro);
             out.push(...cross_file_locs);
@@ -948,6 +948,29 @@ export class DefinitionProvider {
     }
 
     /**
+     * True when `macro` is a loop-expanded current-document macro that is not
+     * yet visible at `position` — its `definition_line` (after the loop's
+     * closing brace) differs from its in-loop `location` line and is past the
+     * cursor. Go-to-definition should not resolve it before it is defined.
+     * Monotonic: for ordinary macros `definition_line` equals the location
+     * line, so this is always false and behavior is unchanged.
+     */
+    private is_loop_macro_pending(
+        macro: MacroSymbol,
+        position?: Position,
+        document_uri?: string
+    ): boolean {
+        if (!position) return false;
+        if (document_uri !== undefined && macro.sourceUri !== document_uri) {
+            return false;
+        }
+        const loc_line = macro.location?.range?.start?.line;
+        return macro.definition_line !== undefined
+            && macro.definition_line !== loc_line
+            && macro.definition_line > position.line;
+    }
+
+    /**
      * Collect all definition locations for a MacroSymbol, including any
      * additional redeclarations stored in `additional_definitions`.
      */
@@ -988,8 +1011,12 @@ export class DefinitionProvider {
                 ? my_locations.filter(l => l.uri === document_uri)
                 : my_locations;
             if (same_file_locs.length === 0) return true;
-            const my_earliest_line =
-                this.get_earliest_definition_line(same_file_locs);
+            // Prefer the effective definition line: for loop-expanded macros the
+            // location is the in-loop statement but the macro is only defined
+            // after the closing brace (definition_line). For ordinary macros
+            // definition_line equals the location line, so this is a no-op.
+            const my_earliest_line = macro_symbol.definition_line
+                ?? this.get_earliest_definition_line(same_file_locs);
             return my_earliest_line === undefined
                 || my_earliest_line <= position.line;
         };
@@ -1220,7 +1247,7 @@ export class DefinitionProvider {
 
             // Check global macros — do/run/include all propagate globals
             const global_macro = resolved_scope.symbols.globalMacros.get(word);
-            if (global_macro) {
+            if (global_macro && !this.is_loop_macro_pending(global_macro, position, document.uri)) {
                 const out: Location[] =
                     this.macro_symbol_to_locations(global_macro);
                 for (const my_entry of resolved_scope.chain) {
@@ -1275,7 +1302,7 @@ export class DefinitionProvider {
             workspace_indexer
         );
 
-        if (local_macro) {
+        if (local_macro && !this.is_loop_macro_pending(local_macro, position, document.uri)) {
             const out: Location[] =
                 this.macro_symbol_to_locations(local_macro);
             out.push(...cross_local_locs);
@@ -1296,7 +1323,7 @@ export class DefinitionProvider {
                     ? workspace_symbols?.globalMacros.get(word)
                     : undefined
             );
-        if (global_macro) {
+        if (global_macro && !this.is_loop_macro_pending(global_macro, position, document.uri)) {
             const out: Location[] =
                 this.macro_symbol_to_locations(global_macro);
             out.push(...cross_global_locs);

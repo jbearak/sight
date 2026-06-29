@@ -487,10 +487,11 @@ export class StataParser {
     this.skipMacroDefinitionTrivia();
 
     // Collect the rest of the line as the macro value (stop at comment or terminator)
-    let value = prefixOp || ''; // If prefixOp exists and no = value follows, it signifies increment
+    const prefix_value = prefixOp || ''; // If prefixOp exists and no = value follows, it signifies increment
     const value_start_pos = this.current;
     let paren_depth = 0;
-    
+    const value_tokens: Token[] = [];
+
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
@@ -504,7 +505,7 @@ export class StataParser {
       }
 
       const token = this.advance();
-      
+
       // Track parenthesis depth for error checking
       if (token.type === 'LPAREN') {
         paren_depth++;
@@ -516,11 +517,16 @@ export class StataParser {
           paren_depth = 0; // Reset to prevent cascading errors
         }
       }
-      
-      // Preserve whitespace as-is to maintain spacing between tokens
-      // (e.g., `country_name' `survey_year' needs the space preserved)
-      value += token.value;
+
+      value_tokens.push(token);
     }
+
+    // Reconstruct with single-space separation from token ranges. The lexer
+    // drops whitespace tokens in `#delimit cr` mode, so plain concatenation
+    // would collapse `local mylist a b c` to "abc" and `` `a' `b' `` to
+    // "`a'`b'". A separated token pair (gap on the same line, or a line break
+    // from a `///` continuation) becomes one space; adjacent tokens stay joined.
+    const value = prefix_value + this.reconstruct_value_tokens(value_tokens);
 
     // Check for unbalanced parentheses (unclosed opening parentheses)
     if (paren_depth > 0) {
@@ -3277,9 +3283,33 @@ export class StataParser {
   }
 
   /**
+   * Reconstruct a macro value from its tokens, collapsing any inter-token gap
+   * (same-line whitespace or a `///` line break) to a single space and joining
+   * adjacent tokens directly. Unlike `reconstructTokensWithSpacing`, this does
+   * not preserve exact widths or continued-line indentation, so values read
+   * cleanly (e.g. `local x = 1 + 2` ⇒ `"1 + 2"`, not `"1 +    2"`).
+   */
+  private reconstruct_value_tokens(tokens: Token[]): string {
+    const the_parts: string[] = [];
+    let prev_token: Token | null = null;
+    for (const my_token of tokens) {
+      if (prev_token !== null) {
+        const same_line = prev_token.range.end.line === my_token.range.start.line;
+        const gap = my_token.range.start.character - prev_token.range.end.character;
+        if (!same_line || gap > 0) {
+          the_parts.push(' ');
+        }
+      }
+      the_parts.push(my_token.value);
+      prev_token = my_token;
+    }
+    return the_parts.join('');
+  }
+
+  /**
    * Reconstruct a string from tokens while preserving original spacing.
    * Uses token ranges to determine gaps between tokens and adds appropriate whitespace.
-   * 
+   *
    * @param tokens - Array of tokens to reconstruct
    * @returns The reconstructed string with original spacing preserved
    */

@@ -192,11 +192,16 @@ it extracts a template (range-adjacency) and expands it against the active
 `bindingStack` + per-tuple env. Returns the concrete macros (`sourceRange` = the
 body statement's range, for go-to-definition).
 
-**Coverage limits (R1, documented).** Statements inside a *block prefix* such as
+**Coverage limits (documented).** Statements inside a *block prefix* such as
 `quietly { … }` are parsed as `CommandNode.body` and are **not** recursed by the
 current analyzer, so constructed names defined only inside such blocks are not
-expanded in v1. `by`/`bysort` prefixes are out of scope. These are explicit v1
-limitations, not silent gaps.
+expanded. `by`/`bysort` prefixes are out of scope. Constructed names defined
+only inside a *conditional* `if`/`else`/`while` body within the loop are **not**
+expanded either: those statements may not execute, so injecting their names
+could falsely suppress a legitimate warning — the conservative choice is to skip
+them (a miss, reverting to pre-feature behavior). Only direct loop-body
+statements and unconditional `frame` blocks are expanded. These are explicit v1
+limitations chosen to never introduce false suppression, not silent gaps.
 
 ### Types (`src/types/index.ts`)
 
@@ -315,6 +320,21 @@ matters for globals.
 - Same-file completion/goto/hover line-visibility — left identical to existing
   ordinary-local behavior (R1); only cross-file execution-order filtering is
   corrected.
+- **Nested loops whose inner iteration list depends on an outer iterator**
+  (e.g. `foreach j in `i'` / `foreach j of local `i''`). The inner value-set is
+  per-outer-tuple (not a single static set), which the independent-frame
+  cartesian model cannot represent. Such inner loops are treated as dynamic and
+  their constructed names are simply not expanded (a conservative miss — the
+  pre-existing warning behavior remains; never a false suppression).
+  Independent nested lists (`foreach i in a b { foreach j in x y { … } }`) are
+  fully supported.
+- **Program-body macro scope in diagnostics.** Macros defined inside a `program`
+  body are added to the file-wide symbol table and are not scope-isolated from
+  file-scope references by `is_macro_defined` — this is **pre-existing analyzer
+  behavior** (verified: a literal `local x` inside a program produces no
+  file-scope undefined warning, identical to the loop-expanded case). Loop
+  expansion is consistent with it and introduces no new behavior here;
+  program-scope isolation in diagnostics is a separate, analyzer-wide concern.
 
 ## Testing strategy
 
@@ -363,6 +383,27 @@ matters for globals.
 Additional blockers from R1 folded into the design above: token **range-adjacency**
 name extraction (lexer skips whitespace in `cr` mode); **outermost-active-frame**
 nested visibility; **program-scope** binding isolation.
+
+### Adversarial review resolutions (R2 — second Codex pass on the diff)
+
+- **Statement-order soundness.** Constructed names now resolve helper macros
+  against a **pre-loop snapshot** of the symbol table (captured before the body
+  is symbolized) plus the per-tuple iterator overlay — never against body-local
+  definitions whose execution order vs. the constructed statement is unknown. An
+  unresolved helper means the name is skipped (a conservative miss), never
+  wrongly suppressed. Trade-off (documented): a helper defined *inside* the loop
+  body and used in a constructed name is not resolved; only pre-loop definitions
+  and loop iterators are. This eliminates the order-dependent false-suppression
+  Codex found.
+- **Quote-aware folded lists.** `of local`/`of global` (and macro refs inside an
+  `in` list) now split folded values with the same quote-aware splitter as the
+  literal `in` path, so `local xs `"a"' `"b"'` iterates `a`, `b`.
+- **Effective definition line in shadow filtering.** `visible-symbols.ts`
+  `has_definition_in_window` uses `effective_definition_line` for the primary
+  line (monotonic; a no-op for ordinary symbols).
+- **Prefix colon.** `extract_name_template` skips a trailing `:` after prefix
+  commands (`quietly: local …`). `++`/`--` increments are not treated as
+  definitions.
 
 Required integration coverage (R1): pre-loop reference (still undefined),
 in-(defining-)loop reference (still warns), post-loop reference (defined),

@@ -32,6 +32,7 @@ import {
     type PathCaseOutcome,
 } from '../utils/file-path-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
+import { effective_definition_line } from '../utils/symbol-visibility';
 
 export interface ForwardScopeConfig {
     max_forward_depth: number;
@@ -982,7 +983,10 @@ export class ForwardScopeResolver {
                 // (location.range.start) so the sort key is internally
                 // consistent — analyzer emits definition_line equal to
                 // location.range.start.line for primary definitions.
-                const primary_line = my_symbol.location.range.start.line;
+                // Effective line so loop-expanded locals order by when they
+                // actually become defined (after the brace), not their in-loop
+                // definition location. Equal to location line for normal locals.
+                const primary_line = effective_definition_line(my_symbol);
                 const primary_char = my_symbol.location.range.start.character;
                 the_events.push({
                     line: primary_line,

@@ -40,6 +40,7 @@ import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { logger } from '../utils/logger';
+import { effective_definition_line } from '../utils/symbol-visibility';
 import { error_message } from '../utils/error-message';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import {
@@ -2454,13 +2455,16 @@ export class ScopeResolver {
     ): { filtered: SymbolTable; out_of_scope: OutOfScopeSymbol[] } {
         const the_out_of_scope: OutOfScopeSymbol[] = [];
 
-        const filter_map = <T extends { location: { range: { start: { line: number } } }; name?: string }>(
+        const filter_map = <T extends { location: { range: { start: { line: number } } }; definition_line?: number; name?: string }>(
             map: Map<string, T>,
             symbol_type: 'local' | 'global' | 'program' | 'variable' | 'scalar' | 'matrix'
         ): Map<string, T> => {
             const filtered = new Map<string, T>();
             for (const [name, symbol] of map) {
-                const defined_line = symbol.location.range.start.line;
+                // Use the effective definition line so loop-expanded macros
+                // (location = in-loop body, definition_line = after the brace)
+                // are filtered by when they actually become defined.
+                const defined_line = effective_definition_line(symbol);
                 if (defined_line <= call_site_line) {
                     filtered.set(name, symbol);
                 } else {

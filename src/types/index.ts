@@ -399,6 +399,7 @@ export interface MacroSymbol {
   location: { uri: string; range: Range };
   sourceUri: string;
   value?: string;
+  hasEquals?: boolean;  // True if defined with = sign (local x = expr) vs literal (local x a b)
   containingScope?: ScopeType;
   extendedFunction?: ExtendedMacroFunction;
   definition_index?: number;  // Preorder index where macro was defined

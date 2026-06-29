@@ -27,6 +27,12 @@ import {
     IdentifierNode,
 } from '../types';
 import { DirectiveParser } from '../directive-parser';
+import {
+    build_static_value_env,
+    resolve_loop_value_set,
+    expand_loop_body,
+    BindingFrame,
+} from './loop-expander';
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
 import {
@@ -195,6 +201,9 @@ export class SemanticAnalyzer {
     private workspace_symbols?: SymbolTable;
     private tokens?: Token[];
     private current_diagnostics: SemanticDiagnostic[] = [];
+    // Active loop iterator frames (innermost last). Source of both cartesian
+    // bindings and the after-the-brace visibility line for loop-expanded macros.
+    private loop_frames: Array<BindingFrame & { endLine: number }> = [];
 
     /**
      * Analyze an AST and build symbol tables.
@@ -218,6 +227,7 @@ export class SemanticAnalyzer {
         this.forward_calls = []; // Reset forward calls
         this.cd_commands = []; // Reset cd commands (issue #252)
         this.cd_nesting_depth = 0;
+        this.loop_frames = []; // Reset loop iterator frames
         this.workspace_symbols = workspace_symbols; // Store workspace symbols
         this.tokens = tokens; // Keep tokens for command-level pattern checks
 
@@ -758,7 +768,18 @@ export class SemanticAnalyzer {
         // Process program body with the new scope — unconditional for the
         // same reason: locals defined inside each body deserve diagnostic
         // coverage regardless of which definition is "primary".
-        this.build_symbols_in_body(node.body, symbols, program_scope, all_scopes);
+        //
+        // Isolate loop iterator frames across the program boundary: a program
+        // defined inside a loop must not let its internal `local `i'` expand
+        // against the enclosing do-file iterator. Uses build_symbols_in_body so
+        // cd-nesting tracking (issue #252) still applies inside the program.
+        const saved_loop_frames = this.loop_frames;
+        this.loop_frames = [];
+        try {
+            this.build_symbols_in_body(node.body, symbols, program_scope, all_scopes);
+        } finally {
+            this.loop_frames = saved_loop_frames;
+        }
 
         // Guard body-metadata extractions on first definition only.
         // These all mutate program_symbol.* and must follow first-def-wins
@@ -932,6 +953,7 @@ export class SemanticAnalyzer {
                 location: { uri: this.uri, range: node.range },
                 sourceUri: this.uri,
                 value: node.value,
+                hasEquals: node.hasEquals,
                 containingScope: current_scope.type,
                 extendedFunction: node.extendedFunction,
                 definition_index: node_index,
@@ -2284,8 +2306,123 @@ export class SemanticAnalyzer {
             }
         }
 
-        // Process loop body with the same scope (loop doesn't create new scope)
-        this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+        // Resolve the iteration value-set BEFORE processing the body so the
+        // list can only reference macros defined before the loop.
+        const loop_type = node.type === 'forvalues' ? 'forvalues' : 'foreach';
+        const value_set = resolve_loop_value_set(
+            loop_type,
+            node.loopSpec,
+            build_static_value_env(symbols)
+        );
+        const pushed = value_set.kind === 'static' && !!node.loopVar;
+        if (pushed) {
+            this.loop_frames.push({
+                var: node.loopVar!,
+                values: value_set.values,
+                endLine: node.range.end.line,
+            });
+        }
+
+        // Snapshot the macros visible BEFORE the loop body executes. Constructed
+        // names resolve helper macros against this snapshot (plus loop iterators
+        // via the per-tuple overlay), never against body-local definitions whose
+        // execution order relative to the constructed statement is unknown. This
+        // keeps expansion sound: an unresolved helper means a name is skipped
+        // (a conservative miss), never wrongly suppressed.
+        const pre_loop_macros = pushed
+            ? {
+                localMacros: new Map(symbols.localMacros),
+                globalMacros: new Map(symbols.globalMacros),
+            }
+            : undefined;
+
+        try {
+            // Process loop body with the same scope (loop doesn't create new
+            // scope). build_symbols_in_body tracks cd-nesting depth (issue #252).
+            this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+
+            if (pushed && pre_loop_macros && this.tokens) {
+                const the_expanded = expand_loop_body(
+                    node,
+                    this.tokens,
+                    this.loop_frames,
+                    pre_loop_macros
+                );
+                // Visibility = after the OUTERMOST active loop's closing brace,
+                // so a constructed name is never treated as defined inside any
+                // enclosing loop body.
+                const visibility_line = this.outermost_active_end_line() + 1;
+                for (const my_macro of the_expanded) {
+                    this.inject_expanded_macro(
+                        my_macro,
+                        symbols,
+                        current_scope,
+                        visibility_line,
+                        node_index
+                    );
+                }
+            }
+        } finally {
+            if (pushed) {
+                this.loop_frames.pop();
+            }
+        }
+    }
+
+    /** Maximum closing-brace line across all active loop frames. */
+    private outermost_active_end_line(): number {
+        let max_line = 0;
+        for (const my_frame of this.loop_frames) {
+            if (my_frame.endLine > max_line) {
+                max_line = my_frame.endLine;
+            }
+        }
+        return max_line;
+    }
+
+    /**
+     * Inject a loop-expanded concrete macro into the symbol table. Visible only
+     * on/after `visibility_line` (via definition_line; definition_index left
+     * undefined so the line gate governs). Collisions append to
+     * additional_definitions, matching ordinary first-def-wins handling.
+     */
+    private inject_expanded_macro(
+        macro: { name: string; scope: 'local' | 'global'; sourceRange: Range },
+        symbols: SymbolTable,
+        current_scope: ScopeInfo,
+        visibility_line: number,
+        node_index: number
+    ): void {
+        const target = macro.scope === 'local'
+            ? symbols.localMacros
+            : symbols.globalMacros;
+        const existing = target.get(macro.name);
+        if (existing) {
+            // Collision (two loops, or a loop + a real definition): append rather
+            // than drop. Record the after-brace visibility line (not the in-loop
+            // source line) so execution-order consumers see when it is defined.
+            if (!existing.additional_definitions) {
+                existing.additional_definitions = [];
+            }
+            existing.additional_definitions.push({
+                index: node_index,
+                line: visibility_line,
+                location: { uri: this.uri, range: macro.sourceRange },
+            });
+            return;
+        }
+        const symbol: MacroSymbol = {
+            name: macro.name,
+            scope: macro.scope,
+            location: { uri: this.uri, range: macro.sourceRange },
+            sourceUri: this.uri,
+            containingScope: current_scope.type,
+            definition_line: visibility_line,
+        };
+        target.set(macro.name, symbol);
+        if (macro.scope === 'local') {
+            current_scope.localMacros.set(macro.name, symbol);
+        }
     }
 
     /**
