@@ -68,6 +68,15 @@ describe('DirectiveParser.classify_call_line', () => {
         expect(parser.classify_call_line('// just a comment')).toBeUndefined();
     });
 
+    test('rejects directive bodies without a valid comment prefix', () => {
+        // A bare `sight:` line is not a Stata comment, and `#` is not a valid
+        // directive prefix; the directive branch only fires after `//` or `*`.
+        expect(parser.classify_call_line('sight: do: "x.do"')).toBeUndefined();
+        expect(parser.classify_call_line('# sight: do: "x.do"')).toBeUndefined();
+        // Sanity: the same body with a valid prefix is recognized.
+        expect(parser.classify_call_line('// sight: do: "x.do"')).toBe('do');
+    });
+
     test('is single-line: it does not apply @lsp-ignore-next context', () => {
         // classify_call_line has no surrounding context, so an ignore-next on a
         // previous line cannot suppress it. Documents the deliberate out-of-scope

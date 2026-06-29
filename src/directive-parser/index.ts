@@ -316,6 +316,9 @@ export class DirectiveParser {
 
         // Lines whose leading text is inside a block comment carry no directives.
         const block_lines = block_comment_lines(content, tokens);
+        // Block-comment spans for match= occurrence checks, computed lazily once
+        // and reused across all match= directives in this file.
+        let the_block_ranges: Range[] | undefined;
 
         // Track lines to ignore from @lsp-ignore-next
         const ignored_next_lines = new Set<number>();
@@ -413,8 +416,11 @@ export class DirectiveParser {
                 } else if (my_call_site?.type === 'match' && typeof my_call_site.value === 'string') {
                     // Search current file content for match string (reuse the
                     // already-lexed tokens for block-comment span detection).
+                    if (the_block_ranges === undefined) {
+                        the_block_ranges = block_comment_ranges(content, tokens);
+                    }
                     const match_line = this.find_match_line(
-                        content, my_call_site.value, block_comment_ranges(content, tokens));
+                        content, my_call_site.value, the_block_ranges);
                     if (match_line !== undefined) {
                         my_call_site_line = match_line;
                     } else {
