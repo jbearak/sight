@@ -443,13 +443,13 @@ export class StataParser {
     const scopeToken = this.advance(); // consume 'local' or 'global'
     const scope = scopeToken.value as 'local' | 'global';
 
-    this.skipTrivia();
+    this.skipMacroDefinitionTrivia();
 
     // Handle prefix increment/decrement: local ++i or local --i
     let prefixOp: string | undefined;
     if (this.check('OPERATOR') && (this.peek().value === '++' || this.peek().value === '--')) {
       prefixOp = this.advance().value;
-      this.skipTrivia();
+      this.skipMacroDefinitionTrivia();
     }
 
     if (!this.check('WORD')) {
@@ -462,7 +462,7 @@ export class StataParser {
 
     // Check for suffix increment/decrement (likely mistake): local i++
     // This assigns "++" to the macro instead of incrementing it.
-    this.skipTrivia();
+    this.skipMacroDefinitionTrivia();
     if (!prefixOp && this.check('OPERATOR') && (this.peek().value === '++' || this.peek().value === '--')) {
       const suffixOp = this.peek().value;
       this.errors.push({
@@ -484,7 +484,7 @@ export class StataParser {
       has_equals = true;
       this.advance();
     }
-    this.skipTrivia();
+    this.skipMacroDefinitionTrivia();
 
     // Collect the rest of the line as the macro value (stop at comment or terminator)
     let value = prefixOp || ''; // If prefixOp exists and no = value follows, it signifies increment
@@ -546,7 +546,7 @@ export class StataParser {
 
   private parse_extended_macro_def(scopeToken: Token, scope: 'local' | 'global', macroName: string): MacroDefNode {
     this.advance(); // consume colon
-    this.skipTrivia();
+    this.skipMacroDefinitionTrivia();
 
     if (!this.check('WORD')) {
       this.addError('Expected function name after colon', this.peek().range);
@@ -554,13 +554,24 @@ export class StataParser {
     }
 
     const function_name = this.advance().value;
-    this.skipTrivia();
+    this.skipMacroDefinitionTrivia();
 
     // Collect function arguments.
     // IMPORTANT: Preserve the original token stream verbatim to avoid introducing
     // artificial token boundaries (e.g., turning "0Ea" into "0E a").
     const arg_tokens: Token[] = [];
-    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+      // Bridge `///` continuations onto the next physical line, matching the
+      // standard `= ...` value path.
+      if (this.skipContinuation()) {
+        continue;
+      }
+
+      // Stop at comments (continuations are handled above).
+      if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
+        break;
+      }
+
       const token = this.advance();
       arg_tokens.push(token);
     }
@@ -2464,39 +2475,82 @@ export class StataParser {
     }
   }
 
+  // Skip trivia within a macro definition statement, bridging `///`
+  // continuations onto the next physical line (skipContinuation consumes
+  // the continuation token AND the following statement terminator).
+  //
+  // Stata 18 MP audit: `local x = ///` followed by `1 / 2` succeeds with
+  // `_rc == 0` and x == .5, while bare `local x =` errors with invalid
+  // syntax rc 198, so bridging here still leaves a truly empty assignment
+  // diagnostic-worthy. A `///` may appear at any point inside the
+  // statement (after `local`/`global`, after the name, after `=`, or
+  // after the extended `:` function), so every trivia-skipping step in
+  // macro-definition parsing uses this instead of plain skipTrivia().
+  private skipMacroDefinitionTrivia(): void {
+    while (!this.isAtEnd()) {
+      if (this.skipContinuation()) {
+        continue;
+      }
+
+      if (this.check('WHITESPACE') || this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
+        this.advance();
+        continue;
+      }
+
+      break;
+    }
+  }
+
   /**
-   * Check if the next non-trivia token(s) look like a macro definition.
-   * Returns true if next token is WORD, or OPERATOR ++/-- followed by WORD.
+   * Advance a lookahead offset past trivia, bridging `///` continuations the
+   * same way skipMacroDefinitionTrivia does for the live cursor (a continuation
+   * also consumes the following statement terminator). Returns the offset of
+   * the next significant token (or the end-of-token offset).
    */
-  private looksLikeMacroDefinition(): boolean {
-    let offset = 1;
-    // Skip trivia tokens
+  private nextSignificantOffsetForMacroDef(offset: number): number {
     while (this.current + offset < this.tokens.length) {
       const token = this.tokens[this.current + offset];
-      if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK' || 
-          token.type === 'CONTINUATION' || token.type === 'WHITESPACE') {
+      if (token.type === 'CONTINUATION') {
+        offset++;
+        if (this.current + offset < this.tokens.length &&
+            this.tokens[this.current + offset].type === 'STATEMENT_TERMINATOR') {
+          offset++;
+        }
+        continue;
+      }
+      if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK' ||
+          token.type === 'WHITESPACE') {
         offset++;
         continue;
       }
-      // Found first non-trivia token
-      if (token.type === 'WORD') {
-        return true;
-      }
-      // Check for ++/-- prefix followed by WORD
-      if (token.type === 'OPERATOR' && (token.value === '++' || token.value === '--')) {
-        offset++;
-        // Skip trivia after operator
-        while (this.current + offset < this.tokens.length) {
-          const next_token = this.tokens[this.current + offset];
-          if (next_token.type === 'COMMENT_LINE' || next_token.type === 'COMMENT_BLOCK' || 
-              next_token.type === 'CONTINUATION' || next_token.type === 'WHITESPACE') {
-            offset++;
-            continue;
-          }
-          return next_token.type === 'WORD';
-        }
-      }
+      break;
+    }
+    return offset;
+  }
+
+  /**
+   * Check if the next non-trivia token(s) look like a macro definition.
+   * Returns true if next token is WORD, or OPERATOR ++/-- followed by WORD.
+   * `///` continuations between the scope keyword and the name are bridged.
+   */
+  private looksLikeMacroDefinition(): boolean {
+    let offset = this.nextSignificantOffsetForMacroDef(1);
+    if (this.current + offset >= this.tokens.length) {
       return false;
+    }
+
+    const token = this.tokens[this.current + offset];
+    // Found first non-trivia token
+    if (token.type === 'WORD') {
+      return true;
+    }
+    // Check for ++/-- prefix followed by WORD
+    if (token.type === 'OPERATOR' && (token.value === '++' || token.value === '--')) {
+      offset = this.nextSignificantOffsetForMacroDef(offset + 1);
+      if (this.current + offset >= this.tokens.length) {
+        return false;
+      }
+      return this.tokens[this.current + offset].type === 'WORD';
     }
     return false;
   }
