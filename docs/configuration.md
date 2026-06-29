@@ -147,17 +147,31 @@ source with generated output (for example, downloaded `.do` files under
 | ---------------- | ----- | ------- | -------------------------------------------------------------------- |
 | `sight.exclude`  | array | `[]`    | Workspace-relative glob patterns to skip during bulk analysis        |
 
-```jsonc
-{
-  "sight.exclude": ["output/**", "**/_generated/**", "**/*.gen.do"]
-}
-```
+You can set this in two places:
 
-Or in `sight.toml`:
+- **`sight.toml`** at the project root, as the top-level `exclude` key. This is
+  read by both the editor (LSP server) and the `sight check` CLI:
 
-```toml
-exclude = ["output/**", "**/_generated/**"]
-```
+  ```toml
+  exclude = ["output/**", "**/_generated/**", "**/*.gen.do"]
+  ```
+
+- **VS Code settings** — your User `settings.json` or the project's Workspace
+  settings (`.vscode/settings.json`) — as the `sight.exclude` key. This affects
+  the **editor only**:
+
+  ```jsonc
+  {
+    "sight.exclude": ["output/**", "**/_generated/**", "**/*.gen.do"]
+  }
+  ```
+
+> **`sight check` (the CLI used in CI) reads only `sight.toml`** (or a file
+> passed with `--config`). It does not read VS Code settings, which are
+> client-side and reach only the running LSP server. So to exclude paths from CI
+> runs, put them in `sight.toml`. When both are present for the editor, the LSP
+> server lets `sight.toml` take precedence over VS Code settings (see
+> [Project Configuration File](#project-configuration-file)).
 
 Behavior:
 
@@ -175,8 +189,14 @@ Behavior:
 Patterns use [picomatch](https://github.com/micromatch/picomatch) glob syntax
 (`*`, `**`, `?`, `{a,b}`) and are matched relative to the workspace root. A
 leading `!` re-includes a previously-excluded path (e.g.
-`["output/**", "!output/manifest.do"]`). Paths outside the workspace (such as
-configured ADO paths) are never excluded.
+`["output/**", "!output/manifest.do"]`).
+
+`exclude` only applies to files inside your workspace folder. Sight also scans
+your configured ADO paths (and auto-detected Stata install directories), which
+normally live outside the workspace — `exclude` has no effect on those files, so
+you cannot use it to filter ADO scanning. (If you point an ADO path at a folder
+*inside* the workspace, it is in-workspace like any other file and `exclude`
+patterns do apply to it.)
 
 ## ADO Paths
 
