@@ -200,8 +200,8 @@ describe('cli shared renderers', () => {
 
     it('renders text with one-based coordinates and summary', () => {
         const text = render_text(records, { quiet: false, use_color: false });
-        expect(text).toContain('a.do:1:2 error: A error [SYNTAX_ERROR]');
-        expect(text).toContain('b.do:3:5 warning: B warning [UNDEFINED_MACRO]');
+        expect(text).toContain('a.do:1:2 error: A error [syntax_error]');
+        expect(text).toContain('b.do:3:5 warning: B warning [undefined_macro]');
         expect(text).toContain('2 issues (1 errors, 1 warnings, 0 infos, 0 hints, 0 notes)');
     });
 

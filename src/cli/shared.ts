@@ -151,6 +151,11 @@ function code_text(code: Diagnostic['code']): string {
     return '';
 }
 
+function text_code_text(code: Diagnostic['code']): string {
+    if (typeof code === 'string') return code.toLowerCase();
+    return code_text(code);
+}
+
 function sarif_rule_id(code: Diagnostic['code']): string {
     const value = code_text(code);
     return value || 'SIGHT';
@@ -239,7 +244,7 @@ export function render_text(
         if (is_truncation_diagnostic(record.diagnostic)) {
             truncation_count++;
         }
-        const code = code_text(record.diagnostic.code);
+        const code = text_code_text(record.diagnostic.code);
         const code_suffix = code ? ` [${code}]` : '';
         lines.push(
             `${record.relative_path}:` +

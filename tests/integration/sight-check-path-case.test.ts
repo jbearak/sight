@@ -226,11 +226,11 @@ describe('sight check — case-only path mismatch', () => {
     );
 
     it(
-        'text output renders [PATH_CASE_MISMATCH] for path_case_mismatch in run_check_with_cwd',
+        'text output renders [path_case_mismatch] for path_case_mismatch in run_check_with_cwd',
         async () => {
             // Verify the code suffix appears in text output via the
             // run_check_with_cwd wrapper (consistent with how other diagnostic
-            // codes appear, e.g. [UNDEFINED_MACRO]).
+            // codes appear, e.g. [undefined_macro]).
             const root = build_fixture();
             try {
                 const { run_check_with_cwd } = await import('../../src/cli/check');
@@ -245,13 +245,13 @@ describe('sight check — case-only path mismatch', () => {
                 );
                 const the_output = stdout_lines.join('');
                 expect(the_output).toContain(
-                    `[${StataDiagnosticCode.PATH_CASE_MISMATCH}]`
+                    `[${StataDiagnosticCode.PATH_CASE_MISMATCH.toLowerCase()}]`
                 );
                 // Must point at main.do (the caller)
                 expect(the_output).toContain('main.do:');
                 // Must NOT contain undefined macro diagnostics: no cascade.
                 expect(the_output).not.toContain(
-                    `[${StataDiagnosticCode.UNDEFINED_MACRO}]`
+                    `[${StataDiagnosticCode.UNDEFINED_MACRO.toLowerCase()}]`
                 );
             } finally {
                 fs.rmSync(root, { recursive: true, force: true });

@@ -8,8 +8,9 @@ documents the configuration keys that control severity.
 Diagnostics are deferred until the workspace scan completes, so
 cross-file warnings reflect the full project rather than just the open
 buffer. Each diagnostic carries a symbolic `code` (the rule IDs below)
-and `source: "sight"`. LSP diagnostics, `sight check` text output,
-JSON, and SARIF all use the same symbolic rule IDs.
+and `source: "sight"`. LSP diagnostics, JSON, and SARIF use the
+canonical uppercase rule IDs. `sight check` text output lowercases the
+same rule IDs in its bracketed suffixes, for example `[undefined_macro]`.
 
 ## Quick reference
 

@@ -255,7 +255,7 @@ finding. The message should include the byte offset where decoding failed.
 Text output should be concise and grep-friendly:
 
 ```text
-analysis/main.do:12:8 warning: Undefined macro: project_root [UNDEFINED_MACRO]
+analysis/main.do:12:8 warning: Undefined macro: project_root [undefined_macro]
 ```
 
 Rules:

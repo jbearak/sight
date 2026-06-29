@@ -42,7 +42,9 @@ describe('sight check integration', () => {
 
         expect(result.code).toBe(EXIT_CHECK_FAILED);
         expect(result.stdout).toContain('main.do:1:');
-        expect(result.stdout).toContain(`[${StataDiagnosticCode.UNDEFINED_MACRO}]`);
+        expect(result.stdout).toContain(
+            `[${StataDiagnosticCode.UNDEFINED_MACRO.toLowerCase()}]`
+        );
     });
 
     it('honors editor default undefinedVariable off', async () => {
@@ -84,7 +86,7 @@ describe('sight check integration', () => {
         expect(result.code).toBe(EXIT_OK);
         expect(result.stdout).toContain('info:');
         expect(result.stdout).toContain(
-            `[${StataDiagnosticCode.SPACED_COMPOUND_OPERATOR}]`
+            `[${StataDiagnosticCode.SPACED_COMPOUND_OPERATOR.toLowerCase()}]`
         );
     });
 
