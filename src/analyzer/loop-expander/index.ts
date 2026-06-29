@@ -109,6 +109,9 @@ export function expand_loop_body(
     // value or loop binding, so the pre-loop fold would fabricate a name that
     // never exists at runtime. Such names are skipped (a conservative miss). A
     // reassignment that comes AFTER the constructed name does not affect it.
+    // This set also captures the concrete names produced by EARLIER constructed
+    // definitions, since those are themselves (re)definitions that later
+    // templates may interpolate.
     const redefined_local = new Set<string>();
     const redefined_global = new Set<string>();
     for (const my_statement of collect_candidate_statements(node.body)) {
@@ -116,11 +119,26 @@ export function expand_loop_body(
         if (the_tokens.length === 0) continue;
         const template = extract_name_template(the_tokens);
         if (template) {
+            const redefined_for_scope =
+                template.scope === 'local' ? redefined_local : redefined_global;
             if (!template_references_redefined(template, redefined_local, redefined_global)) {
                 for (const my_name of expand_template(template, frames, symbols)) {
                     the_expanded.push({ name: my_name, scope: template.scope, sourceRange: my_statement.range });
+                    // The constructed statement (re)defines the macro named
+                    // `my_name`. A LATER constructed name that interpolates this
+                    // macro can no longer trust the pre-loop snapshot value, so
+                    // record it as redefined. Folding it with the stale value
+                    // would fabricate a concrete name that never exists at
+                    // runtime (e.g. `local `i' bar` reassigning a helper that a
+                    // following `local x_`helper'` reads). Subsequent templates
+                    // referencing it are then conservatively skipped.
+                    redefined_for_scope.add(my_name);
                 }
             }
+            // When the template DOES reference an already-redefined macro we
+            // skip it (conservative miss): the concrete name it would define is
+            // unknown, so there is nothing reliable to record for later
+            // templates.
             continue;
         }
         // A plain redefinition shadows the pre-loop value for any LATER

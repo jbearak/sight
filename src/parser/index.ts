@@ -491,10 +491,18 @@ export class StataParser {
     const value_start_pos = this.current;
     let paren_depth = 0;
     const value_tokens: Token[] = [];
+    // Parallel to value_tokens: true when the token at the same index was
+    // reached by crossing a `///` continuation (vs an ordinary newline). A
+    // `///` join keeps only indentation, so an unindented continuation joins
+    // with no space; a raw `#delimit ;` newline is ordinary whitespace and
+    // always separates. See reconstruct_value_tokens.
+    const preceded_by_continuation: boolean[] = [];
+    let continuation_pending = false;
 
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
+        continuation_pending = true;
         continue;
       }
 
@@ -510,6 +518,9 @@ export class StataParser {
       // the raw run of spaces/newlines. Skip them: reconstruct_value_tokens
       // re-inserts a single space from inter-token gaps, so keeping them would
       // embed literal whitespace (and `\n`) into the stored macro value.
+      // Leave continuation_pending untouched: a `///` continuation's
+      // indentation may surface as a WHITESPACE token before the next real
+      // token, and the continuation status still applies to that token.
       if (token.type === 'WHITESPACE') {
         continue;
       }
@@ -527,6 +538,8 @@ export class StataParser {
       }
 
       value_tokens.push(token);
+      preceded_by_continuation.push(continuation_pending);
+      continuation_pending = false;
     }
 
     // Reconstruct with single-space separation from token ranges. The lexer
@@ -534,7 +547,7 @@ export class StataParser {
     // would collapse `local mylist a b c` to "abc" and `` `a' `b' `` to
     // "`a'`b'". A separated token pair (gap on the same line, or a line break
     // from a `///` continuation) becomes one space; adjacent tokens stay joined.
-    const value = prefix_value + this.reconstruct_value_tokens(value_tokens);
+    const value = prefix_value + this.reconstruct_value_tokens(value_tokens, preceded_by_continuation);
 
     // Check for unbalanced parentheses (unclosed opening parentheses)
     if (paren_depth > 0) {
@@ -2032,6 +2045,11 @@ export class StataParser {
       const specType = this.advance().value;
       let loop_spec_body = '';
       let prev_spec_token: Token | null = null;
+      // True when the next real token was reached by crossing a `///`
+      // continuation (vs an ordinary newline). A `///` join keeps only the
+      // continuation line's indentation, so an unindented item joins with no
+      // space; a raw `#delimit ;` newline is whitespace and always separates.
+      let continuation_pending = false;
 
       // Collect specification until {
       while (!this.check('LBRACE') && !this.isAtEnd()) {
@@ -2045,23 +2063,39 @@ export class StataParser {
         }
         const token = this.advance();
         // Spacing is derived from token ranges, not from WHITESPACE/CONTINUATION
-        // token values.
-        if (token.type === 'WHITESPACE' || token.type === 'CONTINUATION') {
+        // token values. A `///` continuation, however, changes how a line break
+        // is spaced, so remember that we crossed one.
+        if (token.type === 'CONTINUATION') {
+          continuation_pending = true;
+          continue;
+        }
+        if (token.type === 'WHITESPACE') {
           continue;
         }
         if (prev_spec_token !== null) {
           const same_line = prev_spec_token.range.end.line === token.range.start.line;
-          const gap = token.range.start.character - prev_spec_token.range.end.character;
-          // Insert a separator on ANY non-adjacency: a same-line gap, or a line
-          // break (a `#delimit ;` newline, or a `///`-continued item). Only
-          // truly adjacent fragments (e.g. `a`m'`) join into one list item, so
-          // `a`m'` stays one value rather than splitting into `a` and `m`.
-          if (!same_line || gap > 0) {
+          let needs_separator: boolean;
+          if (same_line) {
+            // Same-line gap: separate only when there is whitespace between.
+            // Truly adjacent fragments (e.g. `a`m'`) join into one list item.
+            needs_separator =
+              token.range.start.character - prev_spec_token.range.end.character > 0;
+          } else if (continuation_pending) {
+            // `///`-continued item: Stata removes the newline and keeps only
+            // indentation, so an unindented continuation joins (`a///`\n`b` ⇒
+            // `ab`) and an indented one separates.
+            needs_separator = token.range.start.character > 0;
+          } else {
+            // Raw newline (`#delimit ;` mode): ordinary whitespace separator.
+            needs_separator = true;
+          }
+          if (needs_separator) {
             loop_spec_body += ' ';
           }
         }
         loop_spec_body += token.value;
         prev_spec_token = token;
+        continuation_pending = false;
       }
       loopSpec = specType + ' ' + loop_spec_body.trim();
     }
@@ -3305,22 +3339,42 @@ export class StataParser {
    * line's leading indentation as part of the value, so a continued token that
    * starts at column 0 joins with NO space (`local x = ab///\ncd` ⇒ `"abcd"`,
    * `1///\n+2` ⇒ `"1+2"`) while an indented continuation keeps a single space
-   * (`local x = 1 + ///\n    2` ⇒ `"1 + 2"`). Unlike `reconstructTokensWithSpacing`,
-   * exact widths and indentation are collapsed, so values read cleanly.
+   * (`local x = 1 + ///\n    2` ⇒ `"1 + 2"`). A line break that is NOT a `///`
+   * continuation only occurs in `#delimit ;` mode, where a newline is ordinary
+   * whitespace; it always contributes a separator even when the next token
+   * starts at column 0 (`local xs a` \n `b ;` ⇒ `"a b"`, not `"ab"`). Unlike
+   * `reconstructTokensWithSpacing`, exact widths and indentation are collapsed,
+   * so values read cleanly.
+   *
+   * @param tokens - value tokens in order (WHITESPACE/CONTINUATION removed)
+   * @param preceded_by_continuation - parallel array; entry `i` is true when
+   *   `tokens[i]` was reached by crossing a `///` continuation
    */
-  private reconstruct_value_tokens(tokens: Token[]): string {
+  private reconstruct_value_tokens(
+    tokens: Token[],
+    preceded_by_continuation: boolean[]
+  ): string {
     const the_parts: string[] = [];
     let prev_token: Token | null = null;
-    for (const my_token of tokens) {
+    for (let i = 0; i < tokens.length; i++) {
+      const my_token = tokens[i];
       if (prev_token !== null) {
         const same_line = prev_token.range.end.line === my_token.range.start.line;
-        // On a line break (always a `///` continuation in cr mode) the gap is
-        // the continued token's own indentation; on the same line it is the
-        // span between the two tokens.
-        const gap = same_line
-          ? my_token.range.start.character - prev_token.range.end.character
-          : my_token.range.start.character;
-        if (gap > 0) {
+        let needs_separator: boolean;
+        if (same_line) {
+          // Same-line gap: separate only when there is whitespace between.
+          needs_separator =
+            my_token.range.start.character - prev_token.range.end.character > 0;
+        } else if (preceded_by_continuation[i]) {
+          // `///` continuation: the gap is the continued token's own
+          // indentation, so column 0 joins and an indented token separates.
+          needs_separator = my_token.range.start.character > 0;
+        } else {
+          // Raw newline (`#delimit ;` mode): ordinary whitespace separator,
+          // regardless of the next line's indentation.
+          needs_separator = true;
+        }
+        if (needs_separator) {
           the_parts.push(' ');
         }
       }

@@ -2441,6 +2441,26 @@ export class SemanticAnalyzer {
                 location: { uri: this.uri, range: macro.sourceRange },
                 is_expanded: true,
             });
+            // `is_macro_defined` consults only the PRIMARY definition_line /
+            // definition_index, not additional_definitions. When this expanded
+            // definition runs earlier than the current primary (e.g. a
+            // constructed `local `i' …` that executes before a later literal
+            // `local a …` in the same body), lower the primary markers so a
+            // reference between the two is not falsely flagged as a forward /
+            // undefined reference. Only lower (never raise) so the earliest
+            // definition wins and no genuine forward reference is suppressed.
+            if (
+                existing.definition_line === undefined ||
+                definition_line < existing.definition_line
+            ) {
+                existing.definition_line = definition_line;
+            }
+            if (
+                existing.definition_index === undefined ||
+                node_index < existing.definition_index
+            ) {
+                existing.definition_index = node_index;
+            }
             return;
         }
         const symbol: MacroSymbol = {

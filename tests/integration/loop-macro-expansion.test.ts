@@ -487,4 +487,88 @@ describe('Loop macro expansion (integration)', () => {
         expect(symbols.globalMacros.has('g_a')).toBe(true);
         expect(symbols.globalMacros.has('g_b')).toBe(true);
     });
+
+    it('marks an expanded concrete name as redefined for a later template', () => {
+        // `foreach i in suffix` binds i = "suffix", so `local `i' bar` reassigns
+        // the helper `suffix` (foo -> bar). The following `local x_`suffix'`
+        // therefore defines x_bar at runtime, NOT x_foo. The expander must treat
+        // the expanded name `suffix` as redefined and conservatively skip the
+        // later template, rather than fold the stale pre-loop value into x_foo
+        // and falsely suppress a reference to it.
+        const source = [
+            'local suffix foo',
+            'foreach i in suffix {',
+            "    local `i' bar",
+            "    local x_`suffix'",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
+    it('uses the earlier expanded definition as the effective scope on collision', () => {
+        // The constructed `local `i' 1` runs (line 2) BEFORE the literal
+        // `local a 2` (line 4), so at the reference (line 3) `a' is already
+        // defined. is_macro_defined reads only the primary definition line, so
+        // the expanded (earlier) location must lower the primary markers; the
+        // later literal must not win and flag a forward/undefined reference.
+        const source = [
+            'foreach i in a {',
+            "    local `i' 1",
+            "    display `a'",
+            '    local a 2',
+            '}',
+        ].join('\n');
+        expect(undefined_macros(source)).not.toContain('a');
+    });
+
+    it('keeps semicolon-mode cross-line value tokens separated at column 0', () => {
+        // In `#delimit ;` mode a newline is ordinary whitespace, so an
+        // unindented continuation token must still be separated. `local xs a`
+        // then `b ;` is "a b", not "ab" (which would corrupt any
+        // `foreach ... of local xs` expansion).
+        const source = [
+            '#delimit ;',
+            'local xs a',
+            'b ;',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        const xs = symbols.localMacros.get('xs');
+        expect(xs?.value).toBe('a b');
+        expect(xs?.value).not.toContain('\n');
+    });
+
+    it('joins an unindented /// continuation in a loop specification', () => {
+        // Stata removes the `///` newline and keeps only indentation, so an
+        // unindented continuation joins: `foreach i in a///`\n`b {` is the single
+        // value `ab`. The expander must see one value `ab` (=> x_ab), not two
+        // values `a`/`b` (=> x_a/x_b).
+        const source = [
+            'foreach i in a///',
+            'b {',
+            "    local x_`i'",
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_ab')).toBe(true);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(symbols.localMacros.has('x_b')).toBe(false);
+    });
+
+    it('separates an indented /// continuation in a loop specification', () => {
+        // An indented `///` continuation keeps a single separating space, so
+        // `foreach i in a///`\n`    b {` is two values `a` and `b` (=> x_a/x_b).
+        const source = [
+            'foreach i in a///',
+            '    b {',
+            "    local x_`i'",
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(true);
+        expect(symbols.localMacros.has('x_b')).toBe(true);
+        expect(symbols.localMacros.has('x_ab')).toBe(false);
+    });
 });
