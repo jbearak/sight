@@ -62,9 +62,9 @@ export const VARIABLES_DIRECTIVE_PATTERN = new RegExp(
 // space-separated name list. Like the probes above it requires a `//` or
 // line-leading `*` comment prefix, so it never matches text inside a
 // `/* ... */` block comment.
-export const DECLARATION_DIRECTIVE_PATTERN = new RegExp(
-    `${DIRECTIVE_PREFIX_PATTERN}` +
-        `(${DECLARATION_DIRECTIVE_KEYWORDS}):?\\s+(.+)\\s*$`,
+export const DECLARATION_DIRECTIVE_PATTERN = make_directive_pattern(
+    DECLARATION_DIRECTIVE_KEYWORDS,
+    String.raw`:?\s+(.+)\s*$`,
 );
 
 export function has_directive_prefix(text: string): boolean {

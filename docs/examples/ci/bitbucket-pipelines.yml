@@ -1,0 +1,8 @@
+pipelines:
+  default:
+    - step:
+        name: Sight
+        image: node:24
+        script:
+          - npm install -g @jbearak/sight
+          - sight check

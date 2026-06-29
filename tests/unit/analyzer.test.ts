@@ -766,6 +766,18 @@ display \`dynamic_macro'
             }
         });
 
+        it('should not register the delimiter as a symbol for a trailing star directive in #delimit ; mode', () => {
+            // In `#delimit ;` mode the terminating `;` is lexed into the
+            // trailing `*` comment token, so the directive name list would
+            // otherwise pick up a bogus symbol literally named `;`.
+            const result = analyze(`#delimit ;
+gen x = 1 ; * sight: local foo ;
+`);
+
+            expect(result.symbols.localMacros.has('foo')).toBe(true);
+            expect(result.symbols.localMacros.has(';')).toBe(false);
+        });
+
         it('should NOT honor declaration directives nested in block comments', () => {
             // `/* ... */` block comments do not carry directives, even when an
             // interior line is itself shaped like a `//` or `*` comment.

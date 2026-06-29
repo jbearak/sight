@@ -1,0 +1,16 @@
+name: Sight
+
+"on":
+  pull_request:
+  push:
+
+jobs:
+  sight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jbearak/setup-sight@v1
+        with:
+          version: latest
+      - name: Check Stata sources
+        run: sight check
