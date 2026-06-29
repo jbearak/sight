@@ -25,7 +25,8 @@ same rule IDs in its bracketed suffixes, for example `[undefined_macro]`.
 - **Declare a symbol the analyzer can't see** — use
   [`sight: local`, `sight: global`, `sight: variables`, `sight: scalar`,
   `sight: matrix`, `sight: program`](declaration-directives.md). Forward-only:
-  effective at and after the directive line.
+  effective for the whole directive line and following lines. Declaration
+  directives may also be trailing `//` comments.
 - **Bring a sibling file's symbols into scope** — usually nothing to do:
   Sight auto-discovers `do` / `run` / `include` relationships and
   inherits the parent's symbols. Add a header directive

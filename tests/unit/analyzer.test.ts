@@ -671,6 +671,67 @@ summarize age income
             expect(declared_var_diags.length).toBe(0);
         });
 
+        it('should declare variables from trailing slash comments', () => {
+            const result = analyze(`
+display 1 // @lsp-variables age income
+summarize age income
+`, { undefined_variable_enabled: true });
+
+            const declared_var_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE &&
+                    (d.message.includes('age') || d.message.includes('income'))
+            );
+            expect(declared_var_diags.length).toBe(0);
+        });
+
+        it('should treat variable declarations as forward-only', () => {
+            // The `@lsp-variables` directive is effective on its
+            // own line and after, so a reference on an earlier line
+            // still warns while a reference on a later line is
+            // suppressed.
+            const result = analyze(`
+summarize early_var
+display 1 // @lsp-variables early_var
+summarize early_var
+`, { undefined_variable_enabled: true });
+
+            const early_var_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE &&
+                    d.message.includes('early_var')
+            );
+
+            // Exactly one warning: the reference before the
+            // directive line.
+            expect(early_var_diags.length).toBe(1);
+            expect(early_var_diags[0].range.start.line).toBe(1);
+        });
+
+        it('should declare variables with all variable directive aliases', () => {
+            const aliases = [
+                '@lsp-var',
+                '@lsp-vars',
+                '@lsp-variable',
+                '@lsp-variables',
+                'sight: var',
+                'sight: vars',
+                'sight: variable',
+                'sight: variables',
+            ];
+
+            for (const alias of aliases) {
+                const result = analyze(`
+display 1 // ${alias} age income
+summarize age income
+`, { undefined_variable_enabled: true });
+
+                const declared_var_diags = result.diagnostics.filter(
+                    d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE &&
+                        (d.message.includes('age') || d.message.includes('income'))
+                );
+                expect(declared_var_diags.length).toBe(0);
+            }
+        });
+
         it('should declare local macros with canonical sight directives', () => {
             const result = analyze(`
 // sight: local dynamic_macro
@@ -682,6 +743,27 @@ display \`dynamic_macro'
             expect(result.diagnostics.filter(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             ).length).toBe(0);
+        });
+
+        it('should declare non-variable symbols with both @lsp and sight aliases', () => {
+            const cases = [
+                { directive: '@lsp-local', name: 'local_macro', has_symbol: (symbols: SymbolTable) => symbols.localMacros.has('local_macro') },
+                { directive: 'sight: local', name: 'sight_local_macro', has_symbol: (symbols: SymbolTable) => symbols.localMacros.has('sight_local_macro') },
+                { directive: '@lsp-global', name: 'global_macro', has_symbol: (symbols: SymbolTable) => symbols.globalMacros.has('global_macro') },
+                { directive: 'sight: global', name: 'sight_global_macro', has_symbol: (symbols: SymbolTable) => symbols.globalMacros.has('sight_global_macro') },
+                { directive: '@lsp-scalar', name: 'declared_scalar', has_symbol: (symbols: SymbolTable) => symbols.scalars.has('declared_scalar') },
+                { directive: 'sight: scalar', name: 'sight_declared_scalar', has_symbol: (symbols: SymbolTable) => symbols.scalars.has('sight_declared_scalar') },
+                { directive: '@lsp-matrix', name: 'declared_matrix', has_symbol: (symbols: SymbolTable) => symbols.matrices.has('declared_matrix') },
+                { directive: 'sight: matrix', name: 'sight_declared_matrix', has_symbol: (symbols: SymbolTable) => symbols.matrices.has('sight_declared_matrix') },
+                { directive: '@lsp-program', name: 'declared_program', has_symbol: (symbols: SymbolTable) => symbols.programs.has('declared_program') },
+                { directive: 'sight: program', name: 'sight_declared_program', has_symbol: (symbols: SymbolTable) => symbols.programs.has('sight_declared_program') },
+            ];
+
+            for (const test_case of cases) {
+                const result = analyze(`display 1 // ${test_case.directive} ${test_case.name}`);
+
+                expect(test_case.has_symbol(result.symbols)).toBe(true);
+            }
         });
 
         it('should NOT honor declaration directives nested in block comments', () => {

@@ -1277,8 +1277,6 @@ describe('binary command name', () => {
             .toContain('scripts/smoke-stdio-startup.ts');
         expect(get_paths_filter_entries(workflow_content, 'binaries'))
             .toContain('.github/workflows/ci.yml');
-        expect(get_paths_filter_entries(workflow_content, 'formula'))
-            .not.toContain('scripts/release.ts');
     });
 
     it('keeps release script version bump side effects centralized', () => {

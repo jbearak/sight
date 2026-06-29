@@ -9,10 +9,10 @@ You can suppress diagnostics on specific lines using comment directives:
   `//` comment
 - `sight: ignore-next` - Suppresses diagnostics on the next statement
 
-`sight:` is the preferred directive prefix. Most directives must appear inside
-a Stata line comment, on a line by itself, such as `// sight: ...` or
-`* sight: ...`. `sight: ignore` may also appear as a trailing `//` comment for
-same-line suppression; `sight: ignore-next` always targets the next statement.
+`sight:` is the preferred directive prefix. Directives must appear inside a
+Stata line comment, such as `// sight: ...` or `* sight: ...`. `sight: ignore`
+and declaration directives may also appear as trailing `//` comments;
+`sight: ignore-next` always targets the next statement.
 Block comments (`/* ... */`) do not carry directives. The older `@lsp-` forms
 remain permanent aliases, so `// @lsp-ignore` still works.
 
@@ -57,7 +57,9 @@ You can explicitly declare symbols to the LSP using declaration directives. Thes
 | `sight: program <name>` | Declares a program      |
 
 Each declaration directive accepts one or more space-separated symbol names.
-`sight: variables` likewise accepts one or more variable names.
+`sight: variables` likewise accepts one or more variable names. Variable
+declarations also accept `var`, `vars`, and `variable` as aliases, with either
+the `sight:` prefix or the older `@lsp-` prefix.
 
 **Examples:**
 
@@ -66,6 +68,10 @@ Each declaration directive accepts one or more space-separated symbol names.
 // sight: local result_from_program
 do "compute_result.do"
 display `result_from_program'  // No warning - declared above
+
+// Declare a local macro inline with the code that documents the source
+aww_confirm_var v226 // sight: local v226
+display `v226'
 
 // Declare a global macro set by external code
 * sight: global CONFIG_PATH
@@ -86,9 +92,9 @@ my_utility arg1 arg2
 
 **Notes:**
 - Directives can appear anywhere in the file (not just in the header)
-- The declaration takes effect from the line where it appears through the end of the file
-- References to the symbol before the directive line will still produce warnings
-- Directives must be standalone `//` or line-leading `*` comments
+- The declaration takes effect for the whole line where it appears through the end of the file
+- References to the symbol on earlier lines will still produce warnings
+- Directives can be standalone `//`, trailing `//`, or line-leading `*` comments
 - `/* ... */` block comments are not directive comments
 - Trailing whitespace after the symbol name is allowed
 
