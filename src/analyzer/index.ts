@@ -62,8 +62,10 @@ export interface AnalysisResult {
 export interface AnalyzerConfig {
     undefined_macro_enabled: boolean;
     undefined_variable_enabled: boolean;
-    // Variables declared via @lsp-variables directive
-    declared_variables: Set<string>;
+    // Variables declared via @lsp-variables directive, with the
+    // line the directive appears on (forward-only, like the other
+    // declaration maps).
+    declared_variables: Map<string, { line: number }>;
     // Lines to ignore via @lsp-ignore-next directive
     ignored_lines: Set<number>;
     // Symbols declared via @lsp-local, @lsp-global, @lsp-scalar, @lsp-matrix, @lsp-program directives
@@ -88,7 +90,7 @@ function create_default_config(): AnalyzerConfig {
     return {
         undefined_macro_enabled: true,
         undefined_variable_enabled: false, // Off by default per requirements
-        declared_variables: new Set(),
+        declared_variables: new Map(),
         ignored_lines: new Set(),
         declared_locals: new Map(),
         declared_globals: new Map(),
@@ -281,9 +283,8 @@ export class SemanticAnalyzer {
         // This avoids issues with multi-line block comments causing line number mismatches
         this.parse_declaration_directives_from_tokens(tokens, symbols);
         
-        // Process other directives (ignore, variables). Like declaration
-        // directives, these are only honored in standalone `//` / line-leading
-        // `*` comments; `/* ... */` block comments do not carry directives.
+        // Process other directives. `ignore` and variable
+        // declarations may appear in trailing `//` comments.
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
 
@@ -302,19 +303,32 @@ export class SemanticAnalyzer {
                     this.ignore_next_non_trivia_line(tokens, i);
                 }
 
-                if (!is_standalone_comment) {
-                    continue;
-                }
-
-                // Check for @lsp-variables directive
+                // Check for @lsp-variables / @lsp-var directive
                 const variables_match = token_content.match(VARIABLES_DIRECTIVE_PATTERN);
                 if (variables_match) {
                     const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
                     for (const var_name of var_names) {
-                        this.config.declared_variables.add(var_name);
+                        this.register_declared_variable(
+                            var_name,
+                            token.range.start.line
+                        );
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Record a variable declared via `@lsp-variables` /
+     * `sight: variables`, keeping the earliest directive line so the
+     * declaration is forward-only (effective on that line and after),
+     * consistent with the other declaration directives. References on
+     * earlier lines still warn.
+     */
+    private register_declared_variable(name: string, line: number): void {
+        const existing = this.config.declared_variables.get(name);
+        if (existing === undefined || line < existing.line) {
+            this.config.declared_variables.set(name, { line });
         }
     }
 
@@ -343,14 +357,17 @@ export class SemanticAnalyzer {
     private parse_declaration_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
-            // Directives live only in standalone `//` / line-leading `*`
-            // comments. `/* ... */` block comments do not carry directives
-            // (see docs/declaration-directives.md), so a directive-looking line
-            // nested inside a block comment must stay inert.
+            // Declaration directives live in real line comments and are
+            // honored whether standalone or trailing code on the same
+            // line: the pattern is anchored to the comment token's own
+            // text, which begins at `//` or `*`. The lexer may treat
+            // a mid-line `*` as a comment (e.g. after a string or
+            // `;`), so such a directive is honored too. `/* ... */`
+            // block comments do not carry directives (see
+            // docs/declaration-directives.md): they lex as a single
+            // COMMENT_BLOCK token, never COMMENT_LINE, so a
+            // directive-looking line nested inside one stays inert.
             if (token.type !== 'COMMENT_LINE') {
-                continue;
-            }
-            if (!this.is_standalone_comment_token(tokens, i)) {
                 continue;
             }
 
@@ -358,6 +375,10 @@ export class SemanticAnalyzer {
             if (my_match) {
                 const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
                 const the_names = my_match[2].split(/\s+/).filter(n => n.length > 0);
+                // Declarations are intentionally line-scoped, not
+                // character-scoped. A trailing `// sight: local x`
+                // applies to the whole physical line as well as
+                // following lines.
                 const my_actual_line = token.range.start.line;
                 for (const my_name of the_names) {
                     this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
@@ -503,12 +524,15 @@ export class SemanticAnalyzer {
             this.config.ignored_lines.add(line_to_ignore);
         }
 
-        // Check for @lsp-variables directive
+        // Check for @lsp-variables / @lsp-var directive
         const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
         if (variables_match) {
             const var_names = variables_match[1].split(/\s+/).filter(v => v.length > 0);
             for (const var_name of var_names) {
-                this.config.declared_variables.add(var_name);
+                this.register_declared_variable(
+                    var_name,
+                    trivia.range.start.line
+                );
             }
         }
     }
@@ -2323,7 +2347,11 @@ export class SemanticAnalyzer {
         // Check varlist for undefined variables
         if (node.varlist) {
             for (const var_node of node.varlist) {
-                const is_defined = this.is_variable_defined(var_node.name, symbols);
+                const is_defined = this.is_variable_defined(
+                    var_node.name,
+                    symbols,
+                    var_node.range.start.line
+                );
 
                 if (!is_defined) {
                     diagnostics.push({
@@ -2488,14 +2516,22 @@ export class SemanticAnalyzer {
      * Variables are case-sensitive.
      * NOTE: Workspace symbols do NOT suppress undefined variable warnings.
      */
-    private is_variable_defined(name: string, symbols: SymbolTable): boolean {
+    private is_variable_defined(
+        name: string,
+        symbols: SymbolTable,
+        reference_line: number
+    ): boolean {
         // Check local symbol table
         if (symbols.variables.has(name)) {
             return true;
         }
 
-        // Check declared variables from @lsp-variables directive
-        if (this.config.declared_variables.has(name)) {
+        // Check declared variables from @lsp-variables directive.
+        // Forward-only: the declaration is effective on its own
+        // line and after, so a reference on an earlier line still
+        // warns.
+        const declared = this.config.declared_variables.get(name);
+        if (declared !== undefined && reference_line >= declared.line) {
             return true;
         }
 

@@ -112,6 +112,33 @@ if ( "\${myconfig}" != "1" ) {
         expect(undefined_warnings.length).toBe(0);
     });
 
+    test('trailing slash declaration directive on code line suppresses later local warning', () => {
+        const content = `aww_confirm_var v226 // @lsp-local v226
+display \`v226'`;
+
+        const lexer_result = lexer.tokenize(content);
+        const parse_result = parser.parse(lexer_result.tokens);
+        const analyzer = new SemanticAnalyzer();
+        const analysis_result = analyzer.analyze(
+            parse_result.ast,
+            'file:///test.do',
+            undefined,
+            undefined,
+            lexer_result.tokens
+        );
+
+        const local_macro = analysis_result.symbols.localMacros.get('v226');
+        expect(local_macro).toBeDefined();
+        expect(local_macro?.definition_line).toBe(0);
+
+        const undefined_warnings = analysis_result.diagnostics.filter(
+            d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                 d.message.includes('v226')
+        );
+
+        expect(undefined_warnings.length).toBe(0);
+    });
+
     test('directive line number is preserved correctly after block comment', () => {
         const content = `/*  Block comment
     spanning multiple lines
