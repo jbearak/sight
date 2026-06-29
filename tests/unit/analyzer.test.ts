@@ -684,6 +684,26 @@ summarize age income
             expect(declared_var_diags.length).toBe(0);
         });
 
+        it('should treat variable declarations as forward-only', () => {
+            // The `@lsp-variables` directive is effective on its own line
+            // and after, so a reference on an earlier line still warns
+            // while a reference on a later line is suppressed.
+            const result = analyze(`
+summarize early_var
+display 1 // @lsp-variables early_var
+summarize early_var
+`, { undefined_variable_enabled: true });
+
+            const early_var_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE &&
+                    d.message.includes('early_var')
+            );
+
+            // Exactly one warning: the reference before the directive line.
+            expect(early_var_diags.length).toBe(1);
+            expect(early_var_diags[0].range.start.line).toBe(1);
+        });
+
         it('should declare variables with all variable directive aliases', () => {
             const aliases = [
                 '@lsp-var',
