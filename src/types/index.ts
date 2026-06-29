@@ -636,7 +636,7 @@ export interface DirectiveDiagnostic {
   severity: 'error' | 'warning' | 'information';
   source?: DiagnosticSource;  // Source attribution for diagnostics from parent files
   /** Structured discriminator for severity routing. */
-  kind?: 'missing_file' | 'path_case_mismatch' | 'truncation';
+  kind?: 'missing_file' | 'path_case_mismatch' | 'truncation' | 'missing_directory';
   /** Stable code included on the emitted LSP Diagnostic (e.g. PATH_CASE_MISMATCH). */
   code?: StataDiagnosticCode;
   /**
@@ -873,12 +873,40 @@ export interface ForwardCall {
                                // caller file's own directory).
 }
 
+/**
+ * A top-level Stata `cd` command recognized by the analyzer (issue #252).
+ *
+ * Only literal, unprefixed `cd` statements at the top level of a file are
+ * recorded; `capture cd`, macro-interpolated paths, bare `cd` (no argument),
+ * and `cd` inside loops/programs/branches are NOT recorded (they must not
+ * poison the effective working-directory timeline).
+ *
+ * The analyzer performs NO path resolution: it only records the raw path and
+ * the command's range. The shared `build_cd_timeline` helper
+ * (`src/utils/file-path-utils.ts`) resolves these against the filesystem in
+ * source (position) order to produce the line-sensitive working directory used
+ * to re-stamp each `ForwardCall.working_directory`.
+ */
+export interface CdCommand {
+  raw_path: string;       // Path exactly as written (quotes already stripped)
+  range: Range;           // Command range; range.start orders the cd timeline
+  is_static: boolean;     // false if raw_path contains a macro reference
+}
+
 export interface ForwardResolveContext {
   visited: Map<string, EffectiveCallType>;
   effective_call_type: EffectiveCallType;
   depth: number;
   diagnostics: DirectiveDiagnostic[];
   working_directory?: string;  // Inherited working directory for path resolution
+  /**
+   * Top-level `cd` commands of the file being resolved in THIS frame
+   * (issue #252). The resolver builds a working-directory timeline from
+   * `working_directory` (the call-site WD) + these commands, so each forward
+   * call resolves against the WD active at its position. Each recursion level
+   * carries the callee's own cd_commands.
+   */
+  cd_commands?: CdCommand[];
   call_chain?: string[];       // Call chain for diagnostic messages
   /**
    * URI of the file whose diagnostics are being collected in this

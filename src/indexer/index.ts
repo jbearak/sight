@@ -53,6 +53,8 @@ import {
 import {
     hasStataExtension,
     VCS_METADATA_DIRS,
+    build_cd_timeline,
+    apply_cd_timeline,
 } from '../utils/file-path-utils';
 import { entry_is_file_async } from '../utils/symlink-aware-entry';
 
@@ -577,16 +579,25 @@ export class WorkspaceIndexer {
                         );
             }
 
-            // Stamp caller_uri and working_directory onto command-detected
-            // forward calls produced by the analyzer.  The analyzer already
-            // sets caller_uri (= file_uri) on each call; we add
-            // working_directory here because the analyzer does not have access
-            // to the effective WD in this context (the indexer analyzes without
-            // threading WD to preserve the existing path-resolution behavior).
-            const stamped_analyzer_calls: ForwardCall[] = analyzeResult.forward_calls.map(fc => ({
-                ...fc,
-                working_directory: effective_working_directory,
-            }));
+            // Re-stamp command-detected forward calls with the line-sensitive
+            // working directory implied by in-script `cd` commands (issue #252).
+            // The timeline starts from the file's effective WD (own/inherited)
+            // and resolves each top-level `cd` in source order, so the dep-graph
+            // edges match what DocumentStore produces for the same source. The
+            // analyzer sets caller_uri (= file_uri); apply_cd_timeline sets the
+            // per-call working_directory. Diagnostics are discarded here (only
+            // ForwardScopeResolver emits cd diagnostics, for the owner file).
+            const my_caller_dir = path.dirname(file_path);
+            const { timeline: cd_timeline } = build_cd_timeline({
+                starting_wd: effective_working_directory,
+                caller_dir: my_caller_dir,
+                cd_commands: analyzeResult.cd_commands,
+                workspace_roots: this.workspace_roots,
+            });
+            const stamped_analyzer_calls: ForwardCall[] = apply_cd_timeline(
+                analyzeResult.forward_calls,
+                cd_timeline,
+            );
 
             // Compute context ranges for embedded language support
             const context_tracker = new ContextTracker();
