@@ -40,7 +40,6 @@ import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { logger } from '../utils/logger';
-import { effective_definition_line } from '../utils/symbol-visibility';
 import { error_message } from '../utils/error-message';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import {
@@ -2461,10 +2460,14 @@ export class ScopeResolver {
         ): Map<string, T> => {
             const filtered = new Map<string, T>();
             for (const [name, symbol] of map) {
-                // Use the effective definition line so symbols with a
-                // diagnostic visibility line that differs from their
-                // navigation location are call-site filtered correctly.
-                const defined_line = effective_definition_line(symbol);
+                // Filter by the symbol's source (navigation) line, not a
+                // diagnostic-only line. Some analyzer symbols (e.g. `args`
+                // locals) carry definition_line=0 to mean "visible throughout
+                // the program" for in-file diagnostics; that sentinel must not
+                // make them look defined at the top of the file for cross-file
+                // call-site filtering. Loop-expanded macros set definition_line
+                // equal to this line, so they are unaffected.
+                const defined_line = symbol.location.range.start.line;
                 if (defined_line <= call_site_line) {
                     filtered.set(name, symbol);
                 } else {

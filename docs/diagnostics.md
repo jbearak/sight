@@ -106,7 +106,15 @@ A second class — *forward references* — also surfaces under
 first definition (see [Forward references](#forward-references)).
 For statically expanded `foreach` / `forvalues` constructed macro names,
 the definition line is the `local` or `global` statement inside the loop
-body that creates the concrete name.
+body that creates the concrete name:
+
+```stata
+foreach g in age sex {
+    display `total_`g''       // UNDEFINED_MACRO: used before its definition
+    local total_`g' = r(N)    // defines total_age, total_sex from here on
+    display `total_`g''       // no warning — at or after the definition line
+}
+```
 
 Positional macro arguments (`` `0' ``, `` `1' ``, …) bypass position
 and scope checks: they are bound by the caller, not by lexical position.

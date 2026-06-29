@@ -7,7 +7,13 @@
  */
 import { Range } from 'vscode-languageserver-textdocument';
 import { ControlFlowNode, StataNode, SymbolTable, Token } from '../../types';
-import { BindingFrame, expand_template, extract_name_template } from './name-expander';
+import {
+    BindingFrame,
+    expand_template,
+    extract_name_template,
+    extract_redefined_macro_name,
+    template_references_redefined,
+} from './name-expander';
 
 export { build_static_value_env } from './static-value-env';
 export type { StaticValue, StaticValueEnv } from './static-value-env';
@@ -97,13 +103,31 @@ export function expand_loop_body(
         return [];
     }
     const the_expanded: ExpandedLoopMacro[] = [];
+    // Track plain macro (re)definitions in execution order. A constructed name
+    // that references a macro the body has ALREADY reassigned cannot be soundly
+    // expanded: Stata uses the reassigned value at that point, not the pre-loop
+    // value or loop binding, so the pre-loop fold would fabricate a name that
+    // never exists at runtime. Such names are skipped (a conservative miss). A
+    // reassignment that comes AFTER the constructed name does not affect it.
+    const redefined_local = new Set<string>();
+    const redefined_global = new Set<string>();
     for (const my_statement of collect_candidate_statements(node.body)) {
         const the_tokens = statement_tokens(tokens, my_statement.range);
         if (the_tokens.length === 0) continue;
         const template = extract_name_template(the_tokens);
-        if (!template) continue;
-        for (const my_name of expand_template(template, frames, symbols)) {
-            the_expanded.push({ name: my_name, scope: template.scope, sourceRange: my_statement.range });
+        if (template) {
+            if (!template_references_redefined(template, redefined_local, redefined_global)) {
+                for (const my_name of expand_template(template, frames, symbols)) {
+                    the_expanded.push({ name: my_name, scope: template.scope, sourceRange: my_statement.range });
+                }
+            }
+            continue;
+        }
+        // A plain redefinition shadows the pre-loop value for any LATER
+        // constructed name that references this macro.
+        const redef = extract_redefined_macro_name(the_tokens);
+        if (redef) {
+            (redef.scope === 'local' ? redefined_local : redefined_global).add(redef.name);
         }
     }
     return the_expanded;

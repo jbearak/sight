@@ -1785,7 +1785,7 @@ export class CompletionProvider {
             if (scope === 'local' && macro.sourceUri === document.uri) {
                 // Tolerate loosely-constructed symbols (e.g. workspace entries
                 // without a location): fall back defensively rather than assume
-                // a well-formed location, unlike effective_definition_line.
+                // a well-formed location.
                 const def_line = macro.definition_line ?? macro.location?.range?.start?.line;
                 if (typeof def_line === 'number' && def_line > position.line) {
                     continue;

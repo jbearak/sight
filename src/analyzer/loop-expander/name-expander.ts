@@ -74,7 +74,19 @@ function parse_template_string(raw: string): NamePart[] | null {
  * name template if the statement is a `local`/`global` definition whose name
  * interpolates at least one macro reference; otherwise null.
  */
-export function extract_name_template(statement_tokens: Token[]): NameTemplate | null {
+interface MacroDefHead {
+    scope: 'local' | 'global';
+    run: Token[];          // the adjacency-collected name token run
+    is_increment: boolean; // true for `local ++name` / `local --name`
+}
+
+/**
+ * Parse the head of a `local`/`global` (re)definition: skip single-line prefix
+ * commands and an optional colon, read the keyword, note a `++`/`--` increment,
+ * and collect the name token run by source-range adjacency. Returns null when
+ * the statement is not a `local`/`global` definition.
+ */
+function parse_macro_def_head(statement_tokens: Token[]): MacroDefHead | null {
     let i = 0;
     // Skip leading single-line prefix commands (capture/quietly/noisily),
     // including a trailing colon (e.g. `quietly: local ...`, `cap noi: local`).
@@ -92,31 +104,82 @@ export function extract_name_template(statement_tokens: Token[]): NameTemplate |
     }
     const scope: 'local' | 'global' = keyword.value === 'local' ? 'local' : 'global';
     i++;
-    // A ++/-- prefix is an increment of an existing macro, not a fresh
-    // definition, so it does not create any new constructed name.
+    let is_increment = false;
     if (i < statement_tokens.length && statement_tokens[i].type === 'OPERATOR'
         && (statement_tokens[i].value === '++' || statement_tokens[i].value === '--')) {
-        return null;
+        is_increment = true;
+        i++;
     }
     // Collect the name run by adjacency. The first name token may follow a gap
     // (the space after the keyword); subsequent tokens must be contiguous.
     const run: Token[] = [];
     while (i < statement_tokens.length) {
         const my_tok = statement_tokens[i];
+        // `#delimit ;` mode emits WHITESPACE tokens; skip them. The range
+        // adjacency check still detects the gap they occupy, so a space-
+        // separated trailing value is not joined to the name.
+        if (my_tok.type === 'WHITESPACE') {
+            i++;
+            continue;
+        }
         if (!NAME_TOKEN_TYPES.has(my_tok.type)) break;
         if (run.length > 0 && !tokens_adjacent(run[run.length - 1], my_tok)) break;
         run.push(my_tok);
         i++;
     }
     if (run.length === 0) return null;
-    const has_macro_ref = run.some(
+    return { scope, run, is_increment };
+}
+
+export function extract_name_template(statement_tokens: Token[]): NameTemplate | null {
+    const head = parse_macro_def_head(statement_tokens);
+    // A ++/-- prefix is an increment of an existing macro, not a fresh
+    // definition, so it does not create any new constructed name.
+    if (!head || head.is_increment) return null;
+    const has_macro_ref = head.run.some(
         (t) => t.type === 'MACRO_REF_LOCAL' || t.type === 'MACRO_REF_GLOBAL'
     );
     if (!has_macro_ref) return null; // plain bare name: handled by process_macro_def
-    const raw = run.map((my_token) => my_token.value).join('');
+    const raw = head.run.map((my_token) => my_token.value).join('');
     const my_parts = parse_template_string(raw);
     if (!my_parts) return null;
-    return { scope, parts: my_parts };
+    return { scope: head.scope, parts: my_parts };
+}
+
+/**
+ * If the statement (re)defines a plain, statically-known macro name (a single
+ * bare identifier — `local i ...`, `local i = ...`, `local ++i`), return its
+ * scope and name. Constructed/dynamic names return null: they cannot shadow a
+ * statically-known helper or iterator by name. Used to detect when a loop body
+ * reassigns a macro that a later constructed name depends on.
+ */
+export function extract_redefined_macro_name(
+    statement_tokens: Token[]
+): { scope: 'local' | 'global'; name: string } | null {
+    const head = parse_macro_def_head(statement_tokens);
+    if (!head || head.run.length !== 1 || head.run[0].type !== 'WORD') return null;
+    const name = head.run[0].value;
+    return is_valid_identifier(name) ? { scope: head.scope, name } : null;
+}
+
+/**
+ * True if the template directly references a local macro in `redefined_local`
+ * or a global macro in `redefined_global`.
+ */
+export function template_references_redefined(
+    template: NameTemplate,
+    redefined_local: Set<string>,
+    redefined_global: Set<string>
+): boolean {
+    for (const my_part of template.parts) {
+        if (my_part.kind === 'local_ref' && redefined_local.has(my_part.name)) {
+            return true;
+        }
+        if (my_part.kind === 'global_ref' && redefined_global.has(my_part.name)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Compute the subset of frames whose iterator is referenced directly by the template. */

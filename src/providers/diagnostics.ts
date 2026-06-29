@@ -903,9 +903,9 @@ export class DiagnosticsProvider {
             }
             // Use definition_line when present. Some analyzer-created symbols
             // are anchored at a source location for navigation but carry a
-            // separate execution-order line for diagnostics. (Kept inline rather
-            // than effective_definition_line: this tolerates loosely-typed
-            // symbols without a well-formed location.)
+            // separate execution-order line for diagnostics. The optional
+            // chaining tolerates loosely-typed symbols without a well-formed
+            // location.
             const definition_line = symbol.definition_line
                 ?? symbol.location?.range?.start?.line;
             return typeof definition_line === 'number' ? definition_line : null;

@@ -1,11 +1,33 @@
 import { describe, it, expect } from 'bun:test';
 import { resolve_loop_value_set } from '../../../src/analyzer/loop-expander/value-set-resolver';
-import { StaticValueEnv } from '../../../src/analyzer/loop-expander/static-value-env';
+import { StaticValueEnv, StaticValue } from '../../../src/analyzer/loop-expander/static-value-env';
+import { scan_macro_refs } from '../../../src/analyzer/loop-expander/macro-ref-scanner';
 
 function env_from(map: Record<string, string>, globals: Record<string, string> = {}): StaticValueEnv {
+    const resolve_local = (name: string): StaticValue => (name in map ? map[name] : null);
+    const resolve_global = (name: string): StaticValue => (name in globals ? globals[name] : null);
     return {
-        resolve_local: (name) => (name in map ? map[name] : null),
-        resolve_global: (name) => (name in globals ? globals[name] : null),
+        resolve_local,
+        resolve_global,
+        interpolate: (text: string): StaticValue => {
+            const parts: string[] = [];
+            const ok = scan_macro_refs(text, {
+                literal: (ch) => { parts.push(ch); },
+                local_ref: (name) => {
+                    const value = resolve_local(name);
+                    if (value === null) return false;
+                    parts.push(value);
+                    return true;
+                },
+                global_ref: (name) => {
+                    const value = resolve_global(name);
+                    if (value === null) return false;
+                    parts.push(value);
+                    return true;
+                },
+            });
+            return ok ? parts.join('') : null;
+        },
     };
 }
 
@@ -47,6 +69,17 @@ describe('resolve_loop_value_set: foreach in', () => {
     it('treats a double-quoted span as a single element', () => {
         expect(resolve_loop_value_set('foreach', 'in "a b" c', EMPTY))
             .toEqual({ kind: 'static', values: ['a b', 'c'] });
+    });
+
+    it('interpolates macro refs embedded in a quoted element', () => {
+        const env = env_from({ m: 'mid' });
+        expect(resolve_loop_value_set('foreach', "in \"a`m'b\" c", env))
+            .toEqual({ kind: 'static', values: ['amidb', 'c'] });
+    });
+
+    it('drops a quoted element whose embedded ref is dynamic', () => {
+        expect(resolve_loop_value_set('foreach', "in \"a`unknown'b\" c", EMPTY))
+            .toEqual({ kind: 'static', values: ['c'] });
     });
 });
 

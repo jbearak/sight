@@ -111,6 +111,65 @@ describe('Loop macro expansion (integration)', () => {
         expect(undef).not.toContain('prefix_b_foo');
     });
 
+    it('does not fabricate a name from a forward-defined helper macro', () => {
+        // `suffix` captures `` `i' `` while `i` is still undefined (Stata freezes
+        // suffix = ""), and `i` is defined only AFTER. Folding suffix must not
+        // reach forward to `i`'s later value and fabricate x_old — Stata defines
+        // x_ , so an `x_old` reference must still warn.
+        const source = [
+            "local suffix `i'",
+            'local i old',
+            'foreach z in a b {',
+            "    local x_`suffix'",
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_old')).toBe(false);
+    });
+
+    it('skips a constructed name when the body reassigns the iterator before it', () => {
+        // Stata defines x_b (the reassigned value), not x_a (the loop binding);
+        // we conservatively skip rather than fabricate x_a.
+        const source = [
+            'foreach i in a {',
+            '    local i b',
+            "    local x_`i'",
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+    });
+
+    it('skips a constructed name when the body reassigns a helper before it', () => {
+        // `suffix` is "foo" before the loop but reassigned to "bar" BEFORE the
+        // constructed name, so the pre-loop value is stale there. Stata defines
+        // x_bar; we conservatively skip rather than fabricate x_foo.
+        const source = [
+            'local suffix foo',
+            'foreach z in a {',
+            '    local suffix bar',
+            "    local x_`suffix'",
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+    });
+
+    it('stores a #delimit ; macro value without embedded whitespace tokens', () => {
+        // In `#delimit ;` mode the lexer emits WHITESPACE tokens; the stored
+        // macro value must collapse them to single spaces (not embed the raw
+        // run, nor a `\n`), so a value-set backed by this macro splits cleanly
+        // instead of mis-parsing.
+        const source = [
+            '#delimit ;',
+            'local xs a   b ;',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        const xs = symbols.localMacros.get('xs');
+        expect(xs?.value).toBe('a b');
+        expect(xs?.value).not.toContain('\n');
+    });
+
     it('makes constructed names visible from the defining statement', () => {
         const source = [
             'foreach i in a b {',

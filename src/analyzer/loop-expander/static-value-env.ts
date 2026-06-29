@@ -46,6 +46,12 @@ export type StaticValue = string | null;
 export interface StaticValueEnv {
     resolve_local(name: string): StaticValue;
     resolve_global(name: string): StaticValue;
+    /**
+     * Resolve every macro reference inside an arbitrary string (e.g. a `foreach`
+     * list item like `` a`m'b ``), returning the fully-expanded text or null if
+     * any referenced macro is dynamic/unknown.
+     */
+    interpolate(text: string): StaticValue;
 }
 
 type MacroMaps = Pick<SymbolTable, 'localMacros' | 'globalMacros'>;
@@ -105,23 +111,31 @@ export function build_static_value_env(
     // Interpolate macro references inside a value string. Returns null if any
     // referenced macro is dynamic/unknown, or if the value uses constructs we
     // do not statically evaluate (nested macro refs, `=expr', unbalanced refs).
+    //
+    // `max_index` bounds *definition order*: a reference inside this value may
+    // only resolve to a macro defined strictly before `max_index` (the defining
+    // macro's own definition index). Stata expands a macro's value eagerly at
+    // its definition, so a reference captured there cannot see a macro defined
+    // later in the file. Honoring this prevents fabricating a name from a
+    // forward-defined macro (which would falsely suppress a real warning).
     const interpolate = (
         text: string,
         visited: Set<string>,
-        depth: number
+        depth: number,
+        max_index: number
     ): StaticValue => {
         if (depth > MAX_FOLD_DEPTH) return null;
         const parts: string[] = [];
         const ok = scan_macro_refs(text, {
             literal: (ch) => { parts.push(ch); },
             local_ref: (name) => {
-                const resolved = resolve_local_internal(name, visited, depth + 1);
+                const resolved = resolve_local_internal(name, visited, depth + 1, max_index);
                 if (resolved === null) return false;
                 parts.push(resolved);
                 return true;
             },
             global_ref: (name) => {
-                const resolved = resolve_global_internal(name, visited, depth + 1);
+                const resolved = resolve_global_internal(name, visited, depth + 1, max_index);
                 if (resolved === null) return false;
                 parts.push(resolved);
                 return true;
@@ -148,19 +162,24 @@ export function build_static_value_env(
         if (symbol.extendedFunction) return null;
         const value = symbol.value.trim();
         if (PLACEHOLDER.test(value)) return null;
+        // References inside this macro's value must have been defined before
+        // this macro itself (eager expansion at definition time). A macro with
+        // no recorded index does not constrain its references.
+        const next_max = symbol.definition_index ?? Number.POSITIVE_INFINITY;
         const literal = strip_string_literal(value);
         if (literal !== null) {
-            return interpolate(literal, visited, depth);
+            return interpolate(literal, visited, depth, next_max);
         }
         // A non-literal `= expr` value (e.g. `2+2`) is dynamic.
         if (symbol.hasEquals) return null;
-        return interpolate(value, visited, depth);
+        return interpolate(value, visited, depth, next_max);
     };
 
     const resolve_local_internal = (
         name: string,
         visited: Set<string>,
-        depth: number
+        depth: number,
+        max_index: number
     ): StaticValue => {
         // The overlay (loop iterator value) supplies a `` `i' `` written
         // directly in the constructed name (depth 0), which Stata re-evaluates
@@ -176,6 +195,11 @@ export function build_static_value_env(
         if (visited.has(key)) return null; // cycle
         const symbol = symbols.localMacros.get(name);
         if (!symbol) return null;
+        // Definition-order gate: a macro defined at/after the referencing
+        // context did not exist when that reference was captured.
+        if (symbol.definition_index !== undefined && symbol.definition_index >= max_index) {
+            return null;
+        }
         const next_visited = new Set(visited);
         next_visited.add(key);
         return fold_symbol(symbol, next_visited, depth);
@@ -184,19 +208,46 @@ export function build_static_value_env(
     const resolve_global_internal = (
         name: string,
         visited: Set<string>,
-        depth: number
+        depth: number,
+        max_index: number
     ): StaticValue => {
         const key = `global:${name}`;
         if (visited.has(key)) return null; // cycle
         const symbol = symbols.globalMacros.get(name);
         if (!symbol) return null;
+        if (symbol.definition_index !== undefined && symbol.definition_index >= max_index) {
+            return null;
+        }
         const next_visited = new Set(visited);
         next_visited.add(key);
         return fold_symbol(symbol, next_visited, depth);
     };
 
+    // Memoize top-level resolutions of names NOT supplied by the overlay. The
+    // overlay rebinds per cartesian tuple, so its names are never cached; every
+    // other name folds identically across tuples (the overlay is consulted only
+    // at depth 0 for the named macro itself), so a single fold suffices instead
+    // of re-folding the same helper up to EXPANSION_CAP times.
+    const memo_local = new Map<string, StaticValue>();
+    const memo_global = new Map<string, StaticValue>();
     return {
-        resolve_local: (name: string) => resolve_local_internal(name, new Set(), 0),
-        resolve_global: (name: string) => resolve_global_internal(name, new Set(), 0),
+        resolve_local: (name: string) => {
+            const overlaid = overlay?.get(name);
+            if (overlaid !== undefined) return overlaid;
+            if (memo_local.has(name)) return memo_local.get(name)!;
+            const resolved = resolve_local_internal(
+                name, new Set(), 0, Number.POSITIVE_INFINITY);
+            memo_local.set(name, resolved);
+            return resolved;
+        },
+        resolve_global: (name: string) => {
+            if (memo_global.has(name)) return memo_global.get(name)!;
+            const resolved = resolve_global_internal(
+                name, new Set(), 0, Number.POSITIVE_INFINITY);
+            memo_global.set(name, resolved);
+            return resolved;
+        },
+        interpolate: (text: string) =>
+            interpolate(text, new Set(), 0, Number.POSITIVE_INFINITY),
     };
 }

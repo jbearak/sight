@@ -107,4 +107,15 @@ my_utility arg1 arg2
 You usually do not need a declaration for macro names constructed in a
 `foreach` or `forvalues` loop when the iterator values are statically known.
 Sight expands those names and treats each concrete macro as defined from the
-loop-body `local` or `global` statement that creates it.
+loop-body `local` or `global` statement that creates it:
+
+```stata
+foreach v in height weight {
+    local label_`v' "Mean of `v'"   // label_height, label_weight: auto-detected
+}
+display "`label_height'"             // no declaration directive needed
+```
+
+A directive is still useful when the iterator itself is dynamic — for example a
+`` forvalues i = 1/`=_N' `` bound, or a list read from data — because Sight
+cannot enumerate the names in advance.

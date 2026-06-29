@@ -32,7 +32,6 @@ import {
     type PathCaseOutcome,
 } from '../utils/file-path-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
-import { effective_definition_line } from '../utils/symbol-visibility';
 
 export interface ForwardScopeConfig {
     max_forward_depth: number;
@@ -981,12 +980,11 @@ export class ForwardScopeResolver {
                 // that shape as well as today's `#delimit cr` input.
                 // Both coordinates come from the same source
                 // (location.range.start) so the sort key is internally
-                // consistent — analyzer emits definition_line equal to
-                // location.range.start.line for primary definitions.
-                // Effective line so analyzer-created symbols order by their
-                // execution line when it differs from their navigation
-                // location. Equal to location line for normal locals.
-                const primary_line = effective_definition_line(my_symbol);
+                // consistent. Loop-expanded macros set definition_line equal to
+                // this line; `args` locals use a diagnostic-only definition_line
+                // of 0 that must NOT drive cross-file execution ordering, so the
+                // source line is the correct key here.
+                const primary_line = my_symbol.location.range.start.line;
                 const primary_char = my_symbol.location.range.start.character;
                 the_events.push({
                     line: primary_line,

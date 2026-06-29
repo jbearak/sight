@@ -32,8 +32,8 @@ export interface MacroRefVisitor {
 export function scan_macro_refs(text: string, visitor: MacroRefVisitor): boolean {
     let i = 0;
     while (i < text.length) {
-        const c = text[i];
-        if (c === '`') {
+        const my_char = text[i];
+        if (my_char === '`') {
             // `=expr' (expression evaluation) and nested `...` are dynamic.
             if (text[i + 1] === '=') return false;
             let j = i + 1;
@@ -46,7 +46,7 @@ export function scan_macro_refs(text: string, visitor: MacroRefVisitor): boolean
             if (!is_valid_identifier(name)) return false;
             if (!visitor.local_ref(name)) return false;
             i = j + 1;
-        } else if (c === '$') {
+        } else if (my_char === '$') {
             let j = i + 1;
             let braced = false;
             if (text[j] === '{') {
@@ -58,15 +58,20 @@ export function scan_macro_refs(text: string, visitor: MacroRefVisitor): boolean
                 name += text[j];
                 j++;
             }
-            if (braced) {
-                if (text[j] !== '}') return false;
-                j++;
+            const is_ref = is_valid_identifier(name) && (!braced || text[j] === '}');
+            if (!is_ref) {
+                // A bare `$` that does not begin a valid macro reference is a
+                // literal dollar sign (e.g. `"price in $"`, `$5`, or an
+                // unterminated `${`). Emit it and advance past only the `$`.
+                visitor.literal('$');
+                i++;
+            } else {
+                if (braced) j++; // consume the closing '}'
+                if (!visitor.global_ref(name)) return false;
+                i = j;
             }
-            if (!is_valid_identifier(name)) return false;
-            if (!visitor.global_ref(name)) return false;
-            i = j;
         } else {
-            visitor.literal(c);
+            visitor.literal(my_char);
             i++;
         }
     }

@@ -41,7 +41,16 @@ point. Locals inherited via an `include` chain are placed in scope by
 the resolver upstream and require no further filtering.
 For statically expanded `foreach` / `forvalues` constructed macro
 names, the definition line is the loop-body `local` statement that
-creates each concrete name.
+creates each concrete name. For example, after
+
+```stata
+foreach g in age sex educ {
+    local mean_`g' = r(mean)
+}
+```
+
+typing `` `mean_ `` below the loop offers `mean_age`, `mean_sex`, and
+`mean_educ` as completions.
 
 ### 3. Workspace non-variable symbols surface as out of scope
 

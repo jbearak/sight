@@ -77,6 +77,16 @@ describe('build_static_value_env', () => {
         expect(env.resolve_local('x')).toBe('a b');
     });
 
+    it('keeps a trailing literal $ in a value (not a macro ref)', () => {
+        const env = build_static_value_env(locals(macro('label', '"price in $"', { hasEquals: true })));
+        expect(env.resolve_local('label')).toBe('price in $');
+    });
+
+    it('treats $ before a digit as a literal dollar sign', () => {
+        const env = build_static_value_env(locals(macro('m', '$5')));
+        expect(env.resolve_local('m')).toBe('$5');
+    });
+
     it('treats command placeholders as dynamic', () => {
         const env = build_static_value_env(locals(macro('t', '__tempvar_t__')));
         expect(env.resolve_local('t')).toBeNull();
@@ -138,6 +148,25 @@ describe('build_static_value_env', () => {
             locals(macro('i', 'old'), macro('suffix', '`i\'')),
             new Map([['i', 'a']])
         );
+        expect(env.resolve_local('suffix')).toBe('old');
+    });
+
+    it('does not resolve a reference to a macro defined AFTER the referrer', () => {
+        // suffix (index 0) captures `i'; i (index 1) is defined later. Stata
+        // froze suffix's value before i existed, so folding suffix must not see
+        // i's later value (which would fabricate a name).
+        const env = build_static_value_env(locals(
+            macro('suffix', '`i\'', { definition_index: 0 }),
+            macro('i', 'old', { definition_index: 1 }),
+        ));
+        expect(env.resolve_local('suffix')).toBeNull();
+    });
+
+    it('resolves a reference to a macro defined BEFORE the referrer', () => {
+        const env = build_static_value_env(locals(
+            macro('i', 'old', { definition_index: 0 }),
+            macro('suffix', '`i\'', { definition_index: 1 }),
+        ));
         expect(env.resolve_local('suffix')).toBe('old');
     });
 

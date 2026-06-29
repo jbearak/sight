@@ -19,7 +19,6 @@ import type {
     VariableSymbol,
 } from '../types';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
-import { effective_definition_line } from '../utils/symbol-visibility';
 
 type AnySymbol =
     | ProgramSymbol
@@ -32,16 +31,16 @@ type AnySymbol =
  * True iff `symbol` has any definition (primary or additional) whose line falls
  * in the half-open window `(after_line, up_to_line]`. The window models "was
  * this name redefined strictly after the forward call ran, and at-or-before the
- * cursor we're resolving?" Primary lines come from the symbol's effective
- * definition line when present, otherwise the location line; additional lines
- * come from `additional_definitions` (macros only).
+ * cursor we're resolving?" Primary lines come from the symbol's source
+ * (navigation) location; additional lines come from `additional_definitions`
+ * (macros only).
  */
 function has_definition_in_window(
     symbol: AnySymbol,
     after_line: number,
     up_to_line: number,
 ): boolean {
-    const primary_line = effective_definition_line(symbol);
+    const primary_line = symbol.location.range.start.line;
     if (primary_line > after_line && primary_line <= up_to_line) {
         return true;
     }

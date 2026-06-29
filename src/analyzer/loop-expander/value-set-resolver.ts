@@ -41,14 +41,14 @@ interface ListItem {
 function split_quote_aware(text: string): ListItem[] {
     const items: ListItem[] = [];
     let i = 0;
-    const n = text.length;
-    while (i < n) {
-        const c = text[i];
-        if (c === ' ' || c === '\t') {
+    const length = text.length;
+    while (i < length) {
+        const my_char = text[i];
+        if (my_char === ' ' || my_char === '\t') {
             i++;
             continue;
         }
-        if (c === '`' && text[i + 1] === '"') {
+        if (my_char === '`' && text[i + 1] === '"') {
             const end = text.indexOf('"\'', i + 2);
             if (end === -1) {
                 items.push({ text: text.slice(i + 2), quoted: true });
@@ -56,7 +56,7 @@ function split_quote_aware(text: string): ListItem[] {
             }
             items.push({ text: text.slice(i + 2, end), quoted: true });
             i = end + 2;
-        } else if (c === '"') {
+        } else if (my_char === '"') {
             const end = text.indexOf('"', i + 1);
             if (end === -1) {
                 items.push({ text: text.slice(i + 1), quoted: true });
@@ -66,7 +66,7 @@ function split_quote_aware(text: string): ListItem[] {
             i = end + 1;
         } else {
             let j = i;
-            while (j < n && text[j] !== ' ' && text[j] !== '\t') j++;
+            while (j < length && text[j] !== ' ' && text[j] !== '\t') j++;
             items.push({ text: text.slice(i, j), quoted: false });
             i = j;
         }
@@ -104,10 +104,19 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
     const values: string[] = [];
     for (const my_item of split_quote_aware(spec_tail)) {
         if (my_item.quoted) {
-            values.push(my_item.text);
+            // A quoted element is a SINGLE iterator value; expand any embedded
+            // macro refs (e.g. `` "a`m'b" `` -> "amidb"). Drop it if a
+            // referenced macro is dynamic (partial), rather than iterate the
+            // un-expanded text (which would carry a backtick and never form a
+            // valid macro name downstream).
+            const interpolated = env.interpolate(my_item.text);
+            if (interpolated === null) continue;
+            values.push(interpolated);
             if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
             continue;
         }
+        // A bare `` `list' `` / `$list` element expands to a (whitespace-split)
+        // list of iterator values, so fold it and splice the elements in place.
         const local_match = my_item.text.match(LOCAL_REF);
         const global_match = my_item.text.match(GLOBAL_REF);
         if (local_match || global_match) {

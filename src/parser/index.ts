@@ -506,6 +506,14 @@ export class StataParser {
 
       const token = this.advance();
 
+      // In `#delimit ;` mode the lexer emits WHITESPACE tokens whose value is
+      // the raw run of spaces/newlines. Skip them: reconstruct_value_tokens
+      // re-inserts a single space from inter-token gaps, so keeping them would
+      // embed literal whitespace (and `\n`) into the stored macro value.
+      if (token.type === 'WHITESPACE') {
+        continue;
+      }
+
       // Track parenthesis depth for error checking
       if (token.type === 'LPAREN') {
         paren_depth++;
