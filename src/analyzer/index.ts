@@ -318,10 +318,11 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * Record a variable declared via `@lsp-variables` / `sight: variables`,
-     * keeping the earliest directive line so the declaration is forward-only
-     * (effective on that line and after), consistent with the other
-     * declaration directives. References on earlier lines still warn.
+     * Record a variable declared via `@lsp-variables` /
+     * `sight: variables`, keeping the earliest directive line so the
+     * declaration is forward-only (effective on that line and after),
+     * consistent with the other declaration directives. References on
+     * earlier lines still warn.
      */
     private register_declared_variable(name: string, line: number): void {
         const existing = this.config.declared_variables.get(name);
