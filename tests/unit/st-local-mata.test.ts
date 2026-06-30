@@ -303,6 +303,30 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('does not register a setter in a Python block after `mata clear`', () => {
+        // `mata clear` is a utility one-liner that leaves the lexer stuck in
+        // Mata context, so a following `python:` arrives as a bare WORD. The
+        // scan must still treat the Python region as inert and not register
+        // `foo` from embedded Python text.
+        const src = 'mata clear\npython:\nmata\nst_local("foo", "1")\nend';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+    });
+
+    it('recognizes a Mata block after a Python block following `mata clear`', () => {
+        // The Python block must close (its `end` lexes as END_MATA in the
+        // degraded state) so the real Mata setter afterwards is still found.
+        const src =
+            'mata clear\npython\nx=1\nend\nmata\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('recognizes a real Mata block right after `mata clear`', () => {
+        const src = 'mata clear\nmata\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
     it('declaration location points at the macro name literal', () => {
         const result = analyze('mata: st_local("foo", "1")');
         const macro = result.symbols.localMacros.get('foo');

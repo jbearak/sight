@@ -3130,6 +3130,14 @@ export class SemanticAnalyzer {
                             python_is_brace = false;
                         }
                     }
+                } else if (token.type === 'END_MATA') {
+                    // A non-brace Python block normally closes with
+                    // END_PYTHON (handled above). When the lexer is stuck in
+                    // Mata context (e.g. after `mata clear`) the closing `end`
+                    // lexes as END_MATA instead, so treat it as the block
+                    // close too — a real Mata block never contains END_MATA
+                    // inside a Python region, so this is safe in normal state.
+                    in_python_block = false;
                 }
                 continue;
             }
@@ -3210,6 +3218,55 @@ export class SemanticAnalyzer {
                         }
                     }
                     continue;
+            }
+
+            // The lexer normally emits PYTHON_START / PYTHON_INLINE for a
+            // `python` opener, but a preceding Mata utility one-liner (e.g.
+            // `mata clear`) leaves the lexer stuck in Mata context, so a later
+            // `python` opener arrives as a bare `WORD` (its `:` / `{` as
+            // EMBEDDED_CONTENT). Recognize it here and stay inert over the
+            // Python region, so embedded `mata` / `st_local` text on those
+            // lines is not mistaken for a real Mata setter (which would
+            // otherwise trip the `WORD "mata"` re-entry just below).
+            if (
+                token.type === 'WORD' &&
+                token.value === 'python' &&
+                begins_statement(i)
+            ) {
+                const after_idx = next_significant(i + 1);
+                const after =
+                    after_idx < tokens.length ? tokens[after_idx] : null;
+                const is_colon =
+                    after !== null && after.value.trim() === ':';
+                let inline = false;
+                if (is_colon && after) {
+                    // `python: <code>` (code after the colon on the same
+                    // physical line) is an inline statement; `python:` alone
+                    // on its line opens a block.
+                    const body_idx = next_significant(after_idx + 1);
+                    const body =
+                        body_idx < tokens.length ? tokens[body_idx] : null;
+                    inline =
+                        body !== null &&
+                        body.type !== 'STATEMENT_TERMINATOR' &&
+                        body.range.start.line === after.range.start.line;
+                }
+                if (inline) {
+                    in_inline_python = true;
+                } else {
+                    in_python_block = true;
+                    python_is_brace =
+                        after !== null &&
+                        (after.type === 'LBRACE' ||
+                            (after.type === 'EMBEDDED_CONTENT' &&
+                                after.value.trim() === '{')) &&
+                        after.range.start.line === token.range.start.line;
+                    python_brace_depth = 0;
+                }
+                mata_mode = null;
+                brace_depth = 0;
+                mata_function_body_depth = 0;
+                continue;
             }
 
             // The lexer emits MATA_START / MATA_INLINE only for the FIRST
