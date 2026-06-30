@@ -2261,6 +2261,73 @@ export class SemanticAnalyzer {
      * limitation (the (re)defined macro's name is not statically known).
      */
     /**
+     * True if a macro-creating command (built-in or user program) has a matched
+     * `local()`/`global()` option whose argument is NOT a literal identifier —
+     * so the created macro's name is determined at runtime (e.g.
+     * `` levelsof x, local(`i') ``). Such a redefinition has an unknown target.
+     */
+    private command_creates_dynamic_macro(
+        node: CommandNode,
+        symbols: SymbolTable
+    ): boolean {
+        if (!node.options) return false;
+        const builtin_cmd = find_macro_creating_command(node.fullName);
+        const program_options =
+            this.get_program_macro_creating_options(node.fullName, symbols);
+        if (!builtin_cmd && !program_options) return false;
+        for (const my_option of node.options) {
+            let matches = false;
+            if (builtin_cmd) {
+                for (const opt of builtin_cmd.local_options) {
+                    if (matches_option(my_option.name, opt)) matches = true;
+                }
+                for (const opt of builtin_cmd.global_options) {
+                    if (matches_option(my_option.name, opt)) matches = true;
+                }
+            } else if (program_options) {
+                const my_lower = my_option.name.toLowerCase();
+                matches =
+                    program_options.local_options.some((o) => o.toLowerCase() === my_lower)
+                    || program_options.global_options.some((o) => o.toLowerCase() === my_lower);
+            }
+            if (matches) {
+                const parsed = parse_option_argument(my_option.argument);
+                if (!parsed.is_literal || !parsed.identifier) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Targets of a `macro drop`/`mac drop` command, which clears GLOBAL macros.
+     * Literal names are returned for poisoning; `_all` or a name with a `*`/`?`
+     * wildcard makes the set of dropped macros unknown.
+     */
+    private get_macro_drop_targets(
+        node: CommandNode
+    ): { names: string[]; unknown: boolean } {
+        if (node.fullName !== 'macro' && node.fullName !== 'mac') {
+            return { names: [], unknown: false };
+        }
+        const the_args = node.varlist ?? [];
+        // First varlist item is the `drop` subcommand (allow abbreviations).
+        if (the_args.length < 2 || !/^dr(o(p)?)?$/.test(the_args[0].name)) {
+            return { names: [], unknown: false };
+        }
+        const names: string[] = [];
+        let unknown = false;
+        for (const my_arg of the_args.slice(1)) {
+            const my_name = my_arg.name;
+            if (my_name === '_all' || /[*?]/.test(my_name)) {
+                unknown = true;
+            } else if (is_valid_identifier(my_name)) {
+                names.push(my_name);
+            }
+        }
+        return { names, unknown };
+    }
+
+    /**
      * Names a call to a known user program writes back into the CALLER scope via
      * `c_local` (mirrors the c_local registration in `process_command`). Used by
      * the loop expander to poison those caller locals in execution order.
@@ -2469,22 +2536,35 @@ export class SemanticAnalyzer {
                     // option (e.g. `levelsof ..., local(suffix)`) before a later
                     // constructed name interpolates it.
                     (statement) => {
-                        if (statement.type !== 'command') return [];
-                        const the_redefined: Array<{ scope: 'local' | 'global'; name: string }> =
+                        if (statement.type !== 'command') {
+                            return { names: [], unknown: false };
+                        }
+                        const names: Array<{ scope: 'local' | 'global'; name: string }> =
                             this.get_command_created_macros(statement, symbols)
                                 .map((m) => ({ scope: m.scope, name: m.name }));
                         // Positional macro-creating commands (gettoken/unab/
                         // args/tempvar/file read) reassign LOCAL macros that the
                         // option-based path above does not cover.
                         for (const my_name of this.get_command_redefined_macro_names(statement)) {
-                            the_redefined.push({ scope: 'local', name: my_name });
+                            names.push({ scope: 'local', name: my_name });
                         }
                         // A call to a user program that `c_local`s names back into
                         // the caller reassigns those caller locals.
                         for (const my_name of this.get_program_c_local_names(statement, symbols)) {
-                            the_redefined.push({ scope: 'local', name: my_name });
+                            names.push({ scope: 'local', name: my_name });
                         }
-                        return the_redefined;
+                        // `macro drop` clears global macros (literal names poison;
+                        // `_all`/wildcards are unknown).
+                        const the_drop = this.get_macro_drop_targets(statement);
+                        for (const my_name of the_drop.names) {
+                            names.push({ scope: 'global', name: my_name });
+                        }
+                        // A macro-creating command with a DYNAMIC target name
+                        // (`` local(`i') ``) reassigns an unknown macro.
+                        const unknown =
+                            the_drop.unknown
+                            || this.command_creates_dynamic_macro(statement, symbols);
+                        return { names, unknown };
                     }
                 );
                 for (const my_macro of the_expanded) {

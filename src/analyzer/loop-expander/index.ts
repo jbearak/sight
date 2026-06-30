@@ -76,7 +76,15 @@ export function expand_loop_body(
     // depending on the program registry directly.
     command_redefinitions?: (
         statement: StataNode
-    ) => Array<{ scope: 'local' | 'global'; name: string }>
+    ) => {
+        // Macros the statement (re)defines with a literal, known name.
+        names: Array<{ scope: 'local' | 'global'; name: string }>;
+        // True when the statement (re)defines or drops a macro whose concrete
+        // name is NOT statically known (e.g. `` levelsof x, local(`i') `` or
+        // `macro drop _all`) — the target is unknown, so every later template
+        // must be skipped.
+        unknown: boolean;
+    }
 ): ExpandedLoopMacro[] {
     // If any active loop has an empty iteration set, the (innermost) body never
     // executes, so no constructed name is actually defined. Expanding here —
@@ -186,9 +194,16 @@ export function expand_loop_body(
         // option) likewise shadows the pre-loop value. Its runtime value is
         // unknown, so a later template referencing it is conservatively skipped.
         if (command_redefinitions) {
-            for (const my_redef of command_redefinitions(my_statement)) {
+            const the_command_redef = command_redefinitions(my_statement);
+            for (const my_redef of the_command_redef.names) {
                 (my_redef.scope === 'local' ? redefined_local : redefined_global)
                     .add(my_redef.name);
+            }
+            // A command that (re)defines/drops a macro with an unknown name
+            // (dynamic `local()` target, `macro drop _all`, …) could touch any
+            // macro a later template folds — poison every later template.
+            if (the_command_redef.unknown) {
+                saw_unresolved_redefinition = true;
             }
         }
     };

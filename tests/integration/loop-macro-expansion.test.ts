@@ -839,6 +839,53 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).toContain('x_foo');
     });
 
+    it('poisons a dynamic macro-creating target', () => {
+        // `` levelsof rep78, local(`i') `` (re)defines a macro whose name is the
+        // iterator value, unknown statically. A later `` x_`suffix' `` must not
+        // fold the stale "foo" and inject `x_foo`.
+        const source = [
+            'local suffix foo',
+            'foreach i in suffix {',
+            "    levelsof rep78, local(`i')",
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
+    it('poisons a global cleared by macro drop', () => {
+        // `macro drop suffix` clears the global. A later `` x_${suffix} `` must
+        // not fold the stale "foo" and inject `x_foo`.
+        const source = [
+            'global suffix foo',
+            'foreach i in a b {',
+            '    macro drop suffix',
+            '    local x_${suffix} = 1',
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
+    it('treats macro drop _all as an unknown redefinition', () => {
+        const source = [
+            'global suffix foo',
+            'foreach i in a b {',
+            '    macro drop _all',
+            '    local x_${suffix} = 1',
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
     it('does not fold a local that only exists in another (program) scope', () => {
         // `local list` is defined inside a program, so it is NOT visible at the
         // top level. A top-level `foreach i of local list` must not fold it into
