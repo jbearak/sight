@@ -360,6 +360,181 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).not.toContain('m10_exists');
     });
 
+    it('does not fold a dynamic outer iterator to a stale pre-loop value', () => {
+        // The constructed name interpolates the DYNAMIC outer iterator `survey`,
+        // whose runtime values come from `r(levels)` (unknown here). A pre-loop
+        // `local survey old` must NOT be folded into the name: at runtime
+        // `survey' is never "old" (unless "old" is in r(levels)), so injecting
+        // `x_old_1' would be a false suppression. The name must stay unresolved.
+        const source = [
+            'local survey old',
+            "foreach survey in `r(levels)' {",
+            '    forvalues i = 1/2 {',
+            "        local x_`survey'_`i' = 1",
+            '    }',
+            '}',
+            "display `x_old_1'",
+        ].join('\n');
+        expect(undefined_macros(source)).toContain('x_old_1');
+    });
+
+    it('does not fold a dynamic outer iterator into a nested loop value set', () => {
+        // The nested loop iterates over the DYNAMIC outer iterator's value
+        // (`foreach v in `survey'`). Folding `survey` to its stale pre-loop
+        // value `old` would make the nested loop static `{old}` and inject
+        // `x_old`, suppressing a real undefined-macro warning. The nested value
+        // set must instead be dynamic, leaving `x_old' unresolved.
+        const source = [
+            'local survey old',
+            "foreach survey in `r(levels)' {",
+            "    foreach v in `survey' {",
+            "        local x_`v' = 1",
+            '    }',
+            '}',
+            "display `x_old'",
+        ].join('\n');
+        expect(undefined_macros(source)).toContain('x_old');
+    });
+
+    it('does not fold a dynamic outer iterator inside an interpolated list item', () => {
+        // The nested loop's list item embeds the dynamic iterator adjacent to
+        // literal text (`x`survey'`), which resolves via interpolation. Folding
+        // `survey` to its stale pre-loop value `old` would inject `y_xold`; the
+        // shadow must apply to this DIRECT source reference too, so `y_xold'
+        // stays unresolved.
+        const source = [
+            'local survey old',
+            "foreach survey in `r(levels)' {",
+            "    foreach v in x`survey' {",
+            "        local y_`v' = 1",
+            '    }',
+            '}',
+            "display `y_xold'",
+        ].join('\n');
+        expect(undefined_macros(source)).toContain('y_xold');
+    });
+
+    it('does not fold a dynamic outer iterator captured through a helper', () => {
+        // A helper assigned the dynamic iterator's value (`local h `survey'`)
+        // captures a per-iteration value, so it is iteration-dependent and must
+        // not be folded. A later constructed name `x_`h'_`i'` therefore stays
+        // unresolved rather than fabricating `x_old_1` from the stale `survey`.
+        const source = [
+            'local survey old',
+            "foreach survey in `r(levels)' {",
+            "    local h `survey'",
+            '    forvalues i = 1/2 {',
+            "        local x_`h'_`i' = 1",
+            '    }',
+            '}',
+            "display `x_old_1'",
+        ].join('\n');
+        expect(undefined_macros(source)).toContain('x_old_1');
+    });
+
+    it('folds a pre-loop helper that captured the iterator value, under a dynamic loop', () => {
+        // `list` is assigned BEFORE the dynamic loop, so it holds a legitimate
+        // pre-loop value and a nested `foreach v of local list` must still fold
+        // it (and expand the constructed name). The dynamic-iterator shadow
+        // applies only to DIRECT references to the active iterator, not to
+        // pre-loop captures reached transitively.
+        const source = [
+            'local survey old',
+            "local list `survey'",
+            "foreach survey in `r(levels)' {",
+            '    foreach v of local list {',
+            "        local x_`v' = 1",
+            '    }',
+            '}',
+            "display `x_old'",
+        ].join('\n');
+        expect(undefined_macros(source)).not.toContain('x_old');
+    });
+
+    it('lets an inner static loop reuse a dynamic outer iterator name', () => {
+        // The inner `foreach survey in a b` rebinds `survey` with a static
+        // frame, so `x_`survey'` resolves to x_a/x_b from that frame — the outer
+        // dynamic iterator of the same name must not shadow it.
+        const source = [
+            "foreach survey in `r(levels)' {",
+            '    foreach survey in a b {',
+            "        local x_`survey' = 1",
+            '    }',
+            '}',
+            "display `x_a'",
+        ].join('\n');
+        expect(undefined_macros(source)).not.toContain('x_a');
+    });
+
+    it('shadows an inner dynamic loop that reuses an outer static iterator name', () => {
+        // `i` is bound statically by the outer loop but rebound DYNAMICALLY by
+        // the middle loop, so inside it `i` holds unknown runtime values. The
+        // innermost binding wins: `x_`i'_`j'` must stay unresolved (not fold to
+        // the outer static i=a/b), so `x_a_c' warns.
+        const source = [
+            'foreach i in a b {',
+            "    foreach i in `r(levels)' {",
+            '        foreach j in c {',
+            "            local x_`i'_`j' = 1",
+            '        }',
+            '    }',
+            '}',
+            "display `x_a_c'",
+        ].join('\n');
+        expect(undefined_macros(source)).toContain('x_a_c');
+    });
+
+    it('still expands inner-only names under a dynamic outer with a stale local', () => {
+        // Even when a same-named pre-loop local exists, a constructed name that
+        // depends ONLY on the static inner iterator (not the dynamic outer one)
+        // remains tractable and is injected by design.
+        const source = [
+            'local survey old',
+            "foreach survey in `r(levels)' {",
+            '    foreach i in a b {',
+            "        local x_`i' = 1",
+            '    }',
+            '}',
+            "display `x_a'",
+        ].join('\n');
+        expect(undefined_macros(source)).not.toContain('x_a');
+    });
+
+    it('conservatively warns for a reused iterator after an unresolved-list loop', () => {
+        // `foreach v in `undef'` is dynamic (may execute), so afterwards `v`
+        // holds an unknown last-iteration value and is iteration-dependent — its
+        // stale pre-loop value must NOT be folded into `forvalues 1/`v''. Warning
+        // on `x_3' is the safe "a miss, never a false suppression" direction (at
+        // runtime the empty list leaves `v' empty, so x_3 is genuinely undefined).
+        const source = [
+            'local v 5',
+            "foreach v in `undef' {",
+            '}',
+            "forvalues j = 1/`v' {",
+            "    local x_`j' = 1",
+            '}',
+            "display `x_3'",
+        ].join('\n');
+        expect(undefined_macros(source)).toContain('x_3');
+    });
+
+    it('conservatively suppresses expansion for a mixed empty+unresolved list', () => {
+        // The outer list has an empty-resolving item and an unresolved item and
+        // no concrete values, so it is treated as (statically) empty: the inner
+        // constructed names are NOT injected and a later reference warns — the
+        // safe direction (never fabricate a name that may not exist at runtime).
+        const source = [
+            'local emptymac',
+            "foreach s in `emptymac' `undef' {",
+            '    foreach i in a b {',
+            "        local y_`i' = 1",
+            '    }',
+            '}',
+            "display `y_a'",
+        ].join('\n');
+        expect(undefined_macros(source)).toContain('y_a');
+    });
+
     it('records collisions as additional definitions, not drops', () => {
         const source = [
             'foreach i in a b {',

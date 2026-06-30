@@ -120,11 +120,17 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
     // static frame would make nested static constructed names disappear even
     // though Stata locals created in those nested loops remain in the
     // do-file/program scope whenever the dynamic outer loop executes.
-    let saw_item = false;
+    //
+    // ACCEPTED TRADEOFF: this classifies a runtime-empty list (e.g.
+    // `foreach v in `undef'` where `undef' expands to nothing) as dynamic, so
+    // the analyzer expands nested constructed names that never exist when the
+    // loop runs zero times — suppressing those undefined-macro warnings. This
+    // is the intended relaxation gated in `process_loop` (see its can_expand
+    // "ACCEPTED TRADEOFF" note); the unresolvable-vs-empty cases cannot be told
+    // apart statically, and the project chose to favor the `r(levels)` case.
     let saw_resolved_item = false;
     let saw_unresolved_item = false;
     for (const my_item of split_quote_aware(spec_tail)) {
-        saw_item = true;
         if (my_item.quoted) {
             // A quoted element is a SINGLE iterator value; expand any embedded
             // macro refs (e.g. `` "a`m'b" `` -> "amidb"). Drop it if a
@@ -187,7 +193,7 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
             }
         }
     }
-    if (values.length === 0 && saw_item && saw_unresolved_item && !saw_resolved_item) {
+    if (values.length === 0 && saw_unresolved_item && !saw_resolved_item) {
         return { kind: 'dynamic' };
     }
     return { kind: 'static', values };

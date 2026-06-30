@@ -86,7 +86,13 @@ export function expand_loop_body(
         // must be skipped.
         unknown: boolean;
     },
-    env_options?: StaticValueEnvOptions
+    env_options?: StaticValueEnvOptions,
+    // Local names that an ENCLOSING dynamic loop rebinds (its iterator has no
+    // static frame). A constructed name interpolating one of these must stay
+    // unresolved rather than fold a stale pre-loop value of the same name —
+    // otherwise it fabricates a concrete name that never exists at runtime,
+    // falsely suppressing an undefined-macro warning.
+    initial_shadowed_locals?: ReadonlySet<string>
 ): ExpandedLoopMacro[] {
     // If any active loop has an empty iteration set, the (innermost) body never
     // executes, so no constructed name is actually defined. Expanding here —
@@ -289,6 +295,6 @@ export function expand_loop_body(
             }
         }
     };
-    walk(node.body, true, frames, new Set<string>());
+    walk(node.body, true, frames, new Set<string>(initial_shadowed_locals));
     return the_expanded;
 }

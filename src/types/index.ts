@@ -415,7 +415,7 @@ export interface MacroSymbol {
   is_expanded?: boolean;
   // True when this macro's FIRST definition is inside a context that may not
   // execute at runtime (an `if`/`else`/`while` body, or a dynamic/empty loop
-  // body, i.e. `nonexec_depth > 0` at definition time). This does NOT make the
+  // body, tracked via `nonexec_range_stack`). This does NOT make the
   // macro block-scoped: Stata locals remain visible in the containing do-file /
   // program after loops. The flag only says its stored `value` must not be
   // statically folded outside the active execution context, because doing so
