@@ -1783,9 +1783,27 @@ export class CompletionProvider {
             // macro is defined in the current document; inherited locals from parent files
             // (via include-chain) are already call-site-filtered by the scope resolver.
             if (scope === 'local' && macro.sourceUri === document.uri) {
-                const def_line = macro.definition_line ?? macro.location?.range?.start?.line;
-                if (typeof def_line === 'number' && def_line > position.line) {
-                    continue;
+                // A Mata setter carries a precise `visibility_start` (e.g. the
+                // end of an inline `mata:` unit, or past a block setter's
+                // closing paren); Stata expands the statement's backtick macros
+                // before the code runs, so the macro is not visible earlier in
+                // the same unit. Honor it so completion matches diagnostics.
+                const vis = macro.visibility_start;
+                if (vis !== undefined) {
+                    if (
+                        position.line < vis.line ||
+                        (position.line === vis.line &&
+                            position.character < vis.character)
+                    ) {
+                        continue;
+                    }
+                } else {
+                    const def_line =
+                        macro.definition_line ??
+                        macro.location?.range?.start?.line;
+                    if (typeof def_line === 'number' && def_line > position.line) {
+                        continue;
+                    }
                 }
             }
 

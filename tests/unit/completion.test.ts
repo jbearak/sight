@@ -1886,6 +1886,52 @@ describe('Local macro completion respects position within file', () => {
         expect(labels).toContain('fruit');
         expect(labels).not.toContain('color');
     });
+
+    it('should honor visibility_start for a Mata setter (not visible earlier in its inline unit)', async () => {
+        const uri = 'file:///demo.do';
+        const local_macros = new Map();
+        // A `mata:` inline setter for `foo` whose visibility starts at the
+        // end of the inline unit (line 0, character 40). A reference earlier
+        // in the same unit must not see it; later lines must.
+        local_macros.set('foo', {
+            name: 'foo',
+            scope: 'local',
+            location: {
+                uri,
+                range: { start: { line: 0, character: 15 }, end: { line: 0, character: 18 } },
+            },
+            sourceUri: uri,
+            containingScope: 'dofile',
+            definition_line: 0,
+            definition_index: 0,
+            visibility_start: { line: 0, character: 40 },
+            value: '1',
+        });
+
+        const content = [
+            'mata: st_local("foo","1"); x = `',
+            'display `',
+        ].join('\n');
+        const doc = create_test_document(content, { localMacros: local_macros });
+        doc.uri = uri;
+
+        // Cursor at character 32 on line 0 (inside the inline unit, before
+        // visibility_start): foo must NOT be offered.
+        const before = await provider.get_completions(
+            doc,
+            { line: 0, character: 32 },
+            '`',
+        );
+        expect(before.map(c => c.label)).not.toContain('foo');
+
+        // Cursor on line 1 (after the inline unit): foo IS offered.
+        const after = await provider.get_completions(
+            doc,
+            { line: 1, character: 9 },
+            '`',
+        );
+        expect(after.map(c => c.label)).toContain('foo');
+    });
 });
 
 describe('partition_symbols_for_completion: resolved_scope out-of-scope filtering', () => {
