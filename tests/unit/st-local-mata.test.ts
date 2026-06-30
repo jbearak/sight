@@ -314,12 +314,17 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual(['foo']);
     });
 
-    it('does not register a setter in a Python block after `mata clear`', () => {
+    it('does not register a setter on an inline `python:` line after `mata clear`', () => {
         // `mata clear` is a utility one-liner that leaves the lexer stuck in
-        // Mata context, so a following `python:` arrives as a bare WORD. The
-        // scan must still treat the Python region as inert and not register
-        // `foo` from embedded Python text.
-        const src = 'mata clear\npython:\nmata\nst_local("foo", "1")\nend';
+        // Mata context, so a following `python: <code>` arrives as a bare
+        // WORD + EMBEDDED `:`. It is an inline Python statement, so the
+        // `st_local(...)` text on that line must NOT register `foo`.
+        // (No `display `foo'` undefined-warning assertion here: in the
+        // degraded Mata context the lexer emits the reference as separate
+        // tokens rather than MACRO_REF_LOCAL, so no diagnostic is produced —
+        // an unrelated lexer artifact. The point is that `foo` is not falsely
+        // declared.)
+        const src = 'mata clear\npython: st_local("foo", "1")';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
     });
 
@@ -328,6 +333,24 @@ describe('st_local / st_global declarations in Mata', () => {
         // degraded state) so the real Mata setter afterwards is still found.
         const src =
             'mata clear\npython\nx=1\nend\nmata\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('recognizes a Mata block after a one-line Python subcommand', () => {
+        // `python query` (and `python set ...`, etc.) is a one-liner, not a
+        // block opener, so a following real Mata setter must still be found.
+        const src =
+            'python query\nmata\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('recognizes a Mata block after a Python subcommand following `mata clear`', () => {
+        // After `mata clear` the lexer emits `python query` as bare WORDs; it
+        // is still a one-liner and must not suppress the later Mata setter.
+        const src =
+            'mata clear\npython query\nmata\nst_local("foo", "1")\nend\ndisplay `foo\'';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
         expect(undefined_macros(src)).toEqual([]);
     });

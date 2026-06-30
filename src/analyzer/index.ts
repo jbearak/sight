@@ -3095,19 +3095,27 @@ export class SemanticAnalyzer {
             const token = tokens[i];
             // Track Python blocks and stay inert inside them.
             if (token.type === 'PYTHON_START') {
-                in_python_block = true;
                 mata_mode = null;
                 brace_depth = 0;
                 mata_function_body_depth = 0;
-                // Brace-style `python { ... }` (the `{` is on the same line as
-                // `python`) closes with the matching RBRACE rather than
-                // END_PYTHON.
-                const opener_idx = next_significant(i + 1);
-                python_is_brace =
-                    opener_idx < tokens.length &&
-                    tokens[opener_idx].type === 'LBRACE' &&
-                    tokens[opener_idx].range.start.line ===
-                        token.range.start.line;
+                // The lexer emits PYTHON_START for any leading `python`,
+                // including one-line subcommands like `python query` /
+                // `python set ...` that do NOT open a block. Classify the
+                // opener (the logic is shared with Mata) to decide what we
+                // entered. Brace-style `python { ... }` closes with the
+                // matching RBRACE rather than END_PYTHON.
+                const kind = this.classify_embedded_block_opener(tokens, i);
+                if (kind === 'subcommand') {
+                    // A one-liner; stay out of Python mode so a following
+                    // real Mata block is still scanned.
+                    continue;
+                }
+                if (kind === 'inline') {
+                    in_inline_python = true;
+                    continue;
+                }
+                in_python_block = true;
+                python_is_brace = kind === 'block_brace';
                 python_brace_depth = 0;
                 continue;
             }
@@ -3115,6 +3123,14 @@ export class SemanticAnalyzer {
                 in_python_block = false;
                 python_is_brace = false;
                 python_brace_depth = 0;
+                // `end` closes whatever embedded block is open. When the lexer
+                // is stuck in Mata context (e.g. after `mata clear`), a Mata
+                // block's closing `end` can lex as END_PYTHON, so also reset
+                // Mata mode here (you cannot be in both at once, so this is
+                // safe in normal state).
+                mata_mode = null;
+                brace_depth = 0;
+                mata_function_body_depth = 0;
                 continue;
             }
             if (in_python_block) {
@@ -3170,7 +3186,7 @@ export class SemanticAnalyzer {
                     // including utility one-liners like `mata clear` that do
                     // NOT open a block. Classify the opener to decide what (if
                     // anything) we entered.
-                    const kind = this.classify_mata_block_opener(tokens, i);
+                    const kind = this.classify_embedded_block_opener(tokens, i);
                     if (kind === 'subcommand') {
                         // Not a block opener; stay out of Mata mode.
                         continue;
@@ -3233,40 +3249,24 @@ export class SemanticAnalyzer {
                 token.value === 'python' &&
                 begins_statement(i)
             ) {
-                const after_idx = next_significant(i + 1);
-                const after =
-                    after_idx < tokens.length ? tokens[after_idx] : null;
-                const is_colon =
-                    after !== null && after.value.trim() === ':';
-                let inline = false;
-                if (is_colon && after) {
-                    // `python: <code>` (code after the colon on the same
-                    // physical line) is an inline statement; `python:` alone
-                    // on its line opens a block.
-                    const body_idx = next_significant(after_idx + 1);
-                    const body =
-                        body_idx < tokens.length ? tokens[body_idx] : null;
-                    inline =
-                        body !== null &&
-                        body.type !== 'STATEMENT_TERMINATOR' &&
-                        body.range.start.line === after.range.start.line;
+                // Same opener classification as PYTHON_START (shared with
+                // Mata). A one-line subcommand (`python query`) is left alone
+                // so a following real Mata block is still scanned; only a
+                // genuine block / inline opener makes the scan inert.
+                const kind = this.classify_embedded_block_opener(tokens, i);
+                if (kind !== 'subcommand') {
+                    if (kind === 'inline') {
+                        in_inline_python = true;
+                    } else {
+                        in_python_block = true;
+                        python_is_brace = kind === 'block_brace';
+                        python_brace_depth = 0;
+                    }
+                    mata_mode = null;
+                    brace_depth = 0;
+                    mata_function_body_depth = 0;
+                    continue;
                 }
-                if (inline) {
-                    in_inline_python = true;
-                } else {
-                    in_python_block = true;
-                    python_is_brace =
-                        after !== null &&
-                        (after.type === 'LBRACE' ||
-                            (after.type === 'EMBEDDED_CONTENT' &&
-                                after.value.trim() === '{')) &&
-                        after.range.start.line === token.range.start.line;
-                    python_brace_depth = 0;
-                }
-                mata_mode = null;
-                brace_depth = 0;
-                mata_function_body_depth = 0;
-                continue;
             }
 
             // The lexer emits MATA_START / MATA_INLINE only for the FIRST
@@ -3288,7 +3288,7 @@ export class SemanticAnalyzer {
                 // continued `#delimit ;` block or a utility one-liner leaves
                 // the lexer in Mata context, so later openers arrive as a
                 // WORD). `subcommand` (`mata clear`) is left alone.
-                const kind = this.classify_mata_block_opener(tokens, i);
+                const kind = this.classify_embedded_block_opener(tokens, i);
                 if (kind !== 'subcommand') {
                     mata_mode = kind;
                     brace_depth = 0;
@@ -3638,19 +3638,22 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * Classify what a `mata` keyword at `mata_index` opens, used for both the
-     * lexer's MATA_START token and a `WORD "mata"` re-entry (the lexer emits a
-     * WORD once it is already in Mata context). The opener is the next
-     * significant token, with a `///` continuation joining it to `mata`'s
-     * logical line:
+     * Classify what an embedded-language keyword (`mata` or `python`) at
+     * `keyword_index` opens. Used for the lexer's MATA_START / PYTHON_START
+     * tokens and for `WORD` re-entry (the lexer emits a WORD once it is
+     * already in an embedded context, e.g. after `mata clear`). The logic
+     * inspects only the tokens after the keyword, so it is keyword-agnostic.
+     * The opener is the next significant token, with a `///` continuation
+     * joining it to the keyword's logical line:
      *  - same-logical-line `:` -> 'inline' (`mata: <expr>`)
-     *  - same-logical-line `{` -> 'block_brace' (`mata { ... }`)
-     *  - same-logical-line WORD -> 'subcommand' (`mata clear`; not a block)
+     *  - same-logical-line `{` -> 'block_brace' (`mata { ... }` / `python { }`)
+     *  - same-logical-line WORD or dynamic opener -> 'subcommand'
+     *    (`mata clear`, `python query`, `mata `m'`; not a block)
      *  - anything else (opener on a later physical line, a `;`/terminator, or
-     *    end-of-input) -> 'block_plain' (`mata` ... `end`), so an inner `{` or
-     *    body on the next line is NOT mistaken for the block delimiter.
+     *    end-of-input) -> 'block_plain' (`mata`/`python` ... `end`), so an
+     *    inner `{` or body on the next line is NOT mistaken for the delimiter.
      */
-    private classify_mata_block_opener(
+    private classify_embedded_block_opener(
         tokens: Token[],
         mata_index: number
     ): 'inline' | 'block_brace' | 'block_plain' | 'subcommand' {
