@@ -692,4 +692,37 @@ describe('st_local / st_global declarations in Mata', () => {
             '#delimit ;\nmata\n{\nreal scalar x ;\nx = 1 ;\n}\nst_local("foo", "1") ;\nend ;';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
     });
+
+    it('balances a block setter call across a comment with an unmatched paren', () => {
+        // The close-paren search for visibility_start must ignore comment
+        // tokens; an unmatched `(` inside a comment must not run the count to
+        // EOF and falsely flag the later `foo` reference as undefined.
+        const src = 'mata\nst_local("foo", /* ( */ "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('enters a plain block opened with `mata ///` then a blank continued line', () => {
+        // `///` continues only the immediately-following line; a blank
+        // continued line is a real break, so the body opens a plain block and
+        // its setter must be found.
+        const src = 'mata ///\n\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('enters a plain block opened with `mata ///` then a comment line', () => {
+        const src =
+            'mata ///\n// note\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('still treats `mata ///` then a brace on the continued line as a brace block', () => {
+        // The `{` IS joined to the `mata` line by `///`, so it opens a brace
+        // block; the setter inside is still recognized.
+        const src = 'mata ///\n{\nst_local("foo", "1")\n}\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
 });

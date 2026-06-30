@@ -3408,12 +3408,18 @@ export class SemanticAnalyzer {
                 }
             } else {
                 // Block setter: anchor past the matching close paren. Balance
-                // parens by scanning token values, ignoring STRING tokens so a
-                // `)` inside a string literal does not close the call early.
+                // parens by scanning token values, ignoring STRING and comment
+                // tokens so a `)`/`(` inside a string literal or a comment
+                // (e.g. `st_local("foo", /* ( */ "1")`) does not skew the
+                // count and close the call early or never.
                 let paren_depth = 0;
                 let closed = false;
                 for (let k = paren_idx; k < tokens.length && !closed; k++) {
-                    if (tokens[k].type === 'STRING') {
+                    if (
+                        tokens[k].type === 'STRING' ||
+                        tokens[k].type === 'COMMENT_LINE' ||
+                        tokens[k].type === 'COMMENT_BLOCK'
+                    ) {
                         continue;
                     }
                     for (const my_char of tokens[k].value) {
@@ -3689,8 +3695,18 @@ export class SemanticAnalyzer {
         tokens: Token[],
         mata_index: number
     ): 'inline' | 'block_brace' | 'block_plain' | 'subcommand' {
+        // Walk to the first significant token after the keyword. The opener
+        // shares the keyword's logical line when it is on the same physical
+        // line, or reached only via `///` continuations (`crossed_continuation`)
+        // with no intervening hard break. A hard break is a real (non-`///`)
+        // STATEMENT_TERMINATOR or a `;` separator (under `#delimit ;`); once
+        // one is seen the body is on a later line, so a blank or comment-only
+        // continued line cannot keep the opener on the logical line. Under
+        // `#delimit ;` a physical newline lexes as WHITESPACE (no terminator
+        // token), so the physical-line comparison is what detects that break.
         let opener_idx = mata_index + 1;
         let crossed_continuation = false;
+        let saw_hard_break = false;
         while (opener_idx < tokens.length) {
             const my_token = tokens[opener_idx];
             if (
@@ -3706,13 +3722,19 @@ export class SemanticAnalyzer {
                 opener_idx++;
                 continue;
             }
-            // Skip only a continuation's STATEMENT_TERMINATOR; a real
-            // terminator ends the `mata` statement (a plain block opener).
+            if (my_token.type === 'STATEMENT_TERMINATOR') {
+                if (!this.is_continuation_terminator_at(tokens, opener_idx)) {
+                    saw_hard_break = true;
+                }
+                opener_idx++;
+                continue;
+            }
             if (
-                my_token.type === 'STATEMENT_TERMINATOR' &&
-                (crossed_continuation ||
-                    this.is_continuation_terminator_at(tokens, opener_idx))
+                (my_token.type === 'EMBEDDED_CONTENT' ||
+                    my_token.type === 'OPERATOR') &&
+                my_token.value.includes(';')
             ) {
+                saw_hard_break = true;
                 opener_idx++;
                 continue;
             }
@@ -3724,8 +3746,10 @@ export class SemanticAnalyzer {
             return 'block_plain';
         }
         const on_logical_line =
-            opener.range.start.line === tokens[mata_index].range.start.line ||
-            crossed_continuation;
+            !saw_hard_break &&
+            (opener.range.start.line ===
+                tokens[mata_index].range.start.line ||
+                crossed_continuation);
         if (on_logical_line) {
             const value = opener.value.trim();
             if (
@@ -3741,23 +3765,13 @@ export class SemanticAnalyzer {
             ) {
                 return 'block_brace';
             }
-            // A statement separator immediately after `mata` (a newline, or a
-            // `;` under `#delimit ;`) means `mata` is alone on its statement:
-            // a plain block whose body begins on the next logical line.
-            const is_separator =
-                opener.type === 'STATEMENT_TERMINATOR' ||
-                ((opener.type === 'EMBEDDED_CONTENT' ||
-                    opener.type === 'OPERATOR') &&
-                    opener.value.includes(';'));
-            if (!is_separator) {
-                // Any other token sharing the logical line is NOT a block
-                // opener: a WORD subcommand (`mata clear`), or a dynamic /
-                // macro-expanded opener (`mata `m'`, where `m' might expand to
-                // `clear`, `set matastrict on`, etc.) whose run-time text we
-                // cannot know. Treat these as one-liners so later
-                // `st_local(...)` text is not falsely registered as a setter.
-                return 'subcommand';
-            }
+            // Any other token sharing the logical line is NOT a block opener:
+            // a WORD subcommand (`mata clear`, `python query`), or a dynamic /
+            // macro-expanded opener (`mata `m'`, where `m' might expand to
+            // `clear`, `set matastrict on`, etc.) whose run-time text we
+            // cannot know. Treat these as one-liners so later `st_local(...)`
+            // text is not falsely registered as a setter.
+            return 'subcommand';
         }
         return 'block_plain';
     }
