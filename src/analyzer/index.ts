@@ -3661,6 +3661,10 @@ export class SemanticAnalyzer {
                     } else if (my_char === '[') {
                         bracket_depth++;
                     } else if (my_char === ']') {
+                        // Unlike an unmatched `)` (which ends the call's
+                        // argument list, so we bail above), an unmatched `]`
+                        // says nothing about the arg list — just clamp so a
+                        // later top-level comma is still found.
                         if (bracket_depth > 0) {
                             bracket_depth--;
                         }
