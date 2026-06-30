@@ -8,7 +8,7 @@
  * Feature: orphan-closing-brace-detection
  */
 
-import { describe, it } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { StataLexer, StataParser } from '../../src/index';
 import { ParseErrorCode } from '../../src/types';
@@ -207,6 +207,29 @@ describe('Orphan Closing Brace Property Tests', () => {
                 { numRuns: 100 }
             );
         });
+    });
+
+    /**
+     * Regression: a dangling prefix command (e.g. `quietly`, `by`) with no
+     * command after it inside a block must not be misreported as an orphan
+     * closing brace. The malformed prefix is a genuine syntax error, but the
+     * block's own `}` is balanced and must not cascade into ORPHAN_CLOSE_BRACE.
+     */
+    describe('Regression: dangling prefix command inside a block', () => {
+        const the_prefix_commands = [
+            'by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi',
+        ];
+
+        for (const my_prefix of the_prefix_commands) {
+            it(`does not orphan the close brace for dangling \`${my_prefix}\` in forvalues`, () => {
+                const result = parse_document(
+                    `forvalues i = 1/11 {\n  ${my_prefix}\n}`
+                );
+                expect(
+                    has_error_code(result.errors, ParseErrorCode.ORPHAN_CLOSE_BRACE)
+                ).toBe(false);
+            });
+        }
     });
 
     /**

@@ -29,6 +29,13 @@ import {
     IdentifierNode,
 } from '../types';
 import { DirectiveParser } from '../directive-parser';
+import {
+    build_static_value_env,
+    resolve_loop_value_set,
+    expand_loop_body,
+    scan_macro_refs,
+    BindingFrame,
+} from './loop-expander';
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
 import {
@@ -259,6 +266,16 @@ export class SemanticAnalyzer {
     private workspace_symbols?: SymbolTable;
     private tokens?: Token[];
     private current_diagnostics: SemanticDiagnostic[] = [];
+    // Active loop iterator frames (innermost last). Source of cartesian
+    // bindings for loop-expanded macro names.
+    private loop_frames: BindingFrame[] = [];
+
+    // Depth of enclosing bodies that are NOT guaranteed to execute: `if`/
+    // `else`/`while` blocks, and dynamic or empty-value-set loops. While this
+    // is > 0, loop-macro expansion is suppressed — a constructed name inside a
+    // block that may never run must not be injected, or it would falsely
+    // suppress a legitimate undefined-macro warning after the block.
+    private nonexec_depth = 0;
 
     /**
      * Analyze an AST and build symbol tables.
@@ -282,6 +299,8 @@ export class SemanticAnalyzer {
         this.forward_calls = []; // Reset forward calls
         this.cd_commands = []; // Reset cd commands (issue #252)
         this.cd_nesting_depth = 0;
+        this.loop_frames = []; // Reset loop iterator frames
+        this.nonexec_depth = 0; // Reset non-executing-context depth
         this.workspace_symbols = workspace_symbols; // Store workspace symbols
         this.tokens = tokens; // Keep tokens for command-level pattern checks
 
@@ -834,7 +853,23 @@ export class SemanticAnalyzer {
         // Process program body with the new scope — unconditional for the
         // same reason: locals defined inside each body deserve diagnostic
         // coverage regardless of which definition is "primary".
-        this.build_symbols_in_body(node.body, symbols, program_scope, all_scopes);
+        //
+        // Isolate loop iterator frames across the program boundary: a program
+        // defined inside a loop must not let its internal `local `i'` expand
+        // against the enclosing do-file iterator. Uses build_symbols_in_body so
+        // cd-nesting tracking (issue #252) still applies inside the program.
+        const saved_loop_frames = this.loop_frames;
+        const saved_nonexec_depth = this.nonexec_depth;
+        this.loop_frames = [];
+        // A program body executes top-level when the program is called, so reset
+        // the non-executing-context depth for its own internal loops.
+        this.nonexec_depth = 0;
+        try {
+            this.build_symbols_in_body(node.body, symbols, program_scope, all_scopes);
+        } finally {
+            this.loop_frames = saved_loop_frames;
+            this.nonexec_depth = saved_nonexec_depth;
+        }
 
         // Guard body-metadata extractions on first definition only.
         // These all mutate program_symbol.* and must follow first-def-wins
@@ -979,6 +1014,29 @@ export class SemanticAnalyzer {
      * Process a macro definition.
      * Macros are case-sensitive. Registers macros regardless of extended function type.
      */
+    /**
+     * True if `value` interpolates a local macro whose name is an active loop
+     * iterator (`this.loop_frames`). Such a value is captured per-iteration, so
+     * a macro assigned to it inside the loop is iteration-dependent. Loop
+     * iterators are always locals, so only local refs can match.
+     */
+    private value_captures_active_iterator(value: string | undefined): boolean {
+        if (!value || this.loop_frames.length === 0) return false;
+        const the_iterator_vars = new Set(
+            this.loop_frames.map((my_frame) => my_frame.var)
+        );
+        let captures = false;
+        scan_macro_refs(value, {
+            literal: () => {},
+            local_ref: (name) => {
+                if (the_iterator_vars.has(name)) captures = true;
+                return true;
+            },
+            global_ref: () => true,
+        });
+        return captures;
+    }
+
     private process_macro_def(
         node: MacroDefNode,
         symbols: SymbolTable,
@@ -1008,10 +1066,22 @@ export class SemanticAnalyzer {
                 location: { uri: this.uri, range: node.range },
                 sourceUri: this.uri,
                 value: node.value,
+                hasEquals: node.hasEquals,
                 containingScope: current_scope.type,
                 extendedFunction: node.extendedFunction,
                 definition_index: node_index,
                 definition_line: node.range.start.line,
+                // A definition reached under a non-executing context (an
+                // `if`/`while` body, or a dynamic/empty loop body) is not
+                // guaranteed to run, so its value must not be folded into a
+                // later loop's value-set or constructed names.
+                ...(this.nonexec_depth > 0 ? { maybe_unexecuted: true } : {}),
+                // Defined inside a guaranteed loop with a value that captured the
+                // loop iterator (e.g. `` local suffix `i' ``): its runtime value
+                // is iteration-dependent and must not be statically folded.
+                ...(this.value_captures_active_iterator(node.value)
+                    ? { iteration_dependent: true }
+                    : {}),
             };
 
             // Register macro in symbol table regardless of extended function type
@@ -2205,25 +2275,198 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         node_index: number
     ): void {
+        for (const my_created of this.get_command_created_macros(node, symbols)) {
+            const my_range = my_created.argument_range ?? node.range;
+            const target = my_created.scope === 'local'
+                ? symbols.localMacros
+                : symbols.globalMacros;
+            const existing_macro = target.get(my_created.name);
+            if (existing_macro) {
+                // Add to additional_definitions array (first definition wins)
+                if (!existing_macro.additional_definitions) {
+                    existing_macro.additional_definitions = [];
+                }
+                existing_macro.additional_definitions.push({
+                    index: node_index,
+                    line: my_range.start.line,
+                    location: { uri: this.uri, range: my_range },
+                });
+            } else {
+                // Create new macro with first definition
+                const macro_symbol: MacroSymbol = {
+                    name: my_created.name,
+                    scope: my_created.scope,
+                    location: { uri: this.uri, range: my_range },
+                    sourceUri: this.uri,
+                    value: `__option_${my_created.scope}_${my_created.name}__`,
+                    containingScope: current_scope.type,
+                    definition_index: node_index,
+                    definition_line: node.range.start.line,
+                };
+                target.set(my_created.name, macro_symbol);
+                if (my_created.scope === 'local') {
+                    current_scope.localMacros.set(my_created.name, macro_symbol);
+                }
+            }
+        }
+    }
+
+    /**
+     * Read-only detection of the macros a command statement creates via
+     * macro-creating options: built-in commands (`levelsof ..., local(x)`,
+     * `glevelsof`) and user-defined programs with `local()`/`global()` options.
+     * Returns the concrete (literal) created names with scope and the option's
+     * argument range. Constructed/dynamic option arguments (e.g. `local(`j')`)
+     * are skipped — their concrete name is not statically known.
+     *
+     * Shared by `extract_macro_creating_options` (which registers the symbols)
+     * and the loop expander (which uses it to poison a helper that a loop body
+     * reassigns via such a command before a later constructed name interpolates
+     * it). Keeping ONE detection path guarantees the expander poisons exactly
+     * the set of names the analyzer treats as command-created.
+     */
+    /**
+     * Literal LOCAL-macro names a command (re)defines through a POSITIONAL
+     * target (not a `local()`/`global()` option): `tempvar`/`tempname`/
+     * `tempfile`, `args`, `unab`, `gettoken`, and `file read`. Mirrors the
+     * target positions used by the corresponding `extract_*` methods. Used by
+     * the loop expander to poison such a target in execution order, so a
+     * constructed name AFTER e.g. `` gettoken suffix rest : x `` no longer folds
+     * the helper's stale pre-loop value. Dynamic targets (a macro-ref name like
+     * `` `i' ``) are intentionally skipped — that is a documented out-of-scope
+     * limitation (the (re)defined macro's name is not statically known).
+     */
+    /**
+     * True if a macro-creating command (built-in or user program) has a matched
+     * `local()`/`global()` option whose argument is NOT a literal identifier —
+     * so the created macro's name is determined at runtime (e.g.
+     * `` levelsof x, local(`i') ``). Such a redefinition has an unknown target.
+     */
+    private command_creates_dynamic_macro(
+        node: CommandNode,
+        symbols: SymbolTable
+    ): boolean {
+        if (!node.options) return false;
+        const builtin_cmd = find_macro_creating_command(node.fullName);
+        const program_options =
+            this.get_program_macro_creating_options(node.fullName, symbols);
+        if (!builtin_cmd && !program_options) return false;
+        for (const my_option of node.options) {
+            let matches = false;
+            if (builtin_cmd) {
+                for (const opt of builtin_cmd.local_options) {
+                    if (matches_option(my_option.name, opt)) matches = true;
+                }
+                for (const opt of builtin_cmd.global_options) {
+                    if (matches_option(my_option.name, opt)) matches = true;
+                }
+            } else if (program_options) {
+                const my_lower = my_option.name.toLowerCase();
+                matches =
+                    program_options.local_options.some((o) => o.toLowerCase() === my_lower)
+                    || program_options.global_options.some((o) => o.toLowerCase() === my_lower);
+            }
+            if (matches) {
+                const parsed = parse_option_argument(my_option.argument);
+                if (!parsed.is_literal || !parsed.identifier) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Targets of a `macro drop`/`mac drop` command, which clears GLOBAL macros.
+     * Literal names are returned for poisoning; `_all` or a name with a `*`/`?`
+     * wildcard makes the set of dropped macros unknown.
+     */
+    private get_macro_drop_targets(
+        node: CommandNode
+    ): { names: string[]; unknown: boolean } {
+        if (node.fullName !== 'macro' && node.fullName !== 'mac') {
+            return { names: [], unknown: false };
+        }
+        const the_args = node.varlist ?? [];
+        // First varlist item is the `drop` subcommand (allow abbreviations).
+        if (the_args.length < 2 || !/^dr(o(p)?)?$/.test(the_args[0].name)) {
+            return { names: [], unknown: false };
+        }
+        const names: string[] = [];
+        let unknown = false;
+        for (const my_arg of the_args.slice(1)) {
+            const my_name = my_arg.name;
+            if (my_name === '_all' || /[*?]/.test(my_name)) {
+                unknown = true;
+            } else if (is_valid_identifier(my_name)) {
+                names.push(my_name);
+            }
+        }
+        return { names, unknown };
+    }
+
+    /**
+     * Names a call to a known user program writes back into the CALLER scope via
+     * `c_local` (mirrors the c_local registration in `process_command`). Used by
+     * the loop expander to poison those caller locals in execution order.
+     */
+    private get_program_c_local_names(
+        node: CommandNode,
+        symbols: SymbolTable
+    ): string[] {
+        let program = symbols.programs.get(node.fullName);
+        if (!program && this.workspace_symbols) {
+            program = this.workspace_symbols.programs.get(node.fullName);
+        }
+        return program?.c_locals ? [...program.c_locals] : [];
+    }
+
+    private get_command_redefined_macro_names(node: CommandNode): string[] {
+        const cmd_name = node.fullName;
+        const names: string[] = [];
+        const push_literal = (name: string | undefined): void => {
+            if (name && is_valid_identifier(name)) names.push(name);
+        };
+        if (
+            cmd_name === 'tempvar' || cmd_name === 'tempfile'
+            || cmd_name === 'tempname' || cmd_name === 'args'
+        ) {
+            for (const my_var of node.varlist ?? []) push_literal(my_var.name);
+        } else if (cmd_name === 'unab') {
+            push_literal(node.varlist?.[0]?.name);
+        } else if (cmd_name === 'gettoken' || cmd_name === 'gettok') {
+            const max_macros = Math.min(node.varlist?.length ?? 0, 2);
+            for (let i = 0; i < max_macros; i++) {
+                push_literal(node.varlist![i].name);
+            }
+        } else if (cmd_name === 'file' || cmd_name === 'fil' || cmd_name === 'fi') {
+            // `file read handle macroname` — only the "read" subcommand creates
+            // a macro, stored in varlist[2] (see extract_file_read_macro).
+            if ((node.varlist?.length ?? 0) >= 3 && node.varlist![0].name === 'read') {
+                push_literal(node.varlist![2].name);
+            }
+        }
+        return names;
+    }
+
+    private get_command_created_macros(
+        node: CommandNode,
+        symbols: SymbolTable
+    ): Array<{ scope: 'local' | 'global'; name: string; argument_range?: Range }> {
         if (!node.options) {
-            return;
+            return [];
         }
 
-        // Check if this is a built-in macro-creating command
+        // Built-in macro-creating command, or a user-defined program with
+        // macro-creating options.
         const builtin_cmd = find_macro_creating_command(node.fullName);
-        
-        // Check if this is a user-defined program with macro-creating options
-        const program_options = this.get_program_macro_creating_options(node.fullName, symbols);
-        
-        // Only process if it's a supported command (builtin or user-defined with macro-creating options)
+        const program_options =
+            this.get_program_macro_creating_options(node.fullName, symbols);
         if (!builtin_cmd && !program_options) {
-            return;
+            return [];
         }
-        
-        // Pre-build Sets of matching option names to avoid O(n²) complexity
+
+        // Pre-build Sets of matching option names to avoid O(n²) complexity.
         const local_option_names = new Set<string>();
         const global_option_names = new Set<string>();
-        
         if (builtin_cmd) {
             for (const option of node.options) {
                 for (const opt of builtin_cmd.local_options) {
@@ -2245,86 +2488,33 @@ export class SemanticAnalyzer {
                 global_option_names.add(option_name.toLowerCase());
             }
         }
-        
+
+        const the_created: Array<{
+            scope: 'local' | 'global';
+            name: string;
+            argument_range?: Range;
+        }> = [];
         for (const option of node.options) {
-            // Parse the option argument
             const parse_result = parse_option_argument(option.argument);
             if (!parse_result.is_literal || !parse_result.identifier) {
                 continue;
             }
-            
-            const macro_name = parse_result.identifier;
             const option_name = option.name.toLowerCase();
-            
-            // Check if this is a local() option
-            const is_local_option = local_option_names.has(option_name);
-            
-            // Check if this is a global() option
-            const is_global_option = global_option_names.has(option_name);
-            
-            if (is_local_option) {
-                // Check if macro already exists (first definition wins)
-                const existing_macro = symbols.localMacros.get(macro_name);
-                if (existing_macro) {
-                    // Add to additional_definitions array
-                    if (!existing_macro.additional_definitions) {
-                        existing_macro.additional_definitions = [];
-                    }
-                    const my_local_option_range =
-                        option.argument_range ?? node.range;
-                    existing_macro.additional_definitions.push({
-                        index: node_index,
-                        line: my_local_option_range.start.line,
-                        location: { uri: this.uri, range: my_local_option_range }
-                    });
-                } else {
-                    // Create new macro with first definition
-                    const macro_symbol: MacroSymbol = {
-                        name: macro_name,
-                        scope: 'local',
-                        location: { uri: this.uri, range: option.argument_range ?? node.range },
-                        sourceUri: this.uri,
-                        value: `__option_local_${macro_name}__`,
-                        containingScope: current_scope.type,
-                        definition_index: node_index,
-                        definition_line: node.range.start.line,
-                    };
-
-                    current_scope.localMacros.set(macro_name, macro_symbol);
-                    symbols.localMacros.set(macro_name, macro_symbol);
-                }
-            } else if (is_global_option) {
-                // Check if macro already exists (first definition wins)
-                const existing_macro = symbols.globalMacros.get(macro_name);
-                if (existing_macro) {
-                    // Add to additional_definitions array
-                    if (!existing_macro.additional_definitions) {
-                        existing_macro.additional_definitions = [];
-                    }
-                    const my_global_option_range =
-                        option.argument_range ?? node.range;
-                    existing_macro.additional_definitions.push({
-                        index: node_index,
-                        line: my_global_option_range.start.line,
-                        location: { uri: this.uri, range: my_global_option_range }
-                    });
-                } else {
-                    // Create new macro with first definition
-                    const macro_symbol: MacroSymbol = {
-                        name: macro_name,
-                        scope: 'global',
-                        location: { uri: this.uri, range: option.argument_range ?? node.range },
-                        sourceUri: this.uri,
-                        value: `__option_global_${macro_name}__`,
-                        containingScope: current_scope.type,
-                        definition_index: node_index,
-                        definition_line: node.range.start.line,
-                    };
-
-                    symbols.globalMacros.set(macro_name, macro_symbol);
-                }
+            if (local_option_names.has(option_name)) {
+                the_created.push({
+                    scope: 'local',
+                    name: parse_result.identifier,
+                    argument_range: option.argument_range,
+                });
+            } else if (global_option_names.has(option_name)) {
+                the_created.push({
+                    scope: 'global',
+                    name: parse_result.identifier,
+                    argument_range: option.argument_range,
+                });
             }
         }
+        return the_created;
     }
 
     /**
@@ -2360,8 +2550,238 @@ export class SemanticAnalyzer {
             }
         }
 
-        // Process loop body with the same scope (loop doesn't create new scope)
-        this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+        // Resolve the iteration value-set BEFORE processing the body so the
+        // list can only reference macros defined before the loop.
+        const loop_type = node.type === 'forvalues' ? 'forvalues' : 'foreach';
+        // Static folding must see only the locals visible in the ACTIVE scope
+        // (plus file-wide globals). `symbols.localMacros` accumulates locals
+        // from EVERY scope (e.g. program bodies), so folding against it would
+        // let a top-level `foreach i of local list` resolve a `local list` that
+        // exists only inside some program — fabricating concrete names that are
+        // never defined in this scope and suppressing real undefined warnings.
+        // `current_scope.localMacros` holds the active scope's locals; globals
+        // are genuinely file-wide.
+        const scoped_macros: Pick<SymbolTable, 'localMacros' | 'globalMacros'> = {
+            localMacros: current_scope.localMacros,
+            globalMacros: symbols.globalMacros,
+        };
+        const value_set = resolve_loop_value_set(
+            loop_type,
+            node.loopSpec,
+            build_static_value_env(scoped_macros)
+        );
+        const pushed = value_set.kind === 'static' && !!node.loopVar;
+        if (pushed) {
+            this.loop_frames.push({
+                var: node.loopVar!,
+                values: (value_set as { kind: 'static'; values: string[] }).values,
+            });
+        }
+
+        // The loop body is guaranteed to execute (≥1 iteration) only when the
+        // value-set is static AND non-empty. A dynamic or empty-value-set loop
+        // body may not run, so a constructed name inside it must not be
+        // expanded — and any nested static loop must be suppressed too.
+        const guaranteed = pushed
+            && (value_set as { kind: 'static'; values: string[] }).values.length > 0;
+        // Expand only when this loop runs unconditionally AND the whole
+        // enclosing context does too (no `if`/`while` or non-guaranteed loop
+        // above us). Snapshot the pre-loop macros (cloning additional_definitions
+        // so body redefinitions cannot retroactively poison the fold) so the
+        // fold sees only macros visible before the loop, and expand AFTER the
+        // body is walked so a body-literal definition of the same concrete name
+        // remains the primary symbol.
+        const can_expand = guaranteed && this.tokens != null && this.nonexec_depth === 0;
+        const pre_loop_macros = can_expand
+            ? this.snapshot_macro_maps(scoped_macros)
+            : undefined;
+        if (!guaranteed) this.nonexec_depth++;
+        try {
+            // Process loop body with the same scope (loop doesn't create new
+            // scope). build_symbols_in_body tracks cd-nesting depth (issue #252).
+            this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+
+            if (can_expand && pre_loop_macros && this.tokens) {
+                const the_expanded = expand_loop_body(
+                    node,
+                    this.tokens,
+                    this.loop_frames,
+                    pre_loop_macros,
+                    // Let the expander poison a helper that the loop body
+                    // reassigns via an analyzer-known macro-creating command/
+                    // option (e.g. `levelsof ..., local(suffix)`) before a later
+                    // constructed name interpolates it.
+                    (statement) => {
+                        if (statement.type !== 'command') {
+                            return { names: [], unknown: false };
+                        }
+                        const names: Array<{ scope: 'local' | 'global'; name: string }> =
+                            this.get_command_created_macros(statement, symbols)
+                                .map((m) => ({ scope: m.scope, name: m.name }));
+                        // Positional macro-creating commands (gettoken/unab/
+                        // args/tempvar/file read) reassign LOCAL macros that the
+                        // option-based path above does not cover.
+                        for (const my_name of this.get_command_redefined_macro_names(statement)) {
+                            names.push({ scope: 'local', name: my_name });
+                        }
+                        // A call to a user program that `c_local`s names back into
+                        // the caller reassigns those caller locals.
+                        for (const my_name of this.get_program_c_local_names(statement, symbols)) {
+                            names.push({ scope: 'local', name: my_name });
+                        }
+                        // `macro drop` clears global macros (literal names poison;
+                        // `_all`/wildcards are unknown).
+                        const the_drop = this.get_macro_drop_targets(statement);
+                        for (const my_name of the_drop.names) {
+                            names.push({ scope: 'global', name: my_name });
+                        }
+                        // A macro-creating command with a DYNAMIC target name
+                        // (`` local(`i') ``) reassigns an unknown macro.
+                        const unknown =
+                            the_drop.unknown
+                            || this.command_creates_dynamic_macro(statement, symbols);
+                        return { names, unknown };
+                    }
+                );
+                for (const my_macro of the_expanded) {
+                    this.inject_expanded_macro(
+                        my_macro,
+                        symbols,
+                        current_scope,
+                        node_index
+                    );
+                }
+            }
+        } finally {
+            if (!guaranteed) this.nonexec_depth--;
+            if (pushed) {
+                this.loop_frames.pop();
+            }
+        }
+
+        // After the loop, a pre-existing iterator macro holds the LAST iteration
+        // value (unknown statically), not its stored pre-loop value. Mark it
+        // iteration-dependent so a LATER fold (e.g. `foreach j of local i`) does
+        // not use the stale value. This runs AFTER the body/expansion above, so
+        // the loop's own expansion and any pre-loop helper that froze `` `i' ``
+        // still resolve against the iterator's pre-loop value. A statically
+        // empty loop never runs, so it leaves the pre-loop value intact.
+        const loop_may_execute = !(
+            value_set.kind === 'static'
+            && (value_set as { kind: 'static'; values: string[] }).values.length === 0
+        );
+        if (node.loopVar && loop_may_execute) {
+            const existing_iterator = current_scope.localMacros.get(node.loopVar);
+            if (existing_iterator && existing_iterator.value !== undefined) {
+                existing_iterator.iteration_dependent = true;
+            }
+        }
+    }
+
+    /**
+     * Snapshot the macro maps for loop expansion. Each `MacroSymbol` is cloned
+     * (with its own `additional_definitions` array) so that processing the loop
+     * body — which may redefine a pre-loop helper and append to the original
+     * symbol's `additional_definitions` — cannot retroactively change what the
+     * pre-loop fold sees.
+     */
+    private snapshot_macro_maps(
+        macros: Pick<SymbolTable, 'localMacros' | 'globalMacros'>
+    ): Pick<SymbolTable, 'localMacros' | 'globalMacros'> {
+        const clone_map = (
+            src: Map<string, MacroSymbol>
+        ): Map<string, MacroSymbol> => {
+            const out = new Map<string, MacroSymbol>();
+            for (const [my_name, my_symbol] of src) {
+                out.set(my_name, {
+                    ...my_symbol,
+                    additional_definitions: my_symbol.additional_definitions
+                        ? [...my_symbol.additional_definitions]
+                        : undefined,
+                });
+            }
+            return out;
+        };
+        return {
+            localMacros: clone_map(macros.localMacros),
+            globalMacros: clone_map(macros.globalMacros),
+        };
+    }
+
+    /**
+     * Inject a loop-expanded concrete macro into the symbol table. The source
+     * range points at the defining body statement for navigation, and
+     * definition_line is that same statement line so later references in the
+     * loop body are in scope while earlier references still warn.
+     */
+    private inject_expanded_macro(
+        macro: { name: string; scope: 'local' | 'global'; sourceRange: Range },
+        symbols: SymbolTable,
+        current_scope: ScopeInfo,
+        node_index: number
+    ): void {
+        const target = macro.scope === 'local'
+            ? symbols.localMacros
+            : symbols.globalMacros;
+        const definition_line = macro.sourceRange.start.line;
+        const existing = target.get(macro.name);
+        if (existing) {
+            // Collision (two loops, or a loop + a real definition): append
+            // rather than drop, preserving redeclaration locations.
+            if (!existing.additional_definitions) {
+                existing.additional_definitions = [];
+            }
+            const expanded_location = { uri: this.uri, range: macro.sourceRange };
+            // Consumers read the PRIMARY definition markers, never
+            // additional_definitions: `is_macro_defined` reads
+            // definition_line / definition_index, and cross-file include/
+            // done-by call-site filtering reads location.range.start.line. So
+            // when this expanded definition runs earlier than the current
+            // primary (e.g. a constructed `local `i' …` that executes before a
+            // later literal `local a …`), it must BECOME the primary — line,
+            // index, and location together — or a reference / child include
+            // between the two definitions is wrongly treated as undefined / not
+            // inherited. The former primary is demoted to additional_definitions
+            // so its location is still available for find-references. Only
+            // promote when strictly earlier, so the earliest definition wins and
+            // no genuine forward reference is suppressed.
+            const expanded_is_earlier =
+                existing.definition_line === undefined ||
+                definition_line < existing.definition_line;
+            if (expanded_is_earlier) {
+                existing.additional_definitions.push({
+                    index: existing.definition_index ?? node_index,
+                    line: existing.definition_line ?? definition_line,
+                    location: existing.location,
+                    is_expanded: existing.is_expanded,
+                });
+                existing.location = expanded_location;
+                existing.definition_line = definition_line;
+                existing.definition_index = node_index;
+                existing.is_expanded = true;
+            } else {
+                existing.additional_definitions.push({
+                    index: node_index,
+                    line: definition_line,
+                    location: expanded_location,
+                    is_expanded: true,
+                });
+            }
+            return;
+        }
+        const symbol: MacroSymbol = {
+            name: macro.name,
+            scope: macro.scope,
+            location: { uri: this.uri, range: macro.sourceRange },
+            sourceUri: this.uri,
+            containingScope: current_scope.type,
+            definition_line,
+            is_expanded: true,
+        };
+        target.set(macro.name, symbol);
+        if (macro.scope === 'local') {
+            current_scope.localMacros.set(macro.name, symbol);
+        }
     }
 
     /**
@@ -2374,8 +2794,17 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         all_scopes: ScopeInfo[]
     ): void {
-        // Process body with the same scope
-        this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+        // `if`/`else`/`while` bodies may not execute, so loop-macro expansion
+        // inside them must be suppressed. `frame X { ... }` always runs, so it
+        // does not gate expansion.
+        const is_conditional = node.type !== 'frame';
+        if (is_conditional) this.nonexec_depth++;
+        try {
+            // Process body with the same scope
+            this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+        } finally {
+            if (is_conditional) this.nonexec_depth--;
+        }
     }
 
     /**

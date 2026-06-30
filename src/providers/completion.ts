@@ -1811,6 +1811,9 @@ export class CompletionProvider {
                 macro.sourceUri === document.uri &&
                 macro.visibility_start === undefined
             ) {
+                // Tolerate loosely-constructed symbols (e.g. workspace entries
+                // without a location): fall back defensively rather than assume
+                // a well-formed location.
                 const def_line =
                     macro.definition_line ??
                     macro.location?.range?.start?.line;

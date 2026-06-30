@@ -980,8 +980,10 @@ export class ForwardScopeResolver {
                 // that shape as well as today's `#delimit cr` input.
                 // Both coordinates come from the same source
                 // (location.range.start) so the sort key is internally
-                // consistent — analyzer emits definition_line equal to
-                // location.range.start.line for primary definitions.
+                // consistent. Loop-expanded macros set definition_line equal to
+                // this line; `args` locals use a diagnostic-only definition_line
+                // of 0 that must NOT drive cross-file execution ordering, so the
+                // source line is the correct key here.
                 const primary_line = my_symbol.location.range.start.line;
                 const primary_char = my_symbol.location.range.start.character;
                 the_events.push({

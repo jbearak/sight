@@ -487,13 +487,22 @@ export class StataParser {
     this.skipMacroDefinitionTrivia();
 
     // Collect the rest of the line as the macro value (stop at comment or terminator)
-    let value = prefixOp || ''; // If prefixOp exists and no = value follows, it signifies increment
+    const prefix_value = prefixOp || ''; // If prefixOp exists and no = value follows, it signifies increment
     const value_start_pos = this.current;
     let paren_depth = 0;
-    
+    const value_tokens: Token[] = [];
+    // Parallel to value_tokens: true when the token at the same index was
+    // reached by crossing a `///` continuation (vs an ordinary newline). A
+    // `///` join keeps only indentation, so an unindented continuation joins
+    // with no space; a raw `#delimit ;` newline is ordinary whitespace and
+    // always separates. See reconstruct_value_tokens.
+    const preceded_by_continuation: boolean[] = [];
+    let continuation_pending = false;
+
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
+        continuation_pending = true;
         continue;
       }
 
@@ -504,7 +513,18 @@ export class StataParser {
       }
 
       const token = this.advance();
-      
+
+      // In `#delimit ;` mode the lexer emits WHITESPACE tokens whose value is
+      // the raw run of spaces/newlines. Skip them: reconstruct_value_tokens
+      // re-inserts a single space from inter-token gaps, so keeping them would
+      // embed literal whitespace (and `\n`) into the stored macro value.
+      // Leave continuation_pending untouched: a `///` continuation's
+      // indentation may surface as a WHITESPACE token before the next real
+      // token, and the continuation status still applies to that token.
+      if (token.type === 'WHITESPACE') {
+        continue;
+      }
+
       // Track parenthesis depth for error checking
       if (token.type === 'LPAREN') {
         paren_depth++;
@@ -516,11 +536,18 @@ export class StataParser {
           paren_depth = 0; // Reset to prevent cascading errors
         }
       }
-      
-      // Preserve whitespace as-is to maintain spacing between tokens
-      // (e.g., `country_name' `survey_year' needs the space preserved)
-      value += token.value;
+
+      value_tokens.push(token);
+      preceded_by_continuation.push(continuation_pending);
+      continuation_pending = false;
     }
+
+    // Reconstruct with single-space separation from token ranges. The lexer
+    // drops whitespace tokens in `#delimit cr` mode, so plain concatenation
+    // would collapse `local mylist a b c` to "abc" and `` `a' `b' `` to
+    // "`a'`b'". A separated token pair (gap on the same line, or a line break
+    // from a `///` continuation) becomes one space; adjacent tokens stay joined.
+    const value = prefix_value + this.reconstruct_value_tokens(value_tokens, preceded_by_continuation);
 
     // Check for unbalanced parentheses (unclosed opening parentheses)
     if (paren_depth > 0) {
@@ -807,7 +834,25 @@ export class StataParser {
 
     if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
       this.addError('Expected command name', this.peek().range);
-      throw new Error('Missing command name');
+      // This point is only reachable after consuming one or more prefix
+      // commands (a zero-prefix entry always starts on a WORD/macro_ref), so
+      // we have a dangling prefix like `quietly` or `by` with no command after
+      // it. Throwing here would unwind past an enclosing block before its `}`
+      // is consumed, leaving the brace to be misreported as an orphan close
+      // brace. Instead, emit the diagnostic above and return a node for the
+      // consumed prefix(es), leaving the current token (e.g. the block's `}`)
+      // for the enclosing parser to handle.
+      return {
+        type: 'command',
+        prefix: prefixes.length > 0 ? prefixes : undefined,
+        name: '',
+        fullName: '',
+        expression: undefined,
+        range: this.makeRange(
+          start_token.range.start,
+          this.previous().range.end
+        ),
+      };
     }
 
     const command_token = this.advance();
@@ -2016,7 +2061,13 @@ export class StataParser {
 
     if (is_forvalues_spec || is_foreach_spec) {
       const specType = this.advance().value;
-      let needs_space = false;
+      let loop_spec_body = '';
+      let prev_spec_token: Token | null = null;
+      // True when the next real token was reached by crossing a `///`
+      // continuation (vs an ordinary newline). A `///` join keeps only the
+      // continuation line's indentation, so an unindented item joins with no
+      // space; a raw `#delimit ;` newline is whitespace and always separates.
+      let continuation_pending = false;
 
       // Collect specification until {
       while (!this.check('LBRACE') && !this.isAtEnd()) {
@@ -2029,20 +2080,42 @@ export class StataParser {
           break;
         }
         const token = this.advance();
-        // Preserve whitespace tokens as-is, don't add extra spaces
-        if (token.type === 'WHITESPACE') {
-          loopSpec += token.value;
-          needs_space = false;
-        } else {
-          // Add space between non-whitespace tokens only if needed
-          if (needs_space && loopSpec.length > 0 && !loopSpec.endsWith(' ')) {
-            loopSpec += ' ';
-          }
-          loopSpec += token.value;
-          needs_space = true;
+        // Spacing is derived from token ranges, not from WHITESPACE/CONTINUATION
+        // token values. A `///` continuation, however, changes how a line break
+        // is spaced, so remember that we crossed one.
+        if (token.type === 'CONTINUATION') {
+          continuation_pending = true;
+          continue;
         }
+        if (token.type === 'WHITESPACE') {
+          continue;
+        }
+        if (prev_spec_token !== null) {
+          const same_line = prev_spec_token.range.end.line === token.range.start.line;
+          let needs_separator: boolean;
+          if (same_line) {
+            // Same-line gap: separate only when there is whitespace between.
+            // Truly adjacent fragments (e.g. `a`m'`) join into one list item.
+            needs_separator =
+              token.range.start.character - prev_spec_token.range.end.character > 0;
+          } else if (continuation_pending) {
+            // `///`-continued item: Stata removes the newline and keeps only
+            // indentation, so an unindented continuation joins (`a///`\n`b` ⇒
+            // `ab`) and an indented one separates.
+            needs_separator = token.range.start.character > 0;
+          } else {
+            // Raw newline (`#delimit ;` mode): ordinary whitespace separator.
+            needs_separator = true;
+          }
+          if (needs_separator) {
+            loop_spec_body += ' ';
+          }
+        }
+        loop_spec_body += token.value;
+        prev_spec_token = token;
+        continuation_pending = false;
       }
-      loopSpec = specType + ' ' + loopSpec.trim();
+      loopSpec = specType + ' ' + loop_spec_body.trim();
     }
 
     // Parse body
@@ -3277,9 +3350,62 @@ export class StataParser {
   }
 
   /**
+   * Reconstruct a macro value from its tokens, collapsing any inter-token gap
+   * to a single space and joining truly adjacent tokens directly.
+   *
+   * A `///` continuation removes the `///` and the newline but keeps the next
+   * line's leading indentation as part of the value, so a continued token that
+   * starts at column 0 joins with NO space (`local x = ab///\ncd` ⇒ `"abcd"`,
+   * `1///\n+2` ⇒ `"1+2"`) while an indented continuation keeps a single space
+   * (`local x = 1 + ///\n    2` ⇒ `"1 + 2"`). A line break that is NOT a `///`
+   * continuation only occurs in `#delimit ;` mode, where a newline is ordinary
+   * whitespace; it always contributes a separator even when the next token
+   * starts at column 0 (`local xs a` \n `b ;` ⇒ `"a b"`, not `"ab"`). Unlike
+   * `reconstructTokensWithSpacing`, exact widths and indentation are collapsed,
+   * so values read cleanly.
+   *
+   * @param tokens - value tokens in order (WHITESPACE/CONTINUATION removed)
+   * @param preceded_by_continuation - parallel array; entry `i` is true when
+   *   `tokens[i]` was reached by crossing a `///` continuation
+   */
+  private reconstruct_value_tokens(
+    tokens: Token[],
+    preceded_by_continuation: boolean[]
+  ): string {
+    const the_parts: string[] = [];
+    let prev_token: Token | null = null;
+    for (let i = 0; i < tokens.length; i++) {
+      const my_token = tokens[i];
+      if (prev_token !== null) {
+        const same_line = prev_token.range.end.line === my_token.range.start.line;
+        let needs_separator: boolean;
+        if (same_line) {
+          // Same-line gap: separate only when there is whitespace between.
+          needs_separator =
+            my_token.range.start.character - prev_token.range.end.character > 0;
+        } else if (preceded_by_continuation[i]) {
+          // `///` continuation: the gap is the continued token's own
+          // indentation, so column 0 joins and an indented token separates.
+          needs_separator = my_token.range.start.character > 0;
+        } else {
+          // Raw newline (`#delimit ;` mode): ordinary whitespace separator,
+          // regardless of the next line's indentation.
+          needs_separator = true;
+        }
+        if (needs_separator) {
+          the_parts.push(' ');
+        }
+      }
+      the_parts.push(my_token.value);
+      prev_token = my_token;
+    }
+    return the_parts.join('');
+  }
+
+  /**
    * Reconstruct a string from tokens while preserving original spacing.
    * Uses token ranges to determine gaps between tokens and adds appropriate whitespace.
-   * 
+   *
    * @param tokens - Array of tokens to reconstruct
    * @returns The reconstructed string with original spacing preserved
    */
