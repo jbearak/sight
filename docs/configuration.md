@@ -78,6 +78,8 @@ global file_global value
 
 **Macro-creating options**: The analyzer recognizes `local()` and `global()` options on built-in commands (`levelsof`, `glevelsof`) and user-defined programs (via `` c_local `option' `` and `` global `option' `` patterns matching syntax declarations).
 
+**Mata `st_local` / `st_global`**: The analyzer recognizes the two-argument setter forms `st_local("name", value)` and `st_global("NAME", value)` inside Mata blocks — both the inline `mata:` form and `mata` … `end` / `mata { … }` blocks — and declares the named macro. The name must be a literal double-quoted identifier; dynamic names (variables, expressions, compound quotes, or embedded macro references) are not resolved. The one-argument read form `st_local("name")` does not declare anything. Like other locals, the declaration is forward-only (it suppresses warnings at and after the call site).
+
 ## Tuning autocomplete behavior
 
 If autocomplete feels too aggressive, there are a few knobs to adjust.
