@@ -298,9 +298,36 @@ describe('Completion Provider', () => {
             
             const doc = create_test_document('display $', { globalMacros: global_macros });
             const completions = await provider.get_completions(doc, { line: 0, character: 9 });
-            
+
             const labels = completions.map(c => c.label);
             expect(labels).toContain('GLOBAL_VAR');
+        });
+
+        it('should honor visibility_start for an st_global setter', async () => {
+            // An inline `mata: st_global("G","1"); x = $...` setter for `G`
+            // whose visibility starts at the end of the inline unit. A `$`
+            // completion earlier in the same unit must NOT offer it; a later
+            // line must. Mirrors the st_local case but for globals.
+            const global_macros = new Map<string, MacroSymbol>();
+            global_macros.set('G', {
+                name: 'G',
+                scope: 'global',
+                location: { uri: 'file:///test.do', range: { start: { line: 0, character: 16 }, end: { line: 0, character: 17 } } },
+                sourceUri: 'file:///test.do',
+                containingScope: 'dofile',
+                definition_line: 0,
+                visibility_start: { line: 0, character: 40 },
+                value: '1',
+            } as MacroSymbol);
+
+            const content = ['mata: st_global("G","1"); x = $', 'display $'].join('\n');
+            const doc = create_test_document(content, { globalMacros: global_macros });
+
+            const before = await provider.get_completions(doc, { line: 0, character: 31 });
+            expect(before.map(c => c.label)).not.toContain('G');
+
+            const after = await provider.get_completions(doc, { line: 1, character: 9 });
+            expect(after.map(c => c.label)).toContain('G');
         });
 
         it('should suggest apple when typing `a after local apple sauce', async () => {

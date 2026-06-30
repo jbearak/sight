@@ -3154,6 +3154,19 @@ export class SemanticAnalyzer {
                     // close too — a real Mata block never contains END_MATA
                     // inside a Python region, so this is safe in normal state.
                     in_python_block = false;
+                } else if (
+                    token.type === 'WORD' &&
+                    token.value === 'end' &&
+                    begins_statement(i) &&
+                    ends_statement(i)
+                ) {
+                    // Under `#delimit ;` a plain `python ; ... end ;` block's
+                    // closing `end` lexes as `WORD "end"` + embedded `;`, not
+                    // END_PYTHON, so recognize a standalone `end` statement as
+                    // the block close (mirrors the Mata plain-block WORD-"end"
+                    // terminator). Without this the scan stays inert and skips
+                    // later Mata setters.
+                    in_python_block = false;
                 }
                 continue;
             }

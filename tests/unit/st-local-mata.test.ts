@@ -693,6 +693,15 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
     });
 
+    it('closes a #delimit ; plain python block so a later Mata setter is found', () => {
+        // Under `#delimit ;` a plain `python ; ... end ;` block's closing
+        // `end` lexes as WORD + embedded `;`, not END_PYTHON. The scan must
+        // still close the Python block so the following Mata setter registers.
+        const src =
+            '#delimit ;\npython ;\nx = 1 ;\nend ;\nmata ;\nst_local("foo", "1") ;\nend ;';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+    });
+
     it('keeps scanning setters when `python` is used as Mata code in a block', () => {
         // Inside a live Mata block, a statement beginning with `python` (a
         // Mata variable/expression) must NOT be mistaken for a Stata Python
