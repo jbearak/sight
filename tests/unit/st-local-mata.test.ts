@@ -345,6 +345,15 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual(['foo']);
     });
 
+    it('treats a block comment between header tokens as a separator', () => {
+        // `void/*c*/f()` must still parse as a function header (not `voidf()`),
+        // so the body is recognized as a definition and its setter is skipped.
+        const src =
+            'mata\nvoid/*c*/f() {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
     it('still declares setters inside executed top-level Mata braces', () => {
         const src =
             'mata\nif (1) {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';

@@ -2744,8 +2744,23 @@ export class SemanticAnalyzer {
         macro: MacroSymbol,
         reference_range?: Range
     ): boolean {
+        if (reference_range === undefined) {
+            return false;
+        }
+        // The same-line character ordering is only meaningful when the
+        // macro's effective `definition_line` coincides with its physical
+        // location — then the location's character marks where it becomes
+        // visible on that line. Macros whose `definition_line` is
+        // deliberately earlier than their location, notably `args` macros
+        // (`definition_line === 0`, visible from the start of scope), are
+        // already in scope on the reference's line and must not be treated as
+        // a same-line forward reference.
+        const definition_line =
+            macro.definition_line ?? macro.location.range.start.line;
+        if (definition_line !== macro.location.range.start.line) {
+            return false;
+        }
         return (
-            reference_range !== undefined &&
             macro.location.range.start.line === reference_range.start.line &&
             this.compare_ranges(reference_range, macro.location.range) < 0
         );
@@ -3350,6 +3365,13 @@ export class SemanticAnalyzer {
                 continue;
             }
             if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
+                // A comment can act as a token separator (e.g.
+                // `void/*c*/f()`). Replace it with a space so adjacent words
+                // are not concatenated into `voidf()`, which would defeat the
+                // function-header detection.
+                if (parts.length > 0) {
+                    parts.push(' ');
+                }
                 continue;
             }
 
