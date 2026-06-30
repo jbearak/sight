@@ -3391,6 +3391,14 @@ export class SemanticAnalyzer {
         ) {
             return false;
         }
+        // The new setter's range is its name literal, which a continuation can
+        // push to a later physical line than its call (`new_definition_line`).
+        // Only compare columns when the literal is actually on the tie line;
+        // otherwise the characters are on different lines and meaningless, so
+        // the existing symbol keeps precedence.
+        if (new_range.start.line !== new_definition_line) {
+            return false;
+        }
         return (
             new_range.start.character < existing.location.range.start.character
         );

@@ -174,6 +174,18 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(macro!.location.range.start.line).toBe(1);
     });
 
+    it('a continued setter does not win a same-line tie over an earlier local', () => {
+        // Under `#delimit ;` an earlier `local foo` shares the call line with a
+        // continued `mata: st_local( ///` whose name literal lands on the next
+        // physical line. The column tie-break must not compare that later-line
+        // literal against the local's column; the earlier local stays primary.
+        const src =
+            '#delimit ;\n      local foo = "a" ; mata: st_local( ///\n"foo", "1") ;';
+        const macro = analyze(src).symbols.localMacros.get('foo');
+        expect(macro).toBeDefined();
+        expect(macro!.location.range.start.line).toBe(1);
+    });
+
     it('global setter before a later global remains the primary definition', () => {
         const src = 'mata: st_global("G", "1")\ndisplay $G\nglobal G 2';
         const result = analyze(src);
