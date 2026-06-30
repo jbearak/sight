@@ -2936,13 +2936,13 @@ export class SemanticAnalyzer {
         // `EMBEDDED_CONTENT` in block form. The comma may be coalesced with
         // following punctuation, e.g. `,(`, so accept embedded content that
         // starts with the delimiter.
-        const is_open_paren = (t: Token): boolean =>
-            t.type === 'LPAREN' ||
-            (t.type === 'EMBEDDED_CONTENT' && t.value.trim() === '(');
-        const is_comma = (t: Token): boolean =>
-            t.type === 'COMMA' ||
-            (t.type === 'EMBEDDED_CONTENT' &&
-                t.value.trimStart().startsWith(','));
+        const is_open_paren = (token: Token): boolean =>
+            token.type === 'LPAREN' ||
+            (token.type === 'EMBEDDED_CONTENT' && token.value.trim() === '(');
+        const is_comma = (token: Token): boolean =>
+            token.type === 'COMMA' ||
+            (token.type === 'EMBEDDED_CONTENT' &&
+                token.value.trimStart().startsWith(','));
 
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
@@ -3015,6 +3015,37 @@ export class SemanticAnalyzer {
                     continue;
             }
 
+            // Under `#delimit ;` the lexer emits a plain block's closing
+            // `end` as a WORD (not END_MATA), so it never hits the switch
+            // above. Recognize a statement-initial `end` as the block
+            // terminator here; otherwise `mata_mode` leaks past the block and
+            // later non-Mata `st_local(...)` text is misread as a setter.
+            if (
+                mata_mode === 'block_plain' &&
+                token.type === 'WORD' &&
+                token.value === 'end'
+            ) {
+                const previous_idx = previous_significant(i - 1);
+                const previous_token =
+                    previous_idx >= 0 ? tokens[previous_idx] : undefined;
+                // `end` only closes the block when it begins a statement.
+                // Under `#delimit ;` the block's interior terminators are
+                // `EMBEDDED_CONTENT ";"`, not STATEMENT_TERMINATOR, so accept
+                // either (plus the block opener and start-of-input).
+                const at_statement_start =
+                    previous_token === undefined ||
+                    previous_token.type === 'STATEMENT_TERMINATOR' ||
+                    previous_token.type === 'MATA_START' ||
+                    (previous_token.type === 'EMBEDDED_CONTENT' &&
+                        previous_token.value.trimEnd().endsWith(';'));
+                if (at_statement_start) {
+                    mata_mode = null;
+                    brace_depth = 0;
+                    mata_function_body_depth = 0;
+                    continue;
+                }
+            }
+
             if (
                 mata_mode === null ||
                 mata_function_body_depth > 0 ||
@@ -3037,8 +3068,11 @@ export class SemanticAnalyzer {
             // when looking for the name literal and its trailing comma.
             const cross_lines = mata_mode !== 'inline';
 
-            // Expect the call shape: `(` "<name>" `,` ...
-            const paren_idx = next_significant(i + 1);
+            // Expect the call shape: `(` "<name>" `,` ... In block mode the
+            // `(` itself may sit on a line after `st_local`, so cross lines
+            // here too (the name-literal + comma checks below still guard
+            // against false matches).
+            const paren_idx = next_significant(i + 1, cross_lines);
             if (paren_idx >= tokens.length || !is_open_paren(tokens[paren_idx])) {
                 continue;
             }

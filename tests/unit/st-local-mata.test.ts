@@ -8,14 +8,14 @@ function analyze(source: string) {
     const lexer = new StataLexer();
     const parser = new StataParser();
     const analyzer = new SemanticAnalyzer();
-    const lr = lexer.tokenize(source);
-    const pr = parser.parse(lr.tokens);
+    const lexer_result = lexer.tokenize(source);
+    const parse_result = parser.parse(lexer_result.tokens);
     return analyzer.analyze(
-        pr.ast,
+        parse_result.ast,
         'file:///test.do',
         undefined,
         { undefined_macro_enabled: true },
-        lr.tokens
+        lexer_result.tokens
     );
 }
 
@@ -228,6 +228,25 @@ describe('st_local / st_global declarations in Mata', () => {
         const src = 'mata: st_local(\n    "foo", "1")\ndisplay `foo\'';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
         expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
+    it('plain block setter declares when the paren is on the next line', () => {
+        // The `(` itself may wrap to a line after `st_local` in a block.
+        const src = 'mata\nst_local\n("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('does not leak Mata mode past a #delimit ; plain block end', () => {
+        // Under `#delimit ;` the closing `end` lexes as a WORD, not
+        // END_MATA. The scan must still close the block so a later
+        // `st_local(...)` in ordinary code is not misread as a setter.
+        const src =
+            '#delimit ;\nmata ;\nst_local("inside", "1") ;\nend ;\n' +
+            'st_local("outside", "2") ;';
+        const result = analyze(src);
+        expect(result.symbols.localMacros.has('inside')).toBe(true);
+        expect(result.symbols.localMacros.has('outside')).toBe(false);
     });
 
     it('declares through a prefix command (capture mata:)', () => {
