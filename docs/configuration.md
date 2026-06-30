@@ -72,6 +72,26 @@ local result: list file_global - other
 global file_global value
 ```
 
+When a `foreach` or `forvalues` loop creates macro names from statically known
+iterator values, Sight expands those concrete names and treats them as defined
+from the `local` or `global` statement that creates them. A reference later in
+the same loop body is in scope; a reference before that statement is still a
+forward reference.
+
+```stata
+foreach g in age sex educ {
+    summarize `g'
+    local mean_`g' = r(mean)   // defines mean_age, mean_sex, mean_educ
+}
+display `mean_age'             // no "undefined macro" warning
+```
+
+This covers the common name-building forms — `` local `i' ``,
+`` local `i'_suffix ``, `` local prefix_`i' `` — across `foreach VAR in <list>`,
+`foreach VAR of local <macro>`, and `forvalues VAR = <range>` when the values
+are statically known. When a value is dynamic (e.g. `` forvalues i = 1/`=_N' ``)
+the loop is left alone and no names are expanded.
+
 **Global macros from other files** also produce warnings unless the LSP can determine the relationship. By default (`crossFile.backwardDependencies: "auto"`), the LSP scans the workspace at startup to discover which files call which, and automatically resolves parent–child symbol inheritance. It also follows `do`, `run`, and `include` commands within each file for forward resolution. For cases where auto-detection doesn't work (e.g., dynamic paths with macros), you can use explicit directives (`sight: done-by`, `sight: included-by`, `sight: do`, `sight: run`, `sight: include`). The older `@lsp-` forms remain permanent aliases. The workspace indexer provides globals for completions and go-to-definition, but does not suppress undefined macro warnings. See [Cross-File Awareness](cross-file.md) for details.
 
 **First definition wins**: When a macro is defined multiple times, references before the first definition produce warnings, but references after the first definition do not (even if they appear before later redefinitions).

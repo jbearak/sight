@@ -31,8 +31,9 @@ type AnySymbol =
  * True iff `symbol` has any definition (primary or additional) whose line falls
  * in the half-open window `(after_line, up_to_line]`. The window models "was
  * this name redefined strictly after the forward call ran, and at-or-before the
- * cursor we're resolving?" Primary lines come from `location.range.start.line`;
- * additional lines come from `additional_definitions` (macros only).
+ * cursor we're resolving?" Primary lines come from the symbol's source
+ * (navigation) location; additional lines come from `additional_definitions`
+ * (macros only).
  */
 function has_definition_in_window(
     symbol: AnySymbol,

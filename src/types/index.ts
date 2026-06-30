@@ -399,11 +399,32 @@ export interface MacroSymbol {
   location: { uri: string; range: Range };
   sourceUri: string;
   value?: string;
+  hasEquals?: boolean;  // True if defined with = sign (local x = expr) vs literal (local x a b)
   containingScope?: ScopeType;
   extendedFunction?: ExtendedMacroFunction;
   definition_index?: number;  // Preorder index where macro was defined
   definition_line?: number;   // Line number where macro was first defined
-  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
+  // True when this symbol was synthesized by the loop expander from a
+  // constructed name (e.g. `local x_`i'`). Its `location` points at the
+  // loop-body template statement, whose text does NOT contain the concrete
+  // name, so find-references must not surface it as a textual occurrence.
+  is_expanded?: boolean;
+  // True when this macro's FIRST definition is inside a context that may not
+  // execute at runtime (an `if`/`else`/`while` body, or a dynamic/empty loop
+  // body, i.e. `nonexec_depth > 0` at definition time). Its stored `value`
+  // is therefore not guaranteed and must NOT be statically folded for loop
+  // expansion (doing so could fabricate iteration values or constructed names
+  // that never exist at runtime, falsely suppressing undefined-macro warnings).
+  maybe_unexecuted?: boolean;
+  // True when this macro is defined inside a guaranteed loop body and its value
+  // interpolates an active loop iterator (e.g. `` local suffix `i' `` inside
+  // `foreach i ...`). Its runtime value is the last iteration's binding, which
+  // is not known statically, so it must NOT be folded into a later loop's
+  // value-set or constructed name (folding the iterator's stale stored value
+  // would fabricate names that never exist at runtime, falsely suppressing
+  // undefined-macro warnings).
+  iteration_dependent?: boolean;
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range }, is_expanded?: boolean }>;
 }
 
 export interface VariableSymbol {

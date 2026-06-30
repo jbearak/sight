@@ -2454,12 +2454,19 @@ export class ScopeResolver {
     ): { filtered: SymbolTable; out_of_scope: OutOfScopeSymbol[] } {
         const the_out_of_scope: OutOfScopeSymbol[] = [];
 
-        const filter_map = <T extends { location: { range: { start: { line: number } } }; name?: string }>(
+        const filter_map = <T extends { location: { range: { start: { line: number } } }; definition_line?: number; name?: string }>(
             map: Map<string, T>,
             symbol_type: 'local' | 'global' | 'program' | 'variable' | 'scalar' | 'matrix'
         ): Map<string, T> => {
             const filtered = new Map<string, T>();
             for (const [name, symbol] of map) {
+                // Filter by the symbol's source (navigation) line, not a
+                // diagnostic-only line. Some analyzer symbols (e.g. `args`
+                // locals) carry definition_line=0 to mean "visible throughout
+                // the program" for in-file diagnostics; that sentinel must not
+                // make them look defined at the top of the file for cross-file
+                // call-site filtering. Loop-expanded macros set definition_line
+                // equal to this line, so they are unaffected.
                 const defined_line = symbol.location.range.start.line;
                 if (defined_line <= call_site_line) {
                     filtered.set(name, symbol);

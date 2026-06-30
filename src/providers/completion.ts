@@ -1783,6 +1783,9 @@ export class CompletionProvider {
             // macro is defined in the current document; inherited locals from parent files
             // (via include-chain) are already call-site-filtered by the scope resolver.
             if (scope === 'local' && macro.sourceUri === document.uri) {
+                // Tolerate loosely-constructed symbols (e.g. workspace entries
+                // without a location): fall back defensively rather than assume
+                // a well-formed location.
                 const def_line = macro.definition_line ?? macro.location?.range?.start?.line;
                 if (typeof def_line === 'number' && def_line > position.line) {
                     continue;

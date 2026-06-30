@@ -291,6 +291,39 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             }
         });
 
+        it('annotates a loop-expanded macro\'s definition line in hover', async () => {
+            const my_content = "local x_1 = 5\ndisplay `x_1'";
+            const my_doc = create_test_document(my_content, {
+                localMacros: new Map([
+                    ['x_1', {
+                        name: 'x_1',
+                        scope: 'local',
+                        sourceUri: 'file:///test.do',
+                        location: {
+                            uri: 'file:///test.do',
+                            range: {
+                                start: { line: 0, character: 6 },
+                                end: { line: 0, character: 9 },
+                            },
+                        },
+                        value: '5',
+                        definition_line: 0,
+                        is_expanded: true,
+                    } as MacroSymbol],
+                ]),
+            });
+            init_tracker_from_source(context_tracker, my_content);
+
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 1, character: 10 });
+
+            expect(my_hover).not.toBeNull();
+            if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                // The line points at the loop-body template, so it must be
+                // labeled rather than presented as a literal occurrence.
+                expect(my_hover.contents.value).toContain('loop-expanded');
+            }
+        });
+
         it('should return subcommand hover for valid lowercase `by` prefix', async () => {
             command_db = create_frame_command_db();
             hover_provider = new HoverProvider(command_db, context_tracker);

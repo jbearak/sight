@@ -206,8 +206,15 @@ export class ReferencesProvider {
             case 'local_macro': {
                 const local_macro = symbols.localMacros.get(symbol_name);
                 if (local_macro) {
-                    push({ uri: local_macro.location.uri, range: local_macro.location.range });
+                    // Loop-expanded definitions anchor at the template statement
+                    // (`local x_`i'`), whose text does not contain the concrete
+                    // name — surfacing them as references would point at a line
+                    // the user cannot reconcile with the searched name.
+                    if (!local_macro.is_expanded) {
+                        push({ uri: local_macro.location.uri, range: local_macro.location.range });
+                    }
                     for (const my_extra of local_macro.additional_definitions ?? []) {
+                        if (my_extra.is_expanded) continue;
                         push({ uri: my_extra.location.uri, range: my_extra.location.range });
                     }
                 }
@@ -216,8 +223,11 @@ export class ReferencesProvider {
             case 'global_macro': {
                 const global_macro = symbols.globalMacros.get(symbol_name);
                 if (global_macro) {
-                    push({ uri: global_macro.location.uri, range: global_macro.location.range });
+                    if (!global_macro.is_expanded) {
+                        push({ uri: global_macro.location.uri, range: global_macro.location.range });
+                    }
                     for (const my_extra of global_macro.additional_definitions ?? []) {
+                        if (my_extra.is_expanded) continue;
                         push({ uri: my_extra.location.uri, range: my_extra.location.range });
                     }
                 }
@@ -325,7 +335,12 @@ export class ReferencesProvider {
                         continue;
                     }
                 }
-                push({ uri: my_def.location.uri, range: my_def.location.range });
+                // Loop-expanded macro symbols anchor at the template statement,
+                // whose text does not contain the concrete name (see the
+                // current-document branch above) — never surface them.
+                if (!('is_expanded' in my_def && my_def.is_expanded)) {
+                    push({ uri: my_def.location.uri, range: my_def.location.range });
+                }
                 // Issue #135: pool same-name redeclarations tracked in
                 // additional_definitions. Variables are excluded because
                 // variable symbols don't carry this field.
@@ -334,6 +349,7 @@ export class ReferencesProvider {
                     && my_def.additional_definitions
                 ) {
                     for (const my_extra of my_def.additional_definitions) {
+                        if ('is_expanded' in my_extra && my_extra.is_expanded) continue;
                         // Gate by the extra's own URI, not the primary's
                         // `sourceUri`. The analyzer currently guarantees they
                         // match (all entries are pushed with `this.uri`), but

@@ -988,8 +988,22 @@ export class DefinitionProvider {
                 ? my_locations.filter(l => l.uri === document_uri)
                 : my_locations;
             if (same_file_locs.length === 0) return true;
-            const my_earliest_line =
+            // A macro is visible at the cursor if ANY of its definitions sits at
+            // or before the cursor line. Take the earliest of the symbol's
+            // execution-order line (definition_line, for directive-created /
+            // expanded symbols) and the earliest of its source locations (which
+            // include additional_definitions); using definition_line alone would
+            // hide a macro that has an additional definition on an earlier line
+            // than its primary.
+            const earliest_loc_line =
                 this.get_earliest_definition_line(same_file_locs);
+            const candidate_lines = [
+                macro_symbol.definition_line,
+                earliest_loc_line,
+            ].filter((line): line is number => typeof line === 'number');
+            const my_earliest_line = candidate_lines.length > 0
+                ? Math.min(...candidate_lines)
+                : undefined;
             return my_earliest_line === undefined
                 || my_earliest_line <= position.line;
         };

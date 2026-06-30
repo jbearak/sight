@@ -376,3 +376,25 @@ describe('Hover redefinition footer - cross-file variants', () => {
         }
     });
 });
+
+describe('Hover redefinition footer - loop-expanded definitions', () => {
+    it('does not list a loop-expanded definition as a redefinition', async () => {
+        // `x_1` is defined literally (line 0) and ALSO produced by the loop body
+        // `local x_`i'` (line 2). The loop-expanded definition anchors at the
+        // template statement, whose text does not contain `x_1`, so it must not
+        // appear in the redefinition footer (consistent with find-references).
+        const source = [
+            'local x_1 = 9',
+            'foreach i in 1 2 {',
+            "    local x_`i' = 5",
+            '}',
+            "display `x_1'",
+        ].join('\n');
+        const content = await hover_at(source, 4, 10);
+        expect(content).not.toBeNull();
+        const text = content!.value;
+        expect(text).toContain('x_1');
+        // The loop-body template is source line index 2 (displayed "line 3").
+        expect(text).not.toContain('line 3');
+    });
+});

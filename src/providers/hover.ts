@@ -27,6 +27,7 @@ import { DocumentState } from '../document-store';
 import { CommandDatabase } from '../command-database';
 import {
     SymbolTable,
+    MacroSymbol,
     ScalarSymbol,
     MatrixSymbol,
     Token,
@@ -178,6 +179,11 @@ interface AdditionalDefinitionEntry {
     index: number;
     line: number;
     location: { uri: string; range: Range };
+    // True for a loop-expanded definition, whose location is the loop-body
+    // template statement (text that does not contain the concrete name). Such
+    // entries are excluded from the redefinition footer, consistent with
+    // find-references and go-to-definition.
+    is_expanded?: boolean;
 }
 
 /**
@@ -739,9 +745,12 @@ export class HoverProvider {
         current_uri: string,
     ): AdditionalDefinitionEntry[] {
         const the_accumulated: AdditionalDefinitionEntry[] = [];
-        // Start with the primary's own same-file additional_definitions.
+        // Start with the primary's own same-file additional_definitions,
+        // skipping loop-expanded synthetic entries (their line points at a
+        // template statement, not a literal occurrence of the name).
         if (primary?.additional_definitions) {
             for (const my_extra of primary.additional_definitions) {
+                if (my_extra.is_expanded) continue;
                 the_accumulated.push(my_extra);
             }
         }
@@ -793,8 +802,16 @@ export class HoverProvider {
                 if (primary_uri && my_location.uri === primary_uri) {
                     continue;
                 }
+                // A loop-expanded workspace symbol anchors at the template
+                // statement, whose text never contains the concrete name, so it
+                // must not be surfaced as a footer entry. Its synthetic extras
+                // are skipped below (line ~823); mirror that guard here for the
+                // primary hit, matching src/providers/references.ts.
+                const hit_is_expanded =
+                    'is_expanded' in my_hit
+                    && (my_hit as { is_expanded?: boolean }).is_expanded === true;
                 const my_key = `${my_location.uri}:${my_location.range?.start?.line ?? -1}`;
-                if (!the_seen_keys.has(my_key)) {
+                if (!hit_is_expanded && !the_seen_keys.has(my_key)) {
                     the_seen_keys.add(my_key);
                     the_accumulated.push({
                         index: has_definition_index(my_hit)
@@ -811,6 +828,7 @@ export class HoverProvider {
                     : undefined;
             if (the_extras) {
                 for (const my_extra of the_extras) {
+                    if (my_extra.is_expanded) continue;
                     if (the_candidate_uris && !the_candidate_uris.has(my_extra.location.uri)) {
                         continue;
                     }
@@ -897,6 +915,19 @@ export class HoverProvider {
     }
 
     /**
+     * The ", line N" suffix shown after a macro's source. For loop-expanded
+     * macros the line is the loop-body template statement (e.g. `local x_`i'`),
+     * whose text does not contain the concrete name, so it is annotated
+     * "(loop-expanded)" rather than presented as a literal occurrence —
+     * consistent with find-references skipping those synthetic locations.
+     */
+    private macro_definition_line_info(macro: MacroSymbol): string {
+        if (macro.definition_line === undefined) return '';
+        const note = macro.is_expanded ? ' (loop-expanded)' : '';
+        return `, line ${macro.definition_line + 1}${note}`;
+    }
+
+    /**
      * Get hover info for a local macro only.
      * Checks resolved scope, forward call symbols (with position filtering), and document symbols.
      *
@@ -920,7 +951,7 @@ export class HoverProvider {
             const local_macro = local_macro_symbols.localMacros.get(word);
             if (local_macro) {
                 const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
-                const line_info = local_macro.definition_line !== undefined ? `, line ${local_macro.definition_line + 1}` : '';
+                const line_info = this.macro_definition_line_info(local_macro);
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
@@ -948,7 +979,7 @@ export class HoverProvider {
         const local_macro = document.symbols.localMacros.get(word);
         if (local_macro) {
             const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
-            const line_info = local_macro.definition_line !== undefined ? `, line ${local_macro.definition_line + 1}` : '';
+            const line_info = this.macro_definition_line_info(local_macro);
             const source_info = source_link
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
@@ -1000,7 +1031,7 @@ export class HoverProvider {
             const global_macro = global_macro_symbols.globalMacros.get(word);
             if (global_macro) {
                 const source_link = this.format_source_link(global_macro.sourceUri, document.uri, workspace_root);
-                const line_info = global_macro.definition_line !== undefined ? `, line ${global_macro.definition_line + 1}` : '';
+                const line_info = this.macro_definition_line_info(global_macro);
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
@@ -1028,7 +1059,7 @@ export class HoverProvider {
         const global_macro = document.symbols.globalMacros.get(word) || workspace_symbols?.globalMacros.get(word);
         if (global_macro) {
             const source_link = this.format_source_link(global_macro.sourceUri, document.uri, workspace_root);
-            const line_info = global_macro.definition_line !== undefined ? `, line ${global_macro.definition_line + 1}` : '';
+            const line_info = this.macro_definition_line_info(global_macro);
             const source_info = source_link
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
@@ -1640,7 +1671,7 @@ export class HoverProvider {
             const local_macro = resolved_scope.symbols.localMacros.get(word);
             if (local_macro) {
                 const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
-                const line_info = local_macro.definition_line !== undefined ? `, line ${local_macro.definition_line + 1}` : '';
+                const line_info = this.macro_definition_line_info(local_macro);
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
@@ -1653,7 +1684,7 @@ export class HoverProvider {
             const global_macro = resolved_scope.symbols.globalMacros.get(word);
             if (global_macro) {
                 const source_link = this.format_source_link(global_macro.sourceUri, document.uri, workspace_root);
-                const line_info = global_macro.definition_line !== undefined ? `, line ${global_macro.definition_line + 1}` : '';
+                const line_info = this.macro_definition_line_info(global_macro);
                 const source_info = source_link
                     ? `\n\nSource: ${source_link}${line_info}`
                     : `\n\nDefined at: this file${line_info}`;
@@ -1669,7 +1700,7 @@ export class HoverProvider {
         const local_macro = document.symbols.localMacros.get(word);
         if (local_macro) {
             const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
-            const line_info = local_macro.definition_line !== undefined ? `, line ${local_macro.definition_line + 1}` : '';
+            const line_info = this.macro_definition_line_info(local_macro);
             const source_info = source_link
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
@@ -1683,7 +1714,7 @@ export class HoverProvider {
         const global_macro = document.symbols.globalMacros.get(word) || workspace_symbols?.globalMacros.get(word);
         if (global_macro) {
             const source_link = this.format_source_link(global_macro.sourceUri, document.uri, workspace_root);
-            const line_info = global_macro.definition_line !== undefined ? `, line ${global_macro.definition_line + 1}` : '';
+            const line_info = this.macro_definition_line_info(global_macro);
             const source_info = source_link
                 ? `\n\nSource: ${source_link}${line_info}`
                 : `\n\nDefined at: this file${line_info}`;
