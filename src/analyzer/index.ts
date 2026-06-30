@@ -2805,9 +2805,10 @@ export class SemanticAnalyzer {
         }
         if (reference_range !== undefined) {
             return (
-                reference_range.start.line < visibility_start.line ||
-                (reference_range.start.line === visibility_start.line &&
-                    reference_range.start.character < visibility_start.character)
+                this.compare_positions(
+                    reference_range.start,
+                    visibility_start
+                ) < 0
             );
         }
         if (reference_line !== undefined) {
@@ -2893,15 +2894,10 @@ export class SemanticAnalyzer {
         position: { line: number; character: number },
         range: Range
     ): boolean {
-        const after_start =
-            position.line > range.start.line ||
-            (position.line === range.start.line &&
-                position.character >= range.start.character);
-        const before_end =
-            position.line < range.end.line ||
-            (position.line === range.end.line &&
-                position.character <= range.end.character);
-        return after_start && before_end;
+        return (
+            this.compare_positions(position, range.start) >= 0 &&
+            this.compare_positions(position, range.end) <= 0
+        );
     }
 
     /**
@@ -2926,6 +2922,22 @@ export class SemanticAnalyzer {
      * registered into the flat, file-global symbol table (program-scoping is
      * tracked separately in issue #261). Forward-only visibility is preserved
      * via `definition_line` (the call's line), matching `local` / `c_local`.
+     *
+     * NOTE ON THE PER-TOKEN-TYPE OPENER/CLOSER BRANCHES BELOW: the several
+     * `MATA_START` / `WORD "mata"` / `PYTHON_START` / `WORD "python"` opener
+     * cases and the `END_MATA` / `END_PYTHON` / `WORD "end"` closer cases look
+     * like collapsible duplication, but each compensates for a DISTINCT lexer
+     * degradation that cannot be detected from the token type alone:
+     *   - `#delimit ;` re-lexes a plain block's `end` as `WORD "end"` + `;`,
+     *     not END_MATA / END_PYTHON;
+     *   - a utility one-liner (`mata clear`) leaves the lexer stuck in Mata
+     *     context, so a later `mata`/`python` opener arrives as a bare WORD and
+     *     a Mata block's `end` can lex as END_PYTHON (and vice versa).
+     * They already share the real generalizations (`classify_embedded_block_opener`,
+     * `begins_statement` / `ends_statement`, `enter_python_kind`); do NOT merge
+     * the remaining branches further — each maps to a specific lexer failure
+     * mode, and collapsing them silently drops a handled case. The principled
+     * fix is a Mata/Python-aware lexer, which is out of scope here.
      */
     private extract_mata_st_local_declarations(
         tokens: Token[],
@@ -2962,6 +2974,36 @@ export class SemanticAnalyzer {
         // any Mata-looking tokens on that line are Python, not Mata, so stay
         // inert from PYTHON_INLINE through its statement terminator.
         let in_inline_python = false;
+
+        // Entering or leaving any Mata unit zeroes both depth counters
+        // together. The mode itself (`mata_mode = ...`) stays an explicit
+        // assignment at each site so TypeScript can still narrow `mata_mode`
+        // at the brace-tracking reads below — routing it through a closure
+        // would hide the `block_*` writes from control-flow analysis.
+        const reset_mata_depths = (): void => {
+            brace_depth = 0;
+            mata_function_body_depth = 0;
+        };
+        // Enter the Python state implied by an opener `kind` (shared by the
+        // PYTHON_START token and the bare-`WORD "python"` re-entry used when
+        // the lexer is stuck in Mata context). Returns whether a Python region
+        // was entered — `subcommand` (e.g. `python query`) is a one-liner and
+        // enters nothing, so a following real Mata block is still scanned.
+        const enter_python_kind = (
+            kind: 'inline' | 'block_brace' | 'block_plain' | 'subcommand'
+        ): boolean => {
+            if (kind === 'inline') {
+                in_inline_python = true;
+                return true;
+            }
+            if (kind === 'block_brace' || kind === 'block_plain') {
+                in_python_block = true;
+                python_is_brace = kind === 'block_brace';
+                python_brace_depth = 0;
+                return true;
+            }
+            return false;
+        };
 
         // `skip_terminators` crosses STATEMENT_TERMINATOR tokens
         // unconditionally. Mata block calls (`mata` ... `end` / `mata { }`)
@@ -3096,27 +3138,15 @@ export class SemanticAnalyzer {
             // Track Python blocks and stay inert inside them.
             if (token.type === 'PYTHON_START') {
                 mata_mode = null;
-                brace_depth = 0;
-                mata_function_body_depth = 0;
+                reset_mata_depths();
                 // The lexer emits PYTHON_START for any leading `python`,
                 // including one-line subcommands like `python query` /
                 // `python set ...` that do NOT open a block. Classify the
                 // opener (the logic is shared with Mata) to decide what we
-                // entered. Brace-style `python { ... }` closes with the
-                // matching RBRACE rather than END_PYTHON.
-                const kind = this.classify_embedded_block_opener(tokens, i);
-                if (kind === 'subcommand') {
-                    // A one-liner; stay out of Python mode so a following
-                    // real Mata block is still scanned.
-                    continue;
-                }
-                if (kind === 'inline') {
-                    in_inline_python = true;
-                    continue;
-                }
-                in_python_block = true;
-                python_is_brace = kind === 'block_brace';
-                python_brace_depth = 0;
+                // entered; a `subcommand` enters nothing so a following real
+                // Mata block is still scanned. Brace-style `python { ... }`
+                // closes with the matching RBRACE rather than END_PYTHON.
+                enter_python_kind(this.classify_embedded_block_opener(tokens, i));
                 continue;
             }
             if (token.type === 'END_PYTHON') {
@@ -3129,8 +3159,7 @@ export class SemanticAnalyzer {
                 // Mata mode here (you cannot be in both at once, so this is
                 // safe in normal state).
                 mata_mode = null;
-                brace_depth = 0;
-                mata_function_body_depth = 0;
+                reset_mata_depths();
                 continue;
             }
             if (in_python_block) {
@@ -3176,8 +3205,7 @@ export class SemanticAnalyzer {
             if (token.type === 'PYTHON_INLINE') {
                 in_inline_python = true;
                 mata_mode = null;
-                brace_depth = 0;
-                mata_function_body_depth = 0;
+                reset_mata_depths();
                 continue;
             }
             if (in_inline_python) {
@@ -3205,14 +3233,12 @@ export class SemanticAnalyzer {
                         continue;
                     }
                     mata_mode = kind;
-                    brace_depth = 0;
-                    mata_function_body_depth = 0;
+                    reset_mata_depths();
                     continue;
                 }
                 case 'END_MATA':
                     mata_mode = null;
-                    brace_depth = 0;
-                    mata_function_body_depth = 0;
+                    reset_mata_depths();
                     continue;
                 case 'STATEMENT_TERMINATOR':
                     if (
@@ -3272,17 +3298,9 @@ export class SemanticAnalyzer {
                 // so a following real Mata block is still scanned; only a
                 // genuine block / inline opener makes the scan inert.
                 const kind = this.classify_embedded_block_opener(tokens, i);
-                if (kind !== 'subcommand') {
-                    if (kind === 'inline') {
-                        in_inline_python = true;
-                    } else {
-                        in_python_block = true;
-                        python_is_brace = kind === 'block_brace';
-                        python_brace_depth = 0;
-                    }
+                if (enter_python_kind(kind)) {
                     mata_mode = null;
-                    brace_depth = 0;
-                    mata_function_body_depth = 0;
+                    reset_mata_depths();
                     continue;
                 }
             }
@@ -3309,8 +3327,7 @@ export class SemanticAnalyzer {
                 const kind = this.classify_embedded_block_opener(tokens, i);
                 if (kind !== 'subcommand') {
                     mata_mode = kind;
-                    brace_depth = 0;
-                    mata_function_body_depth = 0;
+                    reset_mata_depths();
                     continue;
                 }
             }
@@ -3323,8 +3340,7 @@ export class SemanticAnalyzer {
                 ends_statement(i)
             ) {
                 mata_mode = null;
-                brace_depth = 0;
-                mata_function_body_depth = 0;
+                reset_mata_depths();
                 continue;
             }
 
@@ -3629,12 +3645,19 @@ export class SemanticAnalyzer {
         );
     }
 
+    /**
+     * Lexicographic (line, then character) comparison of two positions.
+     * Returns <0 when `a` is before `b`, 0 when equal, >0 when after.
+     */
+    private compare_positions(
+        a: { line: number; character: number },
+        b: { line: number; character: number }
+    ): number {
+        return a.line !== b.line ? a.line - b.line : a.character - b.character;
+    }
+
     private compare_ranges(left: Range, right: Range): number {
-        const line_delta = left.start.line - right.start.line;
-        if (line_delta !== 0) {
-            return line_delta;
-        }
-        return left.start.character - right.start.character;
+        return this.compare_positions(left.start, right.start);
     }
 
     /**
