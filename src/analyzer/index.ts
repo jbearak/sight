@@ -3031,11 +3031,12 @@ export class SemanticAnalyzer {
                 token.type === 'WORD' &&
                 token.value === 'end'
             ) {
-                // Under `#delimit ;` the block's interior terminators are
-                // `EMBEDDED_CONTENT ";"`, not STATEMENT_TERMINATOR; a closing
-                // `end` may also directly follow a top-level function body's
-                // `}` (RBRACE). Accept those plus the block opener and
-                // start-of-input as statement boundaries.
+                // `end` begins a statement when the previous significant token
+                // is a terminator boundary: a STATEMENT_TERMINATOR, or — under
+                // `#delimit ;`, where the block's interior terminators lex as
+                // `EMBEDDED_CONTENT ";"` — an embedded `;`. A closing `end`
+                // may also directly follow the block opener (MATA_START), a
+                // top-level function body's `}` (RBRACE), or start-of-input.
                 const previous_idx = previous_significant(i - 1);
                 const previous_token =
                     previous_idx >= 0 ? tokens[previous_idx] : undefined;
@@ -3204,7 +3205,7 @@ export class SemanticAnalyzer {
             new_symbol
         );
 
-        if (this.is_symbol_range_before(range, existing.location.range)) {
+        if (this.is_mata_definition_before(definition_line, range, existing)) {
             const old_primary =
                 this.macro_symbol_to_additional_definition(existing);
             new_symbol.additional_definitions = [
@@ -3255,8 +3256,29 @@ export class SemanticAnalyzer {
         );
     }
 
-    private is_symbol_range_before(left: Range, right: Range): boolean {
-        return this.compare_ranges(left, right) < 0;
+    /**
+     * Should a newly discovered Mata setter replace the current primary
+     * definition of the same macro? First-definition-wins is ordered by
+     * effective visibility (`definition_line`), NOT raw source position, so
+     * that a setter never overrides a symbol whose `definition_line` was
+     * deliberately set apart from its location. In particular `args` macros
+     * carry `definition_line === 0` (visible from the start of scope); a
+     * later Mata setter must not promote over them and reintroduce a forward-
+     * reference warning. Same-line ties fall back to the location character.
+     */
+    private is_mata_definition_before(
+        new_definition_line: number,
+        new_range: Range,
+        existing: MacroSymbol
+    ): boolean {
+        const existing_line =
+            existing.definition_line ?? existing.location.range.start.line;
+        if (new_definition_line !== existing_line) {
+            return new_definition_line < existing_line;
+        }
+        return (
+            new_range.start.character < existing.location.range.start.character
+        );
     }
 
     private compare_ranges(left: Range, right: Range): number {

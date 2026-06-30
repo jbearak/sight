@@ -122,6 +122,19 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('does not promote a Mata setter over an args macro', () => {
+        // `args x` makes `x` visible from the start of scope
+        // (definition_line 0). A later Mata setter must not become the
+        // primary and reintroduce a forward-reference warning for the
+        // earlier `` `x' ``.
+        const src = 'display `x\'\nmata: st_local("x", "1")\nargs x';
+        const result = analyze(src);
+        const macro = result.symbols.localMacros.get('x');
+        expect(macro).toBeDefined();
+        expect(macro!.definition_line).toBe(0);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
     it('global setter before a later global remains the primary definition', () => {
         const src = 'mata: st_global("G", "1")\ndisplay $G\nglobal G 2';
         const result = analyze(src);
@@ -148,6 +161,15 @@ describe('st_local / st_global declarations in Mata', () => {
         const result = analyze(src);
         expect(result.symbols.localMacros.has('outer')).toBe(true);
         expect(result.symbols.localMacros.has('inner')).toBe(false);
+    });
+
+    it('nested two-argument st_local in value position also declares', () => {
+        // The inner call is itself a two-argument setter that executes and
+        // sets `inner`, so both macros are genuinely defined.
+        const src = 'mata: st_local("outer", st_local("inner", "x"))';
+        const result = analyze(src);
+        expect(result.symbols.localMacros.has('outer')).toBe(true);
+        expect(result.symbols.localMacros.has('inner')).toBe(true);
     });
 
     it('st_local text inside a Stata string literal is not a declaration', () => {
