@@ -430,6 +430,15 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('ignores parentheses inside string literals in a block header', () => {
+        // The `)` in the condition string must not unbalance the header scan
+        // and pull the preceding `struct` statement into the `if` header (which
+        // would misclassify the executed block as a struct-definition body).
+        const src =
+            'mata\nstruct S scalar s\nif (s == ")") {\n  st_local("foo", "1")\n}\nend';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+    });
+
     it('does not declare setters inside a Mata struct body', () => {
         const src =
             'mata\nstruct S {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';

@@ -3525,7 +3525,13 @@ export class SemanticAnalyzer {
             }
 
             parts.push(token.value);
-            track_parens(token.value);
+            // Don't count parentheses inside string literals — e.g. a Mata
+            // condition `if (s == ")") { ... }` would otherwise leave the
+            // scan thinking the `if` parens are unbalanced and skip the real
+            // statement separator before it.
+            if (token.type !== 'STRING') {
+                track_parens(token.value);
+            }
         }
 
         // Tokens were collected by scanning backwards, so reverse once (O(n))
