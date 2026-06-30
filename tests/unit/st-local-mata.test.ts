@@ -458,6 +458,15 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
     });
 
+    it('treats an inline mata semicolon as a header separator', () => {
+        // In inline `mata:` the `;` between statements is an OPERATOR token.
+        // It must end the header scan so the preceding `struct` statement is
+        // not pulled into the executed `if` block's header.
+        const src =
+            'mata: struct S scalar s; if (1) { st_local("foo", "1") }';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+    });
+
     it('does not declare setters inside a Mata struct body', () => {
         const src =
             'mata\nstruct S {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';

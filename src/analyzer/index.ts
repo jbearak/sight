@@ -3486,14 +3486,17 @@ export class SemanticAnalyzer {
             }
         };
 
-        // A statement separator ends the header scan. Inside `mata` ... `end`
-        // blocks under `#delimit ;`, statement separators are tokenized as
-        // `EMBEDDED_CONTENT ";"` rather than STATEMENT_TERMINATOR, so
-        // recognize both forms (stopping here also prevents pulling a
-        // preceding statement into the header).
+        // A statement separator ends the header scan. A `;` separator is
+        // tokenized differently by context: STATEMENT_TERMINATOR normally,
+        // `EMBEDDED_CONTENT ";"` inside `mata` ... `end` blocks under
+        // `#delimit ;`, and an `OPERATOR ";"` between inline `mata:`
+        // statements. Recognize all three (stopping here also prevents
+        // pulling a preceding statement into the header).
         const is_statement_separator = (token: Token): boolean =>
             token.type === 'STATEMENT_TERMINATOR' ||
-            (token.type === 'EMBEDDED_CONTENT' && token.value.includes(';'));
+            ((token.type === 'EMBEDDED_CONTENT' ||
+                token.type === 'OPERATOR') &&
+                token.value.includes(';'));
 
         for (let i = brace_index - 1; i >= 0; i--) {
             const token = tokens[i];
