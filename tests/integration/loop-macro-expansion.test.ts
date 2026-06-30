@@ -1079,6 +1079,41 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).toContain('x_foo');
     });
 
+    it('does not poison when a read-only Mata st_local has a subscript comma', () => {
+        // `st_local(names[1,2])` is a one-argument READ: the comma is a Mata
+        // subscript separator, not the st_local argument separator. It declares
+        // nothing and must not be misread as an unknown setter that poisons the
+        // later constructed `x_foo`.
+        const source = [
+            'local suffix foo',
+            'foreach i in a {',
+            '    mata: st_local(names[1,2])',
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(true);
+        expect(undefined_macros(source)).not.toContain('x_foo');
+    });
+
+    it('treats a dynamic two-arg Mata setter with a bracketed name as unknown', () => {
+        // `st_local(names[1], "bar")` IS a two-argument setter whose target is
+        // dynamic (unknown). The separating comma sits at bracket depth 0, so it
+        // must still be found and poison the later constructed name.
+        const source = [
+            'local suffix foo',
+            'foreach i in a {',
+            '    mata: st_local(names[1], "bar")',
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
     it('treats dynamic Mata setter targets as unknown redefinitions', () => {
         // The first argument to st_local() may evaluate to any macro name. Once a
         // loop body writes an unknown target, later constructed names must be

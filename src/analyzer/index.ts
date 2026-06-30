@@ -3616,6 +3616,11 @@ export class SemanticAnalyzer {
             cross_lines: boolean
         ): number => {
             let paren_depth = 0;
+            // Mata subscripts (`names[1,2]`) put commas inside brackets that
+            // are NOT the st_local argument separator. Track bracket depth so a
+            // read-only call like `st_local(names[1,2])` is not misread as a
+            // two-argument setter (which would poison loop expansion).
+            let bracket_depth = 0;
             for (let k = from; k < tokens.length; k++) {
                 const my_token = tokens[k];
                 if (
@@ -3653,7 +3658,17 @@ export class SemanticAnalyzer {
                             return -1;
                         }
                         paren_depth--;
-                    } else if (my_char === ',' && paren_depth === 0) {
+                    } else if (my_char === '[') {
+                        bracket_depth++;
+                    } else if (my_char === ']') {
+                        if (bracket_depth > 0) {
+                            bracket_depth--;
+                        }
+                    } else if (
+                        my_char === ',' &&
+                        paren_depth === 0 &&
+                        bracket_depth === 0
+                    ) {
                         return k;
                     }
                 }
