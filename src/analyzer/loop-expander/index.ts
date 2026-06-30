@@ -93,7 +93,15 @@ export function expand_loop_body(
     node: ControlFlowNode,
     tokens: Token[],
     frames: BindingFrame[],
-    symbols: Pick<SymbolTable, 'localMacros' | 'globalMacros'>
+    symbols: Pick<SymbolTable, 'localMacros' | 'globalMacros'>,
+    // Optional: returns the macros a body statement (re)defines via an
+    // analyzer-known macro-creating command/option (e.g. `levelsof ...,
+    // local(x)`, or a user program's `local()` option). The analyzer injects
+    // this so the expander can poison such helpers in execution order without
+    // depending on the program registry directly.
+    command_redefinitions?: (
+        statement: StataNode
+    ) => Array<{ scope: 'local' | 'global'; name: string }>
 ): ExpandedLoopMacro[] {
     // If any active loop has an empty iteration set, the (innermost) body never
     // executes, so no constructed name is actually defined. Expanding here —
@@ -146,6 +154,18 @@ export function expand_loop_body(
         const redef = extract_redefined_macro_name(the_tokens);
         if (redef) {
             (redef.scope === 'local' ? redefined_local : redefined_global).add(redef.name);
+        }
+        // A macro reassigned by an analyzer-known macro-creating command/option
+        // (e.g. `levelsof ..., local(suffix)`, or a user program's `local()`
+        // option) likewise shadows the pre-loop value for any LATER constructed
+        // name that interpolates it. Its runtime value is unknown, so a template
+        // referencing it is conservatively skipped rather than folded from the
+        // stale pre-loop value.
+        if (command_redefinitions) {
+            for (const my_redef of command_redefinitions(my_statement)) {
+                (my_redef.scope === 'local' ? redefined_local : redefined_global)
+                    .add(my_redef.name);
+            }
         }
     }
     return the_expanded;

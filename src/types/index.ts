@@ -409,6 +409,13 @@ export interface MacroSymbol {
   // loop-body template statement, whose text does NOT contain the concrete
   // name, so find-references must not surface it as a textual occurrence.
   is_expanded?: boolean;
+  // True when this macro's FIRST definition is inside a context that may not
+  // execute at runtime (an `if`/`else`/`while` body, or a dynamic/empty loop
+  // body, i.e. `nonexec_depth > 0` at definition time). Its stored `value`
+  // is therefore not guaranteed and must NOT be statically folded for loop
+  // expansion (doing so could fabricate iteration values or constructed names
+  // that never exist at runtime, falsely suppressing undefined-macro warnings).
+  maybe_unexecuted?: boolean;
   additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range }, is_expanded?: boolean }>;
 }
 

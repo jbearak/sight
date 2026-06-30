@@ -488,6 +488,110 @@ describe('Loop macro expansion (integration)', () => {
         expect(symbols.globalMacros.has('g_b')).toBe(true);
     });
 
+    it('does not fold a list macro defined inside a conditional block', () => {
+        // `if 0 { local xs a }` may not run, so at the loop `xs` has no
+        // guaranteed value. Folding it as ["a"] would make the loop look static
+        // and inject x_a, falsely suppressing `display `x_a'`.
+        const source = [
+            'if 0 {',
+            '    local xs a',
+            '}',
+            'foreach i of local xs {',
+            "    local x_`i'",
+            '}',
+            "display `x_a'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_a');
+    });
+
+    it('does not fold a name helper defined inside a conditional block', () => {
+        // `suffix` is only defined inside an if-body that may not run, so a
+        // constructed name interpolating it cannot be folded to x_a / x_b.
+        const source = [
+            'if 0 {',
+            '    local suffix x',
+            '}',
+            'foreach i in a b {',
+            "    local `i'_`suffix'",
+            '}',
+            "display `a_x'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('a_x')).toBe(false);
+        expect(symbols.localMacros.has('b_x')).toBe(false);
+        expect(undefined_macros(source)).toContain('a_x');
+    });
+
+    it('does not fold a helper defined inside a dynamic loop body', () => {
+        // The outer `of varlist` loop may iterate zero times, so `local xs a`
+        // inside it is not guaranteed; the later static loop must not fold it.
+        const source = [
+            'foreach v of varlist somevar {',
+            '    local xs a',
+            '}',
+            'foreach i of local xs {',
+            "    local x_`i'",
+            '}',
+            "display `x_a'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_a');
+    });
+
+    it('skips a constructed name when a command reassigns the helper before it', () => {
+        // `levelsof ..., local(suffix)` reassigns `suffix` at runtime to an
+        // unknown value, so the following `local x_`suffix'` defines an unknown
+        // name — NOT x_foo from the stale pre-loop value. Must not inject x_foo.
+        const source = [
+            'local suffix foo',
+            'foreach i in a {',
+            '    levelsof rep78, local(suffix)',
+            "    local x_`suffix'",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
+    it('skips a constructed name when a command reassigns a global helper before it', () => {
+        const source = [
+            'global suffix foo',
+            'foreach i in a {',
+            '    levelsof rep78, global(suffix)',
+            "    local x_${suffix}",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
+    it('promotes the earlier expanded definition to the primary location on collision', () => {
+        // The constructed `local `i' 1` (line 1) runs BEFORE the literal
+        // `local a 2` (line 2). Cross-file call-site filtering reads the PRIMARY
+        // location.range.start.line, so the earliest definition must become the
+        // primary location (not just definition_line); the later literal is
+        // demoted to additional_definitions.
+        const source = [
+            'foreach i in a {',
+            "    local `i' 1",
+            '    local a 2',
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        const a = symbols.localMacros.get('a');
+        expect(a).toBeDefined();
+        expect(a!.location.range.start.line).toBe(1);
+        expect(a!.definition_line).toBe(1);
+        expect(a!.additional_definitions?.some((d) => d.line === 2)).toBe(true);
+    });
+
     it('marks an expanded concrete name as redefined for a later template', () => {
         // `foreach i in suffix` binds i = "suffix", so `local `i' bar` reassigns
         // the helper `suffix` (foo -> bar). The following `local x_`suffix'`

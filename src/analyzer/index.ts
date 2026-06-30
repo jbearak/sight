@@ -971,6 +971,11 @@ export class SemanticAnalyzer {
                 extendedFunction: node.extendedFunction,
                 definition_index: node_index,
                 definition_line: node.range.start.line,
+                // A definition reached under a non-executing context (an
+                // `if`/`while` body, or a dynamic/empty loop body) is not
+                // guaranteed to run, so its value must not be folded into a
+                // later loop's value-set or constructed names.
+                ...(this.nonexec_depth > 0 ? { maybe_unexecuted: true } : {}),
             };
 
             // Register macro in symbol table regardless of extended function type
@@ -2164,25 +2169,76 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         node_index: number
     ): void {
+        for (const my_created of this.get_command_created_macros(node, symbols)) {
+            const my_range = my_created.argument_range ?? node.range;
+            const target = my_created.scope === 'local'
+                ? symbols.localMacros
+                : symbols.globalMacros;
+            const existing_macro = target.get(my_created.name);
+            if (existing_macro) {
+                // Add to additional_definitions array (first definition wins)
+                if (!existing_macro.additional_definitions) {
+                    existing_macro.additional_definitions = [];
+                }
+                existing_macro.additional_definitions.push({
+                    index: node_index,
+                    line: my_range.start.line,
+                    location: { uri: this.uri, range: my_range },
+                });
+            } else {
+                // Create new macro with first definition
+                const macro_symbol: MacroSymbol = {
+                    name: my_created.name,
+                    scope: my_created.scope,
+                    location: { uri: this.uri, range: my_range },
+                    sourceUri: this.uri,
+                    value: `__option_${my_created.scope}_${my_created.name}__`,
+                    containingScope: current_scope.type,
+                    definition_index: node_index,
+                    definition_line: node.range.start.line,
+                };
+                target.set(my_created.name, macro_symbol);
+                if (my_created.scope === 'local') {
+                    current_scope.localMacros.set(my_created.name, macro_symbol);
+                }
+            }
+        }
+    }
+
+    /**
+     * Read-only detection of the macros a command statement creates via
+     * macro-creating options: built-in commands (`levelsof ..., local(x)`,
+     * `glevelsof`) and user-defined programs with `local()`/`global()` options.
+     * Returns the concrete (literal) created names with scope and the option's
+     * argument range. Constructed/dynamic option arguments (e.g. `local(`j')`)
+     * are skipped — their concrete name is not statically known.
+     *
+     * Shared by `extract_macro_creating_options` (which registers the symbols)
+     * and the loop expander (which uses it to poison a helper that a loop body
+     * reassigns via such a command before a later constructed name interpolates
+     * it). Keeping ONE detection path guarantees the expander poisons exactly
+     * the set of names the analyzer treats as command-created.
+     */
+    private get_command_created_macros(
+        node: CommandNode,
+        symbols: SymbolTable
+    ): Array<{ scope: 'local' | 'global'; name: string; argument_range?: Range }> {
         if (!node.options) {
-            return;
+            return [];
         }
 
-        // Check if this is a built-in macro-creating command
+        // Built-in macro-creating command, or a user-defined program with
+        // macro-creating options.
         const builtin_cmd = find_macro_creating_command(node.fullName);
-        
-        // Check if this is a user-defined program with macro-creating options
-        const program_options = this.get_program_macro_creating_options(node.fullName, symbols);
-        
-        // Only process if it's a supported command (builtin or user-defined with macro-creating options)
+        const program_options =
+            this.get_program_macro_creating_options(node.fullName, symbols);
         if (!builtin_cmd && !program_options) {
-            return;
+            return [];
         }
-        
-        // Pre-build Sets of matching option names to avoid O(n²) complexity
+
+        // Pre-build Sets of matching option names to avoid O(n²) complexity.
         const local_option_names = new Set<string>();
         const global_option_names = new Set<string>();
-        
         if (builtin_cmd) {
             for (const option of node.options) {
                 for (const opt of builtin_cmd.local_options) {
@@ -2204,86 +2260,33 @@ export class SemanticAnalyzer {
                 global_option_names.add(option_name.toLowerCase());
             }
         }
-        
+
+        const the_created: Array<{
+            scope: 'local' | 'global';
+            name: string;
+            argument_range?: Range;
+        }> = [];
         for (const option of node.options) {
-            // Parse the option argument
             const parse_result = parse_option_argument(option.argument);
             if (!parse_result.is_literal || !parse_result.identifier) {
                 continue;
             }
-            
-            const macro_name = parse_result.identifier;
             const option_name = option.name.toLowerCase();
-            
-            // Check if this is a local() option
-            const is_local_option = local_option_names.has(option_name);
-            
-            // Check if this is a global() option
-            const is_global_option = global_option_names.has(option_name);
-            
-            if (is_local_option) {
-                // Check if macro already exists (first definition wins)
-                const existing_macro = symbols.localMacros.get(macro_name);
-                if (existing_macro) {
-                    // Add to additional_definitions array
-                    if (!existing_macro.additional_definitions) {
-                        existing_macro.additional_definitions = [];
-                    }
-                    const my_local_option_range =
-                        option.argument_range ?? node.range;
-                    existing_macro.additional_definitions.push({
-                        index: node_index,
-                        line: my_local_option_range.start.line,
-                        location: { uri: this.uri, range: my_local_option_range }
-                    });
-                } else {
-                    // Create new macro with first definition
-                    const macro_symbol: MacroSymbol = {
-                        name: macro_name,
-                        scope: 'local',
-                        location: { uri: this.uri, range: option.argument_range ?? node.range },
-                        sourceUri: this.uri,
-                        value: `__option_local_${macro_name}__`,
-                        containingScope: current_scope.type,
-                        definition_index: node_index,
-                        definition_line: node.range.start.line,
-                    };
-
-                    current_scope.localMacros.set(macro_name, macro_symbol);
-                    symbols.localMacros.set(macro_name, macro_symbol);
-                }
-            } else if (is_global_option) {
-                // Check if macro already exists (first definition wins)
-                const existing_macro = symbols.globalMacros.get(macro_name);
-                if (existing_macro) {
-                    // Add to additional_definitions array
-                    if (!existing_macro.additional_definitions) {
-                        existing_macro.additional_definitions = [];
-                    }
-                    const my_global_option_range =
-                        option.argument_range ?? node.range;
-                    existing_macro.additional_definitions.push({
-                        index: node_index,
-                        line: my_global_option_range.start.line,
-                        location: { uri: this.uri, range: my_global_option_range }
-                    });
-                } else {
-                    // Create new macro with first definition
-                    const macro_symbol: MacroSymbol = {
-                        name: macro_name,
-                        scope: 'global',
-                        location: { uri: this.uri, range: option.argument_range ?? node.range },
-                        sourceUri: this.uri,
-                        value: `__option_global_${macro_name}__`,
-                        containingScope: current_scope.type,
-                        definition_index: node_index,
-                        definition_line: node.range.start.line,
-                    };
-
-                    symbols.globalMacros.set(macro_name, macro_symbol);
-                }
+            if (local_option_names.has(option_name)) {
+                the_created.push({
+                    scope: 'local',
+                    name: parse_result.identifier,
+                    argument_range: option.argument_range,
+                });
+            } else if (global_option_names.has(option_name)) {
+                the_created.push({
+                    scope: 'global',
+                    name: parse_result.identifier,
+                    argument_range: option.argument_range,
+                });
             }
         }
+        return the_created;
     }
 
     /**
@@ -2363,7 +2366,16 @@ export class SemanticAnalyzer {
                     node,
                     this.tokens,
                     this.loop_frames,
-                    pre_loop_macros
+                    pre_loop_macros,
+                    // Let the expander poison a helper that the loop body
+                    // reassigns via an analyzer-known macro-creating command/
+                    // option (e.g. `levelsof ..., local(suffix)`) before a later
+                    // constructed name interpolates it.
+                    (statement) =>
+                        statement.type === 'command'
+                            ? this.get_command_created_macros(statement, symbols)
+                                  .map((m) => ({ scope: m.scope, name: m.name }))
+                            : []
                 );
                 for (const my_macro of the_expanded) {
                     this.inject_expanded_macro(
@@ -2435,31 +2447,41 @@ export class SemanticAnalyzer {
             if (!existing.additional_definitions) {
                 existing.additional_definitions = [];
             }
-            existing.additional_definitions.push({
-                index: node_index,
-                line: definition_line,
-                location: { uri: this.uri, range: macro.sourceRange },
-                is_expanded: true,
-            });
-            // `is_macro_defined` consults only the PRIMARY definition_line /
-            // definition_index, not additional_definitions. When this expanded
-            // definition runs earlier than the current primary (e.g. a
-            // constructed `local `i' …` that executes before a later literal
-            // `local a …` in the same body), lower the primary markers so a
-            // reference between the two is not falsely flagged as a forward /
-            // undefined reference. Only lower (never raise) so the earliest
-            // definition wins and no genuine forward reference is suppressed.
-            if (
+            const expanded_location = { uri: this.uri, range: macro.sourceRange };
+            // Consumers read the PRIMARY definition markers, never
+            // additional_definitions: `is_macro_defined` reads
+            // definition_line / definition_index, and cross-file include/
+            // done-by call-site filtering reads location.range.start.line. So
+            // when this expanded definition runs earlier than the current
+            // primary (e.g. a constructed `local `i' …` that executes before a
+            // later literal `local a …`), it must BECOME the primary — line,
+            // index, and location together — or a reference / child include
+            // between the two definitions is wrongly treated as undefined / not
+            // inherited. The former primary is demoted to additional_definitions
+            // so its location is still available for find-references. Only
+            // promote when strictly earlier, so the earliest definition wins and
+            // no genuine forward reference is suppressed.
+            const expanded_is_earlier =
                 existing.definition_line === undefined ||
-                definition_line < existing.definition_line
-            ) {
+                definition_line < existing.definition_line;
+            if (expanded_is_earlier) {
+                existing.additional_definitions.push({
+                    index: existing.definition_index ?? node_index,
+                    line: existing.definition_line ?? definition_line,
+                    location: existing.location,
+                    is_expanded: existing.is_expanded,
+                });
+                existing.location = expanded_location;
                 existing.definition_line = definition_line;
-            }
-            if (
-                existing.definition_index === undefined ||
-                node_index < existing.definition_index
-            ) {
                 existing.definition_index = node_index;
+                existing.is_expanded = true;
+            } else {
+                existing.additional_definitions.push({
+                    index: node_index,
+                    line: definition_line,
+                    location: expanded_location,
+                    is_expanded: true,
+                });
             }
             return;
         }

@@ -150,6 +150,11 @@ export function build_static_value_env(
         depth: number
     ): StaticValue => {
         if (symbol.value === undefined) return null;
+        // A definition that may not execute at runtime (inside an `if`/`while`
+        // body or a dynamic/empty loop body) has no guaranteed value, so it is
+        // dynamic for folding purposes. Folding it would fabricate iteration
+        // values or constructed names that may never exist at runtime.
+        if (symbol.maybe_unexecuted) return null;
         // First-def-wins keeps only the FIRST value; later redefinitions live in
         // `additional_definitions` without their values. When the env is built
         // from the pre-loop snapshot, any `additional_definitions` means the
