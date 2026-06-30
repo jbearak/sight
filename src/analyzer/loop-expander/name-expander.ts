@@ -180,6 +180,29 @@ export function template_references_redefined(
     return false;
 }
 
+/**
+ * True if the template interpolates at least one macro that is NOT an active
+ * loop iterator — i.e. a value folded from the pre-loop symbol table. Such a
+ * name depends on a macro's stored value, so an earlier constructed
+ * (re)definition whose target could not be resolved (an unknown macro) might
+ * have changed it. Iterator-only templates (e.g. `` x_`i' ``) are unaffected by
+ * such redefinitions and stay safe to expand. Global refs always count, since
+ * loop iterators are locals.
+ */
+export function template_folds_preloop_macro(
+    template: NameTemplate,
+    frames: BindingFrame[]
+): boolean {
+    const the_frame_vars = new Set(frames.map((my_frame) => my_frame.var));
+    for (const my_part of template.parts) {
+        if (my_part.kind === 'global_ref') return true;
+        if (my_part.kind === 'local_ref' && !the_frame_vars.has(my_part.name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** Compute the subset of frames whose iterator is referenced directly by the template. */
 function relevant_frames(
     template: NameTemplate,

@@ -12,6 +12,7 @@ import {
     expand_template,
     extract_name_template,
     extract_redefined_macro_name,
+    template_folds_preloop_macro,
     template_references_redefined,
 } from './name-expander';
 
@@ -95,6 +96,14 @@ export function expand_loop_body(
     // templates may interpolate.
     const redefined_local = new Set<string>();
     const redefined_global = new Set<string>();
+    // Set once a constructed (re)definition's concrete name(s) cannot be
+    // resolved here — e.g. a nested loop's `` local `j' `` whose iterator is
+    // unbound in this frame context, or an over-cap expansion. We then do not
+    // know which macro was reassigned, so any LATER template that folds a
+    // pre-loop macro value (see `template_folds_preloop_macro`) is unsafe and
+    // must be skipped to avoid fabricating a stale concrete name (which would
+    // falsely suppress a legitimate undefined-macro warning).
+    let saw_unresolved_redefinition = false;
 
     // Record any (re)definition a single leaf statement performs, and — only in
     // an `expandable` (guaranteed-executing) region — inject its expanded
@@ -104,23 +113,43 @@ export function expand_loop_body(
         if (the_tokens.length === 0) return;
         const template = extract_name_template(the_tokens);
         if (template) {
-            if (!template_references_redefined(template, redefined_local, redefined_global)) {
-                const redefined_for_scope =
-                    template.scope === 'local' ? redefined_local : redefined_global;
-                for (const my_name of expand_template(template, frames, symbols)) {
-                    // The produced concrete name is itself a (re)definition, so
-                    // poison it for any LATER template regardless of region.
-                    // Inject it as a defined symbol only in an expandable
-                    // region; inside a skipped block (if/while/nested loop) we
-                    // poison but do NOT inject (it may not run, or runs with a
-                    // different binding).
-                    redefined_for_scope.add(my_name);
-                    if (expandable) {
-                        the_expanded.push({
-                            name: my_name,
-                            scope: template.scope,
-                            sourceRange: my_statement.range,
-                        });
+            // Skip (a) a template that folds a macro the body already redefined,
+            // or (b) — once an earlier constructed redefinition was unresolvable
+            // — a template that folds any pre-loop macro value the unknown
+            // target might have changed. Both are conservative misses that
+            // avoid a false suppression.
+            const unsafe_after_unresolved =
+                saw_unresolved_redefinition
+                && template_folds_preloop_macro(template, frames);
+            if (
+                !unsafe_after_unresolved
+                && !template_references_redefined(template, redefined_local, redefined_global)
+            ) {
+                const the_names = expand_template(template, frames, symbols);
+                if (the_names.length === 0) {
+                    // The constructed name could not be resolved in this frame
+                    // context (unbound nested iterator, or over-cap expansion),
+                    // so its (re)definition target is unknown — poison later
+                    // pre-loop-folding templates.
+                    saw_unresolved_redefinition = true;
+                } else {
+                    const redefined_for_scope =
+                        template.scope === 'local' ? redefined_local : redefined_global;
+                    for (const my_name of the_names) {
+                        // The produced concrete name is itself a (re)definition,
+                        // so poison it for any LATER template regardless of
+                        // region. Inject it as a defined symbol only in an
+                        // expandable region; inside a skipped block (if/while/
+                        // nested loop) we poison but do NOT inject (it may not
+                        // run, or runs with a different binding).
+                        redefined_for_scope.add(my_name);
+                        if (expandable) {
+                            the_expanded.push({
+                                name: my_name,
+                                scope: template.scope,
+                                sourceRange: my_statement.range,
+                            });
+                        }
                     }
                 }
             }

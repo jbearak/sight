@@ -541,6 +541,49 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).toContain('x_old');
     });
 
+    it('does not falsely suppress when a nested loop reassigns via a constructed name', () => {
+        // The nested loop reassigns `suffix` through a CONSTRUCTED name
+        // (`` local `j' ``, j -> "suffix"), so its (re)definition target is
+        // unknown in the outer frame context. The later outer template
+        // `` x_`suffix' `` must therefore NOT fold the stale pre-loop value and
+        // inject `x_old`, which would falsely suppress `display `x_old''.
+        const source = [
+            'local suffix old',
+            'foreach i in a {',
+            '    foreach j in suffix {',
+            "        local `j' new",
+            '    }',
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_old'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_old')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_old');
+    });
+
+    it('still expands an iterator-only template after an unresolved nested redefinition', () => {
+        // The nested loop's `` z_`j' `` is unresolvable in the outer frame
+        // (its list depends on the outer iterator), which poisons later
+        // PRE-LOOP-folding templates — but `` y_`i' `` folds only the bound
+        // outer iterator, so it must still expand to y_a / y_b.
+        const source = [
+            'foreach i in a b {',
+            "    foreach j in `i' {",
+            "        local z_`j' = 1",
+            '    }',
+            "    local y_`i' = 1",
+            '}',
+            "display `y_a'",
+            "display `y_b'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('y_a')).toBe(true);
+        expect(symbols.localMacros.has('y_b')).toBe(true);
+        expect(undefined_macros(source)).not.toContain('y_a');
+        expect(undefined_macros(source)).not.toContain('y_b');
+    });
+
     it('does not fold a local that only exists in another (program) scope', () => {
         // `local list` is defined inside a program, so it is NOT visible at the
         // top level. A top-level `foreach i of local list` must not fold it into
