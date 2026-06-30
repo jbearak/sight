@@ -210,6 +210,26 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual(['foo']);
     });
 
+    it('plain block setter declares when the name is on the next line', () => {
+        // Mata block calls may wrap across lines without `///`.
+        const src = 'mata\nst_local(\n    "foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('brace block setter declares when the name is on the next line', () => {
+        const src = 'mata {\nst_local(\n    "foo", "1")\n}\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('inline mata: does not cross a bare newline to the name literal', () => {
+        // Inline `mata:` ends at the newline (no `///`), unlike block forms.
+        const src = 'mata: st_local(\n    "foo", "1")\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
     it('declares through a prefix command (capture mata:)', () => {
         const src = 'capture mata: st_local("foo", "1")\ndisplay `foo\'';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);

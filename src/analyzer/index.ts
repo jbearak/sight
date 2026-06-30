@@ -195,6 +195,15 @@ const MATA_CONTROL_WORDS = new Set([
     'catch',
 ]);
 
+// Token types skipped when walking to the next/previous significant token in
+// the Mata setter scan. Module-level: fixed content, consulted per token.
+const MATA_SCAN_SKIP_TOKENS: Set<TokenType> = new Set([
+    'WHITESPACE',
+    'COMMENT_LINE',
+    'COMMENT_BLOCK',
+    'CONTINUATION',
+]);
+
 // Mata return-type / declaration keywords. A header whose pre-`(` words
 // include one of these (plus a trailing name) looks like a function
 // definition, whose body must be skipped by the setter scan. Module-level:
@@ -2831,18 +2840,22 @@ export class SemanticAnalyzer {
         let brace_depth = 0;
         let mata_function_body_depth = 0;
 
-        const SKIP: Set<TokenType> = new Set([
-            'WHITESPACE',
-            'COMMENT_LINE',
-            'COMMENT_BLOCK',
-            'CONTINUATION',
-        ]);
-        const next_significant = (from: number): number => {
+        // `skip_terminators` crosses STATEMENT_TERMINATOR tokens
+        // unconditionally. Mata block calls (`mata` ... `end` / `mata { }`)
+        // may span physical lines WITHOUT a `///` continuation, so a setter
+        // formatted as `st_local(\n "foo", value)` puts a terminator between
+        // the `(` and the name literal. The name/comma lookups pass this in
+        // block mode so such calls are still recognized; inline `mata:` keeps
+        // the default (a bare newline ends the statement there).
+        const next_significant = (
+            from: number,
+            skip_terminators = false
+        ): number => {
             let j = from;
             let after_continuation = false;
             while (j < tokens.length) {
                 const token = tokens[j];
-                if (SKIP.has(token.type)) {
+                if (MATA_SCAN_SKIP_TOKENS.has(token.type)) {
                     if (token.type === 'CONTINUATION') {
                         after_continuation = true;
                     }
@@ -2851,7 +2864,7 @@ export class SemanticAnalyzer {
                 }
                 if (
                     token.type === 'STATEMENT_TERMINATOR' &&
-                    after_continuation
+                    (after_continuation || skip_terminators)
                 ) {
                     after_continuation = false;
                     j++;
@@ -2877,7 +2890,7 @@ export class SemanticAnalyzer {
             let j = from;
             while (j >= 0) {
                 const token = tokens[j];
-                if (SKIP.has(token.type)) {
+                if (MATA_SCAN_SKIP_TOKENS.has(token.type)) {
                     j--;
                     continue;
                 }
@@ -3019,12 +3032,17 @@ export class SemanticAnalyzer {
             const scope: 'local' | 'global' =
                 token.value === 'st_local' ? 'local' : 'global';
 
+            // Inside a Mata block, a call's argument list may wrap across
+            // physical lines without `///`, so cross statement terminators
+            // when looking for the name literal and its trailing comma.
+            const cross_lines = mata_mode !== 'inline';
+
             // Expect the call shape: `(` "<name>" `,` ...
             const paren_idx = next_significant(i + 1);
             if (paren_idx >= tokens.length || !is_open_paren(tokens[paren_idx])) {
                 continue;
             }
-            const name_idx = next_significant(paren_idx + 1);
+            const name_idx = next_significant(paren_idx + 1, cross_lines);
             if (name_idx >= tokens.length) {
                 continue;
             }
@@ -3042,7 +3060,7 @@ export class SemanticAnalyzer {
 
             // Two-argument (setter) form only: a comma must follow the name.
             // The one-argument read form `st_local("name")` is closed by `)`.
-            const after_name_idx = next_significant(name_idx + 1);
+            const after_name_idx = next_significant(name_idx + 1, cross_lines);
             if (
                 after_name_idx >= tokens.length ||
                 !is_comma(tokens[after_name_idx])
@@ -3061,16 +3079,17 @@ export class SemanticAnalyzer {
             //
             // Accepted limitation (visibility granularity): the macro is
             // modeled as visible from the call line onward (forward-only),
-            // matching how native `local`/`c_local` definitions are tracked.
-            // Stata actually expands backtick macros across the whole Mata
-            // unit (inline statement or `mata`/`end` block) before the code
-            // runs, so a `` `name' `` reference *within the same unit* — e.g.
-            // `mata: st_local("x", "`x'")` — is undefined at expansion time.
-            // We do not flag those, identically to how `local x = "`x'"`
-            // suppresses its own self-reference (which also supports the
-            // common accumulation idiom `local x = "`x' more"`). References
-            // after the Mata unit — the intended use case — resolve
-            // correctly.
+            // matching how native `local`/`c_local` definitions are tracked
+            // — references before the call still warn; references at/after it
+            // are treated as defined. One consequence is that a self-
+            // reference inside the setter's own call — `st_local("x", "`x'")`
+            // — is not flagged, identical to how `local x = "`x'"` suppresses
+            // its own self-reference (which also supports the accumulation
+            // idiom `local x = "`x' more"`). Strictly, Stata expands backtick
+            // macros across the whole Mata unit before the code runs, so such
+            // a same-call reference is undefined at expansion time; we accept
+            // that narrow false negative for parity with `local`. References
+            // after the call — the intended use case — resolve correctly.
             const definition_line = token.range.start.line;
             const containing_scope: ScopeType = program_ranges.some(
                 ([start, end]) =>
