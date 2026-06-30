@@ -171,6 +171,42 @@ const STATA_STORAGE_TYPES = new Set([
 
 const STR_WIDTH_RE = /^str\d+$/;
 
+// Mata control-flow keywords that can precede a `(` ... `)` header before a
+// `{` but are NOT function definitions (so their bodies are executed, not
+// skipped). Module-level: fixed content, consulted once per Mata `{`.
+const MATA_CONTROL_WORDS = new Set([
+    'if',
+    'else',
+    'for',
+    'while',
+    'do',
+    'switch',
+    'try',
+    'catch',
+]);
+
+// Mata return-type / declaration keywords. A header whose pre-`(` words
+// include one of these (plus a trailing name) looks like a function
+// definition, whose body must be skipped by the setter scan. Module-level:
+// fixed content, consulted once per Mata `{`.
+const MATA_DECLARATION_WORDS = new Set([
+    'function',
+    'void',
+    'real',
+    'complex',
+    'numeric',
+    'string',
+    'transmorphic',
+    'pointer',
+    'class',
+    'struct',
+    'scalar',
+    'vector',
+    'rowvector',
+    'colvector',
+    'matrix',
+]);
+
 function is_stata_storage_type(name: string): boolean {
     if (STATA_STORAGE_TYPES.has(name)) return true;
     // str1..str2045
@@ -3097,7 +3133,15 @@ export class SemanticAnalyzer {
     } {
         return {
             index: symbol.definition_index ?? 0,
-            line: symbol.definition_line ?? symbol.location.range.start.line,
+            // Invariant (issue #135): every `additional_definitions` entry's
+            // `line` must equal `location.range.start.line`. Consumers
+            // (`has_definition_in_window`, hover's redefinition footer) rely
+            // on it. For a continued Mata setter the `st_local` call line
+            // (`definition_line`) can differ from the macro-name literal's
+            // line (`location`), so derive `line` from the location to keep
+            // the invariant. The primary symbol keeps `definition_line` for
+            // forward-only ordering.
+            line: symbol.location.range.start.line,
             location: symbol.location,
         };
     }
@@ -3164,7 +3208,7 @@ export class SemanticAnalyzer {
             const token = tokens[i];
             if (token.type === 'WHITESPACE' || token.type === 'CONTINUATION') {
                 if (parts.length > 0) {
-                    parts.unshift(token.value);
+                    parts.push(token.value);
                 }
                 continue;
             }
@@ -3192,11 +3236,13 @@ export class SemanticAnalyzer {
                 break;
             }
 
-            parts.unshift(token.value);
+            parts.push(token.value);
             track_parens(token.value);
         }
 
-        return parts.join('');
+        // Tokens were collected by scanning backwards, so reverse once (O(n))
+        // to restore source order before joining — avoids O(n^2) `unshift`.
+        return parts.reverse().join('');
     }
 
     private looks_like_mata_function_header(header: string): boolean {
@@ -3217,41 +3263,13 @@ export class SemanticAnalyzer {
         }
 
         const function_name = words[words.length - 1];
-        const control_words = new Set([
-            'if',
-            'else',
-            'for',
-            'while',
-            'do',
-            'switch',
-            'try',
-            'catch',
-        ]);
-        if (control_words.has(function_name)) {
+        if (MATA_CONTROL_WORDS.has(function_name)) {
             return false;
         }
 
-        const declaration_words = new Set([
-            'function',
-            'void',
-            'real',
-            'complex',
-            'numeric',
-            'string',
-            'transmorphic',
-            'pointer',
-            'class',
-            'struct',
-            'scalar',
-            'vector',
-            'rowvector',
-            'colvector',
-            'matrix',
-        ]);
-
         return words
             .slice(0, -1)
-            .some(word => declaration_words.has(word));
+            .some(word => MATA_DECLARATION_WORDS.has(word));
     }
 
     private find_matching_open_paren(text: string): number {

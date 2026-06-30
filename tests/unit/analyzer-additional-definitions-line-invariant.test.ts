@@ -106,4 +106,19 @@ describe('analyzer - additional_definitions line invariant', () => {
         const analysis = analyze(source);
         assert_invariant(analysis.symbols, 'localMacros');
     });
+
+    // Mata setter redeclaration where one definition is a continued inline
+    // setter whose macro-name literal lands on a later physical line than
+    // the `st_local` call. There, `definition_line` (call line) and
+    // `location.range.start.line` (name-literal line) diverge — the case
+    // that previously broke the invariant for the extra entry.
+    it('continued Mata st_local redeclaration respects the invariant', () => {
+        const source = [
+            'mata: st_local("foo", "1")',
+            'mata: st_local( ///',
+            '    "foo", "2")',
+        ].join('\n');
+        const analysis = analyze(source);
+        assert_invariant(analysis.symbols, 'localMacros');
+    });
 });
