@@ -155,6 +155,11 @@ export function build_static_value_env(
         // dynamic for folding purposes. Folding it would fabricate iteration
         // values or constructed names that may never exist at runtime.
         if (symbol.maybe_unexecuted) return null;
+        // Defined inside a guaranteed loop with a value that captured the loop
+        // iterator: its runtime value is the last iteration's binding, unknown
+        // statically. Folding the iterator's stale stored value would fabricate
+        // names that never exist at runtime.
+        if (symbol.iteration_dependent) return null;
         // First-def-wins keeps only the FIRST value; later redefinitions live in
         // `additional_definitions` without their values. When the env is built
         // from the pre-loop snapshot, any `additional_definitions` means the

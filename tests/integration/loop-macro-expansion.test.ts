@@ -582,11 +582,15 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).toContain('x_foo');
     });
 
-    it('still expands an iterator-only template after an unresolved nested redefinition', () => {
-        // The nested loop's `` z_`j' `` is unresolvable in the outer frame
-        // (its list depends on the outer iterator), which poisons later
-        // PRE-LOOP-folding templates — but `` y_`i' `` folds only the bound
-        // outer iterator, so it must still expand to y_a / y_b.
+    it('conservatively misses iterator-only templates after an unresolved redefinition', () => {
+        // The nested loop's `` z_`j' `` is unresolvable in the outer frame, so
+        // its (re)definition target is unknown. That unknown target could be ANY
+        // macro — including the iterator `i` itself (Stata lets a body reassign
+        // its own loop variable) — so `` y_`i' `` after it cannot be soundly
+        // expanded either. We conservatively skip it (a miss: `y_a`/`y_b` warn
+        // as undefined) rather than risk fabricating a name the way an
+        // iterator-reassigning body would (a false suppression). See the
+        // false-suppression regression tests above.
         const source = [
             'foreach i in a b {',
             "    foreach j in `i' {",
@@ -598,10 +602,85 @@ describe('Loop macro expansion (integration)', () => {
             "display `y_b'",
         ].join('\n');
         const { symbols } = analyze(source);
-        expect(symbols.localMacros.has('y_a')).toBe(true);
-        expect(symbols.localMacros.has('y_b')).toBe(true);
-        expect(undefined_macros(source)).not.toContain('y_a');
-        expect(undefined_macros(source)).not.toContain('y_b');
+        expect(symbols.localMacros.has('y_a')).toBe(false);
+        expect(symbols.localMacros.has('y_b')).toBe(false);
+        expect(undefined_macros(source)).toContain('y_a');
+    });
+
+    it('does not falsely suppress a constructed-name increment target', () => {
+        // `` local ++x_`i' `` reassigns `x_1` (to an unknown incremented value),
+        // but its target name is constructed, so it is an unknown-target
+        // redefinition. A later `` y_`x_1' `` must NOT fold the stale pre-loop
+        // `x_1 = 3` and inject `y_3` (Stata increments x_1 to 4, defining y_4),
+        // which would falsely suppress `display `y_3''.
+        const source = [
+            'local x_1 3',
+            'forvalues i = 1/1 {',
+            "    local ++x_`i'",
+            "    local y_`x_1' foo",
+            '}',
+            "display `y_3'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('y_3')).toBe(false);
+        expect(undefined_macros(source)).toContain('y_3');
+    });
+
+    it('does not falsely suppress when a body reassigns its own loop iterator', () => {
+        // `` local `target' b `` reassigns `i` (target -> "i"), but is skipped
+        // as an unknown-target redefinition. The later iterator-only
+        // `` y_`i' `` must NOT be injected as `y_a` (Stata defines `y_b`), which
+        // would falsely suppress `display `y_a''.
+        const source = [
+            'foreach i in a {',
+            '    local target i',
+            "    local `target' b",
+            "    local y_`i' = 1",
+            '}',
+            "display `y_a'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('y_a')).toBe(false);
+        expect(undefined_macros(source)).toContain('y_a');
+    });
+
+    it('does not fold a helper that captured the loop iterator inside the loop', () => {
+        // `` local suffix `i' `` inside `foreach i` captures the iterator, so
+        // `suffix`'s runtime value is the last iteration's binding ("b"),
+        // unknown statically (the stored `i` is the stale pre-loop "old"). A
+        // later `foreach j of local suffix` must therefore treat `suffix` as
+        // dynamic, NOT fold it to "old" and inject `x_old` (which would falsely
+        // suppress `display `x_old''; Stata defines `x_b`).
+        const source = [
+            'local i old',
+            'foreach i in a b {',
+            "    local suffix `i'",
+            '}',
+            'foreach j of local suffix {',
+            "    local x_`j' = 1",
+            '}',
+            "display `x_old'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_old')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_old');
+    });
+
+    it('still folds a constant helper assigned inside a loop', () => {
+        // A helper whose value does NOT capture the iterator is constant across
+        // iterations, so it remains foldable (no over-suppression).
+        const source = [
+            'foreach i in a b {',
+            '    local k myval',
+            '}',
+            "foreach j in `k' {",
+            "    local x_`j' = 1",
+            '}',
+            "display `x_myval'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_myval')).toBe(true);
+        expect(undefined_macros(source)).not.toContain('x_myval');
     });
 
     it('does not fold a local that only exists in another (program) scope', () => {

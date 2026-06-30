@@ -31,6 +31,7 @@ import {
     build_static_value_env,
     resolve_loop_value_set,
     expand_loop_body,
+    scan_macro_refs,
     BindingFrame,
 } from './loop-expander';
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
@@ -937,6 +938,29 @@ export class SemanticAnalyzer {
      * Process a macro definition.
      * Macros are case-sensitive. Registers macros regardless of extended function type.
      */
+    /**
+     * True if `value` interpolates a local macro whose name is an active loop
+     * iterator (`this.loop_frames`). Such a value is captured per-iteration, so
+     * a macro assigned to it inside the loop is iteration-dependent. Loop
+     * iterators are always locals, so only local refs can match.
+     */
+    private value_captures_active_iterator(value: string | undefined): boolean {
+        if (!value || this.loop_frames.length === 0) return false;
+        const the_iterator_vars = new Set(
+            this.loop_frames.map((my_frame) => my_frame.var)
+        );
+        let captures = false;
+        scan_macro_refs(value, {
+            literal: () => {},
+            local_ref: (name) => {
+                if (the_iterator_vars.has(name)) captures = true;
+                return true;
+            },
+            global_ref: () => true,
+        });
+        return captures;
+    }
+
     private process_macro_def(
         node: MacroDefNode,
         symbols: SymbolTable,
@@ -976,6 +1000,12 @@ export class SemanticAnalyzer {
                 // guaranteed to run, so its value must not be folded into a
                 // later loop's value-set or constructed names.
                 ...(this.nonexec_depth > 0 ? { maybe_unexecuted: true } : {}),
+                // Defined inside a guaranteed loop with a value that captured the
+                // loop iterator (e.g. `` local suffix `i' ``): its runtime value
+                // is iteration-dependent and must not be statically folded.
+                ...(this.value_captures_active_iterator(node.value)
+                    ? { iteration_dependent: true }
+                    : {}),
             };
 
             // Register macro in symbol table regardless of extended function type

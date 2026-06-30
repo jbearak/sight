@@ -416,6 +416,14 @@ export interface MacroSymbol {
   // expansion (doing so could fabricate iteration values or constructed names
   // that never exist at runtime, falsely suppressing undefined-macro warnings).
   maybe_unexecuted?: boolean;
+  // True when this macro is defined inside a guaranteed loop body and its value
+  // interpolates an active loop iterator (e.g. `` local suffix `i' `` inside
+  // `foreach i ...`). Its runtime value is the last iteration's binding, which
+  // is not known statically, so it must NOT be folded into a later loop's
+  // value-set or constructed name (folding the iterator's stale stored value
+  // would fabricate names that never exist at runtime, falsely suppressing
+  // undefined-macro warnings).
+  iteration_dependent?: boolean;
   additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range }, is_expanded?: boolean }>;
 }
 

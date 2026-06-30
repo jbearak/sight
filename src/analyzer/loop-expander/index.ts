@@ -12,7 +12,7 @@ import {
     expand_template,
     extract_name_template,
     extract_redefined_macro_name,
-    template_folds_preloop_macro,
+    is_constructed_increment,
     template_references_redefined,
 } from './name-expander';
 
@@ -20,6 +20,7 @@ export { build_static_value_env } from './static-value-env';
 export type { StaticValue, StaticValueEnv } from './static-value-env';
 export { resolve_loop_value_set } from './value-set-resolver';
 export type { IteratorValueSet } from './value-set-resolver';
+export { scan_macro_refs } from './macro-ref-scanner';
 export type { BindingFrame } from './name-expander';
 
 export interface ExpandedLoopMacro {
@@ -96,13 +97,16 @@ export function expand_loop_body(
     // templates may interpolate.
     const redefined_local = new Set<string>();
     const redefined_global = new Set<string>();
-    // Set once a constructed (re)definition's concrete name(s) cannot be
-    // resolved here — e.g. a nested loop's `` local `j' `` whose iterator is
-    // unbound in this frame context, or an over-cap expansion. We then do not
-    // know which macro was reassigned, so any LATER template that folds a
-    // pre-loop macro value (see `template_folds_preloop_macro`) is unsafe and
-    // must be skipped to avoid fabricating a stale concrete name (which would
-    // falsely suppress a legitimate undefined-macro warning).
+    // Set once a (re)definition's concrete target name(s) cannot be enumerated
+    // here — e.g. a nested loop's `` local `j' `` whose iterator is unbound in
+    // this frame context, an over-cap expansion, a constructed-name increment
+    // (`` local ++x_`i' ``), or a constructed name that folds an
+    // already-redefined macro. The reassigned macro could be ANY local/global —
+    // including a loop iterator — so once this is set we conservatively skip
+    // every LATER template (the unknown target might be a pre-loop macro the
+    // template folds, or an iterator it interpolates). Skipping is a
+    // conservative miss; injecting a fabricated stale name would be a false
+    // suppression, which the feature must never produce.
     let saw_unresolved_redefinition = false;
 
     // Record any (re)definition a single leaf statement performs, and — only in
@@ -113,22 +117,17 @@ export function expand_loop_body(
         if (the_tokens.length === 0) return;
         const template = extract_name_template(the_tokens);
         if (template) {
-            // A constructed name must be SKIPPED when (a) it folds a macro the
-            // body already redefined (its concrete target depends on that
-            // macro's untracked new value), or (b) — once an earlier
-            // constructed redefinition was unresolvable — it folds any pre-loop
-            // macro value the unknown target might have changed. In both cases
-            // this statement is itself a redefinition whose concrete target we
-            // cannot determine, so any LATER template that folds a pre-loop
-            // value is unsafe too: record the unresolved-target state. (An
-            // iterator-only later template stays safe — see
-            // `template_folds_preloop_macro`.) Skipping is a conservative miss
-            // that avoids fabricating a stale name (a false suppression).
-            const unsafe_after_unresolved =
-                saw_unresolved_redefinition
-                && template_folds_preloop_macro(template, frames);
+            // Skip this template when (a) an earlier (re)definition's target was
+            // unknown — the unknown macro could be one this name folds OR an
+            // iterator it interpolates — or (b) it folds a macro the body
+            // already redefined (its concrete target depends on that macro's
+            // untracked new value). In both cases this statement is itself a
+            // redefinition whose concrete target we cannot determine, so record
+            // the unresolved-target state for every LATER template too. Skipping
+            // is a conservative miss that avoids fabricating a stale name (a
+            // false suppression).
             if (
-                unsafe_after_unresolved
+                saw_unresolved_redefinition
                 || template_references_redefined(template, redefined_local, redefined_global)
             ) {
                 saw_unresolved_redefinition = true;
@@ -138,8 +137,8 @@ export function expand_loop_body(
             if (the_names.length === 0) {
                 // The constructed name could not be resolved in this frame
                 // context (unbound nested iterator, or over-cap expansion), so
-                // its (re)definition target is unknown — poison later
-                // pre-loop-folding templates.
+                // its (re)definition target is unknown — poison every later
+                // template.
                 saw_unresolved_redefinition = true;
                 return;
             }
@@ -167,6 +166,13 @@ export function expand_loop_body(
         const redef = extract_redefined_macro_name(the_tokens);
         if (redef) {
             (redef.scope === 'local' ? redefined_local : redefined_global).add(redef.name);
+        } else if (is_constructed_increment(the_tokens)) {
+            // A constructed-name increment (`` local ++x_`i' ``) reassigns a
+            // macro whose concrete name we cannot enumerate from a single bare
+            // identifier, so its target is unknown — poison every later
+            // template. (A plain `` local ++x_1 `` is captured by
+            // `extract_redefined_macro_name` above.)
+            saw_unresolved_redefinition = true;
         }
         // A macro reassigned by an analyzer-known macro-creating command/option
         // (e.g. `levelsof ..., local(suffix)`, or a user program's `local()`
