@@ -2650,42 +2650,12 @@ export class SemanticAnalyzer {
             // since we don't have proper scope tracking yet
             const macro = symbols.localMacros.get(name);
             if (macro) {
-                // A Mata setter with `visibility_start` is the authoritative
-                // forward check: it is defined only for references after its
-                // inline Mata unit ends (references within the same unit are
-                // not yet defined).
-                if (macro.visibility_start !== undefined) {
-                    return !this.is_reference_before_visibility_start(
-                        macro,
-                        reference_line,
-                        reference_range
-                    );
-                }
-
-                // Check for forward reference using preorder index
-                if (reference_index !== undefined &&
-                    macro.definition_index !== undefined &&
-                    macro.definition_index > reference_index) {
-                    return false; // Forward reference
-                }
-
-                // Check for forward reference using line number
-                if (reference_line !== undefined &&
-                    macro.definition_line !== undefined &&
-                    macro.definition_line > reference_line) {
-                    return false; // Forward reference
-                }
-
-                if (
-                    this.is_reference_before_macro_definition(
-                        macro,
-                        reference_range
-                    )
-                ) {
-                    return false; // Same-line forward reference
-                }
-
-                return true;
+                return this.macro_resolves_at_reference(
+                    macro,
+                    reference_index,
+                    reference_line,
+                    reference_range
+                );
             }
 
             // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
@@ -2713,40 +2683,12 @@ export class SemanticAnalyzer {
             // Check global macros (case-sensitive)
             const macro = symbols.globalMacros.get(name);
             if (macro) {
-                // A Mata setter with `visibility_start` is the authoritative
-                // forward check (see the local-macro branch above).
-                if (macro.visibility_start !== undefined) {
-                    return !this.is_reference_before_visibility_start(
-                        macro,
-                        reference_line,
-                        reference_range
-                    );
-                }
-
-                // Check for forward reference using preorder index
-                if (reference_index !== undefined &&
-                    macro.definition_index !== undefined &&
-                    macro.definition_index > reference_index) {
-                    return false; // Forward reference
-                }
-
-                // Check for forward reference using line number
-                if (reference_line !== undefined &&
-                    macro.definition_line !== undefined &&
-                    macro.definition_line > reference_line) {
-                    return false; // Forward reference
-                }
-
-                if (
-                    this.is_reference_before_macro_definition(
-                        macro,
-                        reference_range
-                    )
-                ) {
-                    return false; // Same-line forward reference
-                }
-
-                return true;
+                return this.macro_resolves_at_reference(
+                    macro,
+                    reference_index,
+                    reference_line,
+                    reference_range
+                );
             }
 
             // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
@@ -2786,6 +2728,51 @@ export class SemanticAnalyzer {
             macro.location.range.start.line === reference_range.start.line &&
             this.compare_ranges(reference_range, macro.location.range) < 0
         );
+    }
+
+    /**
+     * Forward-visibility check shared by the local- and global-macro branches
+     * of `is_macro_defined`: given a macro found in the symbol table, is it
+     * visible at the reference? A Mata setter's `visibility_start` is the
+     * authoritative answer when present (the macro is visible only after its
+     * inline unit ends); otherwise fall back to preorder-index, line-number,
+     * and same-line forward-reference checks. Identical for both scopes — the
+     * scope-specific lookups and fallbacks stay in `is_macro_defined`.
+     */
+    private macro_resolves_at_reference(
+        macro: MacroSymbol,
+        reference_index?: number,
+        reference_line?: number,
+        reference_range?: Range
+    ): boolean {
+        if (macro.visibility_start !== undefined) {
+            return !this.is_reference_before_visibility_start(
+                macro,
+                reference_line,
+                reference_range
+            );
+        }
+        // Forward reference by preorder index.
+        if (
+            reference_index !== undefined &&
+            macro.definition_index !== undefined &&
+            macro.definition_index > reference_index
+        ) {
+            return false;
+        }
+        // Forward reference by line number.
+        if (
+            reference_line !== undefined &&
+            macro.definition_line !== undefined &&
+            macro.definition_line > reference_line
+        ) {
+            return false;
+        }
+        // Same-line forward reference.
+        if (this.is_reference_before_macro_definition(macro, reference_range)) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -3428,17 +3415,11 @@ export class SemanticAnalyzer {
                 for (let k = i + 1; k < tokens.length; k++) {
                     if (
                         tokens[k].type === 'STATEMENT_TERMINATOR' &&
-                        !this.is_continuation_terminator_at(tokens, k)
+                        !is_continuation_terminator(k)
                     ) {
                         visibility_start = tokens[k].range.start;
                         break;
                     }
-                }
-                // No terminator: the inline unit runs to end-of-input. Anchor
-                // past the last token so references on the line are still
-                // treated as inside the unit (and there is nothing after it).
-                if (visibility_start === undefined && tokens.length > 0) {
-                    visibility_start = tokens[tokens.length - 1].range.end;
                 }
             } else {
                 // Block setter: anchor past the matching close paren. Balance
@@ -3469,11 +3450,13 @@ export class SemanticAnalyzer {
                         }
                     }
                 }
-                // Unbalanced (malformed) call: fall back to end-of-input so the
-                // value argument is still treated as inside the unit.
-                if (visibility_start === undefined && tokens.length > 0) {
-                    visibility_start = tokens[tokens.length - 1].range.end;
-                }
+            }
+            // Neither branch found an anchor (inline unit with no terminator —
+            // runs to end-of-input; or an unbalanced/malformed block call):
+            // fall back to past the last token so references in the unit are
+            // still treated as inside it (and there is nothing after it).
+            if (visibility_start === undefined && tokens.length > 0) {
+                visibility_start = tokens[tokens.length - 1].range.end;
             }
 
             // Scope the setter to the innermost enclosing program (character-
@@ -3546,10 +3529,6 @@ export class SemanticAnalyzer {
             return;
         }
 
-        const new_definition = this.macro_symbol_to_additional_definition(
-            new_symbol
-        );
-
         if (this.is_mata_definition_before(definition_line, range, existing)) {
             const old_primary =
                 this.macro_symbol_to_additional_definition(existing);
@@ -3565,7 +3544,9 @@ export class SemanticAnalyzer {
         if (!existing.additional_definitions) {
             existing.additional_definitions = [];
         }
-        existing.additional_definitions.push(new_definition);
+        existing.additional_definitions.push(
+            this.macro_symbol_to_additional_definition(new_symbol)
+        );
         this.sort_additional_definitions(existing.additional_definitions);
     }
 
