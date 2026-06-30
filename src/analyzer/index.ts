@@ -195,12 +195,19 @@ const MATA_CONTROL_WORDS = new Set([
     'catch',
 ]);
 
-// Token types skipped when walking to the next/previous significant token in
-// the Mata setter scan. Module-level: fixed content, consulted per token.
-const MATA_SCAN_SKIP_TOKENS: Set<TokenType> = new Set([
+// Pure trivia (whitespace/comments) — skipped everywhere, but NOT a `///`
+// CONTINUATION, which some sites must detect or handle specially rather than
+// silently skip. Module-level: fixed content, consulted per token.
+const MATA_TRIVIA_TOKENS: Set<TokenType> = new Set([
     'WHITESPACE',
     'COMMENT_LINE',
     'COMMENT_BLOCK',
+]);
+
+// Token types skipped when walking to the next/previous significant token in
+// the Mata setter scan — trivia plus the `///` continuation marker.
+const MATA_SCAN_SKIP_TOKENS: Set<TokenType> = new Set([
+    ...MATA_TRIVIA_TOKENS,
     'CONTINUATION',
 ]);
 
@@ -3686,12 +3693,7 @@ export class SemanticAnalyzer {
         index: number
     ): boolean {
         let j = index - 1;
-        while (
-            j >= 0 &&
-            (tokens[j].type === 'WHITESPACE' ||
-                tokens[j].type === 'COMMENT_LINE' ||
-                tokens[j].type === 'COMMENT_BLOCK')
-        ) {
+        while (j >= 0 && MATA_TRIVIA_TOKENS.has(tokens[j].type)) {
             j--;
         }
         return j >= 0 && tokens[j].type === 'CONTINUATION';
@@ -3731,11 +3733,7 @@ export class SemanticAnalyzer {
         let saw_hard_break = false;
         while (opener_idx < tokens.length) {
             const my_token = tokens[opener_idx];
-            if (
-                my_token.type === 'WHITESPACE' ||
-                my_token.type === 'COMMENT_LINE' ||
-                my_token.type === 'COMMENT_BLOCK'
-            ) {
+            if (MATA_TRIVIA_TOKENS.has(my_token.type)) {
                 opener_idx++;
                 continue;
             }
