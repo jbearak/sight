@@ -24,6 +24,11 @@ export const VALUE_SET_CAP = 1000;
 const LOCAL_REF = /^`([A-Za-z_][A-Za-z0-9_]*)'$/;
 const GLOBAL_REF = /^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$/;
 const INT_LITERAL = /^-?\d+$/;
+/** Macro-syntax sigils (`` ` ``, `$`, `{`, `}`). If a fully-interpolated item
+ * still contains one, the original text held a malformed/unterminated macro
+ * form (e.g. `` ${looped `` or `$looped}`) that Stata would not expand cleanly,
+ * so we keep it as a literal element rather than fabricate a value. */
+const MACRO_SIGIL = /[`${}]/;
 
 function global_ref_name(match: RegExpMatchArray): string {
     return match[1] ?? match[2];
@@ -135,8 +140,30 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
                 if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
             }
         } else {
-            values.push(my_item.text);
-            if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
+            // An unquoted item can embed a macro reference adjacent to literal
+            // text (e.g. `` a`m' `` or `x$g`). Stata expands the reference, then
+            // whitespace-splits the result, so interpolate and splice the
+            // elements in place — leaving the raw backtick/`$` text would never
+            // form a valid macro name downstream and would suppress otherwise
+            // resolvable later references.
+            const interpolated = env.interpolate(my_item.text);
+            if (interpolated === null) {
+                // A referenced macro is unresolvable: partial, drop the item
+                // (matching the quoted-element and pure-ref branches) rather
+                // than carry un-interpolated backtick text.
+                continue;
+            }
+            if (MACRO_SIGIL.test(interpolated)) {
+                // The text held a malformed macro form that did not fully
+                // resolve; preserve it verbatim as a literal element.
+                values.push(my_item.text);
+                if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
+                continue;
+            }
+            for (const my_value of split_list(interpolated)) {
+                values.push(my_value);
+                if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
+            }
         }
     }
     return { kind: 'static', values };

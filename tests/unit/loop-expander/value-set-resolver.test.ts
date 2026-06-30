@@ -66,6 +66,23 @@ describe('resolve_loop_value_set: foreach in', () => {
             .toEqual({ kind: 'static', values: ['a', 'c'] });
     });
 
+    it('interpolates a macro ref adjacent to literal text in an unquoted item', () => {
+        const env = env_from({ m: 'b' }, { g: '1' });
+        expect(resolve_loop_value_set('foreach', "in a`m' x$g", env))
+            .toEqual({ kind: 'static', values: ['ab', 'x1'] });
+    });
+
+    it('expands then whitespace-splits an adjacent macro that holds a list', () => {
+        const env = env_from({ m: 'b c' });
+        expect(resolve_loop_value_set('foreach', "in a`m'", env))
+            .toEqual({ kind: 'static', values: ['ab', 'c'] });
+    });
+
+    it('drops an unquoted item whose adjacent macro ref is dynamic', () => {
+        expect(resolve_loop_value_set('foreach', "in p a`unknown' q", EMPTY))
+            .toEqual({ kind: 'static', values: ['p', 'q'] });
+    });
+
     it('treats a double-quoted span as a single element', () => {
         expect(resolve_loop_value_set('foreach', 'in "a b" c', EMPTY))
             .toEqual({ kind: 'static', values: ['a b', 'c'] });

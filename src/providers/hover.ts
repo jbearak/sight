@@ -802,8 +802,16 @@ export class HoverProvider {
                 if (primary_uri && my_location.uri === primary_uri) {
                     continue;
                 }
+                // A loop-expanded workspace symbol anchors at the template
+                // statement, whose text never contains the concrete name, so it
+                // must not be surfaced as a footer entry. Its synthetic extras
+                // are skipped below (line ~823); mirror that guard here for the
+                // primary hit, matching src/providers/references.ts.
+                const hit_is_expanded =
+                    'is_expanded' in my_hit
+                    && (my_hit as { is_expanded?: boolean }).is_expanded === true;
                 const my_key = `${my_location.uri}:${my_location.range?.start?.line ?? -1}`;
-                if (!the_seen_keys.has(my_key)) {
+                if (!hit_is_expanded && !the_seen_keys.has(my_key)) {
                     the_seen_keys.add(my_key);
                     the_accumulated.push({
                         index: has_definition_index(my_hit)

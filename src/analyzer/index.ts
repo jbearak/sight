@@ -2363,7 +2363,7 @@ export class SemanticAnalyzer {
         // fold sees only macros visible before the loop, and expand AFTER the
         // body is walked so a body-literal definition of the same concrete name
         // remains the primary symbol.
-        const can_expand = guaranteed && this.tokens !== null && this.nonexec_depth === 0;
+        const can_expand = guaranteed && this.tokens != null && this.nonexec_depth === 0;
         const pre_loop_macros = can_expand
             ? this.snapshot_macro_maps(scoped_macros)
             : undefined;
