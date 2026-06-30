@@ -237,6 +237,12 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual(['foo']);
     });
 
+    it('string expression name is not declared as its first literal', () => {
+        const src = 'mata: st_local("foo" + "bar", "1")\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
     it('compound-quoted name is not declared (only simple double quotes)', () => {
         const src = 'mata: st_local(`"foo"\', "1")\ndisplay `foo\'';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);

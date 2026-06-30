@@ -2608,16 +2608,22 @@ export class SemanticAnalyzer {
                     this.loop_frames,
                     pre_loop_macros,
                     // Let the expander poison a helper that the loop body
-                    // reassigns via an analyzer-known macro-creating command/
-                    // option (e.g. `levelsof ..., local(suffix)`) before a later
-                    // constructed name interpolates it.
+                    // reassigns via an analyzer-known macro-creating construct
+                    // (e.g. `levelsof ..., local(suffix)` or a Mata
+                    // `st_local("suffix", ...)`) before a later constructed name
+                    // interpolates it.
                     (statement) => {
+                        const mata_redefs = this.get_mata_setter_redefinitions(
+                            statement
+                        );
+                        const names = mata_redefs.names;
                         if (statement.type !== 'command') {
-                            return { names: [], unknown: false };
+                            return mata_redefs;
                         }
-                        const names: Array<{ scope: 'local' | 'global'; name: string }> =
-                            this.get_command_created_macros(statement, symbols)
-                                .map((m) => ({ scope: m.scope, name: m.name }));
+                        names.push(
+                            ...this.get_command_created_macros(statement, symbols)
+                                .map((m) => ({ scope: m.scope, name: m.name }))
+                        );
                         // Positional macro-creating commands (gettoken/unab/
                         // args/tempvar/file read) reassign LOCAL macros that the
                         // option-based path above does not cover.
@@ -2638,6 +2644,7 @@ export class SemanticAnalyzer {
                         // A macro-creating command with a DYNAMIC target name
                         // (`` local(`i') ``) reassigns an unknown macro.
                         const unknown =
+                            mata_redefs.unknown ||
                             the_drop.unknown
                             || this.command_creates_dynamic_macro(statement, symbols);
                         return { names, unknown };
@@ -2676,6 +2683,54 @@ export class SemanticAnalyzer {
                 existing_iterator.iteration_dependent = true;
             }
         }
+    }
+
+    /**
+     * The loop expander runs before the analyzer's whole-file Mata setter pass.
+     * Reuse that scanner on this embedded-block statement's token slice so a
+     * preceding `st_local("helper", ...)` / `st_global("HELPER", ...)` poisons
+     * stale pre-loop helper folds in execution order.
+     */
+    private get_mata_setter_redefinitions(
+        statement: StataNode
+    ): {
+        names: Array<{ scope: 'local' | 'global'; name: string }>;
+        unknown: boolean;
+    } {
+        if (
+            statement.type !== 'embedded_block' ||
+            statement.language !== 'mata' ||
+            this.tokens === undefined
+        ) {
+            return { names: [], unknown: false };
+        }
+
+        const the_tokens = this.tokens.filter(
+            token =>
+                this.compare_positions(token.range.start, statement.range.start) >= 0 &&
+                this.compare_positions(token.range.end, statement.range.end) <= 0
+        );
+        if (the_tokens.length === 0) {
+            return { names: [], unknown: false };
+        }
+
+        const temp_symbols = create_empty_symbol_table();
+        const unknown = this.extract_mata_st_local_declarations(
+            the_tokens,
+            temp_symbols,
+            [statement]
+        );
+        const names = [
+            ...Array.from(temp_symbols.localMacros.keys()).map(name => ({
+                scope: 'local' as const,
+                name,
+            })),
+            ...Array.from(temp_symbols.globalMacros.keys()).map(name => ({
+                scope: 'global' as const,
+                name,
+            })),
+        ];
+        return { names, unknown };
     }
 
     /**
@@ -3366,7 +3421,8 @@ export class SemanticAnalyzer {
         tokens: Token[],
         symbols: SymbolTable,
         nodes: StataNode[]
-    ): void {
+    ): boolean {
+        let saw_unknown_setter = false;
         // Position-precise program ranges (start of `program` keyword to end
         // of `end`). Used to scope a setter to `program` vs `dofile`. Unlike
         // the line-based `collect_program_ranges`, this stays correct when a
@@ -3555,6 +3611,55 @@ export class SemanticAnalyzer {
             token.type === 'COMMA' ||
             (token.type === 'EMBEDDED_CONTENT' &&
                 token.value.trimStart().startsWith(','));
+        const find_setter_comma = (
+            from: number,
+            cross_lines: boolean
+        ): number => {
+            let paren_depth = 0;
+            for (let k = from; k < tokens.length; k++) {
+                const my_token = tokens[k];
+                if (
+                    !cross_lines &&
+                    my_token.type === 'STATEMENT_TERMINATOR' &&
+                    !is_continuation_terminator(k)
+                ) {
+                    return -1;
+                }
+                if (
+                    my_token.type === 'END_MATA' ||
+                    my_token.type === 'END_PYTHON' ||
+                    my_token.type === 'RBRACE' ||
+                    (
+                        my_token.type === 'WORD' &&
+                        my_token.value === 'end' &&
+                        begins_statement(k) &&
+                        ends_statement(k)
+                    )
+                ) {
+                    return -1;
+                }
+                if (
+                    my_token.type === 'STRING' ||
+                    my_token.type === 'COMMENT_LINE' ||
+                    my_token.type === 'COMMENT_BLOCK'
+                ) {
+                    continue;
+                }
+                for (const my_char of my_token.value) {
+                    if (my_char === '(') {
+                        paren_depth++;
+                    } else if (my_char === ')') {
+                        if (paren_depth === 0) {
+                            return -1;
+                        }
+                        paren_depth--;
+                    } else if (my_char === ',' && paren_depth === 0) {
+                        return k;
+                    }
+                }
+            }
+            return -1;
+        };
 
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
@@ -3801,25 +3906,24 @@ export class SemanticAnalyzer {
             if (name_idx >= tokens.length) {
                 continue;
             }
+            const comma_idx = find_setter_comma(name_idx, cross_lines);
+            if (comma_idx < 0) {
+                continue;
+            }
             const name_token = tokens[name_idx];
+            const after_name_idx = next_significant(name_idx + 1, cross_lines);
             if (
                 name_token.type !== 'STRING' ||
-                name_token.quoteStyle === 'compound'
+                name_token.quoteStyle === 'compound' ||
+                after_name_idx >= tokens.length ||
+                !is_comma(tokens[after_name_idx])
             ) {
+                saw_unknown_setter = true;
                 continue;
             }
             const name_match = MATA_STRING_NAME_RE.exec(name_token.value);
             if (!name_match) {
-                continue;
-            }
-
-            // Two-argument (setter) form only: a comma must follow the name.
-            // The one-argument read form `st_local("name")` is closed by `)`.
-            const after_name_idx = next_significant(name_idx + 1, cross_lines);
-            if (
-                after_name_idx >= tokens.length ||
-                !is_comma(tokens[after_name_idx])
-            ) {
+                saw_unknown_setter = true;
                 continue;
             }
 
@@ -3918,6 +4022,7 @@ export class SemanticAnalyzer {
                 visibility_start
             );
         }
+        return saw_unknown_setter;
     }
 
     /**
