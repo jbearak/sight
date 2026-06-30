@@ -287,6 +287,22 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('does not register a setter on an inline Python line', () => {
+        // `python: <stmt>` runs to end of line; an embedded `mata:` token on
+        // that line is Python text, not a real Mata setter. The reference
+        // must stay undefined.
+        const src = 'python: if mata: st_local("foo", "1")\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
+    it('recognizes a Mata block after an inline Python line', () => {
+        const src =
+            'python: x = 1\nmata\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
     it('declaration location points at the macro name literal', () => {
         const result = analyze('mata: st_local("foo", "1")');
         const macro = result.symbols.localMacros.get('foo');

@@ -2958,6 +2958,10 @@ export class SemanticAnalyzer {
         let in_python_block = false;
         let python_is_brace = false;
         let python_brace_depth = 0;
+        // Inline Python (`python: <stmt>`) runs to the end of the logical line;
+        // any Mata-looking tokens on that line are Python, not Mata, so stay
+        // inert from PYTHON_INLINE through its statement terminator.
+        let in_inline_python = false;
 
         // `skip_terminators` crosses STATEMENT_TERMINATOR tokens
         // unconditionally. Mata block calls (`mata` ... `end` / `mata { }`)
@@ -3126,6 +3130,25 @@ export class SemanticAnalyzer {
                             python_is_brace = false;
                         }
                     }
+                }
+                continue;
+            }
+            // Inline `python: <stmt>` makes the rest of the logical line
+            // Python; ignore any Mata-looking tokens until the statement
+            // terminator (a trailing `///` continuation extends the line).
+            if (token.type === 'PYTHON_INLINE') {
+                in_inline_python = true;
+                mata_mode = null;
+                brace_depth = 0;
+                mata_function_body_depth = 0;
+                continue;
+            }
+            if (in_inline_python) {
+                if (
+                    token.type === 'STATEMENT_TERMINATOR' &&
+                    !is_continuation_terminator(i)
+                ) {
+                    in_inline_python = false;
                 }
                 continue;
             }
