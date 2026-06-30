@@ -30,6 +30,16 @@ describe('Loop macro expansion (integration)', () => {
             .map((d) => d.symbol_name ?? '');
     }
 
+    function undefined_macro_lines(source: string, name: string): number[] {
+        return analyze(source)
+            .diagnostics
+            .filter((d) =>
+                d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                d.symbol_name === name
+            )
+            .map((d) => d.range.start.line);
+    }
+
     function diagnostic_codes(source: string): StataDiagnosticCode[] {
         return analyze(source).diagnostics.map((d) => d.code);
     }
@@ -319,6 +329,37 @@ describe('Loop macro expansion (integration)', () => {
             expect(symbols.localMacros.has(name)).toBe(true);
         }
         expect(undefined_macros(source)).not.toContain('out_b');
+    });
+
+    it('expands a static inner loop inside a dynamic outer loop body', () => {
+        const source = [
+            'levelsof survey',
+            "foreach survey in `r(levels)' {",
+            '    local vars m10 cm_lastbirth',
+            '    foreach v of local vars {',
+            "        capture confirm variable `v'",
+            '        local `v\'_exists = _rc == 0',
+            '    }',
+            "    if (`m10_exists' == 1) {",
+            '        display "ok"',
+            '    }',
+            '}',
+        ].join('\n');
+        expect(undefined_macros(source)).not.toContain('m10_exists');
+    });
+
+    it('does not leak dynamic-outer-loop expansions after the outer loop', () => {
+        const source = [
+            'levelsof survey',
+            "foreach survey in `r(levels)' {",
+            '    local vars m10',
+            '    foreach v of local vars {',
+            '        local `v\'_exists = 1',
+            '    }',
+            '}',
+            "display `m10_exists'",
+        ].join('\n');
+        expect(undefined_macro_lines(source, 'm10_exists')).toEqual([7]);
     });
 
     it('records collisions as additional definitions, not drops', () => {

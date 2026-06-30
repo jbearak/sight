@@ -15,6 +15,7 @@ import {
     is_constructed_increment,
     template_references_redefined,
 } from './name-expander';
+import { StaticValueEnvOptions } from './static-value-env';
 
 export { build_static_value_env } from './static-value-env';
 export type { StaticValue, StaticValueEnv } from './static-value-env';
@@ -84,7 +85,8 @@ export function expand_loop_body(
         // `macro drop _all`) — the target is unknown, so every later template
         // must be skipped.
         unknown: boolean;
-    }
+    },
+    env_options?: StaticValueEnvOptions
 ): ExpandedLoopMacro[] {
     // If any active loop has an empty iteration set, the (innermost) body never
     // executes, so no constructed name is actually defined. Expanding here —
@@ -147,7 +149,11 @@ export function expand_loop_body(
                 return;
             }
             const the_names = expand_template(
-                template, active_frames, symbols, shadowed_locals
+                template,
+                active_frames,
+                symbols,
+                shadowed_locals,
+                env_options
             );
             if (the_names.length === 0) {
                 // The constructed name could not be resolved in this frame

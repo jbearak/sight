@@ -276,6 +276,8 @@ export class SemanticAnalyzer {
     // block that may never run must not be injected, or it would falsely
     // suppress a legitimate undefined-macro warning after the block.
     private nonexec_depth = 0;
+    private nonexec_range_stack: Range[] = [];
+    private nonexec_conditional_depth = 0;
 
     /**
      * Analyze an AST and build symbol tables.
@@ -301,6 +303,8 @@ export class SemanticAnalyzer {
         this.cd_nesting_depth = 0;
         this.loop_frames = []; // Reset loop iterator frames
         this.nonexec_depth = 0; // Reset non-executing-context depth
+        this.nonexec_range_stack = [];
+        this.nonexec_conditional_depth = 0;
         this.workspace_symbols = workspace_symbols; // Store workspace symbols
         this.tokens = tokens; // Keep tokens for command-level pattern checks
 
@@ -860,15 +864,21 @@ export class SemanticAnalyzer {
         // cd-nesting tracking (issue #252) still applies inside the program.
         const saved_loop_frames = this.loop_frames;
         const saved_nonexec_depth = this.nonexec_depth;
+        const saved_nonexec_range_stack = this.nonexec_range_stack;
+        const saved_nonexec_conditional_depth = this.nonexec_conditional_depth;
         this.loop_frames = [];
         // A program body executes top-level when the program is called, so reset
         // the non-executing-context depth for its own internal loops.
         this.nonexec_depth = 0;
+        this.nonexec_range_stack = [];
+        this.nonexec_conditional_depth = 0;
         try {
             this.build_symbols_in_body(node.body, symbols, program_scope, all_scopes);
         } finally {
             this.loop_frames = saved_loop_frames;
             this.nonexec_depth = saved_nonexec_depth;
+            this.nonexec_range_stack = saved_nonexec_range_stack;
+            this.nonexec_conditional_depth = saved_nonexec_conditional_depth;
         }
 
         // Guard body-metadata extractions on first definition only.
@@ -1075,7 +1085,12 @@ export class SemanticAnalyzer {
                 // `if`/`while` body, or a dynamic/empty loop body) is not
                 // guaranteed to run, so its value must not be folded into a
                 // later loop's value-set or constructed names.
-                ...(this.nonexec_depth > 0 ? { maybe_unexecuted: true } : {}),
+                ...(this.nonexec_depth > 0 ? {
+                    maybe_unexecuted: true,
+                    maybe_unexecuted_range: this.nonexec_range_stack[
+                        this.nonexec_range_stack.length - 1
+                    ],
+                } : {}),
                 // Defined inside a guaranteed loop with a value that captured the
                 // loop iterator (e.g. `` local suffix `i' ``): its runtime value
                 // is iteration-dependent and must not be statically folded.
@@ -2568,7 +2583,9 @@ export class SemanticAnalyzer {
         const value_set = resolve_loop_value_set(
             loop_type,
             node.loopSpec,
-            build_static_value_env(scoped_macros)
+            build_static_value_env(scoped_macros, undefined, {
+                allow_maybe_unexecuted_ranges: this.nonexec_range_stack,
+            })
         );
         const pushed = value_set.kind === 'static' && !!node.loopVar;
         if (pushed) {
@@ -2591,11 +2608,18 @@ export class SemanticAnalyzer {
         // fold sees only macros visible before the loop, and expand AFTER the
         // body is walked so a body-literal definition of the same concrete name
         // remains the primary symbol.
-        const can_expand = guaranteed && this.tokens != null && this.nonexec_depth === 0;
+        const can_expand =
+            guaranteed && this.tokens != null && this.nonexec_conditional_depth === 0;
         const pre_loop_macros = can_expand
             ? this.snapshot_macro_maps(scoped_macros)
             : undefined;
-        if (!guaranteed) this.nonexec_depth++;
+        const expanded_visibility_range = this.nonexec_range_stack[
+            this.nonexec_range_stack.length - 1
+        ];
+        if (!guaranteed) {
+            this.nonexec_depth++;
+            this.nonexec_range_stack.push(node.range);
+        }
         try {
             // Process loop body with the same scope (loop doesn't create new
             // scope). build_symbols_in_body tracks cd-nesting depth (issue #252).
@@ -2648,19 +2672,24 @@ export class SemanticAnalyzer {
                             the_drop.unknown
                             || this.command_creates_dynamic_macro(statement, symbols);
                         return { names, unknown };
-                    }
+                    },
+                    { allow_maybe_unexecuted_ranges: this.nonexec_range_stack }
                 );
                 for (const my_macro of the_expanded) {
                     this.inject_expanded_macro(
                         my_macro,
                         symbols,
                         current_scope,
-                        node_index
+                        node_index,
+                        expanded_visibility_range
                     );
                 }
             }
         } finally {
-            if (!guaranteed) this.nonexec_depth--;
+            if (!guaranteed) {
+                this.nonexec_depth--;
+                this.nonexec_range_stack.pop();
+            }
             if (pushed) {
                 this.loop_frames.pop();
             }
@@ -2773,7 +2802,8 @@ export class SemanticAnalyzer {
         macro: { name: string; scope: 'local' | 'global'; sourceRange: Range },
         symbols: SymbolTable,
         current_scope: ScopeInfo,
-        node_index: number
+        node_index: number,
+        visibility_range?: Range
     ): void {
         const target = macro.scope === 'local'
             ? symbols.localMacros
@@ -2809,17 +2839,20 @@ export class SemanticAnalyzer {
                     line: existing.definition_line ?? definition_line,
                     location: existing.location,
                     is_expanded: existing.is_expanded,
+                    visibility_range: existing.visibility_range,
                 });
                 existing.location = expanded_location;
                 existing.definition_line = definition_line;
                 existing.definition_index = node_index;
                 existing.is_expanded = true;
+                existing.visibility_range = visibility_range;
             } else {
                 existing.additional_definitions.push({
                     index: node_index,
                     line: definition_line,
                     location: expanded_location,
                     is_expanded: true,
+                    visibility_range,
                 });
             }
             return;
@@ -2832,6 +2865,7 @@ export class SemanticAnalyzer {
             containingScope: current_scope.type,
             definition_line,
             is_expanded: true,
+            visibility_range,
         };
         target.set(macro.name, symbol);
         if (macro.scope === 'local') {
@@ -2853,12 +2887,20 @@ export class SemanticAnalyzer {
         // inside them must be suppressed. `frame X { ... }` always runs, so it
         // does not gate expansion.
         const is_conditional = node.type !== 'frame';
-        if (is_conditional) this.nonexec_depth++;
+        if (is_conditional) {
+            this.nonexec_depth++;
+            this.nonexec_conditional_depth++;
+            this.nonexec_range_stack.push(node.range);
+        }
         try {
             // Process body with the same scope
             this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
         } finally {
-            if (is_conditional) this.nonexec_depth--;
+            if (is_conditional) {
+                this.nonexec_depth--;
+                this.nonexec_conditional_depth--;
+                this.nonexec_range_stack.pop();
+            }
         }
     }
 
@@ -3196,7 +3238,10 @@ export class SemanticAnalyzer {
     }
 
     private is_reference_before_macro_definition(
-        macro: MacroSymbol,
+        definition: {
+            definition_line?: number;
+            location: { range: Range };
+        },
         reference_range?: Range
     ): boolean {
         if (reference_range === undefined) {
@@ -3211,14 +3256,86 @@ export class SemanticAnalyzer {
         // already in scope on the reference's line and must not be treated as
         // a same-line forward reference.
         const definition_line =
-            macro.definition_line ?? macro.location.range.start.line;
-        if (definition_line !== macro.location.range.start.line) {
+            definition.definition_line ?? definition.location.range.start.line;
+        if (definition_line !== definition.location.range.start.line) {
             return false;
         }
         return (
-            macro.location.range.start.line === reference_range.start.line &&
-            this.compare_ranges(reference_range, macro.location.range) < 0
+            definition.location.range.start.line === reference_range.start.line &&
+            this.compare_ranges(reference_range, definition.location.range) < 0
         );
+    }
+
+    private reference_inside_visibility_range(
+        visibility_range: Range,
+        reference_line?: number,
+        reference_range?: Range
+    ): boolean {
+        if (reference_range !== undefined) {
+            return this.position_within_range(
+                reference_range.start,
+                visibility_range
+            );
+        }
+        if (reference_line !== undefined) {
+            return (
+                reference_line >= visibility_range.start.line &&
+                reference_line <= visibility_range.end.line
+            );
+        }
+        return false;
+    }
+
+    private macro_definition_resolves_at_reference(
+        definition: {
+            definition_index?: number;
+            definition_line?: number;
+            location: { range: Range };
+            visibility_start?: { line: number; character: number };
+            visibility_range?: Range;
+        },
+        reference_index?: number,
+        reference_line?: number,
+        reference_range?: Range
+    ): boolean {
+        if (
+            definition.visibility_range !== undefined &&
+            !this.reference_inside_visibility_range(
+                definition.visibility_range,
+                reference_line,
+                reference_range
+            )
+        ) {
+            return false;
+        }
+        if (definition.visibility_start !== undefined) {
+            return !this.is_reference_before_visibility_start(
+                definition,
+                reference_line,
+                reference_range
+            );
+        }
+        // Forward reference by preorder index.
+        if (
+            reference_index !== undefined &&
+            definition.definition_index !== undefined &&
+            definition.definition_index > reference_index
+        ) {
+            return false;
+        }
+        // Forward reference by line number.
+        if (
+            reference_line !== undefined &&
+            definition.definition_line !== undefined &&
+            definition.definition_line > reference_line
+        ) {
+            return false;
+        }
+        // Same-line forward reference.
+        if (this.is_reference_before_macro_definition(definition, reference_range)) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -3236,34 +3353,34 @@ export class SemanticAnalyzer {
         reference_line?: number,
         reference_range?: Range
     ): boolean {
-        if (macro.visibility_start !== undefined) {
-            return !this.is_reference_before_visibility_start(
+        if (
+            this.macro_definition_resolves_at_reference(
                 macro,
+                reference_index,
                 reference_line,
                 reference_range
-            );
-        }
-        // Forward reference by preorder index.
-        if (
-            reference_index !== undefined &&
-            macro.definition_index !== undefined &&
-            macro.definition_index > reference_index
+            )
         ) {
-            return false;
+            return true;
         }
-        // Forward reference by line number.
-        if (
-            reference_line !== undefined &&
-            macro.definition_line !== undefined &&
-            macro.definition_line > reference_line
-        ) {
-            return false;
+        for (const definition of macro.additional_definitions ?? []) {
+            if (
+                this.macro_definition_resolves_at_reference(
+                    {
+                        definition_index: definition.index,
+                        definition_line: definition.line,
+                        location: definition.location,
+                        visibility_range: definition.visibility_range,
+                    },
+                    reference_index,
+                    reference_line,
+                    reference_range
+                )
+            ) {
+                return true;
+            }
         }
-        // Same-line forward reference.
-        if (this.is_reference_before_macro_definition(macro, reference_range)) {
-            return false;
-        }
-        return true;
+        return false;
     }
 
     /**
@@ -3273,7 +3390,7 @@ export class SemanticAnalyzer {
      * reference position when available, else the line.
      */
     private is_reference_before_visibility_start(
-        macro: MacroSymbol,
+        macro: { visibility_start?: { line: number; character: number } },
         reference_line?: number,
         reference_range?: Range
     ): boolean {

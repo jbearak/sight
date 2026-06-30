@@ -37,6 +37,7 @@
  * the false suppression this feature must never produce. (See the design spec's
  * "Out of scope" section.)
  */
+import { Range } from 'vscode-languageserver-textdocument';
 import { MacroSymbol, SymbolTable } from '../../types';
 import { scan_macro_refs } from './macro-ref-scanner';
 
@@ -52,6 +53,10 @@ export interface StaticValueEnv {
      * any referenced macro is dynamic/unknown.
      */
     interpolate(text: string): StaticValue;
+}
+
+export interface StaticValueEnvOptions {
+    allow_maybe_unexecuted_ranges?: readonly Range[];
 }
 
 type MacroMaps = Pick<SymbolTable, 'localMacros' | 'globalMacros'>;
@@ -106,8 +111,23 @@ function strip_string_literal(text: string): string | null {
 
 export function build_static_value_env(
     symbols: MacroMaps,
-    overlay?: Map<string, string>
+    overlay?: Map<string, string>,
+    options?: StaticValueEnvOptions
 ): StaticValueEnv {
+    const same_range = (a: Range, b: Range): boolean =>
+        a.start.line === b.start.line
+        && a.start.character === b.start.character
+        && a.end.line === b.end.line
+        && a.end.character === b.end.character;
+
+    const maybe_unexecuted_is_allowed = (symbol: MacroSymbol): boolean => {
+        if (!symbol.maybe_unexecuted) return true;
+        if (!symbol.maybe_unexecuted_range) return false;
+        return options?.allow_maybe_unexecuted_ranges?.some(
+            (range) => same_range(range, symbol.maybe_unexecuted_range!)
+        ) ?? false;
+    };
+
     // Interpolate macro references inside a value string. Returns null if any
     // referenced macro is dynamic/unknown, or if the value uses constructs we
     // do not statically evaluate (nested macro refs, `=expr', unbalanced refs).
@@ -154,7 +174,7 @@ export function build_static_value_env(
         // body or a dynamic/empty loop body) has no guaranteed value, so it is
         // dynamic for folding purposes. Folding it would fabricate iteration
         // values or constructed names that may never exist at runtime.
-        if (symbol.maybe_unexecuted) return null;
+        if (!maybe_unexecuted_is_allowed(symbol)) return null;
         // Defined inside a guaranteed loop with a value that captured the loop
         // iterator: its runtime value is the last iteration's binding, unknown
         // statically. Folding the iterator's stale stored value would fabricate
