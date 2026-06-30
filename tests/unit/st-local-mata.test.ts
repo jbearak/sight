@@ -303,6 +303,17 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('does not register a setter after a dynamic (macro-expanded) mata opener', () => {
+        // `mata `m'` (where `m' expands to `clear`) is a one-liner, not a
+        // block opener. The opener token after `mata` is a macro reference,
+        // not a literal `:`/`{`, so it must NOT be treated as `mata ... end`;
+        // otherwise the later `st_local("foo", ...)` text is falsely
+        // registered and `display `foo'` loses its undefined warning.
+        const src = 'local m clear\nmata `m\'\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
     it('does not register a setter in a Python block after `mata clear`', () => {
         // `mata clear` is a utility one-liner that leaves the lexer stuck in
         // Mata context, so a following `python:` arrives as a bare WORD. The

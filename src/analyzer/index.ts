@@ -3706,7 +3706,21 @@ export class SemanticAnalyzer {
             ) {
                 return 'block_brace';
             }
-            if (opener.type === 'WORD') {
+            // A statement separator immediately after `mata` (a newline, or a
+            // `;` under `#delimit ;`) means `mata` is alone on its statement:
+            // a plain block whose body begins on the next logical line.
+            const is_separator =
+                opener.type === 'STATEMENT_TERMINATOR' ||
+                ((opener.type === 'EMBEDDED_CONTENT' ||
+                    opener.type === 'OPERATOR') &&
+                    opener.value.includes(';'));
+            if (!is_separator) {
+                // Any other token sharing the logical line is NOT a block
+                // opener: a WORD subcommand (`mata clear`), or a dynamic /
+                // macro-expanded opener (`mata `m'`, where `m' might expand to
+                // `clear`, `set matastrict on`, etc.) whose run-time text we
+                // cannot know. Treat these as one-liners so later
+                // `st_local(...)` text is not falsely registered as a setter.
                 return 'subcommand';
             }
         }
