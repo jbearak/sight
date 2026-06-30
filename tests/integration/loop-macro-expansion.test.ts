@@ -30,16 +30,6 @@ describe('Loop macro expansion (integration)', () => {
             .map((d) => d.symbol_name ?? '');
     }
 
-    function undefined_macro_lines(source: string, name: string): number[] {
-        return analyze(source)
-            .diagnostics
-            .filter((d) =>
-                d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
-                d.symbol_name === name
-            )
-            .map((d) => d.range.start.line);
-    }
-
     function diagnostic_codes(source: string): StataDiagnosticCode[] {
         return analyze(source).diagnostics.map((d) => d.code);
     }
@@ -136,19 +126,23 @@ describe('Loop macro expansion (integration)', () => {
         expect(symbols.localMacros.has('x_b')).toBe(false);
     });
 
-    it('does not expand a static loop nested inside a dynamic loop', () => {
-        // The outer `of varlist` loop may iterate zero times, so the inner
-        // static loop's constructed names are not guaranteed to be defined.
+    it('expands static inner-loop names inside a dynamic outer loop', () => {
+        // `foreach` does not create a local-macro scope in Stata. The outer loop
+        // value set is dynamic, but the constructed names only depend on the
+        // static inner iterator, so they remain tractable and visible afterward.
         const source = [
             'foreach v of varlist somevar {',
             '    foreach i in a b {',
             "        local x_`i'",
             '    }',
+            "    display `x_a'",
             '}',
+            "display `x_a'",
         ].join('\n');
         const { symbols } = analyze(source);
-        expect(symbols.localMacros.has('x_a')).toBe(false);
-        expect(symbols.localMacros.has('x_b')).toBe(false);
+        expect(symbols.localMacros.has('x_a')).toBe(true);
+        expect(symbols.localMacros.has('x_b')).toBe(true);
+        expect(undefined_macros(source)).not.toContain('x_a');
     });
 
     it('keeps an earlier body-literal definition as the primary on collision', () => {
@@ -348,7 +342,11 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).not.toContain('m10_exists');
     });
 
-    it('does not leak dynamic-outer-loop expansions after the outer loop', () => {
+    it('keeps dynamic-outer-loop expansions visible after the outer loop', () => {
+        // Stata locals are scoped to the do-file/program, not to loop blocks.
+        // The outer iterator is dynamic, but the constructed name only uses the
+        // static inner iterator, so `m10_exists' is intentionally visible after
+        // the outer loop as well.
         const source = [
             'levelsof survey',
             "foreach survey in `r(levels)' {",
@@ -359,7 +357,7 @@ describe('Loop macro expansion (integration)', () => {
             '}',
             "display `m10_exists'",
         ].join('\n');
-        expect(undefined_macro_lines(source, 'm10_exists')).toEqual([7]);
+        expect(undefined_macros(source)).not.toContain('m10_exists');
     });
 
     it('records collisions as additional definitions, not drops', () => {

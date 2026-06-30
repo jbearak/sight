@@ -270,13 +270,21 @@ export class SemanticAnalyzer {
     // bindings for loop-expanded macro names.
     private loop_frames: BindingFrame[] = [];
 
-    // Depth of enclosing bodies that are NOT guaranteed to execute: `if`/
-    // `else`/`while` blocks, and dynamic or empty-value-set loops. While this
-    // is > 0, loop-macro expansion is suppressed — a constructed name inside a
-    // block that may never run must not be injected, or it would falsely
-    // suppress a legitimate undefined-macro warning after the block.
+    // Enclosing bodies that are not guaranteed to execute: `if`/`else`/`while`
+    // blocks, and dynamic or empty-value-set loops. This state is for value
+    // folding, not local-macro visibility. Stata locals are scoped to the
+    // containing do-file/program, not to loop blocks, so a constructed macro
+    // whose name depends only on static inner iterators is intentionally
+    // injected even when an outer loop has a dynamic value set. The dynamic
+    // ancestor only means values defined there are foldable while analysis is
+    // still inside that same active body.
     private nonexec_depth = 0;
     private nonexec_range_stack: Range[] = [];
+    // Conditional bodies are different from dynamic loop ancestors for loop-name
+    // expansion. A conditional branch may not run and has no iteration frame
+    // that lets us enumerate runtime executions, so constructed definitions in
+    // it remain conservative misses. Dynamic loop ancestors do not increment
+    // this counter because they do not create a local-macro scope.
     private nonexec_conditional_depth = 0;
 
     /**
@@ -2597,25 +2605,29 @@ export class SemanticAnalyzer {
 
         // The loop body is guaranteed to execute (≥1 iteration) only when the
         // value-set is static AND non-empty. A dynamic or empty-value-set loop
-        // body may not run, so a constructed name inside it must not be
-        // expanded — and any nested static loop must be suppressed too.
+        // body still contributes symbols to the containing Stata local scope
+        // (loops do not create scopes), but values defined there are not
+        // globally foldable because the body may never run.
         const guaranteed = pushed
             && (value_set as { kind: 'static'; values: string[] }).values.length > 0;
-        // Expand only when this loop runs unconditionally AND the whole
-        // enclosing context does too (no `if`/`while` or non-guaranteed loop
-        // above us). Snapshot the pre-loop macros (cloning additional_definitions
-        // so body redefinitions cannot retroactively poison the fold) so the
-        // fold sees only macros visible before the loop, and expand AFTER the
-        // body is walked so a body-literal definition of the same concrete name
-        // remains the primary symbol.
+        // Expand constructed names whenever THIS loop has a static, non-empty
+        // value set and we are not inside a conditional branch. This is
+        // deliberate: an outer dynamic loop makes its own iterator unknown, but
+        // it does NOT make local macros block-scoped. If the constructed name
+        // references only this loop's static iterator (or helpers foldable in
+        // the active dynamic body), the concrete macro name is tractable and
+        // remains visible after the loop in Stata.
+        //
+        // Snapshot the pre-loop macros (cloning additional_definitions so body
+        // redefinitions cannot retroactively poison the fold) so the fold sees
+        // only macros visible before the loop, and expand AFTER the body is
+        // walked so a body-literal definition of the same concrete name remains
+        // the primary symbol.
         const can_expand =
             guaranteed && this.tokens != null && this.nonexec_conditional_depth === 0;
         const pre_loop_macros = can_expand
             ? this.snapshot_macro_maps(scoped_macros)
             : undefined;
-        const expanded_visibility_range = this.nonexec_range_stack[
-            this.nonexec_range_stack.length - 1
-        ];
         if (!guaranteed) {
             this.nonexec_depth++;
             this.nonexec_range_stack.push(node.range);
@@ -2680,8 +2692,7 @@ export class SemanticAnalyzer {
                         my_macro,
                         symbols,
                         current_scope,
-                        node_index,
-                        expanded_visibility_range
+                        node_index
                     );
                 }
             }
@@ -2802,8 +2813,7 @@ export class SemanticAnalyzer {
         macro: { name: string; scope: 'local' | 'global'; sourceRange: Range },
         symbols: SymbolTable,
         current_scope: ScopeInfo,
-        node_index: number,
-        visibility_range?: Range
+        node_index: number
     ): void {
         const target = macro.scope === 'local'
             ? symbols.localMacros
@@ -2839,20 +2849,17 @@ export class SemanticAnalyzer {
                     line: existing.definition_line ?? definition_line,
                     location: existing.location,
                     is_expanded: existing.is_expanded,
-                    visibility_range: existing.visibility_range,
                 });
                 existing.location = expanded_location;
                 existing.definition_line = definition_line;
                 existing.definition_index = node_index;
                 existing.is_expanded = true;
-                existing.visibility_range = visibility_range;
             } else {
                 existing.additional_definitions.push({
                     index: node_index,
                     line: definition_line,
                     location: expanded_location,
                     is_expanded: true,
-                    visibility_range,
                 });
             }
             return;
@@ -2865,7 +2872,6 @@ export class SemanticAnalyzer {
             containingScope: current_scope.type,
             definition_line,
             is_expanded: true,
-            visibility_range,
         };
         target.set(macro.name, symbol);
         if (macro.scope === 'local') {
@@ -2883,9 +2889,12 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         all_scopes: ScopeInfo[]
     ): void {
-        // `if`/`else`/`while` bodies may not execute, so loop-macro expansion
-        // inside them must be suppressed. `frame X { ... }` always runs, so it
-        // does not gate expansion.
+        // `if`/`else`/`while` bodies may not execute, so constructed-name
+        // expansion inside them stays conservative. This is intentionally
+        // narrower than dynamic loop handling: loops do not create local-macro
+        // scope, but conditionals do not provide enumerable iterator bindings
+        // and branch execution is not guaranteed. `frame X { ... }` always
+        // runs, so it does not gate expansion.
         const is_conditional = node.type !== 'frame';
         if (is_conditional) {
             this.nonexec_depth++;
@@ -3266,48 +3275,17 @@ export class SemanticAnalyzer {
         );
     }
 
-    private reference_inside_visibility_range(
-        visibility_range: Range,
-        reference_line?: number,
-        reference_range?: Range
-    ): boolean {
-        if (reference_range !== undefined) {
-            return this.position_within_range(
-                reference_range.start,
-                visibility_range
-            );
-        }
-        if (reference_line !== undefined) {
-            return (
-                reference_line >= visibility_range.start.line &&
-                reference_line <= visibility_range.end.line
-            );
-        }
-        return false;
-    }
-
     private macro_definition_resolves_at_reference(
         definition: {
             definition_index?: number;
             definition_line?: number;
             location: { range: Range };
             visibility_start?: { line: number; character: number };
-            visibility_range?: Range;
         },
         reference_index?: number,
         reference_line?: number,
         reference_range?: Range
     ): boolean {
-        if (
-            definition.visibility_range !== undefined &&
-            !this.reference_inside_visibility_range(
-                definition.visibility_range,
-                reference_line,
-                reference_range
-            )
-        ) {
-            return false;
-        }
         if (definition.visibility_start !== undefined) {
             return !this.is_reference_before_visibility_start(
                 definition,
@@ -3370,7 +3348,6 @@ export class SemanticAnalyzer {
                         definition_index: definition.index,
                         definition_line: definition.line,
                         location: definition.location,
-                        visibility_range: definition.visibility_range,
                     },
                     reference_index,
                     reference_line,

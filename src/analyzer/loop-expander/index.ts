@@ -217,12 +217,14 @@ export function expand_loop_body(
     // Walk the body in execution order. `frame X { … }` always executes, so it
     // stays expandable. Conditional bodies (`if`/`else`/`while`) and nested
     // loops may not execute (or execute with different bindings), so their
-    // constructed names must NOT be injected — but any helper they reassign
-    // still shadows the pre-loop value for LATER templates, so we must descend
-    // into them to POISON those redefinitions (otherwise a stale pre-loop fold
-    // fabricates a concrete name that never exists at runtime, suppressing a
-    // legitimate undefined-macro warning). Nested foreach/forvalues additionally
-    // handle their own expansion via their own analyzer-level process_loop call.
+    // constructed names must NOT be injected by this PARENT poison walk — but
+    // any helper they reassign still shadows the pre-loop value for LATER
+    // templates, so we must descend into them to POISON those redefinitions
+    // (otherwise a stale pre-loop fold fabricates a concrete name that never
+    // exists at runtime, suppressing a legitimate undefined-macro warning).
+    // Nested foreach/forvalues handle their own expansion via their own
+    // analyzer-level process_loop call; that expansion is by design even under
+    // a dynamic outer loop when the nested loop's name template is tractable.
     //
     // A nested `foreach`/`forvalues` rebinds its own loop variable, so inside it
     // a constructed name that interpolates that name must NOT resolve to the

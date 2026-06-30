@@ -171,9 +171,14 @@ export function build_static_value_env(
     ): StaticValue => {
         if (symbol.value === undefined) return null;
         // A definition that may not execute at runtime (inside an `if`/`while`
-        // body or a dynamic/empty loop body) has no guaranteed value, so it is
-        // dynamic for folding purposes. Folding it would fabricate iteration
-        // values or constructed names that may never exist at runtime.
+        // body or a dynamic/empty loop body) has no guaranteed value OUTSIDE
+        // that active body, so it is normally dynamic for folding purposes.
+        // This is a value-folding rule only, not a visibility rule: Stata locals
+        // are not loop-block scoped. While analyzing a later statement inside
+        // the same active dynamic loop body, the analyzer deliberately allows
+        // folding via `allow_maybe_unexecuted_ranges`; this is what lets
+        // `local vars ...` feed a static inner loop that constructs macros like
+        // `` local `v'_exists ``.
         if (!maybe_unexecuted_is_allowed(symbol)) return null;
         // Defined inside a guaranteed loop with a value that captured the loop
         // iterator: its runtime value is the last iteration's binding, unknown

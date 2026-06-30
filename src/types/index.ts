@@ -408,14 +408,6 @@ export interface MacroSymbol {
   // visible (the end of the inline `mata:` statement). References before
   // this position are in the same Mata unit and not yet defined.
   visibility_start?: { line: number; character: number };
-  // For synthesized definitions that are only guaranteed within an enclosing
-  // non-executing body (for example, a static inner loop inside a dynamic
-  // outer loop), references outside this range must not be suppressed.
-  visibility_range?: Range;
-  // All enclosing non-guaranteed execution contexts that bound visibility.
-  // The singular `visibility_range` is retained for older callers/tests; new
-  // analyzer code uses this plural form so nested contexts are represented.
-  visibility_contexts?: Range[];
   // True when this symbol was synthesized by the loop expander from a
   // constructed name (e.g. `local x_`i'`). Its `location` points at the
   // loop-body template statement, whose text does NOT contain the concrete
@@ -423,18 +415,17 @@ export interface MacroSymbol {
   is_expanded?: boolean;
   // True when this macro's FIRST definition is inside a context that may not
   // execute at runtime (an `if`/`else`/`while` body, or a dynamic/empty loop
-  // body, i.e. `nonexec_depth > 0` at definition time). Its stored `value`
-  // is therefore not guaranteed and must NOT be statically folded for loop
-  // expansion (doing so could fabricate iteration values or constructed names
-  // that never exist at runtime, falsely suppressing undefined-macro warnings).
+  // body, i.e. `nonexec_depth > 0` at definition time). This does NOT make the
+  // macro block-scoped: Stata locals remain visible in the containing do-file /
+  // program after loops. The flag only says its stored `value` must not be
+  // statically folded outside the active execution context, because doing so
+  // could fabricate iteration values or constructed names that never exist.
   maybe_unexecuted?: boolean;
   // Nearest enclosing non-executing range for a maybe-unexecuted definition.
-  // Static folding may still use this value while resolving a later statement
-  // inside the same currently-active range.
+  // Static folding may still use this value while resolving later statements
+  // inside the same currently-active range. This supports by-design expansion
+  // of static inner-loop constructed names inside dynamic outer loops.
   maybe_unexecuted_range?: Range;
-  // All non-guaranteed execution contexts active at the definition. The value
-  // is foldable only while analysis is still inside every listed context.
-  maybe_unexecuted_contexts?: Range[];
   // True when this macro is defined inside a guaranteed loop body and its value
   // interpolates an active loop iterator (e.g. `` local suffix `i' `` inside
   // `foreach i ...`). Its runtime value is the last iteration's binding, which
@@ -443,7 +434,7 @@ export interface MacroSymbol {
   // would fabricate names that never exist at runtime, falsely suppressing
   // undefined-macro warnings).
   iteration_dependent?: boolean;
-  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range }, is_expanded?: boolean, visibility_range?: Range, visibility_contexts?: Range[] }>;
+  additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range }, is_expanded?: boolean }>;
 }
 
 export interface VariableSymbol {

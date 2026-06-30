@@ -113,7 +113,18 @@ function resolve_int(token: string, env: StaticValueEnv): number | null {
 
 function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueSet {
     const values: string[] = [];
+    // Partial resolution is intentional when a mixed list has both static and
+    // dynamic pieces (`a `maybe' c` -> a/c). But when EVERY item is unresolved,
+    // the loop is dynamic, not statically empty. This distinction is critical
+    // for dynamic outer loops such as `foreach survey in `r(levels)'`: an empty
+    // static frame would make nested static constructed names disappear even
+    // though Stata locals created in those nested loops remain in the
+    // do-file/program scope whenever the dynamic outer loop executes.
+    let saw_item = false;
+    let saw_resolved_item = false;
+    let saw_unresolved_item = false;
     for (const my_item of split_quote_aware(spec_tail)) {
+        saw_item = true;
         if (my_item.quoted) {
             // A quoted element is a SINGLE iterator value; expand any embedded
             // macro refs (e.g. `` "a`m'b" `` -> "amidb"). Drop it if a
@@ -121,7 +132,11 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
             // un-expanded text (which would carry a backtick and never form a
             // valid macro name downstream).
             const interpolated = env.interpolate(my_item.text);
-            if (interpolated === null) continue;
+            if (interpolated === null) {
+                saw_unresolved_item = true;
+                continue;
+            }
+            saw_resolved_item = true;
             values.push(interpolated);
             if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
             continue;
@@ -134,7 +149,11 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
             const folded = local_match
                 ? env.resolve_local(local_match[1])
                 : env.resolve_global(global_ref_name(global_match!));
-            if (folded === null) continue; // partial: drop unresolvable item
+            if (folded === null) {
+                saw_unresolved_item = true;
+                continue; // partial: drop unresolvable item
+            }
+            saw_resolved_item = true;
             for (const my_value of split_list(folded)) {
                 values.push(my_value);
                 if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
@@ -151,8 +170,10 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
                 // A referenced macro is unresolvable: partial, drop the item
                 // (matching the quoted-element and pure-ref branches) rather
                 // than carry un-interpolated backtick text.
+                saw_unresolved_item = true;
                 continue;
             }
+            saw_resolved_item = true;
             if (MACRO_SIGIL.test(interpolated)) {
                 // The text held a malformed macro form that did not fully
                 // resolve; preserve it verbatim as a literal element.
@@ -165,6 +186,9 @@ function resolve_foreach(spec_tail: string, env: StaticValueEnv): IteratorValueS
                 if (values.length > VALUE_SET_CAP) return { kind: 'dynamic' };
             }
         }
+    }
+    if (values.length === 0 && saw_item && saw_unresolved_item && !saw_resolved_item) {
+        return { kind: 'dynamic' };
     }
     return { kind: 'static', values };
 }
