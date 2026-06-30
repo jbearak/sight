@@ -27,14 +27,6 @@ export interface ExpandedLoopMacro {
     sourceRange: Range;
 }
 
-// Only descend into UNCONDITIONAL nested blocks. `frame X { … }` always
-// executes its body, so a constructed name there is genuinely defined. We do
-// NOT descend into conditional `if`/`else`/`while` bodies: their statements may
-// not execute, so injecting their constructed names could falsely suppress a
-// legitimate undefined-macro warning. Such names simply aren't expanded (a
-// conservative miss — the pre-feature behavior).
-const RECURSE_CONTROL_FLOW = new Set(['frame']);
-
 function pos_le(
     a: { line: number; character: number },
     b: { line: number; character: number }
@@ -43,27 +35,8 @@ function pos_le(
 }
 
 /**
- * Direct body statements that may be constructed-name definitions. Descends
- * into unconditional `frame` blocks, but NOT into conditional if/else/while
- * bodies (their statements may not execute — avoids false suppression), nor
- * into nested foreach/forvalues (each handles its own body), nor into
- * command-prefix blocks (documented v1 limitation).
+ * Collect the tokens belonging to a single statement, by source range.
  */
-function collect_candidate_statements(body: StataNode[]): StataNode[] {
-    const the_statements: StataNode[] = [];
-    for (const my_node of body) {
-        if (my_node.type === 'foreach' || my_node.type === 'forvalues') {
-            continue;
-        }
-        if (RECURSE_CONTROL_FLOW.has(my_node.type) && 'body' in my_node && Array.isArray(my_node.body)) {
-            the_statements.push(...collect_candidate_statements(my_node.body));
-        } else {
-            the_statements.push(my_node);
-        }
-    }
-    return the_statements;
-}
-
 function statement_tokens(tokens: Token[], range: Range): Token[] {
     // Tokens are position-sorted; binary-search the first token at/after the
     // statement start so this is O(log n + k) per statement rather than O(n),
@@ -122,32 +95,38 @@ export function expand_loop_body(
     // templates may interpolate.
     const redefined_local = new Set<string>();
     const redefined_global = new Set<string>();
-    for (const my_statement of collect_candidate_statements(node.body)) {
+
+    // Record any (re)definition a single leaf statement performs, and — only in
+    // an `expandable` (guaranteed-executing) region — inject its expanded
+    // constructed names.
+    const process_leaf = (my_statement: StataNode, expandable: boolean): void => {
         const the_tokens = statement_tokens(tokens, my_statement.range);
-        if (the_tokens.length === 0) continue;
+        if (the_tokens.length === 0) return;
         const template = extract_name_template(the_tokens);
         if (template) {
-            const redefined_for_scope =
-                template.scope === 'local' ? redefined_local : redefined_global;
             if (!template_references_redefined(template, redefined_local, redefined_global)) {
+                const redefined_for_scope =
+                    template.scope === 'local' ? redefined_local : redefined_global;
                 for (const my_name of expand_template(template, frames, symbols)) {
-                    the_expanded.push({ name: my_name, scope: template.scope, sourceRange: my_statement.range });
-                    // The constructed statement (re)defines the macro named
-                    // `my_name`. A LATER constructed name that interpolates this
-                    // macro can no longer trust the pre-loop snapshot value, so
-                    // record it as redefined. Folding it with the stale value
-                    // would fabricate a concrete name that never exists at
-                    // runtime (e.g. `local `i' bar` reassigning a helper that a
-                    // following `local x_`helper'` reads). Subsequent templates
-                    // referencing it are then conservatively skipped.
+                    // The produced concrete name is itself a (re)definition, so
+                    // poison it for any LATER template regardless of region.
+                    // Inject it as a defined symbol only in an expandable
+                    // region; inside a skipped block (if/while/nested loop) we
+                    // poison but do NOT inject (it may not run, or runs with a
+                    // different binding).
                     redefined_for_scope.add(my_name);
+                    if (expandable) {
+                        the_expanded.push({
+                            name: my_name,
+                            scope: template.scope,
+                            sourceRange: my_statement.range,
+                        });
+                    }
                 }
             }
-            // When the template DOES reference an already-redefined macro we
-            // skip it (conservative miss): the concrete name it would define is
-            // unknown, so there is nothing reliable to record for later
-            // templates.
-            continue;
+            // A template referencing an already-redefined macro is skipped (its
+            // concrete name is unknown), so there is nothing to record.
+            return;
         }
         // A plain redefinition shadows the pre-loop value for any LATER
         // constructed name that references this macro.
@@ -157,16 +136,42 @@ export function expand_loop_body(
         }
         // A macro reassigned by an analyzer-known macro-creating command/option
         // (e.g. `levelsof ..., local(suffix)`, or a user program's `local()`
-        // option) likewise shadows the pre-loop value for any LATER constructed
-        // name that interpolates it. Its runtime value is unknown, so a template
-        // referencing it is conservatively skipped rather than folded from the
-        // stale pre-loop value.
+        // option) likewise shadows the pre-loop value. Its runtime value is
+        // unknown, so a later template referencing it is conservatively skipped.
         if (command_redefinitions) {
             for (const my_redef of command_redefinitions(my_statement)) {
                 (my_redef.scope === 'local' ? redefined_local : redefined_global)
                     .add(my_redef.name);
             }
         }
-    }
+    };
+
+    // Walk the body in execution order. `frame X { … }` always executes, so it
+    // stays expandable. Conditional bodies (`if`/`else`/`while`) and nested
+    // loops may not execute (or execute with different bindings), so their
+    // constructed names must NOT be injected — but any helper they reassign
+    // still shadows the pre-loop value for LATER templates, so we must descend
+    // into them to POISON those redefinitions (otherwise a stale pre-loop fold
+    // fabricates a concrete name that never exists at runtime, suppressing a
+    // legitimate undefined-macro warning). Nested foreach/forvalues additionally
+    // handle their own expansion via their own analyzer-level process_loop call.
+    const walk = (the_body: StataNode[], expandable: boolean): void => {
+        for (const my_node of the_body) {
+            if (my_node.type === 'frame') {
+                walk(my_node.body, expandable);
+            } else if (
+                my_node.type === 'if' ||
+                my_node.type === 'else' ||
+                my_node.type === 'while' ||
+                my_node.type === 'foreach' ||
+                my_node.type === 'forvalues'
+            ) {
+                walk(my_node.body, false);
+            } else {
+                process_leaf(my_node, expandable);
+            }
+        }
+    };
+    walk(node.body, true);
     return the_expanded;
 }

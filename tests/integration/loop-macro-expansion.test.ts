@@ -488,6 +488,95 @@ describe('Loop macro expansion (integration)', () => {
         expect(symbols.globalMacros.has('g_b')).toBe(true);
     });
 
+    it('poisons a helper reassigned inside a skipped if-body', () => {
+        // The `if` body may not run, but if it does it reassigns `suffix`, so at
+        // the later constructed name `suffix` is no longer guaranteed to be the
+        // pre-loop "old". The expander must NOT fold the stale value into x_old.
+        const source = [
+            'local suffix old',
+            'foreach i in a {',
+            '    if 1 {',
+            '        local suffix new',
+            '    }',
+            "    local x_`suffix'",
+            '}',
+            "display `x_old'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_old')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_old');
+    });
+
+    it('poisons a helper reassigned inside a skipped while-body', () => {
+        const source = [
+            'local suffix old',
+            'foreach i in a {',
+            '    while (1) {',
+            '        local suffix new',
+            '    }',
+            "    local x_`suffix'",
+            '}',
+            "display `x_old'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_old')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_old');
+    });
+
+    it('poisons a helper reassigned inside a nested loop', () => {
+        // The nested loop reassigns `suffix`, so the later constructed name in
+        // the outer body cannot be folded from the pre-loop value.
+        const source = [
+            'local suffix old',
+            'foreach i in a {',
+            '    foreach j in p {',
+            "        local suffix `j'",
+            '    }',
+            "    local x_`suffix'",
+            '}',
+            "display `x_old'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_old')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_old');
+    });
+
+    it('does not fold a local that only exists in another (program) scope', () => {
+        // `local list` is defined inside a program, so it is NOT visible at the
+        // top level. A top-level `foreach i of local list` must not fold it into
+        // a static value set and inject x_a / x_b.
+        const source = [
+            'program define myprog',
+            '    local list a b',
+            'end',
+            'foreach i of local list {',
+            "    local x_`i'",
+            '}',
+            "display `x_a'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(symbols.localMacros.has('x_b')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_a');
+    });
+
+    it('still folds a top-level local iteration list (active scope)', () => {
+        // Regression guard for the scope change: a local in the ACTIVE scope is
+        // still folded normally.
+        const source = [
+            'local looped a b c',
+            "foreach i in `looped' {",
+            "    local out_`i'",
+            '}',
+            "display `out_b'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        for (const name of ['out_a', 'out_b', 'out_c']) {
+            expect(symbols.localMacros.has(name)).toBe(true);
+        }
+        expect(undefined_macros(source)).not.toContain('out_b');
+    });
+
     it('does not fold a list macro defined inside a conditional block', () => {
         // `if 0 { local xs a }` may not run, so at the loop `xs` has no
         // guaranteed value. Folding it as ["a"] would make the loop look static

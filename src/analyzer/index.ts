@@ -2325,10 +2325,22 @@ export class SemanticAnalyzer {
         // Resolve the iteration value-set BEFORE processing the body so the
         // list can only reference macros defined before the loop.
         const loop_type = node.type === 'forvalues' ? 'forvalues' : 'foreach';
+        // Static folding must see only the locals visible in the ACTIVE scope
+        // (plus file-wide globals). `symbols.localMacros` accumulates locals
+        // from EVERY scope (e.g. program bodies), so folding against it would
+        // let a top-level `foreach i of local list` resolve a `local list` that
+        // exists only inside some program — fabricating concrete names that are
+        // never defined in this scope and suppressing real undefined warnings.
+        // `current_scope.localMacros` holds the active scope's locals; globals
+        // are genuinely file-wide.
+        const scoped_macros: Pick<SymbolTable, 'localMacros' | 'globalMacros'> = {
+            localMacros: current_scope.localMacros,
+            globalMacros: symbols.globalMacros,
+        };
         const value_set = resolve_loop_value_set(
             loop_type,
             node.loopSpec,
-            build_static_value_env(symbols)
+            build_static_value_env(scoped_macros)
         );
         const pushed = value_set.kind === 'static' && !!node.loopVar;
         if (pushed) {
@@ -2353,7 +2365,7 @@ export class SemanticAnalyzer {
         // remains the primary symbol.
         const can_expand = guaranteed && this.tokens !== null && this.nonexec_depth === 0;
         const pre_loop_macros = can_expand
-            ? this.snapshot_macro_maps(symbols)
+            ? this.snapshot_macro_maps(scoped_macros)
             : undefined;
         if (!guaranteed) this.nonexec_depth++;
         try {
@@ -2402,7 +2414,7 @@ export class SemanticAnalyzer {
      * pre-loop fold sees.
      */
     private snapshot_macro_maps(
-        symbols: SymbolTable
+        macros: Pick<SymbolTable, 'localMacros' | 'globalMacros'>
     ): Pick<SymbolTable, 'localMacros' | 'globalMacros'> {
         const clone_map = (
             src: Map<string, MacroSymbol>
@@ -2419,8 +2431,8 @@ export class SemanticAnalyzer {
             return out;
         };
         return {
-            localMacros: clone_map(symbols.localMacros),
-            globalMacros: clone_map(symbols.globalMacros),
+            localMacros: clone_map(macros.localMacros),
+            globalMacros: clone_map(macros.globalMacros),
         };
     }
 
