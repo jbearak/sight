@@ -344,6 +344,30 @@ completion is filtered by the same effective line used for diagnostics.
   file-scope undefined warning, identical to the loop-expanded case). Loop
   expansion is consistent with it and introduces no new behavior here;
   program-scope isolation in diagnostics is a separate, analyzer-wide concern.
+- **A macro-creating command whose TARGET NAME is dynamic.** When a loop body
+  reassigns a helper through a command whose macro-name argument is itself a
+  macro reference — e.g. `` levelsof v, local(`i') `` or `` gettoken `i' rest :
+  x `` — the (re)defined macro's concrete name is only known at runtime (it is
+  the iterator's value). The poison pass cannot enumerate that name, so a later
+  constructed name that folds the pre-loop helper of that runtime name can be
+  fabricated. Triggering this requires the iterator's value to *equal* a pre-loop
+  helper macro name (e.g. `foreach i in suffix { levelsof v, local(`i') ;
+  local x_`suffix' }`), which is vanishingly rare in practice. Commands with a
+  *literal* macro target (`` gettoken suffix … ``, `` levelsof v, local(suffix)
+  ``) ARE poisoned in execution order. This is an **intentional, documented
+  limitation**, not a silent gap.
+- **Cross-iteration reassignment of a folded helper.** Within a guaranteed loop,
+  a constructed name is folded against the pre-loop value of the macros it
+  interpolates and is expanded once per iterator tuple. A reassignment of one of
+  those helpers that appears *later* in the body than the constructed name does
+  not retroactively un-expand it (it is correct for the first iteration but uses
+  a stale value on subsequent iterations). Folding against the pre-loop value is
+  deliberate — see the "expands against the pre-loop helper value even when the
+  body redefines it" test — so that a body redefinition does not drop the whole
+  expansion and emit false undefined-macro warnings for the common, correct
+  references. Treating it as fully dynamic was considered and rejected: it trades
+  this narrow, lower-iteration staleness for a broad loss of legitimate
+  expansions. This is an **intentional, documented limitation**.
 
 ## Testing strategy
 

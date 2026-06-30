@@ -723,6 +723,43 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).toContain('x_foo');
     });
 
+    it('poisons a helper a positional macro-creating command reassigns', () => {
+        // `` gettoken suffix rest : mylist `` reassigns `suffix` (a positional
+        // target, not a `local()` option). A LATER `` x_`suffix' `` must not
+        // fold the stale pre-loop "foo" and inject `x_foo`, which would falsely
+        // suppress `display `x_foo''.
+        const source = [
+            'local suffix foo',
+            'foreach i in a b {',
+            '    gettoken suffix rest : mylist',
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
+    it('still expands an iterator-only template after a positional macro-creating command', () => {
+        // The gettoken target (`suffix`) is poisoned in execution order, but a
+        // later iterator-only `` m_`i' `` folds no pre-loop helper, so it keeps
+        // expanding — only the helper it touches is poisoned, not the whole loop.
+        const source = [
+            'local suffix foo',
+            'foreach i in a b {',
+            '    gettoken suffix rest : mylist',
+            "    local m_`i' = 1",
+            '}',
+            "display `m_a'",
+            "display `m_b'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('m_a')).toBe(true);
+        expect(symbols.localMacros.has('m_b')).toBe(true);
+        expect(undefined_macros(source)).not.toContain('m_a');
+    });
+
     it('does not fold a local that only exists in another (program) scope', () => {
         // `local list` is defined inside a program, so it is NOT visible at the
         // top level. A top-level `foreach i of local list` must not fold it into

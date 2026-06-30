@@ -2249,6 +2249,45 @@ export class SemanticAnalyzer {
      * it). Keeping ONE detection path guarantees the expander poisons exactly
      * the set of names the analyzer treats as command-created.
      */
+    /**
+     * Literal LOCAL-macro names a command (re)defines through a POSITIONAL
+     * target (not a `local()`/`global()` option): `tempvar`/`tempname`/
+     * `tempfile`, `args`, `unab`, `gettoken`, and `file read`. Mirrors the
+     * target positions used by the corresponding `extract_*` methods. Used by
+     * the loop expander to poison such a target in execution order, so a
+     * constructed name AFTER e.g. `` gettoken suffix rest : x `` no longer folds
+     * the helper's stale pre-loop value. Dynamic targets (a macro-ref name like
+     * `` `i' ``) are intentionally skipped — that is a documented out-of-scope
+     * limitation (the (re)defined macro's name is not statically known).
+     */
+    private get_command_redefined_macro_names(node: CommandNode): string[] {
+        const cmd_name = node.fullName;
+        const names: string[] = [];
+        const push_literal = (name: string | undefined): void => {
+            if (name && is_valid_identifier(name)) names.push(name);
+        };
+        if (
+            cmd_name === 'tempvar' || cmd_name === 'tempfile'
+            || cmd_name === 'tempname' || cmd_name === 'args'
+        ) {
+            for (const my_var of node.varlist ?? []) push_literal(my_var.name);
+        } else if (cmd_name === 'unab') {
+            push_literal(node.varlist?.[0]?.name);
+        } else if (cmd_name === 'gettoken' || cmd_name === 'gettok') {
+            const max_macros = Math.min(node.varlist?.length ?? 0, 2);
+            for (let i = 0; i < max_macros; i++) {
+                push_literal(node.varlist![i].name);
+            }
+        } else if (cmd_name === 'file' || cmd_name === 'fil' || cmd_name === 'fi') {
+            // `file read handle macroname` — only the "read" subcommand creates
+            // a macro, stored in varlist[2] (see extract_file_read_macro).
+            if ((node.varlist?.length ?? 0) >= 3 && node.varlist![0].name === 'read') {
+                push_literal(node.varlist![2].name);
+            }
+        }
+        return names;
+    }
+
     private get_command_created_macros(
         node: CommandNode,
         symbols: SymbolTable
@@ -2413,11 +2452,19 @@ export class SemanticAnalyzer {
                     // reassigns via an analyzer-known macro-creating command/
                     // option (e.g. `levelsof ..., local(suffix)`) before a later
                     // constructed name interpolates it.
-                    (statement) =>
-                        statement.type === 'command'
-                            ? this.get_command_created_macros(statement, symbols)
-                                  .map((m) => ({ scope: m.scope, name: m.name }))
-                            : []
+                    (statement) => {
+                        if (statement.type !== 'command') return [];
+                        const the_redefined: Array<{ scope: 'local' | 'global'; name: string }> =
+                            this.get_command_created_macros(statement, symbols)
+                                .map((m) => ({ scope: m.scope, name: m.name }));
+                        // Positional macro-creating commands (gettoken/unab/
+                        // args/tempvar/file read) reassign LOCAL macros that the
+                        // option-based path above does not cover.
+                        for (const my_name of this.get_command_redefined_macro_names(statement)) {
+                            the_redefined.push({ scope: 'local', name: my_name });
+                        }
+                        return the_redefined;
+                    }
                 );
                 for (const my_macro of the_expanded) {
                     this.inject_expanded_macro(
