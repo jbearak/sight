@@ -760,6 +760,29 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).not.toContain('m_a');
     });
 
+    it('does not resolve a shadowed nested iterator to a pre-loop value', () => {
+        // `i` pre-exists ("old") AND the nested loop reuses `i`. Inside the
+        // nested loop `` `i' `` is the inner binding ("suffix"), so `` local `i'
+        // bar `` reassigns `suffix`. The poison walk must treat `` `i' `` as
+        // unresolvable (not fall back to the outer frame "a" NOR the pre-loop
+        // "old"), so the outer `` x_`suffix' `` is not injected as the stale
+        // `x_foo` (Stata defines `x_bar`).
+        const source = [
+            'local i old',
+            'local suffix foo',
+            'foreach i in a {',
+            '    foreach i in suffix {',
+            "        local `i' bar",
+            '    }',
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
     it('does not fold a local that only exists in another (program) scope', () => {
         // `local list` is defined inside a program, so it is NOT visible at the
         // top level. A top-level `foreach i of local list` must not fold it into

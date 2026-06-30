@@ -226,7 +226,12 @@ function relevant_frames(
 export function expand_template(
     template: NameTemplate,
     frames: BindingFrame[],
-    symbols: Pick<SymbolTable, 'localMacros' | 'globalMacros'>
+    symbols: Pick<SymbolTable, 'localMacros' | 'globalMacros'>,
+    // Local names that an enclosing nested loop rebinds (shadows). A reference
+    // to one of these is per-iteration and unknown here, so it must NOT resolve
+    // to the outer frame OR to a stale pre-loop value — treat it as
+    // unresolvable so the constructed name's target stays unknown.
+    shadowed_locals?: ReadonlySet<string>
 ): string[] {
     const the_needed = relevant_frames(template, frames);
     let tuple_count = 1;
@@ -259,6 +264,7 @@ export function expand_template(
             if (my_part.kind === 'literal') {
                 my_name += my_part.text;
             } else if (my_part.kind === 'local_ref') {
+                if (shadowed_locals?.has(my_part.name)) { my_ok = false; break; }
                 const resolved = my_env.resolve_local(my_part.name);
                 if (resolved === null) { my_ok = false; break; }
                 my_name += resolved;

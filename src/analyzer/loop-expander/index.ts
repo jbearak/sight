@@ -115,7 +115,8 @@ export function expand_loop_body(
     const process_leaf = (
         my_statement: StataNode,
         expandable: boolean,
-        active_frames: BindingFrame[]
+        active_frames: BindingFrame[],
+        shadowed_locals: ReadonlySet<string>
     ): void => {
         const the_tokens = statement_tokens(tokens, my_statement.range);
         if (the_tokens.length === 0) return;
@@ -137,7 +138,9 @@ export function expand_loop_body(
                 saw_unresolved_redefinition = true;
                 return;
             }
-            const the_names = expand_template(template, active_frames, symbols);
+            const the_names = expand_template(
+                template, active_frames, symbols, shadowed_locals
+            );
             if (the_names.length === 0) {
                 // The constructed name could not be resolved in this frame
                 // context (unbound nested iterator, or over-cap expansion), so
@@ -200,19 +203,22 @@ export function expand_loop_body(
     // legitimate undefined-macro warning). Nested foreach/forvalues additionally
     // handle their own expansion via their own analyzer-level process_loop call.
     //
-    // `active_frames` masks any outer frame a nested loop shadows: a nested
-    // `foreach`/`forvalues` rebinds its own loop variable, so a constructed name
-    // in its body that interpolates that name must NOT resolve to the outer
-    // binding. Removing the shadowed frame makes such a name unresolvable, which
-    // marks the unresolved-target state rather than poisoning the wrong macro.
+    // A nested `foreach`/`forvalues` rebinds its own loop variable, so inside it
+    // a constructed name that interpolates that name must NOT resolve to the
+    // outer frame binding NOR to a stale pre-loop value of the same name. We
+    // both drop the shadowed outer frame (`active_frames`) and record the name
+    // in `shadowed_locals`, which makes `expand_template` treat it as
+    // unresolvable — marking the unresolved-target state rather than poisoning
+    // the wrong macro.
     const walk = (
         the_body: StataNode[],
         expandable: boolean,
-        active_frames: BindingFrame[]
+        active_frames: BindingFrame[],
+        shadowed_locals: ReadonlySet<string>
     ): void => {
         for (const my_node of the_body) {
             if (my_node.type === 'frame') {
-                walk(my_node.body, expandable, active_frames);
+                walk(my_node.body, expandable, active_frames, shadowed_locals);
             } else if (
                 my_node.type === 'foreach' || my_node.type === 'forvalues'
             ) {
@@ -220,18 +226,21 @@ export function expand_loop_body(
                 const masked_frames = nested_var
                     ? active_frames.filter((my_frame) => my_frame.var !== nested_var)
                     : active_frames;
-                walk(my_node.body, false, masked_frames);
+                const nested_shadowed = nested_var
+                    ? new Set(shadowed_locals).add(nested_var)
+                    : shadowed_locals;
+                walk(my_node.body, false, masked_frames, nested_shadowed);
             } else if (
                 my_node.type === 'if' ||
                 my_node.type === 'else' ||
                 my_node.type === 'while'
             ) {
-                walk(my_node.body, false, active_frames);
+                walk(my_node.body, false, active_frames, shadowed_locals);
             } else {
-                process_leaf(my_node, expandable, active_frames);
+                process_leaf(my_node, expandable, active_frames, shadowed_locals);
             }
         }
     };
-    walk(node.body, true, frames);
+    walk(node.body, true, frames, new Set<string>());
     return the_expanded;
 }
