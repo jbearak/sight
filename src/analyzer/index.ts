@@ -18,6 +18,8 @@ import {
     TriviaNode,
     StataDiagnosticCode,
     Token,
+    TokenType,
+    ScopeType,
     SyntaxNode,
     ArgumentSpec,
     OptionSpec,
@@ -247,6 +249,18 @@ export class SemanticAnalyzer {
 
         // Second pass: build symbol table
         this.build_symbols(ast.nodes, symbols, dofile_scope, scopes);
+
+        // Recognize `st_local`/`st_global` setter calls inside Mata blocks as
+        // macro definitions. Runs after `build_symbols`, but registration still
+        // compares source positions so first-definition-wins precedence is
+        // preserved when a Mata setter appears before a later Stata definition.
+        // Runs before reference detection so declared macros suppress
+        // undefined-macro warnings at/after their call site. Gated only on
+        // `tokens` (not on undefined_macro_enabled) so the declarations also
+        // feed completion.
+        if (tokens) {
+            this.extract_mata_st_local_declarations(tokens, symbols, ast.nodes);
+        }
 
         // Third pass: detect undefined references
         if (this.config.undefined_macro_enabled || this.config.undefined_variable_enabled) {
@@ -2402,7 +2416,14 @@ export class SemanticAnalyzer {
             return;
         }
 
-        const is_defined = this.is_macro_defined(node.name, node.scope, symbols, reference_index, node.range.start.line);
+        const is_defined = this.is_macro_defined(
+            node.name,
+            node.scope,
+            symbols,
+            reference_index,
+            node.range.start.line,
+            node.range
+        );
 
         if (!is_defined) {
             const range_key = `${node.range.start.line}:${node.range.start.character}:${node.range.end.line}:${node.range.end.character}`;
@@ -2432,7 +2453,14 @@ export class SemanticAnalyzer {
             return;
         }
 
-        const is_defined = this.is_macro_defined(macro_ref.name, macro_ref.scope, symbols, reference_index, macro_ref.range.start.line);
+        const is_defined = this.is_macro_defined(
+            macro_ref.name,
+            macro_ref.scope,
+            symbols,
+            reference_index,
+            macro_ref.range.start.line,
+            macro_ref.range
+        );
 
         if (!is_defined) {
             const range_key = `${macro_ref.range.start.line}:${macro_ref.range.start.character}:${macro_ref.range.end.line}:${macro_ref.range.end.character}`;
@@ -2530,7 +2558,8 @@ export class SemanticAnalyzer {
         scope: 'local' | 'global',
         symbols: SymbolTable,
         reference_index?: number,
-        reference_line?: number
+        reference_line?: number,
+        reference_range?: Range
     ): boolean {
         if (scope === 'local') {
             // Check for positional arguments (numeric macro names like `1', `2', etc.)
@@ -2579,6 +2608,15 @@ export class SemanticAnalyzer {
                     macro.definition_line > reference_line) {
                     return false; // Forward reference
                 }
+
+                if (
+                    this.is_reference_before_macro_definition(
+                        macro,
+                        reference_range
+                    )
+                ) {
+                    return false; // Same-line forward reference
+                }
                 
                 return true;
             }
@@ -2621,6 +2659,15 @@ export class SemanticAnalyzer {
                     macro.definition_line > reference_line) {
                     return false; // Forward reference
                 }
+
+                if (
+                    this.is_reference_before_macro_definition(
+                        macro,
+                        reference_range
+                    )
+                ) {
+                    return false; // Same-line forward reference
+                }
                 
                 return true;
             }
@@ -2636,6 +2683,17 @@ export class SemanticAnalyzer {
         }
 
         return false;
+    }
+
+    private is_reference_before_macro_definition(
+        macro: MacroSymbol,
+        reference_range?: Range
+    ): boolean {
+        return (
+            reference_range !== undefined &&
+            macro.location.range.start.line === reference_range.start.line &&
+            this.compare_ranges(reference_range, macro.location.range) < 0
+        );
     }
 
     /**
@@ -2686,6 +2744,523 @@ export class SemanticAnalyzer {
             }
         }
         return the_ranges;
+    }
+
+    /**
+     * Recognize `st_local("name", value)` / `st_global("name", value)` setter
+     * calls inside Mata blocks and register the named macro as a definition.
+     *
+     * In Stata's Mata, the two-argument form `st_local(name, value)` SETS a
+     * local macro in the calling Stata scope, whereas the one-argument form
+     * `st_local(name)` only READS it — so only the two-argument (setter) form
+     * declares a macro here. The name must be a literal double-quoted
+     * identifier; dynamic names (variables, expressions, compound quotes, or
+     * embedded macro references) cannot be resolved statically and are
+     * skipped.
+     *
+     * Operates on the flat token stream (the same approach as
+     * `check_token_macro_references`) so it sees the real, positioned `STRING`
+     * tokens for both the inline (`mata:`) and block (`mata` ... `end` /
+     * `mata { ... }`) forms, and never false-matches `st_local(...)` text that
+     * merely appears inside a string literal.
+     *
+     * Like every other local-defining construct in this analyzer, the macro is
+     * registered into the flat, file-global symbol table (program-scoping is
+     * tracked separately in issue #261). Forward-only visibility is preserved
+     * via `definition_line` (the call's line), matching `local` / `c_local`.
+     */
+    private extract_mata_st_local_declarations(
+        tokens: Token[],
+        symbols: SymbolTable,
+        nodes: StataNode[]
+    ): void {
+        const program_ranges = this.collect_program_ranges(nodes);
+
+        // Track whether we are inside a Mata block / inline expression:
+        //   'inline'      — `mata: <expr>`, ends at the statement terminator
+        //   'block_plain' — `mata` ... `end`
+        //   'block_brace' — `mata { ... }`, ends at the matching `}`
+        type MataMode = 'inline' | 'block_plain' | 'block_brace' | null;
+        let mata_mode: MataMode = null;
+        let brace_depth = 0;
+        let mata_function_body_depth = 0;
+
+        const SKIP: Set<TokenType> = new Set([
+            'WHITESPACE',
+            'COMMENT_LINE',
+            'COMMENT_BLOCK',
+            'CONTINUATION',
+        ]);
+        const next_significant = (from: number): number => {
+            let j = from;
+            let after_continuation = false;
+            while (j < tokens.length) {
+                const token = tokens[j];
+                if (SKIP.has(token.type)) {
+                    if (token.type === 'CONTINUATION') {
+                        after_continuation = true;
+                    }
+                    j++;
+                    continue;
+                }
+                if (
+                    token.type === 'STATEMENT_TERMINATOR' &&
+                    after_continuation
+                ) {
+                    after_continuation = false;
+                    j++;
+                    continue;
+                }
+                break;
+            }
+            return j;
+        };
+        const is_continuation_terminator = (index: number): boolean => {
+            let j = index - 1;
+            while (
+                j >= 0 &&
+                (tokens[j].type === 'WHITESPACE' ||
+                    tokens[j].type === 'COMMENT_LINE' ||
+                    tokens[j].type === 'COMMENT_BLOCK')
+            ) {
+                j--;
+            }
+            return j >= 0 && tokens[j].type === 'CONTINUATION';
+        };
+        const previous_significant = (from: number): number => {
+            let j = from;
+            while (j >= 0) {
+                const token = tokens[j];
+                if (SKIP.has(token.type)) {
+                    j--;
+                    continue;
+                }
+                if (
+                    token.type === 'STATEMENT_TERMINATOR' &&
+                    is_continuation_terminator(j)
+                ) {
+                    j--;
+                    continue;
+                }
+                break;
+            }
+            return j;
+        };
+        const is_qualified_mata_call_name = (index: number): boolean => {
+            const previous_idx = previous_significant(index - 1);
+            if (previous_idx < 0) {
+                return false;
+            }
+            const previous_value = tokens[previous_idx].value.trimEnd();
+            if (
+                previous_value.endsWith('.') ||
+                previous_value.endsWith('::') ||
+                previous_value.endsWith('->')
+            ) {
+                return true;
+            }
+
+            const before_previous_idx = previous_significant(previous_idx - 1);
+            if (before_previous_idx < 0) {
+                return false;
+            }
+            const before_previous_value =
+                tokens[before_previous_idx].value.trimEnd();
+            return (
+                (previous_value === ':' &&
+                    before_previous_value.endsWith(':')) ||
+                (previous_value === '>' && before_previous_value.endsWith('-'))
+            );
+        };
+        // The opening paren and the argument-separating comma surface as
+        // `LPAREN`/`COMMA` in the inline form (Stata-context tokens) but as
+        // `EMBEDDED_CONTENT` in block form. The comma may be coalesced with
+        // following punctuation, e.g. `,(`, so accept embedded content that
+        // starts with the delimiter.
+        const is_open_paren = (t: Token): boolean =>
+            t.type === 'LPAREN' ||
+            (t.type === 'EMBEDDED_CONTENT' && t.value.trim() === '(');
+        const is_comma = (t: Token): boolean =>
+            t.type === 'COMMA' ||
+            (t.type === 'EMBEDDED_CONTENT' &&
+                t.value.trimStart().startsWith(','));
+
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            switch (token.type) {
+                case 'MATA_INLINE':
+                    mata_mode = 'inline';
+                    mata_function_body_depth = 0;
+                    continue;
+                case 'MATA_START': {
+                    // Brace-style iff the opening `{` is on the SAME line as
+                    // `mata` — this mirrors the lexer's own condition
+                    // (`startLine === embedded_block_start_line`). A `{` on a
+                    // later line (or any inner brace) belongs to a plain
+                    // `mata` ... `end` block and must not be mistaken for the
+                    // block delimiter. Matching lines (rather than the next
+                    // significant token) is required under `#delimit ;`, where
+                    // a newline lexes as WHITESPACE, not a STATEMENT_TERMINATOR.
+                    const brace_idx = next_significant(i + 1);
+                    if (
+                        brace_idx < tokens.length &&
+                        tokens[brace_idx].type === 'LBRACE' &&
+                        tokens[brace_idx].range.start.line ===
+                            token.range.start.line
+                    ) {
+                        mata_mode = 'block_brace';
+                        brace_depth = 0;
+                    } else {
+                        mata_mode = 'block_plain';
+                    }
+                    mata_function_body_depth = 0;
+                    continue;
+                }
+                case 'END_MATA':
+                    mata_mode = null;
+                    brace_depth = 0;
+                    mata_function_body_depth = 0;
+                    continue;
+                case 'STATEMENT_TERMINATOR':
+                    if (
+                        mata_mode === 'inline' &&
+                        !is_continuation_terminator(i)
+                    ) {
+                        mata_mode = null;
+                        mata_function_body_depth = 0;
+                    }
+                    continue;
+                case 'LBRACE':
+                    if (mata_mode === 'block_brace') {
+                        brace_depth++;
+                    }
+                    if (mata_mode !== null) {
+                        if (mata_function_body_depth > 0) {
+                            mata_function_body_depth++;
+                        } else if (this.is_mata_function_body_start(tokens, i)) {
+                            mata_function_body_depth = 1;
+                        }
+                    }
+                    continue;
+                case 'RBRACE':
+                    if (mata_function_body_depth > 0) {
+                        mata_function_body_depth--;
+                    }
+                    if (mata_mode === 'block_brace') {
+                        brace_depth--;
+                        if (brace_depth <= 0) {
+                            mata_mode = null;
+                            mata_function_body_depth = 0;
+                        }
+                    }
+                    continue;
+            }
+
+            if (
+                mata_mode === null ||
+                mata_function_body_depth > 0 ||
+                token.type !== 'WORD'
+            ) {
+                continue;
+            }
+            if (token.value !== 'st_local' && token.value !== 'st_global') {
+                continue;
+            }
+            if (is_qualified_mata_call_name(i)) {
+                continue;
+            }
+
+            const scope: 'local' | 'global' =
+                token.value === 'st_local' ? 'local' : 'global';
+
+            // Expect the call shape: `(` "<name>" `,` ...
+            const paren_idx = next_significant(i + 1);
+            if (paren_idx >= tokens.length || !is_open_paren(tokens[paren_idx])) {
+                continue;
+            }
+            const name_idx = next_significant(paren_idx + 1);
+            if (name_idx >= tokens.length) {
+                continue;
+            }
+            const name_token = tokens[name_idx];
+            if (
+                name_token.type !== 'STRING' ||
+                name_token.quoteStyle === 'compound'
+            ) {
+                continue;
+            }
+            const name_match = /^"([A-Za-z_][A-Za-z0-9_]*)"$/.exec(
+                name_token.value
+            );
+            if (!name_match) {
+                continue;
+            }
+
+            // Two-argument (setter) form only: a comma must follow the name.
+            // The one-argument read form `st_local("name")` is closed by `)`.
+            const after_name_idx = next_significant(name_idx + 1);
+            if (
+                after_name_idx >= tokens.length ||
+                !is_comma(tokens[after_name_idx])
+            ) {
+                continue;
+            }
+
+            const macro_name = name_match[1];
+            const definition_line = token.range.start.line;
+            const containing_scope: ScopeType = program_ranges.some(
+                ([start, end]) =>
+                    definition_line >= start && definition_line <= end
+            )
+                ? 'program'
+                : 'dofile';
+
+            this.register_mata_macro(
+                macro_name,
+                scope,
+                name_token.range,
+                definition_line,
+                containing_scope,
+                symbols
+            );
+        }
+    }
+
+    /**
+     * Register a macro discovered from an `st_local`/`st_global` setter.
+     * First-definition-wins: if this token-only definition appears earlier
+     * than the current primary, promote it and move the old primary into
+     * `additional_definitions`; otherwise record it as an additional
+     * definition in source order.
+     */
+    private register_mata_macro(
+        name: string,
+        scope: 'local' | 'global',
+        range: Range,
+        definition_line: number,
+        containing_scope: ScopeType,
+        symbols: SymbolTable
+    ): void {
+        const symbol_map =
+            scope === 'local' ? symbols.localMacros : symbols.globalMacros;
+
+        const new_symbol: MacroSymbol = {
+            name,
+            scope,
+            location: { uri: this.uri, range },
+            sourceUri: this.uri,
+            value: scope === 'local' ? '__st_local__' : '__st_global__',
+            containingScope: containing_scope,
+            definition_line,
+        };
+
+        const existing = symbol_map.get(name);
+        if (!existing) {
+            symbol_map.set(name, new_symbol);
+            return;
+        }
+
+        const new_definition = this.macro_symbol_to_additional_definition(
+            new_symbol
+        );
+
+        if (this.is_symbol_range_before(range, existing.location.range)) {
+            const old_primary =
+                this.macro_symbol_to_additional_definition(existing);
+            new_symbol.additional_definitions = [
+                old_primary,
+                ...(existing.additional_definitions ?? []),
+            ];
+            this.sort_additional_definitions(new_symbol.additional_definitions);
+            symbol_map.set(name, new_symbol);
+            return;
+        }
+
+        if (!existing.additional_definitions) {
+            existing.additional_definitions = [];
+        }
+        existing.additional_definitions.push(new_definition);
+        this.sort_additional_definitions(existing.additional_definitions);
+    }
+
+    private macro_symbol_to_additional_definition(symbol: MacroSymbol): {
+        index: number;
+        line: number;
+        location: { uri: string; range: Range };
+    } {
+        return {
+            index: symbol.definition_index ?? 0,
+            line: symbol.definition_line ?? symbol.location.range.start.line,
+            location: symbol.location,
+        };
+    }
+
+    private sort_additional_definitions(
+        definitions: Array<{
+            index: number;
+            line: number;
+            location: { uri: string; range: Range };
+        }>
+    ): void {
+        definitions.sort((a, b) =>
+            this.compare_ranges(a.location.range, b.location.range)
+        );
+    }
+
+    private is_symbol_range_before(left: Range, right: Range): boolean {
+        return this.compare_ranges(left, right) < 0;
+    }
+
+    private compare_ranges(left: Range, right: Range): number {
+        const line_delta = left.start.line - right.start.line;
+        if (line_delta !== 0) {
+            return line_delta;
+        }
+        return left.start.character - right.start.character;
+    }
+
+    /**
+     * Mata function bodies are definitions, not executed statements. A flat
+     * token scan must therefore ignore setters inside bodies such as
+     * `void f() { st_local("foo", "1") }`.
+     */
+    private is_mata_function_body_start(
+        tokens: Token[],
+        brace_index: number
+    ): boolean {
+        const header = this.collect_mata_header_before_brace(
+            tokens,
+            brace_index
+        );
+        return this.looks_like_mata_function_header(header);
+    }
+
+    private collect_mata_header_before_brace(
+        tokens: Token[],
+        brace_index: number
+    ): string {
+        const parts: string[] = [];
+        let unmatched_close_parens = 0;
+
+        const track_parens = (value: string): void => {
+            for (let i = value.length - 1; i >= 0; i--) {
+                const ch = value[i];
+                if (ch === ')') {
+                    unmatched_close_parens++;
+                } else if (ch === '(' && unmatched_close_parens > 0) {
+                    unmatched_close_parens--;
+                }
+            }
+        };
+
+        for (let i = brace_index - 1; i >= 0; i--) {
+            const token = tokens[i];
+            if (token.type === 'WHITESPACE' || token.type === 'CONTINUATION') {
+                if (parts.length > 0) {
+                    parts.unshift(token.value);
+                }
+                continue;
+            }
+            if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
+                continue;
+            }
+
+            if (token.type === 'STATEMENT_TERMINATOR') {
+                if (parts.length === 0) {
+                    continue;
+                }
+                if (unmatched_close_parens > 0) {
+                    continue;
+                }
+                break;
+            }
+
+            if (
+                token.type === 'MATA_START' ||
+                token.type === 'MATA_INLINE' ||
+                token.type === 'END_MATA' ||
+                token.type === 'LBRACE' ||
+                token.type === 'RBRACE'
+            ) {
+                break;
+            }
+
+            parts.unshift(token.value);
+            track_parens(token.value);
+        }
+
+        return parts.join('');
+    }
+
+    private looks_like_mata_function_header(header: string): boolean {
+        const trimmed = header.trim();
+        if (trimmed.length === 0 || !trimmed.endsWith(')')) {
+            return false;
+        }
+
+        const open_paren = this.find_matching_open_paren(trimmed);
+        if (open_paren <= 0) {
+            return false;
+        }
+
+        const before_args = trimmed.slice(0, open_paren).trim();
+        const words = before_args.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
+        if (words.length < 2) {
+            return false;
+        }
+
+        const function_name = words[words.length - 1];
+        const control_words = new Set([
+            'if',
+            'else',
+            'for',
+            'while',
+            'do',
+            'switch',
+            'try',
+            'catch',
+        ]);
+        if (control_words.has(function_name)) {
+            return false;
+        }
+
+        const declaration_words = new Set([
+            'function',
+            'void',
+            'real',
+            'complex',
+            'numeric',
+            'string',
+            'transmorphic',
+            'pointer',
+            'class',
+            'struct',
+            'scalar',
+            'vector',
+            'rowvector',
+            'colvector',
+            'matrix',
+        ]);
+
+        return words
+            .slice(0, -1)
+            .some(word => declaration_words.has(word));
+    }
+
+    private find_matching_open_paren(text: string): number {
+        let depth = 0;
+        for (let i = text.length - 1; i >= 0; i--) {
+            const ch = text[i];
+            if (ch === ')') {
+                depth++;
+            } else if (ch === '(') {
+                depth--;
+                if (depth === 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
 
     /**
@@ -2762,7 +3337,17 @@ export class SemanticAnalyzer {
                 }
                 
                 const token_line = token.range.start.line;
-                if (macro_name && !this.is_macro_defined(macro_name, 'local', symbols, undefined, token_line)) {
+                if (
+                    macro_name &&
+                    !this.is_macro_defined(
+                        macro_name,
+                        'local',
+                        symbols,
+                        undefined,
+                        token_line,
+                        token.range
+                    )
+                ) {
                     diagnostics.push({
                         message: format_undefined_macro_message(
                             'local',
@@ -2802,7 +3387,17 @@ export class SemanticAnalyzer {
                 }
                 
                 const token_line = token.range.start.line;
-                if (macro_name && !this.is_macro_defined(macro_name, 'global', symbols, undefined, token_line)) {
+                if (
+                    macro_name &&
+                    !this.is_macro_defined(
+                        macro_name,
+                        'global',
+                        symbols,
+                        undefined,
+                        token_line,
+                        token.range
+                    )
+                ) {
                     diagnostics.push({
                         message: format_undefined_macro_message(
                             'global',
