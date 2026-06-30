@@ -75,6 +75,13 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('an st_global setter for a system global does not shadow it', () => {
+        // System globals are always defined; an `st_global("S_DATE", ...)`
+        // setter must not make an EARLIER `$S_DATE` reference report undefined.
+        const src = 'display "$S_DATE"\nmata: st_global("S_DATE", "x")';
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
     it('one-argument st_local("name") is a read, not a declaration', () => {
         const src = 'mata: st_local("foo")\ndisplay `foo\'';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);

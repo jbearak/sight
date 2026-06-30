@@ -3277,6 +3277,15 @@ export class SemanticAnalyzer {
         containing_scope: ScopeType,
         symbols: SymbolTable
     ): void {
+        // System globals (e.g. `S_DATE`) are always defined. Registering a
+        // forward-only symbol for an `st_global("S_DATE", ...)` setter would
+        // shadow the `is_system_global` fallback in `is_macro_defined` and
+        // make an EARLIER `$S_DATE` reference report as undefined. Leave them
+        // to the fallback.
+        if (scope === 'global' && this.is_system_global(name)) {
+            return;
+        }
+
         const symbol_map =
             scope === 'local' ? symbols.localMacros : symbols.globalMacros;
 
