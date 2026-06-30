@@ -249,6 +249,25 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(result.symbols.localMacros.has('outside')).toBe(false);
     });
 
+    it('closes a #delimit ; block when end follows a function body brace', () => {
+        // The closing `end` directly follows a top-level `}` (RBRACE), with no
+        // intervening `;`. The block must still close so a later setter in
+        // ordinary code is not misread.
+        const src =
+            '#delimit ;\nmata ;\nvoid f() {\n  x = 1 ;\n}\nend ;\n' +
+            'st_local("outside", "1") ;';
+        const result = analyze(src);
+        expect(result.symbols.localMacros.has('outside')).toBe(false);
+    });
+
+    it('does not treat `end =` as a #delimit ; block terminator', () => {
+        // `end` used as an operand (not a standalone statement) must not close
+        // the block, or a later in-block setter would be missed.
+        const src =
+            '#delimit ;\nmata ;\nend = 1 ;\nst_local("inside", "1") ;\nend ;';
+        expect(analyze(src).symbols.localMacros.has('inside')).toBe(true);
+    });
+
     it('declares through a prefix command (capture mata:)', () => {
         const src = 'capture mata: st_local("foo", "1")\ndisplay `foo\'';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
@@ -307,6 +326,26 @@ describe('st_local / st_global declarations in Mata', () => {
     it('still declares setters inside executed top-level Mata braces', () => {
         const src =
             'mata\nif (1) {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('does not declare setters inside a Mata struct body', () => {
+        const src =
+            'mata\nstruct S {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
+    it('does not declare setters inside a Mata class body', () => {
+        const src = 'mata\nclass C {\n  st_local("foo", "1")\n}\nend';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+    });
+
+    it('declares a top-level setter after a struct definition', () => {
+        // The struct-body skip must not over-suppress later top-level setters.
+        const src =
+            'mata\nstruct S {\n  real scalar x\n}\nst_local("foo", "1")\nend\ndisplay `foo\'';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
         expect(undefined_macros(src)).toEqual([]);
     });

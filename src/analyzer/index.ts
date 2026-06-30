@@ -3017,28 +3017,51 @@ export class SemanticAnalyzer {
 
             // Under `#delimit ;` the lexer emits a plain block's closing
             // `end` as a WORD (not END_MATA), so it never hits the switch
-            // above. Recognize a statement-initial `end` as the block
-            // terminator here; otherwise `mata_mode` leaks past the block and
+            // above. Recognize a standalone, top-level `end` statement as the
+            // block terminator; otherwise `mata_mode` leaks past the block and
             // later non-Mata `st_local(...)` text is misread as a setter.
+            // `end` only closes the block when it is its own top-level
+            // statement, so require it both to begin a statement and to be
+            // immediately followed by a terminator. This rejects `end` inside
+            // a function body, `end` used as an operand (e.g. `end = 1`), and
+            // a value-position identifier that merely happens to be `end`.
             if (
                 mata_mode === 'block_plain' &&
+                mata_function_body_depth === 0 &&
                 token.type === 'WORD' &&
                 token.value === 'end'
             ) {
+                // Under `#delimit ;` the block's interior terminators are
+                // `EMBEDDED_CONTENT ";"`, not STATEMENT_TERMINATOR; a closing
+                // `end` may also directly follow a top-level function body's
+                // `}` (RBRACE). Accept those plus the block opener and
+                // start-of-input as statement boundaries.
                 const previous_idx = previous_significant(i - 1);
                 const previous_token =
                     previous_idx >= 0 ? tokens[previous_idx] : undefined;
-                // `end` only closes the block when it begins a statement.
-                // Under `#delimit ;` the block's interior terminators are
-                // `EMBEDDED_CONTENT ";"`, not STATEMENT_TERMINATOR, so accept
-                // either (plus the block opener and start-of-input).
                 const at_statement_start =
                     previous_token === undefined ||
                     previous_token.type === 'STATEMENT_TERMINATOR' ||
                     previous_token.type === 'MATA_START' ||
+                    previous_token.type === 'RBRACE' ||
                     (previous_token.type === 'EMBEDDED_CONTENT' &&
                         previous_token.value.trimEnd().endsWith(';'));
-                if (at_statement_start) {
+
+                // A bare `end` statement is followed by a terminator (or the
+                // end of input). If anything else follows (an operator, `=`,
+                // a call), `end` is being used as an identifier, not the
+                // block terminator.
+                const next_idx = next_significant(i + 1);
+                const next_token =
+                    next_idx < tokens.length ? tokens[next_idx] : undefined;
+                const at_statement_end =
+                    next_token === undefined ||
+                    next_token.type === 'STATEMENT_TERMINATOR' ||
+                    next_token.type === 'END_MATA' ||
+                    (next_token.type === 'EMBEDDED_CONTENT' &&
+                        next_token.value.trimStart().startsWith(';'));
+
+                if (at_statement_start && at_statement_end) {
                     mata_mode = null;
                     brace_depth = 0;
                     mata_function_body_depth = 0;
@@ -3245,9 +3268,10 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * Mata function bodies are definitions, not executed statements. A flat
-     * token scan must therefore ignore setters inside bodies such as
-     * `void f() { st_local("foo", "1") }`.
+     * Mata function and type (`struct`/`class`) bodies are definitions, not
+     * executed statements. A flat token scan must therefore ignore setters
+     * inside bodies such as `void f() { st_local("foo", "1") }` or a
+     * `struct S { ... }` declaration block.
      */
     private is_mata_function_body_start(
         tokens: Token[],
@@ -3257,7 +3281,24 @@ export class SemanticAnalyzer {
             tokens,
             brace_index
         );
-        return this.looks_like_mata_function_header(header);
+        return (
+            this.looks_like_mata_function_header(header) ||
+            this.looks_like_mata_type_definition_header(header)
+        );
+    }
+
+    /**
+     * A `struct NAME {` / `class NAME [extends BASE] {` declaration header.
+     * Unlike a function header it has no `()` call shape, so it is detected
+     * separately: the first identifier word is the (case-sensitive) `struct`
+     * or `class` keyword, followed by at least a name.
+     */
+    private looks_like_mata_type_definition_header(header: string): boolean {
+        const words = header.trim().match(MATA_HEADER_WORD_RE) ?? [];
+        return (
+            words.length >= 2 &&
+            (words[0] === 'struct' || words[0] === 'class')
+        );
     }
 
     private collect_mata_header_before_brace(
