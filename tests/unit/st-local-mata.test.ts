@@ -48,6 +48,27 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('mata utility one-liners do not open a block', () => {
+        // `mata clear` / `mata describe` are not `mata` ... `end` blocks; the
+        // following ordinary text must not be scanned as Mata setters.
+        expect(
+            analyze('mata clear\nst_local("foo", "1")').symbols.localMacros.has(
+                'foo'
+            )
+        ).toBe(false);
+        expect(
+            analyze('mata describe\nst_local("foo", "1")').symbols.localMacros
+                .has('foo')
+        ).toBe(false);
+    });
+
+    it('continuation-joined brace opener is a brace block (closes at })', () => {
+        // `mata ///` then `{` is `mata {` logically, so the block ends at `}`;
+        // a setter after `}` is outside the block and must not be declared.
+        const src = 'mata ///\n{\nx = 1\n}\nst_local("foo", "1")';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+    });
+
     it('st_global("NAME", value) declares a global', () => {
         const src = 'mata: st_global("G", "1")\ndisplay $G';
         expect(analyze(src).symbols.globalMacros.has('G')).toBe(true);
@@ -133,6 +154,17 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(macro).toBeDefined();
         expect(macro!.definition_line).toBe(0);
         expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('does not promote over an args macro via a same-line column tie', () => {
+        // The Mata setter (line 0) and the args macro share effective line 0
+        // (args is synthetic), but the args name sits farther right on a later
+        // physical line. The column tie-break must not promote the setter:
+        // args stays primary (its location is the `args` name, line 1).
+        const src = 'mata: st_local("x", "1")\nargs                         x';
+        const macro = analyze(src).symbols.localMacros.get('x');
+        expect(macro).toBeDefined();
+        expect(macro!.location.range.start.line).toBe(1);
     });
 
     it('global setter before a later global remains the primary definition', () => {

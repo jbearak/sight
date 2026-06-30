@@ -3035,20 +3035,46 @@ export class SemanticAnalyzer {
                     mata_function_body_depth = 0;
                     continue;
                 case 'MATA_START': {
-                    // Brace-style iff the opening `{` is on the SAME line as
-                    // `mata` — this mirrors the lexer's own condition
-                    // (`startLine === embedded_block_start_line`). A `{` on a
-                    // later line (or any inner brace) belongs to a plain
-                    // `mata` ... `end` block and must not be mistaken for the
-                    // block delimiter. Matching lines (rather than the next
-                    // significant token) is required under `#delimit ;`, where
-                    // a newline lexes as WHITESPACE, not a STATEMENT_TERMINATOR.
-                    const brace_idx = next_significant(i + 1);
+                    // The lexer emits MATA_START for any leading `mata`,
+                    // including utility one-liners like `mata clear` /
+                    // `mata describe` that do NOT open a block. Inspect the
+                    // opener token to decide what (if anything) we entered.
+                    const opener_idx = next_significant(i + 1);
+                    const opener =
+                        opener_idx < tokens.length
+                            ? tokens[opener_idx]
+                            : undefined;
+                    // The opener shares `mata`'s logical line if it is on the
+                    // same physical line or joined by a `///` continuation.
+                    // (Under `#delimit ;` a newline lexes as WHITESPACE, so an
+                    // inner `{` on a LATER physical line — with no continuation
+                    // — belongs to a plain `mata` ... `end` block and must not
+                    // be mistaken for the brace delimiter.)
+                    let crossed_continuation = false;
+                    for (let k = i + 1; k < opener_idx; k++) {
+                        if (tokens[k].type === 'CONTINUATION') {
+                            crossed_continuation = true;
+                            break;
+                        }
+                    }
+                    const opener_on_logical_line =
+                        opener !== undefined &&
+                        (opener.range.start.line === token.range.start.line ||
+                            crossed_continuation);
+
                     if (
-                        brace_idx < tokens.length &&
-                        tokens[brace_idx].type === 'LBRACE' &&
-                        tokens[brace_idx].range.start.line ===
-                            token.range.start.line
+                        opener !== undefined &&
+                        opener.type === 'WORD' &&
+                        opener_on_logical_line
+                    ) {
+                        // `mata <subcommand>` one-liner — not a block opener;
+                        // stay out of Mata mode.
+                        continue;
+                    }
+                    if (
+                        opener !== undefined &&
+                        opener.type === 'LBRACE' &&
+                        opener_on_logical_line
                     ) {
                         mata_mode = 'block_brace';
                         brace_depth = 0;
@@ -3333,7 +3359,12 @@ export class SemanticAnalyzer {
      * deliberately set apart from its location. In particular `args` macros
      * carry `definition_line === 0` (visible from the start of scope); a
      * later Mata setter must not promote over them and reintroduce a forward-
-     * reference warning. Same-line ties fall back to the location character.
+     * reference warning. Same-line ties fall back to the location character —
+     * but only when the existing symbol's effective line actually coincides
+     * with its location, so the columns are comparable on the same physical
+     * line. For a synthetic line (e.g. `args` with `definition_line === 0` but
+     * a location on the later `args` token), the columns are on different
+     * lines and meaningless, so the existing symbol keeps precedence.
      */
     private is_mata_definition_before(
         new_definition_line: number,
@@ -3344,6 +3375,12 @@ export class SemanticAnalyzer {
             existing.definition_line ?? existing.location.range.start.line;
         if (new_definition_line !== existing_line) {
             return new_definition_line < existing_line;
+        }
+        if (
+            existing.definition_line !== undefined &&
+            existing.definition_line !== existing.location.range.start.line
+        ) {
+            return false;
         }
         return (
             new_range.start.character < existing.location.range.start.character
