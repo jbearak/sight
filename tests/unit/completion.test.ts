@@ -1924,6 +1924,15 @@ describe('Local macro completion respects position within file', () => {
         );
         expect(before.map(c => c.label)).not.toContain('foo');
 
+        // Cursor exactly at visibility_start (the boundary) is still inside
+        // the inline unit: foo must NOT be offered.
+        const at_boundary = await provider.get_completions(
+            doc,
+            { line: 0, character: 40 },
+            '`',
+        );
+        expect(at_boundary.map(c => c.label)).not.toContain('foo');
+
         // Cursor on line 1 (after the inline unit): foo IS offered.
         const after = await provider.get_completions(
             doc,

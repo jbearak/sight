@@ -3243,8 +3243,13 @@ export class SemanticAnalyzer {
             // EMBEDDED_CONTENT). Recognize it here and stay inert over the
             // Python region, so embedded `mata` / `st_local` text on those
             // lines is not mistaken for a real Mata setter (which would
-            // otherwise trip the `WORD "mata"` re-entry just below).
+            // otherwise trip the `WORD "mata"` re-entry just below). Gate on
+            // `mata_mode === null`: only the lexer-stuck/top-level state has
+            // this problem. Inside a live Mata block `python` is ordinary Mata
+            // code (a variable/expression), not a Stata Python opener, so the
+            // block's later setters must keep being scanned.
             if (
+                mata_mode === null &&
                 token.type === 'WORD' &&
                 token.value === 'python' &&
                 begins_statement(i)

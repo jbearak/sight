@@ -693,6 +693,21 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
     });
 
+    it('keeps scanning setters when `python` is used as Mata code in a block', () => {
+        // Inside a live Mata block, a statement beginning with `python` (a
+        // Mata variable/expression) must NOT be mistaken for a Stata Python
+        // block opener; the block's later setter is still recognized.
+        const src = 'mata\npython\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('keeps scanning setters when `python:` appears as Mata code in a block', () => {
+        const src = 'mata\npython:\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
     it('balances a block setter call across a comment with an unmatched paren', () => {
         // The close-paren search for visibility_start must ignore comment
         // tokens; an unmatched `(` inside a comment must not run the count to

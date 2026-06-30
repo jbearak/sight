@@ -1790,10 +1790,15 @@ export class CompletionProvider {
                 // the same unit. Honor it so completion matches diagnostics.
                 const vis = macro.visibility_start;
                 if (vis !== undefined) {
+                    // The boundary itself is still inside the setter's own
+                    // unit: a backtick reference inserted exactly at
+                    // visibility_start lands before the (re-lexed) terminator,
+                    // so diagnostics would flag it undefined. Treat the
+                    // boundary as not-yet-visible (`<=`).
                     if (
                         position.line < vis.line ||
                         (position.line === vis.line &&
-                            position.character < vis.character)
+                            position.character <= vis.character)
                     ) {
                         continue;
                     }
