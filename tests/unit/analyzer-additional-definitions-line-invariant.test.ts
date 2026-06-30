@@ -11,7 +11,7 @@ import type { SymbolTable } from '../../src/types';
 // `location.range.start.line`. Consumers rely on this invariant:
 //   - `has_definition_in_window` (src/scope-resolver/visible-symbols.ts:48)
 //     compares `.line` against window thresholds.
-//   - `format_redefinition_footer` (src/providers/hover.ts:589) displays
+//   - `format_redefinition_footer` (src/providers/hover.ts:847) displays
 //     `.line + 1` as the same-file footer line number, which must match
 //     the LSP location the hit resolves to.
 //

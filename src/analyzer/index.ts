@@ -171,6 +171,16 @@ const STATA_STORAGE_TYPES = new Set([
 
 const STR_WIDTH_RE = /^str\d+$/;
 
+// A Mata setter's name argument must be a literal double-quoted identifier.
+// Hoisted to module level: matched once per `st_local`/`st_global` token in
+// the setter scan loop.
+const MATA_STRING_NAME_RE = /^"([A-Za-z_][A-Za-z0-9_]*)"$/;
+
+// Identifier words in a Mata function-definition header. Global flag; consumed
+// only via `String.prototype.match`, which resets `lastIndex` on each call, so
+// the shared instance is safe. Hoisted: consulted once per Mata `{`.
+const MATA_HEADER_WORD_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+
 // Mata control-flow keywords that can precede a `(` ... `)` header before a
 // `{` but are NOT function definitions (so their bodies are executed, not
 // skipped). Module-level: fixed content, consulted once per Mata `{`.
@@ -3025,9 +3035,7 @@ export class SemanticAnalyzer {
             ) {
                 continue;
             }
-            const name_match = /^"([A-Za-z_][A-Za-z0-9_]*)"$/.exec(
-                name_token.value
-            );
+            const name_match = MATA_STRING_NAME_RE.exec(name_token.value);
             if (!name_match) {
                 continue;
             }
@@ -3050,6 +3058,19 @@ export class SemanticAnalyzer {
             // can suppress an undefined-macro warning for an earlier reference
             // on the same physical line as the Mata call, but avoids treating
             // common continuation formatting as a later definition.
+            //
+            // Accepted limitation (visibility granularity): the macro is
+            // modeled as visible from the call line onward (forward-only),
+            // matching how native `local`/`c_local` definitions are tracked.
+            // Stata actually expands backtick macros across the whole Mata
+            // unit (inline statement or `mata`/`end` block) before the code
+            // runs, so a `` `name' `` reference *within the same unit* — e.g.
+            // `mata: st_local("x", "`x'")` — is undefined at expansion time.
+            // We do not flag those, identically to how `local x = "`x'"`
+            // suppresses its own self-reference (which also supports the
+            // common accumulation idiom `local x = "`x' more"`). References
+            // after the Mata unit — the intended use case — resolve
+            // correctly.
             const definition_line = token.range.start.line;
             const containing_scope: ScopeType = program_ranges.some(
                 ([start, end]) =>
@@ -3257,7 +3278,7 @@ export class SemanticAnalyzer {
         }
 
         const before_args = trimmed.slice(0, open_paren).trim();
-        const words = before_args.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
+        const words = before_args.match(MATA_HEADER_WORD_RE) ?? [];
         if (words.length < 2) {
             return false;
         }
