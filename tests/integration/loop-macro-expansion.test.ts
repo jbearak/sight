@@ -562,6 +562,26 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).toContain('x_old');
     });
 
+    it('does not falsely suppress when a skipped constructed redef has an unknown target', () => {
+        // `` local `i' bar `` is skipped because `i` was just reassigned, but
+        // its concrete target (`` `i' `` -> "suffix") is unknown, so it may have
+        // reassigned `suffix`. The later `` x_`suffix' `` must therefore NOT
+        // fold the stale pre-loop value and inject `x_foo` (Stata defines
+        // `x_bar`), which would falsely suppress `display `x_foo''.
+        const source = [
+            'local suffix foo',
+            'foreach i in a {',
+            '    local i suffix',
+            "    local `i' bar",
+            "    local x_`suffix' 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
     it('still expands an iterator-only template after an unresolved nested redefinition', () => {
         // The nested loop's `` z_`j' `` is unresolvable in the outer frame
         // (its list depends on the outer iterator), which poisons later

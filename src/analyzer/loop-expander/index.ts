@@ -113,48 +113,53 @@ export function expand_loop_body(
         if (the_tokens.length === 0) return;
         const template = extract_name_template(the_tokens);
         if (template) {
-            // Skip (a) a template that folds a macro the body already redefined,
-            // or (b) — once an earlier constructed redefinition was unresolvable
-            // — a template that folds any pre-loop macro value the unknown
-            // target might have changed. Both are conservative misses that
-            // avoid a false suppression.
+            // A constructed name must be SKIPPED when (a) it folds a macro the
+            // body already redefined (its concrete target depends on that
+            // macro's untracked new value), or (b) — once an earlier
+            // constructed redefinition was unresolvable — it folds any pre-loop
+            // macro value the unknown target might have changed. In both cases
+            // this statement is itself a redefinition whose concrete target we
+            // cannot determine, so any LATER template that folds a pre-loop
+            // value is unsafe too: record the unresolved-target state. (An
+            // iterator-only later template stays safe — see
+            // `template_folds_preloop_macro`.) Skipping is a conservative miss
+            // that avoids fabricating a stale name (a false suppression).
             const unsafe_after_unresolved =
                 saw_unresolved_redefinition
                 && template_folds_preloop_macro(template, frames);
             if (
-                !unsafe_after_unresolved
-                && !template_references_redefined(template, redefined_local, redefined_global)
+                unsafe_after_unresolved
+                || template_references_redefined(template, redefined_local, redefined_global)
             ) {
-                const the_names = expand_template(template, frames, symbols);
-                if (the_names.length === 0) {
-                    // The constructed name could not be resolved in this frame
-                    // context (unbound nested iterator, or over-cap expansion),
-                    // so its (re)definition target is unknown — poison later
-                    // pre-loop-folding templates.
-                    saw_unresolved_redefinition = true;
-                } else {
-                    const redefined_for_scope =
-                        template.scope === 'local' ? redefined_local : redefined_global;
-                    for (const my_name of the_names) {
-                        // The produced concrete name is itself a (re)definition,
-                        // so poison it for any LATER template regardless of
-                        // region. Inject it as a defined symbol only in an
-                        // expandable region; inside a skipped block (if/while/
-                        // nested loop) we poison but do NOT inject (it may not
-                        // run, or runs with a different binding).
-                        redefined_for_scope.add(my_name);
-                        if (expandable) {
-                            the_expanded.push({
-                                name: my_name,
-                                scope: template.scope,
-                                sourceRange: my_statement.range,
-                            });
-                        }
-                    }
+                saw_unresolved_redefinition = true;
+                return;
+            }
+            const the_names = expand_template(template, frames, symbols);
+            if (the_names.length === 0) {
+                // The constructed name could not be resolved in this frame
+                // context (unbound nested iterator, or over-cap expansion), so
+                // its (re)definition target is unknown — poison later
+                // pre-loop-folding templates.
+                saw_unresolved_redefinition = true;
+                return;
+            }
+            const redefined_for_scope =
+                template.scope === 'local' ? redefined_local : redefined_global;
+            for (const my_name of the_names) {
+                // The produced concrete name is itself a (re)definition, so
+                // poison it for any LATER template regardless of region. Inject
+                // it as a defined symbol only in an expandable region; inside a
+                // skipped block (if/while/nested loop) we poison but do NOT
+                // inject (it may not run, or runs with a different binding).
+                redefined_for_scope.add(my_name);
+                if (expandable) {
+                    the_expanded.push({
+                        name: my_name,
+                        scope: template.scope,
+                        sourceRange: my_statement.range,
+                    });
                 }
             }
-            // A template referencing an already-redefined macro is skipped (its
-            // concrete name is unknown), so there is nothing to record.
             return;
         }
         // A plain redefinition shadows the pre-loop value for any LATER
