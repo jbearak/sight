@@ -3007,6 +3007,13 @@ export class SemanticAnalyzer {
             }
 
             const macro_name = name_match[1];
+            // Accepted limitation: for a continued inline Mata setter whose
+            // macro name literal moves to a later physical line, the
+            // definition remains ordered at the `st_local`/`st_global` call
+            // line while go-to-definition still points at the literal. That
+            // can suppress an undefined-macro warning for an earlier reference
+            // on the same physical line as the Mata call, but avoids treating
+            // common continuation formatting as a later definition.
             const definition_line = token.range.start.line;
             const containing_scope: ScopeType = program_ranges.some(
                 ([start, end]) =>
