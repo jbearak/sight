@@ -304,6 +304,19 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('scopes a setter inside a program body to the program', () => {
+        const src =
+            'program define p\n  mata: st_local("foo", "1")\nend';
+        const macro = analyze(src).symbols.localMacros.get('foo');
+        expect(macro?.containingScope).toBe('program');
+    });
+
+    it('scopes a top-level setter to the dofile', () => {
+        const macro = analyze('mata: st_local("foo", "1")').symbols
+            .localMacros.get('foo');
+        expect(macro?.containingScope).toBe('dofile');
+    });
+
     it('inner braces in a plain block do not end the block early', () => {
         const src =
             'mata\nvoid f() {\n  x = 1\n}\nst_local("foo", "1")\nend\ndisplay `foo\'';
@@ -422,6 +435,19 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(result.symbols.localMacros.has('a')).toBe(true);
         expect(result.symbols.localMacros.has('b')).toBe(true);
     });
+
+    it('declares in a second #delimit ; plain block (mata re-entry)', () => {
+        // Under `#delimit ;` only the first `mata` lexes as MATA_START; later
+        // openers come through as WORDs. A standalone `mata` statement must
+        // re-enter a plain block so the second block's setters are found.
+        const src =
+            '#delimit ;\nmata ;\nst_local("a", "1") ;\nend ;\n' +
+            'mata ;\nst_local("b", "2") ;\nend ;';
+        const result = analyze(src);
+        expect(result.symbols.localMacros.has('a')).toBe(true);
+        expect(result.symbols.localMacros.has('b')).toBe(true);
+    });
+
 
     it('declares from a plain block with inner braces under #delimit ;', () => {
         // Regression: under `#delimit ;` a newline lexes as WHITESPACE, so the

@@ -2817,6 +2817,44 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * Full (character-precise) ranges of every program block, including
+     * nested ones. Used to scope Mata setters precisely even when a setter
+     * shares a physical line with the program header or its `end`.
+     */
+    private collect_program_position_ranges(nodes: StataNode[]): Range[] {
+        const the_ranges: Range[] = [];
+        for (const my_node of nodes) {
+            if (my_node.type === 'program') {
+                the_ranges.push(my_node.range);
+                the_ranges.push(
+                    ...this.collect_program_position_ranges(my_node.body)
+                );
+            } else if ('body' in my_node && Array.isArray(my_node.body)) {
+                the_ranges.push(
+                    ...this.collect_program_position_ranges(my_node.body)
+                );
+            }
+        }
+        return the_ranges;
+    }
+
+    /** Is `position` within `range` (inclusive), comparing line then char? */
+    private position_within_range(
+        position: { line: number; character: number },
+        range: Range
+    ): boolean {
+        const after_start =
+            position.line > range.start.line ||
+            (position.line === range.start.line &&
+                position.character >= range.start.character);
+        const before_end =
+            position.line < range.end.line ||
+            (position.line === range.end.line &&
+                position.character <= range.end.character);
+        return after_start && before_end;
+    }
+
+    /**
      * Recognize `st_local("name", value)` / `st_global("name", value)` setter
      * calls inside Mata blocks and register the named macro as a definition.
      *
@@ -2844,7 +2882,13 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         nodes: StataNode[]
     ): void {
-        const program_ranges = this.collect_program_ranges(nodes);
+        // Position-precise program ranges (start of `program` keyword to end
+        // of `end`). Used to scope a setter to `program` vs `dofile`. Unlike
+        // the line-based `collect_program_ranges`, this stays correct when a
+        // setter shares a physical line with the program header or `end`
+        // (common under `#delimit ;`, e.g. `... ;end ;`).
+        const program_position_ranges =
+            this.collect_program_position_ranges(nodes);
 
         // Track whether we are inside a Mata block / inline expression:
         //   'inline'      — `mata: <expr>`, ends at the statement terminator
@@ -2909,6 +2953,40 @@ export class SemanticAnalyzer {
                 break;
             }
             return j;
+        };
+        // A token begins a statement when the previous significant token is a
+        // statement boundary: STATEMENT_TERMINATOR, the block opener
+        // (MATA_START), a top-level function body's closing `}` (RBRACE), or —
+        // under `#delimit ;`, where interior terminators lex as
+        // `EMBEDDED_CONTENT ";"` — an embedded `;`. Start-of-input also counts.
+        const begins_statement = (index: number): boolean => {
+            const previous_idx = previous_significant(index - 1);
+            if (previous_idx < 0) {
+                return true;
+            }
+            const previous_token = tokens[previous_idx];
+            return (
+                previous_token.type === 'STATEMENT_TERMINATOR' ||
+                previous_token.type === 'MATA_START' ||
+                previous_token.type === 'RBRACE' ||
+                (previous_token.type === 'EMBEDDED_CONTENT' &&
+                    previous_token.value.trimEnd().endsWith(';'))
+            );
+        };
+        // A token is its own complete statement when the next significant token
+        // is a statement boundary (or end-of-input / END_MATA).
+        const ends_statement = (index: number): boolean => {
+            const next_idx = next_significant(index + 1);
+            if (next_idx >= tokens.length) {
+                return true;
+            }
+            const next_token = tokens[next_idx];
+            return (
+                next_token.type === 'STATEMENT_TERMINATOR' ||
+                next_token.type === 'END_MATA' ||
+                (next_token.type === 'EMBEDDED_CONTENT' &&
+                    next_token.value.trimStart().startsWith(';'))
+            );
         };
         const is_qualified_mata_call_name = (index: number): boolean => {
             const previous_idx = previous_significant(index - 1);
@@ -3020,59 +3098,39 @@ export class SemanticAnalyzer {
                     continue;
             }
 
-            // Under `#delimit ;` the lexer emits a plain block's closing
-            // `end` as a WORD (not END_MATA), so it never hits the switch
-            // above. Recognize a standalone, top-level `end` statement as the
-            // block terminator; otherwise `mata_mode` leaks past the block and
-            // later non-Mata `st_local(...)` text is misread as a setter.
-            // `end` only closes the block when it is its own top-level
-            // statement, so require it both to begin a statement and to be
-            // immediately followed by a terminator. This rejects `end` inside
-            // a function body, `end` used as an operand (e.g. `end = 1`), and
-            // a value-position identifier that merely happens to be `end`.
+            // Under `#delimit ;` the lexer emits a plain block's opening and
+            // closing keywords as WORDs (only the FIRST `mata` becomes
+            // MATA_START / the closer never becomes END_MATA), so they never
+            // reach the switch above. Recognize a standalone, top-level `mata`
+            // as re-entering a plain block, and a standalone, top-level `end`
+            // as closing one. Requiring the keyword to be its own statement
+            // (begins a statement AND is immediately followed by a terminator)
+            // rejects `mata`/`end` used as identifiers or subcommands
+            // (`mata clear`, `end = 1`) and `end` inside a function body.
+            if (
+                mata_mode === null &&
+                token.type === 'WORD' &&
+                token.value === 'mata' &&
+                begins_statement(i) &&
+                ends_statement(i)
+            ) {
+                mata_mode = 'block_plain';
+                brace_depth = 0;
+                mata_function_body_depth = 0;
+                continue;
+            }
             if (
                 mata_mode === 'block_plain' &&
                 mata_function_body_depth === 0 &&
                 token.type === 'WORD' &&
-                token.value === 'end'
+                token.value === 'end' &&
+                begins_statement(i) &&
+                ends_statement(i)
             ) {
-                // `end` begins a statement when the previous significant token
-                // is a terminator boundary: a STATEMENT_TERMINATOR, or — under
-                // `#delimit ;`, where the block's interior terminators lex as
-                // `EMBEDDED_CONTENT ";"` — an embedded `;`. A closing `end`
-                // may also directly follow the block opener (MATA_START), a
-                // top-level function body's `}` (RBRACE), or start-of-input.
-                const previous_idx = previous_significant(i - 1);
-                const previous_token =
-                    previous_idx >= 0 ? tokens[previous_idx] : undefined;
-                const at_statement_start =
-                    previous_token === undefined ||
-                    previous_token.type === 'STATEMENT_TERMINATOR' ||
-                    previous_token.type === 'MATA_START' ||
-                    previous_token.type === 'RBRACE' ||
-                    (previous_token.type === 'EMBEDDED_CONTENT' &&
-                        previous_token.value.trimEnd().endsWith(';'));
-
-                // A bare `end` statement is followed by a terminator (or the
-                // end of input). If anything else follows (an operator, `=`,
-                // a call), `end` is being used as an identifier, not the
-                // block terminator.
-                const next_idx = next_significant(i + 1);
-                const next_token =
-                    next_idx < tokens.length ? tokens[next_idx] : undefined;
-                const at_statement_end =
-                    next_token === undefined ||
-                    next_token.type === 'STATEMENT_TERMINATOR' ||
-                    next_token.type === 'END_MATA' ||
-                    (next_token.type === 'EMBEDDED_CONTENT' &&
-                        next_token.value.trimStart().startsWith(';'));
-
-                if (at_statement_start && at_statement_end) {
-                    mata_mode = null;
-                    brace_depth = 0;
-                    mata_function_body_depth = 0;
-                    continue;
-                }
+                mata_mode = null;
+                brace_depth = 0;
+                mata_function_body_depth = 0;
+                continue;
             }
 
             if (
@@ -3153,10 +3211,16 @@ export class SemanticAnalyzer {
             // a same-call reference is undefined at expansion time; we accept
             // that narrow false negative for parity with `local`. References
             // after the call — the intended use case — resolve correctly.
+            // Scope the setter to the innermost enclosing program (character-
+            // precise, so a setter sharing the program header or `end` line is
+            // still attributed correctly). Limitation: the parser only builds
+            // `program` block nodes under `#delimit cr`; under `#delimit ;` a
+            // `program define ... end` is parsed as flat commands with no
+            // block node, so setters there fall back to `dofile` scope.
             const definition_line = token.range.start.line;
-            const containing_scope: ScopeType = program_ranges.some(
-                ([start, end]) =>
-                    definition_line >= start && definition_line <= end
+            const containing_scope: ScopeType = program_position_ranges.some(
+                program_range =>
+                    this.position_within_range(token.range.start, program_range)
             )
                 ? 'program'
                 : 'dofile';
