@@ -387,6 +387,28 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('block-form setter does not see its own value-argument self-reference', () => {
+        // Stata expands `` `foo' `` before `st_local()` runs, so the
+        // reference inside the setter's own value argument is undefined even
+        // though the setter declares `foo` for later references.
+        const src = 'mata\nst_local("foo", "`foo\'")\nend';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
+    it('brace-form setter does not see its own value-argument self-reference', () => {
+        const src = 'mata {\nst_local("bar", "`bar\'")\n}';
+        expect(analyze(src).symbols.localMacros.has('bar')).toBe(true);
+        expect(undefined_macros(src)).toEqual(['bar']);
+    });
+
+    it('block-form setter value self-reference undefined, later reference resolves', () => {
+        const src =
+            'mata\nst_local("foo", "x`foo\'y")\nend\ndisplay `foo\'';
+        // The in-argument `` `foo' `` is undefined; the post-block one resolves.
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
     it('repeated setter for the same name records additional definitions', () => {
         const result = analyze(
             'mata\nst_local("foo", "first")\nst_local("foo", "second")\nend'

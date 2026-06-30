@@ -3371,18 +3371,22 @@ export class SemanticAnalyzer {
 
             // Forward-only visibility. Stata expands a statement's backtick
             // macros before the code runs, so a setter is not visible to
-            // references in the SAME Mata unit. For an inline `mata:` setter
-            // the unit ends at the inline statement's terminator: record that
-            // position as `visibility_start` so a `` `name' `` reference
-            // earlier in the same `mata:` line — including the setter's own
-            // value argument (`st_local("x", "`x'")`) or a later sub-statement
-            // (`st_local("x","1"); y = `x'`) — is treated as not-yet-defined,
-            // while references after the line resolve normally. Block setters
-            // (`mata` ... `end` / `mata { }`) keep call-line forward-only
-            // visibility; a backtick reference earlier within the same block
-            // is an accepted (rare) limitation. (A continued inline setter
-            // whose name literal moves to a later physical line still orders
-            // by the call line; go-to-definition points at the literal.)
+            // references in the SAME unit. `visibility_start` records where
+            // the setter becomes visible; a `` `name' `` reference before it
+            // is treated as not-yet-defined, references at/after it resolve.
+            //   - Inline `mata:`: the unit is the whole inline line, so anchor
+            //     at the line's terminator. This covers the setter's own value
+            //     argument (`st_local("x", "`x'")`) and a later sub-statement
+            //     on the same line (`st_local("x","1"); y = `x'`).
+            //   - Block (`mata` ... `end` / `mata { }`): anchor at the end of
+            //     the setter call's matching `)`, so a backtick reference in
+            //     the value argument is not-yet-defined. (A reference in a
+            //     LATER statement of the same block still resolves; per Stata
+            //     it would expand pre-execution too, but that remains an
+            //     accepted, documented limitation.)
+            // (A continued inline setter whose name literal moves to a later
+            // physical line still orders by the call line; go-to-definition
+            // points at the literal.)
             let visibility_start:
                 | { line: number; character: number }
                 | undefined;
@@ -3399,6 +3403,34 @@ export class SemanticAnalyzer {
                 // No terminator: the inline unit runs to end-of-input. Anchor
                 // past the last token so references on the line are still
                 // treated as inside the unit (and there is nothing after it).
+                if (visibility_start === undefined && tokens.length > 0) {
+                    visibility_start = tokens[tokens.length - 1].range.end;
+                }
+            } else {
+                // Block setter: anchor past the matching close paren. Balance
+                // parens by scanning token values, ignoring STRING tokens so a
+                // `)` inside a string literal does not close the call early.
+                let paren_depth = 0;
+                let closed = false;
+                for (let k = paren_idx; k < tokens.length && !closed; k++) {
+                    if (tokens[k].type === 'STRING') {
+                        continue;
+                    }
+                    for (const my_char of tokens[k].value) {
+                        if (my_char === '(') {
+                            paren_depth++;
+                        } else if (my_char === ')') {
+                            paren_depth--;
+                            if (paren_depth <= 0) {
+                                visibility_start = tokens[k].range.end;
+                                closed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                // Unbalanced (malformed) call: fall back to end-of-input so the
+                // value argument is still treated as inside the unit.
                 if (visibility_start === undefined && tokens.length > 0) {
                     visibility_start = tokens[tokens.length - 1].range.end;
                 }
