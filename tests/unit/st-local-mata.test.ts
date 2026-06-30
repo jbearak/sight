@@ -552,6 +552,17 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(result.symbols.localMacros.has('b')).toBe(true);
     });
 
+    it('re-enters a later plain block whose body is on the next line', () => {
+        // The re-entered `mata` has no `;`/`{` on its line (body on the next
+        // physical line). It must still be a plain block, not skipped.
+        const src =
+            '#delimit ;\nmata ;\nst_local("a", "1") ;\nend ;\n' +
+            'mata\nst_local("b", "2") ;\nend ;';
+        const result = analyze(src);
+        expect(result.symbols.localMacros.has('a')).toBe(true);
+        expect(result.symbols.localMacros.has('b')).toBe(true);
+    });
+
 
     it('declares from a plain block with inner braces under #delimit ;', () => {
         // Regression: under `#delimit ;` a newline lexes as WHITESPACE, so the

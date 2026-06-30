@@ -3086,51 +3086,16 @@ export class SemanticAnalyzer {
                     continue;
                 case 'MATA_START': {
                     // The lexer emits MATA_START for any leading `mata`,
-                    // including utility one-liners like `mata clear` /
-                    // `mata describe` that do NOT open a block. Inspect the
-                    // opener token to decide what (if anything) we entered.
-                    const opener_idx = next_significant(i + 1);
-                    const opener =
-                        opener_idx < tokens.length
-                            ? tokens[opener_idx]
-                            : undefined;
-                    // The opener shares `mata`'s logical line if it is on the
-                    // same physical line or joined by a `///` continuation.
-                    // (Under `#delimit ;` a newline lexes as WHITESPACE, so an
-                    // inner `{` on a LATER physical line — with no continuation
-                    // — belongs to a plain `mata` ... `end` block and must not
-                    // be mistaken for the brace delimiter.)
-                    let crossed_continuation = false;
-                    for (let k = i + 1; k < opener_idx; k++) {
-                        if (tokens[k].type === 'CONTINUATION') {
-                            crossed_continuation = true;
-                            break;
-                        }
-                    }
-                    const opener_on_logical_line =
-                        opener !== undefined &&
-                        (opener.range.start.line === token.range.start.line ||
-                            crossed_continuation);
-
-                    if (
-                        opener !== undefined &&
-                        opener.type === 'WORD' &&
-                        opener_on_logical_line
-                    ) {
-                        // `mata <subcommand>` one-liner — not a block opener;
-                        // stay out of Mata mode.
+                    // including utility one-liners like `mata clear` that do
+                    // NOT open a block. Classify the opener to decide what (if
+                    // anything) we entered.
+                    const kind = this.classify_mata_block_opener(tokens, i);
+                    if (kind === 'subcommand') {
+                        // Not a block opener; stay out of Mata mode.
                         continue;
                     }
-                    if (
-                        opener !== undefined &&
-                        opener.type === 'LBRACE' &&
-                        opener_on_logical_line
-                    ) {
-                        mata_mode = 'block_brace';
-                        brace_depth = 0;
-                    } else {
-                        mata_mode = 'block_plain';
-                    }
+                    mata_mode = kind;
+                    brace_depth = 0;
                     mata_function_body_depth = 0;
                     continue;
                 }
@@ -3189,36 +3154,17 @@ export class SemanticAnalyzer {
                 token.value === 'mata' &&
                 begins_statement(i)
             ) {
-                const opener_idx = next_significant(i + 1);
-                const opener =
-                    opener_idx < tokens.length
-                        ? tokens[opener_idx]
-                        : undefined;
-                const opener_is = (text: string): boolean =>
-                    opener !== undefined &&
-                    (opener.type === 'EMBEDDED_CONTENT' ||
-                        opener.type === 'OPERATOR' ||
-                        opener.type === 'LPAREN' ||
-                        opener.type === 'LBRACE') &&
-                    opener.value.trim() === text;
-                if (opener_is(':')) {
-                    mata_mode = 'inline';
-                    mata_function_body_depth = 0;
-                    continue;
-                }
-                if (opener_is('{') || opener?.type === 'LBRACE') {
-                    mata_mode = 'block_brace';
+                // Same opener classification as the MATA_START token (a
+                // continued `#delimit ;` block or a utility one-liner leaves
+                // the lexer in Mata context, so later openers arrive as a
+                // WORD). `subcommand` (`mata clear`) is left alone.
+                const kind = this.classify_mata_block_opener(tokens, i);
+                if (kind !== 'subcommand') {
+                    mata_mode = kind;
                     brace_depth = 0;
                     mata_function_body_depth = 0;
                     continue;
                 }
-                if (ends_statement(i)) {
-                    mata_mode = 'block_plain';
-                    brace_depth = 0;
-                    mata_function_body_depth = 0;
-                    continue;
-                }
-                // Otherwise a `mata <subcommand>` one-liner — not a block.
             }
             if (
                 mata_mode === 'block_plain' &&
@@ -3559,6 +3505,82 @@ export class SemanticAnalyzer {
             j--;
         }
         return j >= 0 && tokens[j].type === 'CONTINUATION';
+    }
+
+    /**
+     * Classify what a `mata` keyword at `mata_index` opens, used for both the
+     * lexer's MATA_START token and a `WORD "mata"` re-entry (the lexer emits a
+     * WORD once it is already in Mata context). The opener is the next
+     * significant token, with a `///` continuation joining it to `mata`'s
+     * logical line:
+     *  - same-logical-line `:` -> 'inline' (`mata: <expr>`)
+     *  - same-logical-line `{` -> 'block_brace' (`mata { ... }`)
+     *  - same-logical-line WORD -> 'subcommand' (`mata clear`; not a block)
+     *  - anything else (opener on a later physical line, a `;`/terminator, or
+     *    end-of-input) -> 'block_plain' (`mata` ... `end`), so an inner `{` or
+     *    body on the next line is NOT mistaken for the block delimiter.
+     */
+    private classify_mata_block_opener(
+        tokens: Token[],
+        mata_index: number
+    ): 'inline' | 'block_brace' | 'block_plain' | 'subcommand' {
+        let opener_idx = mata_index + 1;
+        let crossed_continuation = false;
+        while (opener_idx < tokens.length) {
+            const my_token = tokens[opener_idx];
+            if (
+                my_token.type === 'WHITESPACE' ||
+                my_token.type === 'COMMENT_LINE' ||
+                my_token.type === 'COMMENT_BLOCK'
+            ) {
+                opener_idx++;
+                continue;
+            }
+            if (my_token.type === 'CONTINUATION') {
+                crossed_continuation = true;
+                opener_idx++;
+                continue;
+            }
+            // Skip only a continuation's STATEMENT_TERMINATOR; a real
+            // terminator ends the `mata` statement (a plain block opener).
+            if (
+                my_token.type === 'STATEMENT_TERMINATOR' &&
+                (crossed_continuation ||
+                    this.is_continuation_terminator_at(tokens, opener_idx))
+            ) {
+                opener_idx++;
+                continue;
+            }
+            break;
+        }
+        const opener =
+            opener_idx < tokens.length ? tokens[opener_idx] : undefined;
+        if (opener === undefined) {
+            return 'block_plain';
+        }
+        const on_logical_line =
+            opener.range.start.line === tokens[mata_index].range.start.line ||
+            crossed_continuation;
+        if (on_logical_line) {
+            const value = opener.value.trim();
+            if (
+                (opener.type === 'EMBEDDED_CONTENT' ||
+                    opener.type === 'OPERATOR') &&
+                value === ':'
+            ) {
+                return 'inline';
+            }
+            if (
+                opener.type === 'LBRACE' ||
+                (opener.type === 'EMBEDDED_CONTENT' && value === '{')
+            ) {
+                return 'block_brace';
+            }
+            if (opener.type === 'WORD') {
+                return 'subcommand';
+            }
+        }
+        return 'block_plain';
     }
 
     private collect_mata_header_before_brace(
