@@ -216,9 +216,12 @@ export function expand_loop_body(
         active_frames: BindingFrame[],
         shadowed_locals: ReadonlySet<string>
     ): void => {
+        // `current_shadowed` grows as earlier sibling nested loops clobber an
+        // outer iterator they reuse, so LATER siblings see it as unresolvable.
+        let current_shadowed = shadowed_locals;
         for (const my_node of the_body) {
             if (my_node.type === 'frame') {
-                walk(my_node.body, expandable, active_frames, shadowed_locals);
+                walk(my_node.body, expandable, active_frames, current_shadowed);
             } else if (
                 my_node.type === 'foreach' || my_node.type === 'forvalues'
             ) {
@@ -227,17 +230,39 @@ export function expand_loop_body(
                     ? active_frames.filter((my_frame) => my_frame.var !== nested_var)
                     : active_frames;
                 const nested_shadowed = nested_var
-                    ? new Set(shadowed_locals).add(nested_var)
-                    : shadowed_locals;
+                    ? new Set(current_shadowed).add(nested_var)
+                    : current_shadowed;
                 walk(my_node.body, false, masked_frames, nested_shadowed);
+                // A nested loop that REUSES an outer iterator's name leaves that
+                // iterator clobbered (its last inner value) after the loop, so a
+                // LATER sibling template interpolating it must treat it as
+                // unresolvable rather than fold the outer frame binding.
+                if (nested_var && active_frames.some((f) => f.var === nested_var)) {
+                    current_shadowed = new Set(current_shadowed).add(nested_var);
+                }
             } else if (
                 my_node.type === 'if' ||
                 my_node.type === 'else' ||
                 my_node.type === 'while'
             ) {
-                walk(my_node.body, false, active_frames, shadowed_locals);
+                walk(my_node.body, false, active_frames, current_shadowed);
+            } else if (
+                my_node.type === 'command'
+                && Array.isArray((my_node as { body?: unknown }).body)
+            ) {
+                // Block-prefix body (`capture { … }`, `quietly { … }`): the body
+                // may not run (or runs under a prefix), so constructed names in
+                // it are not injected — but a redefinition of a pre-loop helper
+                // inside it still shadows the pre-loop value for LATER templates,
+                // so descend to POISON it (mirrors the if/while handling).
+                walk(
+                    (my_node as { body: StataNode[] }).body,
+                    false,
+                    active_frames,
+                    current_shadowed
+                );
             } else {
-                process_leaf(my_node, expandable, active_frames, shadowed_locals);
+                process_leaf(my_node, expandable, active_frames, current_shadowed);
             }
         }
     };

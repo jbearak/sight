@@ -783,6 +783,62 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).toContain('x_foo');
     });
 
+    it('poisons a helper redefined inside a block-prefix body', () => {
+        // `` capture { local suffix new } `` reassigns `suffix`, but the body is
+        // a CommandNode body the poison walk previously skipped. A later
+        // `` x_`suffix' `` must not fold the stale "foo" and inject `x_foo`.
+        const source = [
+            'local suffix foo',
+            'foreach i in a {',
+            '    capture {',
+            '        local suffix new',
+            '    }',
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
+    it('does not fold an outer iterator a nested loop reused and clobbered', () => {
+        // The inner `foreach i in b` reuses (and clobbers) the outer iterator
+        // `i`, leaving it "b". A later `` x_`i' `` must not fold the outer frame
+        // "a" and inject `x_a` (Stata defines `x_b`).
+        const source = [
+            'foreach i in a {',
+            '    foreach i in b {',
+            '    }',
+            "    local x_`i' = 1",
+            '}',
+            "display `x_a'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_a')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_a');
+    });
+
+    it('poisons a caller helper a program reassigns via c_local', () => {
+        // `setsfx` writes `suffix` back into the caller via `c_local`. A later
+        // `` x_`suffix' `` must not fold the stale pre-loop "foo" and inject
+        // `x_foo`.
+        const source = [
+            'program define setsfx',
+            '    c_local suffix bar',
+            'end',
+            'local suffix foo',
+            'foreach i in a b {',
+            '    setsfx',
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
     it('does not fold a local that only exists in another (program) scope', () => {
         // `local list` is defined inside a program, so it is NOT visible at the
         // top level. A top-level `foreach i of local list` must not fold it into

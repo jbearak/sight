@@ -2260,6 +2260,22 @@ export class SemanticAnalyzer {
      * `` `i' ``) are intentionally skipped — that is a documented out-of-scope
      * limitation (the (re)defined macro's name is not statically known).
      */
+    /**
+     * Names a call to a known user program writes back into the CALLER scope via
+     * `c_local` (mirrors the c_local registration in `process_command`). Used by
+     * the loop expander to poison those caller locals in execution order.
+     */
+    private get_program_c_local_names(
+        node: CommandNode,
+        symbols: SymbolTable
+    ): string[] {
+        let program = symbols.programs.get(node.fullName);
+        if (!program && this.workspace_symbols) {
+            program = this.workspace_symbols.programs.get(node.fullName);
+        }
+        return program?.c_locals ? [...program.c_locals] : [];
+    }
+
     private get_command_redefined_macro_names(node: CommandNode): string[] {
         const cmd_name = node.fullName;
         const names: string[] = [];
@@ -2461,6 +2477,11 @@ export class SemanticAnalyzer {
                         // args/tempvar/file read) reassign LOCAL macros that the
                         // option-based path above does not cover.
                         for (const my_name of this.get_command_redefined_macro_names(statement)) {
+                            the_redefined.push({ scope: 'local', name: my_name });
+                        }
+                        // A call to a user program that `c_local`s names back into
+                        // the caller reassigns those caller locals.
+                        for (const my_name of this.get_program_c_local_names(statement, symbols)) {
                             the_redefined.push({ scope: 'local', name: my_name });
                         }
                         return the_redefined;
