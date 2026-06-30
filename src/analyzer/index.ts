@@ -2889,18 +2889,8 @@ export class SemanticAnalyzer {
             }
             return j;
         };
-        const is_continuation_terminator = (index: number): boolean => {
-            let j = index - 1;
-            while (
-                j >= 0 &&
-                (tokens[j].type === 'WHITESPACE' ||
-                    tokens[j].type === 'COMMENT_LINE' ||
-                    tokens[j].type === 'COMMENT_BLOCK')
-            ) {
-                j--;
-            }
-            return j >= 0 && tokens[j].type === 'CONTINUATION';
-        };
+        const is_continuation_terminator = (index: number): boolean =>
+            this.is_continuation_terminator_at(tokens, index);
         const previous_significant = (from: number): number => {
             let j = from;
             while (j >= 0) {
@@ -3331,11 +3321,33 @@ export class SemanticAnalyzer {
      * or `class` keyword, followed by at least a name.
      */
     private looks_like_mata_type_definition_header(header: string): boolean {
-        const words = header.trim().match(MATA_HEADER_WORD_RE) ?? [];
+        const the_words = header.trim().match(MATA_HEADER_WORD_RE) ?? [];
         return (
-            words.length >= 2 &&
-            (words[0] === 'struct' || words[0] === 'class')
+            the_words.length >= 2 &&
+            (the_words[0] === 'struct' || the_words[0] === 'class')
         );
+    }
+
+    /**
+     * Is the STATEMENT_TERMINATOR at `index` a `///` line continuation
+     * (rather than a real end of statement)? True when the previous
+     * significant token — skipping whitespace and comments — is a
+     * CONTINUATION.
+     */
+    private is_continuation_terminator_at(
+        tokens: Token[],
+        index: number
+    ): boolean {
+        let j = index - 1;
+        while (
+            j >= 0 &&
+            (tokens[j].type === 'WHITESPACE' ||
+                tokens[j].type === 'COMMENT_LINE' ||
+                tokens[j].type === 'COMMENT_BLOCK')
+        ) {
+            j--;
+        }
+        return j >= 0 && tokens[j].type === 'CONTINUATION';
     }
 
     private collect_mata_header_before_brace(
@@ -3356,21 +3368,23 @@ export class SemanticAnalyzer {
             }
         };
 
-        // A statement separator ends the header scan. Inline `mata:` code
-        // emits no whitespace tokens and `#delimit ;` blocks emit their
-        // statement separators as `EMBEDDED_CONTENT ";"` rather than
-        // STATEMENT_TERMINATOR, so recognize both forms.
+        // A statement separator ends the header scan. Inside `mata` ... `end`
+        // blocks under `#delimit ;`, statement separators are tokenized as
+        // `EMBEDDED_CONTENT ";"` rather than STATEMENT_TERMINATOR, so
+        // recognize both forms (stopping here also prevents pulling a
+        // preceding statement into the header).
         const is_statement_separator = (token: Token): boolean =>
             token.type === 'STATEMENT_TERMINATOR' ||
             (token.type === 'EMBEDDED_CONTENT' && token.value.includes(';'));
 
         for (let i = brace_index - 1; i >= 0; i--) {
             const token = tokens[i];
-            // Trivia is skipped entirely; significant tokens are joined with a
-            // single space below. Relying on emitted WHITESPACE tokens would
-            // mis-handle inline `mata:` headers (no whitespace tokens), turning
-            // `void f()` into `voidf()` and defeating function-header
-            // detection.
+            // Trivia is skipped entirely and significant tokens are joined
+            // with a single space below, rather than relying on emitted
+            // WHITESPACE tokens to separate them. Inline `mata:` code under
+            // the default `#delimit cr` emits no whitespace tokens at all, so
+            // appending raw values would turn `void f()` into `voidf()` and
+            // defeat function-header detection.
             if (
                 token.type === 'WHITESPACE' ||
                 token.type === 'CONTINUATION' ||
@@ -3385,6 +3399,15 @@ export class SemanticAnalyzer {
                     continue;
                 }
                 if (unmatched_close_parens > 0) {
+                    continue;
+                }
+                // A `///` continuation keeps the statement (and thus the
+                // header) going even outside the argument parentheses, e.g.
+                // `void ///` on its own line before `f() { ... }`.
+                if (
+                    token.type === 'STATEMENT_TERMINATOR' &&
+                    this.is_continuation_terminator_at(tokens, i)
+                ) {
                     continue;
                 }
                 break;
@@ -3424,17 +3447,17 @@ export class SemanticAnalyzer {
         }
 
         const before_args = trimmed.slice(0, open_paren).trim();
-        const words = before_args.match(MATA_HEADER_WORD_RE) ?? [];
-        if (words.length < 2) {
+        const the_words = before_args.match(MATA_HEADER_WORD_RE) ?? [];
+        if (the_words.length < 2) {
             return false;
         }
 
-        const function_name = words[words.length - 1];
+        const function_name = the_words[the_words.length - 1];
         if (MATA_CONTROL_WORDS.has(function_name)) {
             return false;
         }
 
-        return words
+        return the_words
             .slice(0, -1)
             .some(word => MATA_DECLARATION_WORDS.has(word));
     }

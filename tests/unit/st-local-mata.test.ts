@@ -332,6 +332,22 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual(['foo']);
     });
 
+    it('does not declare setters when a function header is continued outside parens', () => {
+        // `void ///` on its own line before `f() {` — the `///` continuation
+        // keeps the header together so the body is recognized as a function.
+        const src =
+            'mata\nvoid ///\nf() {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
+    it('does not declare setters when a struct header is continued outside braces', () => {
+        const src =
+            'mata\nstruct ///\nS {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
     it('does not declare setters inside function bodies after blank lines before the brace', () => {
         const src =
             'mata\nvoid f()\n\n{\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';
