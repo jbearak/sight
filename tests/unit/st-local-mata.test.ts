@@ -278,6 +278,15 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('recognizes a Mata block after a brace-style Python block', () => {
+        // `python { ... }` closes with `}` (RBRACE), not END_PYTHON; the scan
+        // must re-enable so the later Mata setter is found.
+        const src =
+            'python {\nx = 1\n}\nmata\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
     it('declaration location points at the macro name literal', () => {
         const result = analyze('mata: st_local("foo", "1")');
         const macro = result.symbols.localMacros.get('foo');

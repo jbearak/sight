@@ -2952,8 +2952,12 @@ export class SemanticAnalyzer {
         // WORD tokens, so without tracking Python context a statement that
         // happens to start with `mata` would trip the Mata re-entry below and
         // misread Python `st_local(...)` text as a Stata setter. The scan is
-        // inert while inside a `python:` ... `end` block.
+        // inert while inside a Python block. A `python:` / `python` block ends
+        // with END_PYTHON; a brace-style `python { ... }` block ends with the
+        // matching RBRACE, so track its brace depth to find the close.
         let in_python_block = false;
+        let python_is_brace = false;
+        let python_brace_depth = 0;
 
         // `skip_terminators` crosses STATEMENT_TERMINATOR tokens
         // unconditionally. Mata block calls (`mata` ... `end` / `mata { }`)
@@ -3091,13 +3095,38 @@ export class SemanticAnalyzer {
                 mata_mode = null;
                 brace_depth = 0;
                 mata_function_body_depth = 0;
+                // Brace-style `python { ... }` (the `{` is on the same line as
+                // `python`) closes with the matching RBRACE rather than
+                // END_PYTHON.
+                const opener_idx = next_significant(i + 1);
+                python_is_brace =
+                    opener_idx < tokens.length &&
+                    tokens[opener_idx].type === 'LBRACE' &&
+                    tokens[opener_idx].range.start.line ===
+                        token.range.start.line;
+                python_brace_depth = 0;
                 continue;
             }
             if (token.type === 'END_PYTHON') {
                 in_python_block = false;
+                python_is_brace = false;
+                python_brace_depth = 0;
                 continue;
             }
             if (in_python_block) {
+                // For a brace-style block, balance braces to find the close
+                // (nested `{ }` in Python code are counted and ignored).
+                if (python_is_brace) {
+                    if (token.type === 'LBRACE') {
+                        python_brace_depth++;
+                    } else if (token.type === 'RBRACE') {
+                        python_brace_depth--;
+                        if (python_brace_depth <= 0) {
+                            in_python_block = false;
+                            python_is_brace = false;
+                        }
+                    }
+                }
                 continue;
             }
             switch (token.type) {
