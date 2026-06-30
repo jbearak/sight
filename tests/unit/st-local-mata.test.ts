@@ -264,6 +264,20 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual(['foo']);
     });
 
+    it('does not register setters inside a Python block', () => {
+        // A Python statement beginning with `mata` must not trip Mata
+        // re-entry; `st_local(...)` text inside Python is not a Stata setter.
+        const src = 'python:\nmata\nst_local("foo", "1")\nend';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+    });
+
+    it('recognizes a Mata block after a Python block', () => {
+        const src =
+            'python:\nx = 1\nend\nmata\nst_local("foo", "1")\nend\ndisplay `foo\'';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
     it('declaration location points at the macro name literal', () => {
         const result = analyze('mata: st_local("foo", "1")');
         const macro = result.symbols.localMacros.get('foo');

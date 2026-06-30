@@ -2948,6 +2948,12 @@ export class SemanticAnalyzer {
         let mata_mode: MataMode = null;
         let brace_depth = 0;
         let mata_function_body_depth = 0;
+        // Python blocks are a separate embedded language. Their bodies lex as
+        // WORD tokens, so without tracking Python context a statement that
+        // happens to start with `mata` would trip the Mata re-entry below and
+        // misread Python `st_local(...)` text as a Stata setter. The scan is
+        // inert while inside a `python:` ... `end` block.
+        let in_python_block = false;
 
         // `skip_terminators` crosses STATEMENT_TERMINATOR tokens
         // unconditionally. Mata block calls (`mata` ... `end` / `mata { }`)
@@ -3079,6 +3085,21 @@ export class SemanticAnalyzer {
 
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
+            // Track Python blocks and stay inert inside them.
+            if (token.type === 'PYTHON_START') {
+                in_python_block = true;
+                mata_mode = null;
+                brace_depth = 0;
+                mata_function_body_depth = 0;
+                continue;
+            }
+            if (token.type === 'END_PYTHON') {
+                in_python_block = false;
+                continue;
+            }
+            if (in_python_block) {
+                continue;
+            }
             switch (token.type) {
                 case 'MATA_INLINE':
                     mata_mode = 'inline';
