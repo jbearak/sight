@@ -834,7 +834,25 @@ export class StataParser {
 
     if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
       this.addError('Expected command name', this.peek().range);
-      throw new Error('Missing command name');
+      // This point is only reachable after consuming one or more prefix
+      // commands (a zero-prefix entry always starts on a WORD/macro_ref), so
+      // we have a dangling prefix like `quietly` or `by` with no command after
+      // it. Throwing here would unwind past an enclosing block before its `}`
+      // is consumed, leaving the brace to be misreported as an orphan close
+      // brace. Instead, emit the diagnostic above and return a node for the
+      // consumed prefix(es), leaving the current token (e.g. the block's `}`)
+      // for the enclosing parser to handle.
+      return {
+        type: 'command',
+        prefix: prefixes.length > 0 ? prefixes : undefined,
+        name: '',
+        fullName: '',
+        expression: undefined,
+        range: this.makeRange(
+          start_token.range.start,
+          this.previous().range.end
+        ),
+      };
     }
 
     const command_token = this.advance();
