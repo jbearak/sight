@@ -112,7 +112,11 @@ export function expand_loop_body(
     // Record any (re)definition a single leaf statement performs, and — only in
     // an `expandable` (guaranteed-executing) region — inject its expanded
     // constructed names.
-    const process_leaf = (my_statement: StataNode, expandable: boolean): void => {
+    const process_leaf = (
+        my_statement: StataNode,
+        expandable: boolean,
+        active_frames: BindingFrame[]
+    ): void => {
         const the_tokens = statement_tokens(tokens, my_statement.range);
         if (the_tokens.length === 0) return;
         const template = extract_name_template(the_tokens);
@@ -133,7 +137,7 @@ export function expand_loop_body(
                 saw_unresolved_redefinition = true;
                 return;
             }
-            const the_names = expand_template(template, frames, symbols);
+            const the_names = expand_template(template, active_frames, symbols);
             if (the_names.length === 0) {
                 // The constructed name could not be resolved in this frame
                 // context (unbound nested iterator, or over-cap expansion), so
@@ -195,23 +199,39 @@ export function expand_loop_body(
     // fabricates a concrete name that never exists at runtime, suppressing a
     // legitimate undefined-macro warning). Nested foreach/forvalues additionally
     // handle their own expansion via their own analyzer-level process_loop call.
-    const walk = (the_body: StataNode[], expandable: boolean): void => {
+    //
+    // `active_frames` masks any outer frame a nested loop shadows: a nested
+    // `foreach`/`forvalues` rebinds its own loop variable, so a constructed name
+    // in its body that interpolates that name must NOT resolve to the outer
+    // binding. Removing the shadowed frame makes such a name unresolvable, which
+    // marks the unresolved-target state rather than poisoning the wrong macro.
+    const walk = (
+        the_body: StataNode[],
+        expandable: boolean,
+        active_frames: BindingFrame[]
+    ): void => {
         for (const my_node of the_body) {
             if (my_node.type === 'frame') {
-                walk(my_node.body, expandable);
+                walk(my_node.body, expandable, active_frames);
+            } else if (
+                my_node.type === 'foreach' || my_node.type === 'forvalues'
+            ) {
+                const nested_var = (my_node as ControlFlowNode).loopVar;
+                const masked_frames = nested_var
+                    ? active_frames.filter((my_frame) => my_frame.var !== nested_var)
+                    : active_frames;
+                walk(my_node.body, false, masked_frames);
             } else if (
                 my_node.type === 'if' ||
                 my_node.type === 'else' ||
-                my_node.type === 'while' ||
-                my_node.type === 'foreach' ||
-                my_node.type === 'forvalues'
+                my_node.type === 'while'
             ) {
-                walk(my_node.body, false);
+                walk(my_node.body, false, active_frames);
             } else {
-                process_leaf(my_node, expandable);
+                process_leaf(my_node, expandable, active_frames);
             }
         }
     };
-    walk(node.body, true);
+    walk(node.body, true, frames);
     return the_expanded;
 }

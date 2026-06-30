@@ -683,6 +683,46 @@ describe('Loop macro expansion (integration)', () => {
         expect(undefined_macros(source)).not.toContain('x_myval');
     });
 
+    it('does not fold a pre-existing macro reused as a loop iterator after the loop', () => {
+        // `i` pre-exists ("old"), then `foreach i in a b` reassigns it to the
+        // iteration values, leaving "b" in scope. A later `foreach j of local i`
+        // must NOT fold the stale pre-loop "old" and inject `x_old` (Stata's
+        // final `i` is "b"), which would falsely suppress `display `x_old''.
+        const source = [
+            'local i old',
+            'foreach i in a b {',
+            '}',
+            'foreach j of local i {',
+            "    local x_`j' = 1",
+            '}',
+            "display `x_old'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_old')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_old');
+    });
+
+    it('does not poison the wrong macro when a nested loop reuses the iterator name', () => {
+        // The nested loop reuses `i`, so inside it `` `i' `` is the INNER
+        // binding ("suffix"), not the outer "a". `` local `i' bar `` therefore
+        // reassigns `suffix` at runtime. The outer `` x_`suffix' `` must not
+        // fold the stale pre-loop "foo" and inject `x_foo` (Stata defines
+        // `x_bar`), which would falsely suppress `display `x_foo''.
+        const source = [
+            'local suffix foo',
+            'foreach i in a {',
+            '    foreach i in suffix {',
+            "        local `i' bar",
+            '    }',
+            "    local x_`suffix' = 1",
+            '}',
+            "display `x_foo'",
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_foo')).toBe(false);
+        expect(undefined_macros(source)).toContain('x_foo');
+    });
+
     it('does not fold a local that only exists in another (program) scope', () => {
         // `local list` is defined inside a program, so it is NOT visible at the
         // top level. A top-level `foreach i of local list` must not fold it into

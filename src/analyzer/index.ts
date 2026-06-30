@@ -2434,6 +2434,24 @@ export class SemanticAnalyzer {
                 this.loop_frames.pop();
             }
         }
+
+        // After the loop, a pre-existing iterator macro holds the LAST iteration
+        // value (unknown statically), not its stored pre-loop value. Mark it
+        // iteration-dependent so a LATER fold (e.g. `foreach j of local i`) does
+        // not use the stale value. This runs AFTER the body/expansion above, so
+        // the loop's own expansion and any pre-loop helper that froze `` `i' ``
+        // still resolve against the iterator's pre-loop value. A statically
+        // empty loop never runs, so it leaves the pre-loop value intact.
+        const loop_may_execute = !(
+            value_set.kind === 'static'
+            && (value_set as { kind: 'static'; values: string[] }).values.length === 0
+        );
+        if (node.loopVar && loop_may_execute) {
+            const existing_iterator = current_scope.localMacros.get(node.loopVar);
+            if (existing_iterator && existing_iterator.value !== undefined) {
+                existing_iterator.iteration_dependent = true;
+            }
+        }
     }
 
     /**
