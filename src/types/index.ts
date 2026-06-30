@@ -403,6 +403,10 @@ export interface MacroSymbol {
   extendedFunction?: ExtendedMacroFunction;
   definition_index?: number;  // Preorder index where macro was defined
   definition_line?: number;   // Line number where macro was first defined
+  // For Mata setters: the position after which the macro becomes
+  // visible (the end of the inline `mata:` statement). References before
+  // this position are in the same Mata unit and not yet defined.
+  visibility_start?: { line: number; character: number };
   additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;
 }
 

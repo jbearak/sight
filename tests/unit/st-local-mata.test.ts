@@ -140,6 +140,41 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('a reference within the same inline mata unit is not yet defined', () => {
+        // `;` is a Mata operator here (one inline statement). Stata expands
+        // the line before the Mata code runs, so `foo` is undefined at the
+        // later `` `foo' `` on the same `mata:` line.
+        const src = 'mata: st_local("foo","1"); x = `foo\'\ndisplay 1';
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
+    it('a self-reference in the setter value is not yet defined', () => {
+        // `mata: st_local("x", "`x'")` references `x` before it is set.
+        const src = 'mata: st_local("foo", "`foo\'")\ndisplay 1';
+        expect(undefined_macros(src)).toEqual(['foo']);
+    });
+
+    it('accumulation idiom with a prior definition does not warn', () => {
+        // `foo` is defined earlier, so `` `foo' `` in the setter value resolves
+        // to that prior definition.
+        const src = 'local foo = "a"\nmata: st_local("foo", "`foo\' more")\ndisplay 1';
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('a reference after the inline mata unit is defined', () => {
+        const src = 'mata: st_local("foo","1")\ndisplay `foo\'';
+        expect(undefined_macros(src)).toEqual([]);
+    });
+
+    it('re-enters Mata for a real opener after a utility one-liner', () => {
+        // `mata clear` leaves the lexer in Mata context, so the later real
+        // `mata:` opener arrives as a WORD; the setter must still register.
+        const inline = 'mata clear\nmata: st_local("foo", "1")\ndisplay `foo\'';
+        expect(analyze(inline).symbols.localMacros.has('foo')).toBe(true);
+        const brace = 'mata clear\nmata {\nst_local("foo", "1")\n}\ndisplay `foo\'';
+        expect(analyze(brace).symbols.localMacros.has('foo')).toBe(true);
+    });
+
     it('setter before a later local remains the primary definition', () => {
         const src = 'mata: st_local("foo", "1")\ndisplay `foo\'\nlocal foo 2';
         const result = analyze(src);

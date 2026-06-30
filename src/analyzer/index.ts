@@ -2650,16 +2650,28 @@ export class SemanticAnalyzer {
             // since we don't have proper scope tracking yet
             const macro = symbols.localMacros.get(name);
             if (macro) {
+                // A Mata setter with `visibility_start` is the authoritative
+                // forward check: it is defined only for references after its
+                // inline Mata unit ends (references within the same unit are
+                // not yet defined).
+                if (macro.visibility_start !== undefined) {
+                    return !this.is_reference_before_visibility_start(
+                        macro,
+                        reference_line,
+                        reference_range
+                    );
+                }
+
                 // Check for forward reference using preorder index
-                if (reference_index !== undefined && 
-                    macro.definition_index !== undefined && 
+                if (reference_index !== undefined &&
+                    macro.definition_index !== undefined &&
                     macro.definition_index > reference_index) {
                     return false; // Forward reference
                 }
-                
+
                 // Check for forward reference using line number
-                if (reference_line !== undefined && 
-                    macro.definition_line !== undefined && 
+                if (reference_line !== undefined &&
+                    macro.definition_line !== undefined &&
                     macro.definition_line > reference_line) {
                     return false; // Forward reference
                 }
@@ -2672,7 +2684,7 @@ export class SemanticAnalyzer {
                 ) {
                     return false; // Same-line forward reference
                 }
-                
+
                 return true;
             }
 
@@ -2701,16 +2713,26 @@ export class SemanticAnalyzer {
             // Check global macros (case-sensitive)
             const macro = symbols.globalMacros.get(name);
             if (macro) {
+                // A Mata setter with `visibility_start` is the authoritative
+                // forward check (see the local-macro branch above).
+                if (macro.visibility_start !== undefined) {
+                    return !this.is_reference_before_visibility_start(
+                        macro,
+                        reference_line,
+                        reference_range
+                    );
+                }
+
                 // Check for forward reference using preorder index
-                if (reference_index !== undefined && 
-                    macro.definition_index !== undefined && 
+                if (reference_index !== undefined &&
+                    macro.definition_index !== undefined &&
                     macro.definition_index > reference_index) {
                     return false; // Forward reference
                 }
-                
+
                 // Check for forward reference using line number
-                if (reference_line !== undefined && 
-                    macro.definition_line !== undefined && 
+                if (reference_line !== undefined &&
+                    macro.definition_line !== undefined &&
                     macro.definition_line > reference_line) {
                     return false; // Forward reference
                 }
@@ -2723,7 +2745,7 @@ export class SemanticAnalyzer {
                 ) {
                     return false; // Same-line forward reference
                 }
-                
+
                 return true;
             }
 
@@ -2764,6 +2786,34 @@ export class SemanticAnalyzer {
             macro.location.range.start.line === reference_range.start.line &&
             this.compare_ranges(reference_range, macro.location.range) < 0
         );
+    }
+
+    /**
+     * For a Mata setter with a `visibility_start` (the end of its inline
+     * `mata:` unit), is the reference before that point — i.e. still inside
+     * the same Mata unit, where the macro is not yet defined? Uses the precise
+     * reference position when available, else the line.
+     */
+    private is_reference_before_visibility_start(
+        macro: MacroSymbol,
+        reference_line?: number,
+        reference_range?: Range
+    ): boolean {
+        const visibility_start = macro.visibility_start;
+        if (visibility_start === undefined) {
+            return false;
+        }
+        if (reference_range !== undefined) {
+            return (
+                reference_range.start.line < visibility_start.line ||
+                (reference_range.start.line === visibility_start.line &&
+                    reference_range.start.character < visibility_start.character)
+            );
+        }
+        if (reference_line !== undefined) {
+            return reference_line < visibility_start.line;
+        }
+        return false;
     }
 
     /**
@@ -3124,26 +3174,51 @@ export class SemanticAnalyzer {
                     continue;
             }
 
-            // Under `#delimit ;` the lexer emits a plain block's opening and
-            // closing keywords as WORDs (only the FIRST `mata` becomes
-            // MATA_START / the closer never becomes END_MATA), so they never
-            // reach the switch above. Recognize a standalone, top-level `mata`
-            // as re-entering a plain block, and a standalone, top-level `end`
-            // as closing one. Requiring the keyword to be its own statement
-            // (begins a statement AND is immediately followed by a terminator)
-            // rejects `mata`/`end` used as identifiers or subcommands
-            // (`mata clear`, `end = 1`) and `end` inside a function body.
+            // The lexer emits MATA_START / MATA_INLINE only for the FIRST
+            // `mata` opener; once it is in Mata context (which a utility
+            // one-liner like `mata clear` enters but never closes, and which a
+            // `#delimit ;` block leaves open because no END_MATA is emitted),
+            // later openers arrive as `WORD "mata"` followed by `:` (inline),
+            // `{` (brace), or a separator (plain). Recognize a top-level
+            // `mata` WORD here and re-enter the matching mode so subsequent
+            // setters are still found. `mata <subcommand>` (e.g. `mata clear`,
+            // where a WORD follows) is not a block opener and is left alone.
             if (
                 mata_mode === null &&
                 token.type === 'WORD' &&
                 token.value === 'mata' &&
-                begins_statement(i) &&
-                ends_statement(i)
+                begins_statement(i)
             ) {
-                mata_mode = 'block_plain';
-                brace_depth = 0;
-                mata_function_body_depth = 0;
-                continue;
+                const opener_idx = next_significant(i + 1);
+                const opener =
+                    opener_idx < tokens.length
+                        ? tokens[opener_idx]
+                        : undefined;
+                const opener_is = (text: string): boolean =>
+                    opener !== undefined &&
+                    (opener.type === 'EMBEDDED_CONTENT' ||
+                        opener.type === 'OPERATOR' ||
+                        opener.type === 'LPAREN' ||
+                        opener.type === 'LBRACE') &&
+                    opener.value.trim() === text;
+                if (opener_is(':')) {
+                    mata_mode = 'inline';
+                    mata_function_body_depth = 0;
+                    continue;
+                }
+                if (opener_is('{') || opener?.type === 'LBRACE') {
+                    mata_mode = 'block_brace';
+                    brace_depth = 0;
+                    mata_function_body_depth = 0;
+                    continue;
+                }
+                if (ends_statement(i)) {
+                    mata_mode = 'block_plain';
+                    brace_depth = 0;
+                    mata_function_body_depth = 0;
+                    continue;
+                }
+                // Otherwise a `mata <subcommand>` one-liner — not a block.
             }
             if (
                 mata_mode === 'block_plain' &&
@@ -3216,34 +3291,49 @@ export class SemanticAnalyzer {
             }
 
             const macro_name = name_match[1];
-            // Accepted limitation: for a continued inline Mata setter whose
-            // macro name literal moves to a later physical line, the
-            // definition remains ordered at the `st_local`/`st_global` call
-            // line while go-to-definition still points at the literal. That
-            // can suppress an undefined-macro warning for an earlier reference
-            // on the same physical line as the Mata call, but avoids treating
-            // common continuation formatting as a later definition.
-            //
-            // Accepted limitation (visibility granularity): the macro is
-            // modeled as visible from the call line onward (forward-only),
-            // matching how native `local`/`c_local` definitions are tracked
-            // — references before the call still warn; references at/after it
-            // are treated as defined. One consequence is that a self-
-            // reference inside the setter's own call — `st_local("x", "`x'")`
-            // — is not flagged, identical to how `local x = "`x'"` suppresses
-            // its own self-reference (which also supports the accumulation
-            // idiom `local x = "`x' more"`). Strictly, Stata expands backtick
-            // macros across the whole Mata unit before the code runs, so such
-            // a same-call reference is undefined at expansion time; we accept
-            // that narrow false negative for parity with `local`. References
-            // after the call — the intended use case — resolve correctly.
+            const definition_line = token.range.start.line;
+
+            // Forward-only visibility. Stata expands a statement's backtick
+            // macros before the code runs, so a setter is not visible to
+            // references in the SAME Mata unit. For an inline `mata:` setter
+            // the unit ends at the inline statement's terminator: record that
+            // position as `visibility_start` so a `` `name' `` reference
+            // earlier in the same `mata:` line — including the setter's own
+            // value argument (`st_local("x", "`x'")`) or a later sub-statement
+            // (`st_local("x","1"); y = `x'`) — is treated as not-yet-defined,
+            // while references after the line resolve normally. Block setters
+            // (`mata` ... `end` / `mata { }`) keep call-line forward-only
+            // visibility; a backtick reference earlier within the same block
+            // is an accepted (rare) limitation. (A continued inline setter
+            // whose name literal moves to a later physical line still orders
+            // by the call line; go-to-definition points at the literal.)
+            let visibility_start:
+                | { line: number; character: number }
+                | undefined;
+            if (mata_mode === 'inline') {
+                for (let k = i + 1; k < tokens.length; k++) {
+                    if (
+                        tokens[k].type === 'STATEMENT_TERMINATOR' &&
+                        !this.is_continuation_terminator_at(tokens, k)
+                    ) {
+                        visibility_start = tokens[k].range.start;
+                        break;
+                    }
+                }
+                // No terminator: the inline unit runs to end-of-input. Anchor
+                // past the last token so references on the line are still
+                // treated as inside the unit (and there is nothing after it).
+                if (visibility_start === undefined && tokens.length > 0) {
+                    visibility_start = tokens[tokens.length - 1].range.end;
+                }
+            }
+
             // Scope the setter to the innermost enclosing program (character-
             // precise, so a setter sharing the program header or `end` line is
             // still attributed correctly). Limitation: the parser only builds
             // `program` block nodes under `#delimit cr`; under `#delimit ;` a
             // `program define ... end` is parsed as flat commands with no
             // block node, so setters there fall back to `dofile` scope.
-            const definition_line = token.range.start.line;
             const containing_scope: ScopeType = program_position_ranges.some(
                 program_range =>
                     this.position_within_range(token.range.start, program_range)
@@ -3257,7 +3347,8 @@ export class SemanticAnalyzer {
                 name_token.range,
                 definition_line,
                 containing_scope,
-                symbols
+                symbols,
+                visibility_start
             );
         }
     }
@@ -3275,7 +3366,8 @@ export class SemanticAnalyzer {
         range: Range,
         definition_line: number,
         containing_scope: ScopeType,
-        symbols: SymbolTable
+        symbols: SymbolTable,
+        visibility_start?: { line: number; character: number }
     ): void {
         // System globals (e.g. `S_DATE`) are always defined. Registering a
         // forward-only symbol for an `st_global("S_DATE", ...)` setter would
@@ -3297,6 +3389,7 @@ export class SemanticAnalyzer {
             value: scope === 'local' ? '__st_local__' : '__st_global__',
             containingScope: containing_scope,
             definition_line,
+            visibility_start,
         };
 
         const existing = symbol_map.get(name);
