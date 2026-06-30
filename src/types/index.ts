@@ -404,6 +404,10 @@ export interface MacroSymbol {
   extendedFunction?: ExtendedMacroFunction;
   definition_index?: number;  // Preorder index where macro was defined
   definition_line?: number;   // Line number where macro was first defined
+  // For Mata setters: the position after which the macro becomes
+  // visible (the end of the inline `mata:` statement). References before
+  // this position are in the same Mata unit and not yet defined.
+  visibility_start?: { line: number; character: number };
   // True when this symbol was synthesized by the loop expander from a
   // constructed name (e.g. `local x_`i'`). Its `location` points at the
   // loop-body template statement, whose text does NOT contain the concrete

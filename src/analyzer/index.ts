@@ -18,6 +18,8 @@ import {
     TriviaNode,
     StataDiagnosticCode,
     Token,
+    TokenType,
+    ScopeType,
     SyntaxNode,
     ArgumentSpec,
     OptionSpec,
@@ -176,6 +178,68 @@ const STATA_STORAGE_TYPES = new Set([
 
 const STR_WIDTH_RE = /^str\d+$/;
 
+// A Mata setter's name argument must be a literal double-quoted identifier.
+// Hoisted to module level: matched once per `st_local`/`st_global` token in
+// the setter scan loop.
+const MATA_STRING_NAME_RE = /^"([A-Za-z_][A-Za-z0-9_]*)"$/;
+
+// Identifier words in a Mata function-definition header. Global flag; consumed
+// only via `String.prototype.match`, which resets `lastIndex` on each call, so
+// the shared instance is safe. Hoisted: consulted once per Mata `{`.
+const MATA_HEADER_WORD_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+
+// Mata control-flow keywords that can precede a `(` ... `)` header before a
+// `{` but are NOT function definitions (so their bodies are executed, not
+// skipped). Module-level: fixed content, consulted once per Mata `{`.
+const MATA_CONTROL_WORDS = new Set([
+    'if',
+    'else',
+    'for',
+    'while',
+    'do',
+    'switch',
+    'try',
+    'catch',
+]);
+
+// Pure trivia (whitespace/comments) — skipped everywhere, but NOT a `///`
+// CONTINUATION, which some sites must detect or handle specially rather than
+// silently skip. Module-level: fixed content, consulted per token.
+const MATA_TRIVIA_TOKENS: Set<TokenType> = new Set([
+    'WHITESPACE',
+    'COMMENT_LINE',
+    'COMMENT_BLOCK',
+]);
+
+// Token types skipped when walking to the next/previous significant token in
+// the Mata setter scan — trivia plus the `///` continuation marker.
+const MATA_SCAN_SKIP_TOKENS: Set<TokenType> = new Set([
+    ...MATA_TRIVIA_TOKENS,
+    'CONTINUATION',
+]);
+
+// Mata return-type / declaration keywords. A header whose pre-`(` words
+// include one of these (plus a trailing name) looks like a function
+// definition, whose body must be skipped by the setter scan. Module-level:
+// fixed content, consulted once per Mata `{`.
+const MATA_DECLARATION_WORDS = new Set([
+    'function',
+    'void',
+    'real',
+    'complex',
+    'numeric',
+    'string',
+    'transmorphic',
+    'pointer',
+    'class',
+    'struct',
+    'scalar',
+    'vector',
+    'rowvector',
+    'colvector',
+    'matrix',
+]);
+
 function is_stata_storage_type(name: string): boolean {
     if (STATA_STORAGE_TYPES.has(name)) return true;
     // str1..str2045
@@ -266,6 +330,18 @@ export class SemanticAnalyzer {
 
         // Second pass: build symbol table
         this.build_symbols(ast.nodes, symbols, dofile_scope, scopes);
+
+        // Recognize `st_local`/`st_global` setter calls inside Mata blocks as
+        // macro definitions. Runs after `build_symbols`, but registration still
+        // compares source positions so first-definition-wins precedence is
+        // preserved when a Mata setter appears before a later Stata definition.
+        // Runs before reference detection so declared macros suppress
+        // undefined-macro warnings at/after their call site. Gated only on
+        // `tokens` (not on undefined_macro_enabled) so the declarations also
+        // feed completion.
+        if (tokens) {
+            this.extract_mata_st_local_declarations(tokens, symbols, ast.nodes);
+        }
 
         // Third pass: detect undefined references
         if (this.config.undefined_macro_enabled || this.config.undefined_variable_enabled) {
@@ -2831,7 +2907,14 @@ export class SemanticAnalyzer {
             return;
         }
 
-        const is_defined = this.is_macro_defined(node.name, node.scope, symbols, reference_index, node.range.start.line);
+        const is_defined = this.is_macro_defined(
+            node.name,
+            node.scope,
+            symbols,
+            reference_index,
+            node.range.start.line,
+            node.range
+        );
 
         if (!is_defined) {
             const range_key = `${node.range.start.line}:${node.range.start.character}:${node.range.end.line}:${node.range.end.character}`;
@@ -2861,7 +2944,14 @@ export class SemanticAnalyzer {
             return;
         }
 
-        const is_defined = this.is_macro_defined(macro_ref.name, macro_ref.scope, symbols, reference_index, macro_ref.range.start.line);
+        const is_defined = this.is_macro_defined(
+            macro_ref.name,
+            macro_ref.scope,
+            symbols,
+            reference_index,
+            macro_ref.range.start.line,
+            macro_ref.range
+        );
 
         if (!is_defined) {
             const range_key = `${macro_ref.range.start.line}:${macro_ref.range.start.character}:${macro_ref.range.end.line}:${macro_ref.range.end.character}`;
@@ -2959,7 +3049,8 @@ export class SemanticAnalyzer {
         scope: 'local' | 'global',
         symbols: SymbolTable,
         reference_index?: number,
-        reference_line?: number
+        reference_line?: number,
+        reference_range?: Range
     ): boolean {
         if (scope === 'local') {
             // Check for positional arguments (numeric macro names like `1', `2', etc.)
@@ -2995,21 +3086,12 @@ export class SemanticAnalyzer {
             // since we don't have proper scope tracking yet
             const macro = symbols.localMacros.get(name);
             if (macro) {
-                // Check for forward reference using preorder index
-                if (reference_index !== undefined && 
-                    macro.definition_index !== undefined && 
-                    macro.definition_index > reference_index) {
-                    return false; // Forward reference
-                }
-                
-                // Check for forward reference using line number
-                if (reference_line !== undefined && 
-                    macro.definition_line !== undefined && 
-                    macro.definition_line > reference_line) {
-                    return false; // Forward reference
-                }
-                
-                return true;
+                return this.macro_resolves_at_reference(
+                    macro,
+                    reference_index,
+                    reference_line,
+                    reference_range
+                );
             }
 
             // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
@@ -3037,21 +3119,12 @@ export class SemanticAnalyzer {
             // Check global macros (case-sensitive)
             const macro = symbols.globalMacros.get(name);
             if (macro) {
-                // Check for forward reference using preorder index
-                if (reference_index !== undefined && 
-                    macro.definition_index !== undefined && 
-                    macro.definition_index > reference_index) {
-                    return false; // Forward reference
-                }
-                
-                // Check for forward reference using line number
-                if (reference_line !== undefined && 
-                    macro.definition_line !== undefined && 
-                    macro.definition_line > reference_line) {
-                    return false; // Forward reference
-                }
-                
-                return true;
+                return this.macro_resolves_at_reference(
+                    macro,
+                    reference_index,
+                    reference_line,
+                    reference_range
+                );
             }
 
             // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
@@ -3064,6 +3137,106 @@ export class SemanticAnalyzer {
             }
         }
 
+        return false;
+    }
+
+    private is_reference_before_macro_definition(
+        macro: MacroSymbol,
+        reference_range?: Range
+    ): boolean {
+        if (reference_range === undefined) {
+            return false;
+        }
+        // The same-line character ordering is only meaningful when the
+        // macro's effective `definition_line` coincides with its physical
+        // location — then the location's character marks where it becomes
+        // visible on that line. Macros whose `definition_line` is
+        // deliberately earlier than their location, notably `args` macros
+        // (`definition_line === 0`, visible from the start of scope), are
+        // already in scope on the reference's line and must not be treated as
+        // a same-line forward reference.
+        const definition_line =
+            macro.definition_line ?? macro.location.range.start.line;
+        if (definition_line !== macro.location.range.start.line) {
+            return false;
+        }
+        return (
+            macro.location.range.start.line === reference_range.start.line &&
+            this.compare_ranges(reference_range, macro.location.range) < 0
+        );
+    }
+
+    /**
+     * Forward-visibility check shared by the local- and global-macro branches
+     * of `is_macro_defined`: given a macro found in the symbol table, is it
+     * visible at the reference? A Mata setter's `visibility_start` is the
+     * authoritative answer when present (the macro is visible only after its
+     * inline unit ends); otherwise fall back to preorder-index, line-number,
+     * and same-line forward-reference checks. Identical for both scopes — the
+     * scope-specific lookups and fallbacks stay in `is_macro_defined`.
+     */
+    private macro_resolves_at_reference(
+        macro: MacroSymbol,
+        reference_index?: number,
+        reference_line?: number,
+        reference_range?: Range
+    ): boolean {
+        if (macro.visibility_start !== undefined) {
+            return !this.is_reference_before_visibility_start(
+                macro,
+                reference_line,
+                reference_range
+            );
+        }
+        // Forward reference by preorder index.
+        if (
+            reference_index !== undefined &&
+            macro.definition_index !== undefined &&
+            macro.definition_index > reference_index
+        ) {
+            return false;
+        }
+        // Forward reference by line number.
+        if (
+            reference_line !== undefined &&
+            macro.definition_line !== undefined &&
+            macro.definition_line > reference_line
+        ) {
+            return false;
+        }
+        // Same-line forward reference.
+        if (this.is_reference_before_macro_definition(macro, reference_range)) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * For a Mata setter with a `visibility_start` (the end of its inline
+     * `mata:` unit), is the reference before that point — i.e. still inside
+     * the same Mata unit, where the macro is not yet defined? Uses the precise
+     * reference position when available, else the line.
+     */
+    private is_reference_before_visibility_start(
+        macro: MacroSymbol,
+        reference_line?: number,
+        reference_range?: Range
+    ): boolean {
+        const visibility_start = macro.visibility_start;
+        if (visibility_start === undefined) {
+            return false;
+        }
+        if (reference_range !== undefined) {
+            return (
+                this.compare_positions(
+                    reference_range.start,
+                    visibility_start
+                ) < 0
+            );
+        }
+        if (reference_line !== undefined) {
+            return reference_line < visibility_start.line;
+        }
         return false;
     }
 
@@ -3115,6 +3288,1078 @@ export class SemanticAnalyzer {
             }
         }
         return the_ranges;
+    }
+
+    /**
+     * Full (character-precise) ranges of every program block, including
+     * nested ones. Used to scope Mata setters precisely even when a setter
+     * shares a physical line with the program header or its `end`.
+     */
+    private collect_program_position_ranges(nodes: StataNode[]): Range[] {
+        const the_ranges: Range[] = [];
+        for (const my_node of nodes) {
+            if (my_node.type === 'program') {
+                the_ranges.push(my_node.range);
+                the_ranges.push(
+                    ...this.collect_program_position_ranges(my_node.body)
+                );
+            } else if ('body' in my_node && Array.isArray(my_node.body)) {
+                the_ranges.push(
+                    ...this.collect_program_position_ranges(my_node.body)
+                );
+            }
+        }
+        return the_ranges;
+    }
+
+    /** Is `position` within `range` (inclusive), comparing line then char? */
+    private position_within_range(
+        position: { line: number; character: number },
+        range: Range
+    ): boolean {
+        return (
+            this.compare_positions(position, range.start) >= 0 &&
+            this.compare_positions(position, range.end) <= 0
+        );
+    }
+
+    /**
+     * Recognize `st_local("name", value)` / `st_global("name", value)` setter
+     * calls inside Mata blocks and register the named macro as a definition.
+     *
+     * In Stata's Mata, the two-argument form `st_local(name, value)` SETS a
+     * local macro in the calling Stata scope, whereas the one-argument form
+     * `st_local(name)` only READS it — so only the two-argument (setter) form
+     * declares a macro here. The name must be a literal double-quoted
+     * identifier; dynamic names (variables, expressions, compound quotes, or
+     * embedded macro references) cannot be resolved statically and are
+     * skipped.
+     *
+     * Operates on the flat token stream (the same approach as
+     * `check_token_macro_references`) so it sees the real, positioned `STRING`
+     * tokens for both the inline (`mata:`) and block (`mata` ... `end` /
+     * `mata { ... }`) forms, and never false-matches `st_local(...)` text that
+     * merely appears inside a string literal.
+     *
+     * Like every other local-defining construct in this analyzer, the macro is
+     * registered into the flat, file-global symbol table (program-scoping is
+     * tracked separately in issue #261). Forward-only visibility is preserved
+     * via `definition_line` (the call's line), matching `local` / `c_local`.
+     *
+     * NOTE ON THE PER-TOKEN-TYPE OPENER/CLOSER BRANCHES BELOW: the several
+     * `MATA_START` / `WORD "mata"` / `PYTHON_START` / `WORD "python"` opener
+     * cases and the `END_MATA` / `END_PYTHON` / `WORD "end"` closer cases look
+     * like collapsible duplication, but each compensates for a DISTINCT lexer
+     * degradation that cannot be detected from the token type alone:
+     *   - `#delimit ;` re-lexes a plain block's `end` as `WORD "end"` + `;`,
+     *     not END_MATA / END_PYTHON;
+     *   - a utility one-liner (`mata clear`) leaves the lexer stuck in Mata
+     *     context, so a later `mata`/`python` opener arrives as a bare WORD and
+     *     a Mata block's `end` can lex as END_PYTHON (and vice versa).
+     * They already share the real generalizations (`classify_embedded_block_opener`,
+     * `begins_statement` / `ends_statement`, `enter_python_kind`); do NOT merge
+     * the remaining branches further — each maps to a specific lexer failure
+     * mode, and collapsing them silently drops a handled case. The principled
+     * fix is a Mata/Python-aware lexer, which is out of scope here.
+     */
+    private extract_mata_st_local_declarations(
+        tokens: Token[],
+        symbols: SymbolTable,
+        nodes: StataNode[]
+    ): void {
+        // Position-precise program ranges (start of `program` keyword to end
+        // of `end`). Used to scope a setter to `program` vs `dofile`. Unlike
+        // the line-based `collect_program_ranges`, this stays correct when a
+        // setter shares a physical line with the program header or `end`
+        // (common under `#delimit ;`, e.g. `... ;end ;`).
+        const program_position_ranges =
+            this.collect_program_position_ranges(nodes);
+
+        // Track whether we are inside a Mata block / inline expression:
+        //   'inline'      — `mata: <expr>`, ends at the statement terminator
+        //   'block_plain' — `mata` ... `end`
+        //   'block_brace' — `mata { ... }`, ends at the matching `}`
+        type MataMode = 'inline' | 'block_plain' | 'block_brace' | null;
+        let mata_mode: MataMode = null;
+        let brace_depth = 0;
+        let mata_function_body_depth = 0;
+        // Python blocks are a separate embedded language. Their bodies lex as
+        // WORD tokens, so without tracking Python context a statement that
+        // happens to start with `mata` would trip the Mata re-entry below and
+        // misread Python `st_local(...)` text as a Stata setter. The scan is
+        // inert while inside a Python block. A `python:` / `python` block ends
+        // with END_PYTHON; a brace-style `python { ... }` block ends with the
+        // matching RBRACE, so track its brace depth to find the close.
+        let in_python_block = false;
+        let python_is_brace = false;
+        let python_brace_depth = 0;
+        // Inline Python (`python: <stmt>`) runs to the end of the logical line;
+        // any Mata-looking tokens on that line are Python, not Mata, so stay
+        // inert from PYTHON_INLINE through its statement terminator.
+        let in_inline_python = false;
+
+        // Entering or leaving any Mata unit zeroes both depth counters
+        // together. The mode itself (`mata_mode = ...`) stays an explicit
+        // assignment at each site so TypeScript can still narrow `mata_mode`
+        // at the brace-tracking reads below — routing it through a closure
+        // would hide the `block_*` writes from control-flow analysis.
+        const reset_mata_depths = (): void => {
+            brace_depth = 0;
+            mata_function_body_depth = 0;
+        };
+        // Enter the Python state implied by an opener `kind` (shared by the
+        // PYTHON_START token and the bare-`WORD "python"` re-entry used when
+        // the lexer is stuck in Mata context). Returns whether a Python region
+        // was entered — `subcommand` (e.g. `python query`) is a one-liner and
+        // enters nothing, so a following real Mata block is still scanned.
+        const enter_python_kind = (
+            kind: 'inline' | 'block_brace' | 'block_plain' | 'subcommand'
+        ): boolean => {
+            if (kind === 'inline') {
+                in_inline_python = true;
+                return true;
+            }
+            if (kind === 'block_brace' || kind === 'block_plain') {
+                in_python_block = true;
+                python_is_brace = kind === 'block_brace';
+                python_brace_depth = 0;
+                return true;
+            }
+            return false;
+        };
+
+        // `skip_terminators` crosses STATEMENT_TERMINATOR tokens
+        // unconditionally. Mata block calls (`mata` ... `end` / `mata { }`)
+        // may span physical lines WITHOUT a `///` continuation, so a setter
+        // formatted as `st_local(\n "foo", value)` puts a terminator between
+        // the `(` and the name literal. The name/comma lookups pass this in
+        // block mode so such calls are still recognized; inline `mata:` keeps
+        // the default (a bare newline ends the statement there).
+        const next_significant = (
+            from: number,
+            skip_terminators = false
+        ): number => {
+            let j = from;
+            let after_continuation = false;
+            while (j < tokens.length) {
+                const token = tokens[j];
+                if (MATA_SCAN_SKIP_TOKENS.has(token.type)) {
+                    if (token.type === 'CONTINUATION') {
+                        after_continuation = true;
+                    }
+                    j++;
+                    continue;
+                }
+                if (
+                    token.type === 'STATEMENT_TERMINATOR' &&
+                    (after_continuation || skip_terminators)
+                ) {
+                    after_continuation = false;
+                    j++;
+                    continue;
+                }
+                break;
+            }
+            return j;
+        };
+        const is_continuation_terminator = (index: number): boolean =>
+            this.is_continuation_terminator_at(tokens, index);
+        const previous_significant = (from: number): number => {
+            let j = from;
+            while (j >= 0) {
+                const token = tokens[j];
+                if (MATA_SCAN_SKIP_TOKENS.has(token.type)) {
+                    j--;
+                    continue;
+                }
+                if (
+                    token.type === 'STATEMENT_TERMINATOR' &&
+                    is_continuation_terminator(j)
+                ) {
+                    j--;
+                    continue;
+                }
+                break;
+            }
+            return j;
+        };
+        // A token begins a statement when the previous significant token is a
+        // statement boundary: STATEMENT_TERMINATOR, the block opener
+        // (MATA_START), a top-level function body's closing `}` (RBRACE), or —
+        // under `#delimit ;`, where interior terminators lex as
+        // `EMBEDDED_CONTENT ";"` — an embedded `;`. Start-of-input also counts.
+        const begins_statement = (index: number): boolean => {
+            const previous_idx = previous_significant(index - 1);
+            if (previous_idx < 0) {
+                return true;
+            }
+            const previous_token = tokens[previous_idx];
+            return (
+                previous_token.type === 'STATEMENT_TERMINATOR' ||
+                previous_token.type === 'MATA_START' ||
+                previous_token.type === 'RBRACE' ||
+                (previous_token.type === 'EMBEDDED_CONTENT' &&
+                    previous_token.value.trimEnd().endsWith(';'))
+            );
+        };
+        // A token is its own complete statement when the next significant token
+        // is a statement boundary (or end-of-input / END_MATA).
+        const ends_statement = (index: number): boolean => {
+            const next_idx = next_significant(index + 1);
+            if (next_idx >= tokens.length) {
+                return true;
+            }
+            const next_token = tokens[next_idx];
+            return (
+                next_token.type === 'STATEMENT_TERMINATOR' ||
+                next_token.type === 'END_MATA' ||
+                (next_token.type === 'EMBEDDED_CONTENT' &&
+                    next_token.value.trimStart().startsWith(';'))
+            );
+        };
+        const is_qualified_mata_call_name = (index: number): boolean => {
+            const previous_idx = previous_significant(index - 1);
+            if (previous_idx < 0) {
+                return false;
+            }
+            const previous_value = tokens[previous_idx].value.trimEnd();
+            if (
+                previous_value.endsWith('.') ||
+                previous_value.endsWith('::') ||
+                previous_value.endsWith('->')
+            ) {
+                return true;
+            }
+
+            const before_previous_idx = previous_significant(previous_idx - 1);
+            if (before_previous_idx < 0) {
+                return false;
+            }
+            const before_previous_value =
+                tokens[before_previous_idx].value.trimEnd();
+            return (
+                (previous_value === ':' &&
+                    before_previous_value.endsWith(':')) ||
+                (previous_value === '>' && before_previous_value.endsWith('-'))
+            );
+        };
+        // The opening paren and the argument-separating comma surface as
+        // `LPAREN`/`COMMA` in the inline form (Stata-context tokens) but as
+        // `EMBEDDED_CONTENT` in block form. The comma may be coalesced with
+        // following punctuation, e.g. `,(`, so accept embedded content that
+        // starts with the delimiter.
+        const is_open_paren = (token: Token): boolean =>
+            token.type === 'LPAREN' ||
+            (token.type === 'EMBEDDED_CONTENT' && token.value.trim() === '(');
+        const is_comma = (token: Token): boolean =>
+            token.type === 'COMMA' ||
+            (token.type === 'EMBEDDED_CONTENT' &&
+                token.value.trimStart().startsWith(','));
+
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            // Track Python blocks and stay inert inside them.
+            if (token.type === 'PYTHON_START') {
+                mata_mode = null;
+                reset_mata_depths();
+                // The lexer emits PYTHON_START for any leading `python`,
+                // including one-line subcommands like `python query` /
+                // `python set ...` that do NOT open a block. Classify the
+                // opener (the logic is shared with Mata) to decide what we
+                // entered; a `subcommand` enters nothing so a following real
+                // Mata block is still scanned. Brace-style `python { ... }`
+                // closes with the matching RBRACE rather than END_PYTHON.
+                enter_python_kind(this.classify_embedded_block_opener(tokens, i));
+                continue;
+            }
+            if (token.type === 'END_PYTHON') {
+                in_python_block = false;
+                python_is_brace = false;
+                python_brace_depth = 0;
+                // `end` closes whatever embedded block is open. When the lexer
+                // is stuck in Mata context (e.g. after `mata clear`), a Mata
+                // block's closing `end` can lex as END_PYTHON, so also reset
+                // Mata mode here (you cannot be in both at once, so this is
+                // safe in normal state).
+                mata_mode = null;
+                reset_mata_depths();
+                continue;
+            }
+            if (in_python_block) {
+                // For a brace-style block, balance braces to find the close
+                // (nested `{ }` in Python code are counted and ignored).
+                if (python_is_brace) {
+                    if (token.type === 'LBRACE') {
+                        python_brace_depth++;
+                    } else if (token.type === 'RBRACE') {
+                        python_brace_depth--;
+                        if (python_brace_depth <= 0) {
+                            in_python_block = false;
+                            python_is_brace = false;
+                        }
+                    }
+                } else if (token.type === 'END_MATA') {
+                    // A non-brace Python block normally closes with
+                    // END_PYTHON (handled above). When the lexer is stuck in
+                    // Mata context (e.g. after `mata clear`) the closing `end`
+                    // lexes as END_MATA instead, so treat it as the block
+                    // close too — a real Mata block never contains END_MATA
+                    // inside a Python region, so this is safe in normal state.
+                    in_python_block = false;
+                } else if (
+                    token.type === 'WORD' &&
+                    token.value === 'end' &&
+                    begins_statement(i) &&
+                    ends_statement(i)
+                ) {
+                    // Under `#delimit ;` a plain `python ; ... end ;` block's
+                    // closing `end` lexes as `WORD "end"` + embedded `;`, not
+                    // END_PYTHON, so recognize a standalone `end` statement as
+                    // the block close (mirrors the Mata plain-block WORD-"end"
+                    // terminator). Without this the scan stays inert and skips
+                    // later Mata setters.
+                    in_python_block = false;
+                }
+                continue;
+            }
+            // Inline `python: <stmt>` makes the rest of the logical line
+            // Python; ignore any Mata-looking tokens until the statement
+            // terminator (a trailing `///` continuation extends the line).
+            if (token.type === 'PYTHON_INLINE') {
+                in_inline_python = true;
+                mata_mode = null;
+                reset_mata_depths();
+                continue;
+            }
+            if (in_inline_python) {
+                if (
+                    token.type === 'STATEMENT_TERMINATOR' &&
+                    !is_continuation_terminator(i)
+                ) {
+                    in_inline_python = false;
+                }
+                continue;
+            }
+            switch (token.type) {
+                case 'MATA_INLINE':
+                    mata_mode = 'inline';
+                    mata_function_body_depth = 0;
+                    continue;
+                case 'MATA_START': {
+                    // The lexer emits MATA_START for any leading `mata`,
+                    // including utility one-liners like `mata clear` that do
+                    // NOT open a block. Classify the opener to decide what (if
+                    // anything) we entered.
+                    const kind = this.classify_embedded_block_opener(tokens, i);
+                    if (kind === 'subcommand') {
+                        // Not a block opener; stay out of Mata mode.
+                        continue;
+                    }
+                    mata_mode = kind;
+                    reset_mata_depths();
+                    continue;
+                }
+                case 'END_MATA':
+                    mata_mode = null;
+                    reset_mata_depths();
+                    continue;
+                case 'STATEMENT_TERMINATOR':
+                    if (
+                        mata_mode === 'inline' &&
+                        !is_continuation_terminator(i)
+                    ) {
+                        mata_mode = null;
+                        mata_function_body_depth = 0;
+                    }
+                    continue;
+                case 'LBRACE':
+                    if (mata_mode === 'block_brace') {
+                        brace_depth++;
+                    }
+                    if (mata_mode !== null) {
+                        if (mata_function_body_depth > 0) {
+                            mata_function_body_depth++;
+                        } else if (this.is_mata_function_body_start(tokens, i)) {
+                            mata_function_body_depth = 1;
+                        }
+                    }
+                    continue;
+                case 'RBRACE':
+                    if (mata_function_body_depth > 0) {
+                        mata_function_body_depth--;
+                    }
+                    if (mata_mode === 'block_brace') {
+                        brace_depth--;
+                        if (brace_depth <= 0) {
+                            mata_mode = null;
+                            mata_function_body_depth = 0;
+                        }
+                    }
+                    continue;
+            }
+
+            // The lexer normally emits PYTHON_START / PYTHON_INLINE for a
+            // `python` opener, but a preceding Mata utility one-liner (e.g.
+            // `mata clear`) leaves the lexer stuck in Mata context, so a later
+            // `python` opener arrives as a bare `WORD` (its `:` / `{` as
+            // EMBEDDED_CONTENT). Recognize it here and stay inert over the
+            // Python region, so embedded `mata` / `st_local` text on those
+            // lines is not mistaken for a real Mata setter (which would
+            // otherwise trip the `WORD "mata"` re-entry just below). Gate on
+            // `mata_mode === null`: only the lexer-stuck/top-level state has
+            // this problem. Inside a live Mata block `python` is ordinary Mata
+            // code (a variable/expression), not a Stata Python opener, so the
+            // block's later setters must keep being scanned.
+            if (
+                mata_mode === null &&
+                token.type === 'WORD' &&
+                token.value === 'python' &&
+                begins_statement(i)
+            ) {
+                // Same opener classification as PYTHON_START (shared with
+                // Mata). A one-line subcommand (`python query`) is left alone
+                // so a following real Mata block is still scanned; only a
+                // genuine block / inline opener makes the scan inert.
+                const kind = this.classify_embedded_block_opener(tokens, i);
+                if (enter_python_kind(kind)) {
+                    mata_mode = null;
+                    reset_mata_depths();
+                    continue;
+                }
+            }
+
+            // The lexer emits MATA_START / MATA_INLINE only for the FIRST
+            // `mata` opener; once it is in Mata context (which a utility
+            // one-liner like `mata clear` enters but never closes, and which a
+            // `#delimit ;` block leaves open because no END_MATA is emitted),
+            // later openers arrive as `WORD "mata"` followed by `:` (inline),
+            // `{` (brace), or a separator (plain). Recognize a top-level
+            // `mata` WORD here and re-enter the matching mode so subsequent
+            // setters are still found. `mata <subcommand>` (e.g. `mata clear`,
+            // where a WORD follows) is not a block opener and is left alone.
+            if (
+                mata_mode === null &&
+                token.type === 'WORD' &&
+                token.value === 'mata' &&
+                begins_statement(i)
+            ) {
+                // Same opener classification as the MATA_START token (a
+                // continued `#delimit ;` block or a utility one-liner leaves
+                // the lexer in Mata context, so later openers arrive as a
+                // WORD). `subcommand` (`mata clear`) is left alone.
+                const kind = this.classify_embedded_block_opener(tokens, i);
+                if (kind !== 'subcommand') {
+                    mata_mode = kind;
+                    reset_mata_depths();
+                    continue;
+                }
+            }
+            if (
+                mata_mode === 'block_plain' &&
+                mata_function_body_depth === 0 &&
+                token.type === 'WORD' &&
+                token.value === 'end' &&
+                begins_statement(i) &&
+                ends_statement(i)
+            ) {
+                mata_mode = null;
+                reset_mata_depths();
+                continue;
+            }
+
+            if (
+                mata_mode === null ||
+                mata_function_body_depth > 0 ||
+                token.type !== 'WORD'
+            ) {
+                continue;
+            }
+            if (token.value !== 'st_local' && token.value !== 'st_global') {
+                continue;
+            }
+            if (is_qualified_mata_call_name(i)) {
+                continue;
+            }
+
+            const scope: 'local' | 'global' =
+                token.value === 'st_local' ? 'local' : 'global';
+
+            // Inside a Mata block, a call's argument list may wrap across
+            // physical lines without `///`, so cross statement terminators
+            // when looking for the name literal and its trailing comma.
+            const cross_lines = mata_mode !== 'inline';
+
+            // Expect the call shape: `(` "<name>" `,` ... In block mode the
+            // `(` itself may sit on a line after `st_local`, so cross lines
+            // here too (the name-literal + comma checks below still guard
+            // against false matches).
+            const paren_idx = next_significant(i + 1, cross_lines);
+            if (paren_idx >= tokens.length || !is_open_paren(tokens[paren_idx])) {
+                continue;
+            }
+            const name_idx = next_significant(paren_idx + 1, cross_lines);
+            if (name_idx >= tokens.length) {
+                continue;
+            }
+            const name_token = tokens[name_idx];
+            if (
+                name_token.type !== 'STRING' ||
+                name_token.quoteStyle === 'compound'
+            ) {
+                continue;
+            }
+            const name_match = MATA_STRING_NAME_RE.exec(name_token.value);
+            if (!name_match) {
+                continue;
+            }
+
+            // Two-argument (setter) form only: a comma must follow the name.
+            // The one-argument read form `st_local("name")` is closed by `)`.
+            const after_name_idx = next_significant(name_idx + 1, cross_lines);
+            if (
+                after_name_idx >= tokens.length ||
+                !is_comma(tokens[after_name_idx])
+            ) {
+                continue;
+            }
+
+            const macro_name = name_match[1];
+            const definition_line = token.range.start.line;
+
+            // Forward-only visibility. Stata expands a statement's backtick
+            // macros before the code runs, so a setter is not visible to
+            // references in the SAME unit. `visibility_start` records where
+            // the setter becomes visible; a `` `name' `` reference before it
+            // is treated as not-yet-defined, references at/after it resolve.
+            //   - Inline `mata:`: the unit is the whole inline line, so anchor
+            //     at the line's terminator. This covers the setter's own value
+            //     argument (`st_local("x", "`x'")`) and a later sub-statement
+            //     on the same line (`st_local("x","1"); y = `x'`).
+            //   - Block (`mata` ... `end` / `mata { }`): anchor at the end of
+            //     the setter call's matching `)`, so a backtick reference in
+            //     the value argument is not-yet-defined. (A reference in a
+            //     LATER statement of the same block still resolves; per Stata
+            //     it would expand pre-execution too, but that remains an
+            //     accepted, documented limitation.)
+            // (A continued inline setter whose name literal moves to a later
+            // physical line still orders by the call line; go-to-definition
+            // points at the literal.)
+            let visibility_start:
+                | { line: number; character: number }
+                | undefined;
+            if (mata_mode === 'inline') {
+                for (let k = i + 1; k < tokens.length; k++) {
+                    if (
+                        tokens[k].type === 'STATEMENT_TERMINATOR' &&
+                        !is_continuation_terminator(k)
+                    ) {
+                        visibility_start = tokens[k].range.start;
+                        break;
+                    }
+                }
+            } else {
+                // Block setter: anchor past the matching close paren. Balance
+                // parens by scanning token values, ignoring STRING and comment
+                // tokens so a `)`/`(` inside a string literal or a comment
+                // (e.g. `st_local("foo", /* ( */ "1")`) does not skew the
+                // count and close the call early or never.
+                let paren_depth = 0;
+                let closed = false;
+                for (let k = paren_idx; k < tokens.length && !closed; k++) {
+                    if (
+                        tokens[k].type === 'STRING' ||
+                        tokens[k].type === 'COMMENT_LINE' ||
+                        tokens[k].type === 'COMMENT_BLOCK'
+                    ) {
+                        continue;
+                    }
+                    for (const my_char of tokens[k].value) {
+                        if (my_char === '(') {
+                            paren_depth++;
+                        } else if (my_char === ')') {
+                            paren_depth--;
+                            if (paren_depth <= 0) {
+                                visibility_start = tokens[k].range.end;
+                                closed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // Neither branch found an anchor (inline unit with no terminator —
+            // runs to end-of-input; or an unbalanced/malformed block call):
+            // fall back to past the last token so references in the unit are
+            // still treated as inside it (and there is nothing after it).
+            if (visibility_start === undefined && tokens.length > 0) {
+                visibility_start = tokens[tokens.length - 1].range.end;
+            }
+
+            // Scope the setter to the innermost enclosing program (character-
+            // precise, so a setter sharing the program header or `end` line is
+            // still attributed correctly). Limitation: the parser only builds
+            // `program` block nodes under `#delimit cr`; under `#delimit ;` a
+            // `program define ... end` is parsed as flat commands with no
+            // block node, so setters there fall back to `dofile` scope.
+            const containing_scope: ScopeType = program_position_ranges.some(
+                program_range =>
+                    this.position_within_range(token.range.start, program_range)
+            )
+                ? 'program'
+                : 'dofile';
+
+            this.register_mata_macro(
+                macro_name,
+                scope,
+                name_token.range,
+                definition_line,
+                containing_scope,
+                symbols,
+                visibility_start
+            );
+        }
+    }
+
+    /**
+     * Register a macro discovered from an `st_local`/`st_global` setter.
+     * First-definition-wins: if this token-only definition appears earlier
+     * than the current primary, promote it and move the old primary into
+     * `additional_definitions`; otherwise record it as an additional
+     * definition in source order.
+     */
+    private register_mata_macro(
+        name: string,
+        scope: 'local' | 'global',
+        range: Range,
+        definition_line: number,
+        containing_scope: ScopeType,
+        symbols: SymbolTable,
+        visibility_start?: { line: number; character: number }
+    ): void {
+        // System globals (e.g. `S_DATE`) are always defined. Registering a
+        // forward-only symbol for an `st_global("S_DATE", ...)` setter would
+        // shadow the `is_system_global` fallback in `is_macro_defined` and
+        // make an EARLIER `$S_DATE` reference report as undefined. Leave them
+        // to the fallback.
+        if (scope === 'global' && this.is_system_global(name)) {
+            return;
+        }
+
+        const symbol_map =
+            scope === 'local' ? symbols.localMacros : symbols.globalMacros;
+
+        const new_symbol: MacroSymbol = {
+            name,
+            scope,
+            location: { uri: this.uri, range },
+            sourceUri: this.uri,
+            value: scope === 'local' ? '__st_local__' : '__st_global__',
+            containingScope: containing_scope,
+            definition_line,
+            visibility_start,
+        };
+
+        const existing = symbol_map.get(name);
+        if (!existing) {
+            symbol_map.set(name, new_symbol);
+            return;
+        }
+
+        if (this.is_mata_definition_before(definition_line, range, existing)) {
+            const old_primary =
+                this.macro_symbol_to_additional_definition(existing);
+            new_symbol.additional_definitions = [
+                old_primary,
+                ...(existing.additional_definitions ?? []),
+            ];
+            this.sort_additional_definitions(new_symbol.additional_definitions);
+            symbol_map.set(name, new_symbol);
+            return;
+        }
+
+        if (!existing.additional_definitions) {
+            existing.additional_definitions = [];
+        }
+        existing.additional_definitions.push(
+            this.macro_symbol_to_additional_definition(new_symbol)
+        );
+        this.sort_additional_definitions(existing.additional_definitions);
+    }
+
+    private macro_symbol_to_additional_definition(symbol: MacroSymbol): {
+        index: number;
+        line: number;
+        location: { uri: string; range: Range };
+    } {
+        return {
+            index: symbol.definition_index ?? 0,
+            // Invariant (issue #135): every `additional_definitions` entry's
+            // `line` must equal `location.range.start.line`. Consumers
+            // (`has_definition_in_window`, hover's redefinition footer) rely
+            // on it. For a continued Mata setter the `st_local` call line
+            // (`definition_line`) can differ from the macro-name literal's
+            // line (`location`), so derive `line` from the location to keep
+            // the invariant. The primary symbol keeps `definition_line` for
+            // forward-only ordering.
+            line: symbol.location.range.start.line,
+            location: symbol.location,
+        };
+    }
+
+    private sort_additional_definitions(
+        definitions: Array<{
+            index: number;
+            line: number;
+            location: { uri: string; range: Range };
+        }>
+    ): void {
+        definitions.sort((a, b) =>
+            this.compare_ranges(a.location.range, b.location.range)
+        );
+    }
+
+    /**
+     * Should a newly discovered Mata setter replace the current primary
+     * definition of the same macro? First-definition-wins is ordered by
+     * effective visibility (`definition_line`), NOT raw source position, so
+     * that a setter never overrides a symbol whose `definition_line` was
+     * deliberately set apart from its location. In particular `args` macros
+     * carry `definition_line === 0` (visible from the start of scope); a
+     * later Mata setter must not promote over them and reintroduce a forward-
+     * reference warning. Same-line ties fall back to the location character —
+     * but only when the existing symbol's effective line actually coincides
+     * with its location, so the columns are comparable on the same physical
+     * line. For a synthetic line (e.g. `args` with `definition_line === 0` but
+     * a location on the later `args` token), the columns are on different
+     * lines and meaningless, so the existing symbol keeps precedence.
+     */
+    private is_mata_definition_before(
+        new_definition_line: number,
+        new_range: Range,
+        existing: MacroSymbol
+    ): boolean {
+        const existing_line =
+            existing.definition_line ?? existing.location.range.start.line;
+        if (new_definition_line !== existing_line) {
+            return new_definition_line < existing_line;
+        }
+        if (
+            existing.definition_line !== undefined &&
+            existing.definition_line !== existing.location.range.start.line
+        ) {
+            return false;
+        }
+        // The new setter's range is its name literal, which a continuation can
+        // push to a later physical line than its call (`new_definition_line`).
+        // Only compare columns when the literal is actually on the tie line;
+        // otherwise the characters are on different lines and meaningless, so
+        // the existing symbol keeps precedence.
+        if (new_range.start.line !== new_definition_line) {
+            return false;
+        }
+        return (
+            new_range.start.character < existing.location.range.start.character
+        );
+    }
+
+    /**
+     * Lexicographic (line, then character) comparison of two positions.
+     * Returns <0 when `a` is before `b`, 0 when equal, >0 when after.
+     */
+    private compare_positions(
+        a: { line: number; character: number },
+        b: { line: number; character: number }
+    ): number {
+        return a.line !== b.line ? a.line - b.line : a.character - b.character;
+    }
+
+    private compare_ranges(left: Range, right: Range): number {
+        return this.compare_positions(left.start, right.start);
+    }
+
+    /**
+     * Mata function and type (`struct`/`class`) bodies are definitions, not
+     * executed statements. A flat token scan must therefore ignore setters
+     * inside bodies such as `void f() { st_local("foo", "1") }` or a
+     * `struct S { ... }` declaration block.
+     */
+    private is_mata_function_body_start(
+        tokens: Token[],
+        brace_index: number
+    ): boolean {
+        const header = this.collect_mata_header_before_brace(
+            tokens,
+            brace_index
+        );
+        return (
+            this.looks_like_mata_function_header(header) ||
+            this.looks_like_mata_type_definition_header(header)
+        );
+    }
+
+    /**
+     * A `struct NAME {` / `class NAME [extends BASE] {` declaration header.
+     * Unlike a function header it has no `()` call shape, so it is detected
+     * separately: the first identifier word is the (case-sensitive) `struct`
+     * or `class` keyword, followed by at least a name.
+     */
+    private looks_like_mata_type_definition_header(header: string): boolean {
+        const the_words = header.trim().match(MATA_HEADER_WORD_RE) ?? [];
+        return (
+            the_words.length >= 2 &&
+            (the_words[0] === 'struct' || the_words[0] === 'class')
+        );
+    }
+
+    /**
+     * Is the STATEMENT_TERMINATOR at `index` a `///` line continuation
+     * (rather than a real end of statement)? True when the previous
+     * significant token — skipping whitespace and comments — is a
+     * CONTINUATION.
+     */
+    private is_continuation_terminator_at(
+        tokens: Token[],
+        index: number
+    ): boolean {
+        let j = index - 1;
+        while (j >= 0 && MATA_TRIVIA_TOKENS.has(tokens[j].type)) {
+            j--;
+        }
+        return j >= 0 && tokens[j].type === 'CONTINUATION';
+    }
+
+    /**
+     * Classify what an embedded-language keyword (`mata` or `python`) at
+     * `keyword_index` opens. Used for the lexer's MATA_START / PYTHON_START
+     * tokens and for `WORD` re-entry (the lexer emits a WORD once it is
+     * already in an embedded context, e.g. after `mata clear`). The logic
+     * inspects only the tokens after the keyword, so it is keyword-agnostic.
+     * The opener is the next significant token, with a `///` continuation
+     * joining it to the keyword's logical line:
+     *  - same-logical-line `:` -> 'inline' (`mata: <expr>`)
+     *  - same-logical-line `{` -> 'block_brace' (`mata { ... }` / `python { }`)
+     *  - same-logical-line WORD or dynamic opener -> 'subcommand'
+     *    (`mata clear`, `python query`, `mata `m'`; not a block)
+     *  - anything else (opener on a later physical line, a `;`/terminator, or
+     *    end-of-input) -> 'block_plain' (`mata`/`python` ... `end`), so an
+     *    inner `{` or body on the next line is NOT mistaken for the delimiter.
+     */
+    private classify_embedded_block_opener(
+        tokens: Token[],
+        mata_index: number
+    ): 'inline' | 'block_brace' | 'block_plain' | 'subcommand' {
+        // Walk to the first significant token after the keyword. The opener
+        // shares the keyword's logical line when it is on the same physical
+        // line, or reached only via `///` continuations (`crossed_continuation`)
+        // with no intervening hard break. A hard break is a real (non-`///`)
+        // STATEMENT_TERMINATOR or a `;` separator (under `#delimit ;`); once
+        // one is seen the body is on a later line, so a blank or comment-only
+        // continued line cannot keep the opener on the logical line. Under
+        // `#delimit ;` a physical newline lexes as WHITESPACE (no terminator
+        // token), so the physical-line comparison is what detects that break.
+        let opener_idx = mata_index + 1;
+        let crossed_continuation = false;
+        let saw_hard_break = false;
+        while (opener_idx < tokens.length) {
+            const my_token = tokens[opener_idx];
+            if (MATA_TRIVIA_TOKENS.has(my_token.type)) {
+                opener_idx++;
+                continue;
+            }
+            if (my_token.type === 'CONTINUATION') {
+                crossed_continuation = true;
+                opener_idx++;
+                continue;
+            }
+            if (my_token.type === 'STATEMENT_TERMINATOR') {
+                if (!this.is_continuation_terminator_at(tokens, opener_idx)) {
+                    saw_hard_break = true;
+                }
+                opener_idx++;
+                continue;
+            }
+            if (
+                (my_token.type === 'EMBEDDED_CONTENT' ||
+                    my_token.type === 'OPERATOR') &&
+                my_token.value.includes(';')
+            ) {
+                saw_hard_break = true;
+                opener_idx++;
+                continue;
+            }
+            break;
+        }
+        const opener =
+            opener_idx < tokens.length ? tokens[opener_idx] : undefined;
+        if (opener === undefined) {
+            return 'block_plain';
+        }
+        const on_logical_line =
+            !saw_hard_break &&
+            (opener.range.start.line ===
+                tokens[mata_index].range.start.line ||
+                crossed_continuation);
+        if (on_logical_line) {
+            const value = opener.value.trim();
+            if (
+                (opener.type === 'EMBEDDED_CONTENT' ||
+                    opener.type === 'OPERATOR') &&
+                value === ':'
+            ) {
+                return 'inline';
+            }
+            if (
+                opener.type === 'LBRACE' ||
+                (opener.type === 'EMBEDDED_CONTENT' && value === '{')
+            ) {
+                return 'block_brace';
+            }
+            // Any other token sharing the logical line is NOT a block opener:
+            // a WORD subcommand (`mata clear`, `python query`), or a dynamic /
+            // macro-expanded opener (`mata `m'`, where `m' might expand to
+            // `clear`, `set matastrict on`, etc.) whose run-time text we
+            // cannot know. Treat these as one-liners so later `st_local(...)`
+            // text is not falsely registered as a setter.
+            return 'subcommand';
+        }
+        return 'block_plain';
+    }
+
+    private collect_mata_header_before_brace(
+        tokens: Token[],
+        brace_index: number
+    ): string {
+        const parts: string[] = [];
+        let unmatched_close_parens = 0;
+
+        const track_parens = (value: string): void => {
+            for (let i = value.length - 1; i >= 0; i--) {
+                const ch = value[i];
+                if (ch === ')') {
+                    unmatched_close_parens++;
+                } else if (ch === '(' && unmatched_close_parens > 0) {
+                    unmatched_close_parens--;
+                }
+            }
+        };
+
+        // A statement separator ends the header scan. A `;` separator is
+        // tokenized differently by context: STATEMENT_TERMINATOR normally,
+        // `EMBEDDED_CONTENT ";"` inside `mata` ... `end` blocks under
+        // `#delimit ;`, and an `OPERATOR ";"` between inline `mata:`
+        // statements. Recognize all three (stopping here also prevents
+        // pulling a preceding statement into the header).
+        const is_statement_separator = (token: Token): boolean =>
+            token.type === 'STATEMENT_TERMINATOR' ||
+            ((token.type === 'EMBEDDED_CONTENT' ||
+                token.type === 'OPERATOR') &&
+                token.value.includes(';'));
+
+        for (let i = brace_index - 1; i >= 0; i--) {
+            const token = tokens[i];
+            // Trivia is skipped entirely and significant tokens are joined
+            // with a single space below, rather than relying on emitted
+            // WHITESPACE tokens to separate them. Inline `mata:` code under
+            // the default `#delimit cr` emits no whitespace tokens at all, so
+            // appending raw values would turn `void f()` into `voidf()` and
+            // defeat function-header detection.
+            if (
+                token.type === 'WHITESPACE' ||
+                token.type === 'CONTINUATION' ||
+                token.type === 'COMMENT_LINE' ||
+                token.type === 'COMMENT_BLOCK'
+            ) {
+                continue;
+            }
+
+            if (is_statement_separator(token)) {
+                if (parts.length === 0) {
+                    continue;
+                }
+                if (unmatched_close_parens > 0) {
+                    continue;
+                }
+                // A `///` continuation keeps the statement (and thus the
+                // header) going even outside the argument parentheses, e.g.
+                // `void ///` on its own line before `f() { ... }`.
+                if (
+                    token.type === 'STATEMENT_TERMINATOR' &&
+                    this.is_continuation_terminator_at(tokens, i)
+                ) {
+                    continue;
+                }
+                break;
+            }
+
+            if (
+                token.type === 'MATA_START' ||
+                token.type === 'MATA_INLINE' ||
+                token.type === 'END_MATA' ||
+                token.type === 'LBRACE' ||
+                token.type === 'RBRACE'
+            ) {
+                break;
+            }
+
+            parts.push(token.value);
+            // Don't count parentheses inside string literals — e.g. a Mata
+            // condition `if (s == ")") { ... }` would otherwise leave the
+            // scan thinking the `if` parens are unbalanced and skip the real
+            // statement separator before it.
+            if (token.type !== 'STRING') {
+                track_parens(token.value);
+            }
+        }
+
+        // Tokens were collected by scanning backwards, so reverse once (O(n))
+        // to restore source order — avoids O(n^2) `unshift`. Join with a
+        // single space so adjacent identifiers stay separate words even when
+        // no whitespace token sat between them (inline `mata:` headers);
+        // `looks_like_mata_function_header` tolerates the extra spaces.
+        return parts.reverse().join(' ');
+    }
+
+    private looks_like_mata_function_header(header: string): boolean {
+        const trimmed = header.trim();
+        if (trimmed.length === 0 || !trimmed.endsWith(')')) {
+            return false;
+        }
+
+        const open_paren = this.find_matching_open_paren(trimmed);
+        if (open_paren <= 0) {
+            return false;
+        }
+
+        const before_args = trimmed.slice(0, open_paren).trim();
+        const the_words = before_args.match(MATA_HEADER_WORD_RE) ?? [];
+        if (the_words.length < 2) {
+            return false;
+        }
+
+        const function_name = the_words[the_words.length - 1];
+        if (MATA_CONTROL_WORDS.has(function_name)) {
+            return false;
+        }
+
+        return the_words
+            .slice(0, -1)
+            .some(word => MATA_DECLARATION_WORDS.has(word));
+    }
+
+    private find_matching_open_paren(text: string): number {
+        let depth = 0;
+        for (let i = text.length - 1; i >= 0; i--) {
+            const ch = text[i];
+            if (ch === ')') {
+                depth++;
+            } else if (ch === '(') {
+                depth--;
+                if (depth === 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
 
     /**
@@ -3191,7 +4436,17 @@ export class SemanticAnalyzer {
                 }
                 
                 const token_line = token.range.start.line;
-                if (macro_name && !this.is_macro_defined(macro_name, 'local', symbols, undefined, token_line)) {
+                if (
+                    macro_name &&
+                    !this.is_macro_defined(
+                        macro_name,
+                        'local',
+                        symbols,
+                        undefined,
+                        token_line,
+                        token.range
+                    )
+                ) {
                     diagnostics.push({
                         message: format_undefined_macro_message(
                             'local',
@@ -3231,7 +4486,17 @@ export class SemanticAnalyzer {
                 }
                 
                 const token_line = token.range.start.line;
-                if (macro_name && !this.is_macro_defined(macro_name, 'global', symbols, undefined, token_line)) {
+                if (
+                    macro_name &&
+                    !this.is_macro_defined(
+                        macro_name,
+                        'global',
+                        symbols,
+                        undefined,
+                        token_line,
+                        token.range
+                    )
+                ) {
                     diagnostics.push({
                         message: format_undefined_macro_message(
                             'global',

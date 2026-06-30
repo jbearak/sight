@@ -298,9 +298,36 @@ describe('Completion Provider', () => {
             
             const doc = create_test_document('display $', { globalMacros: global_macros });
             const completions = await provider.get_completions(doc, { line: 0, character: 9 });
-            
+
             const labels = completions.map(c => c.label);
             expect(labels).toContain('GLOBAL_VAR');
+        });
+
+        it('should honor visibility_start for an st_global setter', async () => {
+            // An inline `mata: st_global("G","1"); x = $...` setter for `G`
+            // whose visibility starts at the end of the inline unit. A `$`
+            // completion earlier in the same unit must NOT offer it; a later
+            // line must. Mirrors the st_local case but for globals.
+            const global_macros = new Map<string, MacroSymbol>();
+            global_macros.set('G', {
+                name: 'G',
+                scope: 'global',
+                location: { uri: 'file:///test.do', range: { start: { line: 0, character: 16 }, end: { line: 0, character: 17 } } },
+                sourceUri: 'file:///test.do',
+                containingScope: 'dofile',
+                definition_line: 0,
+                visibility_start: { line: 0, character: 40 },
+                value: '1',
+            } as MacroSymbol);
+
+            const content = ['mata: st_global("G","1"); x = $', 'display $'].join('\n');
+            const doc = create_test_document(content, { globalMacros: global_macros });
+
+            const before = await provider.get_completions(doc, { line: 0, character: 31 });
+            expect(before.map(c => c.label)).not.toContain('G');
+
+            const after = await provider.get_completions(doc, { line: 1, character: 9 });
+            expect(after.map(c => c.label)).toContain('G');
         });
 
         it('should suggest apple when typing `a after local apple sauce', async () => {
@@ -1885,6 +1912,61 @@ describe('Local macro completion respects position within file', () => {
         const labels = completions.map(c => c.label);
         expect(labels).toContain('fruit');
         expect(labels).not.toContain('color');
+    });
+
+    it('should honor visibility_start for a Mata setter (not visible earlier in its inline unit)', async () => {
+        const uri = 'file:///demo.do';
+        const local_macros = new Map();
+        // A `mata:` inline setter for `foo` whose visibility starts at the
+        // end of the inline unit (line 0, character 40). A reference earlier
+        // in the same unit must not see it; later lines must.
+        local_macros.set('foo', {
+            name: 'foo',
+            scope: 'local',
+            location: {
+                uri,
+                range: { start: { line: 0, character: 15 }, end: { line: 0, character: 18 } },
+            },
+            sourceUri: uri,
+            containingScope: 'dofile',
+            definition_line: 0,
+            definition_index: 0,
+            visibility_start: { line: 0, character: 40 },
+            value: '1',
+        });
+
+        const content = [
+            'mata: st_local("foo","1"); x = `',
+            'display `',
+        ].join('\n');
+        const doc = create_test_document(content, { localMacros: local_macros });
+        doc.uri = uri;
+
+        // Cursor at character 32 on line 0 (inside the inline unit, before
+        // visibility_start): foo must NOT be offered.
+        const before = await provider.get_completions(
+            doc,
+            { line: 0, character: 32 },
+            '`',
+        );
+        expect(before.map(c => c.label)).not.toContain('foo');
+
+        // Cursor exactly at visibility_start (the boundary) is still inside
+        // the inline unit: foo must NOT be offered.
+        const at_boundary = await provider.get_completions(
+            doc,
+            { line: 0, character: 40 },
+            '`',
+        );
+        expect(at_boundary.map(c => c.label)).not.toContain('foo');
+
+        // Cursor on line 1 (after the inline unit): foo IS offered.
+        const after = await provider.get_completions(
+            doc,
+            { line: 1, character: 9 },
+            '`',
+        );
+        expect(after.map(c => c.label)).toContain('foo');
     });
 });
 

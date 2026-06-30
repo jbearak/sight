@@ -98,6 +98,8 @@ the loop is left alone and no names are expanded.
 
 **Macro-creating options**: The analyzer recognizes `local()` and `global()` options on built-in commands (`levelsof`, `glevelsof`) and user-defined programs (via `` c_local `option' `` and `` global `option' `` patterns matching syntax declarations).
 
+**Mata `st_local` / `st_global`**: The analyzer recognizes the two-argument setter forms `st_local("name", value)` and `st_global("NAME", value)` inside Mata blocks — both the inline `mata:` form and `mata` … `end` / `mata { … }` blocks — and declares the named macro. The name must be a literal double-quoted identifier; dynamic names (variables, expressions, compound quotes, or embedded macro references) are not resolved. The one-argument read form `st_local("name")` does not declare anything. The declaration is forward-only: a reference before the setter is still flagged. For an inline `mata:` setter the macro only becomes visible after the inline statement ends, so a `` `name' `` reference within the same `mata:` unit — including the setter's own value argument (`mata: st_local("x", "`x'")`) — is reported undefined, matching Stata's macro expansion order; references after the statement resolve normally.
+
 ## Tuning autocomplete behavior
 
 If autocomplete feels too aggressive, there are a few knobs to adjust.

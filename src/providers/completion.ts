@@ -1777,16 +1777,46 @@ export class CompletionProvider {
                 continue;
             }
 
+            // A Mata setter (st_local OR st_global) carries a precise
+            // `visibility_start` (e.g. the end of an inline `mata:` unit, or
+            // past a block setter's closing paren); Stata expands the
+            // statement's `` `x' ``/`$x` macros before the code runs, so the
+            // macro is not visible earlier in the same unit. Honor it for both
+            // scopes so completion matches diagnostics. The boundary itself is
+            // still inside the unit (a reference inserted exactly at
+            // visibility_start lands before the re-lexed terminator), so treat
+            // it as not-yet-visible (`<=`).
+            if (
+                macro.sourceUri === document.uri &&
+                macro.visibility_start !== undefined
+            ) {
+                const vis = macro.visibility_start;
+                if (
+                    position.line < vis.line ||
+                    (position.line === vis.line &&
+                        position.character <= vis.character)
+                ) {
+                    continue;
+                }
+            }
+
             // For local macro completions, respect position within the current file.
             // Stata locals are only visible on lines after their definition — a local defined
             // below the cursor line cannot be referenced at the cursor. Only applies when the
             // macro is defined in the current document; inherited locals from parent files
             // (via include-chain) are already call-site-filtered by the scope resolver.
-            if (scope === 'local' && macro.sourceUri === document.uri) {
+            // (A Mata setter with `visibility_start` is handled above.)
+            if (
+                scope === 'local' &&
+                macro.sourceUri === document.uri &&
+                macro.visibility_start === undefined
+            ) {
                 // Tolerate loosely-constructed symbols (e.g. workspace entries
                 // without a location): fall back defensively rather than assume
                 // a well-formed location.
-                const def_line = macro.definition_line ?? macro.location?.range?.start?.line;
+                const def_line =
+                    macro.definition_line ??
+                    macro.location?.range?.start?.line;
                 if (typeof def_line === 'number' && def_line > position.line) {
                     continue;
                 }

@@ -89,7 +89,12 @@ detection and supports LSP directives for manual overrides. Recognizes
 `c_local` calls in programs to provide completions to callers, and detects
 macro-creating options like `local()` and `global()` in built-in commands
 (`levelsof`, `glevelsof`) as well as user-defined programs (via `c_local `option'`
-and `global `option'` patterns that match syntax declarations).
+and `global `option'` patterns that match syntax declarations). Also recognizes
+the two-argument Mata setter forms `st_local("name", value)` /
+`st_global("NAME", value)` (inline `mata:` and `mata`/`end` and `mata { }`
+blocks) as macro definitions when the name is a literal double-quoted
+identifier; the one-argument read form `st_local("name")` declares nothing.
+See `extract_mata_st_local_declarations`.
 
 **Forward Reference Detection**: The analyzer tracks the preorder traversal
 index where each macro is defined. When checking references, it compares the
