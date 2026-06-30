@@ -3356,26 +3356,31 @@ export class SemanticAnalyzer {
             }
         };
 
+        // A statement separator ends the header scan. Inline `mata:` code
+        // emits no whitespace tokens and `#delimit ;` blocks emit their
+        // statement separators as `EMBEDDED_CONTENT ";"` rather than
+        // STATEMENT_TERMINATOR, so recognize both forms.
+        const is_statement_separator = (token: Token): boolean =>
+            token.type === 'STATEMENT_TERMINATOR' ||
+            (token.type === 'EMBEDDED_CONTENT' && token.value.includes(';'));
+
         for (let i = brace_index - 1; i >= 0; i--) {
             const token = tokens[i];
-            if (token.type === 'WHITESPACE' || token.type === 'CONTINUATION') {
-                if (parts.length > 0) {
-                    parts.push(token.value);
-                }
-                continue;
-            }
-            if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
-                // A comment can act as a token separator (e.g.
-                // `void/*c*/f()`). Replace it with a space so adjacent words
-                // are not concatenated into `voidf()`, which would defeat the
-                // function-header detection.
-                if (parts.length > 0) {
-                    parts.push(' ');
-                }
+            // Trivia is skipped entirely; significant tokens are joined with a
+            // single space below. Relying on emitted WHITESPACE tokens would
+            // mis-handle inline `mata:` headers (no whitespace tokens), turning
+            // `void f()` into `voidf()` and defeating function-header
+            // detection.
+            if (
+                token.type === 'WHITESPACE' ||
+                token.type === 'CONTINUATION' ||
+                token.type === 'COMMENT_LINE' ||
+                token.type === 'COMMENT_BLOCK'
+            ) {
                 continue;
             }
 
-            if (token.type === 'STATEMENT_TERMINATOR') {
+            if (is_statement_separator(token)) {
                 if (parts.length === 0) {
                     continue;
                 }
@@ -3400,8 +3405,11 @@ export class SemanticAnalyzer {
         }
 
         // Tokens were collected by scanning backwards, so reverse once (O(n))
-        // to restore source order before joining — avoids O(n^2) `unshift`.
-        return parts.reverse().join('');
+        // to restore source order — avoids O(n^2) `unshift`. Join with a
+        // single space so adjacent identifiers stay separate words even when
+        // no whitespace token sat between them (inline `mata:` headers);
+        // `looks_like_mata_function_header` tolerates the extra spaces.
+        return parts.reverse().join(' ');
     }
 
     private looks_like_mata_function_header(header: string): boolean {

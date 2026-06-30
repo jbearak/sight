@@ -186,6 +186,7 @@ describe('st_local / st_global declarations in Mata', () => {
         // m a t a :  _ s  t  _  l  o  c  a  l  (  "
         // 0123456789...
         expect(macro!.location.range.start.line).toBe(0);
+        expect(macro!.location.range.start.character).toBe(15);
         expect(macro!.definition_line).toBe(0);
     });
 
@@ -354,6 +355,13 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual(['foo']);
     });
 
+    it('does not declare setters inside an inline mata: function body', () => {
+        // Inline `mata:` emits no whitespace tokens, so the header collector
+        // must still separate `void` and `f` rather than seeing `voidf()`.
+        const src = 'mata: void f() { st_local("foo", "1") }';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+    });
+
     it('still declares setters inside executed top-level Mata braces', () => {
         const src =
             'mata\nif (1) {\n  st_local("foo", "1")\n}\nend\ndisplay `foo\'';
@@ -371,6 +379,16 @@ describe('st_local / st_global declarations in Mata', () => {
     it('does not declare setters inside a Mata class body', () => {
         const src = 'mata\nclass C {\n  st_local("foo", "1")\n}\nend';
         expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+    });
+
+    it('declares in an executed #delimit ; block after a struct statement', () => {
+        // The header scan must stop at the embedded `;` separator; otherwise
+        // it pulls the preceding `struct` declaration into the `if` header and
+        // mistakes the executed block for a type-definition body.
+        const src =
+            '#delimit ;\nmata ;\nstruct S scalar s ;\n' +
+            'if (1) { st_local("foo", "1") ; }\nend ;';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(true);
     });
 
     it('declares a top-level setter after a struct definition', () => {
