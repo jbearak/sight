@@ -80,6 +80,18 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         it("detects across an inline block comment: if a == /* c */ 1`b'", () => {
             expect(found("if a == /* c */ 1`b' {")).toHaveLength(1);
         });
+        it("detects a parenthesized bare condition: if (1`b')", () => {
+            expect(found("if (1`b') {")).toHaveLength(1);
+        });
+        it("detects a doubly-parenthesized bare condition: if ((1`b'))", () => {
+            expect(found("if ((1`b')) {")).toHaveLength(1);
+        });
+        it("detects a signed literal operand: a == -1`b'", () => {
+            expect(found("if a == -1`b' {")).toHaveLength(1);
+        });
+        it("detects a parenthesized operand after a comparison: a == (1`b')", () => {
+            expect(found("if a == (1`b') {")).toHaveLength(1);
+        });
     });
 
     describe('Non-detection (false-positive guards)', () => {
@@ -115,6 +127,12 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         });
         it("does not flag a macro-built function argument inside a condition: if max(1`a', y) > 0", () => {
             expect(found("if max(1`a', y) > 0 {")).toHaveLength(0);
+        });
+        it("does not flag a macro-built first function argument in a condition: if inlist(1`a', 2)", () => {
+            expect(found("if inlist(1`a', 2) {")).toHaveLength(0);
+        });
+        it("does not flag an arithmetic operand: gen z = a - 1`b'", () => {
+            expect(found("gen z = a - 1`b'")).toHaveLength(0);
         });
         it("does not bleed condition context into a braceless single-line if body", () => {
             expect(found("if a == 1 gen y = 1`b'")).toHaveLength(0);

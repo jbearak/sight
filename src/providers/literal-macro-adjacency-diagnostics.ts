@@ -20,11 +20,30 @@ const MACRO_REF_TYPES: Set<string> = new Set([
 
 /**
  * Keywords that introduce a boolean condition (exact case; Stata is
- * case-sensitive). A literal directly after one of these is the leading
- * operand of the condition, where a number-macro concatenation is a footgun
- * even with no comparison operator adjacent to the pair.
+ * case-sensitive). A literal that is the leading operand of one of these is
+ * suspicious, where a number-macro concatenation is a footgun even with no
+ * comparison operator adjacent to the pair.
  */
 const CONDITION_KEYWORDS: Set<string> = new Set(['if', 'while']);
+
+/**
+ * Grouping-open token types skipped when scanning backward for the operator
+ * that governs a literal-macro pair, so `if (1`b')` reads the same as
+ * `if 1`b'`.
+ */
+const GROUP_OPEN_TYPES: Set<string> = new Set(['LPAREN', 'LBRACKET']);
+
+/**
+ * Grouping-close token types skipped when scanning forward for the governing
+ * operator, so `(1`b') == a` reads the same as `1`b' == a`.
+ */
+const GROUP_CLOSE_TYPES: Set<string> = new Set(['RPAREN', 'RBRACKET']);
+
+/**
+ * Unary prefix operators skipped when scanning backward, so `a == -1`b'`
+ * reads the same as `a == 1`b'`.
+ */
+const UNARY_PREFIX_OPERATORS: Set<string> = new Set(['-', '+', '!', '~']);
 
 /**
  * Check if a STRING token is a complete, closed string literal (opens and
@@ -73,6 +92,50 @@ function is_expression_operator(my_token: Token | undefined): boolean {
         (COMPARISON_OPERATORS.has(my_token.value) ||
             LOGICAL_OPERATORS.has(my_token.value))
     );
+}
+
+/**
+ * The token that governs the operand starting at `index`, scanning backward
+ * past grouping-open and unary-prefix tokens. For `if (1`b')` this is `if`;
+ * for `a == -1`b'` this is `==`. Returns undefined at the start of input.
+ */
+function governing_before(
+    the_significant: Token[],
+    index: number
+): Token | undefined {
+    for (let my_i = index - 1; my_i >= 0; my_i--) {
+        const my_token = the_significant[my_i];
+        if (GROUP_OPEN_TYPES.has(my_token.type)) {
+            continue;
+        }
+        if (
+            my_token.type === 'OPERATOR' &&
+            UNARY_PREFIX_OPERATORS.has(my_token.value)
+        ) {
+            continue;
+        }
+        return my_token;
+    }
+    return undefined;
+}
+
+/**
+ * The token that governs the operand ending at `index`, scanning forward past
+ * grouping-close tokens. For `(1`b') == a` this is `==`. Returns undefined at
+ * the end of input.
+ */
+function governing_after(
+    the_significant: Token[],
+    index: number
+): Token | undefined {
+    for (let my_i = index + 1; my_i < the_significant.length; my_i++) {
+        const my_token = the_significant[my_i];
+        if (GROUP_CLOSE_TYPES.has(my_token.type)) {
+            continue;
+        }
+        return my_token;
+    }
+    return undefined;
 }
 
 /**
@@ -131,21 +194,19 @@ export class LiteralMacroAdjacencyAnalyzer {
             }
 
             // The pair is an operand of a comparison/logical expression when
-            // such an operator sits immediately before the literal or
-            // immediately after the macro, or when the literal is the leading
-            // operand of an `if`/`while` condition.
-            const pre_literal = i >= 2 ? the_significant[i - 2] : undefined;
-            const after_macro =
-                i + 1 < the_significant.length
-                    ? the_significant[i + 1]
-                    : undefined;
+            // such an operator governs it before or after — looking past
+            // grouping parentheses and unary prefixes, so `if (1`b')` and
+            // `a == -1`b'` read the same as their bare forms — or when the
+            // literal is the leading operand of an `if`/`while` condition.
+            const governor_before = governing_before(the_significant, i - 1);
+            const governor_after = governing_after(the_significant, i);
 
-            const operator_before = is_expression_operator(pre_literal);
-            const operator_after = is_expression_operator(after_macro);
+            const operator_before = is_expression_operator(governor_before);
+            const operator_after = is_expression_operator(governor_after);
             const leads_condition =
-                pre_literal !== undefined &&
-                pre_literal.type === 'WORD' &&
-                CONDITION_KEYWORDS.has(pre_literal.value);
+                governor_before !== undefined &&
+                governor_before.type === 'WORD' &&
+                CONDITION_KEYWORDS.has(governor_before.value);
 
             if (
                 (operator_before || operator_after || leads_condition) &&

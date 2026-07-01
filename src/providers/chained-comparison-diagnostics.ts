@@ -218,7 +218,15 @@ export class ChainedComparisonAnalyzer {
 
         const the_diagnostics: Diagnostic[] = [];
         for (const my_chain of the_chains) {
-            if (my_ignored_lines.has(my_chain.first.range.start.line)) {
+            // A chain can span multiple lines via `///`; honor an @lsp-ignore
+            // on any line the chain covers, not just its first.
+            if (
+                this.is_range_ignored(
+                    my_chain.first.range.start.line,
+                    my_chain.last.range.end.line,
+                    my_ignored_lines
+                )
+            ) {
                 continue;
             }
             the_diagnostics.push({
@@ -242,5 +250,22 @@ export class ChainedComparisonAnalyzer {
         }
 
         return the_diagnostics;
+    }
+
+    /**
+     * Whether any line in the inclusive range [start_line, end_line] is
+     * suppressed by an @lsp-ignore directive.
+     */
+    private is_range_ignored(
+        start_line: number,
+        end_line: number,
+        ignored_lines: Set<number>
+    ): boolean {
+        for (let my_line = start_line; my_line <= end_line; my_line++) {
+            if (ignored_lines.has(my_line)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

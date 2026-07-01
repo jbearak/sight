@@ -135,5 +135,9 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
             const found = chains('if a < b < c { // @lsp-ignore');
             expect(found).toHaveLength(0);
         });
+        it('respects @lsp-ignore on the trailing line of a /// chain', () => {
+            const found = chains('if a < ///\n    b < c { // @lsp-ignore');
+            expect(found).toHaveLength(0);
+        });
     });
 });
