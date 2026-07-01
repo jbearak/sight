@@ -3,22 +3,12 @@ import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
-
-/**
- * Comparison operator values. These are the binary relational operators that
- * Stata evaluates left-to-right, each yielding 0/1 — they do NOT chain
- * mathematically. `=` alone is assignment, not comparison, so it is excluded.
- */
-const COMPARISON_OPS: Set<string> = new Set([
-    '==', '!=', '~=', '<', '<=', '>', '>=',
-]);
-
-/**
- * Logical operators. Encountering one resets the current comparison run: a
- * comparison on each side of `&`/`|` is the intended, well-formed pattern
- * (`a == 1 & b != 1`), not a chain.
- */
-const LOGICAL_OPS: Set<string> = new Set(['&', '|']);
+import {
+    COMPARISON_OPERATORS,
+    LOGICAL_OPERATORS,
+    collect_significant_tokens,
+    is_adjacent,
+} from './diagnostic-token-stream';
 
 /**
  * Token types that, as the previous significant token, mark the end of an
@@ -38,16 +28,10 @@ const OPERAND_END_TYPES: Set<string> = new Set([
 ]);
 
 /**
- * Trivia token types that do not break a statement or an operand run.
- */
-const TRIVIA_TYPES: Set<string> = new Set(['WHITESPACE', 'CONTINUATION']);
-
-/**
  * Token types that end an expression segment and flush all pending runs. An
- * inline block comment is whitespace-equivalent in Stata and does NOT appear
- * here — it must not split a comparison run (matching
- * MixedLogicalOperatorAnalyzer). A line comment ends the physical line, so it
- * does break the segment.
+ * inline block comment is whitespace-equivalent in Stata and is already
+ * dropped by collect_significant_tokens, so it never splits a run. A line
+ * comment ends the physical line, so it does break the segment.
  */
 const EXPRESSION_BREAKERS: Set<string> = new Set([
     'STATEMENT_TERMINATOR',
@@ -71,18 +55,6 @@ interface Chain {
 }
 
 /**
- * Whether two tokens are directly adjacent in the source (no whitespace
- * between them). Adjacent operands form a single expanded operand via macro
- * concatenation (`1`c'`); separated operands mark a command boundary.
- */
-function is_adjacent(first: Token, second: Token): boolean {
-    return (
-        first.range.end.line === second.range.start.line &&
-        first.range.end.character === second.range.start.character
-    );
-}
-
-/**
  * ChainedComparisonAnalyzer detects suspicious comparison chains such as
  * `a != b != c`, `a == b == c`, `a < b < c`, or mixed forms like `a < b > c`.
  *
@@ -91,9 +63,8 @@ function is_adjacent(first: Token, second: Token): boolean {
  * A chain is therefore almost always a missing logical operator (`&`/`|`) or
  * missing parentheses.
  *
- * The analyzer walks the token stream with a stack of "comparison runs" (one
- * per parenthesis depth), mirroring the state-machine pattern of
- * MixedLogicalOperatorAnalyzer. A comparison operator is counted into the
+ * The analyzer walks the significant token stream with a stack of "comparison
+ * runs" (one per parenthesis depth). A comparison operator is counted into the
  * current run only when the previous significant token ends an operand, so
  * adjacent operator sequences (`< <`) — already reported by
  * OperatorSequenceAnalyzer — are not double-reported. A run of two or more
@@ -119,6 +90,7 @@ export class ChainedComparisonAnalyzer {
             return [];
         }
 
+        const the_significant = collect_significant_tokens(the_tokens);
         const my_ignored_lines = document.ignored_lines ?? new Set<number>();
         const my_severity = resolve_diagnostic_severity(my_config_severity);
 
@@ -128,7 +100,6 @@ export class ChainedComparisonAnalyzer {
         // Index 0 is the top-level (depth-0) run.
         let run_stack: Token[][] = [[]];
         let prev_significant: Token | undefined = undefined;
-        let my_in_continuation = false;
 
         const close_run = (my_run: Token[]): void => {
             if (my_run.length >= 2) {
@@ -148,31 +119,7 @@ export class ChainedComparisonAnalyzer {
             prev_significant = undefined;
         };
 
-        for (let i = 0; i < the_tokens.length; i++) {
-            const my_token = the_tokens[i];
-
-            // The newline after `///` is tokenized as STATEMENT_TERMINATOR but
-            // is semantically part of the continuation — it must not flush.
-            if (my_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
-                my_in_continuation = false;
-                continue;
-            }
-
-            if (TRIVIA_TYPES.has(my_token.type)) {
-                if (my_token.type === 'CONTINUATION') {
-                    my_in_continuation = true;
-                }
-                continue;
-            }
-
-            // An inline block comment is whitespace-equivalent: skip it without
-            // resetting the run or the previous-significant tracking.
-            if (my_token.type === 'COMMENT_BLOCK') {
-                continue;
-            }
-
-            my_in_continuation = false;
-
+        for (const my_token of the_significant) {
             // Top-level `if`/`in` qualifier ends the preceding expression.
             if (
                 run_stack.length === 1 &&
@@ -214,14 +161,14 @@ export class ChainedComparisonAnalyzer {
             }
 
             if (my_token.type === 'OPERATOR') {
-                if (LOGICAL_OPS.has(my_token.value)) {
+                if (LOGICAL_OPERATORS.has(my_token.value)) {
                     // A logical operator separates well-formed comparisons.
                     close_run(current_run);
                     prev_significant = my_token;
                     continue;
                 }
 
-                if (COMPARISON_OPS.has(my_token.value)) {
+                if (COMPARISON_OPERATORS.has(my_token.value)) {
                     // Count the comparison only when it follows an operand,
                     // i.e. there is an operand between it and any prior
                     // comparison. This skips adjacent sequences like `< <`.
@@ -250,10 +197,10 @@ export class ChainedComparisonAnalyzer {
             // operands in a row with no operator between them mark a
             // command/expression boundary — e.g. the body of a braceless
             // single-line `if a < b gen ... c < d`, where `b gen` are separate
-            // operands. A comparison run must not span that boundary, so close
-            // it. Operands that are directly adjacent (no whitespace), such as
-            // the concatenation `1`c'`, are a single expanded operand and must
-            // NOT break the run.
+            // operands. A comparison run must not span that boundary. Operands
+            // that are directly adjacent (no whitespace), such as the
+            // concatenation `1`c'`, are a single expanded operand and must NOT
+            // break the run.
             if (
                 prev_significant &&
                 OPERAND_END_TYPES.has(prev_significant.type) &&

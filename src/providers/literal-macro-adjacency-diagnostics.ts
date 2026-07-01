@@ -3,17 +3,12 @@ import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
-
-/**
- * Comparison and logical operators. A literal-macro operand adjacent to one of
- * these — on either side — is an operand of a comparison/logical expression,
- * where concatenation with a macro is likely a mistake rather than intentional
- * text building.
- */
-const EXPRESSION_OPERATORS: Set<string> = new Set([
-    '==', '!=', '~=', '<', '<=', '>', '>=',  // comparison
-    '&', '|',                                // logical
-]);
+import {
+    COMPARISON_OPERATORS,
+    LOGICAL_OPERATORS,
+    collect_significant_tokens,
+    is_adjacent,
+} from './diagnostic-token-stream';
 
 /**
  * Macro reference token types.
@@ -24,30 +19,12 @@ const MACRO_REF_TYPES: Set<string> = new Set([
 ]);
 
 /**
- * Trivia token types skipped when tracking significant tokens. Inline block
- * comments are also skipped (see the scan loop) — they are whitespace-
- * equivalent in Stata and must not stand in for the operator neighbor.
- */
-const TRIVIA_TYPES: Set<string> = new Set(['WHITESPACE', 'CONTINUATION']);
-
-/**
  * Keywords that introduce a boolean condition (exact case; Stata is
  * case-sensitive). A literal directly after one of these is the leading
- * operand of the condition, where `if 1`b'` concatenating to `10` is a
- * footgun even without a comparison operator adjacent to the pair.
+ * operand of the condition, where a number-macro concatenation is a footgun
+ * even with no comparison operator adjacent to the pair.
  */
 const CONDITION_KEYWORDS: Set<string> = new Set(['if', 'while']);
-
-/**
- * Check if two tokens are directly adjacent in the source with no intervening
- * whitespace (the literal's end position equals the macro's start position).
- */
-function is_raw_adjacent(literal: Token, macro: Token): boolean {
-    return (
-        literal.range.end.line === macro.range.start.line &&
-        literal.range.end.character === macro.range.start.character
-    );
-}
 
 /**
  * Check if a STRING token is a complete, closed string literal (opens and
@@ -74,13 +51,27 @@ function is_complete_string(my_token: Token): boolean {
 }
 
 /**
+ * A qualifying literal is a NUMBER or a complete closed STRING.
+ */
+function is_qualifying_literal(my_token: Token): boolean {
+    if (my_token.type === 'NUMBER') {
+        return true;
+    }
+    if (my_token.type === 'STRING') {
+        return is_complete_string(my_token);
+    }
+    return false;
+}
+
+/**
  * Check whether a token is a comparison/logical operator.
  */
 function is_expression_operator(my_token: Token | undefined): boolean {
     return (
         my_token !== undefined &&
         my_token.type === 'OPERATOR' &&
-        EXPRESSION_OPERATORS.has(my_token.value)
+        (COMPARISON_OPERATORS.has(my_token.value) ||
+            LOGICAL_OPERATORS.has(my_token.value))
     );
 }
 
@@ -96,8 +87,9 @@ function is_expression_operator(my_token: Token | undefined): boolean {
  * function arguments like `inlist(x, 1`a', 2)`). A literal is flagged only when
  * it is a NUMBER or a complete closed STRING that is raw-adjacent to a
  * following macro AND the pair is an operand of a comparison/logical operator —
- * that is, a comparison/logical operator sits immediately before the literal or
- * immediately after the macro. Only literal-then-macro is considered;
+ * a comparison/logical operator sits immediately before the literal or
+ * immediately after the macro — or the literal is the leading operand of an
+ * `if`/`while` condition. Only literal-then-macro is considered;
  * macro-then-literal (`` `b'1 ``) is far more often intentional.
  */
 export class LiteralMacroAdjacencyAnalyzer {
@@ -120,145 +112,65 @@ export class LiteralMacroAdjacencyAnalyzer {
             return [];
         }
 
+        const the_significant = collect_significant_tokens(the_tokens);
         const my_ignored_lines = document.ignored_lines ?? new Set<number>();
         const my_severity = resolve_diagnostic_severity(my_config_severity);
 
         const the_diagnostics: Diagnostic[] = [];
 
-        // Token before the current candidate literal, and the candidate
-        // literal itself (both tracking only significant tokens).
-        let pre_literal: Token | undefined = undefined;
-        let prev_significant: Token | undefined = undefined;
-        let my_in_continuation = false;
+        for (let i = 1; i < the_significant.length; i++) {
+            const my_macro = the_significant[i];
+            const my_literal = the_significant[i - 1];
 
-        for (let i = 0; i < the_tokens.length; i++) {
-            const my_token = the_tokens[i];
-
-            // The newline after `///` is tokenized as STATEMENT_TERMINATOR but
-            // is part of the continuation — it must not become a significant
-            // token, or a `///`-split expression would lose its operator
-            // context.
-            if (my_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
-                my_in_continuation = false;
-                continue;
-            }
-
-            if (TRIVIA_TYPES.has(my_token.type)) {
-                if (my_token.type === 'CONTINUATION') {
-                    my_in_continuation = true;
-                }
-                continue;
-            }
-
-            // An inline block comment is whitespace-equivalent: skip it without
-            // disturbing the significant-token history, so it never stands in
-            // for the operator neighbor of a literal-macro pair.
-            if (my_token.type === 'COMMENT_BLOCK') {
-                continue;
-            }
-
-            my_in_continuation = false;
-
-            // Detect the suspicious adjacency: the previous significant token
-            // is a qualifying literal raw-adjacent to this macro reference. A
-            // STATEMENT_TERMINATOR simply becomes prev_significant and is never
-            // a qualifying literal, so lines never bleed together here.
             if (
-                MACRO_REF_TYPES.has(my_token.type) &&
-                prev_significant &&
-                this.is_qualifying_literal(prev_significant) &&
-                is_raw_adjacent(prev_significant, my_token)
+                !MACRO_REF_TYPES.has(my_macro.type) ||
+                !is_qualifying_literal(my_literal) ||
+                !is_adjacent(my_literal, my_macro)
             ) {
-                // The pair is an operand of a comparison/logical expression
-                // when such an operator sits immediately before the literal
-                // or immediately after the macro, or when the literal is the
-                // leading operand of an `if`/`while` condition.
-                const operator_before = is_expression_operator(pre_literal);
-                const operator_after = is_expression_operator(
-                    this.next_significant(the_tokens, i)
-                );
-                const leads_condition =
-                    pre_literal !== undefined &&
-                    pre_literal.type === 'WORD' &&
-                    CONDITION_KEYWORDS.has(pre_literal.value);
-
-                if (
-                    (operator_before || operator_after || leads_condition) &&
-                    !my_ignored_lines.has(prev_significant.range.start.line)
-                ) {
-                    the_diagnostics.push({
-                        range: Range.create(
-                            prev_significant.range.start,
-                            my_token.range.end
-                        ),
-                        message:
-                            'Literal adjacent to macro reference in an ' +
-                            'expression. Stata concatenates these during ' +
-                            'macro expansion; add an operator, whitespace, or ' +
-                            'parentheses if that was not intended.',
-                        severity: my_severity,
-                        source: 'sight',
-                        code: StataDiagnosticCode.LITERAL_MACRO_ADJACENCY,
-                        ...diagnostic_code_description_fields(
-                            StataDiagnosticCode.LITERAL_MACRO_ADJACENCY
-                        ),
-                    });
-                }
+                continue;
             }
 
-            // Advance the two-token significant history.
-            pre_literal = prev_significant;
-            prev_significant = my_token;
+            // The pair is an operand of a comparison/logical expression when
+            // such an operator sits immediately before the literal or
+            // immediately after the macro, or when the literal is the leading
+            // operand of an `if`/`while` condition.
+            const pre_literal = i >= 2 ? the_significant[i - 2] : undefined;
+            const after_macro =
+                i + 1 < the_significant.length
+                    ? the_significant[i + 1]
+                    : undefined;
+
+            const operator_before = is_expression_operator(pre_literal);
+            const operator_after = is_expression_operator(after_macro);
+            const leads_condition =
+                pre_literal !== undefined &&
+                pre_literal.type === 'WORD' &&
+                CONDITION_KEYWORDS.has(pre_literal.value);
+
+            if (
+                (operator_before || operator_after || leads_condition) &&
+                !my_ignored_lines.has(my_literal.range.start.line)
+            ) {
+                the_diagnostics.push({
+                    range: Range.create(
+                        my_literal.range.start,
+                        my_macro.range.end
+                    ),
+                    message:
+                        'Literal adjacent to macro reference in an ' +
+                        'expression. Stata concatenates these during macro ' +
+                        'expansion; add an operator, whitespace, or ' +
+                        'parentheses if that was not intended.',
+                    severity: my_severity,
+                    source: 'sight',
+                    code: StataDiagnosticCode.LITERAL_MACRO_ADJACENCY,
+                    ...diagnostic_code_description_fields(
+                        StataDiagnosticCode.LITERAL_MACRO_ADJACENCY
+                    ),
+                });
+            }
         }
 
         return the_diagnostics;
-    }
-
-    /**
-     * A qualifying literal is a NUMBER or a complete closed STRING.
-     */
-    private is_qualifying_literal(my_token: Token): boolean {
-        if (my_token.type === 'NUMBER') {
-            return true;
-        }
-        if (my_token.type === 'STRING') {
-            return is_complete_string(my_token);
-        }
-        return false;
-    }
-
-    /**
-     * Find the next significant token after `index`, skipping trivia. A
-     * STATEMENT_TERMINATOR that follows a `///` continuation does not end the
-     * scan (it is part of the continuation); any other terminator does.
-     * Returns undefined if none is found before the statement ends.
-     */
-    private next_significant(
-        the_tokens: Token[],
-        index: number
-    ): Token | undefined {
-        let my_in_continuation = false;
-        for (let my_i = index + 1; my_i < the_tokens.length; my_i++) {
-            const my_token = the_tokens[my_i];
-            if (
-                my_token.type === 'WHITESPACE' ||
-                my_token.type === 'COMMENT_BLOCK'
-            ) {
-                continue;
-            }
-            if (my_token.type === 'CONTINUATION') {
-                my_in_continuation = true;
-                continue;
-            }
-            if (my_token.type === 'STATEMENT_TERMINATOR') {
-                if (my_in_continuation) {
-                    my_in_continuation = false;
-                    continue;
-                }
-                return undefined;
-            }
-            return my_token;
-        }
-        return undefined;
     }
 }
