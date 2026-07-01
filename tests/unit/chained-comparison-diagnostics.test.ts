@@ -66,6 +66,21 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
         it('detects mixed chain a == b != c', () => {
             expect(chains('if a == b != c {')).toHaveLength(1);
         });
+        it('detects spaced != chained comparison syntax', () => {
+            expect(chains('if a ! = b ! = c {')).toHaveLength(1);
+        });
+        it('detects spaced ~= chained comparison syntax', () => {
+            expect(chains('if a ~ = b ~ = c {')).toHaveLength(1);
+        });
+        it('detects spaced <= and >= chained comparison syntax', () => {
+            expect(chains('if a < = b > = c {')).toHaveLength(1);
+        });
+        it('detects spaced comparison operators split by block comments', () => {
+            expect(chains('if a ! /* note */ = b ! = c {')).toHaveLength(1);
+        });
+        it('detects spaced comparison operators split by continuations', () => {
+            expect(chains('if a ! ///\n    = b ! = c {')).toHaveLength(1);
+        });
         it('detects a chain of four (single diagnostic)', () => {
             expect(chains('if a < b < c < d {')).toHaveLength(1);
         });
@@ -155,6 +170,9 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
         });
         it('does not flag an invalid comparison-logical sequence across a continuation as a chain', () => {
             expect(chains('if a < b < ///\n    | c {')).toHaveLength(0);
+        });
+        it('does not normalize spaced = = into a chained comparison', () => {
+            expect(chains('if a = = b = = c {')).toHaveLength(0);
         });
         it('does not span a braceless single-line if condition into its body', () => {
             expect(chains('if a < b gen flag = c < d')).toHaveLength(0);

@@ -14,6 +14,46 @@ export const COMPARISON_OPERATORS: Set<string> = new Set([
 export const LOGICAL_OPERATORS: Set<string> = new Set(['&', '|']);
 
 /**
+ * Spaced comparison operators that Stata accepts as their compact form.
+ * `= =` is intentionally excluded: it is not accepted consistently across
+ * Stata expression contexts and is handled by OperatorSequenceAnalyzer.
+ */
+const SPACED_COMPARISON_OPERATOR_PAIRS: Map<string, string> = new Map([
+    ['< =', '<='],
+    ['> =', '>='],
+    ['! =', '!='],
+    ['~ =', '~='],
+]);
+
+function normalized_spaced_comparison_operator(
+    first: Token,
+    second: Token | undefined
+): Token | undefined {
+    if (
+        first.type !== 'OPERATOR' ||
+        second?.type !== 'OPERATOR'
+    ) {
+        return undefined;
+    }
+
+    const my_compact_operator = SPACED_COMPARISON_OPERATOR_PAIRS.get(
+        `${first.value} ${second.value}`
+    );
+    if (!my_compact_operator) {
+        return undefined;
+    }
+
+    return {
+        type: 'OPERATOR',
+        value: my_compact_operator,
+        range: {
+            start: first.range.start,
+            end: second.range.end,
+        },
+    };
+}
+
+/**
  * Collect the significant tokens of a document for token-stream diagnostics,
  * dropping tokens that are semantically whitespace for expression analysis:
  * - WHITESPACE and CONTINUATION (`///`) tokens.
@@ -30,11 +70,17 @@ export const LOGICAL_OPERATORS: Set<string> = new Set(['&', '|']);
  * Real STATEMENT_TERMINATOR, braces, parentheses, operators, and operands are
  * preserved, so callers still see statement/segment boundaries.
  *
- * Centralizing this keeps the continuation/comment rules in one place so the
- * sibling analyzers cannot drift apart on the same construct.
+ * Spaced comparison operators that Stata accepts as compact comparisons are
+ * normalized in this stream (`< =` -> `<=`, etc.) so semantic diagnostics see
+ * Stata-equivalent forms. Raw-token style diagnostics still use the original
+ * document tokens.
+ *
+ * Centralizing this keeps the continuation/comment/operator-normalization rules
+ * in one place so the sibling analyzers cannot drift apart on the same
+ * construct.
  */
 export function collect_significant_tokens(tokens: Token[]): Token[] {
-    const the_significant: Token[] = [];
+    const the_unfiltered_significant: Token[] = [];
     let my_in_continuation = false;
 
     for (const my_token of tokens) {
@@ -58,6 +104,23 @@ export function collect_significant_tokens(tokens: Token[]): Token[] {
             continue;
         }
         my_in_continuation = false;
+        the_unfiltered_significant.push(my_token);
+    }
+
+    const the_significant: Token[] = [];
+    for (let i = 0; i < the_unfiltered_significant.length; i++) {
+        const my_token = the_unfiltered_significant[i];
+        const my_normalized_operator = normalized_spaced_comparison_operator(
+            my_token,
+            the_unfiltered_significant[i + 1]
+        );
+
+        if (my_normalized_operator) {
+            the_significant.push(my_normalized_operator);
+            i++;
+            continue;
+        }
+
         the_significant.push(my_token);
     }
 

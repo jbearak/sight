@@ -393,9 +393,32 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             for (const my_pair of [
                 { first: '<', compact: '<=' },
                 { first: '>', compact: '>=' },
+                { first: '!', compact: '!=' },
+                { first: '~', compact: '~=' },
             ]) {
                 const doc = create_document_state(
                     `display x ${my_pair.first} /* comment */ = y`
+                );
+                const diagnostics = analyzer.analyze(doc, default_config);
+                const operator_diagnostics = diagnostics.filter(
+                    d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
+                );
+                expect(operator_diagnostics).toHaveLength(1);
+                expect(operator_diagnostics[0].message).toContain(
+                    `Stata treats this as '${my_pair.compact}'`
+                );
+            }
+        });
+
+        it('continuation between spaced compound operators preserves adjacency', () => {
+            for (const my_pair of [
+                { first: '<', compact: '<=' },
+                { first: '>', compact: '>=' },
+                { first: '!', compact: '!=' },
+                { first: '~', compact: '~=' },
+            ]) {
+                const doc = create_document_state(
+                    `display x ${my_pair.first} ///\n    = y`
                 );
                 const diagnostics = analyzer.analyze(doc, default_config);
                 const operator_diagnostics = diagnostics.filter(

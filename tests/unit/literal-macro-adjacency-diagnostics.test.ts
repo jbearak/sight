@@ -56,6 +56,21 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         it("detects number adjacency after < : a < 10`cutoff'", () => {
             expect(found("if a < 10`cutoff' {")).toHaveLength(1);
         });
+        it("detects number adjacency after spaced <= : a < = 1`b'", () => {
+            expect(found("if a < = 1`b' {")).toHaveLength(1);
+        });
+        it("detects number adjacency after spaced != : a ! = 1`b'", () => {
+            expect(found("if a ! = 1`b' {")).toHaveLength(1);
+        });
+        it("detects number adjacency after spaced ~= : a ~ = 1`b'", () => {
+            expect(found("if a ~ = 1`b' {")).toHaveLength(1);
+        });
+        it("detects number adjacency after a spaced comparison split by a block comment", () => {
+            expect(found("if a < /* note */ = 1`b' {")).toHaveLength(1);
+        });
+        it("detects number adjacency after a spaced comparison split by a continuation", () => {
+            expect(found("if a > ///\n    = 1`b' {")).toHaveLength(1);
+        });
         it("detects a leading literal operand before a comparison: while 1`b' == a", () => {
             expect(found("while 1`b' == a {")).toHaveLength(1);
         });
@@ -148,6 +163,9 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         });
         it("does not flag a single-argument function call before ==: if foo(1`b') == a", () => {
             expect(found("if foo(1`b') == a {")).toHaveLength(0);
+        });
+        it("does not treat spaced = = as a comparison for literal-macro adjacency", () => {
+            expect(found("if a = = 1`b' {")).toHaveLength(0);
         });
         it("flags a spaced grouped command expression (not a call): assert (1`b') == 10", () => {
             expect(found("assert (1`b') == 10")).toHaveLength(1);
