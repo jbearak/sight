@@ -69,6 +69,22 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
         it('detects a chain of four (single diagnostic)', () => {
             expect(chains('if a < b < c < d {')).toHaveLength(1);
         });
+        it('detects an incomplete chained comparison tail', () => {
+            const found = chains('if a < b <');
+            expect(found).toHaveLength(1);
+            expect(found[0].message).toContain('Incomplete chained comparison');
+        });
+        it('detects an incomplete chained comparison tail across a continuation', () => {
+            const found = chains('if a < ///\n    b <');
+            expect(found).toHaveLength(1);
+            expect(found[0].message).toContain('Incomplete chained comparison');
+        });
+        it('detects a chained comparison with a unary negative RHS', () => {
+            expect(chains('if a < b < -1 {')).toHaveLength(1);
+        });
+        it('detects a chained comparison with a unary negative RHS across a continuation', () => {
+            expect(chains('if a < b < ///\n    -1 {')).toHaveLength(1);
+        });
         it('detects the missing-& real-world case', () => {
             // `b != 1`c' != 1` : after the & the run has two != separated by
             // operands (1 and `c'), so it is a chain.
@@ -89,6 +105,18 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
     describe('Non-detection (negative)', () => {
         it('does not flag a single comparison', () => {
             expect(chains('if a < b {')).toHaveLength(0);
+        });
+        it('does not flag a single incomplete comparison', () => {
+            expect(chains('if (a < )')).toHaveLength(0);
+        });
+        it('does not flag a single incomplete comparison across a continuation', () => {
+            expect(chains('if (a < ///\n    )')).toHaveLength(0);
+        });
+        it('does not flag a single incomplete macro comparison', () => {
+            expect(chains("if (`a' < )")).toHaveLength(0);
+        });
+        it('does not flag a single incomplete macro comparison across a continuation', () => {
+            expect(chains("if (`a' < ///\n    )")).toHaveLength(0);
         });
         it('does not flag comparisons separated by &', () => {
             expect(chains("if `a' == 1 & `b' != 1 & `c' != 1 {")).toHaveLength(0);
@@ -112,6 +140,21 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
         });
         it('does not double-report adjacent < < (handled by OperatorSequence)', () => {
             expect(chains('if a < < b {')).toHaveLength(0);
+        });
+        it('does not flag an invalid operator sequence after a comparison as a chain', () => {
+            expect(chains('if a < b < < c {')).toHaveLength(0);
+        });
+        it('does not flag an invalid operator sequence after a block comment as a chain', () => {
+            expect(chains('if a < b < /* note */ < c {')).toHaveLength(0);
+        });
+        it('does not flag an invalid operator sequence after a comparison across a continuation as a chain', () => {
+            expect(chains('if a < b < ///\n    < c {')).toHaveLength(0);
+        });
+        it('does not flag an invalid comparison-logical sequence as a chain', () => {
+            expect(chains('if a < b < | c {')).toHaveLength(0);
+        });
+        it('does not flag an invalid comparison-logical sequence across a continuation as a chain', () => {
+            expect(chains('if a < b < ///\n    | c {')).toHaveLength(0);
         });
         it('does not span a braceless single-line if condition into its body', () => {
             expect(chains('if a < b gen flag = c < d')).toHaveLength(0);

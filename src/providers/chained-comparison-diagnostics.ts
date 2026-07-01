@@ -9,6 +9,7 @@ import {
     collect_significant_tokens,
     is_adjacent,
 } from './diagnostic-token-stream';
+import { is_invalid_operator_sequence_pair } from './operator-sequence-diagnostics';
 
 /**
  * Token types that, as the previous significant token, mark the end of an
@@ -52,6 +53,7 @@ const QUALIFIER_BREAKERS: Set<string> = new Set(['if', 'in']);
 interface Chain {
     first: Token;
     last: Token;
+    incomplete_tail: boolean;
 }
 
 /**
@@ -100,12 +102,16 @@ export class ChainedComparisonAnalyzer {
         // Index 0 is the top-level (depth-0) run.
         let run_stack: Token[][] = [[]];
         let prev_significant: Token | undefined = undefined;
+        const incomplete_tail_operators = new WeakSet<Token>();
 
         const close_run = (my_run: Token[]): void => {
             if (my_run.length >= 2) {
+                const last_operator = my_run[my_run.length - 1];
                 the_chains.push({
                     first: my_run[0],
-                    last: my_run[my_run.length - 1],
+                    last: last_operator,
+                    incomplete_tail:
+                        incomplete_tail_operators.has(last_operator),
                 });
             }
             my_run.length = 0;
@@ -119,7 +125,25 @@ export class ChainedComparisonAnalyzer {
             prev_significant = undefined;
         };
 
-        for (const my_token of the_significant) {
+        const is_missing_rhs_after_comparison = (
+            my_next_token: Token | undefined
+        ): boolean => {
+            if (!my_next_token) {
+                return true;
+            }
+            return (
+                EXPRESSION_BREAKERS.has(my_next_token.type) ||
+                my_next_token.type === 'COMMA' ||
+                my_next_token.type === 'EOF' ||
+                my_next_token.type === 'RPAREN' ||
+                my_next_token.type === 'RBRACKET'
+            );
+        };
+
+        for (let i = 0; i < the_significant.length; i++) {
+            const my_token = the_significant[i];
+            const next_significant = the_significant[i + 1];
+
             // Top-level `if`/`in` qualifier ends the preceding expression.
             if (
                 run_stack.length === 1 &&
@@ -171,12 +195,32 @@ export class ChainedComparisonAnalyzer {
                 if (COMPARISON_OPERATORS.has(my_token.value)) {
                     // Count the comparison only when it follows an operand,
                     // i.e. there is an operand between it and any prior
-                    // comparison. This skips adjacent sequences like `< <`.
+                    // comparison. If this operator is immediately followed by
+                    // an invalid operator sequence (`< <`, `< |`, etc.), leave
+                    // that case to OperatorSequenceAnalyzer so users do not
+                    // get duplicate diagnostics for the same malformed tail.
                     if (
                         prev_significant &&
                         OPERAND_END_TYPES.has(prev_significant.type)
                     ) {
-                        current_run.push(my_token);
+                        if (
+                            next_significant?.type === 'OPERATOR' &&
+                            is_invalid_operator_sequence_pair(
+                                my_token.value,
+                                next_significant.value
+                            )
+                        ) {
+                            close_run(current_run);
+                        } else {
+                            if (
+                                is_missing_rhs_after_comparison(
+                                    next_significant
+                                )
+                            ) {
+                                incomplete_tail_operators.add(my_token);
+                            }
+                            current_run.push(my_token);
+                        }
                     } else {
                         // Not a chain link (unary/adjacent context): the run
                         // so far is complete.
@@ -234,12 +278,16 @@ export class ChainedComparisonAnalyzer {
                     my_chain.first.range.start,
                     my_chain.last.range.end
                 ),
-                message:
-                    'Chained comparison is suspicious. Stata evaluates ' +
-                    'comparisons left-to-right (e.g. `a < b < c` becomes ' +
-                    '`(a < b) < c`), not as a mathematical chain. Use an ' +
-                    'explicit logical operator (`&`/`|`) or parentheses to ' +
-                    'make the intended evaluation clear.',
+                message: my_chain.incomplete_tail
+                    ? 'Incomplete chained comparison. A later comparison ' +
+                      'operator has no right-hand operand; complete the ' +
+                      'comparison or replace the chain with an explicit ' +
+                      'logical operator (`&`/`|`).'
+                    : 'Chained comparison is suspicious. Stata evaluates ' +
+                      'comparisons left-to-right (e.g. `a < b < c` becomes ' +
+                      '`(a < b) < c`), not as a mathematical chain. Use an ' +
+                      'explicit logical operator (`&`/`|`) or parentheses to ' +
+                      'make the intended evaluation clear.',
                 severity: my_severity,
                 source: 'sight',
                 code: StataDiagnosticCode.CHAINED_COMPARISON,

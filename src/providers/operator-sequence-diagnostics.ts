@@ -39,6 +39,13 @@ const INVALID_PAIRS: Set<string> = new Set([
     '< <', '> >', '< >', '> <',
 ]);
 
+export function is_invalid_operator_sequence_pair(
+    first_value: string,
+    second_value: string
+): boolean {
+    return INVALID_PAIRS.has(`${first_value} ${second_value}`);
+}
+
 /**
  * C-style logical pairs: context-dependent validity.
  * Valid (but stylistically discouraged) in if/else if control flow statements.
@@ -89,18 +96,24 @@ const NEGATION_OPS: Set<string> = new Set(['!', '~']);
 
 /**
  * Token types that are considered trivia for adjacency detection.
- * WHITESPACE and CONTINUATION tokens between operators do not break adjacency.
+ * WHITESPACE, CONTINUATION, and comments between operators do not break
+ * adjacency. Stata treats comments as whitespace within a continued
+ * expression; in `#delimit cr`, the following STATEMENT_TERMINATOR still breaks
+ * adjacency for line comments.
  */
-const TRIVIA_TYPES: Set<string> = new Set(['WHITESPACE', 'CONTINUATION']);
+const TRIVIA_TYPES: Set<string> = new Set([
+    'WHITESPACE',
+    'CONTINUATION',
+    'COMMENT_BLOCK',
+    'COMMENT_LINE',
+]);
 
 /**
  * Token types that break adjacency between operators.
- * STATEMENT_TERMINATOR, COMMENT_LINE, and COMMENT_BLOCK break adjacency.
+ * Real statement terminators break adjacency.
  */
 const ADJACENCY_BREAKERS: Set<string> = new Set([
     'STATEMENT_TERMINATOR',
-    'COMMENT_LINE',
-    'COMMENT_BLOCK',
 ]);
 
 /**
@@ -261,8 +274,8 @@ export class OperatorSequenceAnalyzer {
     /**
      * Find the next adjacent OPERATOR token, if any.
      * Two OPERATOR tokens are considered "adjacent" if all tokens between them
-     * are trivia (WHITESPACE or CONTINUATION). STATEMENT_TERMINATOR, COMMENT_LINE,
-     * or COMMENT_BLOCK tokens break adjacency.
+     * are trivia (WHITESPACE, CONTINUATION, COMMENT_BLOCK, or COMMENT_LINE).
+     * STATEMENT_TERMINATOR tokens break adjacency.
      * 
      * @param tokens - The token array
      * @param start_index - Index of the first OPERATOR token

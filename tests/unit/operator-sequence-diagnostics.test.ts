@@ -365,7 +365,7 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
         }
     });
 
-    describe('Comments Between Operators Break Adjacency', () => {
+    describe('Comments Between Operators', () => {
         it('line comment between operators breaks adjacency', () => {
             const doc = create_document_state('display x < // comment\n= y');
             const diagnostics = analyzer.analyze(doc, default_config);
@@ -378,16 +378,43 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             expect(operator_diagnostics).toHaveLength(0);
         });
 
-        it('block comment between operators breaks adjacency', () => {
-            const doc = create_document_state('display x < /* comment */ = y');
+        it('line comment between operators preserves adjacency under semicolon delimiter', () => {
+            const doc = create_document_state(
+                '#delimit ;\ndisplay x < // comment\n= y;'
+            );
             const diagnostics = analyzer.analyze(doc, default_config);
             const operator_diagnostics = diagnostics.filter(
-                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR ||
-                     d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
-                     d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+                d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
             );
-            // No diagnostic because comment breaks adjacency
-            expect(operator_diagnostics).toHaveLength(0);
+            expect(operator_diagnostics).toHaveLength(1);
+        });
+
+        it('block comment between spaced compound operators preserves adjacency', () => {
+            for (const my_pair of [
+                { first: '<', compact: '<=' },
+                { first: '>', compact: '>=' },
+            ]) {
+                const doc = create_document_state(
+                    `display x ${my_pair.first} /* comment */ = y`
+                );
+                const diagnostics = analyzer.analyze(doc, default_config);
+                const operator_diagnostics = diagnostics.filter(
+                    d => d.code === StataDiagnosticCode.SPACED_COMPOUND_OPERATOR
+                );
+                expect(operator_diagnostics).toHaveLength(1);
+                expect(operator_diagnostics[0].message).toContain(
+                    `Stata treats this as '${my_pair.compact}'`
+                );
+            }
+        });
+
+        it('block comment between invalid operators preserves adjacency', () => {
+            const doc = create_document_state('display x < /* comment */ < y');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const invalid = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+            expect(invalid).toHaveLength(1);
         });
 
         it('star comment between operators breaks adjacency', () => {
