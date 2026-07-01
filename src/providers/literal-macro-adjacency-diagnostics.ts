@@ -97,10 +97,17 @@ function is_expression_operator(my_token: Token | undefined): boolean {
 /**
  * The token that governs the operand starting at `index`, scanning backward
  * past grouping-open and unary-prefix tokens. For `if (1`b')` this is `if`;
- * for `a == -1`b'` this is `==`. Also reports how many grouping-open tokens
- * were skipped, so the forward scan can skip exactly the matching closers
- * (the parentheses that wrap the operand alone) and no more. Returns an
- * undefined token at the start of input.
+ * for `a == -1`b'` this is `==`. Also reports how many *wrapping* grouping-open
+ * tokens were skipped, so the forward scan can skip exactly the matching
+ * closers (the parentheses that wrap the operand alone) and no more.
+ *
+ * A grouping-open that is a function-call/subscript opener (preceded by a name
+ * or a prior call/subscript result, e.g. the `(` in `strlen(1`x')`) is NOT a
+ * wrapper: the operand is an argument, so the scan stops at the callee and the
+ * paren is not counted — otherwise the forward scan would cross the call's
+ * closing paren and mis-attribute a following operator to the argument. An
+ * `if`/`while` before the paren is a condition, not a call, so it still counts
+ * as a wrapper. Returns an undefined token at the start of input.
  */
 function governing_before(
     the_significant: Token[],
@@ -110,6 +117,16 @@ function governing_before(
     for (let my_i = index - 1; my_i >= 0; my_i--) {
         const my_token = the_significant[my_i];
         if (GROUP_OPEN_TYPES.has(my_token.type)) {
+            const my_before_paren =
+                my_i - 1 >= 0 ? the_significant[my_i - 1] : undefined;
+            if (is_call_opener(my_before_paren)) {
+                // Function-call / subscript opener: the operand is an
+                // argument, not a wrapped operand. Stop at the callee.
+                return {
+                    token: my_before_paren,
+                    group_opens: my_group_opens,
+                };
+            }
             my_group_opens++;
             continue;
         }
@@ -122,6 +139,24 @@ function governing_before(
         return { token: my_token, group_opens: my_group_opens };
     }
     return { token: undefined, group_opens: my_group_opens };
+}
+
+/**
+ * Whether the token immediately before a grouping-open makes it a function-call
+ * or subscript opener rather than a plain grouping paren: a non-keyword WORD
+ * (callee name) or a preceding call/subscript result. `if`/`while` before the
+ * paren is a condition, so it does NOT count as a call opener.
+ */
+function is_call_opener(my_token: Token | undefined): boolean {
+    if (my_token === undefined) {
+        return false;
+    }
+    if (my_token.type === 'RPAREN' || my_token.type === 'RBRACKET') {
+        return true;
+    }
+    return (
+        my_token.type === 'WORD' && !CONDITION_KEYWORDS.has(my_token.value)
+    );
 }
 
 /**

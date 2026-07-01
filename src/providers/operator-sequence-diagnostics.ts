@@ -627,6 +627,8 @@ export class OperatorSequenceAnalyzer {
         if (config_severity === 'off') {
             throw new Error('resolve_severity called with "off" - caller must filter before calling');
         }
-        return resolve_diagnostic_severity(config_severity);
+        // Preserve the original contract: an unexpected value maps to the
+        // caller's default rather than yielding an undefined severity.
+        return resolve_diagnostic_severity(config_severity, default_severity);
     }
 }

@@ -143,6 +143,12 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         it("does not flag a nested function-call argument: if (foo(1`a')) == 2", () => {
             expect(found("if (foo(1`a')) == 2 {")).toHaveLength(0);
         });
+        it("does not flag a single-argument function call before a comparison: count if strlen(1`x') > 5", () => {
+            expect(found("count if strlen(1`x') > 5")).toHaveLength(0);
+        });
+        it("does not flag a single-argument function call before ==: if foo(1`b') == a", () => {
+            expect(found("if foo(1`b') == a {")).toHaveLength(0);
+        });
         it("does not bleed condition context into a braceless single-line if body", () => {
             expect(found("if a == 1 gen y = 1`b'")).toHaveLength(0);
         });
