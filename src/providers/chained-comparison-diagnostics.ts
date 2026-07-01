@@ -43,12 +43,15 @@ const OPERAND_END_TYPES: Set<string> = new Set([
 const TRIVIA_TYPES: Set<string> = new Set(['WHITESPACE', 'CONTINUATION']);
 
 /**
- * Token types that end an expression segment and flush all pending runs.
+ * Token types that end an expression segment and flush all pending runs. An
+ * inline block comment is whitespace-equivalent in Stata and does NOT appear
+ * here — it must not split a comparison run (matching
+ * MixedLogicalOperatorAnalyzer). A line comment ends the physical line, so it
+ * does break the segment.
  */
 const EXPRESSION_BREAKERS: Set<string> = new Set([
     'STATEMENT_TERMINATOR',
     'COMMENT_LINE',
-    'COMMENT_BLOCK',
     'LBRACE',
     'RBRACE',
 ]);
@@ -147,6 +150,12 @@ export class ChainedComparisonAnalyzer {
                 if (my_token.type === 'CONTINUATION') {
                     my_in_continuation = true;
                 }
+                continue;
+            }
+
+            // An inline block comment is whitespace-equivalent: skip it without
+            // resetting the run or the previous-significant tracking.
+            if (my_token.type === 'COMMENT_BLOCK') {
                 continue;
             }
 

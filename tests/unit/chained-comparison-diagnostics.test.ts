@@ -78,6 +78,9 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
         it('detects a chain inside a subscript x[i < j < k]', () => {
             expect(chains('replace x = y[i < j < k]')).toHaveLength(1);
         });
+        it('detects a chain split by an inline block comment', () => {
+            expect(chains('if a < /* note */ b < c {')).toHaveLength(1);
+        });
     });
 
     describe('Non-detection (negative)', () => {

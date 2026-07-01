@@ -119,13 +119,28 @@ export class LiteralMacroAdjacencyAnalyzer {
         // literal itself (both tracking only significant tokens).
         let pre_literal: Token | undefined = undefined;
         let prev_significant: Token | undefined = undefined;
+        let my_in_continuation = false;
 
         for (let i = 0; i < the_tokens.length; i++) {
             const my_token = the_tokens[i];
 
-            if (TRIVIA_TYPES.has(my_token.type)) {
+            // The newline after `///` is tokenized as STATEMENT_TERMINATOR but
+            // is part of the continuation — it must not become a significant
+            // token, or a `///`-split expression would lose its operator
+            // context.
+            if (my_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
+                my_in_continuation = false;
                 continue;
             }
+
+            if (TRIVIA_TYPES.has(my_token.type)) {
+                if (my_token.type === 'CONTINUATION') {
+                    my_in_continuation = true;
+                }
+                continue;
+            }
+
+            my_in_continuation = false;
 
             // Detect the suspicious adjacency: the previous significant token
             // is a qualifying literal raw-adjacent to this macro reference. A

@@ -68,6 +68,9 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         it("detects a global macro too: a == 1$b", () => {
             expect(found("if a == 1$b {")).toHaveLength(1);
         });
+        it("detects across a /// continuation: if a == ///<newline>1`b'", () => {
+            expect(found("if a == ///\n    1`b' {")).toHaveLength(1);
+        });
     });
 
     describe('Non-detection (false-positive guards)', () => {
