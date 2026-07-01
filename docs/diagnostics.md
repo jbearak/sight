@@ -134,6 +134,13 @@ turned off independently.
 | <a id="chained-comparison"></a>`CHAINED_COMPARISON` | warning | `chainedComparison` | Two or more comparisons chained without a logical connector (e.g., `a != b != c`, `a < b < c`). Stata evaluates these left-to-right — `a < b < c` is `(a < b) < c` — so a chain is usually a missing `&` / `\|` or missing parentheses. |
 | <a id="literal-macro-adjacency"></a>`LITERAL_MACRO_ADJACENCY` | hint | `literalMacroAdjacency` | A number or complete string literal placed directly against a following macro reference where the pair is an operand of a comparison/logical operator (e.g., `a == 1\`b'`, or `1\`b' == a`). Stata concatenates them during macro expansion — if `` `b' `` is `0`, `1\`b'` becomes `10`. Only flagged when a comparison/logical operator sits immediately before the literal or immediately after the macro, so intentional adjacency (`gen x\`i'`, function arguments, string interpolation) is left alone. |
 
+These operator/expression rules are heuristic token-stream checks: they do not
+parse per-command semantics, so they can fire inside text-storing commands
+(e.g. `notes`, `char`, `local x <text>`) and do not cover every
+bare-expression command. This matches the scope of the existing operator
+diagnostics; see [#268](https://github.com/jbearak/sight/issues/268) for the
+known edge cases and the command-context improvement tracked for later.
+
 ## Indentation diagnostics
 
 Off by default. Enable with `sight.diagnostics.indentation: true`.
