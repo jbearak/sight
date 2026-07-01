@@ -134,6 +134,15 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         it("does not flag an arithmetic operand: gen z = a - 1`b'", () => {
             expect(found("gen z = a - 1`b'")).toHaveLength(0);
         });
+        it("does not flag a final function argument before a comparison: if foo(y, 2`g') > 0", () => {
+            expect(found("if foo(y, 2`g') > 0 {")).toHaveLength(0);
+        });
+        it("does not flag a final inlist argument before ==: if inlist(x, y, 1`a') == 1", () => {
+            expect(found("if inlist(x, y, 1`a') == 1 {")).toHaveLength(0);
+        });
+        it("does not flag a nested function-call argument: if (foo(1`a')) == 2", () => {
+            expect(found("if (foo(1`a')) == 2 {")).toHaveLength(0);
+        });
         it("does not bleed condition context into a braceless single-line if body", () => {
             expect(found("if a == 1 gen y = 1`b'")).toHaveLength(0);
         });

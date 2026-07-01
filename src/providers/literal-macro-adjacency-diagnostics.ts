@@ -97,15 +97,20 @@ function is_expression_operator(my_token: Token | undefined): boolean {
 /**
  * The token that governs the operand starting at `index`, scanning backward
  * past grouping-open and unary-prefix tokens. For `if (1`b')` this is `if`;
- * for `a == -1`b'` this is `==`. Returns undefined at the start of input.
+ * for `a == -1`b'` this is `==`. Also reports how many grouping-open tokens
+ * were skipped, so the forward scan can skip exactly the matching closers
+ * (the parentheses that wrap the operand alone) and no more. Returns an
+ * undefined token at the start of input.
  */
 function governing_before(
     the_significant: Token[],
     index: number
-): Token | undefined {
+): { token: Token | undefined; group_opens: number } {
+    let my_group_opens = 0;
     for (let my_i = index - 1; my_i >= 0; my_i--) {
         const my_token = the_significant[my_i];
         if (GROUP_OPEN_TYPES.has(my_token.type)) {
+            my_group_opens++;
             continue;
         }
         if (
@@ -114,24 +119,34 @@ function governing_before(
         ) {
             continue;
         }
-        return my_token;
+        return { token: my_token, group_opens: my_group_opens };
     }
-    return undefined;
+    return { token: undefined, group_opens: my_group_opens };
 }
 
 /**
  * The token that governs the operand ending at `index`, scanning forward past
- * grouping-close tokens. For `(1`b') == a` this is `==`. Returns undefined at
- * the end of input.
+ * up to `max_group_closes` grouping-close tokens. For `(1`b') == a` (one
+ * wrapping paren) this is `==`. The cap is essential: a grouping-close that
+ * exceeds the wrap depth closes an ENCLOSING group (e.g. the `)` of a function
+ * call in `foo(y, 2`g') > 0`), whose following operator governs the group, not
+ * this operand — so we must stop there rather than cross the call boundary.
+ * Returns an undefined token at the end of input.
  */
 function governing_after(
     the_significant: Token[],
-    index: number
+    index: number,
+    max_group_closes: number
 ): Token | undefined {
+    let my_remaining_closes = max_group_closes;
     for (let my_i = index + 1; my_i < the_significant.length; my_i++) {
         const my_token = the_significant[my_i];
         if (GROUP_CLOSE_TYPES.has(my_token.type)) {
-            continue;
+            if (my_remaining_closes > 0) {
+                my_remaining_closes--;
+                continue;
+            }
+            return my_token;
         }
         return my_token;
     }
@@ -198,15 +213,19 @@ export class LiteralMacroAdjacencyAnalyzer {
             // grouping parentheses and unary prefixes, so `if (1`b')` and
             // `a == -1`b'` read the same as their bare forms — or when the
             // literal is the leading operand of an `if`/`while` condition.
-            const governor_before = governing_before(the_significant, i - 1);
-            const governor_after = governing_after(the_significant, i);
+            const before = governing_before(the_significant, i - 1);
+            const governor_after = governing_after(
+                the_significant,
+                i,
+                before.group_opens
+            );
 
-            const operator_before = is_expression_operator(governor_before);
+            const operator_before = is_expression_operator(before.token);
             const operator_after = is_expression_operator(governor_after);
             const leads_condition =
-                governor_before !== undefined &&
-                governor_before.type === 'WORD' &&
-                CONDITION_KEYWORDS.has(governor_before.value);
+                before.token !== undefined &&
+                before.token.type === 'WORD' &&
+                CONDITION_KEYWORDS.has(before.token.value);
 
             if (
                 (operator_before || operator_after || leads_condition) &&
