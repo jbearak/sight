@@ -2,6 +2,7 @@ import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/nod
 import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
+import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
 
 /**
  * Logical operator values tracked for mixed-operator detection.
@@ -95,7 +96,7 @@ export class MixedLogicalOperatorAnalyzer {
         }
 
         const my_ignored_lines = document.ignored_lines ?? new Set<number>();
-        const my_severity = this.resolve_severity(my_config_severity);
+        const my_severity = resolve_diagnostic_severity(my_config_severity);
 
         const my_diagnostics: Diagnostic[] = [];
         let my_state = this.fresh_state();
@@ -277,17 +278,6 @@ export class MixedLogicalOperatorAnalyzer {
                     StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
                 ),
             });
-        }
-    }
-
-    private resolve_severity(
-        my_config_severity: 'error' | 'warning' | 'information' | 'hint'
-    ): DiagnosticSeverity {
-        switch (my_config_severity) {
-            case 'error': return DiagnosticSeverity.Error;
-            case 'warning': return DiagnosticSeverity.Warning;
-            case 'information': return DiagnosticSeverity.Information;
-            case 'hint': return DiagnosticSeverity.Hint;
         }
     }
 }

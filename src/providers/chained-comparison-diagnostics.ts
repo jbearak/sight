@@ -1,7 +1,8 @@
-import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/node';
+import { Diagnostic, Range } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
+import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
 
 /**
  * Comparison operator values. These are the binary relational operators that
@@ -104,7 +105,7 @@ export class ChainedComparisonAnalyzer {
         }
 
         const my_ignored_lines = document.ignored_lines ?? new Set<number>();
-        const my_severity = this.resolve_severity(my_config_severity);
+        const my_severity = resolve_diagnostic_severity(my_config_severity);
 
         const the_chains: Chain[] = [];
 
@@ -259,16 +260,5 @@ export class ChainedComparisonAnalyzer {
         }
 
         return the_diagnostics;
-    }
-
-    private resolve_severity(
-        my_config_severity: 'error' | 'warning' | 'information' | 'hint'
-    ): DiagnosticSeverity {
-        switch (my_config_severity) {
-            case 'error': return DiagnosticSeverity.Error;
-            case 'warning': return DiagnosticSeverity.Warning;
-            case 'information': return DiagnosticSeverity.Information;
-            case 'hint': return DiagnosticSeverity.Hint;
-        }
     }
 }

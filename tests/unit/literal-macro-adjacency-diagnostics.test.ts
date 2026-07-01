@@ -56,8 +56,11 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         it("detects number adjacency after < : a < 10`cutoff'", () => {
             expect(found("if a < 10`cutoff' {")).toHaveLength(1);
         });
-        it("detects a leading literal inside a while condition: while 1`b' == a", () => {
+        it("detects a leading literal operand before a comparison: while 1`b' == a", () => {
             expect(found("while 1`b' == a {")).toHaveLength(1);
+        });
+        it("detects a leading operand before a comparison outside if/while: gen z = 1`b' == a", () => {
+            expect(found("gen z = 1`b' == a")).toHaveLength(1);
         });
         it("detects adjacency after a logical operator: if a & 1`b'", () => {
             expect(found("if a & 1`b' {")).toHaveLength(1);
@@ -94,6 +97,15 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         });
         it("does not leak condition context into options: regress y x if ok == 1, foo(2`g')", () => {
             expect(found("regress y x if ok == 1, foo(2`g')")).toHaveLength(0);
+        });
+        it("does not flag a macro-built function argument inside a condition: if inlist(x, 1`a', 2)", () => {
+            expect(found("if inlist(x, 1`a', 2) {")).toHaveLength(0);
+        });
+        it("does not flag a macro-built function argument inside a condition: if max(1`a', y) > 0", () => {
+            expect(found("if max(1`a', y) > 0 {")).toHaveLength(0);
+        });
+        it("does not bleed condition context into a braceless single-line if body", () => {
+            expect(found("if a == 1 gen y = 1`b'")).toHaveLength(0);
         });
         it("does not treat else as a condition starter", () => {
             // Single-line else body with an assignment-context adjacency: no

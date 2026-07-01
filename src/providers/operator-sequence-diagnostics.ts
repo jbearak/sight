@@ -2,6 +2,7 @@ import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/nod
 import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token, StataAST, StataNode } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
+import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
 
 /**
  * Spaced compound operators that Stata accepts as their compact form.
@@ -620,19 +621,12 @@ export class OperatorSequenceAnalyzer {
         config_severity: 'error' | 'warning' | 'information' | 'hint' | 'off' | undefined,
         default_severity: DiagnosticSeverity
     ): DiagnosticSeverity {
-        switch (config_severity) {
-            case 'error':
-                return DiagnosticSeverity.Error;
-            case 'warning':
-                return DiagnosticSeverity.Warning;
-            case 'information':
-                return DiagnosticSeverity.Information;
-            case 'hint':
-                return DiagnosticSeverity.Hint;
-            case 'off':
-                throw new Error('resolve_severity called with "off" - caller must filter before calling');
-            default:
-                return default_severity;
+        if (config_severity === undefined) {
+            return default_severity;
         }
+        if (config_severity === 'off') {
+            throw new Error('resolve_severity called with "off" - caller must filter before calling');
+        }
+        return resolve_diagnostic_severity(config_severity);
     }
 }

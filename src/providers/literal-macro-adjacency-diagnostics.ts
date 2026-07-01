@@ -1,12 +1,14 @@
-import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/node';
+import { Diagnostic, Range } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
+import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
 
 /**
- * Comparison and logical operators. A literal operand that immediately follows
- * one of these is in an expression context where adjacency to a macro is
- * likely a mistake rather than intentional text concatenation.
+ * Comparison and logical operators. A literal-macro operand adjacent to one of
+ * these — on either side — is an operand of a comparison/logical expression,
+ * where concatenation with a macro is likely a mistake rather than intentional
+ * text building.
  */
 const EXPRESSION_OPERATORS: Set<string> = new Set([
     '==', '!=', '~=', '<', '<=', '>', '>=',  // comparison
@@ -22,14 +24,7 @@ const MACRO_REF_TYPES: Set<string> = new Set([
 ]);
 
 /**
- * Keywords that begin a boolean condition region (exact case; Stata is
- * case-sensitive). Both the `if` command/qualifier and `while` are followed by
- * a boolean expression where literal-macro adjacency is suspicious.
- */
-const CONDITION_STARTERS: Set<string> = new Set(['if', 'while']);
-
-/**
- * Trivia token types skipped when tracking the previous significant token.
+ * Trivia token types skipped when tracking significant tokens.
  */
 const TRIVIA_TYPES: Set<string> = new Set(['WHITESPACE', 'CONTINUATION']);
 
@@ -69,18 +64,31 @@ function is_complete_string(my_token: Token): boolean {
 }
 
 /**
+ * Check whether a token is a comparison/logical operator.
+ */
+function is_expression_operator(my_token: Token | undefined): boolean {
+    return (
+        my_token !== undefined &&
+        my_token.type === 'OPERATOR' &&
+        EXPRESSION_OPERATORS.has(my_token.value)
+    );
+}
+
+/**
  * LiteralMacroAdjacencyAnalyzer detects a numeric or complete string literal
- * placed directly against a following macro reference in an expression
- * context, e.g. `a == 1`b'`. Stata concatenates these during macro expansion,
- * so if `b'` expands to `0`, `1`b'` becomes `10`, not `1` — usually a mistake.
+ * placed directly against a following macro reference where the pair is an
+ * operand of a comparison/logical expression, e.g. `a == 1`b'`. Stata
+ * concatenates these during macro expansion, so if `b'` expands to `0`,
+ * `1`b'` becomes `10`, not `1` — usually a mistake.
  *
  * The rule is deliberately narrow to avoid the many intentional uses of macro
- * adjacency (`gen x`i'`, `use "data`year'.dta"`, `display "prefix`name'"`). A
- * literal is flagged only when it is a NUMBER or a complete closed STRING that
- * is raw-adjacent to a following macro AND either (a) directly follows a
- * comparison/logical operator, or (b) sits inside an `if`/`while` condition
- * region. Only literal-then-macro is considered; macro-then-literal
- * (`` `b'1 ``) is far more often intentional.
+ * adjacency (`gen x`i'`, `use "data`year'.dta"`, `display "prefix`name'"`,
+ * function arguments like `inlist(x, 1`a', 2)`). A literal is flagged only when
+ * it is a NUMBER or a complete closed STRING that is raw-adjacent to a
+ * following macro AND the pair is an operand of a comparison/logical operator —
+ * that is, a comparison/logical operator sits immediately before the literal or
+ * immediately after the macro. Only literal-then-macro is considered;
+ * macro-then-literal (`` `b'1 ``) is far more often intentional.
  */
 export class LiteralMacroAdjacencyAnalyzer {
     /**
@@ -103,7 +111,7 @@ export class LiteralMacroAdjacencyAnalyzer {
         }
 
         const my_ignored_lines = document.ignored_lines ?? new Set<number>();
-        const my_severity = this.resolve_severity(my_config_severity);
+        const my_severity = resolve_diagnostic_severity(my_config_severity);
 
         const the_diagnostics: Diagnostic[] = [];
 
@@ -112,44 +120,33 @@ export class LiteralMacroAdjacencyAnalyzer {
         let pre_literal: Token | undefined = undefined;
         let prev_significant: Token | undefined = undefined;
 
-        let paren_depth = 0;
-        let in_condition = false;
-        let my_in_continuation = false;
-
         for (let i = 0; i < the_tokens.length; i++) {
             const my_token = the_tokens[i];
 
-            // The newline after `///` is part of the continuation, not a
-            // statement break.
-            if (my_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
-                my_in_continuation = false;
-                continue;
-            }
-
             if (TRIVIA_TYPES.has(my_token.type)) {
-                if (my_token.type === 'CONTINUATION') {
-                    my_in_continuation = true;
-                }
                 continue;
             }
 
-            my_in_continuation = false;
-
-            // Detect the suspicious adjacency: previous significant token is a
-            // qualifying literal that is raw-adjacent to this macro reference.
+            // Detect the suspicious adjacency: the previous significant token
+            // is a qualifying literal raw-adjacent to this macro reference. A
+            // STATEMENT_TERMINATOR simply becomes prev_significant and is never
+            // a qualifying literal, so lines never bleed together here.
             if (
                 MACRO_REF_TYPES.has(my_token.type) &&
                 prev_significant &&
                 this.is_qualifying_literal(prev_significant) &&
                 is_raw_adjacent(prev_significant, my_token)
             ) {
-                const follows_expression_operator =
-                    pre_literal !== undefined &&
-                    pre_literal.type === 'OPERATOR' &&
-                    EXPRESSION_OPERATORS.has(pre_literal.value);
+                // The pair is an operand of a comparison/logical expression
+                // when such an operator sits immediately before the literal
+                // or immediately after the macro.
+                const operator_before = is_expression_operator(pre_literal);
+                const operator_after = is_expression_operator(
+                    this.next_significant(the_tokens, i)
+                );
 
                 if (
-                    (follows_expression_operator || in_condition) &&
+                    (operator_before || operator_after) &&
                     !my_ignored_lines.has(prev_significant.range.start.line)
                 ) {
                     the_diagnostics.push({
@@ -170,21 +167,6 @@ export class LiteralMacroAdjacencyAnalyzer {
                         ),
                     });
                 }
-            }
-
-            // Update condition-region and paren-depth state.
-            in_condition = this.next_condition_state(
-                my_token,
-                paren_depth,
-                in_condition
-            );
-            if (my_token.type === 'LPAREN' || my_token.type === 'LBRACKET') {
-                paren_depth++;
-            } else if (
-                my_token.type === 'RPAREN' ||
-                my_token.type === 'RBRACKET'
-            ) {
-                paren_depth = Math.max(0, paren_depth - 1);
             }
 
             // Advance the two-token significant history.
@@ -209,53 +191,34 @@ export class LiteralMacroAdjacencyAnalyzer {
     }
 
     /**
-     * Compute the next `in_condition` value given the current token.
-     *
-     * The region turns on after an `if`/`while` keyword and off at a statement
-     * terminator, an opening brace, a top-level comma (end of an `if`
-     * qualifier, start of options), or an `in` qualifier. `else` is not a
-     * condition starter; `else if` starts its condition via the `if` token.
+     * Find the next significant token after `index`, skipping trivia. A
+     * STATEMENT_TERMINATOR that follows a `///` continuation does not end the
+     * scan (it is part of the continuation); any other terminator does.
+     * Returns undefined if none is found before the statement ends.
      */
-    private next_condition_state(
-        my_token: Token,
-        paren_depth: number,
-        current: boolean
-    ): boolean {
-        if (my_token.type === 'WORD') {
-            if (CONDITION_STARTERS.has(my_token.value)) {
-                return true;
+    private next_significant(
+        the_tokens: Token[],
+        index: number
+    ): Token | undefined {
+        let my_in_continuation = false;
+        for (let my_i = index + 1; my_i < the_tokens.length; my_i++) {
+            const my_token = the_tokens[my_i];
+            if (my_token.type === 'WHITESPACE') {
+                continue;
             }
-            if (my_token.value === 'in' && paren_depth === 0) {
-                return false;
+            if (my_token.type === 'CONTINUATION') {
+                my_in_continuation = true;
+                continue;
             }
-            return current;
+            if (my_token.type === 'STATEMENT_TERMINATOR') {
+                if (my_in_continuation) {
+                    my_in_continuation = false;
+                    continue;
+                }
+                return undefined;
+            }
+            return my_token;
         }
-
-        if (
-            my_token.type === 'STATEMENT_TERMINATOR' ||
-            my_token.type === 'LBRACE' ||
-            my_token.type === 'RBRACE' ||
-            my_token.type === 'COMMENT_LINE' ||
-            my_token.type === 'COMMENT_BLOCK'
-        ) {
-            return false;
-        }
-
-        if (my_token.type === 'COMMA' && paren_depth === 0) {
-            return false;
-        }
-
-        return current;
-    }
-
-    private resolve_severity(
-        my_config_severity: 'error' | 'warning' | 'information' | 'hint'
-    ): DiagnosticSeverity {
-        switch (my_config_severity) {
-            case 'error': return DiagnosticSeverity.Error;
-            case 'warning': return DiagnosticSeverity.Warning;
-            case 'information': return DiagnosticSeverity.Information;
-            case 'hint': return DiagnosticSeverity.Hint;
-        }
+        return undefined;
     }
 }
