@@ -9,7 +9,7 @@
 import { SymbolTable, Token } from '../../types';
 import { is_valid_identifier } from '../option-argument-parser';
 import { SINGLE_LINE_PREFIX_COMMANDS } from '../../utils/stata-prefix-commands';
-import { build_static_value_env } from './static-value-env';
+import { build_static_value_env, StaticValueEnvOptions } from './static-value-env';
 import { scan_macro_refs } from './macro-ref-scanner';
 
 export type NamePart =
@@ -231,7 +231,8 @@ export function expand_template(
     // to one of these is per-iteration and unknown here, so it must NOT resolve
     // to the outer frame OR to a stale pre-loop value — treat it as
     // unresolvable so the constructed name's target stays unknown.
-    shadowed_locals?: ReadonlySet<string>
+    shadowed_locals?: ReadonlySet<string>,
+    env_options?: StaticValueEnvOptions
 ): string[] {
     const the_needed = relevant_frames(template, frames);
     let tuple_count = 1;
@@ -250,7 +251,7 @@ export function expand_template(
     // the env's resolvers read the overlay live, so there is no need to rebuild
     // (and reallocate) it for each of the up-to-EXPANSION_CAP iterations.
     const the_overlay = new Map<string, string>();
-    const my_env = build_static_value_env(symbols, the_overlay);
+    const my_env = build_static_value_env(symbols, the_overlay, env_options);
     for (let i = 0; i < tuple_count; i++) {
         let my_divisor = 1;
         for (const my_frame of the_needed) {

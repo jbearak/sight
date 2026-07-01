@@ -415,11 +415,17 @@ export interface MacroSymbol {
   is_expanded?: boolean;
   // True when this macro's FIRST definition is inside a context that may not
   // execute at runtime (an `if`/`else`/`while` body, or a dynamic/empty loop
-  // body, i.e. `nonexec_depth > 0` at definition time). Its stored `value`
-  // is therefore not guaranteed and must NOT be statically folded for loop
-  // expansion (doing so could fabricate iteration values or constructed names
-  // that never exist at runtime, falsely suppressing undefined-macro warnings).
+  // body, tracked via `nonexec_range_stack`). This does NOT make the
+  // macro block-scoped: Stata locals remain visible in the containing do-file /
+  // program after loops. The flag only says its stored `value` must not be
+  // statically folded outside the active execution context, because doing so
+  // could fabricate iteration values or constructed names that never exist.
   maybe_unexecuted?: boolean;
+  // Nearest enclosing non-executing range for a maybe-unexecuted definition.
+  // Static folding may still use this value while resolving later statements
+  // inside the same currently-active range. This supports by-design expansion
+  // of static inner-loop constructed names inside dynamic outer loops.
+  maybe_unexecuted_range?: Range;
   // True when this macro is defined inside a guaranteed loop body and its value
   // interpolates an active loop iterator (e.g. `` local suffix `i' `` inside
   // `foreach i ...`). Its runtime value is the last iteration's binding, which

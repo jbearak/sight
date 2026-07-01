@@ -270,12 +270,34 @@ export class SemanticAnalyzer {
     // bindings for loop-expanded macro names.
     private loop_frames: BindingFrame[] = [];
 
-    // Depth of enclosing bodies that are NOT guaranteed to execute: `if`/
-    // `else`/`while` blocks, and dynamic or empty-value-set loops. While this
-    // is > 0, loop-macro expansion is suppressed — a constructed name inside a
-    // block that may never run must not be injected, or it would falsely
-    // suppress a legitimate undefined-macro warning after the block.
-    private nonexec_depth = 0;
+    // Enclosing bodies that are not guaranteed to execute: `if`/`else`/`while`
+    // blocks, and dynamic or empty-value-set loops. This state is for value
+    // folding, not local-macro visibility. Stata locals are scoped to the
+    // containing do-file/program, not to loop blocks, so a constructed macro
+    // whose name depends only on static inner iterators is intentionally
+    // injected even when an outer loop has a dynamic value set. The dynamic
+    // ancestor only means values defined there are foldable while analysis is
+    // still inside that same active body.
+    // One entry per enclosing non-executing body (loop with a dynamic/empty
+    // value set, or `if`/`else`/`while`). Its length is the non-executing depth
+    // and its top is the nearest enclosing non-executing range used to tag
+    // `maybe_unexecuted` definitions.
+    private nonexec_range_stack: Range[] = [];
+    // Every enclosing loop iterator, in nesting order (innermost last), tagged
+    // by whether its value set is DYNAMIC (no static frame). A DYNAMIC iterator
+    // is rebound to unknown runtime values, so a nested constructed name or
+    // value-set that interpolates it must NOT fold it to a stale pre-loop value
+    // (that would fabricate a name that never exists at runtime — a false
+    // suppression). Order matters because a name can be rebound by both a static
+    // and a dynamic loop at different depths; the INNERMOST binding decides
+    // whether it is shadowed (see `dynamic_iterator_shadow_set`).
+    private loop_iter_stack: Array<{ var: string; dynamic: boolean }> = [];
+    // Conditional bodies are different from dynamic loop ancestors for loop-name
+    // expansion. A conditional branch may not run and has no iteration frame
+    // that lets us enumerate runtime executions, so constructed definitions in
+    // it remain conservative misses. Dynamic loop ancestors do not increment
+    // this counter because they do not create a local-macro scope.
+    private nonexec_conditional_depth = 0;
 
     /**
      * Analyze an AST and build symbol tables.
@@ -300,7 +322,9 @@ export class SemanticAnalyzer {
         this.cd_commands = []; // Reset cd commands (issue #252)
         this.cd_nesting_depth = 0;
         this.loop_frames = []; // Reset loop iterator frames
-        this.nonexec_depth = 0; // Reset non-executing-context depth
+        this.nonexec_range_stack = []; // Reset non-executing-context stack
+        this.loop_iter_stack = []; // Reset loop iterator nesting stack
+        this.nonexec_conditional_depth = 0;
         this.workspace_symbols = workspace_symbols; // Store workspace symbols
         this.tokens = tokens; // Keep tokens for command-level pattern checks
 
@@ -859,16 +883,22 @@ export class SemanticAnalyzer {
         // against the enclosing do-file iterator. Uses build_symbols_in_body so
         // cd-nesting tracking (issue #252) still applies inside the program.
         const saved_loop_frames = this.loop_frames;
-        const saved_nonexec_depth = this.nonexec_depth;
+        const saved_nonexec_range_stack = this.nonexec_range_stack;
+        const saved_loop_iter_stack = this.loop_iter_stack;
+        const saved_nonexec_conditional_depth = this.nonexec_conditional_depth;
         this.loop_frames = [];
         // A program body executes top-level when the program is called, so reset
-        // the non-executing-context depth for its own internal loops.
-        this.nonexec_depth = 0;
+        // the non-executing-context state for its own internal loops.
+        this.nonexec_range_stack = [];
+        this.loop_iter_stack = [];
+        this.nonexec_conditional_depth = 0;
         try {
             this.build_symbols_in_body(node.body, symbols, program_scope, all_scopes);
         } finally {
             this.loop_frames = saved_loop_frames;
-            this.nonexec_depth = saved_nonexec_depth;
+            this.nonexec_range_stack = saved_nonexec_range_stack;
+            this.loop_iter_stack = saved_loop_iter_stack;
+            this.nonexec_conditional_depth = saved_nonexec_conditional_depth;
         }
 
         // Guard body-metadata extractions on first definition only.
@@ -1021,9 +1051,19 @@ export class SemanticAnalyzer {
      * iterators are always locals, so only local refs can match.
      */
     private value_captures_active_iterator(value: string | undefined): boolean {
-        if (!value || this.loop_frames.length === 0) return false;
-        const the_iterator_vars = new Set(
-            this.loop_frames.map((my_frame) => my_frame.var)
+        if (!value || this.loop_iter_stack.length === 0) {
+            return false;
+        }
+        // Every enclosing loop iterator — static OR dynamic. A value
+        // interpolating one is per-iteration: a static loop holds the last
+        // binding, a dynamic loop an unknown runtime binding. Either way folding
+        // it would fabricate a name from a stale or unknown value, so the macro
+        // is iteration-dependent and unfoldable. This also closes the transitive
+        // leak: `` local h `survey' `` inside a dynamic `foreach survey` makes
+        // `h` unfoldable, so a later `` local x_`h'_`i' `` cannot resolve to the
+        // stale `survey` value.
+        const the_iterator_vars = new Set<string>(
+            this.loop_iter_stack.map((my_iter) => my_iter.var)
         );
         let captures = false;
         scan_macro_refs(value, {
@@ -1035,6 +1075,28 @@ export class SemanticAnalyzer {
             global_ref: () => true,
         });
         return captures;
+    }
+
+    /**
+     * Names whose INNERMOST enclosing loop binding is DYNAMIC (no static frame),
+     * so the iterator holds an unknown runtime value. A constructed name or
+     * value-set referencing one must stay unresolved (folding the stale pre-loop
+     * value would fabricate a name that never exists at runtime). The innermost
+     * binding decides: a name a dynamic loop rebinds is shadowed even if an
+     * OUTER static loop reused it, and a name a static loop rebinds is NOT
+     * shadowed even if an OUTER dynamic loop reused it.
+     */
+    private dynamic_iterator_shadow_set(): Set<string> {
+        // Walk outermost->innermost; the last write per name wins.
+        const innermost_is_dynamic = new Map<string, boolean>();
+        for (const my_iter of this.loop_iter_stack) {
+            innermost_is_dynamic.set(my_iter.var, my_iter.dynamic);
+        }
+        const the_shadowed = new Set<string>();
+        for (const [my_var, is_dynamic] of innermost_is_dynamic) {
+            if (is_dynamic) the_shadowed.add(my_var);
+        }
+        return the_shadowed;
     }
 
     private process_macro_def(
@@ -1075,10 +1137,17 @@ export class SemanticAnalyzer {
                 // `if`/`while` body, or a dynamic/empty loop body) is not
                 // guaranteed to run, so its value must not be folded into a
                 // later loop's value-set or constructed names.
-                ...(this.nonexec_depth > 0 ? { maybe_unexecuted: true } : {}),
-                // Defined inside a guaranteed loop with a value that captured the
-                // loop iterator (e.g. `` local suffix `i' ``): its runtime value
-                // is iteration-dependent and must not be statically folded.
+                ...(this.nonexec_range_stack.length > 0 ? {
+                    maybe_unexecuted: true,
+                    maybe_unexecuted_range: this.nonexec_range_stack[
+                        this.nonexec_range_stack.length - 1
+                    ],
+                } : {}),
+                // Defined inside a loop with a value that captured a loop
+                // iterator (static, e.g. `` local suffix `i' ``, OR dynamic,
+                // e.g. `` local h `survey' `` inside `foreach survey in ...`):
+                // its runtime value is iteration-dependent and must not be
+                // statically folded.
                 ...(this.value_captures_active_iterator(node.value)
                     ? { iteration_dependent: true }
                     : {}),
@@ -2568,7 +2637,13 @@ export class SemanticAnalyzer {
         const value_set = resolve_loop_value_set(
             loop_type,
             node.loopSpec,
-            build_static_value_env(scoped_macros)
+            build_static_value_env(scoped_macros, undefined, {
+                allow_maybe_unexecuted_ranges: this.nonexec_range_stack,
+                // An enclosing dynamic loop's iterator must not fold to its stale
+                // pre-loop value when resolving THIS loop's value set (e.g. a
+                // nested `foreach v in `survey'`).
+                shadowed_locals: this.dynamic_iterator_shadow_set(),
+            })
         );
         const pushed = value_set.kind === 'static' && !!node.loopVar;
         if (pushed) {
@@ -2580,22 +2655,54 @@ export class SemanticAnalyzer {
 
         // The loop body is guaranteed to execute (≥1 iteration) only when the
         // value-set is static AND non-empty. A dynamic or empty-value-set loop
-        // body may not run, so a constructed name inside it must not be
-        // expanded — and any nested static loop must be suppressed too.
+        // body still contributes symbols to the containing Stata local scope
+        // (loops do not create scopes), but values defined there are not
+        // globally foldable because the body may never run.
         const guaranteed = pushed
             && (value_set as { kind: 'static'; values: string[] }).values.length > 0;
-        // Expand only when this loop runs unconditionally AND the whole
-        // enclosing context does too (no `if`/`while` or non-guaranteed loop
-        // above us). Snapshot the pre-loop macros (cloning additional_definitions
-        // so body redefinitions cannot retroactively poison the fold) so the
-        // fold sees only macros visible before the loop, and expand AFTER the
-        // body is walked so a body-literal definition of the same concrete name
-        // remains the primary symbol.
-        const can_expand = guaranteed && this.tokens != null && this.nonexec_depth === 0;
+        // Expand constructed names whenever THIS loop has a static, non-empty
+        // value set and we are not inside a conditional branch. This is
+        // deliberate: an outer dynamic loop makes its own iterator unknown, but
+        // it does NOT make local macros block-scoped. If the constructed name
+        // references only this loop's static iterator (or helpers foldable in
+        // the active dynamic body), the concrete macro name is tractable and
+        // remains visible after the loop in Stata.
+        //
+        // ACCEPTED TRADEOFF: a dynamic outer loop (e.g. `foreach s in
+        // `r(levels)'`) may iterate zero times at runtime, in which case the
+        // inner loop's constructed names are never actually defined and a later
+        // reference to them is NOT a true undefined-macro. Expanding here
+        // suppresses that warning — a deliberate, intended relaxation (asserted
+        // by the `dynamic outer loop` integration tests). Names that interpolate
+        // the dynamic outer iterator itself are still excluded — see
+        // `dynamic_iterator_shadow_set` / `loop_iter_stack` — since folding its
+        // stale pre-loop value would fabricate a specific name unrelated to any
+        // runtime iteration.
+        //
+        // Snapshot the pre-loop macros (cloning additional_definitions so body
+        // redefinitions cannot retroactively poison the fold) so the fold sees
+        // only macros visible before the loop, and expand AFTER the body is
+        // walked so a body-literal definition of the same concrete name remains
+        // the primary symbol.
+        const can_expand =
+            guaranteed && this.tokens != null && this.nonexec_conditional_depth === 0;
         const pre_loop_macros = can_expand
             ? this.snapshot_macro_maps(scoped_macros)
             : undefined;
-        if (!guaranteed) this.nonexec_depth++;
+        if (!guaranteed) {
+            this.nonexec_range_stack.push(node.range);
+        }
+        // Record this loop's iterator (if any) in nesting order, tagged by
+        // whether its value set is DYNAMIC (no static frame). A dynamic
+        // iterator is rebound to unknown runtime values inside the body, so a
+        // nested constructed name / value-set that interpolates it must treat it
+        // as shadowed (see dynamic_iterator_shadow_set) rather than fold a stale
+        // pre-loop value. Recorded for STATIC iterators too so the innermost
+        // binding of a reused name can be determined.
+        const pushed_iter = node.loopVar !== undefined;
+        if (pushed_iter) {
+            this.loop_iter_stack.push({ var: node.loopVar!, dynamic: !pushed });
+        }
         try {
             // Process loop body with the same scope (loop doesn't create new
             // scope). build_symbols_in_body tracks cd-nesting depth (issue #252).
@@ -2648,7 +2755,15 @@ export class SemanticAnalyzer {
                             the_drop.unknown
                             || this.command_creates_dynamic_macro(statement, symbols);
                         return { names, unknown };
-                    }
+                    },
+                    { allow_maybe_unexecuted_ranges: this.nonexec_range_stack },
+                    // Iterators of enclosing DYNAMIC loops are rebound to unknown
+                    // runtime values, so a constructed name interpolating one
+                    // must stay unresolved rather than fold a stale pre-loop
+                    // value. An inner static loop reusing the name is excluded —
+                    // its static frame supplies the binding (see
+                    // `dynamic_iterator_shadow_set`).
+                    this.dynamic_iterator_shadow_set()
                 );
                 for (const my_macro of the_expanded) {
                     this.inject_expanded_macro(
@@ -2660,7 +2775,12 @@ export class SemanticAnalyzer {
                 }
             }
         } finally {
-            if (!guaranteed) this.nonexec_depth--;
+            if (!guaranteed) {
+                this.nonexec_range_stack.pop();
+            }
+            if (pushed_iter) {
+                this.loop_iter_stack.pop();
+            }
             if (pushed) {
                 this.loop_frames.pop();
             }
@@ -2849,16 +2969,25 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         all_scopes: ScopeInfo[]
     ): void {
-        // `if`/`else`/`while` bodies may not execute, so loop-macro expansion
-        // inside them must be suppressed. `frame X { ... }` always runs, so it
-        // does not gate expansion.
+        // `if`/`else`/`while` bodies may not execute, so constructed-name
+        // expansion inside them stays conservative. This is intentionally
+        // narrower than dynamic loop handling: loops do not create local-macro
+        // scope, but conditionals do not provide enumerable iterator bindings
+        // and branch execution is not guaranteed. `frame X { ... }` always
+        // runs, so it does not gate expansion.
         const is_conditional = node.type !== 'frame';
-        if (is_conditional) this.nonexec_depth++;
+        if (is_conditional) {
+            this.nonexec_conditional_depth++;
+            this.nonexec_range_stack.push(node.range);
+        }
         try {
             // Process body with the same scope
             this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
         } finally {
-            if (is_conditional) this.nonexec_depth--;
+            if (is_conditional) {
+                this.nonexec_conditional_depth--;
+                this.nonexec_range_stack.pop();
+            }
         }
     }
 
@@ -3229,6 +3358,13 @@ export class SemanticAnalyzer {
      * inline unit ends); otherwise fall back to preorder-index, line-number,
      * and same-line forward-reference checks. Identical for both scopes — the
      * scope-specific lookups and fallbacks stay in `is_macro_defined`.
+     *
+     * Only the PRIMARY definition is consulted: `inject_expanded_macro` keeps
+     * the primary as the EARLIEST definition (line/index/location), so an
+     * `additional_definitions` entry is always at-or-after it and could never
+     * turn a genuine forward reference into a resolved one — see the
+     * "Consumers read the PRIMARY definition markers" invariant in
+     * `inject_expanded_macro`.
      */
     private macro_resolves_at_reference(
         macro: MacroSymbol,

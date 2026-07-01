@@ -15,6 +15,7 @@ import {
     is_constructed_increment,
     template_references_redefined,
 } from './name-expander';
+import { StaticValueEnvOptions } from './static-value-env';
 
 export { build_static_value_env } from './static-value-env';
 export type { StaticValue, StaticValueEnv } from './static-value-env';
@@ -84,7 +85,14 @@ export function expand_loop_body(
         // `macro drop _all`) — the target is unknown, so every later template
         // must be skipped.
         unknown: boolean;
-    }
+    },
+    env_options?: StaticValueEnvOptions,
+    // Local names that an ENCLOSING dynamic loop rebinds (its iterator has no
+    // static frame). A constructed name interpolating one of these must stay
+    // unresolved rather than fold a stale pre-loop value of the same name —
+    // otherwise it fabricates a concrete name that never exists at runtime,
+    // falsely suppressing an undefined-macro warning.
+    initial_shadowed_locals?: ReadonlySet<string>
 ): ExpandedLoopMacro[] {
     // If any active loop has an empty iteration set, the (innermost) body never
     // executes, so no constructed name is actually defined. Expanding here —
@@ -147,7 +155,11 @@ export function expand_loop_body(
                 return;
             }
             const the_names = expand_template(
-                template, active_frames, symbols, shadowed_locals
+                template,
+                active_frames,
+                symbols,
+                shadowed_locals,
+                env_options
             );
             if (the_names.length === 0) {
                 // The constructed name could not be resolved in this frame
@@ -211,12 +223,14 @@ export function expand_loop_body(
     // Walk the body in execution order. `frame X { … }` always executes, so it
     // stays expandable. Conditional bodies (`if`/`else`/`while`) and nested
     // loops may not execute (or execute with different bindings), so their
-    // constructed names must NOT be injected — but any helper they reassign
-    // still shadows the pre-loop value for LATER templates, so we must descend
-    // into them to POISON those redefinitions (otherwise a stale pre-loop fold
-    // fabricates a concrete name that never exists at runtime, suppressing a
-    // legitimate undefined-macro warning). Nested foreach/forvalues additionally
-    // handle their own expansion via their own analyzer-level process_loop call.
+    // constructed names must NOT be injected by this PARENT poison walk — but
+    // any helper they reassign still shadows the pre-loop value for LATER
+    // templates, so we must descend into them to POISON those redefinitions
+    // (otherwise a stale pre-loop fold fabricates a concrete name that never
+    // exists at runtime, suppressing a legitimate undefined-macro warning).
+    // Nested foreach/forvalues handle their own expansion via their own
+    // analyzer-level process_loop call; that expansion is by design even under
+    // a dynamic outer loop when the nested loop's name template is tractable.
     //
     // A nested `foreach`/`forvalues` rebinds its own loop variable, so inside it
     // a constructed name that interpolates that name must NOT resolve to the
@@ -281,6 +295,6 @@ export function expand_loop_body(
             }
         }
     };
-    walk(node.body, true, frames, new Set<string>());
+    walk(node.body, true, frames, new Set<string>(initial_shadowed_locals));
     return the_expanded;
 }

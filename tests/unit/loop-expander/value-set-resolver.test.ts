@@ -66,6 +66,11 @@ describe('resolve_loop_value_set: foreach in', () => {
             .toEqual({ kind: 'static', values: ['a', 'c'] });
     });
 
+    it('is dynamic when every list item is unresolvable', () => {
+        expect(resolve_loop_value_set('foreach', "in `r(levels)'", EMPTY))
+            .toEqual({ kind: 'dynamic' });
+    });
+
     it('interpolates a macro ref adjacent to literal text in an unquoted item', () => {
         const env = env_from({ m: 'b' }, { g: '1' });
         expect(resolve_loop_value_set('foreach', "in a`m' x$g", env))

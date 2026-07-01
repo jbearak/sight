@@ -37,6 +37,7 @@
  * the false suppression this feature must never produce. (See the design spec's
  * "Out of scope" section.)
  */
+import { Range } from 'vscode-languageserver-textdocument';
 import { MacroSymbol, SymbolTable } from '../../types';
 import { scan_macro_refs } from './macro-ref-scanner';
 
@@ -52,6 +53,17 @@ export interface StaticValueEnv {
      * any referenced macro is dynamic/unknown.
      */
     interpolate(text: string): StaticValue;
+}
+
+export interface StaticValueEnvOptions {
+    allow_maybe_unexecuted_ranges?: readonly Range[];
+    // Local names rebound by an enclosing DYNAMIC loop (its iterator has no
+    // static frame). Their stored pre-loop value is stale relative to the
+    // unknown runtime binding, so folding them — e.g. resolving the spec of a
+    // nested `foreach v in `survey'` to `survey`'s pre-loop value — would
+    // fabricate a value/name that never exists at runtime. Treat as
+    // unresolvable.
+    shadowed_locals?: ReadonlySet<string>;
 }
 
 type MacroMaps = Pick<SymbolTable, 'localMacros' | 'globalMacros'>;
@@ -106,8 +118,23 @@ function strip_string_literal(text: string): string | null {
 
 export function build_static_value_env(
     symbols: MacroMaps,
-    overlay?: Map<string, string>
+    overlay?: Map<string, string>,
+    options?: StaticValueEnvOptions
 ): StaticValueEnv {
+    const maybe_unexecuted_is_allowed = (symbol: MacroSymbol): boolean => {
+        if (!symbol.maybe_unexecuted) return true;
+        if (!symbol.maybe_unexecuted_range) return false;
+        // A symbol's `maybe_unexecuted_range` is the exact Range object pushed
+        // onto `nonexec_range_stack` at definition time, and
+        // `allow_maybe_unexecuted_ranges` is that same live stack, so identity
+        // (`===`) is the correct membership test: it matches only while the
+        // defining body is still active, and avoids a coincidental
+        // structural match between two distinct bodies with equal coordinates.
+        return options?.allow_maybe_unexecuted_ranges?.some(
+            (range) => range === symbol.maybe_unexecuted_range
+        ) ?? false;
+    };
+
     // Interpolate macro references inside a value string. Returns null if any
     // referenced macro is dynamic/unknown, or if the value uses constructs we
     // do not statically evaluate (nested macro refs, `=expr', unbalanced refs).
@@ -118,24 +145,33 @@ export function build_static_value_env(
     // its definition, so a reference captured there cannot see a macro defined
     // later in the file. Honoring this prevents fabricating a name from a
     // forward-defined macro (which would falsely suppress a real warning).
+    // `direct` is true while resolving text that appears LITERALLY in the source
+    // being analyzed (a loop-spec item or constructed name), and false once we
+    // descend into a stored macro's value via `fold_symbol`. It controls dynamic
+    // -iterator shadowing: a direct reference to a rebound iterator must not fold
+    // to its stale pre-loop value, but a pre-loop helper that captured the value
+    // (reached only through a fold) legitimately holds it.
     const interpolate = (
         text: string,
         visited: Set<string>,
         depth: number,
-        max_index: number
+        max_index: number,
+        direct: boolean
     ): StaticValue => {
         if (depth > MAX_FOLD_DEPTH) return null;
         const parts: string[] = [];
         const ok = scan_macro_refs(text, {
             literal: (ch) => { parts.push(ch); },
             local_ref: (name) => {
-                const resolved = resolve_local_internal(name, visited, depth + 1, max_index);
+                const resolved =
+                    resolve_local_internal(name, visited, depth + 1, max_index, direct);
                 if (resolved === null) return false;
                 parts.push(resolved);
                 return true;
             },
             global_ref: (name) => {
-                const resolved = resolve_global_internal(name, visited, depth + 1, max_index);
+                const resolved =
+                    resolve_global_internal(name, visited, depth + 1, max_index, direct);
                 if (resolved === null) return false;
                 parts.push(resolved);
                 return true;
@@ -151,10 +187,15 @@ export function build_static_value_env(
     ): StaticValue => {
         if (symbol.value === undefined) return null;
         // A definition that may not execute at runtime (inside an `if`/`while`
-        // body or a dynamic/empty loop body) has no guaranteed value, so it is
-        // dynamic for folding purposes. Folding it would fabricate iteration
-        // values or constructed names that may never exist at runtime.
-        if (symbol.maybe_unexecuted) return null;
+        // body or a dynamic/empty loop body) has no guaranteed value OUTSIDE
+        // that active body, so it is normally dynamic for folding purposes.
+        // This is a value-folding rule only, not a visibility rule: Stata locals
+        // are not loop-block scoped. While analyzing a later statement inside
+        // the same active dynamic loop body, the analyzer deliberately allows
+        // folding via `allow_maybe_unexecuted_ranges`; this is what lets
+        // `local vars ...` feed a static inner loop that constructs macros like
+        // `` local `v'_exists ``.
+        if (!maybe_unexecuted_is_allowed(symbol)) return null;
         // Defined inside a guaranteed loop with a value that captured the loop
         // iterator: its runtime value is the last iteration's binding, unknown
         // statically. Folding the iterator's stale stored value would fabricate
@@ -178,18 +219,21 @@ export function build_static_value_env(
         const next_max = symbol.definition_index ?? Number.POSITIVE_INFINITY;
         const literal = strip_string_literal(value);
         if (literal !== null) {
-            return interpolate(literal, visited, depth, next_max);
+            // Descending into a stored value: references inside it are no longer
+            // direct source references (see `interpolate`'s `direct`).
+            return interpolate(literal, visited, depth, next_max, false);
         }
         // A non-literal `= expr` value (e.g. `2+2`) is dynamic.
         if (symbol.hasEquals) return null;
-        return interpolate(value, visited, depth, next_max);
+        return interpolate(value, visited, depth, next_max, false);
     };
 
     const resolve_local_internal = (
         name: string,
         visited: Set<string>,
         depth: number,
-        max_index: number
+        max_index: number,
+        direct: boolean
     ): StaticValue => {
         // The overlay (loop iterator value) supplies a `` `i' `` written
         // directly in the constructed name (depth 0), which Stata re-evaluates
@@ -201,6 +245,18 @@ export function build_static_value_env(
             const overlaid = overlay?.get(name);
             if (overlaid !== undefined) return overlaid;
         }
+        // A DIRECT source reference (written literally in the loop spec /
+        // constructed name, whether reached via resolve_local at depth 0 or via
+        // interpolate at depth 1) to an enclosing dynamic loop's iterator — e.g.
+        // a nested `foreach v in `survey'` or `foreach v in x`survey'` spec —
+        // must not fold to the stale pre-loop value, since the iterator is
+        // rebound to unknown runtime values. Only direct references are shadowed:
+        // a helper defined BEFORE the loop that captured the iterator's value
+        // holds a legitimate pre-loop value and is reached only through a fold
+        // (`direct` is then false), where it must still fold. (A helper defined
+        // INSIDE the loop that captures the iterator is separately marked
+        // iteration_dependent and is unfoldable for that reason.)
+        if (direct && options?.shadowed_locals?.has(name)) return null;
         const key = `local:${name}`;
         if (visited.has(key)) return null; // cycle
         const symbol = symbols.localMacros.get(name);
@@ -219,7 +275,8 @@ export function build_static_value_env(
         name: string,
         visited: Set<string>,
         depth: number,
-        max_index: number
+        max_index: number,
+        _direct: boolean
     ): StaticValue => {
         const key = `global:${name}`;
         if (visited.has(key)) return null; // cycle
@@ -246,18 +303,18 @@ export function build_static_value_env(
             if (overlaid !== undefined) return overlaid;
             if (memo_local.has(name)) return memo_local.get(name)!;
             const resolved = resolve_local_internal(
-                name, new Set(), 0, Number.POSITIVE_INFINITY);
+                name, new Set(), 0, Number.POSITIVE_INFINITY, true);
             memo_local.set(name, resolved);
             return resolved;
         },
         resolve_global: (name: string) => {
             if (memo_global.has(name)) return memo_global.get(name)!;
             const resolved = resolve_global_internal(
-                name, new Set(), 0, Number.POSITIVE_INFINITY);
+                name, new Set(), 0, Number.POSITIVE_INFINITY, true);
             memo_global.set(name, resolved);
             return resolved;
         },
         interpolate: (text: string) =>
-            interpolate(text, new Set(), 0, Number.POSITIVE_INFINITY),
+            interpolate(text, new Set(), 0, Number.POSITIVE_INFINITY, true),
     };
 }
