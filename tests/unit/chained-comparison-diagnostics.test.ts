@@ -81,6 +81,9 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
         it('detects a chain split by an inline block comment', () => {
             expect(chains('if a < /* note */ b < c {')).toHaveLength(1);
         });
+        it('detects a chain split by a // comment under #delimit ;', () => {
+            expect(chains('#delimit ;\nif a < // note\n   b < c;')).toHaveLength(1);
+        });
     });
 
     describe('Non-detection (negative)', () => {

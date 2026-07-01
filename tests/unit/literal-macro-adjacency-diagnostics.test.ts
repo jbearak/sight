@@ -149,6 +149,15 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         it("does not flag a single-argument function call before ==: if foo(1`b') == a", () => {
             expect(found("if foo(1`b') == a {")).toHaveLength(0);
         });
+        it("flags a spaced grouped command expression (not a call): assert (1`b') == 10", () => {
+            expect(found("assert (1`b') == 10")).toHaveLength(1);
+        });
+        it("flags a spaced grouped command expression: display (1`b') == 10", () => {
+            expect(found("display (1`b') == 10")).toHaveLength(1);
+        });
+        it("detects adjacency split by a // comment under #delimit ;", () => {
+            expect(found("#delimit ;\nif a == // note\n   1`b';")).toHaveLength(1);
+        });
         it("does not bleed condition context into a braceless single-line if body", () => {
             expect(found("if a == 1 gen y = 1`b'")).toHaveLength(0);
         });

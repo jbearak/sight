@@ -28,14 +28,14 @@ const OPERAND_END_TYPES: Set<string> = new Set([
 ]);
 
 /**
- * Token types that end an expression segment and flush all pending runs. An
- * inline block comment is whitespace-equivalent in Stata and is already
- * dropped by collect_significant_tokens, so it never splits a run. A line
- * comment ends the physical line, so it does break the segment.
+ * Token types that end an expression segment and flush all pending runs.
+ * Comments (block and line) are whitespace-equivalent for expression analysis
+ * and are already dropped by collect_significant_tokens, so they never split a
+ * run; statement boundaries come from real STATEMENT_TERMINATORs (newline in
+ * `#delimit cr`, `;` under `#delimit ;`) and braces.
  */
 const EXPRESSION_BREAKERS: Set<string> = new Set([
     'STATEMENT_TERMINATOR',
-    'COMMENT_LINE',
     'LBRACE',
     'RBRACE',
 ]);

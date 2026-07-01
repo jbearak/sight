@@ -20,11 +20,15 @@ export const LOGICAL_OPERATORS: Set<string> = new Set(['&', '|']);
  * - The STATEMENT_TERMINATOR that immediately follows a `///` continuation —
  *   it is the newline after `///` and is part of the continuation, not a real
  *   statement break.
- * - Inline block comments, which are whitespace-equivalent in Stata and can
- *   appear mid-expression.
+ * - Inline block comments, which are whitespace-equivalent in Stata.
+ * - Line comments (`//`, `*`): they end only the comment text, not the
+ *   statement. In `#delimit cr` the newline after the comment is a real
+ *   STATEMENT_TERMINATOR (preserved) that bounds the statement; under
+ *   `#delimit ;` the statement continues to the `;`. Dropping the comment
+ *   itself lets both modes rely on real terminators for boundaries.
  *
- * Real STATEMENT_TERMINATOR, COMMENT_LINE, braces, parentheses, operators, and
- * operands are preserved, so callers still see statement/segment boundaries.
+ * Real STATEMENT_TERMINATOR, braces, parentheses, operators, and operands are
+ * preserved, so callers still see statement/segment boundaries.
  *
  * Centralizing this keeps the continuation/comment rules in one place so the
  * sibling analyzers cannot drift apart on the same construct.
@@ -45,8 +49,12 @@ export function collect_significant_tokens(tokens: Token[]): Token[] {
             my_in_continuation = true;
             continue;
         }
-        if (my_token.type === 'COMMENT_BLOCK') {
-            // Whitespace-equivalent; skip without disturbing continuation state.
+        if (
+            my_token.type === 'COMMENT_BLOCK' ||
+            my_token.type === 'COMMENT_LINE'
+        ) {
+            // Comments are whitespace-equivalent for expression analysis; skip
+            // without disturbing continuation state.
             continue;
         }
         my_in_continuation = false;

@@ -119,7 +119,7 @@ function governing_before(
         if (GROUP_OPEN_TYPES.has(my_token.type)) {
             const my_before_paren =
                 my_i - 1 >= 0 ? the_significant[my_i - 1] : undefined;
-            if (is_call_opener(my_before_paren)) {
+            if (is_call_opener(my_before_paren, my_token)) {
                 // Function-call / subscript opener: the operand is an
                 // argument, not a wrapped operand. Stop at the callee.
                 return {
@@ -142,13 +142,23 @@ function governing_before(
 }
 
 /**
- * Whether the token immediately before a grouping-open makes it a function-call
- * or subscript opener rather than a plain grouping paren: a non-keyword WORD
- * (callee name) or a preceding call/subscript result. `if`/`while` before the
- * paren is a condition, so it does NOT count as a call opener.
+ * Whether `my_token`, immediately before the grouping-open `my_paren`, makes it
+ * a function-call or subscript opener rather than a plain grouping paren.
+ *
+ * The paren must be directly adjacent to the preceding token (no whitespace):
+ * `strlen(1`x')` is a call, but `assert (1`b')` / `display (1`b')` are commands
+ * with a grouped expression, where Stata's own disambiguator is the space. A
+ * call opener is a non-keyword WORD (callee name) or a preceding call/subscript
+ * result (`)`/`]`). `if`/`while` before the paren is a condition, not a call.
  */
-function is_call_opener(my_token: Token | undefined): boolean {
+function is_call_opener(
+    my_token: Token | undefined,
+    my_paren: Token
+): boolean {
     if (my_token === undefined) {
+        return false;
+    }
+    if (!is_adjacent(my_token, my_paren)) {
         return false;
     }
     if (my_token.type === 'RPAREN' || my_token.type === 'RBRACKET') {
