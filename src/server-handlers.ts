@@ -105,6 +105,8 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
             invalidOperatorSequence: 'error',
             cStyleLogicalInControlFlow: 'information',
             mixedLogicalOperators: 'warning',
+            chainedComparison: 'warning',
+            literalMacroAdjacency: 'hint',
         },
         indentation: false,
     },

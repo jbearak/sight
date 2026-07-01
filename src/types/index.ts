@@ -526,6 +526,10 @@ export enum StataDiagnosticCode {
   MIXED_LOGICAL_OPERATORS = 'MIXED_LOGICAL_OPERATORS',
   SPACED_COMPOUND_OPERATOR = 'SPACED_COMPOUND_OPERATOR',
 
+  // Expression-structure diagnostics
+  CHAINED_COMPARISON = 'CHAINED_COMPARISON',
+  LITERAL_MACRO_ADJACENCY = 'LITERAL_MACRO_ADJACENCY',
+
   // Cross-file diagnostics
   PATH_CASE_MISMATCH = 'PATH_CASE_MISMATCH',
   CROSS_FILE_MISSING_FILE = 'CROSS_FILE_MISSING_FILE',
@@ -568,6 +572,8 @@ export interface StataLSPConfig {
       invalidOperatorSequence: 'error' | 'warning' | 'information' | 'hint' | 'off';
       cStyleLogicalInControlFlow: 'error' | 'warning' | 'information' | 'hint' | 'off';
       mixedLogicalOperators: 'error' | 'warning' | 'information' | 'hint' | 'off';
+      chainedComparison: 'error' | 'warning' | 'information' | 'hint' | 'off';
+      literalMacroAdjacency: 'error' | 'warning' | 'information' | 'hint' | 'off';
     };
     indentation: boolean;
   };

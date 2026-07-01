@@ -227,6 +227,44 @@
             "Disable this diagnostic"
           ]
         },
+        "sight.diagnostics.severity.chainedComparison": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "warning",
+          "description": "Severity level for suspicious chained comparisons (e.g., 'a != b != c'). Stata evaluates comparisons left-to-right rather than as a mathematical chain, so this is often a missing logical operator or parentheses. Set to 'off' to disable.",
+          "enumDescriptions": [
+            "Show as error",
+            "Show as warning",
+            "Show as information",
+            "Show as hint",
+            "Disable this diagnostic"
+          ]
+        },
+        "sight.diagnostics.severity.literalMacroAdjacency": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "hint",
+          "description": "Severity level for a literal placed directly against a macro reference in an expression (e.g., 'a == 1`b''). Stata concatenates these during macro expansion, which is often unintended. Set to 'off' to disable.",
+          "enumDescriptions": [
+            "Show as error",
+            "Show as warning",
+            "Show as information",
+            "Show as hint",
+            "Disable this diagnostic"
+          ]
+        },
         "sight.diagnostics.indentation": {
           "type": "boolean",
           "default": false,

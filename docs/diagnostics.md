@@ -131,6 +131,8 @@ turned off independently.
 | <a id="cstyle-logical-in-control-flow"></a>`CSTYLE_LOGICAL_IN_CONTROL_FLOW` | information | `cStyleLogicalInControlFlow` | `&&` / `\|\|` used in `if` / `else if`. Legal in Stata, but the canonical style uses `&` / `\|`. |
 | <a id="mixed-logical-operators"></a>`MIXED_LOGICAL_OPERATORS` | warning | `mixedLogicalOperators` | `&` and `\|` mixed in one expression without parentheses; precedence is easy to misread. |
 | <a id="spaced-compound-operator"></a>`SPACED_COMPOUND_OPERATOR` | information | `spacedCompoundOperator` | Compound operators split by whitespace that Stata accepts as the compact form: `< =`, `> =`, `! =`, and `~ =`. |
+| <a id="chained-comparison"></a>`CHAINED_COMPARISON` | warning | `chainedComparison` | Two or more comparisons chained without a logical connector (e.g., `a != b != c`, `a < b < c`). Stata evaluates these left-to-right — `a < b < c` is `(a < b) < c` — so a chain is usually a missing `&` / `\|` or missing parentheses. |
+| <a id="literal-macro-adjacency"></a>`LITERAL_MACRO_ADJACENCY` | hint | `literalMacroAdjacency` | A number or complete string literal placed directly against a following macro reference in an expression (e.g., `a == 1\`b'`). Stata concatenates them during macro expansion — if `` `b' `` is `0`, `1\`b'` becomes `10`. Only flagged after a comparison/logical operator or inside an `if` / `while` condition. |
 
 ## Indentation diagnostics
 
@@ -226,7 +228,9 @@ Diagnostics keys live under `sight.*` in VS Code's `settings.json`:
   "sight.diagnostics.severity.spacedCompoundOperator":      "information",
   "sight.diagnostics.severity.invalidOperatorSequence":     "error",
   "sight.diagnostics.severity.cStyleLogicalInControlFlow":  "information",
-  "sight.diagnostics.severity.mixedLogicalOperators":       "warning"
+  "sight.diagnostics.severity.mixedLogicalOperators":       "warning",
+  "sight.diagnostics.severity.chainedComparison":           "warning",
+  "sight.diagnostics.severity.literalMacroAdjacency":       "hint"
 }
 ```
 

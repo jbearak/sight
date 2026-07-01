@@ -37,6 +37,8 @@ import {
 import { IndentationDiagnosticAnalyzer } from './indentation-diagnostics';
 import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
+import { ChainedComparisonAnalyzer } from './chained-comparison-diagnostics';
+import { LiteralMacroAdjacencyAnalyzer } from './literal-macro-adjacency-diagnostics';
 type SemanticDiagnostic = {
     message: string;
     range: Range;
@@ -115,6 +117,8 @@ export class DiagnosticsProvider {
     private indentation_analyzer = new IndentationDiagnosticAnalyzer();
     private operator_sequence_analyzer = new OperatorSequenceAnalyzer();
     private mixed_logical_analyzer = new MixedLogicalOperatorAnalyzer();
+    private chained_comparison_analyzer = new ChainedComparisonAnalyzer();
+    private literal_macro_adjacency_analyzer = new LiteralMacroAdjacencyAnalyzer();
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     // Track published versions to prevent stale diagnostics
@@ -529,6 +533,24 @@ export class DiagnosticsProvider {
         for (const my_mixed_diag of mixed_logical_diagnostics) {
             if (!this.is_in_embedded_context(my_mixed_diag.range.start, the_context_ranges)) {
                 the_diagnostics.push(my_mixed_diag);
+            }
+        }
+
+        // Add chained comparison diagnostics (e.g., 'a != b != c')
+        const chained_comparison_diagnostics =
+            this.chained_comparison_analyzer.analyze(document, config);
+        for (const my_chained_diag of chained_comparison_diagnostics) {
+            if (!this.is_in_embedded_context(my_chained_diag.range.start, the_context_ranges)) {
+                the_diagnostics.push(my_chained_diag);
+            }
+        }
+
+        // Add literal-macro adjacency diagnostics (e.g., 'a == 1`b'')
+        const literal_macro_adjacency_diagnostics =
+            this.literal_macro_adjacency_analyzer.analyze(document, config);
+        for (const my_adjacency_diag of literal_macro_adjacency_diagnostics) {
+            if (!this.is_in_embedded_context(my_adjacency_diag.range.start, the_context_ranges)) {
+                the_diagnostics.push(my_adjacency_diag);
             }
         }
 

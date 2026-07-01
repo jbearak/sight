@@ -206,6 +206,18 @@ export function validate_comment_formatting_config(
             ) {
                 validated_config.diagnostics.severity.mixedLogicalOperators = diagnostics.severity.mixedLogicalOperators;
             }
+            if (
+                diagnostics.severity.chainedComparison &&
+                valid_severities.includes(diagnostics.severity.chainedComparison)
+            ) {
+                validated_config.diagnostics.severity.chainedComparison = diagnostics.severity.chainedComparison;
+            }
+            if (
+                diagnostics.severity.literalMacroAdjacency &&
+                valid_severities.includes(diagnostics.severity.literalMacroAdjacency)
+            ) {
+                validated_config.diagnostics.severity.literalMacroAdjacency = diagnostics.severity.literalMacroAdjacency;
+            }
         }
 
         if (typeof diagnostics.indentation === 'boolean') {

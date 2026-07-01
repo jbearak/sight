@@ -29,6 +29,8 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | `sight.diagnostics.severity.spacedCompoundOperator` | enum | `"information"` | Severity for spaced compound operator diagnostics that Stata accepts as the compact form (e.g., `< =` → `<=`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.invalidOperatorSequence` | enum | `"error"`     | Severity for invalid operator sequence diagnostics (e.g., `< \|`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.cStyleLogicalInControlFlow` | enum | `"information"` | Severity for C-style logical operators (`&&`, `\|\|`) in if/else if control flow statements. These work but are stylistically discouraged. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
+| `sight.diagnostics.severity.chainedComparison` | enum | `"warning"`     | Severity for suspicious chained comparisons (e.g., `a != b != c`). Stata evaluates comparisons left-to-right, not as a mathematical chain. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
+| `sight.diagnostics.severity.literalMacroAdjacency` | enum | `"hint"`     | Severity for a literal placed directly against a macro reference in an expression (e.g., `a == 1\`b'`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.indentation`                | boolean | `false`         | Enable indentation diagnostics (missing indentation in blocks, unnecessary indentation after comments)                |
 
 When the scope resolver can prove a referenced macro or variable exists but is
