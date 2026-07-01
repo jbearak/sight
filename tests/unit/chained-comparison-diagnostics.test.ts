@@ -110,6 +110,12 @@ describe('ChainedComparisonAnalyzer Unit Tests', () => {
         it('does not double-report adjacent < < (handled by OperatorSequence)', () => {
             expect(chains('if a < < b {')).toHaveLength(0);
         });
+        it('does not span a braceless single-line if condition into its body', () => {
+            expect(chains('if a < b gen flag = c < d')).toHaveLength(0);
+        });
+        it('does not span a braceless if into an assert body', () => {
+            expect(chains('if a < b assert c < d')).toHaveLength(0);
+        });
     });
 
     describe('Config gating', () => {

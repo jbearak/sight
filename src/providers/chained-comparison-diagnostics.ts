@@ -71,6 +71,18 @@ interface Chain {
 }
 
 /**
+ * Whether two tokens are directly adjacent in the source (no whitespace
+ * between them). Adjacent operands form a single expanded operand via macro
+ * concatenation (`1`c'`); separated operands mark a command boundary.
+ */
+function is_adjacent(first: Token, second: Token): boolean {
+    return (
+        first.range.end.line === second.range.start.line &&
+        first.range.end.character === second.range.start.character
+    );
+}
+
+/**
  * ChainedComparisonAnalyzer detects suspicious comparison chains such as
  * `a != b != c`, `a == b == c`, `a < b < c`, or mixed forms like `a < b > c`.
  *
@@ -234,7 +246,21 @@ export class ChainedComparisonAnalyzer {
                 continue;
             }
 
-            // Any other significant token (operand).
+            // Any other significant token (operand). Two whitespace-separated
+            // operands in a row with no operator between them mark a
+            // command/expression boundary — e.g. the body of a braceless
+            // single-line `if a < b gen ... c < d`, where `b gen` are separate
+            // operands. A comparison run must not span that boundary, so close
+            // it. Operands that are directly adjacent (no whitespace), such as
+            // the concatenation `1`c'`, are a single expanded operand and must
+            // NOT break the run.
+            if (
+                prev_significant &&
+                OPERAND_END_TYPES.has(prev_significant.type) &&
+                !is_adjacent(prev_significant, my_token)
+            ) {
+                close_run(current_run);
+            }
             prev_significant = my_token;
         }
 

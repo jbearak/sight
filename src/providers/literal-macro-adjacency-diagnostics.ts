@@ -24,9 +24,19 @@ const MACRO_REF_TYPES: Set<string> = new Set([
 ]);
 
 /**
- * Trivia token types skipped when tracking significant tokens.
+ * Trivia token types skipped when tracking significant tokens. Inline block
+ * comments are also skipped (see the scan loop) — they are whitespace-
+ * equivalent in Stata and must not stand in for the operator neighbor.
  */
 const TRIVIA_TYPES: Set<string> = new Set(['WHITESPACE', 'CONTINUATION']);
+
+/**
+ * Keywords that introduce a boolean condition (exact case; Stata is
+ * case-sensitive). A literal directly after one of these is the leading
+ * operand of the condition, where `if 1`b'` concatenating to `10` is a
+ * footgun even without a comparison operator adjacent to the pair.
+ */
+const CONDITION_KEYWORDS: Set<string> = new Set(['if', 'while']);
 
 /**
  * Check if two tokens are directly adjacent in the source with no intervening
@@ -140,6 +150,13 @@ export class LiteralMacroAdjacencyAnalyzer {
                 continue;
             }
 
+            // An inline block comment is whitespace-equivalent: skip it without
+            // disturbing the significant-token history, so it never stands in
+            // for the operator neighbor of a literal-macro pair.
+            if (my_token.type === 'COMMENT_BLOCK') {
+                continue;
+            }
+
             my_in_continuation = false;
 
             // Detect the suspicious adjacency: the previous significant token
@@ -154,14 +171,19 @@ export class LiteralMacroAdjacencyAnalyzer {
             ) {
                 // The pair is an operand of a comparison/logical expression
                 // when such an operator sits immediately before the literal
-                // or immediately after the macro.
+                // or immediately after the macro, or when the literal is the
+                // leading operand of an `if`/`while` condition.
                 const operator_before = is_expression_operator(pre_literal);
                 const operator_after = is_expression_operator(
                     this.next_significant(the_tokens, i)
                 );
+                const leads_condition =
+                    pre_literal !== undefined &&
+                    pre_literal.type === 'WORD' &&
+                    CONDITION_KEYWORDS.has(pre_literal.value);
 
                 if (
-                    (operator_before || operator_after) &&
+                    (operator_before || operator_after || leads_condition) &&
                     !my_ignored_lines.has(prev_significant.range.start.line)
                 ) {
                     the_diagnostics.push({
@@ -218,7 +240,10 @@ export class LiteralMacroAdjacencyAnalyzer {
         let my_in_continuation = false;
         for (let my_i = index + 1; my_i < the_tokens.length; my_i++) {
             const my_token = the_tokens[my_i];
-            if (my_token.type === 'WHITESPACE') {
+            if (
+                my_token.type === 'WHITESPACE' ||
+                my_token.type === 'COMMENT_BLOCK'
+            ) {
                 continue;
             }
             if (my_token.type === 'CONTINUATION') {

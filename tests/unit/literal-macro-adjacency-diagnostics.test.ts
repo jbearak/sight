@@ -71,6 +71,15 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         it("detects across a /// continuation: if a == ///<newline>1`b'", () => {
             expect(found("if a == ///\n    1`b' {")).toHaveLength(1);
         });
+        it("detects a bare macro-built if condition: if 1`b'", () => {
+            expect(found("if 1`b' {")).toHaveLength(1);
+        });
+        it("detects a bare macro-built while condition: while 1`n'", () => {
+            expect(found("while 1`n' {")).toHaveLength(1);
+        });
+        it("detects across an inline block comment: if a == /* c */ 1`b'", () => {
+            expect(found("if a == /* c */ 1`b' {")).toHaveLength(1);
+        });
     });
 
     describe('Non-detection (false-positive guards)', () => {
