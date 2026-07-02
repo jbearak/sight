@@ -197,6 +197,86 @@ di \`visible'`;
         });
     });
 
+    describe('same-file program-body locals (control)', () => {
+        // The cross-file gate must not block ordinary navigation for a
+        // program-body local declared and used in the SAME document.
+        const same_file_content = `program define p
+    local hidden 1
+    di "\`hidden'"
+end`;
+
+        it('go-to-definition still resolves within the defining file', async () => {
+            const main_path = join(test_temp_dir, 'same_def.do');
+            writeFileSync(main_path, same_file_content);
+
+            const document_state = await open_main(main_path, same_file_content);
+            const hidden_char = same_file_content.split('\n')[2].indexOf('hidden');
+
+            const result = await pipeline.definition_provider.get_definition(
+                document_state,
+                { line: 2, character: hidden_char },
+                pipeline.indexer.get_all_symbols(),
+                document_state.context_tracker,
+                pipeline.scope_resolver,
+                pipeline.indexer,
+            );
+
+            const main_uri = URI.file(main_path).toString();
+            const locations = as_locations(result);
+            expect(locations.some(
+                loc => loc.uri === main_uri && loc.range.start.line === 1
+            )).toBe(true);
+        });
+
+        it('find references still works within the defining file', async () => {
+            const main_path = join(test_temp_dir, 'same_refs.do');
+            writeFileSync(main_path, same_file_content);
+
+            const document_state = await open_main(main_path, same_file_content);
+            const hidden_char = same_file_content.split('\n')[2].indexOf('hidden');
+
+            const locations = await pipeline.references_provider.get_references(
+                document_state,
+                { line: 2, character: hidden_char },
+                { includeDeclaration: true },
+                pipeline.indexer,
+                document_state.context_tracker
+            );
+
+            const main_uri = URI.file(main_path).toString();
+            // The declaration (line 1) is pooled and the reference
+            // (line 2) is found — the gate only hides cross-file hits.
+            expect(locations.some(
+                loc => loc.uri === main_uri && loc.range.start.line === 1
+            )).toBe(true);
+            expect(locations.some(
+                loc => loc.uri === main_uri && loc.range.start.line === 2
+            )).toBe(true);
+        });
+
+        it('hover still works within the defining file', async () => {
+            const main_path = join(test_temp_dir, 'same_hover.do');
+            writeFileSync(main_path, same_file_content);
+
+            const document_state = await open_main(main_path, same_file_content);
+            const hidden_char = same_file_content.split('\n')[2].indexOf('hidden');
+
+            const hover = await pipeline.hover_provider.get_hover(
+                document_state,
+                { line: 2, character: hidden_char },
+                pipeline.indexer.get_all_symbols(),
+                pipeline.scope_resolver,
+                undefined,
+                undefined,
+                test_temp_dir,
+                pipeline.indexer,
+            );
+
+            expect(hover).not.toBeNull();
+            expect(hover_text(hover!.contents)).toContain('hidden');
+        });
+    });
+
     describe('hover redefinition footer', () => {
         it('omits program-body locals from include-related files', async () => {
             const child_path = join(test_temp_dir, 'child_hover.do');

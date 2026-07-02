@@ -7,7 +7,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterAll } from 'bun:test';
-import { DiagnosticsProvider } from '../../src/providers/diagnostics';
+import {
+    DiagnosticsConnection,
+    DiagnosticsProvider,
+} from '../../src/providers/diagnostics';
 import { DocumentStore } from '../../src/document-store';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
@@ -15,7 +18,6 @@ import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 import { join } from 'path';
 import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { URI } from 'vscode-uri';
-import { Connection } from 'vscode-languageserver';
 
 describe('Program-body locals across include boundaries (issue #271)', () => {
     const test_temp_dir = join(process.cwd(), 'temp_program_local_include_test');
@@ -23,7 +25,7 @@ describe('Program-body locals across include boundaries (issue #271)', () => {
     let document_store: DocumentStore;
     let scope_resolver: ScopeResolver;
     let forward_scope_resolver: ForwardScopeResolver;
-    let mock_connection: Connection;
+    let mock_connection: DiagnosticsConnection;
     let config: StataLSPConfig;
 
     beforeEach(() => {
@@ -34,7 +36,7 @@ describe('Program-body locals across include boundaries (issue #271)', () => {
 
         mock_connection = {
             sendDiagnostics: () => {},
-        } as any;
+        };
 
         document_store = new DocumentStore();
         scope_resolver = new ScopeResolver();
