@@ -88,58 +88,36 @@ function is_stata_diagnostic_code(code: unknown): code is StataDiagnosticCode {
 }
 
 /**
- * Innermost program scope whose BODY contains `line`. Header lines
- * (including ///-continued headers, via body_start_line, #273) and the
- * `end` line belong to the enclosing scope, matching the analyzer's
- * body-only scope resolution.
- */
-function innermost_program_body_scope(
-    line: number,
-    the_scopes: ScopeInfo[]
-): ScopeInfo | undefined {
-    let innermost: ScopeInfo | undefined;
-    for (const my_scope of the_scopes) {
-        if (my_scope.type !== 'program') {
-            continue;
-        }
-        const body_start_line =
-            my_scope.body_start_line ?? my_scope.range.start.line + 1;
-        if (line < body_start_line || line >= my_scope.range.end.line) {
-            continue;
-        }
-        if (!innermost
-            || my_scope.range.start.line > innermost.range.start.line) {
-            innermost = my_scope;
-        }
-    }
-    return innermost;
-}
-
-/**
  * Executable blame only (#274): a forward call inside a program body runs
  * when that program is called, not at its textual position — and its
  * effects land in that program's own frame. So the call counts as
  * executed-before-the-reference only when the reference's innermost
- * program body is the SAME scope as the call site's: a later in-program
- * `do` must not shadow the real top-level one, and full-range containment
- * would wrongly cover references inside nested programs, which run in a
- * fresh frame.
+ * program body (body-only per #273: header and `end` lines belong to the
+ * enclosing frame) is the SAME scope as the call site's: a later
+ * in-program `do` must not shadow the real top-level one, and full-range
+ * containment would wrongly cover references inside nested programs,
+ * which run in a fresh frame.
  */
 function call_site_in_uncalled_program_body(
     call_site: ForwardCallSite,
     the_scopes: ScopeInfo[],
     reference_position: Position
 ): boolean {
-    const call_scope = innermost_program_body_scope(
-        call_site.call_line,
-        the_scopes
-    );
-    if (!call_scope) {
+    if (the_scopes.length === 0) {
         return false;
     }
-    const reference_scope = innermost_program_body_scope(
-        reference_position.line,
-        the_scopes
+    const call_scope = find_enclosing_scope(
+        the_scopes,
+        { line: call_site.call_line, character: 0 },
+        { body_only: true }
+    );
+    if (call_scope.type !== 'program') {
+        return false;
+    }
+    const reference_scope = find_enclosing_scope(
+        the_scopes,
+        reference_position,
+        { body_only: true }
     );
     return reference_scope !== call_scope;
 }
