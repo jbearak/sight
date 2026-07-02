@@ -167,9 +167,12 @@ interface ForwardClosureMemoClosureEntry {
 }
 
 /**
- * Negative entry (#234): this key's standalone build emitted diagnostics —
- * a KEY-DETERMINED outcome (same inputs reproduce the same diagnostics), so
- * re-attempting the build on every traversal would be wasted work. Without
+ * Negative entry (#234): this key's standalone build emitted diagnostics.
+ * For cap truncations the outcome is fully key-determined; for missing/
+ * ambiguous files it also depends on the filesystem, which can change
+ * without rotating the key — the marker stays conservative either way
+ * (unservable entries never serve, they only skip re-attempting the
+ * build). Re-attempting on every traversal would be wasted work: without
  * this, a chain that trips the depth cap re-attempts a doomed standalone
  * build at every level of every live retry — O(2^depth) sub-resolutions.
  * The marker sends the hook straight to the live path (which emits the

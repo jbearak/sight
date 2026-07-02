@@ -211,9 +211,13 @@ describe('issue #234 — forward-closure memo store/serve', () => {
 
         await scope_resolver.resolve(to_uri(a_path), read(a_path));
         // ≤ 2 standalone attempts for one traversal of a 2-cycle — a
-        // cascade would burn ~max_forward_depth (10) per traversal.
-        expect(forward_resolver.get_forward_closure_metrics().misses)
-            .toBeLessThanOrEqual(2);
+        // cascade would burn ~max_forward_depth (10) per traversal. The
+        // floor proves the memo actually engaged (a silently-disabled memo
+        // would report 0 and satisfy any ceiling vacuously).
+        const first_cycle_misses =
+            forward_resolver.get_forward_closure_metrics().misses;
+        expect(first_cycle_misses).toBeGreaterThan(0);
+        expect(first_cycle_misses).toBeLessThanOrEqual(2);
 
         // invalidate_scope_cache(a) also evicts both memo entries (a is in
         // their dependent sets), so the second traversal legitimately
@@ -245,6 +249,9 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         await scope_resolver.resolve(to_uri(root), read(root), config);
         const first_misses =
             forward_resolver.get_forward_closure_metrics().misses;
+        // Floor: the memo must actually have attempted builds (a
+        // silently-disabled memo would report 0 and pass any ceiling).
+        expect(first_misses).toBeGreaterThan(0);
         expect(first_misses).toBeLessThanOrEqual(4);
 
         // Re-resolving must not re-attempt the doomed builds.
