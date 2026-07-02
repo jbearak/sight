@@ -401,6 +401,12 @@ export interface MacroSymbol {
   value?: string;
   hasEquals?: boolean;  // True if defined with = sign (local x = expr) vs literal (local x a b)
   containingScope?: ScopeType;
+  // Owning scope's ScopeInfo.id. Distinguishes same-named locals defined
+  // in different scopes (issue #261). Absent only for flat-only writers.
+  scope_id?: number;
+  // Set iff containingScope === 'program': the defining program's name,
+  // for scope-isolation diagnostics (issue #145).
+  containing_program_name?: string;
   extendedFunction?: ExtendedMacroFunction;
   definition_index?: number;  // Preorder index where macro was defined
   definition_line?: number;   // Line number where macro was first defined
@@ -454,6 +460,11 @@ export interface ScopeInfo {
   type: ScopeType;
   range: Range;
   localMacros: Map<string, MacroSymbol>;
+  // Index of this scope in AnalysisResult.scopes; the do-file scope is
+  // always id 0. Gives local macros a stable owning-scope identity.
+  id: number;
+  // Program name for 'program' scopes; feeds scope-isolation messaging.
+  program_name?: string;
 }
 
 // Command Database Types
@@ -549,6 +560,9 @@ export enum StataDiagnosticCode {
 export interface UndefinedSymbolDiagnosticData {
   symbol_name?: string;
   reference_kind?: 'local' | 'global' | 'variable';
+  // Present when an undefined local has same-named definitions that
+  // exist only inside other program bodies in the same file (#145).
+  scope_isolation?: { defined_in_programs: string[] };
 }
 
 

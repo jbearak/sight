@@ -19,7 +19,6 @@ import {
     StataDiagnosticCode,
     Token,
     TokenType,
-    ScopeType,
     SyntaxNode,
     ArgumentSpec,
     OptionSpec,
@@ -57,7 +56,19 @@ export interface SemanticDiagnostic {
     // 2026-06-26-diagnostic-message-code-deduplication.md.
     symbol_name?: string;
     reference_kind?: 'local' | 'global' | 'variable';
+    // Present on UNDEFINED_MACRO local diagnostics when same-named
+    // definitions exist only inside other program bodies in the same
+    // file, so the provider can emit a scope-isolation message (#145).
+    scope_isolation?: { defined_in_programs: string[] };
 }
+
+// Result of a scoped local-macro reference lookup (issue #261). The
+// 'out_of_scope_program_local' arm means: not visible here, but defined
+// inside the named program bodies elsewhere in this file (#145).
+type LocalMacroLookupResult =
+    | { kind: 'defined' }
+    | { kind: 'undefined' }
+    | { kind: 'out_of_scope_program_local'; defined_in_programs: string[] };
 
 // Analysis result returned by the semantic analyzer
 export interface AnalysisResult {
@@ -298,6 +309,10 @@ export class SemanticAnalyzer {
     // it remain conservative misses. Dynamic loop ancestors do not increment
     // this counter because they do not create a local-macro scope.
     private nonexec_conditional_depth = 0;
+    // The scopes array of the in-flight analyze() call, so reference
+    // lookups can reach the do-file scope (index 0) and the scope-
+    // isolation scan without threading it through every signature.
+    private current_scopes: ScopeInfo[] = [];
 
     /**
      * Analyze an AST and build symbol tables.
@@ -335,13 +350,15 @@ export class SemanticAnalyzer {
         this.current_diagnostics = diagnostics;
         const scopes: ScopeInfo[] = [];
 
-        // Create the top-level do-file scope
+        // Create the top-level do-file scope (always id 0)
         const dofile_scope: ScopeInfo = {
             type: 'dofile',
             range: this.get_full_range(ast),
             localMacros: new Map(),
+            id: 0,
         };
         scopes.push(dofile_scope);
+        this.current_scopes = scopes;
 
         // First pass: extract comment directives
         this.extract_comment_directives(ast);
@@ -349,7 +366,7 @@ export class SemanticAnalyzer {
         // Also extract directives from tokens if provided
         // Pass symbols so declaration directives can register symbols
         if (tokens) {
-            this.extract_comment_directives_from_tokens(tokens, symbols);
+            this.extract_comment_directives_from_tokens(tokens, symbols, dofile_scope);
         }
 
         // Second pass: build symbol table
@@ -364,7 +381,7 @@ export class SemanticAnalyzer {
         // `tokens` (not on undefined_macro_enabled) so the declarations also
         // feed completion.
         if (tokens) {
-            this.extract_mata_st_local_declarations(tokens, symbols, ast.nodes);
+            this.extract_mata_st_local_declarations(tokens, symbols, scopes);
         }
 
         // Third pass: detect undefined references
@@ -373,12 +390,11 @@ export class SemanticAnalyzer {
             this.preorder_index = 0;
             // Track ranges reported by AST pass to avoid duplicates in token pass
             const reported_ranges = new Set<string>();
-            this.detect_undefined_references(ast.nodes, symbols, diagnostics, reported_ranges);
+            this.detect_undefined_references(ast.nodes, symbols, diagnostics, reported_ranges, dofile_scope);
             
             // Also check tokens for macro references if provided
             if (tokens && this.config.undefined_macro_enabled) {
-                const program_ranges = this.collect_program_ranges(ast.nodes);
-                this.check_token_macro_references(tokens, symbols, diagnostics, reported_ranges, program_ranges);
+                this.check_token_macro_references(tokens, symbols, diagnostics, reported_ranges, scopes);
             }
         }
 
@@ -386,6 +402,7 @@ export class SemanticAnalyzer {
         this.workspace_symbols = undefined;
         this.tokens = undefined;
         this.current_diagnostics = [];
+        this.current_scopes = [];
 
         return {
             symbols,
@@ -412,10 +429,14 @@ export class SemanticAnalyzer {
      * This catches directives in standalone comments not attached to AST nodes.
      * Also processes declaration directives (@lsp-local, @lsp-global, @lsp-scalar, @lsp-matrix, @lsp-program).
      */
-    extract_comment_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
+    extract_comment_directives_from_tokens(
+        tokens: Token[],
+        symbols?: SymbolTable,
+        dofile_scope?: ScopeInfo
+    ): void {
         // Parse declaration directives directly from comment tokens
         // This avoids issues with multi-line block comments causing line number mismatches
-        this.parse_declaration_directives_from_tokens(tokens, symbols);
+        this.parse_declaration_directives_from_tokens(tokens, symbols, dofile_scope);
         
         // Process other directives. `ignore` and variable
         // declarations may appear in trailing `//` comments.
@@ -506,7 +527,11 @@ export class SemanticAnalyzer {
      * This fixes a bug where multi-line block comments would cause line number mismatches
      * when reconstructing content for the directive parser.
      */
-    private parse_declaration_directives_from_tokens(tokens: Token[], symbols?: SymbolTable): void {
+    private parse_declaration_directives_from_tokens(
+        tokens: Token[],
+        symbols?: SymbolTable,
+        dofile_scope?: ScopeInfo
+    ): void {
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
             // Declaration directives live in real line comments and are
@@ -533,7 +558,7 @@ export class SemanticAnalyzer {
                 // following lines.
                 const my_actual_line = token.range.start.line;
                 for (const my_name of the_names) {
-                    this.register_declaration_directive(my_type, my_name, my_actual_line, symbols);
+                    this.register_declaration_directive(my_type, my_name, my_actual_line, symbols, dofile_scope);
                 }
             }
         }
@@ -546,7 +571,8 @@ export class SemanticAnalyzer {
         type: 'local' | 'global' | 'scalar' | 'matrix' | 'program',
         name: string,
         line: number,
-        symbols?: SymbolTable
+        symbols?: SymbolTable,
+        dofile_scope?: ScopeInfo
     ): void {
         const my_range: Range = {
             start: { line, character: 0 },
@@ -563,9 +589,14 @@ export class SemanticAnalyzer {
                         location: { uri: this.uri, range: my_range },
                         sourceUri: this.uri,
                         containingScope: 'dofile',
+                        scope_id: 0,
                         definition_line: line,
                     };
                     symbols.localMacros.set(name, macro_symbol);
+                    // Directive-declared locals are do-file-scope citizens:
+                    // seeding the scope map keeps them chained with later
+                    // real `local` statements once identity is scope-keyed.
+                    dofile_scope?.localMacros.set(name, macro_symbol);
                 }
                 break;
                 
@@ -871,6 +902,8 @@ export class SemanticAnalyzer {
             type: 'program',
             range: node.range,
             localMacros: new Map(),
+            id: all_scopes.length,
+            program_name: node.name,
         };
         all_scopes.push(program_scope);
 
@@ -1099,69 +1132,111 @@ export class SemanticAnalyzer {
         return the_shadowed;
     }
 
+    /**
+     * THE single registration choke point for plain local-macro
+     * definition sites. Existence (first-definition-wins) is decided
+     * inside `scope.localMacros` ONLY — never the flat map — so
+     * same-named locals in different scopes stay distinct symbols
+     * (issue #261). A repeat definition in the same scope appends to
+     * `additional_definitions`, exactly like the pre-split behavior.
+     * New primaries get their scope identity stamped here and are
+     * published to the compatibility flat view. Any `containingScope`/
+     * `scope_id`/`containing_program_name` set by `create_primary` is
+     * overwritten — this function owns those fields.
+     */
+    private register_local_macro(
+        scope: ScopeInfo,
+        symbols: SymbolTable,
+        name: string,
+        node_index: number,
+        range: Range,
+        create_primary: () => MacroSymbol
+    ): MacroSymbol {
+        const existing = scope.localMacros.get(name);
+        if (existing) {
+            if (!existing.additional_definitions) {
+                existing.additional_definitions = [];
+            }
+            existing.additional_definitions.push({
+                index: node_index,
+                line: range.start.line,
+                location: { uri: this.uri, range },
+            });
+            return existing;
+        }
+        const macro_symbol = create_primary();
+        macro_symbol.containingScope = scope.type;
+        macro_symbol.scope_id = scope.id;
+        if (scope.type === 'program') {
+            macro_symbol.containing_program_name = scope.program_name;
+        }
+        scope.localMacros.set(name, macro_symbol);
+        this.publish_flat_local(symbols, scope, macro_symbol);
+        return macro_symbol;
+    }
+
     private process_macro_def(
         node: MacroDefNode,
         symbols: SymbolTable,
         current_scope: ScopeInfo,
         node_index: number
     ): void {
-        // Check if macro already exists (first definition wins)
-        const existing = node.scope === 'local' 
-            ? symbols.localMacros.get(node.name)
-            : symbols.globalMacros.get(node.name);
-        
-        if (existing) {
-            // Add to additional_definitions array
-            if (!existing.additional_definitions) {
-                existing.additional_definitions = [];
-            }
-            existing.additional_definitions.push({
-                index: node_index,
-                line: node.range.start.line,
-                location: { uri: this.uri, range: node.range }
-            });
-        } else {
-            // Create new macro with first definition
-            const macro_symbol: MacroSymbol = {
-                name: node.name,
-                scope: node.scope,
-                location: { uri: this.uri, range: node.range },
-                sourceUri: this.uri,
-                value: node.value,
-                hasEquals: node.hasEquals,
-                containingScope: current_scope.type,
-                extendedFunction: node.extendedFunction,
-                definition_index: node_index,
-                definition_line: node.range.start.line,
-                // A definition reached under a non-executing context (an
-                // `if`/`while` body, or a dynamic/empty loop body) is not
-                // guaranteed to run, so its value must not be folded into a
-                // later loop's value-set or constructed names.
-                ...(this.nonexec_range_stack.length > 0 ? {
-                    maybe_unexecuted: true,
-                    maybe_unexecuted_range: this.nonexec_range_stack[
-                        this.nonexec_range_stack.length - 1
-                    ],
-                } : {}),
-                // Defined inside a loop with a value that captured a loop
-                // iterator (static, e.g. `` local suffix `i' ``, OR dynamic,
-                // e.g. `` local h `survey' `` inside `foreach survey in ...`):
-                // its runtime value is iteration-dependent and must not be
-                // statically folded.
-                ...(this.value_captures_active_iterator(node.value)
-                    ? { iteration_dependent: true }
-                    : {}),
-            };
+        const create_primary = (): MacroSymbol => ({
+            name: node.name,
+            scope: node.scope,
+            location: { uri: this.uri, range: node.range },
+            sourceUri: this.uri,
+            value: node.value,
+            hasEquals: node.hasEquals,
+            containingScope: current_scope.type,
+            extendedFunction: node.extendedFunction,
+            definition_index: node_index,
+            definition_line: node.range.start.line,
+            // A definition reached under a non-executing context (an
+            // `if`/`while` body, or a dynamic/empty loop body) is not
+            // guaranteed to run, so its value must not be folded into a
+            // later loop's value-set or constructed names.
+            ...(this.nonexec_range_stack.length > 0 ? {
+                maybe_unexecuted: true,
+                maybe_unexecuted_range: this.nonexec_range_stack[
+                    this.nonexec_range_stack.length - 1
+                ],
+            } : {}),
+            // Defined inside a loop with a value that captured a loop
+            // iterator (static, e.g. `` local suffix `i' ``, OR dynamic,
+            // e.g. `` local h `survey' `` inside `foreach survey in ...`):
+            // its runtime value is iteration-dependent and must not be
+            // statically folded.
+            ...(this.value_captures_active_iterator(node.value)
+                ? { iteration_dependent: true }
+                : {}),
+        });
 
-            // Register macro in symbol table regardless of extended function type
-            if (node.scope === 'local') {
-                current_scope.localMacros.set(node.name, macro_symbol);
-                symbols.localMacros.set(node.name, macro_symbol);
+        if (node.scope === 'local') {
+            this.register_local_macro(
+                current_scope,
+                symbols,
+                node.name,
+                node_index,
+                node.range,
+                create_primary
+            );
+        } else {
+            // Globals are file-wide: flat identity, unchanged semantics.
+            const existing = symbols.globalMacros.get(node.name);
+            if (existing) {
+                if (!existing.additional_definitions) {
+                    existing.additional_definitions = [];
+                }
+                existing.additional_definitions.push({
+                    index: node_index,
+                    line: node.range.start.line,
+                    location: { uri: this.uri, range: node.range }
+                });
             } else {
-                symbols.globalMacros.set(node.name, macro_symbol);
+                symbols.globalMacros.set(node.name, create_primary());
             }
         }
-
     }
 
     /**
@@ -1215,63 +1290,33 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         node_index: number
     ): void {
+        const register_implicit = (name: string, range: Range): void => {
+            this.register_local_macro(
+                current_scope,
+                symbols,
+                name,
+                node_index,
+                range,
+                () => ({
+                    name,
+                    scope: 'local',
+                    location: { uri: this.uri, range },
+                    sourceUri: this.uri,
+                    definition_index: node_index,
+                    definition_line: range.start.line,
+                })
+            );
+        };
+
         // Register each argument as an implicit local
         for (const arg of signature.arguments) {
             const arg_name = this.get_implicit_local_name(arg);
             if (arg_name) {
-                // Check if macro already exists (first definition wins)
-                const existing_macro = symbols.localMacros.get(arg_name);
-                if (existing_macro) {
-                    // Add to additional_definitions array
-                    if (!existing_macro.additional_definitions) {
-                        existing_macro.additional_definitions = [];
-                    }
-                    existing_macro.additional_definitions.push({
-                        index: node_index,
-                        line: arg.range.start.line,
-                        location: { uri: this.uri, range: arg.range }
-                    });
-                } else {
-                    // Create new macro with first definition
-                    const macro_symbol: MacroSymbol = {
-                        name: arg_name,
-                        scope: 'local',
-                        location: { uri: this.uri, range: arg.range },
-                        sourceUri: this.uri,
-                        containingScope: current_scope.type,
-                        definition_index: node_index,
-                        definition_line: arg.range.start.line,
-                    };
+                register_implicit(arg_name, arg.range);
 
-                    current_scope.localMacros.set(arg_name, macro_symbol);
-                    symbols.localMacros.set(arg_name, macro_symbol);
-                }
-                
                 // For weight types, also register 'exp' as implicit local
                 if ((WEIGHT_TYPES as readonly string[]).includes(arg.type)) {
-                    const existing_exp = symbols.localMacros.get('exp');
-                    if (existing_exp) {
-                        if (!existing_exp.additional_definitions) {
-                            existing_exp.additional_definitions = [];
-                        }
-                        existing_exp.additional_definitions.push({
-                            index: node_index,
-                            line: arg.range.start.line,
-                            location: { uri: this.uri, range: arg.range }
-                        });
-                    } else {
-                        const exp_symbol: MacroSymbol = {
-                            name: 'exp',
-                            scope: 'local',
-                            location: { uri: this.uri, range: arg.range },
-                            sourceUri: this.uri,
-                            containingScope: current_scope.type,
-                            definition_index: node_index,
-                            definition_line: arg.range.start.line,
-                        };
-                        current_scope.localMacros.set('exp', exp_symbol);
-                        symbols.localMacros.set('exp', exp_symbol);
-                    }
+                    register_implicit('exp', arg.range);
                 }
             }
         }
@@ -1281,31 +1326,7 @@ export class SemanticAnalyzer {
         // abbreviation (e.g. `Cache(string)`), but the implicit local Stata
         // creates at runtime is always lowercased.
         for (const opt of signature.options) {
-            const local_name = opt.name.toLowerCase();
-            const existing_macro = symbols.localMacros.get(local_name);
-            if (existing_macro) {
-                if (!existing_macro.additional_definitions) {
-                    existing_macro.additional_definitions = [];
-                }
-                existing_macro.additional_definitions.push({
-                    index: node_index,
-                    line: opt.range.start.line,
-                    location: { uri: this.uri, range: opt.range }
-                });
-            } else {
-                const macro_symbol: MacroSymbol = {
-                    name: local_name,
-                    scope: 'local',
-                    location: { uri: this.uri, range: opt.range },
-                    sourceUri: this.uri,
-                    containingScope: current_scope.type,
-                    definition_index: node_index,
-                    definition_line: opt.range.start.line,
-                };
-
-                current_scope.localMacros.set(local_name, macro_symbol);
-                symbols.localMacros.set(local_name, macro_symbol);
-            }
+            register_implicit(opt.name.toLowerCase(), opt.range);
         }
     }
 
@@ -1638,6 +1659,12 @@ export class SemanticAnalyzer {
         }
         
         if (program?.c_locals) {
+            // c_local writes into the CALLER's scope (real Stata semantics:
+            // the called program sets locals in its caller's frame), so the
+            // registration deliberately targets `current_scope` at the call
+            // site. Quirk preserved from the pre-split code: each call
+            // OVERWRITES the scope entry unconditionally (no
+            // additional_definitions chaining).
             for (const macro_name of program.c_locals) {
                 const macro_symbol: MacroSymbol = {
                     name: macro_name,
@@ -1645,11 +1672,21 @@ export class SemanticAnalyzer {
                     location: { uri: this.uri, range: node.range },
                     sourceUri: program.sourceUri,
                     containingScope: current_scope.type,
+                    scope_id: current_scope.id,
+                    ...(current_scope.type === 'program'
+                        ? { containing_program_name: current_scope.program_name }
+                        : {}),
                     definition_index: node_index,
                     definition_line: node.range.start.line,
                 };
+                const replaced = current_scope.localMacros.get(macro_name);
                 current_scope.localMacros.set(macro_name, macro_symbol);
-                symbols.localMacros.set(macro_name, macro_symbol);
+                this.publish_flat_local(
+                    symbols,
+                    current_scope,
+                    macro_symbol,
+                    replaced
+                );
             }
         }
     }
@@ -2045,34 +2082,22 @@ export class SemanticAnalyzer {
         }
 
         for (const var_node of node.varlist) {
-            // Check if macro already exists (first definition wins)
-            const existing_macro = symbols.localMacros.get(var_node.name);
-            if (existing_macro) {
-                // Add to additional_definitions array
-                if (!existing_macro.additional_definitions) {
-                    existing_macro.additional_definitions = [];
-                }
-                existing_macro.additional_definitions.push({
-                    index: node_index,
-                    line: var_node.range.start.line,
-                    location: { uri: this.uri, range: var_node.range }
-                });
-            } else {
-                // Create new macro with first definition
-                const macro_symbol: MacroSymbol = {
+            this.register_local_macro(
+                current_scope,
+                symbols,
+                var_node.name,
+                node_index,
+                var_node.range,
+                () => ({
                     name: var_node.name,
                     scope: 'local',
                     location: { uri: this.uri, range: var_node.range },
                     sourceUri: this.uri,
                     value: `__tempvar_${var_node.name}__`, // Placeholder value
-                    containingScope: current_scope.type,
                     definition_index: node_index,
                     definition_line: node.range.start.line,
-                };
-
-                current_scope.localMacros.set(var_node.name, macro_symbol);
-                symbols.localMacros.set(var_node.name, macro_symbol);
-            }
+                })
+            );
         }
     }
 
@@ -2090,34 +2115,24 @@ export class SemanticAnalyzer {
         // For unab command, the first argument is the macro name
         // The syntax is: unab macname : varlist
         if (node.varlist && node.varlist.length > 0) {
-            const macro_name = node.varlist[0].name;
-
-            // Check if macro already exists (first definition wins)
-            const existing_macro = symbols.localMacros.get(macro_name);
-            if (existing_macro) {
-                if (!existing_macro.additional_definitions) {
-                    existing_macro.additional_definitions = [];
-                }
-                existing_macro.additional_definitions.push({
-                    index: node_index,
-                    line: node.varlist[0].range.start.line,
-                    location: { uri: this.uri, range: node.varlist[0].range }
-                });
-            } else {
-                const macro_symbol: MacroSymbol = {
+            const macro_node = node.varlist[0];
+            const macro_name = macro_node.name;
+            this.register_local_macro(
+                current_scope,
+                symbols,
+                macro_name,
+                node_index,
+                macro_node.range,
+                () => ({
                     name: macro_name,
                     scope: 'local',
-                    location: { uri: this.uri, range: node.varlist[0].range },
+                    location: { uri: this.uri, range: macro_node.range },
                     sourceUri: this.uri,
                     value: `__unab_${macro_name}__`, // Placeholder value
-                    containingScope: current_scope.type,
                     definition_index: node_index,
                     definition_line: node.range.start.line,
-                };
-
-                current_scope.localMacros.set(macro_name, macro_symbol);
-                symbols.localMacros.set(macro_name, macro_symbol);
-            }
+                })
+            );
         }
     }
 
@@ -2139,38 +2154,27 @@ export class SemanticAnalyzer {
         if (node.varlist && node.varlist.length > 0) {
             for (const my_var_node of node.varlist) {
                 const macro_name = my_var_node.name;
-                
-                // Check if macro already exists (first definition wins)
-                const existing_macro = symbols.localMacros.get(macro_name);
-                if (existing_macro) {
-                    // Add to additional_definitions array
-                    if (!existing_macro.additional_definitions) {
-                        existing_macro.additional_definitions = [];
-                    }
-                    existing_macro.additional_definitions.push({
-                        index: node_index,
-                        line: my_var_node.range.start.line,
-                        location: { uri: this.uri, range: my_var_node.range }
-                    });
-                } else {
-                    // Use definition_index: 0 and definition_line: 0 because args macros
-                    // represent parameters passed into the program/file. Unlike regular
-                    // `local` definitions, they should be valid from the start of the scope
-                    // to avoid false "undefined local macro" warnings for forward references.
-                    const macro_symbol: MacroSymbol = {
+                // Use definition_index: 0 and definition_line: 0 because args
+                // macros represent parameters passed into the program/file.
+                // Unlike regular `local` definitions, they should be valid
+                // from the start of the scope to avoid false "undefined local
+                // macro" warnings for forward references.
+                this.register_local_macro(
+                    current_scope,
+                    symbols,
+                    macro_name,
+                    node_index,
+                    my_var_node.range,
+                    () => ({
                         name: macro_name,
                         scope: 'local',
                         location: { uri: this.uri, range: my_var_node.range },
                         sourceUri: this.uri,
                         value: `__args_${macro_name}__`, // Placeholder value
-                        containingScope: current_scope.type,
                         definition_index: 0,
                         definition_line: 0,
-                    };
-
-                    current_scope.localMacros.set(macro_name, macro_symbol);
-                    symbols.localMacros.set(macro_name, macro_symbol);
-                }
+                    })
+                );
             }
         }
     }
@@ -2210,34 +2214,22 @@ export class SemanticAnalyzer {
                 continue;
             }
 
-            // Check if macro already exists (first definition wins)
-            const existing_macro = symbols.localMacros.get(macro_name);
-            if (existing_macro) {
-                // Add to additional_definitions array
-                if (!existing_macro.additional_definitions) {
-                    existing_macro.additional_definitions = [];
-                }
-                existing_macro.additional_definitions.push({
-                    index: node_index,
-                    line: my_var_node.range.start.line,
-                    location: { uri: this.uri, range: my_var_node.range }
-                });
-            } else {
-                // Create new macro with first definition
-                const macro_symbol: MacroSymbol = {
+            this.register_local_macro(
+                current_scope,
+                symbols,
+                macro_name,
+                node_index,
+                my_var_node.range,
+                () => ({
                     name: macro_name,
                     scope: 'local',
                     location: { uri: this.uri, range: my_var_node.range },
                     sourceUri: this.uri,
                     value: `__gettoken_${macro_name}__`, // Placeholder value
-                    containingScope: current_scope.type,
                     definition_index: node_index,
                     definition_line: node.range.start.line,
-                };
-
-                current_scope.localMacros.set(macro_name, macro_symbol);
-                symbols.localMacros.set(macro_name, macro_symbol);
-            }
+                })
+            );
         }
     }
 
@@ -2276,32 +2268,22 @@ export class SemanticAnalyzer {
             return;
         }
 
-        // Check if macro already exists (first definition wins)
-        const existing_macro = symbols.localMacros.get(macro_name);
-        if (existing_macro) {
-            if (!existing_macro.additional_definitions) {
-                existing_macro.additional_definitions = [];
-            }
-            existing_macro.additional_definitions.push({
-                index: node_index,
-                line: macro_node.range.start.line,
-                location: { uri: this.uri, range: macro_node.range }
-            });
-        } else {
-            const macro_symbol: MacroSymbol = {
+        this.register_local_macro(
+            current_scope,
+            symbols,
+            macro_name,
+            node_index,
+            macro_node.range,
+            () => ({
                 name: macro_name,
                 scope: 'local',
                 location: { uri: this.uri, range: macro_node.range },
                 sourceUri: this.uri,
                 value: `__file_read_${macro_name}__`,
-                containingScope: current_scope.type,
                 definition_index: node_index,
                 definition_line: node.range.start.line,
-            };
-
-            current_scope.localMacros.set(macro_name, macro_symbol);
-            symbols.localMacros.set(macro_name, macro_symbol);
-        }
+            })
+        );
     }
 
     /**
@@ -2346,10 +2328,31 @@ export class SemanticAnalyzer {
     ): void {
         for (const my_created of this.get_command_created_macros(node, symbols)) {
             const my_range = my_created.argument_range ?? node.range;
-            const target = my_created.scope === 'local'
-                ? symbols.localMacros
-                : symbols.globalMacros;
-            const existing_macro = target.get(my_created.name);
+            const create_primary = (): MacroSymbol => ({
+                name: my_created.name,
+                scope: my_created.scope,
+                location: { uri: this.uri, range: my_range },
+                sourceUri: this.uri,
+                value: `__option_${my_created.scope}_${my_created.name}__`,
+                containingScope: current_scope.type,
+                definition_index: node_index,
+                definition_line: node.range.start.line,
+            });
+
+            if (my_created.scope === 'local') {
+                this.register_local_macro(
+                    current_scope,
+                    symbols,
+                    my_created.name,
+                    node_index,
+                    my_range,
+                    create_primary
+                );
+                continue;
+            }
+
+            // Globals are file-wide: flat identity, unchanged semantics.
+            const existing_macro = symbols.globalMacros.get(my_created.name);
             if (existing_macro) {
                 // Add to additional_definitions array (first definition wins)
                 if (!existing_macro.additional_definitions) {
@@ -2361,21 +2364,7 @@ export class SemanticAnalyzer {
                     location: { uri: this.uri, range: my_range },
                 });
             } else {
-                // Create new macro with first definition
-                const macro_symbol: MacroSymbol = {
-                    name: my_created.name,
-                    scope: my_created.scope,
-                    location: { uri: this.uri, range: my_range },
-                    sourceUri: this.uri,
-                    value: `__option_${my_created.scope}_${my_created.name}__`,
-                    containingScope: current_scope.type,
-                    definition_index: node_index,
-                    definition_line: node.range.start.line,
-                };
-                target.set(my_created.name, macro_symbol);
-                if (my_created.scope === 'local') {
-                    current_scope.localMacros.set(my_created.name, macro_symbol);
-                }
+                symbols.globalMacros.set(my_created.name, create_primary());
             }
         }
     }
@@ -2597,25 +2586,30 @@ export class SemanticAnalyzer {
         all_scopes: ScopeInfo[],
         node_index: number
     ): void {
-        // Loop variable is a local macro in the enclosing scope
+        // Loop variable is a local macro in the enclosing scope. Quirk
+        // preserved from the pre-split code: an already-defined iterator
+        // name is left alone entirely (no additional_definitions append),
+        // but the existence check is now against the ACTIVE scope so a
+        // same-named local in an unrelated program body no longer blocks
+        // the iterator's registration.
         if (node.loopVar) {
-            // Check if macro already exists (first definition wins)
-            const existing = symbols.localMacros.get(node.loopVar);
-            
-            const macro_symbol: MacroSymbol = {
-                name: node.loopVar,
-                scope: 'local',
-                location: { uri: this.uri, range: node.range },
-                sourceUri: this.uri,
-                containingScope: current_scope.type,
-                definition_index: existing?.definition_index ?? node_index,
-                definition_line: existing?.definition_line ?? node.range.start.line,
-            };
-
-            // Add to enclosing scope (not a new scope) only if not already defined
-            if (!existing) {
-                current_scope.localMacros.set(node.loopVar, macro_symbol);
-                symbols.localMacros.set(node.loopVar, macro_symbol);
+            const loop_var = node.loopVar;
+            if (!current_scope.localMacros.has(loop_var)) {
+                this.register_local_macro(
+                    current_scope,
+                    symbols,
+                    loop_var,
+                    node_index,
+                    node.range,
+                    () => ({
+                        name: loop_var,
+                        scope: 'local',
+                        location: { uri: this.uri, range: node.range },
+                        sourceUri: this.uri,
+                        definition_index: node_index,
+                        definition_line: node.range.start.line,
+                    })
+                );
             }
         }
 
@@ -2835,10 +2829,18 @@ export class SemanticAnalyzer {
         }
 
         const temp_symbols = create_empty_symbol_table();
+        // The probe only reads the produced NAMES, never scope identity,
+        // so a synthetic do-file scope covering the statement suffices.
+        const probe_scope: ScopeInfo = {
+            type: 'dofile',
+            range: statement.range,
+            localMacros: new Map(),
+            id: 0,
+        };
         const unknown = this.extract_mata_st_local_declarations(
             the_tokens,
             temp_symbols,
-            [statement]
+            [probe_scope]
         );
         const names = [
             ...Array.from(temp_symbols.localMacros.keys()).map(name => ({
@@ -2895,8 +2897,13 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         node_index: number
     ): void {
+        // Locals resolve identity in the ACTIVE scope's map (issue #261):
+        // a same-named local in an unrelated program body is a different
+        // symbol and must not absorb this expansion. Promotion below
+        // mutates the symbol in place, so when the flat view's slot points
+        // at this same object it stays consistent automatically.
         const target = macro.scope === 'local'
-            ? symbols.localMacros
+            ? current_scope.localMacros
             : symbols.globalMacros;
         const definition_line = macro.sourceRange.start.line;
         const existing = target.get(macro.name);
@@ -2950,12 +2957,30 @@ export class SemanticAnalyzer {
             location: { uri: this.uri, range: macro.sourceRange },
             sourceUri: this.uri,
             containingScope: current_scope.type,
+            ...(macro.scope === 'local'
+                ? {
+                    scope_id: current_scope.id,
+                    ...(current_scope.type === 'program'
+                        ? {
+                            containing_program_name:
+                                current_scope.program_name,
+                        }
+                        : {}),
+                }
+                : {}),
+            // The loop's own preorder index (captured before its body was
+            // walked). Required so publish_flat_local's earliest-index
+            // tie-break never treats an expanded macro as later (Infinity)
+            // than a real local in another scope; the line-based
+            // forward-reference gate below is unaffected because
+            // definition_line (the defining statement's line) is stricter.
+            definition_index: node_index,
             definition_line,
             is_expanded: true,
         };
         target.set(macro.name, symbol);
         if (macro.scope === 'local') {
-            current_scope.localMacros.set(macro.name, symbol);
+            this.publish_flat_local(symbols, current_scope, symbol);
         }
     }
 
@@ -3001,10 +3026,10 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         diagnostics: SemanticDiagnostic[],
         reported_ranges: Set<string>,
-        inside_program = false
+        current_scope: ScopeInfo
     ): void {
         this.traverse_ast_preorder(nodes, (node, node_index) => {
-            this.check_node_references(node, symbols, diagnostics, reported_ranges, node_index, inside_program);
+            this.check_node_references(node, symbols, diagnostics, reported_ranges, node_index, current_scope);
         });
     }
 
@@ -3014,12 +3039,13 @@ export class SemanticAnalyzer {
         diagnostics: SemanticDiagnostic[],
         reported_ranges: Set<string>,
         node_index: number,
-        inside_program: boolean
+        current_scope: ScopeInfo
     ): void {
         // Check if this line should be ignored
         if (this.config.ignored_lines.has(node.range.start.line)) {
             return;
         }
+        const inside_program = current_scope.type === 'program';
 
         switch (node.type) {
             case 'macro_ref':
@@ -3027,7 +3053,7 @@ export class SemanticAnalyzer {
                 if (inside_program && node.scope === 'global') {
                     break;
                 }
-                this.check_macro_reference(node, symbols, diagnostics, reported_ranges, node_index);
+                this.check_macro_reference(node, symbols, diagnostics, reported_ranges, node_index, current_scope);
                 break;
 
             case 'macro_def':
@@ -3045,7 +3071,7 @@ export class SemanticAnalyzer {
                             if (inside_program && macro_ref.scope === 'global') {
                                 continue;
                             }
-                            this.check_extended_macro_reference(macro_ref, symbols, diagnostics, reported_ranges, node_index);
+                            this.check_extended_macro_reference(macro_ref, symbols, diagnostics, reported_ranges, node_index, current_scope);
                         }
                     }
                 }
@@ -3055,10 +3081,22 @@ export class SemanticAnalyzer {
                 this.check_command_references(node, symbols, diagnostics);
                 break;
 
-            case 'program':
-                // Recurse into program body with inside_program = true
-                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, true);
+            case 'program': {
+                // Recurse into the program body with ITS scope. Both passes
+                // traverse the same AST object graph, and `process_program`
+                // stores `range: node.range` by reference, so range object
+                // identity recovers exactly the ScopeInfo built for this
+                // body. If the match ever fails, keeping the enclosing
+                // scope reproduces the pre-split (suppressive) behavior —
+                // a miss, never a false positive.
+                const program_scope = this.current_scopes.find(
+                    my_scope =>
+                        my_scope.type === 'program' &&
+                        my_scope.range === node.range
+                ) ?? current_scope;
+                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, program_scope);
                 break;
+            }
 
             case 'foreach':
             case 'forvalues':
@@ -3066,8 +3104,9 @@ export class SemanticAnalyzer {
             case 'else':
             case 'while':
             case 'frame':
-                // Recurse into control flow body, preserving inside_program context
-                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, inside_program);
+                // Recurse into control flow body, preserving the scope
+                // (control flow does not create scope in Stata).
+                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, current_scope);
                 break;
 
             default:
@@ -3076,24 +3115,80 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * Check a macro reference for undefined macros.
-     * This is a simplified version that doesn't track scope context.
-     * For proper scope tracking, we would need to pass scope context through the tree.
+     * Push an UNDEFINED_MACRO diagnostic for an unresolved local
+     * reference, carrying scope-isolation info when the lookup found the
+     * name only inside other program bodies (#145). Shared by the AST
+     * pass (which records the range for dedup against the token pass)
+     * and the token pass (which does not).
+     */
+    private emit_undefined_local_diagnostic(
+        result: LocalMacroLookupResult,
+        name: string,
+        range: Range,
+        diagnostics: SemanticDiagnostic[],
+        reported_ranges?: Set<string>
+    ): void {
+        if (result.kind === 'defined') {
+            return;
+        }
+        if (reported_ranges) {
+            const range_key = `${range.start.line}:${range.start.character}:${range.end.line}:${range.end.character}`;
+            reported_ranges.add(range_key);
+        }
+        diagnostics.push({
+            message: format_undefined_macro_message('local', name),
+            range,
+            code: StataDiagnosticCode.UNDEFINED_MACRO,
+            severity: 'warning',
+            symbol_name: name,
+            reference_kind: 'local',
+            ...(result.kind === 'out_of_scope_program_local'
+                ? {
+                    scope_isolation: {
+                        defined_in_programs: result.defined_in_programs,
+                    },
+                }
+                : {}),
+        });
+    }
+
+    /**
+     * Check a macro reference for undefined macros, resolving locals
+     * against the reference's scope (issue #261).
      */
     private check_macro_reference(
         node: { type: 'macro_ref'; scope: 'local' | 'global'; name: string; range: Range },
         symbols: SymbolTable,
         diagnostics: SemanticDiagnostic[],
         reported_ranges: Set<string>,
-        reference_index: number
+        reference_index: number,
+        current_scope: ScopeInfo
     ): void {
         if (!this.config.undefined_macro_enabled) {
             return;
         }
 
-        const is_defined = this.is_macro_defined(
+        if (node.scope === 'local') {
+            const result = this.lookup_local_macro(
+                node.name,
+                symbols,
+                current_scope,
+                reference_index,
+                node.range.start.line,
+                node.range
+            );
+            this.emit_undefined_local_diagnostic(
+                result,
+                node.name,
+                node.range,
+                diagnostics,
+                reported_ranges
+            );
+            return;
+        }
+
+        const is_defined = this.is_global_macro_defined(
             node.name,
-            node.scope,
             symbols,
             reference_index,
             node.range.start.line,
@@ -3122,15 +3217,34 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         diagnostics: SemanticDiagnostic[],
         reported_ranges: Set<string>,
-        reference_index: number
+        reference_index: number,
+        current_scope: ScopeInfo
     ): void {
         if (!this.config.undefined_macro_enabled) {
             return;
         }
 
-        const is_defined = this.is_macro_defined(
+        if (macro_ref.scope === 'local') {
+            const result = this.lookup_local_macro(
+                macro_ref.name,
+                symbols,
+                current_scope,
+                reference_index,
+                macro_ref.range.start.line,
+                macro_ref.range
+            );
+            this.emit_undefined_local_diagnostic(
+                result,
+                macro_ref.name,
+                macro_ref.range,
+                diagnostics,
+                reported_ranges
+            );
+            return;
+        }
+
+        const is_defined = this.is_global_macro_defined(
             macro_ref.name,
-            macro_ref.scope,
             symbols,
             reference_index,
             macro_ref.range.start.line,
@@ -3223,102 +3337,158 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * Check if a macro is defined.
-     * Macros are case-sensitive.
-     * Also checks declaration directives (@lsp-local, @lsp-global) with forward-only effect.
-     * Falls back to workspace symbols if not found locally.
+     * Resolve a LOCAL macro reference against the scoped environment
+     * model. THE single reference-side choke point (issue #261): a local
+     * suppresses a warning only when it is visible from the reference's
+     * scope — the reference's own scope always, plus the do-file scope
+     * when the reference sits inside a program (one-directional,
+     * deliberately permissive; see issue #261's proposed semantics).
+     * Programs never see each other's locals — no code path here reads
+     * another program's scope map for the resolution decision.
+     *
+     * When NO visible scope defines the name but some other program body
+     * does, the result carries those program names so the diagnostic can
+     * say "defined only inside program X" (#145). A same-name symbol
+     * that exists in a visible scope but is not yet visible (a forward
+     * reference) stays a plain 'undefined' so the existing
+     * same-file-forward rewrite keeps working.
      */
-    private is_macro_defined(
+    private lookup_local_macro(
         name: string,
-        scope: 'local' | 'global',
+        symbols: SymbolTable,
+        reference_scope: ScopeInfo,
+        reference_index?: number,
+        reference_line?: number,
+        reference_range?: Range
+    ): LocalMacroLookupResult {
+        // Positional arguments (`1', `2', ...) are always potentially
+        // defined — they represent command-line arguments.
+        if (this.is_positional_argument(name)) {
+            return { kind: 'defined' };
+        }
+
+        // Check declared locals from @lsp-local directive (file-wide by
+        // decision, forward-only effect).
+        const declared_local = this.config.declared_locals.get(name);
+        if (declared_local) {
+            // Only suppress warning if reference is at or after the directive line
+            if (reference_line !== undefined && reference_line >= declared_local.line) {
+                return { kind: 'defined' };
+            }
+            // If no reference_line, check if we have a reference_index
+            // In this case, we can't do forward-only check, so we accept it
+            if (reference_line === undefined && reference_index !== undefined) {
+                const macro = symbols.localMacros.get(name);
+                if (macro && macro.definition_line !== undefined) {
+                    return { kind: 'defined' };
+                }
+            }
+        }
+
+        const dofile_scope = this.current_scopes[0];
+        const the_visible_scopes =
+            reference_scope.type !== 'dofile' &&
+            dofile_scope !== undefined &&
+            dofile_scope !== reference_scope
+                ? [reference_scope, dofile_scope]
+                : [reference_scope];
+
+        let same_name_in_visible_scope = false;
+        for (const my_scope of the_visible_scopes) {
+            const macro = my_scope.localMacros.get(name);
+            if (!macro) {
+                continue;
+            }
+            same_name_in_visible_scope = true;
+            if (
+                this.macro_resolves_at_reference(
+                    macro,
+                    reference_index,
+                    reference_line,
+                    reference_range
+                )
+            ) {
+                return { kind: 'defined' };
+            }
+        }
+
+        // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
+        // Only cross-file directives (@lsp-done-by, @lsp-included-by, @lsp-do, etc.)
+        // provide scope resolution. Workspace symbols are used only for:
+        // - Completions and go-to-definition
+        // - Looking up called programs for c_locals registration
+
+        if (!same_name_in_visible_scope) {
+            const the_program_names = new Set<string>();
+            for (const my_scope of this.current_scopes) {
+                if (my_scope === reference_scope) {
+                    continue;
+                }
+                if (my_scope.type !== 'program' || !my_scope.program_name) {
+                    continue;
+                }
+                if (my_scope.localMacros.has(name)) {
+                    the_program_names.add(my_scope.program_name);
+                }
+            }
+            if (the_program_names.size > 0) {
+                return {
+                    kind: 'out_of_scope_program_local',
+                    defined_in_programs: [...the_program_names],
+                };
+            }
+        }
+
+        return { kind: 'undefined' };
+    }
+
+    /**
+     * Check if a GLOBAL macro is defined (globals are file-wide; local
+     * lookups go through `lookup_local_macro`). Macros are case-sensitive.
+     * Also checks the @lsp-global declaration directive (forward-only) and
+     * falls back to Stata's system globals.
+     */
+    private is_global_macro_defined(
+        name: string,
         symbols: SymbolTable,
         reference_index?: number,
         reference_line?: number,
         reference_range?: Range
     ): boolean {
-        if (scope === 'local') {
-            // Check for positional arguments (numeric macro names like `1', `2', etc.)
-            // These are always potentially defined as they represent command-line arguments
-            if (this.is_positional_argument(name)) {
+        // Check declared globals from @lsp-global directive (forward-only effect)
+        const declared_global = this.config.declared_globals.get(name);
+        if (declared_global) {
+            // Only suppress warning if reference is at or after the directive line
+            if (reference_line !== undefined && reference_line >= declared_global.line) {
                 return true;
             }
-
-            // Check declared locals from @lsp-local directive (forward-only effect)
-            const declared_local = this.config.declared_locals.get(name);
-            if (declared_local) {
-                // Only suppress warning if reference is at or after the directive line
-                if (reference_line !== undefined && reference_line >= declared_local.line) {
-                    return true;
-                }
-                // If no reference_line, check if we have a reference_index
-                // In this case, we can't do forward-only check, so we accept it
-                if (reference_line === undefined && reference_index !== undefined) {
-                    // We need to be conservative here - the symbol is declared
-                    // but we can't verify forward-only without line info
-                    // Check the symbol table entry for line info
-                    const macro = symbols.localMacros.get(name);
-                    if (macro && macro.definition_line !== undefined) {
-                        // Use the macro's definition line for comparison
-                        // This is set from the directive's line
-                        return true; // Symbol exists in table, let normal check handle it
-                    }
+            // If no reference_line, check if we have a reference_index
+            if (reference_line === undefined && reference_index !== undefined) {
+                const macro = symbols.globalMacros.get(name);
+                if (macro && macro.definition_line !== undefined) {
+                    return true; // Symbol exists in table, let normal check handle it
                 }
             }
+        }
 
-            // Check local macros (case-sensitive)
-            // For local macros, we need to check if ANY definition exists
-            // since we don't have proper scope tracking yet
-            const macro = symbols.localMacros.get(name);
-            if (macro) {
-                return this.macro_resolves_at_reference(
-                    macro,
-                    reference_index,
-                    reference_line,
-                    reference_range
-                );
-            }
+        // Check global macros (case-sensitive)
+        const macro = symbols.globalMacros.get(name);
+        if (macro) {
+            return this.macro_resolves_at_reference(
+                macro,
+                reference_index,
+                reference_line,
+                reference_range
+            );
+        }
 
-            // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
-            // Only cross-file directives (@lsp-done-by, @lsp-included-by, @lsp-do, etc.)
-            // provide scope resolution. Workspace symbols are used only for:
-            // - Completions and go-to-definition
-            // - Looking up called programs for c_locals registration
-        } else {
-            // Check declared globals from @lsp-global directive (forward-only effect)
-            const declared_global = this.config.declared_globals.get(name);
-            if (declared_global) {
-                // Only suppress warning if reference is at or after the directive line
-                if (reference_line !== undefined && reference_line >= declared_global.line) {
-                    return true;
-                }
-                // If no reference_line, check if we have a reference_index
-                if (reference_line === undefined && reference_index !== undefined) {
-                    const macro = symbols.globalMacros.get(name);
-                    if (macro && macro.definition_line !== undefined) {
-                        return true; // Symbol exists in table, let normal check handle it
-                    }
-                }
-            }
+        // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
+        // Only cross-file directives provide scope resolution.
 
-            // Check global macros (case-sensitive)
-            const macro = symbols.globalMacros.get(name);
-            if (macro) {
-                return this.macro_resolves_at_reference(
-                    macro,
-                    reference_index,
-                    reference_line,
-                    reference_range
-                );
-            }
-
-            // NOTE: Workspace symbols do NOT suppress undefined macro warnings.
-            // Only cross-file directives provide scope resolution.
-
-            // NEW: Check for system-defined global macros as FALLBACK
-            // Only reached if not found in symbol table or directives
-            if (this.is_system_global(name)) {
-                return true;
-            }
+        // Check for system-defined global macros as FALLBACK
+        // Only reached if not found in symbol table or directives
+        if (this.is_system_global(name)) {
+            return true;
         }
 
         return false;
@@ -3461,48 +3631,6 @@ export class SemanticAnalyzer {
         return false;
     }
 
-    /**
-     * Collect line ranges of program block bodies from the AST (recursively).
-     * Uses exclusive boundaries (start.line + 1, end.line - 1) to match
-     * the AST pass which only operates on body nodes, not the header/end lines.
-     */
-    private collect_program_ranges(nodes: StataNode[]): Array<[number, number]> {
-        const the_ranges: Array<[number, number]> = [];
-        for (const my_node of nodes) {
-            if (my_node.type === 'program') {
-                // Exclude the header line (program define ...) and the end line
-                the_ranges.push([my_node.range.start.line + 1, my_node.range.end.line - 1]);
-                // Recurse for nested programs
-                the_ranges.push(...this.collect_program_ranges(my_node.body));
-            } else if ('body' in my_node && Array.isArray(my_node.body)) {
-                the_ranges.push(...this.collect_program_ranges(my_node.body));
-            }
-        }
-        return the_ranges;
-    }
-
-    /**
-     * Full (character-precise) ranges of every program block, including
-     * nested ones. Used to scope Mata setters precisely even when a setter
-     * shares a physical line with the program header or its `end`.
-     */
-    private collect_program_position_ranges(nodes: StataNode[]): Range[] {
-        const the_ranges: Range[] = [];
-        for (const my_node of nodes) {
-            if (my_node.type === 'program') {
-                the_ranges.push(my_node.range);
-                the_ranges.push(
-                    ...this.collect_program_position_ranges(my_node.body)
-                );
-            } else if ('body' in my_node && Array.isArray(my_node.body)) {
-                the_ranges.push(
-                    ...this.collect_program_position_ranges(my_node.body)
-                );
-            }
-        }
-        return the_ranges;
-    }
-
     /** Is `position` within `range` (inclusive), comparing line then char? */
     private position_within_range(
         position: { line: number; character: number },
@@ -3512,6 +3640,45 @@ export class SemanticAnalyzer {
             this.compare_positions(position, range.start) >= 0 &&
             this.compare_positions(position, range.end) <= 0
         );
+    }
+
+    /**
+     * THE single mechanism for "which scope owns this position" — shared
+     * by the token reference pass and the Mata setter pass (the AST pass
+     * threads scopes structurally). Returns the innermost program scope
+     * whose (character-precise, inclusive) range contains `position`,
+     * else the do-file scope (`scopes[0]`). Do not add a second way to
+     * answer this question.
+     *
+     * Limitation (pre-existing): the parser only builds `program` block
+     * nodes under `#delimit cr`, so under `#delimit ;` positions inside
+     * a program fall back to the do-file scope.
+     */
+    private find_enclosing_scope(
+        scopes: ScopeInfo[],
+        position: { line: number; character: number }
+    ): ScopeInfo {
+        let innermost: ScopeInfo | undefined;
+        for (const my_scope of scopes) {
+            if (my_scope.type !== 'program') {
+                continue;
+            }
+            if (!this.position_within_range(position, my_scope.range)) {
+                continue;
+            }
+            // Nested program scopes start later than their enclosing
+            // scope, so the latest-starting match is the innermost.
+            if (
+                innermost === undefined ||
+                this.compare_positions(
+                    my_scope.range.start,
+                    innermost.range.start
+                ) > 0
+            ) {
+                innermost = my_scope;
+            }
+        }
+        return innermost ?? scopes[0];
     }
 
     /**
@@ -3556,16 +3723,9 @@ export class SemanticAnalyzer {
     private extract_mata_st_local_declarations(
         tokens: Token[],
         symbols: SymbolTable,
-        nodes: StataNode[]
+        scopes: ScopeInfo[]
     ): boolean {
         let saw_unknown_setter = false;
-        // Position-precise program ranges (start of `program` keyword to end
-        // of `end`). Used to scope a setter to `program` vs `dofile`. Unlike
-        // the line-based `collect_program_ranges`, this stays correct when a
-        // setter shares a physical line with the program header or `end`
-        // (common under `#delimit ;`, e.g. `... ;end ;`).
-        const program_position_ranges =
-            this.collect_program_position_ranges(nodes);
 
         // Track whether we are inside a Mata block / inline expression:
         //   'inline'      — `mata: <expr>`, ends at the statement terminator
@@ -4156,23 +4316,17 @@ export class SemanticAnalyzer {
 
             // Scope the setter to the innermost enclosing program (character-
             // precise, so a setter sharing the program header or `end` line is
-            // still attributed correctly). Limitation: the parser only builds
-            // `program` block nodes under `#delimit cr`; under `#delimit ;` a
-            // `program define ... end` is parsed as flat commands with no
-            // block node, so setters there fall back to `dofile` scope.
-            const containing_scope: ScopeType = program_position_ranges.some(
-                program_range =>
-                    this.position_within_range(token.range.start, program_range)
-            )
-                ? 'program'
-                : 'dofile';
+            // still attributed correctly). See `find_enclosing_scope` for the
+            // `#delimit ;` fallback-to-dofile limitation.
+            const owning_scope =
+                this.find_enclosing_scope(scopes, token.range.start);
 
             this.register_mata_macro(
                 macro_name,
                 scope,
                 name_token.range,
                 definition_line,
-                containing_scope,
+                owning_scope,
                 symbols,
                 visibility_start
             );
@@ -4187,12 +4341,55 @@ export class SemanticAnalyzer {
      * `additional_definitions`; otherwise record it as an additional
      * definition in source order.
      */
+    /**
+     * Maintain the compatibility flat view `symbols.localMacros` after a
+     * scoped registration created (or promoted) a primary `symbol` in
+     * `scope`. Ownership rules for the flat slot:
+     *   1. a do-file-scope definition, if any exists, always owns it;
+     *   2. else the earliest-`definition_index` program-scope definition.
+     * Pass `replaced` when a same-scope promotion demoted the previous
+     * primary, so an occupied slot pointing at the demoted symbol is
+     * updated. The flat view never merges cross-scope
+     * `additional_definitions` — that chaining lives only inside each
+     * scope's own map (issue #261).
+     */
+    private publish_flat_local(
+        symbols: SymbolTable,
+        scope: ScopeInfo,
+        symbol: MacroSymbol,
+        replaced?: MacroSymbol
+    ): void {
+        const current_flat = symbols.localMacros.get(symbol.name);
+        if (!current_flat || current_flat === replaced) {
+            symbols.localMacros.set(symbol.name, symbol);
+            return;
+        }
+        if (current_flat === symbol) {
+            return;
+        }
+        if (current_flat.containingScope === 'dofile') {
+            // A do-file definition always keeps the flat slot.
+            return;
+        }
+        if (scope.type === 'dofile') {
+            symbols.localMacros.set(symbol.name, symbol);
+            return;
+        }
+        // Both program-scoped: earliest definition wins (deterministic,
+        // matches the pre-split first-def-wins flat behavior).
+        const candidate_index = symbol.definition_index ?? Infinity;
+        const current_index = current_flat.definition_index ?? Infinity;
+        if (candidate_index < current_index) {
+            symbols.localMacros.set(symbol.name, symbol);
+        }
+    }
+
     private register_mata_macro(
         name: string,
         scope: 'local' | 'global',
         range: Range,
         definition_line: number,
-        containing_scope: ScopeType,
+        owning_scope: ScopeInfo,
         symbols: SymbolTable,
         visibility_start?: { line: number; character: number }
     ): void {
@@ -4205,8 +4402,11 @@ export class SemanticAnalyzer {
             return;
         }
 
+        // Locals get scoped identity (issue #261): existence/promotion is
+        // decided inside the owning scope's map, and the flat view is kept
+        // consistent via `publish_flat_local`. Globals stay file-wide.
         const symbol_map =
-            scope === 'local' ? symbols.localMacros : symbols.globalMacros;
+            scope === 'local' ? owning_scope.localMacros : symbols.globalMacros;
 
         const new_symbol: MacroSymbol = {
             name,
@@ -4214,7 +4414,11 @@ export class SemanticAnalyzer {
             location: { uri: this.uri, range },
             sourceUri: this.uri,
             value: scope === 'local' ? '__st_local__' : '__st_global__',
-            containingScope: containing_scope,
+            containingScope: owning_scope.type,
+            ...(scope === 'local' ? { scope_id: owning_scope.id } : {}),
+            ...(scope === 'local' && owning_scope.type === 'program'
+                ? { containing_program_name: owning_scope.program_name }
+                : {}),
             definition_line,
             visibility_start,
         };
@@ -4222,6 +4426,9 @@ export class SemanticAnalyzer {
         const existing = symbol_map.get(name);
         if (!existing) {
             symbol_map.set(name, new_symbol);
+            if (scope === 'local') {
+                this.publish_flat_local(symbols, owning_scope, new_symbol);
+            }
             return;
         }
 
@@ -4234,6 +4441,14 @@ export class SemanticAnalyzer {
             ];
             this.sort_additional_definitions(new_symbol.additional_definitions);
             symbol_map.set(name, new_symbol);
+            if (scope === 'local') {
+                this.publish_flat_local(
+                    symbols,
+                    owning_scope,
+                    new_symbol,
+                    existing
+                );
+            }
             return;
         }
 
@@ -4632,7 +4847,7 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         diagnostics: SemanticDiagnostic[],
         reported_ranges: Set<string>,
-        program_ranges: Array<[number, number]>
+        scopes: ScopeInfo[]
     ): void {
         for (const token of tokens) {
             // Check if this line should be ignored
@@ -4649,8 +4864,9 @@ export class SemanticAnalyzer {
 
             // Suppress undefined global macro warnings inside program blocks
             if (token.type === 'MACRO_REF_GLOBAL') {
-                const token_line = token.range.start.line;
-                if (program_ranges.some(([start, end]) => token_line >= start && token_line <= end)) {
+                const enclosing_scope =
+                    this.find_enclosing_scope(scopes, token.range.start);
+                if (enclosing_scope.type === 'program') {
                     continue;
                 }
             }
@@ -4696,28 +4912,25 @@ export class SemanticAnalyzer {
                 }
                 
                 const token_line = token.range.start.line;
-                if (
-                    macro_name &&
-                    !this.is_macro_defined(
+                if (macro_name) {
+                    const reference_scope = this.find_enclosing_scope(
+                        scopes,
+                        token.range.start
+                    );
+                    const result = this.lookup_local_macro(
                         macro_name,
-                        'local',
                         symbols,
+                        reference_scope,
                         undefined,
                         token_line,
                         token.range
-                    )
-                ) {
-                    diagnostics.push({
-                        message: format_undefined_macro_message(
-                            'local',
-                            macro_name
-                        ),
-                        range: token.range,
-                        code: StataDiagnosticCode.UNDEFINED_MACRO,
-                        severity: 'warning',
-                        symbol_name: macro_name,
-                        reference_kind: 'local',
-                    });
+                    );
+                    this.emit_undefined_local_diagnostic(
+                        result,
+                        macro_name,
+                        token.range,
+                        diagnostics
+                    );
                 }
             } else if (token.type === 'MACRO_REF_GLOBAL') {
                 // Extract macro name from $name or ${name} format
@@ -4748,9 +4961,8 @@ export class SemanticAnalyzer {
                 const token_line = token.range.start.line;
                 if (
                     macro_name &&
-                    !this.is_macro_defined(
+                    !this.is_global_macro_defined(
                         macro_name,
-                        'global',
                         symbols,
                         undefined,
                         token_line,

@@ -13,6 +13,10 @@ export type OutOfScopeReason =
     | {
         kind: 'same_file_forward';
         defined_line_0: number;
+    }
+    | {
+        kind: 'scope_isolated_in_program';
+        program_names: string[];
     };
 
 function format_symbol_display_name(
@@ -56,5 +60,21 @@ export function format_out_of_scope_message(
                 `${display_name} is used before it is defined ` +
                 `(line ${reason.defined_line_0 + 1})`
             );
+        case 'scope_isolated_in_program': {
+            const the_names = reason.program_names;
+            if (the_names.length === 1) {
+                return (
+                    `${display_name} is defined only inside ` +
+                    `program ${the_names[0]}`
+                );
+            }
+            const listed =
+                `${the_names.slice(0, -1).join(', ')} and ` +
+                `${the_names[the_names.length - 1]}`;
+            return (
+                `${display_name} is defined only inside ` +
+                `programs ${listed}`
+            );
+        }
     }
 }

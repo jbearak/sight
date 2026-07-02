@@ -10,6 +10,7 @@ import {
   LexerError,
   ParseError,
   ScopeResolverConfig,
+  ScopeInfo,
 } from './types';
 import { undefined_symbol_data_fields } from './utils/undefined-symbol-diagnostic';
 import { diagnostic_code_description_fields } from './utils/diagnostic-code-description';
@@ -40,6 +41,11 @@ export interface DocumentState {
   tokens: Token[];
   ast: StataAST | null;
   symbols: SymbolTable;
+  // Per-scope local-macro maps from the analyzer (do-file scope first,
+  // then one per program body). Retained so position-aware features
+  // (issue #261 follow-ups) can query scope visibility without
+  // re-analyzing.
+  scopes: ScopeInfo[];
   diagnostics: Diagnostic[];
 
   // Context tracking (existing, but now single source of truth)
@@ -758,6 +764,7 @@ export class DocumentStore {
           scalars: new Map(),
           matrices: new Map(),
         },
+        scopes: [],
         diagnostics: [
           {
             severity: DiagnosticSeverity.Warning,
@@ -849,6 +856,7 @@ export class DocumentStore {
       tokens: lex_result.result!.tokens,
       ast: parse_result.result!.ast,
       symbols: analyze_result.result!.symbols,
+      scopes: analyze_result.result!.scopes,
       diagnostics,
       context_ranges,
       context_tracker: my_context_tracker,
@@ -916,6 +924,7 @@ export class DocumentStore {
         scalars: new Map(),
         matrices: new Map(),
       },
+      scopes: [],
       diagnostics: [
         {
           severity: DiagnosticSeverity.Error,

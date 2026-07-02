@@ -37,6 +37,7 @@ export function undefined_symbol_data_fields(
     diagnostic: {
         symbol_name?: string;
         reference_kind?: 'local' | 'global' | 'variable';
+        scope_isolation?: { defined_in_programs: string[] };
     }
 ): { data: UndefinedSymbolDiagnosticData } | Record<string, never> {
     if (
@@ -49,6 +50,9 @@ export function undefined_symbol_data_fields(
         data: {
             symbol_name: diagnostic.symbol_name,
             reference_kind: diagnostic.reference_kind,
+            ...(diagnostic.scope_isolation !== undefined
+                ? { scope_isolation: diagnostic.scope_isolation }
+                : {}),
         },
     };
 }

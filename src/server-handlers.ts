@@ -305,6 +305,7 @@ export function create_completion_handler(
                             scalars: new Map(),
                             matrices: new Map(),
                         },
+                        scopes: [],
                         diagnostics: [],
                         context_ranges: [],
                         context_tracker: new ContextTracker(),

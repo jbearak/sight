@@ -50,6 +50,9 @@ type SemanticDiagnostic = {
     // data, never by parsing the (now reworded) message prose.
     symbol_name?: string;
     reference_kind?: 'local' | 'global' | 'variable';
+    // Same-file program bodies that define this otherwise-undefined
+    // local; drives the scope-isolation rewrite (#145).
+    scope_isolation?: { defined_in_programs: string[] };
 };
 type ReferenceKind = 'local' | 'global' | 'variable' | null;
 type OutOfScopeRewriteMatch = {
@@ -400,6 +403,40 @@ export class DiagnosticsProvider {
                     continue;
                 }
             }
+
+            // Scope-isolated program local (#145): the analyzer determined
+            // the referenced local exists ONLY inside other program bodies
+            // in this same file. Rewrite with the specific message. This
+            // runs AFTER cross-file resolution has had its chance to
+            // suppress the diagnostic (a parent's genuine definition still
+            // wins above), and BEFORE the legacy same-file/backward
+            // matchers — which would otherwise misread the flat symbol
+            // table and e.g. rewrite a pre-program reference as a
+            // same-file forward reference (the misleading behavior
+            // behind the 2026-04-21 revert; see the guard comment on
+            // is_symbol_defined_in_current_document).
+            if (symbol_name && my_diagnostic.scope_isolation) {
+                const converted = this.create_out_of_scope_rewrite(
+                    my_diagnostic,
+                    symbol_name,
+                    {
+                        symbol_kind: 'local',
+                        reason: {
+                            kind: 'scope_isolated_in_program',
+                            program_names:
+                                my_diagnostic.scope_isolation
+                                    .defined_in_programs,
+                        },
+                    },
+                    config,
+                    document
+                );
+                if (converted) {
+                    the_diagnostics.push(converted);
+                }
+                continue;
+            }
+
             if (symbol_name) {
                 const same_file_match = this.find_same_file_out_of_scope_match(
                     symbol_name,
@@ -657,6 +694,7 @@ export class DiagnosticsProvider {
                     severity: severity_map[diag.severity ?? DiagnosticSeverity.Error],
                     symbol_name: data?.symbol_name,
                     reference_kind: data?.reference_kind,
+                    scope_isolation: data?.scope_isolation,
                 });
             }
         }
