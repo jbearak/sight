@@ -1832,7 +1832,8 @@ export class CompletionProvider {
                 if (macro_pos) {
                     const containing_program = this.find_program_containing_position(
                         document.ast.nodes,
-                        macro_pos
+                        macro_pos,
+                        document.scopes
                     );
 
                     if (current_program) {
