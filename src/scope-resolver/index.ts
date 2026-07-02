@@ -2758,8 +2758,15 @@ export class ScopeResolver {
      * @param options - Invalidation options
      * @param options.preserve_forward_call_relationships - If true, do not clear forward call relationships.
      *   Use this when the file cache is being invalidated during an update where relationships were just refreshed.
+     * @param options.preserve_backward_directive_dependencies - If true, do
+     *   not clear the parent→child backward-directive map for this URI. Use
+     *   this on document CLOSE (#278): the file still exists on disk and
+     *   nothing re-syncs the map until its next parse, so clearing it would
+     *   break get_transitive_backward_directive_children for parent edits
+     *   until then. The next parse re-syncs (and corrects buffer-era
+     *   registrations) via sync_backward_directive_dependencies.
      */
-    invalidate_file_cache(uri: string, options?: { preserve_forward_call_relationships?: boolean }): void {
+    invalidate_file_cache(uri: string, options?: { preserve_forward_call_relationships?: boolean; preserve_backward_directive_dependencies?: boolean }): void {
         this.log(`[invalidate_file_cache] Invalidating file cache for ${uri}`);
         // Keep the forward-closure memo in lockstep with scope_cache (#234).
         this.forward_scope_resolver?.invalidate_forward_closure_for_uri?.(uri);
@@ -2777,7 +2784,9 @@ export class ScopeResolver {
 
         // Clear backward directive dependencies for this file
         // This maintains consistency between file cache and backward directive map
-        this.clear_backward_directive_dependencies(uri);
+        if (!options?.preserve_backward_directive_dependencies) {
+            this.clear_backward_directive_dependencies(uri);
+        }
 
         // Clear forward call relationships for this file
         // This maintains consistency between file cache and callee_to_callers map

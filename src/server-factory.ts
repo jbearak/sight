@@ -1495,9 +1495,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // forward-closure memo entries embedding the buffer's symbols)
             // must not survive, or they keep serving the discarded edits
             // (#278 review). Preserve forward-call relationships so the
-            // anti-flicker rationale below still holds.
+            // anti-flicker rationale below still holds, and preserve the
+            // backward-directive map — the file still exists on disk and
+            // nothing re-syncs that map until its next parse, so clearing
+            // it here would make parent edits miss this file's descendants
+            // (#278 review, round 2).
             scope_resolver.invalidate_file_cache(e.document.uri, {
                 preserve_forward_call_relationships: true,
+                preserve_backward_directive_dependencies: true,
             });
         }
         // On close, the buffer's in-memory edges/symbols are discarded, so

@@ -503,6 +503,7 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         scope.remove_caller_from_reverse_deps(x_uri);
         scope.invalidate_file_cache(x_uri, {
             preserve_forward_call_relationships: true,
+            preserve_backward_directive_dependencies: true,
         });
 
         // A root edit forces a fresh top-level resolution; the memo must
@@ -511,6 +512,43 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         const after_close = await scope.resolve(root_uri, root_content);
         expect(site_has_global(after_close, 'x_old')).toBe(true);
         expect(site_has_global(after_close, 'x_new')).toBe(false);
+    });
+
+    it('close-path invalidation keeps backward-directive links intact', async () => {
+        // codex round-2 on the close fix: invalidate_file_cache used to
+        // unconditionally clear the closed file's parent→child backward-
+        // directive registrations, and nothing re-syncs them until the
+        // file's next parse — so after closing a directive-chain child, a
+        // parent edit could miss invalidating/revalidating descendants
+        // (get_transitive_backward_directive_children came up empty). The
+        // close path must preserve the map (pre-#278 behavior).
+        const parent = create_file('bd_parent.do',
+            'global bd_g 1\ndo "bd_child.do"\n');
+        const child_content =
+            `// @lsp-done-by: "${parent}" match="bd_child.do"\n` +
+            'display "${bd_g}"\n';
+        const child = create_file('bd_child.do', child_content);
+        const child_uri = to_uri(child);
+        const parent_uri = to_uri(parent);
+
+        // Resolving the child registers the parent→child backward link.
+        await scope_resolver.resolve(child_uri, child_content);
+        expect([...scope_resolver
+            .get_transitive_backward_directive_children(parent_uri)])
+            .toContain(child_uri);
+
+        // Simulate closing the child (the onDidClose handler's sequence).
+        scope_resolver.remove_caller_from_reverse_deps(child_uri);
+        scope_resolver.invalidate_file_cache(child_uri, {
+            preserve_forward_call_relationships: true,
+            preserve_backward_directive_dependencies: true,
+        });
+
+        // The link must survive so a subsequent parent edit still reaches
+        // the (now closed) child and its descendants.
+        expect([...scope_resolver
+            .get_transitive_backward_directive_children(parent_uri)])
+            .toContain(child_uri);
     });
 
     it('version churn reclaims dead entries even when their closures are never revisited', async () => {
