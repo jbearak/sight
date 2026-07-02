@@ -769,10 +769,19 @@ on; it is enforced by the memo correctness gate
 (`tests/integration/forward-closure-memo-gate.test.ts`), which checks that a
 file's forward closure is identical across distinct callers given the same inputs.
 
-> Implementation status: the cache *key contract* and an enable/disable toggle
-> (`set_forward_closure_memo_enabled`, default **off**) are in place; the cache
-> store/serve path is deferred to a follow-up. The toggle is a behavioral no-op
-> until then, guarded by the on/off correctness gate.
+> Implementation status: the forward-closure memo is fully implemented and
+> **on by default** (`set_forward_closure_memo_enabled` can disable it). The
+> memo caches only standalone, owner-suppressed, diagnostic-free closures and
+> serves an entry only when its reachable set is disjoint from the caller's
+> recursion stack and visited map, replaying the closure's visited-delta into
+> the caller on serve. Any closure that would emit a diagnostic — including a
+> depth-cap truncation suppressed by `maxDepth = "off"` — is recomputed live
+> and never stored. Entries are evicted in lockstep with the scope cache
+> (content changes, transitive dependents, dependency-graph version changes,
+> workspace resets), the memo only populates once the workspace scan is
+> complete, and closures built while an invalidation or cancellation landed
+> mid-build are discarded. All of this is guarded by the memo-on/off
+> correctness gate above.
 
 ## Configuration
 

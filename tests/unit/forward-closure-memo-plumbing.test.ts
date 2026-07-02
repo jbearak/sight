@@ -1,11 +1,11 @@
 /**
- * Issue #209 — forward-closure memo plumbing (gate + toggle).
+ * Issue #209/#234 — forward-closure memo plumbing (gate + toggle).
  *
- * The cache STORE/SERVE write-path is deferred to a follow-up; this PR ships the
- * toggle and the caller-independent key contract that the follow-up implements.
  * The key must capture every input that varies a file's forward closure and
  * NOTHING about the calling file's identity (the #208 caller-independence
  * assumption). See docs/cross-file.md "Forward-closure caching semantics".
+ * The store/serve write-path itself is covered by
+ * tests/integration/forward-closure-memo-store-serve.test.ts.
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
@@ -24,8 +24,8 @@ describe('forward-closure memo toggle', () => {
         scope_resolver.set_forward_scope_resolver(forward_resolver);
     });
 
-    it('is disabled by default (write-path deferred)', () => {
-        expect(forward_resolver.is_forward_closure_memo_enabled()).toBe(false);
+    it('is enabled by default (#234 acceptance decision)', () => {
+        expect(forward_resolver.is_forward_closure_memo_enabled()).toBe(true);
     });
 
     it('reflects the toggle', () => {

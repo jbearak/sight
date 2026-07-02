@@ -1293,6 +1293,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
                 max_forward_depth: DEFAULT_SETTINGS.cross_file.max_forward_depth,
             });
+            // Supplies dep_graph_version + the scan_complete population gate
+            // for the forward-closure memo (#234).
+            forward_scope_resolver.set_dependency_graph(dependency_graph);
 
             scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
 
