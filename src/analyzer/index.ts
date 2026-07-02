@@ -4866,21 +4866,25 @@ export class SemanticAnalyzer {
                 continue;
             }
 
-            // Suppress undefined global macro warnings inside program
-            // BODIES only. The header (`program define ...`) and `end`
-            // lines are excluded: Stata expands macros on the header at
+            // Suppress ALL global-token checks inside program BODIES.
+            // The header (`program define ...`) and `end` lines are
+            // excluded: Stata expands macros on the header at
             // definition time, so an undefined global there is a real
             // warning (matches the pre-split line-exclusive ranges).
-            // body_only also sends a NESTED header to the enclosing
-            // program's body — it expands while the outer program runs,
-            // the same caller-may-set frame as outer body code.
+            // Kept char-precise and innermost-only (NOT body_only): a
+            // nested header must fall through so its syntax checks
+            // (e.g. invalid macro chars) still run — only its
+            // undefined-global check is frame-suppressed, at the push
+            // site below.
             if (token.type === 'MACRO_REF_GLOBAL') {
-                const enclosing_scope = this.find_enclosing_scope(
-                    scopes,
-                    token.range.start,
-                    { body_only: true }
-                );
-                if (enclosing_scope.type === 'program') {
+                const enclosing_scope =
+                    this.find_enclosing_scope(scopes, token.range.start);
+                const token_line = token.range.start.line;
+                if (
+                    enclosing_scope.type === 'program' &&
+                    token_line > enclosing_scope.range.start.line &&
+                    token_line < enclosing_scope.range.end.line
+                ) {
                     continue;
                 }
             }
@@ -5001,6 +5005,18 @@ export class SemanticAnalyzer {
                         token.range
                     )
                 ) {
+                    // A NESTED program's header/end line expands while
+                    // the outer program runs — the same caller-may-set
+                    // frame as outer body code, so the undefined-global
+                    // warning (and only it) is suppressed there.
+                    const frame_scope = this.find_enclosing_scope(
+                        scopes,
+                        token.range.start,
+                        { body_only: true }
+                    );
+                    if (frame_scope.type === 'program') {
+                        continue;
+                    }
                     diagnostics.push({
                         message: format_undefined_macro_message(
                             'global',

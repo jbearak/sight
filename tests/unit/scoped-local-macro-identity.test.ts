@@ -304,6 +304,34 @@ end
             undefined_global_diagnostics(result, 'maybe_set')
         ).toHaveLength(0);
     });
+
+    it('still reports invalid macro chars on a nested program header', () => {
+        // Frame suppression covers only the undefined-global check —
+        // \${bad.name} is a syntax error no caller can make valid.
+        const result = analyze_code(`
+program define outer
+    program define inner, rclass \${bad.name}
+    end
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.INVALID_MACRO_CHAR
+        )).toHaveLength(1);
+    });
+
+    it('body-line invalid macro chars stay suppressed (parity with main)', () => {
+        // Pre-existing behavior: program-body global tokens skip ALL
+        // checks, including syntax ones. Pinned so changes are
+        // deliberate, not incidental.
+        const result = analyze_code(`
+program define myprog
+    display \${bad.name}
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.INVALID_MACRO_CHAR
+        )).toHaveLength(0);
+    });
 });
 
 // Issue #273: local-macro references on a `program define` header line
