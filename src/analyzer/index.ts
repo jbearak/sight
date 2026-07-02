@@ -3440,6 +3440,17 @@ export class SemanticAnalyzer {
                 if (my_scope.type !== 'program' || !my_scope.program_name) {
                     continue;
                 }
+                // A redeclared program's other bodies share the
+                // reference's own program name — blaming them would
+                // read as self-contradictory ("defined only inside
+                // program foo" while inside program foo). Skip them;
+                // the plain undefined message is correct there.
+                if (
+                    reference_scope.type === 'program' &&
+                    my_scope.program_name === reference_scope.program_name
+                ) {
+                    continue;
+                }
                 if (my_scope.localMacros.has(name)) {
                     the_program_names.add(my_scope.program_name);
                 }

@@ -115,6 +115,24 @@ end
         expect(undefined_macro_diagnostics(result, 'top_x')).toHaveLength(0);
     });
 
+    it('redeclared program bodies do not blame their own name', () => {
+        // A reference in body #2 of a redeclared program to a local
+        // defined only in body #1 must warn plainly — "defined only
+        // inside program foo" would be self-contradictory to a reader
+        // already inside program foo.
+        const result = analyze_code(`
+program define foo
+    local x 1
+end
+program define foo
+    display \`x'
+end
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toBeUndefined();
+    });
+
     it('out-of-scope program-local diagnostics carry the defining program name', () => {
         const result = analyze_code(`
 program define myprog
