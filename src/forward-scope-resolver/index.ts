@@ -32,6 +32,8 @@ import {
     type PathCaseOutcome,
 } from '../utils/file-path-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
+import { filter_dofile_locals, is_dofile_local } from '../utils/dofile-locals';
+import { clone_symbol_table } from '../scope-resolver/visible-symbols';
 
 export interface ForwardScopeConfig {
     max_forward_depth: number;
@@ -670,10 +672,14 @@ export class ForwardScopeResolver {
             // Apply inheritance rules
             let inherited_symbols: SymbolTable;
             if (decision.action === 'add_locals_only') {
-                // Only add locals from include after do
+                // Only add locals from include after do; program-body
+                // locals stay behind (issue #271), same as the
+                // apply_forward_inheritance include branch this bypasses.
                 inherited_symbols = {
                     programs: new Map(),
-                    localMacros: new Map(callee_result.symbols.localMacros),
+                    localMacros: filter_dofile_locals(
+                        callee_result.symbols.localMacros
+                    ),
                     globalMacros: new Map(),
                     variables: new Map(),
                     scalars: new Map(),
@@ -804,19 +810,21 @@ export class ForwardScopeResolver {
         callee_symbols: SymbolTable,
         effective_call_type: EffectiveCallType
     ): SymbolTable {
+        // Clone in both branches: `callee_symbols` is the shared
+        // file-cache entry and must not be aliased or mutated.
+        const inherited = clone_symbol_table(callee_symbols);
+
         if (effective_call_type === 'include') {
-            return callee_symbols;
+            // include: inherit everything except program-body locals,
+            // which never exist at the callee's do-file level (issue #271).
+            inherited.localMacros =
+                filter_dofile_locals(callee_symbols.localMacros);
+            return inherited;
         }
 
         // do/run: exclude local macros
-        return {
-            programs: new Map(callee_symbols.programs),
-            localMacros: new Map(),
-            globalMacros: new Map(callee_symbols.globalMacros),
-            variables: new Map(callee_symbols.variables),
-            scalars: new Map(callee_symbols.scalars),
-            matrices: new Map(callee_symbols.matrices),
-        };
+        inherited.localMacros = new Map();
+        return inherited;
     }
 
     /**
@@ -961,7 +969,7 @@ export class ForwardScopeResolver {
 
             const the_events: WalkEvent[] = [];
             for (const [my_name, my_symbol] of callee_result.symbols.localMacros) {
-                if (my_symbol.containingScope !== 'dofile') continue;
+                if (!is_dofile_local(my_symbol)) continue;
                 // Emit one event per definition: the primary plus each entry
                 // in `additional_definitions`. `SemanticAnalyzer` implements
                 // first-def-wins, so every later `local X` in the same file

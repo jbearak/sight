@@ -15,6 +15,7 @@ import {
 import { DocumentState } from '../document-store';
 import { LanguageContext, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
+import { is_cross_file_hidden_local } from '../utils/dofile-locals';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
@@ -328,6 +329,7 @@ export class ReferencesProvider {
             // already holds the authoritative fresh declaration.
             for (const my_def of workspace_indexer.find_symbol_definitions(symbol_name, ws_type)) {
                 if (my_def.sourceUri === document.uri) continue;
+                if (is_cross_file_hidden_local(ws_type, my_def)) continue;
                 if (the_allowed_uris) {
                     const range = the_allowed_uris.get(my_def.sourceUri);
                     if (!range) continue;

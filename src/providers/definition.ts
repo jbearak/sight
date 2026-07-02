@@ -48,6 +48,7 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
+import { is_cross_file_hidden_local } from '../utils/dofile-locals';
 import { is_cursor_in_comment, is_cursor_in_block_comment } from '../utils/comment-utils';
 import {
     BACKWARD_DIRECTIVE_KEYWORDS,
@@ -1065,6 +1066,7 @@ export class DefinitionProvider {
         )) {
             if (my_def.sourceUri === document_uri) continue;
             if (!related_uris.has(my_def.sourceUri)) continue;
+            if (is_cross_file_hidden_local(symbol_type, my_def)) continue;
             out.push(...this.symbol_to_locations(my_def));
         }
         return out;
@@ -1109,6 +1111,14 @@ export class DefinitionProvider {
                 continue;
             }
             if (!related_uris.has(my_def.sourceUri)) continue;
+            // Same-file hits stay unfiltered: a program-body local is
+            // navigable within its own file.
+            if (
+                my_def.sourceUri !== document_uri &&
+                is_cross_file_hidden_local(symbol_type, my_def)
+            ) {
+                continue;
+            }
             out.push(...this.symbol_to_locations(my_def));
         }
         return out;

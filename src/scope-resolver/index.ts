@@ -41,6 +41,7 @@ import { StataParser } from '../parser';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { logger } from '../utils/logger';
 import { error_message } from '../utils/error-message';
+import { filter_dofile_locals, is_dofile_local } from '../utils/dofile-locals';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import {
     get_workspace_root_for_uri,
@@ -65,8 +66,10 @@ export {
     get_visible_forward_call_sites,
     collect_visible_reference_uris,
     filter_forward_site_symbols,
+    clone_symbol_table,
 } from './visible-symbols';
 export type { ReferenceScanRange } from './visible-symbols';
+import { clone_symbol_table } from './visible-symbols';
 
 const DEFAULT_CONFIG: ScopeResolverConfig = {
     assume_call_site: 'end',
@@ -855,8 +858,17 @@ export class ScopeResolver {
             the_parts.push(`g:${my_name}`);
         }
 
-        // Local macros (included for include callees)
-        const local_names = Array.from(symbols.localMacros.keys()).sort();
+        // Local macros (included for include callees). Only do-file-level
+        // locals are include-visible (issue #271); hashing the raw flat map
+        // would miss scope moves (program <-> dofile keeps the name set
+        // unchanged) and skip caller revalidation.
+        const local_names: string[] = [];
+        for (const [my_name, my_symbol] of symbols.localMacros) {
+            if (is_dofile_local(my_symbol)) {
+                local_names.push(my_name);
+            }
+        }
+        local_names.sort();
         for (const my_name of local_names) {
             the_parts.push(`l:${my_name}`);
         }
@@ -2403,21 +2415,33 @@ export class ScopeResolver {
     /**
      * Apply inheritance rules based on directive type.
      * done-by: excludes locals
-     * included-by: includes all symbols
+     * included-by: includes all symbols except program-body locals
      * Returns both filtered symbols and locals excluded due to inheritance rules.
+     *
+     * Program-body locals never exist at the do-file level of the boundary
+     * (issue #271): `included-by` drops them silently (references get the
+     * plain undefined warning), and `done-by` omits them from
+     * excluded_locals because the "use include instead" remedy would be
+     * false advice for them.
      */
     apply_inheritance_rules(
         symbols: SymbolTable,
         directive_type: 'done-by' | 'included-by',
         source_uri: string
     ): { filtered: SymbolTable; excluded_locals: OutOfScopeSymbol[] } {
+        // Clone in both branches: `symbols` is the shared file-cache
+        // entry and must not be aliased or mutated.
+        const filtered = clone_symbol_table(symbols);
+
         if (directive_type === 'included-by') {
-            return { filtered: symbols, excluded_locals: [] };
+            filtered.localMacros = filter_dofile_locals(symbols.localMacros);
+            return { filtered, excluded_locals: [] };
         }
 
         // done-by: exclude locals and track them
         const excluded_locals: OutOfScopeSymbol[] = [];
         for (const [name, symbol] of symbols.localMacros) {
+            if (!is_dofile_local(symbol)) continue;
             excluded_locals.push({
                 name,
                 type: 'local',
@@ -2428,17 +2452,8 @@ export class ScopeResolver {
             });
         }
 
-        return {
-            filtered: {
-                programs: new Map(symbols.programs),
-                localMacros: new Map(), // Exclude locals
-                globalMacros: new Map(symbols.globalMacros),
-                variables: new Map(symbols.variables),
-                scalars: new Map(symbols.scalars),
-                matrices: new Map(symbols.matrices),
-            },
-            excluded_locals,
-        };
+        filtered.localMacros = new Map(); // Exclude locals
+        return { filtered, excluded_locals };
     }
 
     /**
