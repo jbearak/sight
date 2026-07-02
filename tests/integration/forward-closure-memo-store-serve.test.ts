@@ -274,6 +274,39 @@ describe('issue #234 — forward-closure memo store/serve', () => {
             d.message.includes('Maximum forward resolution'))).toBe(true);
     });
 
+    it('evicts entries when a file appears at a higher-priority path candidate', async () => {
+        // inner.do lives in sub/ and calls "child.do". With the working
+        // directory at the temp root (via the caller's `cd`), the WD-join
+        // candidate <temp>/child.do is probed FIRST and misses, so
+        // resolution falls back to the script-relative <temp>/sub/child.do.
+        // Creating <temp>/child.do later changes what a fresh walk
+        // resolves — the memoized closure that resolved through the
+        // fallback must be evicted by the creation event, or memo-on would
+        // keep serving the stale fallback closure (codex round-4 finding).
+        fs.mkdirSync(path.join(temp_dir, 'sub'));
+        create_file(path.join('sub', 'child.do'), 'global g_old 1\n');
+        create_file(path.join('sub', 'inner.do'),
+            'do "child.do"\nglobal inner_g 1\n');
+        const root = create_file('probe_root.do',
+            `cd "${temp_dir}"\ndo "sub/inner.do"\ndisplay "\${g_old}"\n`);
+
+        const before = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(before, 'g_old')).toBe(true);
+
+        // The file appears at the higher-priority WD-join candidate; the
+        // watcher reports it via invalidate_file_cache.
+        const promoted = create_file('child.do', 'global g_new 1\n');
+        scope_resolver.invalidate_file_cache(to_uri(promoted));
+
+        // A root edit (didChange) forces a fresh top-level resolution; the
+        // memoized inner closure must NOT survive to serve the old
+        // fallback resolution.
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const after = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(after, 'g_new')).toBe(true);
+        expect(site_has_global(after, 'g_old')).toBe(false);
+    });
+
     it('evicts transitively dependent entries on didChange and on-disk change', async () => {
         const { chain, roots } = build_chain_workspace(2);
         const [, , chain_3] = chain;

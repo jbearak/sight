@@ -661,12 +661,24 @@ export function outcome_fs_path(outcome: PathCaseOutcome): string {
  * @param caller_dir        - dirname of the caller file's fsPath.
  * @param working_directory - Effective WD at the call site, or undefined.
  * @param options           - workspace_roots and optional fs override.
+ *                            `missed_candidates`, when provided, receives
+ *                            every higher-priority candidate path that
+ *                            resolved MISSING before the winning candidate
+ *                            (empty when the first candidate wins). The
+ *                            forward-closure memo (#234) records these as
+ *                            dependents so that creating a file at a
+ *                            higher-priority path evicts closures that
+ *                            resolved through a fallback tier.
  */
 export function resolve_forward_call_rich(
     raw_path: string,
     caller_dir: string,
     working_directory: string | undefined,
-    options?: { workspace_roots?: string[]; fs?: RichResolveFs },
+    options?: {
+        workspace_roots?: string[];
+        fs?: RichResolveFs;
+        missed_candidates?: string[];
+    },
 ): PathCaseOutcome {
     const my_normalized_raw = raw_path.replace(/\\/g, '/');
     const my_is_abs =
@@ -732,7 +744,9 @@ export function resolve_forward_call_rich(
         if (my_outcome.kind === 'ambiguous') {
             return my_outcome;
         }
-        // missing: continue to next candidate.
+        // missing: continue to next candidate, reporting the miss so
+        // callers can invalidate cached resolutions if this path appears.
+        options?.missed_candidates?.push(my_candidate);
     }
 
     // All candidates missing (or list was somehow empty): return the first

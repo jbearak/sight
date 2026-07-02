@@ -242,6 +242,16 @@ export class ForwardScopeResolver {
     // do/run cycle cascades fresh-stack builds to max_forward_depth on
     // warm-up (each one blind to the ancestry the previous discarded).
     private standalone_in_flight = new Set<string>();
+    // Missing-probe collectors for in-flight standalone builds (#234): the
+    // URIs of higher-priority path candidates that resolved MISSING before
+    // a fallback tier won, plus .do-fallback originals. Recorded into every
+    // active collector (nested builds embed their inner builds' results, so
+    // inner probes belong to outer entries too) and folded into
+    // dependent_uris — creating a file at one of these paths would change
+    // what a fresh walk resolves, so it must evict the entry. Cross-
+    // contamination between concurrent unrelated builds only ADDS
+    // dependents (safe over-invalidation).
+    private active_probe_collectors: Set<string>[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     constructor(scope_resolver: ScopeResolver, config: Partial<ForwardScopeConfig> = {}) {
@@ -359,6 +369,22 @@ export class ForwardScopeResolver {
     }
 
     /**
+     * Record missing-probe filesystem paths (as URIs) into every active
+     * standalone-build collector (#234). No-op when no build is in flight.
+     */
+    private record_missing_probes(fs_paths: string[]): void {
+        if (this.active_probe_collectors.length === 0) {
+            return;
+        }
+        for (const my_fs_path of fs_paths) {
+            const my_probe_uri = URI.file(my_fs_path).toString();
+            for (const my_collector of this.active_probe_collectors) {
+                my_collector.add(my_probe_uri);
+            }
+        }
+    }
+
+    /**
      * Set workspace roots (filesystem paths) for cache-first mode guarding.
      * Clears the forward-closure memo: roots steer path/cd resolution and
      * cache-first fetching but are not part of the memo key, so entries
@@ -422,6 +448,11 @@ export class ForwardScopeResolver {
         seed_dir?: string;
     } {
         const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
+        // Collect probed-and-missing higher-priority candidates only when a
+        // standalone memo build is in flight (live walks don't cache, so
+        // they have nothing to invalidate).
+        const my_missed_candidates: string[] | undefined =
+            this.active_probe_collectors.length > 0 ? [] : undefined;
         const my_outcome: PathCaseOutcome = resolve_forward_call_rich(
             raw_path,
             my_caller_dir,
@@ -431,8 +462,12 @@ export class ForwardScopeResolver {
                     ? this.workspace_roots
                     : undefined,
                 fs: this.resolve_fs,
+                missed_candidates: my_missed_candidates,
             },
         );
+        if (my_missed_candidates && my_missed_candidates.length > 0) {
+            this.record_missing_probes(my_missed_candidates);
+        }
 
         if (my_outcome.kind === 'exact') {
             return {
@@ -1210,6 +1245,8 @@ export class ForwardScopeResolver {
         this.memo_metrics.misses++;
 
         this.standalone_in_flight.add(callee_uri);
+        const my_probe_collector = new Set<string>();
+        this.active_probe_collectors.push(my_probe_collector);
         let standalone: ForwardResolvedScope;
         try {
             standalone = await this.resolve(
@@ -1243,6 +1280,11 @@ export class ForwardScopeResolver {
             );
         } finally {
             this.standalone_in_flight.delete(callee_uri);
+            const my_collector_index =
+                this.active_probe_collectors.indexOf(my_probe_collector);
+            if (my_collector_index >= 0) {
+                this.active_probe_collectors.splice(my_collector_index, 1);
+            }
         }
 
         // Transient failures — never stored (not key-determined): the next
@@ -1261,7 +1303,14 @@ export class ForwardScopeResolver {
             return undefined;
         }
 
-        const dependent_uris = new Set([callee_uri, ...fresh_visited.keys()]);
+        // Dependents: the callee, everything the walk reached, and every
+        // probed-and-missing higher-priority path candidate — creating a
+        // file at one of those would change what a fresh walk resolves.
+        const dependent_uris = new Set([
+            callee_uri,
+            ...fresh_visited.keys(),
+            ...my_probe_collector,
+        ]);
 
         // Key-determined failure: the same inputs reproduce the same
         // diagnostics, so mark the key unservable instead of re-attempting
@@ -1625,6 +1674,11 @@ export class ForwardScopeResolver {
                 if (fs.existsSync(do_path)) {
                     final_fs_path = do_path;
                     final_uri = URI.file(do_path).toString();
+                    // A file created later at the extensionless path would
+                    // win over the .do fallback — record the miss so memo
+                    // entries built through this fallback get evicted
+                    // (#234; no-op outside standalone builds).
+                    this.record_missing_probes([fs_path]);
                 }
             }
         }
