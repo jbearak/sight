@@ -2057,6 +2057,18 @@ export class ScopeResolver {
             return { symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, cd_commands: cached.cd_commands, diagnostics: cached.diagnostics };
         }
 
+        // New content observed for this URI: any forward-closure memo entry
+        // built from the PREVIOUS content is stale. The eager didChange
+        // invalidation cannot cover entries built DURING the debounce window
+        // (after the invalidation, before this parse) from the then-stale
+        // file_cache — they are keyed by ancestor hashes that this edit does
+        // not rotate, so purge them now that the new content lands (#278
+        // review). No-op when nothing was cached before.
+        if (cached) {
+            this.forward_scope_resolver
+                ?.invalidate_forward_closure_for_uri?.(uri);
+        }
+
         try {
             const my_parse_result = this.parse_content(uri, content);
 
@@ -2370,6 +2382,11 @@ export class ScopeResolver {
             };
         } else if (actual_cached) {
             this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (cached hash=${actual_cached.content_hash}, disk hash=${disk_hash})`);
+            // New content observed without an invalidation event having
+            // reached us: purge memo entries that embedded the previous
+            // content (same rationale as the parse_file hash-change purge).
+            this.forward_scope_resolver
+                ?.invalidate_forward_closure_for_uri?.(actual_uri);
         } else {
             this.log(`[get_parsed_file] File cache MISS for ${actual_uri} (no entry)`);
         }

@@ -514,6 +514,78 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(site_has_global(after_close, 'x_new')).toBe(false);
     });
 
+    it('a debounce-window rebuild cannot pin stale content past the next parse', async () => {
+        // codex final-round P1: on didChange the server invalidates
+        // eagerly, but the file_cache is only updated by the DEBOUNCED
+        // parse. A resolution landing in that window rebuilds an
+        // ancestor's closure from the stale cached callee — keyed by the
+        // ancestor's UNCHANGED hash, so the edit never rotates it, and if
+        // the edit doesn't change the interface hash no later event purges
+        // it. Fix: parse_file purges memo entries for a URI whenever it
+        // observes new content for it. Sequence modeled: root→a→x; edit x;
+        // eager invalidation; window resolution re-poisons from stale
+        // file_cache; debounced parse of x lands; a later resolution must
+        // see the new content.
+        const x_v1 = 'global x_v1 1\n';
+        const x_v2 = 'global x_v2 1\n';
+        let x_content = x_v1;
+
+        const the_contents = new Map<string, string>();
+        const content_for = (uri: string): string =>
+            uri.endsWith('x.do') ? x_content : (the_contents.get(uri) ?? '');
+        const provider = {
+            read_file: async (uri: string) => content_for(uri),
+            exists: async () => true,
+            // Constant stat: the mtime fast path keeps serving the cached
+            // (stale) entry during the window, like an unsaved buffer edit
+            // whose disk file is untouched.
+            stat: async (uri: string) => ({
+                mtimeMs: 1000,
+                size: Buffer.byteLength(content_for(uri), 'utf8'),
+            }),
+        };
+        const scope = new ScopeResolver(
+            create_test_scope_resolver_logger(), provider);
+        const forward = new ForwardScopeResolver(scope);
+        scope.set_forward_scope_resolver(forward);
+        forward.set_forward_closure_memo_enabled(true);
+
+        const x_uri = 'file:///ws/x.do';
+        const a_uri = 'file:///ws/a.do';
+        const root1_uri = 'file:///ws/root1.do';
+        const root2_uri = 'file:///ws/root2.do';
+        the_contents.set(a_uri, 'do "x.do"\nglobal a_g 1\n');
+        const root_content = 'do "a.do"\ndisplay "${x_v1}"\n';
+        the_contents.set(root1_uri, root_content);
+        the_contents.set(root2_uri, root_content);
+
+        // Warm: a's closure embeds x v1.
+        await scope.resolve(root1_uri, root_content);
+
+        // The user edits x (v2). Eager didChange invalidation runs now;
+        // the parse is debounced, so file_cache still holds v1. Note the
+        // constant stat means size must stay comparable — use same-length
+        // contents.
+        x_content = x_v2;
+        scope.invalidate_scope_cache(x_uri);
+
+        // A resolution lands INSIDE the window: it rebuilds a's closure
+        // from the stale cached x (mtime fast path serves v1).
+        const in_window = await scope.resolve(root2_uri, root_content);
+        expect(site_has_global(in_window, 'x_v1')).toBe(true);
+
+        // The debounced parse of x lands (resolve() calls parse_file with
+        // the new buffer content) — this must purge the window-built
+        // entries that embedded v1.
+        await scope.resolve(x_uri, x_v2);
+
+        // A later resolution must see v2, not the window-pinned v1.
+        scope.invalidate_scope_cache(root1_uri);
+        const after = await scope.resolve(root1_uri, root_content);
+        expect(site_has_global(after, 'x_v2')).toBe(true);
+        expect(site_has_global(after, 'x_v1')).toBe(false);
+    });
+
     it('close-path invalidation keeps backward-directive links intact', async () => {
         // codex round-2 on the close fix: invalidate_file_cache used to
         // unconditionally clear the closed file's parent→child backward-
