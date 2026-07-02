@@ -33,7 +33,9 @@ import {
     ScalarSymbol,
     MatrixSymbol,
     StataLSPConfig,
+    ScopeInfo,
 } from '../types';
+import { program_body_start_line } from '../utils/scope-position';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
@@ -3243,7 +3245,11 @@ export class CompletionProvider {
             return null;
         }
 
-        return this.find_program_containing_position(document.ast.nodes, position);
+        return this.find_program_containing_position(
+            document.ast.nodes,
+            position,
+            document.scopes
+        );
     }
 
     /**
@@ -3251,42 +3257,59 @@ export class CompletionProvider {
      */
     private find_program_containing_position(
         nodes: StataNode[],
-        position: Position
+        position: Position,
+        scopes?: ScopeInfo[]
     ): ProgramNode | null {
         for (const node of nodes) {
             if (node.type === 'program') {
                 // Check if position is within program body (not just the program declaration)
-                if (this.is_position_in_program_body(position, node)) {
+                if (this.is_position_in_program_body(position, node, scopes)) {
                     return node;
                 }
             }
-            
+
             // Recurse into nested structures
-            if (node.type === 'if' || node.type === 'else' || 
-                node.type === 'foreach' || node.type === 'forvalues' || 
+            if (node.type === 'if' || node.type === 'else' ||
+                node.type === 'foreach' || node.type === 'forvalues' ||
                 node.type === 'while' || node.type === 'frame') {
-                const result = this.find_program_containing_position(node.body, position);
+                const result = this.find_program_containing_position(node.body, position, scopes);
                 if (result) return result;
             }
         }
-        
+
         return null;
     }
 
     /**
-     * Check if position is within a program's body (not the declaration line).
+     * Check if position is within a program's BODY. The whole logical
+     * header — every physical line of a ///-continued one — and the
+     * `end` line expand at definition time in the enclosing frame
+     * (issue #273), so body completions are not offered there. The
+     * analyzer's matching scope carries the continued header's extent;
+     * without scopes, fall back to the single-line-header boundary.
      */
-    private is_position_in_program_body(position: Position, program: ProgramNode): boolean {
+    private is_position_in_program_body(
+        position: Position,
+        program: ProgramNode,
+        scopes?: ScopeInfo[]
+    ): boolean {
         // Position must be within program range
         if (!is_position_in_range(position, program.range)) {
             return false;
         }
-        
-        // Position must be after the program declaration line
-        if (position.line <= program.range.start.line) {
-            return false;
-        }
-        
-        return true;
+
+        const matching_scope = scopes?.find(
+            my_scope =>
+                my_scope.type === 'program' &&
+                my_scope.range.start.line === program.range.start.line &&
+                my_scope.range.end.line === program.range.end.line
+        );
+        const body_start = matching_scope
+            ? program_body_start_line(matching_scope)
+            : program.range.start.line + 1;
+        return (
+            position.line >= body_start &&
+            position.line < program.range.end.line
+        );
     }
 }

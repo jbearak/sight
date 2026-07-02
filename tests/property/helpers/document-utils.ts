@@ -100,6 +100,7 @@ export function create_document_state(my_source: string): DocumentState {
     tokens: my_lex_result.tokens,
     ast: my_parse_result.ast,
     symbols: my_analysis_result.symbols,
+    scopes: my_analysis_result.scopes,
     diagnostics: my_lsp_diagnostics,
     context_ranges: my_context_ranges,
     context_tracker: my_context_tracker,
