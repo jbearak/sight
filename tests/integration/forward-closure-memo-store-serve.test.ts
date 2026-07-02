@@ -420,7 +420,7 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(metrics.hits).toBe(1);
     });
 
-    it('a dep-graph version bump rotates keys without stranding old entries', async () => {
+    it('a dep-graph version bump clears the memo at the next access', async () => {
         const graph = new DependencyGraph();
         graph.mark_scan_complete();
         forward_resolver.set_dependency_graph(graph);
@@ -429,9 +429,10 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         await scope_resolver.resolve(to_uri(roots[0]), read(roots[0]));
         expect(forward_resolver.get_forward_closure_metrics().misses).toBe(2);
 
-        // Bump the graph version (unrelated edge change): old keys are
-        // unreachable, so the next resolution recomputes — and the base-key
-        // rotation must evict the two stranded entries at store time.
+        // Bump the graph version (unrelated edge change): every stored key
+        // embeds the old version, so the whole memo is dead by
+        // construction — the first access under the new version clears it
+        // (2 invalidations) and recomputes fresh (2 more misses).
         const version_before = graph.get_version();
         graph.update_caller('file:///unrelated/x.do', [{
             type: 'do',
@@ -449,5 +450,47 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         const metrics = forward_resolver.get_forward_closure_metrics();
         expect(metrics.misses).toBe(4);
         expect(metrics.invalidations).toBe(2);
+    });
+
+    it('version churn reclaims dead entries even when their closures are never revisited', async () => {
+        // PR #278 review (pullfrog): entries whose closure identity is
+        // never traversed again must not linger unreachably after a graph
+        // change. Build entries over chain A, bump the version, then
+        // resolve a DIFFERENT workspace shape (chain B) — A's dead entries
+        // must be reclaimed by the version-change clear, not stranded.
+        const graph = new DependencyGraph();
+        graph.mark_scan_complete();
+        forward_resolver.set_dependency_graph(graph);
+        const { roots } = build_chain_workspace(1);
+
+        const b3 = create_file('b3.do', 'global b3_g 1\n');
+        const b2 = create_file('b2.do', `do "${b3}"\nglobal b2_g 1\n`);
+        const b1 = create_file('b1.do', `do "${b2}"\nglobal b1_g 1\n`);
+        const b_root = create_file('b_root.do',
+            `do "${b1}"\ndisplay "\${b3_g}"\n`);
+
+        await scope_resolver.resolve(to_uri(roots[0]), read(roots[0]));
+        expect(forward_resolver.get_forward_closure_metrics().misses).toBe(2);
+        expect(forward_resolver.get_forward_closure_metrics().invalidations)
+            .toBe(0);
+
+        graph.update_caller('file:///unrelated/x.do', [{
+            type: 'do',
+            raw_path: 'y.do',
+            call_site_line: 0,
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 10 },
+            },
+            source: 'command',
+            is_static: true,
+        }]);
+
+        // Chain A is never revisited; resolving chain B alone must still
+        // reclaim A's two dead entries via the version-change clear.
+        await scope_resolver.resolve(to_uri(b_root), read(b_root));
+        const metrics = forward_resolver.get_forward_closure_metrics();
+        expect(metrics.invalidations).toBe(2);
+        expect(metrics.misses).toBe(4);
     });
 });

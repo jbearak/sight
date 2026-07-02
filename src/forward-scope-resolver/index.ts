@@ -109,27 +109,6 @@ export function build_forward_closure_key(
 }
 
 /**
- * Build the version-independent prefix of the forward-closure key: the same
- * JSON tuple as `build_forward_closure_key` MINUS `dep_graph_version`. Used
- * to evict the previous entry for the same closure identity when the graph
- * version rotates — otherwise every graph edit would strand one dead entry
- * per key (the memo analog of scope_cache's same-URI stale graph-key
- * eviction at write time).
- */
-function build_forward_closure_base_key(
-    inputs: Omit<ForwardClosureKeyInputs, 'dep_graph_version'>
-): string {
-    return JSON.stringify([
-        inputs.callee_uri,
-        inputs.content_hash,
-        inputs.effective_call_type,
-        inputs.working_directory ?? null,
-        inputs.depth,
-        inputs.max_forward_depth,
-    ]);
-}
-
-/**
  * Metrics for the forward-closure memo (#234). Counting semantics:
  * - `misses`         standalone closure computations performed (each one is
  *                    a full first-visit walk — the recomputation the memo
@@ -137,8 +116,8 @@ function build_forward_closure_base_key(
  * - `hits`           serves from a PRE-existing entry. Serving an entry that
  *                    was stored earlier in the same call counts only as the
  *                    miss that built it.
- * - `invalidations`  entries evicted (by URI invalidation, base-key rotation,
- *                    or a full clear).
+ * - `invalidations`  entries evicted (by URI invalidation, a graph-version
+ *                    change, or a full clear).
  */
 export interface ForwardClosureMemoMetrics {
     hits: number;
@@ -162,8 +141,6 @@ interface ForwardClosureMemoClosureEntry {
     /** callee_uri + every reachable URI: any of these changing must evict
      *  this entry (same contract as ScopeCacheEntry.dependent_uris). */
     dependent_uris: Set<string>;
-    /** Version-independent key, for base-key rotation cleanup on delete. */
-    base_key: string;
 }
 
 /**
@@ -186,7 +163,6 @@ interface ForwardClosureMemoClosureEntry {
 interface ForwardClosureMemoUnservableEntry {
     kind: 'unservable';
     dependent_uris: Set<string>;
-    base_key: string;
 }
 
 type ForwardClosureMemoEntry =
@@ -220,9 +196,12 @@ export class ForwardScopeResolver {
     // keys that depend on it.
     private forward_closure_memo = new Map<string, ForwardClosureMemoEntry>();
     private memo_uri_to_keys = new Map<string, Set<string>>();
-    // Version-independent identity → current key, so a dep-graph version
-    // bump replaces (not strands) the previous entry at store time.
-    private memo_base_key_to_key = new Map<string, string>();
+    // The dep-graph version the memo's entries were built against. A
+    // version change makes EVERY existing entry dead by construction (all
+    // keys embed an older version), so the first memo access after a
+    // change clears the whole store — losing nothing servable and leaving
+    // no unreachable entries behind (PR #278 review).
+    private last_seen_graph_version: number | undefined;
     // Monotonic counter bumped by EVERY memo invalidation (even ones that
     // delete nothing). A standalone build snapshots it before its awaits and
     // refuses to store if it moved — otherwise an invalidation landing
@@ -286,6 +265,9 @@ export class ForwardScopeResolver {
     ): void {
         this.dependency_graph = graph;
         this.clear_forward_closure_memo();
+        // Adopt the new graph's version numbering fresh at the next memo
+        // access (a different graph could reuse the same version value).
+        this.last_seen_graph_version = undefined;
     }
 
     /** Detached snapshot of the memo metrics (#234). */
@@ -330,7 +312,6 @@ export class ForwardScopeResolver {
         this.memo_metrics.invalidations += this.forward_closure_memo.size;
         this.forward_closure_memo.clear();
         this.memo_uri_to_keys.clear();
-        this.memo_base_key_to_key.clear();
     }
 
     /**
@@ -351,9 +332,6 @@ export class ForwardScopeResolver {
                     this.memo_uri_to_keys.delete(my_dep_uri);
                 }
             }
-        }
-        if (this.memo_base_key_to_key.get(my_entry.base_key) === key) {
-            this.memo_base_key_to_key.delete(my_entry.base_key);
         }
         return true;
     }
@@ -1127,14 +1105,18 @@ export class ForwardScopeResolver {
         token?: CancellationToken,
     ): Promise<ForwardResolvedScope | undefined> {
         const dep_graph_version = this.dependency_graph?.get_version() ?? 0;
-        const base_key = build_forward_closure_base_key({
-            callee_uri,
-            content_hash,
-            effective_call_type,
-            working_directory,
-            depth: caller_context.depth + 1,
-            max_forward_depth: resolved_config.max_forward_depth,
-        });
+
+        // A graph-version change makes EVERY existing entry dead by
+        // construction (all stored keys embed an older version), so clear
+        // the whole store at the first access under the new version —
+        // losing nothing servable and stranding no unreachable entries
+        // (PR #278 review).
+        if (this.last_seen_graph_version !== undefined &&
+            this.last_seen_graph_version !== dep_graph_version) {
+            this.clear_forward_closure_memo();
+        }
+        this.last_seen_graph_version = dep_graph_version;
+
         const key = build_forward_closure_key({
             callee_uri,
             content_hash,
@@ -1163,7 +1145,6 @@ export class ForwardScopeResolver {
             }
             entry = await this.compute_and_store_standalone_closure(
                 key,
-                base_key,
                 callee_uri,
                 forward_calls,
                 cd_commands,
@@ -1225,7 +1206,6 @@ export class ForwardScopeResolver {
      */
     private async compute_and_store_standalone_closure(
         key: string,
-        base_key: string,
         callee_uri: string,
         forward_calls: ForwardCall[],
         cd_commands: CdCommand[],
@@ -1320,7 +1300,6 @@ export class ForwardScopeResolver {
             return this.store_memo_entry(key, {
                 kind: 'unservable',
                 dependent_uris,
-                base_key,
             });
         }
 
@@ -1330,28 +1309,20 @@ export class ForwardScopeResolver {
             call_sites: standalone.call_sites,
             visited_delta: fresh_visited,
             dependent_uris,
-            base_key,
         });
     }
 
     /**
-     * Insert a memo entry, maintaining the dependent-URI reverse index and
-     * evicting the previous entry for the same base key (a dep-graph
-     * version rotation must never strand dead entries). Returns the entry.
+     * Insert a memo entry, maintaining the dependent-URI reverse index.
+     * All live entries share one graph version (a version change clears the
+     * whole memo at the next access), so no per-identity version rotation
+     * is needed here. Returns the entry.
      */
     private store_memo_entry(
         key: string,
         entry: ForwardClosureMemoEntry
     ): ForwardClosureMemoEntry {
-        const old_key = this.memo_base_key_to_key.get(entry.base_key);
-        if (old_key !== undefined && old_key !== key) {
-            if (this.delete_memo_entry(old_key)) {
-                this.memo_metrics.invalidations++;
-            }
-        }
-
         this.forward_closure_memo.set(key, entry);
-        this.memo_base_key_to_key.set(entry.base_key, key);
         for (const my_dep_uri of entry.dependent_uris) {
             let my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
             if (!my_key_set) {
