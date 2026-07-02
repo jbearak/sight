@@ -235,7 +235,7 @@ function symbol_table_matches_active_reference(
     ) === active_symbol_identity;
 }
 
-function clone_symbol_table(symbols: SymbolTable): SymbolTable {
+export function clone_symbol_table(symbols: SymbolTable): SymbolTable {
     return {
         programs: new Map(symbols.programs),
         localMacros: new Map(symbols.localMacros),

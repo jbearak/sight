@@ -52,6 +52,7 @@ import {
 } from '../utils/token-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
 import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
+import { is_cross_file_hidden_local } from '../utils/dofile-locals';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
@@ -792,6 +793,14 @@ export class HoverProvider {
         }
         const the_hits = workspace_indexer.find_symbol_definitions(name, symbol_type);
         for (const my_hit of the_hits) {
+            // Skips the hit and its extras. Same-file hits stay:
+            // redefinitions within the current file are real.
+            if (
+                my_hit.sourceUri !== current_uri &&
+                is_cross_file_hidden_local(symbol_type, my_hit)
+            ) {
+                continue;
+            }
             const my_location = my_hit.location as
                 | { uri: string; range: Range }
                 | undefined;
