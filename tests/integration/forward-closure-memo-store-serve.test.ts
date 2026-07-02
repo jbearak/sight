@@ -452,6 +452,67 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(metrics.invalidations).toBe(2);
     });
 
+    it('closing a dirty buffer does not leave the memo serving discarded content', async () => {
+        // codex P1 on PR #278: root → a → x, with x OPEN and edited but
+        // unsaved. The memoized closure of `a` embeds x's buffer symbols.
+        // Closing x reverts effective content to disk with NO didChange or
+        // watcher event, so the server's onDidClose handler must invalidate
+        // the closed URI (invalidate_file_cache with forward-call
+        // relationships preserved) — otherwise memo-on keeps serving the
+        // discarded buffer symbols while memo-off recomputes from disk.
+        // This test drives the resolver through that exact handler
+        // sequence and asserts memo-on output matches disk afterward.
+        const x_disk = 'global x_old 1\n';
+        const x_buffer = 'global x_new 1\n';
+        let x_open = true;
+
+        const the_contents = new Map<string, string>();
+        const content_for = (uri: string): string => {
+            if (uri.endsWith('x.do')) {
+                return x_open ? x_buffer : x_disk;
+            }
+            return the_contents.get(uri) ?? '';
+        };
+        const provider = {
+            read_file: async (uri: string) => content_for(uri),
+            exists: async () => true,
+            // No stat(): forces the hash-validation path, where file_cache
+            // self-heals on read — isolating the memo as the only cache
+            // that could serve stale content without the close-time
+            // invalidation.
+        };
+        const scope = new ScopeResolver(
+            create_test_scope_resolver_logger(), provider);
+        const forward = new ForwardScopeResolver(scope);
+        scope.set_forward_scope_resolver(forward);
+        forward.set_forward_closure_memo_enabled(true);
+
+        const x_uri = 'file:///ws/x.do';
+        const a_uri = 'file:///ws/a.do';
+        const root_uri = 'file:///ws/root.do';
+        the_contents.set(a_uri, 'do "x.do"\nglobal a_g 1\n');
+        const root_content = 'do "a.do"\ndisplay "${x_new}"\n';
+        the_contents.set(root_uri, root_content);
+
+        const while_open = await scope.resolve(root_uri, root_content);
+        expect(site_has_global(while_open, 'x_new')).toBe(true);
+
+        // Close x: buffer discarded, disk content becomes effective.
+        // Mirror the onDidClose handler's cache invalidation.
+        x_open = false;
+        scope.remove_caller_from_reverse_deps(x_uri);
+        scope.invalidate_file_cache(x_uri, {
+            preserve_forward_call_relationships: true,
+        });
+
+        // A root edit forces a fresh top-level resolution; the memo must
+        // not serve a's buffer-era closure.
+        scope.invalidate_scope_cache(root_uri);
+        const after_close = await scope.resolve(root_uri, root_content);
+        expect(site_has_global(after_close, 'x_old')).toBe(true);
+        expect(site_has_global(after_close, 'x_new')).toBe(false);
+    });
+
     it('version churn reclaims dead entries even when their closures are never revisited', async () => {
         // PR #278 review (pullfrog): entries whose closure identity is
         // never traversed again must not linger unreachably after a graph

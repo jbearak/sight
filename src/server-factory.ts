@@ -1488,6 +1488,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
         if (scope_resolver) {
             scope_resolver.remove_caller_from_reverse_deps(e.document.uri);
+            // Closing discards the buffer: effective content reverts to
+            // disk with NO didChange/watcher event. Caches built from the
+            // buffer (a file_cache entry parsed from unsaved content but
+            // stamped with the unchanged DISK mtime, scope entries, and
+            // forward-closure memo entries embedding the buffer's symbols)
+            // must not survive, or they keep serving the discarded edits
+            // (#278 review). Preserve forward-call relationships so the
+            // anti-flicker rationale below still holds.
+            scope_resolver.invalidate_file_cache(e.document.uri, {
+                preserve_forward_call_relationships: true,
+            });
         }
         // On close, the buffer's in-memory edges/symbols are discarded, so
         // callees that inherited from this file must re-resolve against its
