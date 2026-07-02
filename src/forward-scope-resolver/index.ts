@@ -1114,11 +1114,15 @@ export class ForwardScopeResolver {
         const entry_preexisted = entry !== undefined;
 
         if (!entry) {
-            // Re-entry guard: this callee's own standalone build is already
-            // in flight below us, so this hook is inside a cycle back to
-            // it. A fresh-stack build here would be blind to that ancestry
-            // and recurse to the depth cap; the live path cycle-skips
-            // against the real stack instead.
+            // Re-entry guard: within one resolution chain, a hook firing
+            // for a callee whose standalone build is already in flight is
+            // a cycle back into it — a fresh-stack build here would be
+            // blind to that ancestry and recurse to the depth cap; the
+            // live path cycle-skips against the real stack instead. Under
+            // concurrent resolutions sharing this resolver (sight check
+            // workers), an overlap can also trip this for an unrelated
+            // caller — a conservative live fallback (lost caching, never
+            // wrong output).
             if (this.standalone_in_flight.has(callee_uri)) {
                 return undefined;
             }

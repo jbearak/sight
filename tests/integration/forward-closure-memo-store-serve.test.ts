@@ -185,18 +185,27 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         scope.set_forward_scope_resolver(forward);
         forward.set_forward_closure_memo_enabled(true);
 
-        const resolved = await scope.resolve(to_uri(root), read(root), {
+        const config = {
             max_forward_depth: 2,
-            diagnostics: { max_depth: 'off' },
-        });
+            diagnostics: { max_depth: 'off' as const },
+        };
+        const resolved = await scope.resolve(to_uri(root), read(root), config);
         // 'off' suppresses the truncation diagnostic for the user...
         expect(resolved.diagnostics.filter(d =>
             d.message.includes('Maximum forward resolution')).length).toBe(0);
-        // ...but the truncated closure must never have been stored: the
-        // truncation-shaped subtree (d1 at depth 1 truncates at depth 2)
-        // is recomputed live every time.
-        const metrics = forward.get_forward_closure_metrics();
-        expect(metrics.hits).toBe(0);
+        // The memo must have engaged (floor: a disabled memo would make
+        // the assertions below vacuous).
+        expect(forward.get_forward_closure_metrics().misses)
+            .toBeGreaterThan(0);
+
+        // ...but the truncated closure must never have been stored as
+        // SERVABLE. Only a second resolution can prove that: if the
+        // standalone build inherited the caller's 'off' severity (instead
+        // of forcing a non-'off' one), the cap-truncated closure would
+        // look diagnostic-free, get stored, and be SERVED here — hits > 0.
+        scope.invalidate_scope_cache(to_uri(root));
+        await scope.resolve(to_uri(root), read(root), config);
+        expect(forward.get_forward_closure_metrics().hits).toBe(0);
     });
 
     it('keeps standalone-build work bounded on a mutual do-cycle', async () => {
