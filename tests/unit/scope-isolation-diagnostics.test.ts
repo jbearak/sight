@@ -108,6 +108,27 @@ display \`shared'
         expect(the_matches[0].message).toContain('prog_b');
     });
 
+    it('forward hint points at the same-scope definition, not an unrelated dofile one', async () => {
+        // Reference at line 2, program-local definition at line 3,
+        // unrelated dofile-scope definition at line 5. The forward hint
+        // must name the program's own definition (1-based line 4), not
+        // the dofile redefinition the flat view prefers (line 6).
+        const document = create_real_document_state(`
+program define myprog
+    display \`x'
+    local x foo
+end
+local x bar
+`);
+        const provider = make_provider();
+        const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG);
+        const the_matches = the_diagnostics.filter(d =>
+            d.message.includes("`x'"));
+        expect(the_matches).toHaveLength(1);
+        expect(the_matches[0].message).toContain('before it is defined');
+        expect(the_matches[0].message).toContain('(line 4)');
+    });
+
     it('same-scope forward references keep the same-file-forward rewrite', async () => {
         const document = create_real_document_state(`
 display \`later'

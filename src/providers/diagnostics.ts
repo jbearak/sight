@@ -9,10 +9,12 @@ import {
     StataDiagnosticCode,
     StataLSPConfig,
     SymbolTable,
+    ScopeInfo,
     ResolvedScope,
     DirectiveDiagnostic,
     UndefinedSymbolDiagnosticData
 } from '../types';
+import { find_enclosing_scope } from '../utils/scope-position';
 import {
     ScopeResolver,
     get_visible_forward_call_sites,
@@ -443,7 +445,9 @@ export class DiagnosticsProvider {
                     reference_kind,
                     document.symbols,
                     document.uri,
-                    my_diagnostic.range.start.line
+                    my_diagnostic.range.start.line,
+                    document.scopes ?? [],
+                    my_diagnostic.range.start
                 );
                 if (same_file_match) {
                     const converted = this.create_out_of_scope_rewrite(
@@ -939,10 +943,68 @@ export class DiagnosticsProvider {
         reference_kind: 'local' | 'global' | 'variable' | null,
         symbols: SymbolTable,
         current_document_uri: string,
-        reference_line: number
+        reference_line: number,
+        scopes: ScopeInfo[],
+        reference_position: Position
     ): OutOfScopeRewriteMatch | null {
         if (reference_kind !== 'local' && reference_kind !== 'global') {
             return null;
+        }
+
+        // Locals resolve the forward hint scope-aware: the flat view's
+        // slot prefers a do-file definition, which may be an unrelated
+        // later redefinition rather than the same-scope definition the
+        // user should be pointed at. Mirror lookup_local_macro's
+        // visibility (own scope + do-file scope) and pick the nearest
+        // definition after the reference across both. Falls back to the
+        // flat read when no scopes were provided (partial states).
+        if (reference_kind === 'local' && scopes.length > 0) {
+            const enclosing_scope = find_enclosing_scope(
+                scopes,
+                reference_position
+            );
+            const the_visible_scopes =
+                enclosing_scope.type !== 'dofile' &&
+                scopes[0] !== undefined &&
+                scopes[0] !== enclosing_scope
+                    ? [enclosing_scope, scopes[0]]
+                    : [enclosing_scope];
+            let nearest_forward_line: number | null = null;
+            for (const my_scope of the_visible_scopes) {
+                const my_symbol = my_scope.localMacros.get(symbol_name);
+                if (!my_symbol) {
+                    continue;
+                }
+                const the_lines: number[] = [];
+                const primary_line = my_symbol.definition_line
+                    ?? my_symbol.location?.range?.start?.line;
+                if (typeof primary_line === 'number') {
+                    the_lines.push(primary_line);
+                }
+                for (const my_extra of
+                    my_symbol.additional_definitions ?? []) {
+                    the_lines.push(my_extra.line);
+                }
+                for (const my_line of the_lines) {
+                    if (
+                        my_line > reference_line &&
+                        (nearest_forward_line === null ||
+                            my_line < nearest_forward_line)
+                    ) {
+                        nearest_forward_line = my_line;
+                    }
+                }
+            }
+            if (nearest_forward_line === null) {
+                return null;
+            }
+            return {
+                symbol_kind: 'local',
+                reason: {
+                    kind: 'same_file_forward',
+                    defined_line_0: nearest_forward_line,
+                },
+            };
         }
 
         const get_definition_line = (

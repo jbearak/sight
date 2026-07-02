@@ -1,4 +1,5 @@
 import { Range } from 'vscode-languageserver-textdocument';
+import { find_enclosing_scope } from '../utils/scope-position';
 import {
     format_undefined_macro_message,
     format_undefined_variable_message,
@@ -3631,54 +3632,17 @@ export class SemanticAnalyzer {
         return false;
     }
 
-    /** Is `position` within `range` (inclusive), comparing line then char? */
-    private position_within_range(
-        position: { line: number; character: number },
-        range: Range
-    ): boolean {
-        return (
-            this.compare_positions(position, range.start) >= 0 &&
-            this.compare_positions(position, range.end) <= 0
-        );
-    }
-
     /**
-     * THE single mechanism for "which scope owns this position" — shared
-     * by the token reference pass and the Mata setter pass (the AST pass
-     * threads scopes structurally). Returns the innermost program scope
-     * whose (character-precise, inclusive) range contains `position`,
-     * else the do-file scope (`scopes[0]`). Do not add a second way to
-     * answer this question.
-     *
-     * Limitation (pre-existing): the parser only builds `program` block
-     * nodes under `#delimit cr`, so under `#delimit ;` positions inside
-     * a program fall back to the do-file scope.
+     * Which scope owns this position — shared by the token reference
+     * pass and the Mata setter pass (the AST pass threads scopes
+     * structurally). Delegates to the shared resolver in
+     * utils/scope-position (also used by the diagnostics provider).
      */
     private find_enclosing_scope(
         scopes: ScopeInfo[],
         position: { line: number; character: number }
     ): ScopeInfo {
-        let innermost: ScopeInfo | undefined;
-        for (const my_scope of scopes) {
-            if (my_scope.type !== 'program') {
-                continue;
-            }
-            if (!this.position_within_range(position, my_scope.range)) {
-                continue;
-            }
-            // Nested program scopes start later than their enclosing
-            // scope, so the latest-starting match is the innermost.
-            if (
-                innermost === undefined ||
-                this.compare_positions(
-                    my_scope.range.start,
-                    innermost.range.start
-                ) > 0
-            ) {
-                innermost = my_scope;
-            }
-        }
-        return innermost ?? scopes[0];
+        return find_enclosing_scope(scopes, position);
     }
 
     /**
