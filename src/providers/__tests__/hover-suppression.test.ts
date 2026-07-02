@@ -10,18 +10,21 @@ import { Position, MarkupKind } from 'vscode-languageserver';
 import { ResolvedScope, SymbolTable, OutOfScopeSymbol } from '../../types';
 import { ContextTracker } from '../../context-tracker';
 
-// Shared required-field defaults so each fixture literal satisfies the
-// full DocumentState shape; individual tests override what they use.
-const DOCUMENT_STATE_DEFAULTS = {
-    version: 1,
-    scopes: [],
-    context_ranges: [],
-    context_tracker: new ContextTracker(),
-    line_offsets: [0],
-    forward_calls: [],
-    token_line_index: new Map(),
-    ignored_lines: new Set<number>(),
-};
+// Required-field defaults so each fixture literal satisfies the full
+// DocumentState shape. A factory (not a shared constant) so every
+// fixture gets fresh mutable instances - no state leaks across tests.
+function create_document_state_defaults() {
+    return {
+        version: 1,
+        scopes: [],
+        context_ranges: [],
+        context_tracker: new ContextTracker(),
+        line_offsets: [0],
+        forward_calls: [],
+        token_line_index: new Map(),
+        ignored_lines: new Set<number>(),
+    };
+}
 
 describe('HoverProvider Out-of-Scope Suppression', () => {
     let hover_provider: HoverProvider;
@@ -35,7 +38,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
     describe('get_reference_type_from_context', () => {
         it('should detect local macro reference', () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display `country_name\'',
                 symbols: { programs: new Map(), localMacros: new Map(), globalMacros: new Map(), variables: new Map(), scalars: new Map(), matrices: new Map() },
@@ -51,7 +54,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
 
         it('should detect global macro reference with $', () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display $country_name',
                 symbols: { programs: new Map(), localMacros: new Map(), globalMacros: new Map(), variables: new Map(), scalars: new Map(), matrices: new Map() },
@@ -67,7 +70,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
 
         it('should detect global macro reference with ${}', () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display ${country_name}',
                 symbols: { programs: new Map(), localMacros: new Map(), globalMacros: new Map(), variables: new Map(), scalars: new Map(), matrices: new Map() },
@@ -83,7 +86,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
 
         it('should detect other reference type for bare identifier', () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display country_name',
                 symbols: { programs: new Map(), localMacros: new Map(), globalMacros: new Map(), variables: new Map(), scalars: new Map(), matrices: new Map() },
@@ -162,7 +165,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
     describe('collect_all_symbol_matches with suppression', () => {
         it('should return out-of-scope match for out-of-scope local macro reference', () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display `country_name\'',
                 symbols: { 
@@ -210,7 +213,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
 
         it('should return out-of-scope match for out-of-scope global macro reference', () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display $country_name',
                 symbols: { 
@@ -258,7 +261,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
 
         it('should return normal matches for non-out-of-scope reference', () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display country_name',
                 symbols: { 
@@ -297,7 +300,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
 
         it('should return normal matches when reference type is other but local macro is out-of-scope', () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display country_name', // bare identifier, not `country_name'
                 symbols: { 
@@ -348,7 +351,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
     describe('integration with get_hover', () => {
         it('should return hover with out-of-scope indicator for out-of-scope local macro reference', async () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display `country_name\'',
                 symbols: { 
@@ -406,7 +409,7 @@ describe('HoverProvider Out-of-Scope Suppression', () => {
 
         it('should return hover with out-of-scope indicator for out-of-scope global macro reference', async () => {
             const document: DocumentState = {
-                ...DOCUMENT_STATE_DEFAULTS,
+                ...create_document_state_defaults(),
                 uri: 'file:///test.do',
                 content: 'display $country_name',
                 symbols: { 
