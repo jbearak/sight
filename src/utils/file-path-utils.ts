@@ -748,6 +748,14 @@ export function resolve_forward_call_rich(
         if (!collector) {
             return;
         }
+        // The candidate won exactly as written: resolve_path_rich
+        // short-circuits before probing the `.do` variant, so nothing
+        // about this candidate was missed. (On Windows a separator-
+        // normalization mismatch can skip this guard — that degrades to
+        // recording the variants, i.e. harmless over-invalidation.)
+        if (winning_path === candidate) {
+            return;
+        }
         const the_variants = [candidate];
         if (!has_extension(node_path.basename(candidate))) {
             the_variants.push(candidate + '.do');

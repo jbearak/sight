@@ -2318,6 +2318,14 @@ export class ScopeResolver {
                                 forward_calls: fallback_cached.forward_calls,
                                 cd_commands: fallback_cached.cd_commands,
                                 working_directory: fallback_cached.working_directory,
+                                // Was missing from this HIT return alone
+                                // (coderabbit on PR #278): without it,
+                                // discover_working_directory cannot see a
+                                // parent's own WD directive when the parent
+                                // is served from this branch, and WD
+                                // inheritance falls through to deeper
+                                // ancestors.
+                                working_directory_directive: fallback_cached.working_directory_directive,
                                 diagnostics: fallback_cached.diagnostics
                             };
                         }
