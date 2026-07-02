@@ -307,6 +307,34 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(site_has_global(after, 'g_old')).toBe(false);
     });
 
+    it('evicts entries when a .do file appears for an extension-omitted call', async () => {
+        // Same shape as above but with the common extension-omitted idiom
+        // `do "childx"`: the WD-join candidate <temp>/childx misses BOTH
+        // as-written and via the internal .do fallback, and resolution
+        // falls back to <temp>/subx/childx.do. Creating <temp>/childx.do
+        // (the natural way to satisfy the call at the WD tier — and a
+        // watchable *.do path) must evict the memoized closure, which
+        // requires the probe set to include the .do-fallback VARIANT of
+        // the missed candidate, not just its as-written form.
+        fs.mkdirSync(path.join(temp_dir, 'subx'));
+        create_file(path.join('subx', 'childx.do'), 'global gx_old 1\n');
+        create_file(path.join('subx', 'innerx.do'),
+            'do "childx"\nglobal innerx_g 1\n');
+        const root = create_file('probe_root_x.do',
+            `cd "${temp_dir}"\ndo "subx/innerx.do"\ndisplay "\${gx_old}"\n`);
+
+        const before = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(before, 'gx_old')).toBe(true);
+
+        const promoted = create_file('childx.do', 'global gx_new 1\n');
+        scope_resolver.invalidate_file_cache(to_uri(promoted));
+
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const after = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(after, 'gx_new')).toBe(true);
+        expect(site_has_global(after, 'gx_old')).toBe(false);
+    });
+
     it('evicts transitively dependent entries on didChange and on-disk change', async () => {
         const { chain, roots } = build_chain_workspace(2);
         const [, , chain_3] = chain;

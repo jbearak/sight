@@ -782,8 +782,14 @@ file's forward closure is identical across distinct callers given the same input
 > (content changes, transitive dependents, dependency-graph version changes,
 > workspace resets), the memo only populates once the workspace scan is
 > complete, and closures built while an invalidation or cancellation landed
-> mid-build are discarded. All of this is guarded by the memo-on/off
-> correctness gate above.
+> mid-build are discarded. Closures that resolved a call through a fallback
+> tier (a missing working-directory candidate, or the `.do`-extension
+> fallback) also record the probed-and-missing paths as dependents, so
+> creating a file at a higher-priority path evicts them. (Creating an
+> *extensionless* file cannot be observed — the file watcher only covers
+> `*.do`/`*.ado`/`*.doh`/`*.mata` — a pre-existing platform constraint that
+> equally affects the file parse cache.) All of this is guarded by the
+> memo-on/off correctness gate above.
 
 ## Configuration
 
