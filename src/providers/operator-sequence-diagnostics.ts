@@ -3,6 +3,8 @@ import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token, StataAST, StataNode } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
+import { is_diagnostic_range_ignored } from './diagnostic-token-stream';
 
 /**
  * Spaced compound operators that Stata accepts as their compact form.
@@ -217,9 +219,14 @@ export class OperatorSequenceAnalyzer {
                 continue;
             }
 
-            // Check for suppression via @lsp-ignore directives
-            const diagnostic_line = first_token.range.start.line;
-            if (ignored_lines.has(diagnostic_line)) {
+            // Check for suppression via @lsp-ignore directives. The pair
+            // can span lines via `///`; honor an @lsp-ignore on any line
+            // the diagnostic covers.
+            const my_pair_range = Range.create(
+                first_token.range.start,
+                second_token.range.end
+            );
+            if (is_diagnostic_range_ignored(my_pair_range, ignored_lines)) {
                 // Suppressed by directive, advance past second token
                 i = next_index;
                 continue;
@@ -251,10 +258,7 @@ export class OperatorSequenceAnalyzer {
             // Build the diagnostic
             const severity = this.resolve_severity(config_severity, pair_result.default_severity);
             const diagnostic: Diagnostic = {
-                range: Range.create(
-                    first_token.range.start,
-                    second_token.range.end
-                ),
+                range: my_pair_range,
                 message: pair_result.message,
                 severity,
                 source: 'sight',
@@ -301,11 +305,10 @@ export class OperatorSequenceAnalyzer {
                 continue;
             }
 
-            // Special case: STATEMENT_TERMINATOR after CONTINUATION is part of the
-            // continuation and should NOT break adjacency. The newline after ///
-            // is tokenized as STATEMENT_TERMINATOR but is semantically part of the
-            // continuation.
-            if (my_token.type === 'STATEMENT_TERMINATOR' && in_continuation) {
+            // The newline terminator swallowed by a `///` continuation
+            // does NOT break adjacency; a real terminator (a `;` under
+            // `#delimit ;`, or a plain newline) does.
+            if (is_swallowed_continuation_terminator(my_token, in_continuation)) {
                 // Reset continuation flag and continue scanning
                 in_continuation = false;
                 j++;

@@ -80,6 +80,57 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
         });
     });
 
+    describe('@lsp-ignore Suppression', () => {
+        it('@lsp-ignore-next suppresses a malformed pair on the next line', () => {
+            const doc = create_document_state(
+                '// @lsp-ignore-next\nscalar x = = y'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const malformed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            );
+            expect(malformed).toHaveLength(0);
+        });
+
+        it('respects @lsp-ignore on the trailing line of a /// pair', () => {
+            // The first `=` sits on line 0 and the second on line 1; the
+            // ignore comment is on line 1 only. The diagnostic spans both
+            // lines, so it must be suppressed (#268).
+            const doc = create_document_state(
+                'scalar x = ///\n    = y // @lsp-ignore'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const malformed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            );
+            expect(malformed).toHaveLength(0);
+        });
+
+        it('still reports a /// pair with no ignore directive', () => {
+            const doc = create_document_state('scalar x = ///\n    = y');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const malformed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            );
+            expect(malformed).toHaveLength(1);
+        });
+
+        it('does not pair operators across a ; after a /// (semicolon mode)', () => {
+            // The newline after `///` is WHITESPACE under `#delimit ;`,
+            // so the `;` on the next line is a real terminator that
+            // breaks operator adjacency: the trailing `=` of the first
+            // statement and the leading `=` of the next are not a pair.
+            const doc = create_document_state(
+                '#delimit ;\nscalar x = ///\n;\n= y ;'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const malformed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MALFORMED_OPERATOR
+            );
+            expect(malformed).toHaveLength(0);
+        });
+    });
+
     describe('Compound Operators Without Spaces (Requirement 4.2)', () => {
         it('<= produces a single OPERATOR token', () => {
             const result = lexer.tokenize('display x <= y');

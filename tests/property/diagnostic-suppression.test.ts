@@ -114,6 +114,88 @@ describe('Diagnostic Suppression Property Tests', () => {
     });
 
     /**
+     * Property: @lsp-ignore-next covers every line of a ///-continued
+     * statement, wherever in the statement the reference lands (#268).
+     */
+    it('should suppress across /// continuations regardless of which line holds the reference', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                arbitrary_non_reserved_identifier(),
+                fc.integer({ min: 0, max: 2 }),
+                async (macro_name: string, ref_line_offset: number) => {
+                    // Build a 3-line continued statement placing the
+                    // undefined reference on line 1, 2, or 3 of it.
+                    const the_operands = ['1', '2', '3'];
+                    the_operands[ref_line_offset] = `\`${macro_name}'`;
+                    const content =
+                        '// @lsp-ignore-next\n' +
+                        `local result = ${the_operands[0]} + ///\n` +
+                        `    ${the_operands[1]} + ///\n` +
+                        `    ${the_operands[2]}`;
+                    const my_document = create_document_state(content);
+
+                    const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
+                        my_document,
+                        my_config
+                    );
+
+                    const undefined_macro_diags = the_diagnostics.filter(
+                        d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    );
+
+                    return undefined_macro_diags.length === 0;
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+
+    /**
+     * Property: @lsp-ignore-next before a block header never suppresses
+     * diagnostics inside the block body (#268).
+     */
+    it('should not suppress block-body diagnostics via a header @lsp-ignore-next', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                async (header_macro: string, body_macro: string) => {
+                    fc.pre(header_macro !== body_macro);
+
+                    const content =
+                        '// @lsp-ignore-next\n' +
+                        `if \`${header_macro}' == 1 {\n` +
+                        `    display \`${body_macro}'\n` +
+                        '}';
+                    const my_document = create_document_state(content);
+
+                    const the_diagnostics = await my_diagnostics_provider.get_diagnostics(
+                        my_document,
+                        my_config
+                    );
+
+                    const undefined_macro_diags = the_diagnostics.filter(
+                        d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    );
+
+                    // Header reference suppressed; body reference not.
+                    // Match the quoted `name' form, not a raw substring:
+                    // short names like `n' also occur in message prose.
+                    return (
+                        !undefined_macro_diags.some(
+                            d => d.message.includes(`\`${header_macro}'`)
+                        ) &&
+                        undefined_macro_diags.some(
+                            d => d.message.includes(`\`${body_macro}'`)
+                        )
+                    );
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+
+    /**
      * Property: Suppression works for undefined variables too
      */
     it('should suppress undefined variable diagnostics with suppression comments', async () => {

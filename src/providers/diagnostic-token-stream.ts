@@ -1,4 +1,6 @@
+import { Range } from 'vscode-languageserver/node';
 import { Token } from '../types';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
 
 /**
  * Comparison operators. Stata evaluates these left-to-right, each yielding 0/1;
@@ -84,7 +86,9 @@ export function collect_significant_tokens(tokens: Token[]): Token[] {
     let my_in_continuation = false;
 
     for (const my_token of tokens) {
-        if (my_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
+        if (
+            is_swallowed_continuation_terminator(my_token, my_in_continuation)
+        ) {
             my_in_continuation = false;
             continue;
         }
@@ -139,4 +143,43 @@ export function is_adjacent(first: Token, second: Token): boolean {
         first.range.end.line === second.range.start.line &&
         first.range.end.character === second.range.start.character
     );
+}
+
+/**
+ * Whether any physical line in `[range.start.line, range.end.line]` is
+ * suppressed by an `@lsp-ignore` / `@lsp-ignore-next` directive.
+ *
+ * Token-stream diagnostics can span multiple physical lines via `///`
+ * continuation, so checking only the first token's line under-suppresses
+ * when the ignore comment sits on a later line the diagnostic covers.
+ * Originally ChainedComparisonAnalyzer's private check (#268);
+ * centralized here so the sibling analyzers apply suppression
+ * identically and cannot drift apart on this rule.
+ */
+export function is_diagnostic_range_ignored(
+    range: Range,
+    ignored_lines: Set<number>
+): boolean {
+    // Iterate the smaller side: spans are usually 1-2 lines, but a
+    // chain in a long `#delimit ;` statement can span many; the ignored
+    // set is typically a handful of entries.
+    const my_span_lines = range.end.line - range.start.line + 1;
+    if (my_span_lines > ignored_lines.size) {
+        for (const my_line of ignored_lines) {
+            if (my_line >= range.start.line && my_line <= range.end.line) {
+                return true;
+            }
+        }
+        return false;
+    }
+    for (
+        let my_line = range.start.line;
+        my_line <= range.end.line;
+        my_line++
+    ) {
+        if (ignored_lines.has(my_line)) {
+            return true;
+        }
+    }
+    return false;
 }

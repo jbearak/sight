@@ -137,9 +137,14 @@ turned off independently.
 These operator/expression rules are heuristic token-stream checks: they do not
 parse per-command semantics, so they can fire inside text-storing commands
 (e.g. `notes`, `char`, `local x <text>`) and do not cover every
-bare-expression command. This matches the scope of the existing operator
-diagnostics; see [#268](https://github.com/jbearak/sight/issues/268) for the
-known edge cases and the command-context improvement tracked for later.
+bare-expression command. `LITERAL_MACRO_ADJACENCY` additionally recognizes
+`assert` as a bare-boolean-expression command when it appears in command
+position (optionally after `capture` / `quietly` / `noisily` prefixes and
+their colons), so `assert 1\`b'` is flagged like `if 1\`b'`; other
+bare-expression commands remain uncovered. This matches the scope of the
+existing operator diagnostics; see
+[#268](https://github.com/jbearak/sight/issues/268) for the known edge cases
+and the command-context improvement tracked for later.
 
 ## Indentation diagnostics
 
@@ -278,6 +283,16 @@ Each severity key accepts `"error"`, `"warning"`, `"information"`,
 |---|---|
 | `// sight: ignore` | On its own comment line, suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. As a trailing `//` comment, suppresses those diagnostics on the same line. Does not silence lexer, parser / brace-style, or indentation diagnostics. |
 | `// sight: ignore-next` | Suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. It does not suppress diagnostics on its own source line. |
+
+When the next statement spans several physical lines — via `///`
+continuations, or under `#delimit ;` — a standalone `sight: ignore` /
+`sight: ignore-next` covers every line the statement spans, wherever in
+the statement the flagged construct sits. A statement that opens a block
+is covered through its header line (up to and including the `{`), but
+never the block body: to suppress a diagnostic inside a block, put the
+directive on the offending statement inside the block. A trailing
+`// sight: ignore` on any physical line an operator-style diagnostic
+spans also suppresses it.
 | `// sight: local name [name ...]` | Declares one or more local macros from the directive line forward. |
 | `// sight: global name [name ...]` | Same, for globals. |
 | `// sight: variables var [var ...]` | Declares variables (e.g., loaded from a `.dta` file). |

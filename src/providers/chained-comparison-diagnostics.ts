@@ -8,6 +8,7 @@ import {
     LOGICAL_OPERATORS,
     collect_significant_tokens,
     is_adjacent,
+    is_diagnostic_range_ignored,
 } from './diagnostic-token-stream';
 import { is_invalid_operator_sequence_pair } from './operator-sequence-diagnostics';
 
@@ -264,20 +265,15 @@ export class ChainedComparisonAnalyzer {
         for (const my_chain of the_chains) {
             // A chain can span multiple lines via `///`; honor an @lsp-ignore
             // on any line the chain covers, not just its first.
-            if (
-                this.is_range_ignored(
-                    my_chain.first.range.start.line,
-                    my_chain.last.range.end.line,
-                    my_ignored_lines
-                )
-            ) {
+            const my_range = Range.create(
+                my_chain.first.range.start,
+                my_chain.last.range.end
+            );
+            if (is_diagnostic_range_ignored(my_range, my_ignored_lines)) {
                 continue;
             }
             the_diagnostics.push({
-                range: Range.create(
-                    my_chain.first.range.start,
-                    my_chain.last.range.end
-                ),
+                range: my_range,
                 message: my_chain.incomplete_tail
                     ? 'Incomplete chained comparison. A later comparison ' +
                       'operator has no right-hand operand; complete the ' +
@@ -300,20 +296,4 @@ export class ChainedComparisonAnalyzer {
         return the_diagnostics;
     }
 
-    /**
-     * Whether any line in the inclusive range [start_line, end_line] is
-     * suppressed by an @lsp-ignore directive.
-     */
-    private is_range_ignored(
-        start_line: number,
-        end_line: number,
-        ignored_lines: Set<number>
-    ): boolean {
-        for (let my_line = start_line; my_line <= end_line; my_line++) {
-            if (ignored_lines.has(my_line)) {
-                return true;
-            }
-        }
-        return false;
-    }
 }

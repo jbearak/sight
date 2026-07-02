@@ -3,6 +3,8 @@ import { DocumentState } from '../document-store';
 import { StataDiagnosticCode, StataLSPConfig, Token } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
+import { is_diagnostic_range_ignored } from './diagnostic-token-stream';
 
 /**
  * Logical operator values tracked for mixed-operator detection.
@@ -105,7 +107,12 @@ export class MixedLogicalOperatorAnalyzer {
         for (let i = 0; i < the_tokens.length; i++) {
             const my_token = the_tokens[i];
 
-            if (my_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
+            if (
+                is_swallowed_continuation_terminator(
+                    my_token,
+                    my_in_continuation
+                )
+            ) {
                 my_in_continuation = false;
                 continue;
             }
@@ -228,7 +235,12 @@ export class MixedLogicalOperatorAnalyzer {
                 my_in_continuation = true;
                 continue;
             }
-            if (my_next_token.type === 'STATEMENT_TERMINATOR' && my_in_continuation) {
+            if (
+                is_swallowed_continuation_terminator(
+                    my_next_token,
+                    my_in_continuation
+                )
+            ) {
                 my_in_continuation = false;
                 continue;
             }
@@ -262,12 +274,18 @@ export class MixedLogicalOperatorAnalyzer {
             const my_first_token = is_before(my_first_and, my_first_or) ? my_first_and : my_first_or;
             const my_last_token = is_before(my_last_and, my_last_or) ? my_last_or : my_last_and;
 
-            if (my_ignored_lines.has(my_first_token.range.start.line)) {
+            // The flagged mix can span lines via `///`; honor an
+            // @lsp-ignore on any line the diagnostic covers.
+            const my_range = Range.create(
+                my_first_token.range.start,
+                my_last_token.range.end
+            );
+            if (is_diagnostic_range_ignored(my_range, my_ignored_lines)) {
                 continue;
             }
 
             my_diagnostics.push({
-                range: Range.create(my_first_token.range.start, my_last_token.range.end),
+                range: my_range,
                 message: "Mixed '&' and '|' without parentheses. "
                     + "Use parentheses to clarify precedence "
                     + "(e.g., '(x & y) | z' or 'x & (y | z)')",

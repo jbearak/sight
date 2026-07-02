@@ -428,6 +428,20 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             );
             expect(mixed).toHaveLength(0);
         });
+
+        it('respects @lsp-ignore on the trailing line of a /// mix', () => {
+            // The `&` sits on line 1 and the `|` on line 2; the ignore
+            // comment is on line 2 only. The diagnostic spans both lines,
+            // so it must be suppressed (#268).
+            const doc = create_document_state(
+                'keep if x & /// \n y | z // @lsp-ignore'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
+        });
     });
 
     describe('Continuation Lines', () => {
@@ -438,6 +452,22 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
                 d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
             );
             expect(mixed).toHaveLength(1);
+        });
+
+        it('does not merge statements across a ; after a /// (semicolon mode)', () => {
+            // The newline after `///` is WHITESPACE under `#delimit ;`,
+            // so the `;` on the next line is a real terminator. The `&`
+            // and `|` belong to different statements and must not be
+            // reported as a mix. (No `if` qualifier here: that would
+            // flush state on its own and mask the terminator handling.)
+            const doc = create_document_state(
+                '#delimit ;\ngen z = x & y ///\n;\ngen w = a | b ;'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
         });
 
         it('does not warn for same operator across /// continuation', () => {
