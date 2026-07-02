@@ -71,10 +71,10 @@ export interface ForwardClosureKeyInputs {
 }
 
 /**
- * Build the caller-independent forward-closure cache key (#209). The cache
- * STORE/SERVE write-path is deferred to a follow-up; this contract ships now
- * so the follow-up — and the #208 standalone work — can rely on it, guarded
- * by the memo-on/off correctness gate.
+ * Build the caller-independent forward-closure cache key (#209/#234) used
+ * by the memo store/serve path in `memo_serve_or_compute`. The #208
+ * standalone work relies on this contract, guarded by the memo-on/off
+ * correctness gate.
  *
  * Encoded as a JSON tuple rather than a delimiter-joined string so the key
  * is collision-free: a `callee_uri` or `working_directory` containing a
@@ -83,7 +83,7 @@ export interface ForwardClosureKeyInputs {
  *
  * NOTE: the key intentionally OMITS the caller's `visited` map and the
  * `diagnostic_owner_uri`. These vary `resolve()`'s output but are NOT keyed,
- * because the deferred store/serve path handles them OUTSIDE the key (encoding
+ * because the store/serve path handles them OUTSIDE the key (encoding
  * `visited` would make the key caller-dependent, defeating the whole point):
  *  - duplicate-call (`visited`) divergence is prevented by serving only when
  *    the cached closure's reachable set is DISJOINT from the caller's
@@ -92,7 +92,7 @@ export interface ForwardClosureKeyInputs {
  *    owner-suppressed closures (any closure that would emit a diagnostic is
  *    recomputed live).
  * See docs/cross-file.md "Forward-closure caching semantics" for the full
- * deferred design and the memo-on/off correctness gate that enforces it.
+ * design and the memo-on/off correctness gate that enforces it.
  */
 export function build_forward_closure_key(
     inputs: ForwardClosureKeyInputs
@@ -151,7 +151,8 @@ export interface ForwardClosureMemoMetrics {
  * owner-suppressed, diagnostic-free result of walking `callee_uri`'s forward
  * calls from a clean self-seeded stack.
  */
-interface ForwardClosureMemoEntry {
+interface ForwardClosureMemoClosureEntry {
+    kind: 'closure';
     symbols: SymbolTable;
     call_sites: ForwardCallSite[];
     /** The (uri → effective type) pairs the standalone walk marked visited —
@@ -164,6 +165,30 @@ interface ForwardClosureMemoEntry {
     /** Version-independent key, for base-key rotation cleanup on delete. */
     base_key: string;
 }
+
+/**
+ * Negative entry (#234): this key's standalone build emitted diagnostics —
+ * a KEY-DETERMINED outcome (same inputs reproduce the same diagnostics), so
+ * re-attempting the build on every traversal would be wasted work. Without
+ * this, a chain that trips the depth cap re-attempts a doomed standalone
+ * build at every level of every live retry — O(2^depth) sub-resolutions.
+ * The marker sends the hook straight to the live path (which emits the
+ * diagnostics with the caller's own call-chain prefixes). Transient
+ * failures (cancellation, invalidation-epoch or graph-version races) are
+ * NOT negative-cached. Evicted by the same dependent-URI machinery; note a
+ * missing callee file that later APPEARS does not evict (it was never
+ * visited, so it is not a dependent) — the subtree just stays on the
+ * always-correct live path until a dependent changes.
+ */
+interface ForwardClosureMemoUnservableEntry {
+    kind: 'unservable';
+    dependent_uris: Set<string>;
+    base_key: string;
+}
+
+type ForwardClosureMemoEntry =
+    | ForwardClosureMemoClosureEntry
+    | ForwardClosureMemoUnservableEntry;
 
 const DEFAULT_CONFIG: ForwardScopeConfig = {
     max_forward_depth: 10,
@@ -206,6 +231,14 @@ export class ForwardScopeResolver {
         misses: 0,
         invalidations: 0,
     };
+    // URIs whose standalone closure build is currently in flight. A memo
+    // hook firing for one of these is a guaranteed re-entry (the build's
+    // own subtree cycled back to it), so it must go straight to the live
+    // path — which cycle-skips against the real stack — instead of
+    // launching a fresh-stack standalone build. Without this, a mutual
+    // do/run cycle cascades fresh-stack builds to max_forward_depth on
+    // warm-up (each one blind to the ancestry the previous discarded).
+    private standalone_in_flight = new Set<string>();
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     constructor(scope_resolver: ScopeResolver, config: Partial<ForwardScopeConfig> = {}) {
@@ -214,9 +247,9 @@ export class ForwardScopeResolver {
     }
 
     /**
-     * Enable/disable the forward-closure memo (#209/#234). Default OFF.
-     * Guarded by the memo-on/off correctness gate
-     * (tests/integration/forward-closure-memo-gate.test.ts).
+     * Enable/disable the forward-closure memo (#209/#234). Default ON
+     * (#234 acceptance decision). Guarded by the memo-on/off correctness
+     * gate (tests/integration/forward-closure-memo-gate.test.ts).
      */
     set_forward_closure_memo_enabled(enabled: boolean): void {
         this.forward_closure_memo_enabled = enabled;
@@ -231,11 +264,15 @@ export class ForwardScopeResolver {
      * memo key and the `scan_complete` population gate. When no graph is
      * wired (standalone/test usage) the gate is vacuously open and the
      * version is 0 — there is no scan whose partial state could be cached.
+     * Clears the memo: entries keyed against a previous graph's version
+     * numbering must not survive a graph swap (a different graph could
+     * reuse the same version value).
      */
     set_dependency_graph(
         graph: import('../dependency-graph').DependencyGraph
     ): void {
         this.dependency_graph = graph;
+        this.clear_forward_closure_memo();
     }
 
     /** Detached snapshot of the memo metrics (#234). */
@@ -1074,6 +1111,14 @@ export class ForwardScopeResolver {
         const entry_preexisted = entry !== undefined;
 
         if (!entry) {
+            // Re-entry guard: this callee's own standalone build is already
+            // in flight below us, so this hook is inside a cycle back to
+            // it. A fresh-stack build here would be blind to that ancestry
+            // and recurse to the depth cap; the live path cycle-skips
+            // against the real stack instead.
+            if (this.standalone_in_flight.has(callee_uri)) {
+                return undefined;
+            }
             entry = await this.compute_and_store_standalone_closure(
                 key,
                 base_key,
@@ -1090,6 +1135,13 @@ export class ForwardScopeResolver {
             if (!entry) {
                 return undefined;
             }
+        }
+
+        // Known diagnostic-producing key: always recompute live (the live
+        // walk emits the diagnostics with the caller's own call-chain
+        // prefixes and truncation anchors).
+        if (entry.kind === 'unservable') {
+            return undefined;
         }
 
         // Serve gate: the cached reachable set must be disjoint from the
@@ -1150,44 +1202,51 @@ export class ForwardScopeResolver {
         // memo exists to collapse — whether or not the result is storable.
         this.memo_metrics.misses++;
 
-        const standalone = await this.resolve(
-            callee_uri,
-            forward_calls,
-            effective_call_type,
-            {
-                visited: fresh_visited,
+        this.standalone_in_flight.add(callee_uri);
+        let standalone: ForwardResolvedScope;
+        try {
+            standalone = await this.resolve(
+                callee_uri,
+                forward_calls,
                 effective_call_type,
-                depth,
-                diagnostics: fresh_diagnostics,
-                working_directory,
-                cd_commands,
-                call_chain: [],
-                diagnostic_owner_uri: undefined,
-            },
-            new Set(),
-            token,
-            {
-                max_forward_depth: resolved_config.max_forward_depth,
-                // Force a non-'off' truncation severity: a cap-truncated
-                // closure is shaped by the cap but the SEVERITY setting is
-                // not in the key, so under 'off' it would look
-                // diagnostic-free and get stored, then be served to callers
-                // whose setting expects the truncation diagnostic. The
-                // fresh_diagnostics array is only an eligibility signal —
-                // it is discarded, so the forced severity never surfaces.
-                diagnostics: { max_depth: 'warning' },
-            },
-        );
+                {
+                    visited: fresh_visited,
+                    effective_call_type,
+                    depth,
+                    diagnostics: fresh_diagnostics,
+                    working_directory,
+                    cd_commands,
+                    call_chain: [],
+                    diagnostic_owner_uri: undefined,
+                },
+                new Set(),
+                token,
+                {
+                    max_forward_depth: resolved_config.max_forward_depth,
+                    // Force a non-'off' truncation severity: a cap-truncated
+                    // closure is shaped by the cap but the SEVERITY setting
+                    // is not in the key, so under 'off' it would look
+                    // diagnostic-free and get stored, then be served to
+                    // callers whose setting expects the truncation
+                    // diagnostic. The fresh_diagnostics array is only an
+                    // eligibility signal — it is discarded, so the forced
+                    // severity never surfaces.
+                    diagnostics: { max_depth: 'warning' },
+                },
+            );
+        } finally {
+            this.standalone_in_flight.delete(callee_uri);
+        }
 
+        // Transient failures — never stored (not key-determined): the next
+        // traversal may legitimately succeed.
         if (token?.isCancellationRequested) {
             return undefined;
         }
-        if (fresh_diagnostics.length > 0) {
-            return undefined;
-        }
         // An invalidation or graph change landed during the awaits above:
-        // the closure may already be stale, and the invalidation could not
-        // have evicted a not-yet-stored entry. Neither store nor serve.
+        // the build may have read mid-change state, and the invalidation
+        // could not have evicted a not-yet-stored entry. Neither store nor
+        // serve.
         if (this.memo_invalidation_epoch !== epoch_before) {
             return undefined;
         }
@@ -1195,18 +1254,40 @@ export class ForwardScopeResolver {
             return undefined;
         }
 
-        const entry: ForwardClosureMemoEntry = {
+        const dependent_uris = new Set([callee_uri, ...fresh_visited.keys()]);
+
+        // Key-determined failure: the same inputs reproduce the same
+        // diagnostics, so mark the key unservable instead of re-attempting
+        // a doomed standalone build on every future traversal (O(2^depth)
+        // blowup on cap-tripping chains otherwise).
+        if (fresh_diagnostics.length > 0) {
+            return this.store_memo_entry(key, {
+                kind: 'unservable',
+                dependent_uris,
+                base_key,
+            });
+        }
+
+        return this.store_memo_entry(key, {
+            kind: 'closure',
             symbols: standalone.symbols,
             call_sites: standalone.call_sites,
             visited_delta: fresh_visited,
-            dependent_uris: new Set([callee_uri, ...fresh_visited.keys()]),
+            dependent_uris,
             base_key,
-        };
+        });
+    }
 
-        // Base-key rotation: replace the previous entry for the same
-        // closure identity under an older graph version, so version bumps
-        // never strand dead entries.
-        const old_key = this.memo_base_key_to_key.get(base_key);
+    /**
+     * Insert a memo entry, maintaining the dependent-URI reverse index and
+     * evicting the previous entry for the same base key (a dep-graph
+     * version rotation must never strand dead entries). Returns the entry.
+     */
+    private store_memo_entry(
+        key: string,
+        entry: ForwardClosureMemoEntry
+    ): ForwardClosureMemoEntry {
+        const old_key = this.memo_base_key_to_key.get(entry.base_key);
         if (old_key !== undefined && old_key !== key) {
             if (this.delete_memo_entry(old_key)) {
                 this.memo_metrics.invalidations++;
@@ -1214,7 +1295,7 @@ export class ForwardScopeResolver {
         }
 
         this.forward_closure_memo.set(key, entry);
-        this.memo_base_key_to_key.set(base_key, key);
+        this.memo_base_key_to_key.set(entry.base_key, key);
         for (const my_dep_uri of entry.dependent_uris) {
             let my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
             if (!my_key_set) {

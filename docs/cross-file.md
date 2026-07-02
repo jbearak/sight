@@ -776,7 +776,9 @@ file's forward closure is identical across distinct callers given the same input
 > recursion stack and visited map, replaying the closure's visited-delta into
 > the caller on serve. Any closure that would emit a diagnostic — including a
 > depth-cap truncation suppressed by `maxDepth = "off"` — is recomputed live
-> and never stored. Entries are evicted in lockstep with the scope cache
+> and never stored (the key is marked unservable so the doomed standalone
+> build is not re-attempted on later traversals). Entries are evicted in
+> lockstep with the scope cache
 > (content changes, transitive dependents, dependency-graph version changes,
 > workspace resets), the memo only populates once the workspace scan is
 > complete, and closures built while an invalidation or cancellation landed

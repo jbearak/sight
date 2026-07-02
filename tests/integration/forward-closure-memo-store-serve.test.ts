@@ -199,6 +199,65 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(metrics.hits).toBe(0);
     });
 
+    it('keeps standalone-build work bounded on a mutual do-cycle', async () => {
+        // a → b → a. A memo miss launches a fresh-stack standalone build
+        // that cannot see the caller's ancestry; without the in-flight
+        // re-entry guard the builds cascade to max_forward_depth on every
+        // traversal. Bounded misses prove the guard works.
+        const a_path = path.join(temp_dir, 'bounded_a.do');
+        const b_path = path.join(temp_dir, 'bounded_b.do');
+        fs.writeFileSync(a_path, `do "${b_path}"\nglobal a_g 1\n`);
+        fs.writeFileSync(b_path, `do "${a_path}"\nglobal b_g 1\n`);
+
+        await scope_resolver.resolve(to_uri(a_path), read(a_path));
+        // ≤ 2 standalone attempts for one traversal of a 2-cycle — a
+        // cascade would burn ~max_forward_depth (10) per traversal.
+        expect(forward_resolver.get_forward_closure_metrics().misses)
+            .toBeLessThanOrEqual(2);
+
+        // invalidate_scope_cache(a) also evicts both memo entries (a is in
+        // their dependent sets), so the second traversal legitimately
+        // recomputes the same bounded set — still no cascade.
+        scope_resolver.invalidate_scope_cache(to_uri(a_path));
+        await scope_resolver.resolve(to_uri(a_path), read(a_path));
+        expect(forward_resolver.get_forward_closure_metrics().misses)
+            .toBeLessThanOrEqual(4);
+    });
+
+    it('does not re-attempt doomed standalone builds on cap-tripping chains', async () => {
+        // deep_1 → … → deep_6 with max_forward_depth 3: every standalone
+        // build in the truncated region is doomed (truncation diagnostic).
+        // Each key must be attempted ONCE (negative-cached), not once per
+        // level of every live retry (O(2^depth)).
+        const the_chain: string[] = [];
+        for (let i = 6; i >= 1; i--) {
+            const my_path = path.join(temp_dir, `cap_${i}.do`);
+            const my_next = the_chain.length > 0
+                ? `do "${the_chain[the_chain.length - 1]}"\n`
+                : '';
+            fs.writeFileSync(my_path, `${my_next}global cap_${i}_g 1\n`);
+            the_chain.push(my_path);
+        }
+        const head = the_chain[the_chain.length - 1];
+        const root = create_file('cap_root.do', `do "${head}"\ndisplay 1\n`);
+
+        const config = { max_forward_depth: 3 };
+        await scope_resolver.resolve(to_uri(root), read(root), config);
+        const first_misses =
+            forward_resolver.get_forward_closure_metrics().misses;
+        expect(first_misses).toBeLessThanOrEqual(4);
+
+        // Re-resolving must not re-attempt the doomed builds.
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const again = await scope_resolver.resolve(
+            to_uri(root), read(root), config);
+        expect(forward_resolver.get_forward_closure_metrics().misses)
+            .toBe(first_misses);
+        // ...and the truncation diagnostic still reaches the user.
+        expect(again.diagnostics.some(d =>
+            d.message.includes('Maximum forward resolution'))).toBe(true);
+    });
+
     it('evicts transitively dependent entries on didChange and on-disk change', async () => {
         const { chain, roots } = build_chain_workspace(2);
         const [, , chain_3] = chain;
