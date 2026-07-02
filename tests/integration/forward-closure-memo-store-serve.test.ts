@@ -1,0 +1,667 @@
+/**
+ * Issue #234 — forward-closure memo store/serve semantics.
+ *
+ * The memo-on/off correctness gate (forward-closure-memo-gate.test.ts)
+ * proves the memo never changes caller-observable output. This file pins the
+ * memo's own mechanics instead:
+ *  - the N→1 collapse (misses stay flat across callers, hits grow);
+ *  - the disjointness serve gate (a caller whose visited/stack intersects a
+ *    cached closure's reachable set is recomputed live);
+ *  - the visited-delta replay (later siblings dedup identically to a live
+ *    walk after a serve);
+ *  - store-eligibility (diagnostic-producing closures are never stored —
+ *    including cap truncations suppressed by `max_depth: 'off'`);
+ *  - invalidation parity with scope_cache (didChange + on-disk change +
+ *    transitive dependents + clear_cache), the in-flight epoch guard, and
+ *    the dependency-graph scan/version gates.
+ *
+ * See docs/cross-file.md "Forward-closure caching semantics".
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { pathToFileURL } from 'node:url';
+import { ScopeResolver } from '../../src/scope-resolver';
+import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
+import { DependencyGraph } from '../../src/dependency-graph';
+import type { ForwardCallSite, ResolvedScope } from '../../src/types';
+import { create_test_scope_resolver_logger } from '../test-logger';
+
+describe('issue #234 — forward-closure memo store/serve', () => {
+    let scope_resolver: ScopeResolver;
+    let forward_resolver: ForwardScopeResolver;
+    let temp_dir: string;
+
+    beforeEach(() => {
+        scope_resolver = new ScopeResolver(create_test_scope_resolver_logger());
+        forward_resolver = new ForwardScopeResolver(scope_resolver);
+        scope_resolver.set_forward_scope_resolver(forward_resolver);
+        forward_resolver.set_forward_closure_memo_enabled(true);
+        temp_dir = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'memo-store-serve-234-'));
+    });
+    afterEach(() => {
+        fs.rmSync(temp_dir, { recursive: true, force: true });
+    });
+
+    const create_file = (name: string, content: string): string => {
+        const file_path = path.join(temp_dir, name);
+        fs.writeFileSync(file_path, content);
+        return file_path;
+    };
+    const to_uri = (file_path: string): string =>
+        pathToFileURL(file_path).toString();
+    const read = (file_path: string): string =>
+        fs.readFileSync(file_path, 'utf8');
+
+    /** Do any of the file's own forward-call sites carry this global? */
+    const site_has_global = (r: ResolvedScope, name: string): boolean =>
+        (r.forward_call_symbols ?? []).some(
+            (s: ForwardCallSite) => s.symbols.globalMacros.has(name));
+
+    /** chain_1 → chain_2 → chain_3 (leaf), plus N roots that `do` chain_1. */
+    const build_chain_workspace = (n_roots: number): {
+        chain: string[]; roots: string[];
+    } => {
+        const chain_3 = create_file('chain_3.do', 'global g3 1\n');
+        const chain_2 = create_file(
+            'chain_2.do', `do "${chain_3}"\nglobal g2 1\n`);
+        const chain_1 = create_file(
+            'chain_1.do', `do "${chain_2}"\nglobal g1 1\n`);
+        const the_roots = Array.from({ length: n_roots }, (_unused, i) =>
+            create_file(
+                `root_${i}.do`, `do "${chain_1}"\ndisplay "\${g3}"\n`));
+        return { chain: [chain_1, chain_2, chain_3], roots: the_roots };
+    };
+
+    it('collapses shared-chain recomputation across callers (N→1)', async () => {
+        const { roots } = build_chain_workspace(5);
+
+        for (const my_root of roots) {
+            const resolved = await scope_resolver.resolve(
+                to_uri(my_root), read(my_root));
+            expect(site_has_global(resolved, 'g3')).toBe(true);
+        }
+
+        const metrics = forward_resolver.get_forward_closure_metrics();
+        // chain_1 and chain_2 have forward calls (chain_3 is a leaf): their
+        // closures are computed exactly once, on the first root.
+        expect(metrics.misses).toBe(2);
+        // Every later root serves chain_1's cached closure.
+        expect(metrics.hits).toBe(roots.length - 1);
+    });
+
+    it('replays the visited-delta: a later sibling dedups against a served hub', async () => {
+        // parent runs a then b; both source the same hub. Serving a's
+        // closure must replay hub into visited so b's walk boundary-skips
+        // the hub exactly as a live walk would (no duplicate hub site).
+        const hub = create_file('hub.do', 'global hub_g 1\n');
+        const a = create_file('a.do', `run "${hub}"\nglobal a_g 1\n`);
+        const b = create_file('b.do', `run "${hub}"\nglobal b_g 1\n`);
+        const parent = create_file(
+            'parent.do', `run "${a}"\nrun "${b}"\ndisplay 1\n`);
+
+        // Resolve the parent twice: the second pass serves a's closure from
+        // the memo (hit) and must produce the identical call-site surface.
+        const surface_of = (r: ResolvedScope): string[] =>
+            (r.forward_call_symbols ?? []).map((s: ForwardCallSite) =>
+                `${path.basename(s.callee_uri)}@${s.call_line}:` +
+                `${s.effective_type}`).sort();
+
+        const first = await scope_resolver.resolve(
+            to_uri(parent), read(parent));
+        // Force a fresh top-level resolution without touching the memo.
+        scope_resolver.invalidate_scope_cache(to_uri(parent));
+        const second = await scope_resolver.resolve(
+            to_uri(parent), read(parent));
+
+        expect(surface_of(second)).toEqual(surface_of(first));
+        const hub_sites = (second.forward_call_symbols ?? []).filter(
+            (s: ForwardCallSite) => s.callee_uri === to_uri(hub) &&
+                s.symbols.globalMacros.has('hub_g'));
+        // The hub's symbols must be contributed exactly once (a's subtree);
+        // b's re-visit is a dedup'd boundary, not a second contribution.
+        expect(hub_sites.length).toBe(1);
+    });
+
+    it('never serves a closure into a caller whose state intersects it', async () => {
+        // cycle: a → b → a. Resolving a's own scope walks b, whose closure
+        // reaches back to a (in the caller's stack) — so b's cached entry
+        // must NOT be served (a live walk cycle-skips a; the standalone
+        // closure contains it).
+        const a_path = path.join(temp_dir, 'cyc_a.do');
+        const b_path = path.join(temp_dir, 'cyc_b.do');
+        fs.writeFileSync(a_path, `do "${b_path}"\nglobal a_g 1\n`);
+        fs.writeFileSync(b_path, `do "${a_path}"\nglobal b_g 1\n`);
+
+        const resolved = await scope_resolver.resolve(
+            to_uri(a_path), read(a_path));
+        // b's contribution must include b_g but NOT re-walk a into a
+        // duplicate site (live cycle-skip semantics preserved).
+        expect(site_has_global(resolved, 'b_g')).toBe(true);
+        const a_sites = (resolved.forward_call_symbols ?? []).filter(
+            (s: ForwardCallSite) => s.callee_uri === to_uri(a_path));
+        expect(a_sites.length).toBe(0);
+    });
+
+    it('does not store diagnostic-producing closures (missing file)', async () => {
+        const broken = create_file(
+            'broken.do', `do "${path.join(temp_dir, 'missing.do')}"\n`);
+        const root = create_file(
+            'diag_root.do', `do "${broken}"\ndisplay 1\n`);
+
+        const first = await scope_resolver.resolve(
+            to_uri(root), read(root));
+        const first_missing = first.diagnostics.filter(d =>
+            d.message.includes('Cannot read file'));
+        expect(first_missing.length).toBeGreaterThan(0);
+
+        // Nothing may be cached for broken.do: a second resolution (fresh
+        // scope-cache entry) must re-emit the same diagnostics.
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const second = await scope_resolver.resolve(
+            to_uri(root), read(root));
+        const second_missing = second.diagnostics.filter(d =>
+            d.message.includes('Cannot read file'));
+        expect(second_missing.map(d => d.message))
+            .toEqual(first_missing.map(d => d.message));
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(0);
+    });
+
+    it("does not store cap-truncated closures even under max_depth 'off'", async () => {
+        // deep chain long enough to exceed max_forward_depth = 2
+        const d3 = create_file('deep_3.do', 'global d3 1\n');
+        const d2 = create_file('deep_2.do', `do "${d3}"\nglobal d2 1\n`);
+        const d1 = create_file('deep_1.do', `do "${d2}"\nglobal d1 1\n`);
+        const root = create_file('deep_root.do', `do "${d1}"\ndisplay 1\n`);
+
+        const scope = new ScopeResolver(create_test_scope_resolver_logger());
+        const forward = new ForwardScopeResolver(scope, {
+            max_forward_depth: 2,
+            diagnostics: { max_depth: 'off' },
+        });
+        scope.set_forward_scope_resolver(forward);
+        forward.set_forward_closure_memo_enabled(true);
+
+        const config = {
+            max_forward_depth: 2,
+            diagnostics: { max_depth: 'off' as const },
+        };
+        const resolved = await scope.resolve(to_uri(root), read(root), config);
+        // 'off' suppresses the truncation diagnostic for the user...
+        expect(resolved.diagnostics.filter(d =>
+            d.message.includes('Maximum forward resolution')).length).toBe(0);
+        // The memo must have engaged (floor: a disabled memo would make
+        // the assertions below vacuous).
+        expect(forward.get_forward_closure_metrics().misses)
+            .toBeGreaterThan(0);
+
+        // ...but the truncated closure must never have been stored as
+        // SERVABLE. Only a second resolution can prove that: if the
+        // standalone build inherited the caller's 'off' severity (instead
+        // of forcing a non-'off' one), the cap-truncated closure would
+        // look diagnostic-free, get stored, and be SERVED here — hits > 0.
+        scope.invalidate_scope_cache(to_uri(root));
+        await scope.resolve(to_uri(root), read(root), config);
+        expect(forward.get_forward_closure_metrics().hits).toBe(0);
+    });
+
+    it('keeps standalone-build work bounded on a mutual do-cycle', async () => {
+        // a → b → a. A memo miss launches a fresh-stack standalone build
+        // that cannot see the caller's ancestry; without the in-flight
+        // re-entry guard the builds cascade to max_forward_depth on every
+        // traversal. Bounded misses prove the guard works.
+        const a_path = path.join(temp_dir, 'bounded_a.do');
+        const b_path = path.join(temp_dir, 'bounded_b.do');
+        fs.writeFileSync(a_path, `do "${b_path}"\nglobal a_g 1\n`);
+        fs.writeFileSync(b_path, `do "${a_path}"\nglobal b_g 1\n`);
+
+        await scope_resolver.resolve(to_uri(a_path), read(a_path));
+        // ≤ 2 standalone attempts for one traversal of a 2-cycle — a
+        // cascade would burn ~max_forward_depth (10) per traversal. The
+        // floor proves the memo actually engaged (a silently-disabled memo
+        // would report 0 and satisfy any ceiling vacuously).
+        const first_cycle_misses =
+            forward_resolver.get_forward_closure_metrics().misses;
+        expect(first_cycle_misses).toBeGreaterThan(0);
+        expect(first_cycle_misses).toBeLessThanOrEqual(2);
+
+        // invalidate_scope_cache(a) also evicts both memo entries (a is in
+        // their dependent sets), so the second traversal legitimately
+        // recomputes the same bounded set — still no cascade.
+        scope_resolver.invalidate_scope_cache(to_uri(a_path));
+        await scope_resolver.resolve(to_uri(a_path), read(a_path));
+        expect(forward_resolver.get_forward_closure_metrics().misses)
+            .toBeLessThanOrEqual(4);
+    });
+
+    it('does not re-attempt doomed standalone builds on cap-tripping chains', async () => {
+        // deep_1 → … → deep_6 with max_forward_depth 3: every standalone
+        // build in the truncated region is doomed (truncation diagnostic).
+        // Each key must be attempted ONCE (negative-cached), not once per
+        // level of every live retry (O(2^depth)).
+        const the_chain: string[] = [];
+        for (let i = 6; i >= 1; i--) {
+            const my_path = path.join(temp_dir, `cap_${i}.do`);
+            const my_next = the_chain.length > 0
+                ? `do "${the_chain[the_chain.length - 1]}"\n`
+                : '';
+            fs.writeFileSync(my_path, `${my_next}global cap_${i}_g 1\n`);
+            the_chain.push(my_path);
+        }
+        const head = the_chain[the_chain.length - 1];
+        const root = create_file('cap_root.do', `do "${head}"\ndisplay 1\n`);
+
+        const config = { max_forward_depth: 3 };
+        await scope_resolver.resolve(to_uri(root), read(root), config);
+        const first_misses =
+            forward_resolver.get_forward_closure_metrics().misses;
+        // Floor: the memo must actually have attempted builds (a
+        // silently-disabled memo would report 0 and pass any ceiling).
+        expect(first_misses).toBeGreaterThan(0);
+        expect(first_misses).toBeLessThanOrEqual(4);
+
+        // Re-resolving must not re-attempt the doomed builds.
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const again = await scope_resolver.resolve(
+            to_uri(root), read(root), config);
+        expect(forward_resolver.get_forward_closure_metrics().misses)
+            .toBe(first_misses);
+        // ...and the truncation diagnostic still reaches the user.
+        expect(again.diagnostics.some(d =>
+            d.message.includes('Maximum forward resolution'))).toBe(true);
+    });
+
+    it('evicts entries when a file appears at a higher-priority path candidate', async () => {
+        // inner.do lives in sub/ and calls "child.do". With the working
+        // directory at the temp root (via the caller's `cd`), the WD-join
+        // candidate <temp>/child.do is probed FIRST and misses, so
+        // resolution falls back to the script-relative <temp>/sub/child.do.
+        // Creating <temp>/child.do later changes what a fresh walk
+        // resolves — the memoized closure that resolved through the
+        // fallback must be evicted by the creation event, or memo-on would
+        // keep serving the stale fallback closure (codex round-4 finding).
+        fs.mkdirSync(path.join(temp_dir, 'sub'));
+        create_file(path.join('sub', 'child.do'), 'global g_old 1\n');
+        create_file(path.join('sub', 'inner.do'),
+            'do "child.do"\nglobal inner_g 1\n');
+        const root = create_file('probe_root.do',
+            `cd "${temp_dir}"\ndo "sub/inner.do"\ndisplay "\${g_old}"\n`);
+
+        const before = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(before, 'g_old')).toBe(true);
+
+        // The file appears at the higher-priority WD-join candidate; the
+        // watcher reports it via invalidate_file_cache.
+        const promoted = create_file('child.do', 'global g_new 1\n');
+        scope_resolver.invalidate_file_cache(to_uri(promoted));
+
+        // A root edit (didChange) forces a fresh top-level resolution; the
+        // memoized inner closure must NOT survive to serve the old
+        // fallback resolution.
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const after = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(after, 'g_new')).toBe(true);
+        expect(site_has_global(after, 'g_old')).toBe(false);
+    });
+
+    it('evicts entries when a .do file appears for an extension-omitted call', async () => {
+        // Same shape as above but with the common extension-omitted idiom
+        // `do "childx"`: the WD-join candidate <temp>/childx misses BOTH
+        // as-written and via the internal .do fallback, and resolution
+        // falls back to <temp>/subx/childx.do. Creating <temp>/childx.do
+        // (the natural way to satisfy the call at the WD tier — and a
+        // watchable *.do path) must evict the memoized closure, which
+        // requires the probe set to include the .do-fallback VARIANT of
+        // the missed candidate, not just its as-written form.
+        fs.mkdirSync(path.join(temp_dir, 'subx'));
+        create_file(path.join('subx', 'childx.do'), 'global gx_old 1\n');
+        create_file(path.join('subx', 'innerx.do'),
+            'do "childx"\nglobal innerx_g 1\n');
+        const root = create_file('probe_root_x.do',
+            `cd "${temp_dir}"\ndo "subx/innerx.do"\ndisplay "\${gx_old}"\n`);
+
+        const before = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(before, 'gx_old')).toBe(true);
+
+        const promoted = create_file('childx.do', 'global gx_new 1\n');
+        scope_resolver.invalidate_file_cache(to_uri(promoted));
+
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const after = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(after, 'gx_new')).toBe(true);
+        expect(site_has_global(after, 'gx_old')).toBe(false);
+    });
+
+    it('evicts transitively dependent entries on didChange and on-disk change', async () => {
+        const { chain, roots } = build_chain_workspace(2);
+        const [, , chain_3] = chain;
+
+        for (const my_root of roots) {
+            await scope_resolver.resolve(to_uri(my_root), read(my_root));
+        }
+        expect(forward_resolver.get_forward_closure_metrics().misses).toBe(2);
+
+        // Edit the LEAF: both memoized closures (chain_1's and chain_2's)
+        // transitively depend on it and must be evicted together.
+        fs.writeFileSync(chain_3, 'global g3_renamed 1\n');
+        scope_resolver.invalidate_file_cache(to_uri(chain_3));
+        expect(forward_resolver.get_forward_closure_metrics().invalidations)
+            .toBe(2);
+
+        scope_resolver.invalidate_scope_cache(to_uri(roots[0]));
+        const after = await scope_resolver.resolve(
+            to_uri(roots[0]), read(roots[0]));
+        expect(site_has_global(after, 'g3')).toBe(false);
+        expect(site_has_global(after, 'g3_renamed')).toBe(true);
+    });
+
+    it('clear_cache drops the memo (workspace reset parity)', async () => {
+        const { roots } = build_chain_workspace(2);
+        await scope_resolver.resolve(to_uri(roots[0]), read(roots[0]));
+        const before = forward_resolver.get_forward_closure_metrics();
+        expect(before.misses).toBe(2);
+
+        scope_resolver.clear_cache();
+
+        await scope_resolver.resolve(to_uri(roots[1]), read(roots[1]));
+        const after = forward_resolver.get_forward_closure_metrics();
+        // Fully recomputed — nothing served across the clear.
+        expect(after.hits).toBe(0);
+        expect(after.misses).toBe(4);
+    });
+
+    it('open-buffer edits invalidate through invalidate_scope_cache (didChange path)', async () => {
+        // Production didChange calls invalidate_scope_cache (NOT
+        // invalidate_file_cache); the memo must be evicted through that
+        // funnel too — codex finding #4 on the #234 plan.
+        const { chain, roots } = build_chain_workspace(1);
+        const [, chain_2] = chain;
+        await scope_resolver.resolve(to_uri(roots[0]), read(roots[0]));
+        expect(forward_resolver.get_forward_closure_metrics().misses).toBe(2);
+
+        fs.writeFileSync(chain_2, 'global g2_only 1\n');
+        scope_resolver.invalidate_scope_cache(to_uri(chain_2));
+        // chain_1's closure depends on chain_2 → evicted; chain_2's own
+        // entry likewise. (invalidate_scope_cache deliberately leaves
+        // file_cache alone; evict it here so the re-read sees the new
+        // content, standing in for the didChange buffer overlay.)
+        expect(forward_resolver.get_forward_closure_metrics().invalidations)
+            .toBe(2);
+        scope_resolver.invalidate_file_cache(to_uri(chain_2));
+
+        scope_resolver.invalidate_scope_cache(to_uri(roots[0]));
+        const after = await scope_resolver.resolve(
+            to_uri(roots[0]), read(roots[0]));
+        expect(site_has_global(after, 'g3')).toBe(false);
+        expect(site_has_global(after, 'g2_only')).toBe(true);
+    });
+
+    it('does not populate while the dependency-graph scan is incomplete', async () => {
+        const graph = new DependencyGraph();
+        forward_resolver.set_dependency_graph(graph);
+        const { roots } = build_chain_workspace(3);
+
+        // Scan not complete → gate closed → no stores, no serves.
+        await scope_resolver.resolve(to_uri(roots[0]), read(roots[0]));
+        let metrics = forward_resolver.get_forward_closure_metrics();
+        expect(metrics.misses).toBe(0);
+        expect(metrics.hits).toBe(0);
+
+        // Scan complete → gate open.
+        graph.mark_scan_complete();
+        scope_resolver.invalidate_scope_cache(to_uri(roots[0]));
+        await scope_resolver.resolve(to_uri(roots[1]), read(roots[1]));
+        await scope_resolver.resolve(to_uri(roots[2]), read(roots[2]));
+        metrics = forward_resolver.get_forward_closure_metrics();
+        expect(metrics.misses).toBe(2);
+        expect(metrics.hits).toBe(1);
+    });
+
+    it('a dep-graph version bump clears the memo at the next access', async () => {
+        const graph = new DependencyGraph();
+        graph.mark_scan_complete();
+        forward_resolver.set_dependency_graph(graph);
+        const { roots } = build_chain_workspace(2);
+
+        await scope_resolver.resolve(to_uri(roots[0]), read(roots[0]));
+        expect(forward_resolver.get_forward_closure_metrics().misses).toBe(2);
+
+        // Bump the graph version (unrelated edge change): every stored key
+        // embeds the old version, so the whole memo is dead by
+        // construction — the first access under the new version clears it
+        // (2 invalidations) and recomputes fresh (2 more misses).
+        const version_before = graph.get_version();
+        graph.update_caller('file:///unrelated/x.do', [{
+            type: 'do',
+            raw_path: 'y.do',
+            call_site_line: 0,
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 10 },
+            },
+            source: 'command',
+            is_static: true,
+        }]);
+        expect(graph.get_version()).toBeGreaterThan(version_before);
+        await scope_resolver.resolve(to_uri(roots[1]), read(roots[1]));
+        const metrics = forward_resolver.get_forward_closure_metrics();
+        expect(metrics.misses).toBe(4);
+        expect(metrics.invalidations).toBe(2);
+    });
+
+    it('closing a dirty buffer does not leave the memo serving discarded content', async () => {
+        // codex P1 on PR #278: root → a → x, with x OPEN and edited but
+        // unsaved. The memoized closure of `a` embeds x's buffer symbols.
+        // Closing x reverts effective content to disk with NO didChange or
+        // watcher event, so the server's onDidClose handler must invalidate
+        // the closed URI (invalidate_file_cache with forward-call
+        // relationships preserved) — otherwise memo-on keeps serving the
+        // discarded buffer symbols while memo-off recomputes from disk.
+        // This test drives the resolver through that exact handler
+        // sequence and asserts memo-on output matches disk afterward.
+        const x_disk = 'global x_old 1\n';
+        const x_buffer = 'global x_new 1\n';
+        let x_open = true;
+
+        const the_contents = new Map<string, string>();
+        const content_for = (uri: string): string => {
+            if (uri.endsWith('x.do')) {
+                return x_open ? x_buffer : x_disk;
+            }
+            return the_contents.get(uri) ?? '';
+        };
+        const provider = {
+            read_file: async (uri: string) => content_for(uri),
+            exists: async () => true,
+            // No stat(): forces the hash-validation path, where file_cache
+            // self-heals on read — isolating the memo as the only cache
+            // that could serve stale content without the close-time
+            // invalidation.
+        };
+        const scope = new ScopeResolver(
+            create_test_scope_resolver_logger(), provider);
+        const forward = new ForwardScopeResolver(scope);
+        scope.set_forward_scope_resolver(forward);
+        forward.set_forward_closure_memo_enabled(true);
+
+        const x_uri = 'file:///ws/x.do';
+        const a_uri = 'file:///ws/a.do';
+        const root_uri = 'file:///ws/root.do';
+        the_contents.set(a_uri, 'do "x.do"\nglobal a_g 1\n');
+        const root_content = 'do "a.do"\ndisplay "${x_new}"\n';
+        the_contents.set(root_uri, root_content);
+
+        const while_open = await scope.resolve(root_uri, root_content);
+        expect(site_has_global(while_open, 'x_new')).toBe(true);
+
+        // Close x: buffer discarded, disk content becomes effective.
+        // Mirror the onDidClose handler's cache invalidation.
+        x_open = false;
+        scope.remove_caller_from_reverse_deps(x_uri);
+        scope.invalidate_file_cache(x_uri, {
+            preserve_forward_call_relationships: true,
+            preserve_backward_directive_dependencies: true,
+        });
+
+        // A root edit forces a fresh top-level resolution; the memo must
+        // not serve a's buffer-era closure.
+        scope.invalidate_scope_cache(root_uri);
+        const after_close = await scope.resolve(root_uri, root_content);
+        expect(site_has_global(after_close, 'x_old')).toBe(true);
+        expect(site_has_global(after_close, 'x_new')).toBe(false);
+    });
+
+    it('a debounce-window rebuild cannot pin stale content past the next parse', async () => {
+        // codex final-round P1: on didChange the server invalidates
+        // eagerly, but the file_cache is only updated by the DEBOUNCED
+        // parse. A resolution landing in that window rebuilds an
+        // ancestor's closure from the stale cached callee — keyed by the
+        // ancestor's UNCHANGED hash, so the edit never rotates it, and if
+        // the edit doesn't change the interface hash no later event purges
+        // it. Fix: parse_file purges memo entries for a URI whenever it
+        // observes new content for it. Sequence modeled: root→a→x; edit x;
+        // eager invalidation; window resolution re-poisons from stale
+        // file_cache; debounced parse of x lands; a later resolution must
+        // see the new content.
+        const x_v1 = 'global x_v1 1\n';
+        const x_v2 = 'global x_v2 1\n';
+        let x_content = x_v1;
+
+        const the_contents = new Map<string, string>();
+        const content_for = (uri: string): string =>
+            uri.endsWith('x.do') ? x_content : (the_contents.get(uri) ?? '');
+        const provider = {
+            read_file: async (uri: string) => content_for(uri),
+            exists: async () => true,
+            // Constant stat: the mtime fast path keeps serving the cached
+            // (stale) entry during the window, like an unsaved buffer edit
+            // whose disk file is untouched.
+            stat: async (uri: string) => ({
+                mtimeMs: 1000,
+                size: Buffer.byteLength(content_for(uri), 'utf8'),
+            }),
+        };
+        const scope = new ScopeResolver(
+            create_test_scope_resolver_logger(), provider);
+        const forward = new ForwardScopeResolver(scope);
+        scope.set_forward_scope_resolver(forward);
+        forward.set_forward_closure_memo_enabled(true);
+
+        const x_uri = 'file:///ws/x.do';
+        const a_uri = 'file:///ws/a.do';
+        const root1_uri = 'file:///ws/root1.do';
+        const root2_uri = 'file:///ws/root2.do';
+        the_contents.set(a_uri, 'do "x.do"\nglobal a_g 1\n');
+        const root_content = 'do "a.do"\ndisplay "${x_v1}"\n';
+        the_contents.set(root1_uri, root_content);
+        the_contents.set(root2_uri, root_content);
+
+        // Warm: a's closure embeds x v1.
+        await scope.resolve(root1_uri, root_content);
+
+        // The user edits x (v2). Eager didChange invalidation runs now;
+        // the parse is debounced, so file_cache still holds v1. Note the
+        // constant stat means size must stay comparable — use same-length
+        // contents.
+        x_content = x_v2;
+        scope.invalidate_scope_cache(x_uri);
+
+        // A resolution lands INSIDE the window: it rebuilds a's closure
+        // from the stale cached x (mtime fast path serves v1).
+        const in_window = await scope.resolve(root2_uri, root_content);
+        expect(site_has_global(in_window, 'x_v1')).toBe(true);
+
+        // The debounced parse of x lands (resolve() calls parse_file with
+        // the new buffer content) — this must purge the window-built
+        // entries that embedded v1.
+        await scope.resolve(x_uri, x_v2);
+
+        // A later resolution must see v2, not the window-pinned v1.
+        scope.invalidate_scope_cache(root1_uri);
+        const after = await scope.resolve(root1_uri, root_content);
+        expect(site_has_global(after, 'x_v2')).toBe(true);
+        expect(site_has_global(after, 'x_v1')).toBe(false);
+    });
+
+    it('close-path invalidation keeps backward-directive links intact', async () => {
+        // codex round-2 on the close fix: invalidate_file_cache used to
+        // unconditionally clear the closed file's parent→child backward-
+        // directive registrations, and nothing re-syncs them until the
+        // file's next parse — so after closing a directive-chain child, a
+        // parent edit could miss invalidating/revalidating descendants
+        // (get_transitive_backward_directive_children came up empty). The
+        // close path must preserve the map (pre-#278 behavior).
+        const parent = create_file('bd_parent.do',
+            'global bd_g 1\ndo "bd_child.do"\n');
+        const child_content =
+            `// @lsp-done-by: "${parent}" match="bd_child.do"\n` +
+            'display "${bd_g}"\n';
+        const child = create_file('bd_child.do', child_content);
+        const child_uri = to_uri(child);
+        const parent_uri = to_uri(parent);
+
+        // Resolving the child registers the parent→child backward link.
+        await scope_resolver.resolve(child_uri, child_content);
+        expect([...scope_resolver
+            .get_transitive_backward_directive_children(parent_uri)])
+            .toContain(child_uri);
+
+        // Simulate closing the child (the onDidClose handler's sequence).
+        scope_resolver.remove_caller_from_reverse_deps(child_uri);
+        scope_resolver.invalidate_file_cache(child_uri, {
+            preserve_forward_call_relationships: true,
+            preserve_backward_directive_dependencies: true,
+        });
+
+        // The link must survive so a subsequent parent edit still reaches
+        // the (now closed) child and its descendants.
+        expect([...scope_resolver
+            .get_transitive_backward_directive_children(parent_uri)])
+            .toContain(child_uri);
+    });
+
+    it('version churn reclaims dead entries even when their closures are never revisited', async () => {
+        // PR #278 review (pullfrog): entries whose closure identity is
+        // never traversed again must not linger unreachably after a graph
+        // change. Build entries over chain A, bump the version, then
+        // resolve a DIFFERENT workspace shape (chain B) — A's dead entries
+        // must be reclaimed by the version-change clear, not stranded.
+        const graph = new DependencyGraph();
+        graph.mark_scan_complete();
+        forward_resolver.set_dependency_graph(graph);
+        const { roots } = build_chain_workspace(1);
+
+        const b3 = create_file('b3.do', 'global b3_g 1\n');
+        const b2 = create_file('b2.do', `do "${b3}"\nglobal b2_g 1\n`);
+        const b1 = create_file('b1.do', `do "${b2}"\nglobal b1_g 1\n`);
+        const b_root = create_file('b_root.do',
+            `do "${b1}"\ndisplay "\${b3_g}"\n`);
+
+        await scope_resolver.resolve(to_uri(roots[0]), read(roots[0]));
+        expect(forward_resolver.get_forward_closure_metrics().misses).toBe(2);
+        expect(forward_resolver.get_forward_closure_metrics().invalidations)
+            .toBe(0);
+
+        graph.update_caller('file:///unrelated/x.do', [{
+            type: 'do',
+            raw_path: 'y.do',
+            call_site_line: 0,
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 10 },
+            },
+            source: 'command',
+            is_static: true,
+        }]);
+
+        // Chain A is never revisited; resolving chain B alone must still
+        // reclaim A's two dead entries via the version-change clear.
+        await scope_resolver.resolve(to_uri(b_root), read(b_root));
+        const metrics = forward_resolver.get_forward_closure_metrics();
+        expect(metrics.invalidations).toBe(2);
+        expect(metrics.misses).toBe(4);
+    });
+});

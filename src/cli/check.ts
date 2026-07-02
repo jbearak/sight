@@ -401,6 +401,9 @@ export async function build_check_context(
     // files get the same callee keys here as in the LSP server.
     workspace_indexer.set_scope_resolver(scope_resolver);
     scope_resolver.set_dependency_graph(dependency_graph);
+    // Supplies dep_graph_version + the scan_complete population gate for
+    // the forward-closure memo (#234) — parity with the LSP server wiring.
+    forward_scope_resolver.set_dependency_graph(dependency_graph);
     scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
     diagnostics_provider.set_dependency_graph(dependency_graph);
     dependency_graph.set_workspace_roots([workspace_root]);

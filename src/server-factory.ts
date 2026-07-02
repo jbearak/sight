@@ -1293,6 +1293,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
                 max_forward_depth: DEFAULT_SETTINGS.cross_file.max_forward_depth,
             });
+            // Supplies dep_graph_version + the scan_complete population gate
+            // for the forward-closure memo (#234).
+            forward_scope_resolver.set_dependency_graph(dependency_graph);
 
             scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
 
@@ -1485,6 +1488,22 @@ export async function create_server(options: ServerOptions): Promise<void> {
         }
         if (scope_resolver) {
             scope_resolver.remove_caller_from_reverse_deps(e.document.uri);
+            // Closing discards the buffer: effective content reverts to
+            // disk with NO didChange/watcher event. Caches built from the
+            // buffer (a file_cache entry parsed from unsaved content but
+            // stamped with the unchanged DISK mtime, scope entries, and
+            // forward-closure memo entries embedding the buffer's symbols)
+            // must not survive, or they keep serving the discarded edits
+            // (#278 review). Preserve forward-call relationships so the
+            // anti-flicker rationale below still holds, and preserve the
+            // backward-directive map — the file still exists on disk and
+            // nothing re-syncs that map until its next parse, so clearing
+            // it here would make parent edits miss this file's descendants
+            // (#278 review, round 2).
+            scope_resolver.invalidate_file_cache(e.document.uri, {
+                preserve_forward_call_relationships: true,
+                preserve_backward_directive_dependencies: true,
+            });
         }
         // On close, the buffer's in-memory edges/symbols are discarded, so
         // callees that inherited from this file must re-resolve against its

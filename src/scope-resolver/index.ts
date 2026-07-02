@@ -130,7 +130,7 @@ export function scope_resolver_config_for(
  * Cache for file parsing results within a single resolution request.
  * Ensures we only read/parse each file once per request.
  */
-type ParsedFileResult = { content: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } | { error: string };
+type ParsedFileResult = { content: string; content_hash: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } | { error: string };
 type RequestCache = Map<string, Promise<ParsedFileResult>>;
 
 /**
@@ -164,6 +164,13 @@ interface ForwardScopeResolverInterface {
             };
         }
     ): Promise<ForwardResolvedScope>;
+    /**
+     * Evict forward-closure memo entries depending on `uri` (#234).
+     * Optional so lightweight test doubles need not implement it.
+     */
+    invalidate_forward_closure_for_uri?(uri: string): number;
+    /** Drop the whole forward-closure memo (#234). Optional as above. */
+    clear_forward_closure_memo?(): void;
 }
 
 export class ScopeResolver {
@@ -2050,6 +2057,18 @@ export class ScopeResolver {
             return { symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, cd_commands: cached.cd_commands, diagnostics: cached.diagnostics };
         }
 
+        // New content observed for this URI: any forward-closure memo entry
+        // built from the PREVIOUS content is stale. The eager didChange
+        // invalidation cannot cover entries built DURING the debounce window
+        // (after the invalidation, before this parse) from the then-stale
+        // file_cache — they are keyed by ancestor hashes that this edit does
+        // not rotate, so purge them now that the new content lands (#278
+        // review). No-op when nothing was cached before.
+        if (cached) {
+            this.forward_scope_resolver
+                ?.invalidate_forward_closure_for_uri?.(uri);
+        }
+
         try {
             const my_parse_result = this.parse_content(uri, content);
 
@@ -2239,6 +2258,7 @@ export class ScopeResolver {
             this.cache_metrics.file.hits++;
             return {
                 content: cached.content,
+                content_hash: cached.content_hash,
                 symbols: cached.symbols,
                 directives: cached.directives,
                 forward_calls: cached.forward_calls,
@@ -2265,6 +2285,7 @@ export class ScopeResolver {
                 this.log(`[get_parsed_file] File cache HIT for ${uri} (mtime match, skipped read)`);
                 return {
                     content: cached.content,
+                    content_hash: cached.content_hash,
                     symbols: cached.symbols,
                     directives: cached.directives,
                     forward_calls: cached.forward_calls,
@@ -2303,11 +2324,20 @@ export class ScopeResolver {
                             this.log(`[get_parsed_file] File cache HIT for ${fallback_uri} (mtime match, skipped read)`);
                             return {
                                 content: fallback_cached.content,
+                                content_hash: fallback_cached.content_hash,
                                 symbols: fallback_cached.symbols,
                                 directives: fallback_cached.directives,
                                 forward_calls: fallback_cached.forward_calls,
                                 cd_commands: fallback_cached.cd_commands,
                                 working_directory: fallback_cached.working_directory,
+                                // Was missing from this HIT return alone
+                                // (coderabbit on PR #278): without it,
+                                // discover_working_directory cannot see a
+                                // parent's own WD directive when the parent
+                                // is served from this branch, and WD
+                                // inheritance falls through to deeper
+                                // ancestors.
+                                working_directory_directive: fallback_cached.working_directory_directive,
                                 diagnostics: fallback_cached.diagnostics
                             };
                         }
@@ -2341,6 +2371,7 @@ export class ScopeResolver {
             // Return cached results with current content - don't mutate cache entry
             return {
                 content,
+                content_hash: disk_hash,
                 symbols: actual_cached.symbols,
                 directives: actual_cached.directives,
                 forward_calls: actual_cached.forward_calls,
@@ -2351,6 +2382,11 @@ export class ScopeResolver {
             };
         } else if (actual_cached) {
             this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (cached hash=${actual_cached.content_hash}, disk hash=${disk_hash})`);
+            // New content observed without an invalidation event having
+            // reached us: purge memo entries that embedded the previous
+            // content (same rationale as the parse_file hash-change purge).
+            this.forward_scope_resolver
+                ?.invalidate_forward_closure_for_uri?.(actual_uri);
         } else {
             this.log(`[get_parsed_file] File cache MISS for ${actual_uri} (no entry)`);
         }
@@ -2390,7 +2426,7 @@ export class ScopeResolver {
             // not just open documents, enabling proper revalidation when callees change
             this.register_forward_call_relationships_from_cache(actual_uri, parse_result.forward_calls, parse_result.symbols);
 
-            return { content, ...parse_result };
+            return { content, content_hash: disk_hash, ...parse_result };
         } catch (error) {
             this.warn(`ScopeResolver: Parse error for ${actual_uri}: ${error_message(error)}`);
 
@@ -2398,6 +2434,7 @@ export class ScopeResolver {
             const empty_symbols = create_empty_symbol_table();
             return {
                 content,
+                content_hash: disk_hash,
                 symbols: empty_symbols,
                 directives: [],
                 forward_calls: [],
@@ -2704,6 +2741,10 @@ export class ScopeResolver {
      * Also invalidates scope caches for all callers (files that call this file via do/run/include).
      */
     invalidate_scope_cache(uri: string): void {
+        // Keep the forward-closure memo in lockstep with scope_cache (#234):
+        // any memoized closure that reached this URI is stale with it.
+        this.forward_scope_resolver?.invalidate_forward_closure_for_uri?.(uri);
+
         // Fast path: directly invalidate scope cache for the target URI using secondary index (spec 6.2)
         let num_removed = this.invalidate_scope_cache_for_uri(uri);
 
@@ -2734,9 +2775,18 @@ export class ScopeResolver {
      * @param options - Invalidation options
      * @param options.preserve_forward_call_relationships - If true, do not clear forward call relationships.
      *   Use this when the file cache is being invalidated during an update where relationships were just refreshed.
+     * @param options.preserve_backward_directive_dependencies - If true, do
+     *   not clear the parent→child backward-directive map for this URI. Use
+     *   this on document CLOSE (#278): the file still exists on disk and
+     *   nothing re-syncs the map until its next parse, so clearing it would
+     *   break get_transitive_backward_directive_children for parent edits
+     *   until then. The next parse re-syncs (and corrects buffer-era
+     *   registrations) via sync_backward_directive_dependencies.
      */
-    invalidate_file_cache(uri: string, options?: { preserve_forward_call_relationships?: boolean }): void {
+    invalidate_file_cache(uri: string, options?: { preserve_forward_call_relationships?: boolean; preserve_backward_directive_dependencies?: boolean }): void {
         this.log(`[invalidate_file_cache] Invalidating file cache for ${uri}`);
+        // Keep the forward-closure memo in lockstep with scope_cache (#234).
+        this.forward_scope_resolver?.invalidate_forward_closure_for_uri?.(uri);
         // Delete all file cache entries that start with this URI
         // (handles composite keys like "uri|working_directory")
         let num_deleted = 0;
@@ -2751,7 +2801,9 @@ export class ScopeResolver {
 
         // Clear backward directive dependencies for this file
         // This maintains consistency between file cache and backward directive map
-        this.clear_backward_directive_dependencies(uri);
+        if (!options?.preserve_backward_directive_dependencies) {
+            this.clear_backward_directive_dependencies(uri);
+        }
 
         // Clear forward call relationships for this file
         // This maintains consistency between file cache and callee_to_callers map
@@ -3063,6 +3115,8 @@ export class ScopeResolver {
         this.scope_cache.clear();
         this.uri_to_cache_keys.clear();
         this.file_cache.clear();
+        // Keep the forward-closure memo in lockstep (#234).
+        this.forward_scope_resolver?.clear_forward_closure_memo?.();
 
         this.cache_metrics.scope.invalidations += scope_cache_size;
         this.cache_metrics.file.invalidations += file_cache_size;
@@ -3158,6 +3212,9 @@ export class ScopeResolver {
      */
     private invalidate_callee_scope_caches(uris: Set<string>): void {
         for (const my_uri of uris) {
+            // Keep the forward-closure memo in lockstep (#234).
+            this.forward_scope_resolver
+                ?.invalidate_forward_closure_for_uri?.(my_uri);
             // Find and remove all scope cache entries that depend on this URI
             const keys_to_remove: string[] = [];
             for (const [cache_key, entry] of this.scope_cache) {

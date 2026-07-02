@@ -186,6 +186,13 @@ call directives (`@lsp-do`, `@lsp-run`, `@lsp-include`) and auto-detected
 - Backward directives resolved first, then forward calls processed in order
 - Cycle detection and configurable max depth (`cross_file.max_backward_depth`, `cross_file.max_forward_depth`, `cross_file.max_chain_depth`, defaults 10, 10, 20; user-facing `crossFile.maxBackwardDepth`, `crossFile.maxForwardDepth`, `crossFile.maxChainDepth`)
 - Paths containing macro references are skipped
+- Caller-independent forward-closure memo (#234, on by default): nested
+  closures cached keyed by content hash / effective call type / WD / depth /
+  caps / dep-graph version; only standalone, diagnostic-free closures are
+  stored, served only when disjoint from the caller's dedup state (the
+  visited-delta is replayed on serve), and evicted in lockstep with
+  ScopeResolver's scope cache. See docs/cross-file.md "Forward-Closure
+  Caching Semantics"
 
 ### LSP Features
 

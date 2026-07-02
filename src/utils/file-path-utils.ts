@@ -661,12 +661,29 @@ export function outcome_fs_path(outcome: PathCaseOutcome): string {
  * @param caller_dir        - dirname of the caller file's fsPath.
  * @param working_directory - Effective WD at the call site, or undefined.
  * @param options           - workspace_roots and optional fs override.
+ *                            `missed_candidates`, when provided, receives
+ *                            every path that was probed and MISSED before
+ *                            the winning resolution: each losing
+ *                            candidate, its implicit `.do`-fallback
+ *                            variant (when the leaf has no extension —
+ *                            mirroring resolve_path_rich's internal
+ *                            fallback), and the winning candidate's own
+ *                            as-written form when the winner resolved
+ *                            through the internal fallback or case
+ *                            correction. The forward-closure memo (#234)
+ *                            records these as dependents so that creating
+ *                            a file at a higher-priority path evicts
+ *                            closures that resolved through a fallback.
  */
 export function resolve_forward_call_rich(
     raw_path: string,
     caller_dir: string,
     working_directory: string | undefined,
-    options?: { workspace_roots?: string[]; fs?: RichResolveFs },
+    options?: {
+        workspace_roots?: string[];
+        fs?: RichResolveFs;
+        missed_candidates?: string[];
+    },
 ): PathCaseOutcome {
     const my_normalized_raw = raw_path.replace(/\\/g, '/');
     const my_is_abs =
@@ -718,6 +735,38 @@ export function resolve_forward_call_rich(
         fs: options?.fs,
     };
 
+    // Report every probe variant of `candidate` that the winning path did
+    // not satisfy: the candidate as written, plus its implicit
+    // `.do`-fallback variant when the leaf has no extension (the same
+    // fallback resolve_path_rich applies internally). A file appearing at
+    // any of these would change what a fresh resolution returns.
+    const push_missed_probes = (
+        candidate: string,
+        winning_path: string | undefined,
+    ): void => {
+        const collector = options?.missed_candidates;
+        if (!collector) {
+            return;
+        }
+        // The candidate won exactly as written: resolve_path_rich
+        // short-circuits before probing the `.do` variant, so nothing
+        // about this candidate was missed. (On Windows a separator-
+        // normalization mismatch can skip this guard — that degrades to
+        // recording the variants, i.e. harmless over-invalidation.)
+        if (winning_path === candidate) {
+            return;
+        }
+        const the_variants = [candidate];
+        if (!has_extension(node_path.basename(candidate))) {
+            the_variants.push(candidate + '.do');
+        }
+        for (const my_variant of the_variants) {
+            if (my_variant !== winning_path) {
+                collector.push(my_variant);
+            }
+        }
+    };
+
     // ── Resolution loop ───────────────────────────────────────────────────
     let my_first_outcome: PathCaseOutcome | undefined;
     for (const my_candidate of the_candidates) {
@@ -726,13 +775,19 @@ export function resolve_forward_call_rich(
             my_first_outcome = my_outcome;
         }
         if (my_outcome.kind === 'exact' || my_outcome.kind === 'case_only') {
+            // The winner may have resolved through the internal `.do`
+            // fallback or case correction — its as-written variants that
+            // did NOT match are still misses worth reporting.
+            push_missed_probes(my_candidate, my_outcome.path);
             return my_outcome;
         }
         // Ambiguous: STOP — never fall through (round-A fix preserved).
         if (my_outcome.kind === 'ambiguous') {
             return my_outcome;
         }
-        // missing: continue to next candidate.
+        // missing: continue to next candidate, reporting the misses so
+        // callers can invalidate cached resolutions if a file appears.
+        push_missed_probes(my_candidate, undefined);
     }
 
     // All candidates missing (or list was somehow empty): return the first

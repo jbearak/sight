@@ -18,6 +18,7 @@ import {
     ForwardCallSite,
     ForwardResolvedScope,
     DuplicateCallDecision,
+    DirectiveDiagnostic,
     MacroSymbol,
     StataDiagnosticCode,
 } from '../types';
@@ -70,10 +71,10 @@ export interface ForwardClosureKeyInputs {
 }
 
 /**
- * Build the caller-independent forward-closure cache key (#209). The cache
- * STORE/SERVE write-path is deferred to a follow-up; this contract ships now
- * so the follow-up — and the #208 standalone work — can rely on it, guarded
- * by the memo-on/off correctness gate.
+ * Build the caller-independent forward-closure cache key (#209/#234) used
+ * by the memo store/serve path in `memo_serve_or_compute`. The #208
+ * standalone work relies on this contract, guarded by the memo-on/off
+ * correctness gate.
  *
  * Encoded as a JSON tuple rather than a delimiter-joined string so the key
  * is collision-free: a `callee_uri` or `working_directory` containing a
@@ -82,7 +83,7 @@ export interface ForwardClosureKeyInputs {
  *
  * NOTE: the key intentionally OMITS the caller's `visited` map and the
  * `diagnostic_owner_uri`. These vary `resolve()`'s output but are NOT keyed,
- * because the deferred store/serve path handles them OUTSIDE the key (encoding
+ * because the store/serve path handles them OUTSIDE the key (encoding
  * `visited` would make the key caller-dependent, defeating the whole point):
  *  - duplicate-call (`visited`) divergence is prevented by serving only when
  *    the cached closure's reachable set is DISJOINT from the caller's
@@ -91,7 +92,7 @@ export interface ForwardClosureKeyInputs {
  *    owner-suppressed closures (any closure that would emit a diagnostic is
  *    recomputed live).
  * See docs/cross-file.md "Forward-closure caching semantics" for the full
- * deferred design and the memo-on/off correctness gate that enforces it.
+ * design and the memo-on/off correctness gate that enforces it.
  */
 export function build_forward_closure_key(
     inputs: ForwardClosureKeyInputs
@@ -107,6 +108,67 @@ export function build_forward_closure_key(
     ]);
 }
 
+/**
+ * Metrics for the forward-closure memo (#234). Counting semantics:
+ * - `misses`         standalone closure computations performed (each one is
+ *                    a full first-visit walk — the recomputation the memo
+ *                    exists to collapse).
+ * - `hits`           serves from a PRE-existing entry. Serving an entry that
+ *                    was stored earlier in the same call counts only as the
+ *                    miss that built it.
+ * - `invalidations`  entries evicted (by URI invalidation, a graph-version
+ *                    change, or a full clear).
+ */
+export interface ForwardClosureMemoMetrics {
+    hits: number;
+    misses: number;
+    invalidations: number;
+}
+
+/**
+ * One cached caller-independent forward closure (#234): the standalone,
+ * owner-suppressed, diagnostic-free result of walking `callee_uri`'s forward
+ * calls from a clean self-seeded stack.
+ */
+interface ForwardClosureMemoClosureEntry {
+    kind: 'closure';
+    symbols: SymbolTable;
+    call_sites: ForwardCallSite[];
+    /** The (uri → effective type) pairs the standalone walk marked visited —
+     *  the closure's reachable set. Replayed into the caller's visited map
+     *  on serve so later siblings dedup identically to a live recompute. */
+    visited_delta: Map<string, EffectiveCallType>;
+    /** callee_uri + every reachable URI: any of these changing must evict
+     *  this entry (same contract as ScopeCacheEntry.dependent_uris). */
+    dependent_uris: Set<string>;
+}
+
+/**
+ * Negative entry (#234): this key's standalone build emitted diagnostics.
+ * For cap truncations the outcome is fully key-determined; for missing/
+ * ambiguous files it also depends on the filesystem, which can change
+ * without rotating the key — the marker stays conservative either way
+ * (unservable entries never serve, they only skip re-attempting the
+ * build). Re-attempting on every traversal would be wasted work: without
+ * this, a chain that trips the depth cap re-attempts a doomed standalone
+ * build at every level of every live retry — O(2^depth) sub-resolutions.
+ * The marker sends the hook straight to the live path (which emits the
+ * diagnostics with the caller's own call-chain prefixes). Transient
+ * failures (cancellation, invalidation-epoch or graph-version races) are
+ * NOT negative-cached. Evicted by the same dependent-URI machinery; note a
+ * missing callee file that later APPEARS does not evict (it was never
+ * visited, so it is not a dependent) — the subtree just stays on the
+ * always-correct live path until a dependent changes.
+ */
+interface ForwardClosureMemoUnservableEntry {
+    kind: 'unservable';
+    dependent_uris: Set<string>;
+}
+
+type ForwardClosureMemoEntry =
+    | ForwardClosureMemoClosureEntry
+    | ForwardClosureMemoUnservableEntry;
+
 const DEFAULT_CONFIG: ForwardScopeConfig = {
     max_forward_depth: 10,
 };
@@ -119,12 +181,57 @@ export class ForwardScopeResolver {
     // When undefined, resolve_path_rich uses the real Node fs.
     private resolve_fs?: RichResolveFs;
 
-    // #209: switch for the (deferred) caller-independent forward-closure
-    // memo. Default OFF — the cache store/serve write-path lands in a
-    // follow-up. The memo-on/off correctness gate flips this to prove the
-    // future cache is behaviorally identical to the live walk; #208's
-    // caller-independence assumption rides on that gate, not on the cache.
-    private forward_closure_memo_enabled = false;
+    // #209/#234: switch for the caller-independent forward-closure memo.
+    // Default ON (#234 acceptance decision: memo-on/off gate green, ~2.4×
+    // on the shared-chain N-callers shape with no added I/O). The
+    // memo-on/off correctness gate proves the cache is behaviorally
+    // identical to the live walk; #208's caller-independence assumption
+    // rides on that gate.
+    private forward_closure_memo_enabled = true;
+
+    // #234: forward-closure memo store (key → standalone closure) plus the
+    // reverse index used for O(affected) cascade eviction. Unlike
+    // scope_cache's index (which covers only each entry's OWN uri and needs
+    // an O(N) scan for cascades), this index maps EVERY dependent URI to the
+    // keys that depend on it.
+    private forward_closure_memo = new Map<string, ForwardClosureMemoEntry>();
+    private memo_uri_to_keys = new Map<string, Set<string>>();
+    // The dep-graph version the memo's entries were built against. A
+    // version change makes EVERY existing entry dead by construction (all
+    // keys embed an older version), so the first memo access after a
+    // change clears the whole store — losing nothing servable and leaving
+    // no unreachable entries behind (PR #278 review).
+    private last_seen_graph_version: number | undefined;
+    // Monotonic counter bumped by EVERY memo invalidation (even ones that
+    // delete nothing). A standalone build snapshots it before its awaits and
+    // refuses to store if it moved — otherwise an invalidation landing
+    // mid-build would miss the not-yet-stored entry and a stale closure
+    // would be published right after (codex finding #1 on the #234 plan).
+    private memo_invalidation_epoch = 0;
+    private memo_metrics: ForwardClosureMemoMetrics = {
+        hits: 0,
+        misses: 0,
+        invalidations: 0,
+    };
+    // URIs whose standalone closure build is currently in flight. A memo
+    // hook firing for one of these is a guaranteed re-entry (the build's
+    // own subtree cycled back to it), so it must go straight to the live
+    // path — which cycle-skips against the real stack — instead of
+    // launching a fresh-stack standalone build. Without this, a mutual
+    // do/run cycle cascades fresh-stack builds to max_forward_depth on
+    // warm-up (each one blind to the ancestry the previous discarded).
+    private standalone_in_flight = new Set<string>();
+    // Missing-probe collectors for in-flight standalone builds (#234): the
+    // URIs of higher-priority path candidates that resolved MISSING before
+    // a fallback tier won, plus .do-fallback originals. Recorded into every
+    // active collector (nested builds embed their inner builds' results, so
+    // inner probes belong to outer entries too) and folded into
+    // dependent_uris — creating a file at one of these paths would change
+    // what a fresh walk resolves, so it must evict the entry. Cross-
+    // contamination between concurrent unrelated builds only ADDS
+    // dependents (safe over-invalidation).
+    private active_probe_collectors: Set<string>[] = [];
+    private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     constructor(scope_resolver: ScopeResolver, config: Partial<ForwardScopeConfig> = {}) {
         this.scope_resolver = scope_resolver;
@@ -132,9 +239,9 @@ export class ForwardScopeResolver {
     }
 
     /**
-     * Enable/disable the forward-closure memo (#209). Default OFF. The
-     * store/serve write-path is deferred; until it lands, toggling this is a
-     * behavioral no-op — guarded by the memo-on/off correctness gate.
+     * Enable/disable the forward-closure memo (#209/#234). Default ON
+     * (#234 acceptance decision). Guarded by the memo-on/off correctness
+     * gate (tests/integration/forward-closure-memo-gate.test.ts).
      */
     set_forward_closure_memo_enabled(enabled: boolean): void {
         this.forward_closure_memo_enabled = enabled;
@@ -145,19 +252,137 @@ export class ForwardScopeResolver {
     }
 
     /**
+     * Set the dependency graph (#234). Supplies `dep_graph_version` for the
+     * memo key and the `scan_complete` population gate. When no graph is
+     * wired (standalone/test usage) the gate is vacuously open and the
+     * version is 0 — there is no scan whose partial state could be cached.
+     * Clears the memo: entries keyed against a previous graph's version
+     * numbering must not survive a graph swap (a different graph could
+     * reuse the same version value).
+     */
+    set_dependency_graph(
+        graph: import('../dependency-graph').DependencyGraph
+    ): void {
+        this.dependency_graph = graph;
+        this.clear_forward_closure_memo();
+        // Adopt the new graph's version numbering fresh at the next memo
+        // access (a different graph could reuse the same version value).
+        this.last_seen_graph_version = undefined;
+    }
+
+    /** Detached snapshot of the memo metrics (#234). */
+    get_forward_closure_metrics(): ForwardClosureMemoMetrics {
+        return { ...this.memo_metrics };
+    }
+
+    reset_forward_closure_metrics(): void {
+        this.memo_metrics = { hits: 0, misses: 0, invalidations: 0 };
+    }
+
+    /**
+     * Evict every memo entry that depends on `uri` (its own closure or any
+     * closure that transitively reached it). Called by ScopeResolver from
+     * the same funnels that invalidate scope_cache (didChange, watcher,
+     * rename, cascade, workspace reset), so the memo inherits scope_cache's
+     * invalidation triggers without new server wiring.
+     *
+     * ALWAYS bumps the invalidation epoch, even when nothing is deleted:
+     * an in-flight standalone build for this URI has no stored entry yet,
+     * and the epoch is what stops it from storing a stale closure.
+     */
+    invalidate_forward_closure_for_uri(uri: string): number {
+        this.memo_invalidation_epoch++;
+        const the_keys = this.memo_uri_to_keys.get(uri);
+        if (!the_keys) {
+            return 0;
+        }
+        let count = 0;
+        for (const my_key of [...the_keys]) {
+            if (this.delete_memo_entry(my_key)) {
+                count++;
+            }
+        }
+        this.memo_metrics.invalidations += count;
+        return count;
+    }
+
+    /** Drop the whole memo (workspace reset / clear_cache / dispose). */
+    clear_forward_closure_memo(): void {
+        this.memo_invalidation_epoch++;
+        this.memo_metrics.invalidations += this.forward_closure_memo.size;
+        this.forward_closure_memo.clear();
+        this.memo_uri_to_keys.clear();
+    }
+
+    /**
+     * Remove one memo entry and every index reference to it.
+     * Returns true when the key existed.
+     */
+    private delete_memo_entry(key: string): boolean {
+        const my_entry = this.forward_closure_memo.get(key);
+        if (!my_entry) {
+            return false;
+        }
+        this.forward_closure_memo.delete(key);
+        for (const my_dep_uri of my_entry.dependent_uris) {
+            const my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
+            if (my_key_set) {
+                my_key_set.delete(key);
+                if (my_key_set.size === 0) {
+                    this.memo_uri_to_keys.delete(my_dep_uri);
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Population/serve gate (#234): only use the memo once the workspace
+     * scan has completed — closures computed against a partial dependency
+     * graph must never be cached. Vacuously open when no graph is wired.
+     */
+    private is_memo_usable(): boolean {
+        return this.dependency_graph === undefined ||
+            this.dependency_graph.is_scan_complete();
+    }
+
+    /**
+     * Record missing-probe filesystem paths (as URIs) into every active
+     * standalone-build collector (#234). No-op when no build is in flight.
+     */
+    private record_missing_probes(fs_paths: string[]): void {
+        if (this.active_probe_collectors.length === 0) {
+            return;
+        }
+        for (const my_fs_path of fs_paths) {
+            const my_probe_uri = URI.file(my_fs_path).toString();
+            for (const my_collector of this.active_probe_collectors) {
+                my_collector.add(my_probe_uri);
+            }
+        }
+    }
+
+    /**
      * Set workspace roots (filesystem paths) for cache-first mode guarding.
+     * Clears the forward-closure memo: roots steer path/cd resolution and
+     * cache-first fetching but are not part of the memo key, so entries
+     * built under the old roots must not survive (#234).
      */
     set_workspace_roots(roots: string[]): void {
         this.workspace_roots = roots.map(r => path.resolve(r));
+        this.clear_forward_closure_memo();
     }
 
     /**
      * Inject a filesystem implementation for `resolve_path_rich`.
      * For testing only — production code leaves this undefined so
      * `resolve_path_rich` uses the real Node `fs`.
+     * Clears the forward-closure memo for the same reason as
+     * `set_workspace_roots` (the fs steers path resolution, unkeyed).
      */
     set_resolve_fs(injected_fs: RichResolveFs): void {
         this.resolve_fs = injected_fs;
+        this.clear_forward_closure_memo();
     }
 
     /**
@@ -201,6 +426,11 @@ export class ForwardScopeResolver {
         seed_dir?: string;
     } {
         const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
+        // Collect probed-and-missing higher-priority candidates only when a
+        // standalone memo build is in flight (live walks don't cache, so
+        // they have nothing to invalidate).
+        const my_missed_candidates: string[] | undefined =
+            this.active_probe_collectors.length > 0 ? [] : undefined;
         const my_outcome: PathCaseOutcome = resolve_forward_call_rich(
             raw_path,
             my_caller_dir,
@@ -210,8 +440,12 @@ export class ForwardScopeResolver {
                     ? this.workspace_roots
                     : undefined,
                 fs: this.resolve_fs,
+                missed_candidates: my_missed_candidates,
             },
         );
+        if (my_missed_candidates && my_missed_candidates.length > 0) {
+            this.record_missing_probes(my_missed_candidates);
+        }
 
         if (my_outcome.kind === 'exact') {
             return {
@@ -731,39 +965,71 @@ export class ForwardScopeResolver {
 
             // Recursively resolve callee's forward calls
             if (callee_result.forward_calls.length > 0) {
-                const nested_result = await this.resolve(
-                    callee_uri,
-                    callee_result.forward_calls,
-                    my_effective_type,
-                    {
-                        visited: my_context.visited,
-                        effective_call_type: my_effective_type,
-                        depth: my_context.depth + 1,
-                        diagnostics: my_context.diagnostics,
-                        working_directory: callee_result.working_directory ?? effective_call_wd,
-                        // The callee's own in-script cd commands drive its
-                        // frame's timeline (issue #252).
-                        cd_commands: callee_result.cd_commands,
-                        call_chain: [...(my_context.call_chain ?? []), my_call.raw_path],
-                        // Pass the original owner through unchanged so the
-                        // single-emission guard remains correct: nested
-                        // callee calls are at depth > 0 relative to the
-                        // owner and therefore suppress their own
-                        // path_case_mismatch emission.
-                        diagnostic_owner_uri: my_context.diagnostic_owner_uri,
-                        // Anchor nested cap-truncations to the owner file's
-                        // depth-0 call site (#209). Established once, on the
-                        // first owner-rooted recursion, then propagated. Only
-                        // set when an owner is present (not ancestor builds).
-                        root_call_range: my_context.root_call_range ??
-                            (my_context.diagnostic_owner_uri !== undefined
-                                ? my_call.range
-                                : undefined),
-                    },
-                    my_stack,
-                    token,
-                    resolved_config,
-                );
+                const nested_wd =
+                    callee_result.working_directory ?? effective_call_wd;
+
+                // #234: the forward-closure memo hooks HERE and only here.
+                // Nested calls run at depth >= 1, where the owner-gated
+                // diagnostics (cd timeline, path_case_mismatch) structurally
+                // cannot fire — so "owner-suppressed" holds by construction
+                // — and callee content always came through get_parsed_file,
+                // so content_hash identifies exactly what was parsed.
+                // Returns undefined when the caller must recompute live
+                // (memo off, scan gate closed, unstorable closure, or the
+                // caller's dedup state intersects the cached reachable set).
+                let nested_result =
+                    this.forward_closure_memo_enabled &&
+                    this.is_memo_usable() &&
+                    typeof callee_result.content_hash === 'string'
+                        ? await this.memo_serve_or_compute(
+                            callee_uri,
+                            callee_result.content_hash,
+                            callee_result.forward_calls,
+                            callee_result.cd_commands,
+                            my_effective_type,
+                            nested_wd,
+                            my_context,
+                            my_stack,
+                            resolved_config,
+                            token,
+                        )
+                        : undefined;
+
+                if (nested_result === undefined) {
+                    nested_result = await this.resolve(
+                        callee_uri,
+                        callee_result.forward_calls,
+                        my_effective_type,
+                        {
+                            visited: my_context.visited,
+                            effective_call_type: my_effective_type,
+                            depth: my_context.depth + 1,
+                            diagnostics: my_context.diagnostics,
+                            working_directory: nested_wd,
+                            // The callee's own in-script cd commands drive its
+                            // frame's timeline (issue #252).
+                            cd_commands: callee_result.cd_commands,
+                            call_chain: [...(my_context.call_chain ?? []), my_call.raw_path],
+                            // Pass the original owner through unchanged so the
+                            // single-emission guard remains correct: nested
+                            // callee calls are at depth > 0 relative to the
+                            // owner and therefore suppress their own
+                            // path_case_mismatch emission.
+                            diagnostic_owner_uri: my_context.diagnostic_owner_uri,
+                            // Anchor nested cap-truncations to the owner file's
+                            // depth-0 call site (#209). Established once, on the
+                            // first owner-rooted recursion, then propagated. Only
+                            // set when an owner is present (not ancestor builds).
+                            root_call_range: my_context.root_call_range ??
+                                (my_context.diagnostic_owner_uri !== undefined
+                                    ? my_call.range
+                                    : undefined),
+                        },
+                        my_stack,
+                        token,
+                        resolved_config,
+                    );
+                }
 
                 // Check cancellation after recursive call
                 if (token?.isCancellationRequested) {
@@ -801,6 +1067,272 @@ export class ForwardScopeResolver {
             call_sites: the_call_sites,
             diagnostics: my_context.diagnostics,
         };
+    }
+
+    /**
+     * Memo store/serve for one nested forward closure (#234).
+     *
+     * MISS: compute the callee's closure STANDALONE — fresh visited map,
+     * clean self-seeded stack, fresh diagnostics array, no diagnostic
+     * owner — at the same depth/config the live recursion would use. Store
+     * it only when it is diagnostic-free, was not cancelled, and no memo
+     * invalidation or dep-graph version change landed during the build.
+     *
+     * SERVE: only when the closure's reachable set (visited_delta) is
+     * disjoint from the caller's recursion stack and visited map — i.e.
+     * when the caller's dedup state cannot change what a live walk of this
+     * subtree would produce. On serve, replay the visited_delta into the
+     * caller's visited map so later siblings dedup identically to a live
+     * recompute.
+     *
+     * Returns undefined whenever the caller must recompute live: the
+     * closure was unstorable (diagnostics — whose call-chain prefixes and
+     * truncation anchors are caller-dependent — or a cancellation/epoch
+     * race), or the disjointness gate failed. Store-eligibility and
+     * serve-eligibility are independent: a stored entry may still be
+     * unservable to THIS caller while serving future disjoint callers.
+     */
+    private async memo_serve_or_compute(
+        callee_uri: string,
+        content_hash: string,
+        forward_calls: ForwardCall[],
+        cd_commands: CdCommand[],
+        effective_call_type: EffectiveCallType,
+        working_directory: string | undefined,
+        caller_context: ForwardResolveContext,
+        caller_stack: Set<string>,
+        resolved_config: ForwardScopeConfig,
+        token?: CancellationToken,
+    ): Promise<ForwardResolvedScope | undefined> {
+        const dep_graph_version = this.dependency_graph?.get_version() ?? 0;
+
+        // A graph-version change makes EVERY existing entry dead by
+        // construction (all stored keys embed an older version), so clear
+        // the whole store at the first access under the new version —
+        // losing nothing servable and stranding no unreachable entries
+        // (PR #278 review).
+        if (this.last_seen_graph_version !== undefined &&
+            this.last_seen_graph_version !== dep_graph_version) {
+            this.clear_forward_closure_memo();
+        }
+        this.last_seen_graph_version = dep_graph_version;
+
+        const key = build_forward_closure_key({
+            callee_uri,
+            content_hash,
+            effective_call_type,
+            working_directory,
+            depth: caller_context.depth + 1,
+            max_forward_depth: resolved_config.max_forward_depth,
+            dep_graph_version,
+        });
+
+        let entry = this.forward_closure_memo.get(key);
+        const entry_preexisted = entry !== undefined;
+
+        if (!entry) {
+            // Re-entry guard: within one resolution chain, a hook firing
+            // for a callee whose standalone build is already in flight is
+            // a cycle back into it — a fresh-stack build here would be
+            // blind to that ancestry and recurse to the depth cap; the
+            // live path cycle-skips against the real stack instead. Under
+            // concurrent resolutions sharing this resolver (sight check
+            // workers), an overlap can also trip this for an unrelated
+            // caller — a conservative live fallback (lost caching, never
+            // wrong output).
+            if (this.standalone_in_flight.has(callee_uri)) {
+                return undefined;
+            }
+            entry = await this.compute_and_store_standalone_closure(
+                key,
+                callee_uri,
+                forward_calls,
+                cd_commands,
+                effective_call_type,
+                working_directory,
+                caller_context.depth + 1,
+                dep_graph_version,
+                resolved_config,
+                token,
+            );
+            if (!entry) {
+                return undefined;
+            }
+        }
+
+        // Known diagnostic-producing key: always recompute live (the live
+        // walk emits the diagnostics with the caller's own call-chain
+        // prefixes and truncation anchors).
+        if (entry.kind === 'unservable') {
+            return undefined;
+        }
+
+        // Serve gate: the cached reachable set must be disjoint from the
+        // caller's stack and visited map, or dedup decisions would diverge
+        // from a live walk (duplicate suppression, cycle skips).
+        for (const my_uri of entry.visited_delta.keys()) {
+            if (caller_stack.has(my_uri) ||
+                caller_context.visited.has(my_uri)) {
+                return undefined;
+            }
+        }
+
+        if (entry_preexisted) {
+            this.memo_metrics.hits++;
+        }
+
+        // Replay the visited-delta so later siblings dedup exactly as they
+        // would after a live recompute of this subtree.
+        for (const [my_uri, my_type] of entry.visited_delta) {
+            caller_context.visited.set(my_uri, my_type);
+        }
+
+        // The caller's flattening loop spread-copies each site and the
+        // symbol merge builds new maps, so the cached tables are never
+        // mutated (same sharing discipline as scope_cache serves).
+        return {
+            symbols: entry.symbols,
+            call_sites: entry.call_sites,
+            diagnostics: [],
+        };
+    }
+
+    /**
+     * Compute a callee's standalone closure and store it when eligible
+     * (#234). Returns undefined when the closure must not be cached:
+     * it emitted a diagnostic, the build was cancelled, or an invalidation
+     * epoch / dep-graph version change raced the build (in which case the
+     * result may already be stale, so it is not served either).
+     */
+    private async compute_and_store_standalone_closure(
+        key: string,
+        callee_uri: string,
+        forward_calls: ForwardCall[],
+        cd_commands: CdCommand[],
+        effective_call_type: EffectiveCallType,
+        working_directory: string | undefined,
+        depth: number,
+        dep_graph_version: number,
+        resolved_config: ForwardScopeConfig,
+        token?: CancellationToken,
+    ): Promise<ForwardClosureMemoEntry | undefined> {
+        const epoch_before = this.memo_invalidation_epoch;
+        const fresh_visited = new Map<string, EffectiveCallType>();
+        const fresh_diagnostics: DirectiveDiagnostic[] = [];
+
+        // Every standalone computation is a "miss" — the recomputation the
+        // memo exists to collapse — whether or not the result is storable.
+        this.memo_metrics.misses++;
+
+        this.standalone_in_flight.add(callee_uri);
+        const my_probe_collector = new Set<string>();
+        this.active_probe_collectors.push(my_probe_collector);
+        let standalone: ForwardResolvedScope;
+        try {
+            standalone = await this.resolve(
+                callee_uri,
+                forward_calls,
+                effective_call_type,
+                {
+                    visited: fresh_visited,
+                    effective_call_type,
+                    depth,
+                    diagnostics: fresh_diagnostics,
+                    working_directory,
+                    cd_commands,
+                    call_chain: [],
+                    diagnostic_owner_uri: undefined,
+                },
+                new Set(),
+                token,
+                {
+                    max_forward_depth: resolved_config.max_forward_depth,
+                    // Force a non-'off' truncation severity: a cap-truncated
+                    // closure is shaped by the cap but the SEVERITY setting
+                    // is not in the key, so under 'off' it would look
+                    // diagnostic-free and get stored, then be served to
+                    // callers whose setting expects the truncation
+                    // diagnostic. The fresh_diagnostics array is only an
+                    // eligibility signal — it is discarded, so the forced
+                    // severity never surfaces.
+                    diagnostics: { max_depth: 'warning' },
+                },
+            );
+        } finally {
+            this.standalone_in_flight.delete(callee_uri);
+            const my_collector_index =
+                this.active_probe_collectors.indexOf(my_probe_collector);
+            if (my_collector_index >= 0) {
+                this.active_probe_collectors.splice(my_collector_index, 1);
+            }
+        }
+
+        // Transient failures — never stored (not key-determined): the next
+        // traversal may legitimately succeed.
+        if (token?.isCancellationRequested) {
+            return undefined;
+        }
+        // An invalidation or graph change landed during the awaits above:
+        // the build may have read mid-change state, and the invalidation
+        // could not have evicted a not-yet-stored entry. Neither store nor
+        // serve.
+        if (this.memo_invalidation_epoch !== epoch_before) {
+            return undefined;
+        }
+        if ((this.dependency_graph?.get_version() ?? 0) !== dep_graph_version) {
+            return undefined;
+        }
+
+        // Dependents: the callee, everything the walk reached, and every
+        // probed-and-missing higher-priority path candidate — creating a
+        // file at one of those would change what a fresh walk resolves.
+        const dependent_uris = new Set([
+            callee_uri,
+            ...fresh_visited.keys(),
+            ...my_probe_collector,
+        ]);
+
+        // Key-determined failure: the same inputs reproduce the same
+        // diagnostics, so mark the key unservable instead of re-attempting
+        // a doomed standalone build on every future traversal (O(2^depth)
+        // blowup on cap-tripping chains otherwise).
+        if (fresh_diagnostics.length > 0) {
+            return this.store_memo_entry(key, {
+                kind: 'unservable',
+                dependent_uris,
+            });
+        }
+
+        return this.store_memo_entry(key, {
+            kind: 'closure',
+            symbols: standalone.symbols,
+            call_sites: standalone.call_sites,
+            visited_delta: fresh_visited,
+            dependent_uris,
+        });
+    }
+
+    /**
+     * Insert a memo entry, maintaining the dependent-URI reverse index.
+     * All live entries share one graph version (a version change clears the
+     * whole memo at the next access), so no per-identity version rotation
+     * is needed here. Returns the entry.
+     */
+    private store_memo_entry(
+        key: string,
+        entry: ForwardClosureMemoEntry
+    ): ForwardClosureMemoEntry {
+        this.forward_closure_memo.set(key, entry);
+        for (const my_dep_uri of entry.dependent_uris) {
+            let my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
+            if (!my_key_set) {
+                my_key_set = new Set();
+                this.memo_uri_to_keys.set(my_dep_uri, my_key_set);
+            }
+            my_key_set.add(key);
+        }
+
+        return entry;
     }
 
     /**
@@ -1099,7 +1631,7 @@ export class ForwardScopeResolver {
         fs_path: string,
         uri: string,
         working_directory?: string
-    ): Promise<{ symbols: SymbolTable; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string } | { error: string }> {
+    ): Promise<{ symbols: SymbolTable; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; content_hash?: string } | { error: string }> {
         let final_fs_path = fs_path;
         let final_uri = uri;
         const paths_tried: string[] = [fs_path];
@@ -1113,6 +1645,11 @@ export class ForwardScopeResolver {
                 if (fs.existsSync(do_path)) {
                     final_fs_path = do_path;
                     final_uri = URI.file(do_path).toString();
+                    // A file created later at the extensionless path would
+                    // win over the .do fallback — record the miss so memo
+                    // entries built through this fallback get evicted
+                    // (#234; no-op outside standalone builds).
+                    this.record_missing_probes([fs_path]);
                 }
             }
         }
@@ -1131,17 +1668,22 @@ export class ForwardScopeResolver {
             // Defensive default: older/mocked parse results may omit cd_commands.
             cd_commands: parsed_result.cd_commands ?? [],
             working_directory: parsed_result.working_directory,
+            // Identifies exactly the content that was parsed (editor buffer
+            // or disk) — the memo key input (#234). Optional because
+            // JS-level mocks of get_parsed_file may omit it; the memo hook
+            // skips caching when it is absent.
+            content_hash: parsed_result.content_hash,
         };
     }
 
     /**
      * Dispose the forward scope resolver.
      * Called during server shutdown to release resources.
-     * The ForwardScopeResolver delegates caching to ScopeResolver,
-     * so there are no internal caches to clear here.
+     * File/parse caching is delegated to ScopeResolver; the forward-closure
+     * memo (#234) is the one cache owned here.
      */
     dispose(): void {
-        // No internal caches to clear — caching is delegated to ScopeResolver
+        this.clear_forward_closure_memo();
     }
 
 }

@@ -762,17 +762,12 @@ sibling in execution order — see
 if it had no parents (a *backward* concern). It does **not** introduce caller-dependence
 into the *forward* closure: standalone can change the file's *inherited working
 directory* and the *effective call type* it is entered under, but both are inputs
-the closure already depends on (and would key on, were the closure cached).
+the closure already depends on.
 Standalone introduces no other forward-closure variation, and never caller
 identity. This is the assumption a caller-independent forward-closure cache relies
 on; it is enforced by the memo correctness gate
 (`tests/integration/forward-closure-memo-gate.test.ts`), which checks that a
 file's forward closure is identical across distinct callers given the same inputs.
-
-> Implementation status: the cache *key contract* and an enable/disable toggle
-> (`set_forward_closure_memo_enabled`, default **off**) are in place; the cache
-> store/serve path is deferred to a follow-up. The toggle is a behavioral no-op
-> until then, guarded by the on/off correctness gate.
 
 ## Configuration
 

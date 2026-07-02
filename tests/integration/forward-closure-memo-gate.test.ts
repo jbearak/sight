@@ -5,11 +5,10 @@
  *  (1) CALLER-INDEPENDENCE (the assumption #208 relies on): a file's forward-call
  *      closure is identical regardless of which caller triggered it, given the
  *      same keyed inputs (effective call type, working directory, depth, content).
- *      This holds TODAY and is the contract the deferred cache will exploit.
- *  (2) MEMO ON/OFF EQUIVALENCE: flipping the (default-OFF) memo toggle must not
- *      change any caller-observable output. The cache store/serve write-path is
- *      deferred, so this is currently a no-op equivalence — it becomes the
- *      regression gate the follow-up must keep green.
+ *      This is the contract the memo cache exploits (#234).
+ *  (2) MEMO ON/OFF EQUIVALENCE: flipping the (default-ON) memo toggle must not
+ *      change any caller-observable output. With the store/serve write-path
+ *      live (#234), this is the regression gate it must keep green.
  *
  * See docs/cross-file.md "Forward-closure caching semantics".
  */
@@ -52,8 +51,8 @@ describe('issue #209/#208 — forward-closure memo gate', () => {
         pathToFileURL(file_path).toString();
 
     // Build a fresh resolver pair so two caller-independence runs cannot share
-    // cache state (when the deferred memo store/serve lands, a shared instance
-    // could serve caller 2 from caller 1's cached closure and mask a
+    // cache state (with the memo store/serve live, a shared instance could
+    // serve caller 2 from caller 1's cached closure and mask a
     // caller-DEPENDENT closure).
     const make_resolver = (): {
         scope: ScopeResolver; forward: ForwardScopeResolver;
@@ -120,8 +119,8 @@ describe('issue #209/#208 — forward-closure memo gate', () => {
         const hub = create_file('hub.do', `run "${helper}"\nglobal hub_g 1\n`);
         const hub_uri = to_uri(hub);
 
-        // Each caller gets its OWN resolver instance (separate cache), so the
-        // gate stays honest once the deferred memo store/serve lands.
+        // Each caller gets its OWN resolver instance (separate cache), so
+        // the gate stays honest with the memo store/serve live.
         const resolve_from = async (caller_uri: string) => {
             const { scope, forward } = make_resolver();
             const parsed = await scope.get_parsed_file(hub_uri, hub);
