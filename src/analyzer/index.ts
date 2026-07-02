@@ -1,5 +1,8 @@
 import { Range } from 'vscode-languageserver-textdocument';
-import { find_enclosing_scope } from '../utils/scope-position';
+import {
+    find_enclosing_scope,
+    program_body_start_line,
+} from '../utils/scope-position';
 import {
     format_undefined_macro_message,
     format_undefined_variable_message,
@@ -314,6 +317,10 @@ export class SemanticAnalyzer {
     // lookups can reach the do-file scope (index 0) and the scope-
     // isolation scan without threading it through every signature.
     private current_scopes: ScopeInfo[] = [];
+    // Lines whose statement ///-continues onto the next physical line,
+    // from the in-flight analyze() call's token stream. Lets program
+    // scopes record where a continued header actually ends (#273).
+    private continued_lines = new Set<number>();
 
     /**
      * Analyze an AST and build symbol tables.
@@ -343,6 +350,14 @@ export class SemanticAnalyzer {
         this.nonexec_conditional_depth = 0;
         this.workspace_symbols = workspace_symbols; // Store workspace symbols
         this.tokens = tokens; // Keep tokens for command-level pattern checks
+        this.continued_lines = new Set<number>();
+        if (tokens) {
+            for (const my_token of tokens) {
+                if (my_token.type === 'CONTINUATION') {
+                    this.continued_lines.add(my_token.range.start.line);
+                }
+            }
+        }
 
         // Initialize symbol table
         const symbols: SymbolTable = create_empty_symbol_table();
@@ -899,12 +914,20 @@ export class SemanticAnalyzer {
 
         // Create a new scope for the program body — unconditional so that
         // each redeclaration's body gets its own scope for per-body diagnostics.
+        // A ///-continued header spans several physical lines that are
+        // all still header — walk the continuation run so body-only
+        // scope resolution excludes the whole logical header (#273).
+        let my_header_line = node.range.start.line;
+        while (this.continued_lines.has(my_header_line)) {
+            my_header_line++;
+        }
         const program_scope: ScopeInfo = {
             type: 'program',
             range: node.range,
             localMacros: new Map(),
             id: all_scopes.length,
             program_name: node.name,
+            body_start_line: my_header_line + 1,
         };
         all_scopes.push(program_scope);
 
@@ -4867,8 +4890,9 @@ export class SemanticAnalyzer {
             }
 
             // Suppress ALL global-token checks inside program BODIES.
-            // The header (`program define ...`) and `end` lines are
-            // excluded: Stata expands macros on the header at
+            // The header (`program define ...`, including every
+            // physical line of a ///-continued header) and `end` lines
+            // are excluded: Stata expands macros on the header at
             // definition time, so an undefined global there is a real
             // warning (matches the pre-split line-exclusive ranges).
             // Kept char-precise and innermost-only (NOT body_only): a
@@ -4882,7 +4906,8 @@ export class SemanticAnalyzer {
                 const token_line = token.range.start.line;
                 if (
                     enclosing_scope.type === 'program' &&
-                    token_line > enclosing_scope.range.start.line &&
+                    token_line >=
+                        program_body_start_line(enclosing_scope) &&
                     token_line < enclosing_scope.range.end.line
                 ) {
                     continue;

@@ -436,6 +436,69 @@ end
     });
 });
 
+// A ///-continued `program define` header spans several physical
+// lines; every one of them is still the header and expands at
+// definition time in the enclosing frame, so the body-only treatment
+// must cover the whole logical header, not just its first line.
+describe('continued program headers are header, not body (#273)', () => {
+    it('warns for a continued-header local even when args defines it in the body', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass \`x'
+    args x
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(1);
+    });
+
+    it('warns for an undefined global on a continued header line', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass $extra
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+            d.message.includes('$extra')
+        )).toHaveLength(1);
+    });
+
+    it('reports invalid macro chars on a continued header line', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass \${bad.name}
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.INVALID_MACRO_CHAR
+        )).toHaveLength(1);
+    });
+
+    it('body lines after a continued header still suppress globals', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass
+    display $maybe_set_by_caller
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+            d.message.includes('$maybe_set_by_caller')
+        )).toHaveLength(0);
+    });
+
+    it('body references after a continued header still see body locals', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass
+    args x
+    display \`x'
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(0);
+    });
+});
+
 // Issue #263 limitation 6: an unrelated program-scoped local of the same
 // name must not poison static loop-macro expansion at the top level.
 describe('loop expansion unaffected by cross-scope collisions (#263)', () => {

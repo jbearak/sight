@@ -35,14 +35,25 @@ export function position_within_range(
 }
 
 /**
+ * First line of a program scope's BODY. The analyzer records
+ * `body_start_line` when a `program define` header is ///-continued
+ * across several physical lines; absent, the body starts on the line
+ * after the header line.
+ */
+export function program_body_start_line(scope: ScopeInfo): number {
+    return scope.body_start_line ?? scope.range.start.line + 1;
+}
+
+/**
  * Innermost program scope whose (character-precise, inclusive) range
  * contains `position`, else the do-file scope (`scopes[0]`).
  *
- * With `body_only`, a program scope matches only on its strictly
- * interior lines: the `program define` header and `end` lines are
- * excluded, because Stata expands macros there at definition time in
- * the enclosing frame (issue #273). A nested program's header still
- * resolves to its enclosing program's body, not the do-file scope.
+ * With `body_only`, a program scope matches only on its body lines:
+ * the `program define` header (all physical lines of it, when
+ * ///-continued) and the `end` line are excluded, because Stata
+ * expands macros there at definition time in the enclosing frame
+ * (issue #273). A nested program's header still resolves to its
+ * enclosing program's body, not the do-file scope.
  */
 export function find_enclosing_scope(
     scopes: ScopeInfo[],
@@ -65,7 +76,7 @@ export function find_enclosing_scope(
         }
         if (
             options?.body_only === true &&
-            (position.line <= my_scope.range.start.line ||
+            (position.line < program_body_start_line(my_scope) ||
                 position.line >= my_scope.range.end.line)
         ) {
             continue;

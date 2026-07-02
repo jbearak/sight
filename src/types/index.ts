@@ -465,6 +465,10 @@ export interface ScopeInfo {
   id: number;
   // Program name for 'program' scopes; feeds scope-isolation messaging.
   program_name?: string;
+  // First line of the program BODY, one past the header's last
+  // physical line. Set when a ///-continued header spans several
+  // lines; absent, the body starts after range.start.line.
+  body_start_line?: number;
 }
 
 // Command Database Types
