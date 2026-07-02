@@ -186,6 +186,71 @@ display \`inside_x'
         expect(the_matches).toHaveLength(0);
     });
 
+    it('combined case blames the LAST visible do-excluded child', async () => {
+        // With multiple visible do-called children defining the name,
+        // the last one wins — matching Stata execution order and the
+        // pre-existing forward-call rewrite's blame precedence (its
+        // loop deliberately lets later call sites overwrite earlier).
+        const document = create_real_document_state(`
+program define p
+    local x 1
+end
+do a.do
+do b.do
+display \`x'
+`);
+        const make_excluded = (uri: string) => new Map([
+            ['x', {
+                name: 'x',
+                scope: 'local' as const,
+                location: {
+                    uri,
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 9 },
+                    },
+                },
+                sourceUri: uri,
+            }],
+        ]);
+        const resolved_scope: ResolvedScope = {
+            chain: [],
+            symbols: create_empty_symbol_table(),
+            out_of_scope_symbols: [],
+            diagnostics: [],
+            has_directives: false,
+            has_auto_parents: true,
+            forward_call_symbols: [
+                {
+                    callee_uri: 'file:///a.do',
+                    call_line: 4,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'do',
+                    excluded_locals: make_excluded('file:///a.do'),
+                },
+                {
+                    callee_uri: 'file:///b.do',
+                    call_line: 5,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'do',
+                    excluded_locals: make_excluded('file:///b.do'),
+                },
+            ],
+        };
+        const provider = make_provider();
+        const the_diagnostics = await provider.get_diagnostics(
+            document,
+            DEFAULT_CONFIG,
+            undefined,
+            make_stub_scope_resolver(resolved_scope)
+        );
+        const the_matches = the_diagnostics.filter(d =>
+            d.message.includes("`x'"));
+        expect(the_matches).toHaveLength(1);
+        expect(the_matches[0].message).toContain('defined in b.do');
+        expect(the_matches[0].message).not.toContain('a.do');
+    });
+
     it('combined case mentions both the program local and the do-excluded child', async () => {
         // Combined case: the name exists in a same-file program body AND
         // in a do-called child (excluded_locals). The message refers to

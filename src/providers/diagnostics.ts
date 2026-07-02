@@ -442,10 +442,13 @@ export class DiagnosticsProvider {
                                 call_site.excluded_locals?.get(symbol_name);
                             const excluded_callee_uri = effective?.sourceUri
                                 ?? call_site.callee_uri;
+                            // No break: later visible call sites overwrite
+                            // earlier ones so the LAST one wins, matching
+                            // Stata execution order and the forward-call
+                            // rewrite's blame precedence below.
                             do_excluded_source_file =
                                 excluded_callee_uri.split('/').pop()
                                 || excluded_callee_uri;
-                            break;
                         }
                     }
                 }
