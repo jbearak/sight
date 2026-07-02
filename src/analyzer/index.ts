@@ -3372,7 +3372,11 @@ export class SemanticAnalyzer {
         reference_scope: ScopeInfo,
         reference_index?: number,
         reference_line?: number,
-        reference_range?: Range
+        reference_range?: Range,
+        // Program whose header/end line the reference sits on (its
+        // body was skipped by body_only resolution); never blamed in
+        // scope-isolation hints — see the redeclared-bodies rule below.
+        header_program_name?: string
     ): LocalMacroLookupResult {
         // Positional arguments (`1', `2', ...) are always potentially
         // defined — they represent command-line arguments.
@@ -3444,10 +3448,14 @@ export class SemanticAnalyzer {
                 // reference's own program name — blaming them would
                 // read as self-contradictory ("defined only inside
                 // program foo" while inside program foo). Skip them;
-                // the plain undefined message is correct there.
+                // the plain undefined message is correct there. The
+                // same rule covers a reference on a program's own
+                // header/end line (issue #273).
                 if (
-                    reference_scope.type === 'program' &&
-                    my_scope.program_name === reference_scope.program_name
+                    my_scope.program_name === header_program_name ||
+                    (reference_scope.type === 'program' &&
+                        my_scope.program_name ===
+                            reference_scope.program_name)
                 ) {
                     continue;
                 }
@@ -4863,15 +4871,16 @@ export class SemanticAnalyzer {
             // lines are excluded: Stata expands macros on the header at
             // definition time, so an undefined global there is a real
             // warning (matches the pre-split line-exclusive ranges).
+            // body_only also sends a NESTED header to the enclosing
+            // program's body — it expands while the outer program runs,
+            // the same caller-may-set frame as outer body code.
             if (token.type === 'MACRO_REF_GLOBAL') {
-                const enclosing_scope =
-                    this.find_enclosing_scope(scopes, token.range.start);
-                const token_line = token.range.start.line;
-                if (
-                    enclosing_scope.type === 'program' &&
-                    token_line > enclosing_scope.range.start.line &&
-                    token_line < enclosing_scope.range.end.line
-                ) {
+                const enclosing_scope = this.find_enclosing_scope(
+                    scopes,
+                    token.range.start,
+                    { body_only: true }
+                );
+                if (enclosing_scope.type === 'program') {
                     continue;
                 }
             }
@@ -4926,13 +4935,27 @@ export class SemanticAnalyzer {
                         token.range.start,
                         { body_only: true }
                     );
+                    // When body_only skipped a program (the token sits
+                    // on its header/end line), that program's name must
+                    // not be blamed in scope-isolation hints — same
+                    // self-contradiction rule as redeclared bodies.
+                    const positional_scope = this.find_enclosing_scope(
+                        scopes,
+                        token.range.start
+                    );
+                    const header_program_name =
+                        positional_scope !== reference_scope &&
+                        positional_scope.type === 'program'
+                            ? positional_scope.program_name
+                            : undefined;
                     const result = this.lookup_local_macro(
                         macro_name,
                         symbols,
                         reference_scope,
                         undefined,
                         token_line,
-                        token.range
+                        token.range,
+                        header_program_name
                     );
                     this.emit_undefined_local_diagnostic(
                         result,

@@ -290,6 +290,20 @@ end
             undefined_global_diagnostics(result, 'maybe_set_by_caller')
         ).toHaveLength(0);
     });
+
+    it('suppresses undefined globals on a nested program header', () => {
+        // The inner header expands while OUTER runs — the same frame
+        // as outer body code, whose globals may be set by the caller.
+        const result = analyze_code(`
+program define outer
+    program define inner, rclass $maybe_set
+    end
+end
+`);
+        expect(
+            undefined_global_diagnostics(result, 'maybe_set')
+        ).toHaveLength(0);
+    });
 });
 
 // Issue #273: local-macro references on a `program define` header line
@@ -307,7 +321,9 @@ end
         expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(1);
     });
 
-    it('header local matched only by a body local reports scope isolation', () => {
+    it('header local matched only by an own-body local warns plainly', () => {
+        // Blaming the program whose header the reference sits on would
+        // be self-contradictory, same as the redeclared-bodies rule.
         const result = analyze_code(`
 program define p, rclass \`x'
     local x 1
@@ -315,8 +331,34 @@ end
 `);
         const the_diagnostics = undefined_macro_diagnostics(result, 'x');
         expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toBeUndefined();
+    });
+
+    it('redeclared program headers do not blame their own name', () => {
+        const result = analyze_code(`
+program define foo
+    local x 1
+end
+program define foo, rclass \`x'
+end
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toBeUndefined();
+    });
+
+    it('header locals still blame other programs that define the name', () => {
+        const result = analyze_code(`
+program define helper
+    local x 1
+end
+program define p, rclass \`x'
+end
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
         expect(the_diagnostics[0].scope_isolation).toEqual({
-            defined_in_programs: ['p'],
+            defined_in_programs: ['helper'],
         });
     });
 
