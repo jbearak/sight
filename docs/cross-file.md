@@ -762,34 +762,12 @@ sibling in execution order — see
 if it had no parents (a *backward* concern). It does **not** introduce caller-dependence
 into the *forward* closure: standalone can change the file's *inherited working
 directory* and the *effective call type* it is entered under, but both are inputs
-the closure already depends on (and would key on, were the closure cached).
+the closure already depends on.
 Standalone introduces no other forward-closure variation, and never caller
 identity. This is the assumption a caller-independent forward-closure cache relies
 on; it is enforced by the memo correctness gate
 (`tests/integration/forward-closure-memo-gate.test.ts`), which checks that a
 file's forward closure is identical across distinct callers given the same inputs.
-
-> Implementation status: the forward-closure memo is fully implemented and
-> **on by default** (`set_forward_closure_memo_enabled` can disable it). The
-> memo caches only standalone, owner-suppressed, diagnostic-free closures and
-> serves an entry only when its reachable set is disjoint from the caller's
-> recursion stack and visited map, replaying the closure's visited-delta into
-> the caller on serve. Any closure that would emit a diagnostic — including a
-> depth-cap truncation suppressed by `maxDepth = "off"` — is recomputed live
-> and never stored (the key is marked unservable so the doomed standalone
-> build is not re-attempted on later traversals). Entries are evicted in
-> lockstep with the scope cache
-> (content changes, transitive dependents, dependency-graph version changes,
-> workspace resets), the memo only populates once the workspace scan is
-> complete, and closures built while an invalidation or cancellation landed
-> mid-build are discarded. Closures that resolved a call through a fallback
-> tier (a missing working-directory candidate, or the `.do`-extension
-> fallback) also record the probed-and-missing paths as dependents, so
-> creating a file at a higher-priority path evicts them. (Creating an
-> *extensionless* file cannot be observed — the file watcher only covers
-> `*.do`/`*.ado`/`*.doh`/`*.mata` — a pre-existing platform constraint that
-> equally affects the file parse cache.) All of this is guarded by the
-> memo-on/off correctness gate above.
 
 ## Configuration
 
