@@ -4846,11 +4846,20 @@ export class SemanticAnalyzer {
                 continue;
             }
 
-            // Suppress undefined global macro warnings inside program blocks
+            // Suppress undefined global macro warnings inside program
+            // BODIES only. The header (`program define ...`) and `end`
+            // lines are excluded: Stata expands macros on the header at
+            // definition time, so an undefined global there is a real
+            // warning (matches the pre-split line-exclusive ranges).
             if (token.type === 'MACRO_REF_GLOBAL') {
                 const enclosing_scope =
                     this.find_enclosing_scope(scopes, token.range.start);
-                if (enclosing_scope.type === 'program') {
+                const token_line = token.range.start.line;
+                if (
+                    enclosing_scope.type === 'program' &&
+                    token_line > enclosing_scope.range.start.line &&
+                    token_line < enclosing_scope.range.end.line
+                ) {
                     continue;
                 }
             }

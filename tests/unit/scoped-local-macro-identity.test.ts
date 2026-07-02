@@ -240,6 +240,40 @@ end
     });
 });
 
+// Global-macro suppression inside programs must not cover the header or
+// end lines: Stata expands macros on the `program define` line at
+// definition time, so an undefined global there is a real warning.
+describe('global suppression excludes program header and end lines', () => {
+    function undefined_global_diagnostics(
+        result: ReturnType<typeof analyze_code>,
+        name: string
+    ) {
+        return result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+            d.message.includes(`$${name}`)
+        );
+    }
+
+    it('warns for an undefined global on the program define line', () => {
+        const result = analyze_code(`
+program define myprog, rclass $extra
+end
+`);
+        expect(undefined_global_diagnostics(result, 'extra')).toHaveLength(1);
+    });
+
+    it('still suppresses undefined globals inside the program body', () => {
+        const result = analyze_code(`
+program define myprog
+    display $maybe_set_by_caller
+end
+`);
+        expect(
+            undefined_global_diagnostics(result, 'maybe_set_by_caller')
+        ).toHaveLength(0);
+    });
+});
+
 // Issue #263 limitation 6: an unrelated program-scoped local of the same
 // name must not poison static loop-macro expansion at the top level.
 describe('loop expansion unaffected by cross-scope collisions (#263)', () => {
