@@ -3663,9 +3663,10 @@ export class SemanticAnalyzer {
      */
     private find_enclosing_scope(
         scopes: ScopeInfo[],
-        position: { line: number; character: number }
+        position: { line: number; character: number },
+        options?: { body_only?: boolean }
     ): ScopeInfo {
-        return find_enclosing_scope(scopes, position);
+        return find_enclosing_scope(scopes, position, options);
     }
 
     /**
@@ -4917,9 +4918,13 @@ export class SemanticAnalyzer {
                 
                 const token_line = token.range.start.line;
                 if (macro_name) {
+                    // Header/end lines expand at definition time in the
+                    // enclosing frame, so body locals never satisfy a
+                    // reference there (issue #273) — resolve body-only.
                     const reference_scope = this.find_enclosing_scope(
                         scopes,
-                        token.range.start
+                        token.range.start,
+                        { body_only: true }
                     );
                     const result = this.lookup_local_macro(
                         macro_name,

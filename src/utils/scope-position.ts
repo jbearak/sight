@@ -37,10 +37,17 @@ export function position_within_range(
 /**
  * Innermost program scope whose (character-precise, inclusive) range
  * contains `position`, else the do-file scope (`scopes[0]`).
+ *
+ * With `body_only`, a program scope matches only on its strictly
+ * interior lines: the `program define` header and `end` lines are
+ * excluded, because Stata expands macros there at definition time in
+ * the enclosing frame (issue #273). A nested program's header still
+ * resolves to its enclosing program's body, not the do-file scope.
  */
 export function find_enclosing_scope(
     scopes: ScopeInfo[],
-    position: Position
+    position: Position,
+    options?: { body_only?: boolean }
 ): ScopeInfo {
     if (scopes.length === 0) {
         // Every producer pushes the do-file scope first, so an empty
@@ -54,6 +61,13 @@ export function find_enclosing_scope(
             continue;
         }
         if (!position_within_range(position, my_scope.range)) {
+            continue;
+        }
+        if (
+            options?.body_only === true &&
+            (position.line <= my_scope.range.start.line ||
+                position.line >= my_scope.range.end.line)
+        ) {
             continue;
         }
         // Nested program scopes start later than their enclosing

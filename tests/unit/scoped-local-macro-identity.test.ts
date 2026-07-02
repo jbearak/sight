@@ -292,6 +292,80 @@ end
     });
 });
 
+// Issue #273: local-macro references on a `program define` header line
+// expand at definition time in the enclosing frame, so body locals can
+// never satisfy them. They must resolve against the enclosing scope
+// (do-file, or the outer program body for nested definitions), the same
+// body-only treatment global suppression got above.
+describe('header-line local references resolve against the enclosing scope (#273)', () => {
+    it('warns for a header local even when args defines it in the body', () => {
+        const result = analyze_code(`
+program define p, rclass \`x'
+    args x
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(1);
+    });
+
+    it('header local matched only by a body local reports scope isolation', () => {
+        const result = analyze_code(`
+program define p, rclass \`x'
+    local x 1
+end
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toEqual({
+            defined_in_programs: ['p'],
+        });
+    });
+
+    it('header local defined earlier at do-file scope does not warn', () => {
+        const result = analyze_code(`
+local x 1
+program define p, rclass \`x'
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(0);
+    });
+
+    it('nested header local resolves against the outer program body', () => {
+        const result = analyze_code(`
+program define outer
+    local x 1
+    program define inner, rclass \`x'
+    end
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(0);
+    });
+
+    it('end-line local references resolve against the do-file scope', () => {
+        // Trailing text after `end` already sits outside the program's
+        // char-inclusive range; guard that it stays do-file-resolved.
+        const result = analyze_code(`
+program define p
+    local x 1
+end \`x'
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toEqual({
+            defined_in_programs: ['p'],
+        });
+    });
+
+    it('body references still see body locals', () => {
+        const result = analyze_code(`
+program define p
+    args x
+    display \`x'
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(0);
+    });
+});
+
 // Issue #263 limitation 6: an unrelated program-scoped local of the same
 // name must not poison static loop-macro expansion at the top level.
 describe('loop expansion unaffected by cross-scope collisions (#263)', () => {
