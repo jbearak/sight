@@ -14,7 +14,10 @@ import {
     DirectiveDiagnostic,
     UndefinedSymbolDiagnosticData
 } from '../types';
-import { find_enclosing_scope } from '../utils/scope-position';
+import {
+    find_enclosing_scope,
+    position_within_range,
+} from '../utils/scope-position';
 import {
     ScopeResolver,
     get_visible_forward_call_sites,
@@ -427,10 +430,34 @@ export class DiagnosticsProvider {
                 let do_excluded_source_file: string | undefined;
                 if (resolved_scope) {
                     const diag_line = my_diagnostic.range.start.line;
+                    const the_scopes = document.scopes ?? [];
+                    const reference_position = my_diagnostic.range.start;
                     for (const call_site of get_visible_forward_call_sites(
                         resolved_scope,
                         diag_line
                     )) {
+                        // Executable blame only: a call strictly inside a
+                        // program body runs when that program is called,
+                        // not at its textual position — so unless the
+                        // reference sits in that same body, the call has
+                        // not executed before the reference and must not
+                        // be blamed (a later in-program `do` would
+                        // otherwise shadow the real top-level one).
+                        const in_uncalled_program = the_scopes.some(
+                            my_scope =>
+                                my_scope.type === 'program' &&
+                                call_site.call_line >
+                                    my_scope.range.start.line &&
+                                call_site.call_line <
+                                    my_scope.range.end.line &&
+                                !position_within_range(
+                                    reference_position,
+                                    my_scope.range
+                                )
+                        );
+                        if (in_uncalled_program) {
+                            continue;
+                        }
                         if (this.is_symbol_excluded_by_forward_call(
                                 symbol_name,
                                 call_site,
