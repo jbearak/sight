@@ -418,12 +418,37 @@ export class DiagnosticsProvider {
             // behind the 2026-04-21 revert; see the guard comment on
             // is_symbol_defined_in_current_document).
             //
-            // Deliberate precedence: this also outranks the forward-call
-            // "use include" rewrite when a do-called child ALSO defines
-            // the name — same-file definedness beats that rewrite per the
-            // 2026-04-21 decision (main showed the generic message there;
-            // #145 upgrades it to the scope-isolation message).
+            // When a do-called child ALSO defines the name, the message
+            // refers to BOTH facts (the same-file program local and the
+            // child's do-excluded definition with its include remedy)
+            // rather than picking one. Same-file definedness still leads
+            // per the 2026-04-21 decision; the child half is appended.
             if (symbol_name && my_diagnostic.scope_isolation) {
+                let do_excluded_source_file: string | undefined;
+                if (resolved_scope) {
+                    const diag_line = my_diagnostic.range.start.line;
+                    for (const call_site of get_visible_forward_call_sites(
+                        resolved_scope,
+                        diag_line
+                    )) {
+                        if (this.is_symbol_excluded_by_forward_call(
+                                symbol_name,
+                                call_site,
+                                my_diagnostic.code,
+                                reference_kind,
+                                document.uri
+                            )) {
+                            const effective =
+                                call_site.excluded_locals?.get(symbol_name);
+                            const excluded_callee_uri = effective?.sourceUri
+                                ?? call_site.callee_uri;
+                            do_excluded_source_file =
+                                excluded_callee_uri.split('/').pop()
+                                || excluded_callee_uri;
+                            break;
+                        }
+                    }
+                }
                 const converted = this.create_out_of_scope_rewrite(
                     my_diagnostic,
                     symbol_name,
@@ -434,6 +459,9 @@ export class DiagnosticsProvider {
                             program_names:
                                 my_diagnostic.scope_isolation
                                     .defined_in_programs,
+                            ...(do_excluded_source_file !== undefined
+                                ? { do_excluded_source_file }
+                                : {}),
                         },
                     },
                     config,

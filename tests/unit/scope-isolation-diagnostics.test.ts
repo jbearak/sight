@@ -186,13 +186,13 @@ display \`inside_x'
         expect(the_matches).toHaveLength(0);
     });
 
-    it('scope isolation outranks the use-include rewrite (2026-04-21 decision)', async () => {
+    it('combined case mentions both the program local and the do-excluded child', async () => {
         // Combined case: the name exists in a same-file program body AND
-        // in a do-called child (excluded_locals). Per the 2026-04-21
-        // revert decision, same-file definedness beats the "use include"
-        // rewrite — pre-#145 that meant the generic message; now it means
-        // the scope-isolation message. Pins the precedence so a future
-        // reorder of the diagnostics pipeline cannot silently flip it.
+        // in a do-called child (excluded_locals). The message refers to
+        // BOTH facts instead of picking one: the scope-isolation part
+        // (same-file definedness, per the 2026-04-21 revert decision)
+        // plus the child definition and its include remedy. Pins the
+        // wording so a pipeline reorder cannot silently drop either half.
         const document = create_real_document_state(`
 program define p
     local x 1
@@ -239,9 +239,10 @@ display \`x'
             d.message.includes("`x'"));
         expect(the_matches).toHaveLength(1);
         expect(the_matches[0].message).toBe(
-            "`x' is defined only inside program p"
+            "`x' is defined only inside program p in this file; " +
+            'it is also defined in child.do but local macros are not ' +
+            'inherited via do or run (use include instead)'
         );
-        expect(the_matches[0].message).not.toContain('include');
     });
 
     it('severity follows the undefinedMacro setting', async () => {
