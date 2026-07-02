@@ -17,7 +17,6 @@ import {
 } from '../types';
 import {
     find_enclosing_scope,
-    position_within_range,
 } from '../utils/scope-position';
 import {
     ScopeResolver,
@@ -89,24 +88,60 @@ function is_stata_diagnostic_code(code: unknown): code is StataDiagnosticCode {
 }
 
 /**
- * Executable blame only (#274): a forward call strictly inside a program
- * body runs when that program is called, not at its textual position — so
- * unless the reference sits in that same body, the call has not executed
- * before the reference and must not be blamed (a later in-program `do`
- * would otherwise shadow the real top-level one).
+ * Innermost program scope whose BODY contains `line`. Header lines
+ * (including ///-continued headers, via body_start_line, #273) and the
+ * `end` line belong to the enclosing scope, matching the analyzer's
+ * body-only scope resolution.
+ */
+function innermost_program_body_scope(
+    line: number,
+    the_scopes: ScopeInfo[]
+): ScopeInfo | undefined {
+    let innermost: ScopeInfo | undefined;
+    for (const my_scope of the_scopes) {
+        if (my_scope.type !== 'program') {
+            continue;
+        }
+        const body_start_line =
+            my_scope.body_start_line ?? my_scope.range.start.line + 1;
+        if (line < body_start_line || line >= my_scope.range.end.line) {
+            continue;
+        }
+        if (!innermost
+            || my_scope.range.start.line > innermost.range.start.line) {
+            innermost = my_scope;
+        }
+    }
+    return innermost;
+}
+
+/**
+ * Executable blame only (#274): a forward call inside a program body runs
+ * when that program is called, not at its textual position — and its
+ * effects land in that program's own frame. So the call counts as
+ * executed-before-the-reference only when the reference's innermost
+ * program body is the SAME scope as the call site's: a later in-program
+ * `do` must not shadow the real top-level one, and full-range containment
+ * would wrongly cover references inside nested programs, which run in a
+ * fresh frame.
  */
 function call_site_in_uncalled_program_body(
     call_site: ForwardCallSite,
     the_scopes: ScopeInfo[],
     reference_position: Position
 ): boolean {
-    return the_scopes.some(
-        my_scope =>
-            my_scope.type === 'program' &&
-            call_site.call_line > my_scope.range.start.line &&
-            call_site.call_line < my_scope.range.end.line &&
-            !position_within_range(reference_position, my_scope.range)
+    const call_scope = innermost_program_body_scope(
+        call_site.call_line,
+        the_scopes
     );
+    if (!call_scope) {
+        return false;
+    }
+    const reference_scope = innermost_program_body_scope(
+        reference_position.line,
+        the_scopes
+    );
+    return reference_scope !== call_scope;
 }
 
 // ─── Testability seam for host_is_case_sensitive ─────────────────────────────

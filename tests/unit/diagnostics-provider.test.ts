@@ -1646,6 +1646,64 @@ display \`result'
             expect(the_matches).toHaveLength(0);
         });
 
+        it('suppression scan skips include calls from an enclosing program body for nested-program references (#274)', async () => {
+            // An include in `outer` binds its locals into OUTER's frame;
+            // `inner` runs later in a fresh frame, so a reference inside
+            // inner must still warn. Full-range containment would treat
+            // the reference as "same body" and wrongly suppress — the
+            // guard must compare innermost program-body scopes.
+            const content = [
+                'program define outer',
+                '    include b.do',
+                '    program define inner',
+                "        display `x'",
+                '    end',
+                'end',
+            ].join('\n');
+            const document = create_real_document_state(content);
+            const forward_symbols = create_empty_symbol_table();
+            forward_symbols.localMacros.set('x', {
+                name: 'x',
+                scope: 'local',
+                location: {
+                    uri: 'file:///b.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 9 },
+                    },
+                },
+                sourceUri: 'file:///b.do',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: true,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///b.do',
+                    call_line: 1,
+                    symbols: forward_symbols,
+                    effective_type: 'include',
+                }],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            const undefined_diag = the_diagnostics.find(
+                d => (d.data as { symbol_name?: string } | undefined)
+                    ?.symbol_name === 'x'
+            );
+            expect(undefined_diag).toBeDefined();
+        });
+
         it('top-level include suppression is not over-guarded (#274)', async () => {
             // The guard only targets call sites inside program bodies; a
             // plain top-level include keeps suppressing its locals.
