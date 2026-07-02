@@ -290,6 +290,213 @@ end
             undefined_global_diagnostics(result, 'maybe_set_by_caller')
         ).toHaveLength(0);
     });
+
+    it('suppresses undefined globals on a nested program header', () => {
+        // The inner header expands while OUTER runs — the same frame
+        // as outer body code, whose globals may be set by the caller.
+        const result = analyze_code(`
+program define outer
+    program define inner, rclass $maybe_set
+    end
+end
+`);
+        expect(
+            undefined_global_diagnostics(result, 'maybe_set')
+        ).toHaveLength(0);
+    });
+
+    it('still reports invalid macro chars on a nested program header', () => {
+        // Frame suppression covers only the undefined-global check —
+        // \${bad.name} is a syntax error no caller can make valid.
+        const result = analyze_code(`
+program define outer
+    program define inner, rclass \${bad.name}
+    end
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.INVALID_MACRO_CHAR
+        )).toHaveLength(1);
+    });
+
+    it('body-line invalid macro chars stay suppressed (parity with main)', () => {
+        // Pre-existing behavior: program-body global tokens skip ALL
+        // checks, including syntax ones. Pinned so changes are
+        // deliberate, not incidental.
+        const result = analyze_code(`
+program define myprog
+    display \${bad.name}
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.INVALID_MACRO_CHAR
+        )).toHaveLength(0);
+    });
+});
+
+// Issue #273: local-macro references on a `program define` header line
+// expand at definition time in the enclosing frame, so body locals can
+// never satisfy them. They must resolve against the enclosing scope
+// (do-file, or the outer program body for nested definitions), the same
+// body-only treatment global suppression got above.
+describe('header-line local references resolve against the enclosing scope (#273)', () => {
+    it('warns for a header local even when args defines it in the body', () => {
+        const result = analyze_code(`
+program define p, rclass \`x'
+    args x
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(1);
+    });
+
+    it('header local matched only by an own-body local warns plainly', () => {
+        // Blaming the program whose header the reference sits on would
+        // be self-contradictory, same as the redeclared-bodies rule.
+        const result = analyze_code(`
+program define p, rclass \`x'
+    local x 1
+end
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toBeUndefined();
+    });
+
+    it('redeclared program headers do not blame their own name', () => {
+        const result = analyze_code(`
+program define foo
+    local x 1
+end
+program define foo, rclass \`x'
+end
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toBeUndefined();
+    });
+
+    it('header locals still blame other programs that define the name', () => {
+        const result = analyze_code(`
+program define helper
+    local x 1
+end
+program define p, rclass \`x'
+end
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toEqual({
+            defined_in_programs: ['helper'],
+        });
+    });
+
+    it('header local defined earlier at do-file scope does not warn', () => {
+        const result = analyze_code(`
+local x 1
+program define p, rclass \`x'
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(0);
+    });
+
+    it('nested header local resolves against the outer program body', () => {
+        const result = analyze_code(`
+program define outer
+    local x 1
+    program define inner, rclass \`x'
+    end
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(0);
+    });
+
+    it('end-line local references resolve against the do-file scope', () => {
+        // Trailing text after `end` already sits outside the program's
+        // char-inclusive range; guard that it stays do-file-resolved.
+        const result = analyze_code(`
+program define p
+    local x 1
+end \`x'
+`);
+        const the_diagnostics = undefined_macro_diagnostics(result, 'x');
+        expect(the_diagnostics).toHaveLength(1);
+        expect(the_diagnostics[0].scope_isolation).toEqual({
+            defined_in_programs: ['p'],
+        });
+    });
+
+    it('body references still see body locals', () => {
+        const result = analyze_code(`
+program define p
+    args x
+    display \`x'
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(0);
+    });
+});
+
+// A ///-continued `program define` header spans several physical
+// lines; every one of them is still the header and expands at
+// definition time in the enclosing frame, so the body-only treatment
+// must cover the whole logical header, not just its first line.
+describe('continued program headers are header, not body (#273)', () => {
+    it('warns for a continued-header local even when args defines it in the body', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass \`x'
+    args x
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(1);
+    });
+
+    it('warns for an undefined global on a continued header line', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass $extra
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+            d.message.includes('$extra')
+        )).toHaveLength(1);
+    });
+
+    it('reports invalid macro chars on a continued header line', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass \${bad.name}
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.INVALID_MACRO_CHAR
+        )).toHaveLength(1);
+    });
+
+    it('body lines after a continued header still suppress globals', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass
+    display $maybe_set_by_caller
+end
+`);
+        expect(result.diagnostics.filter(d =>
+            d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+            d.message.includes('$maybe_set_by_caller')
+        )).toHaveLength(0);
+    });
+
+    it('body references after a continued header still see body locals', () => {
+        const result = analyze_code(`
+program define p, ///
+    rclass
+    args x
+    display \`x'
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'x')).toHaveLength(0);
+    });
 });
 
 // Issue #263 limitation 6: an unrelated program-scoped local of the same

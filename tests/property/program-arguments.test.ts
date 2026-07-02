@@ -196,21 +196,83 @@ program define test_prog
     local result \`varlist'
 end
 `;
-            
+
             const document = create_test_document(program_code);
             const parsed = parse_and_analyze(program_code);
             document.ast = parsed.ast;
-            
+
             const provider = new CompletionProvider(new CommandDatabase());
-            
+
             // Position on program declaration line
             const declaration_position: Position = { line: 1, character: 15 };
             const result = (provider as any).detect_cursor_in_program_body(document, declaration_position);
             expect(result).toBeNull();
         });
+
+        it('should not detect program on a ///-continued header line (#273)', () => {
+            // Line 2 is still the header — it expands at definition
+            // time in the enclosing frame, so body completions must
+            // not be offered there.
+            const program_code = `
+program define test_prog, ///
+    rclass
+    syntax varlist
+end
+`;
+            const document = parse_and_analyze(program_code);
+            const provider = new CompletionProvider(new CommandDatabase());
+
+            const continuation_position: Position = { line: 2, character: 10 };
+            const continuation_result = (provider as any)
+                .detect_cursor_in_program_body(document, continuation_position);
+            expect(continuation_result).toBeNull();
+
+            // The first true body line still detects the program.
+            const body_position: Position = { line: 3, character: 10 };
+            const body_result = (provider as any)
+                .detect_cursor_in_program_body(document, body_position);
+            expect(body_result?.name).toBe('test_prog');
+        });
+
+        it('should not detect program on the end line', () => {
+            const program_code = `
+program define test_prog
+    syntax varlist
+end
+`;
+            const document = parse_and_analyze(program_code);
+            const provider = new CompletionProvider(new CommandDatabase());
+
+            const end_position: Position = { line: 3, character: 2 };
+            const result = (provider as any)
+                .detect_cursor_in_program_body(document, end_position);
+            expect(result).toBeNull();
+        });
     });
 
     describe('program argument completions in macro context', () => {
+        it('should not offer program arguments on a continued header line (#273)', async () => {
+            const program_code = `
+program define test_prog, ///
+    rclass \`
+    syntax varlist
+end
+`;
+            const document = parse_and_analyze(program_code);
+            const provider = new CompletionProvider(new CommandDatabase());
+
+            // Inside the backtick on the continuation line — still
+            // the header, so `varlist` (a body argument) must not be
+            // offered as a program argument there.
+            const position: Position = { line: 2, character: 12 };
+            const completions = await provider.get_completions(document, position);
+
+            const the_argument_labels = completions
+                .filter(c => c.detail === 'Program argument')
+                .map(c => c.label);
+            expect(the_argument_labels).not.toContain('varlist');
+        });
+
         it('should include program arguments in local macro completions', async () => {
             const program_code = `
 program define test_prog

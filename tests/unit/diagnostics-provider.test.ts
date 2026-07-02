@@ -1410,6 +1410,62 @@ display \`result'
             expect(undefined_diag).toBeUndefined();
         });
 
+        it('should not point header-line forward hints at program-body locals (#273)', async () => {
+            // The header reference expands at definition time in the
+            // do-file frame, so the hint must name the later do-file
+            // definition (line 4), never the body local (line 2).
+            const content = [
+                "program define p, rclass `x'",
+                'local x 1',
+                'end',
+                'local x 2',
+            ].join('\n');
+            const document = create_real_document_state(content);
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG
+            );
+
+            const out_of_scope_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.range.start.line === 0
+            );
+            expect(out_of_scope_diag).toBeDefined();
+            expect(out_of_scope_diag?.message).toBe(
+                "`x' is used before it is defined (line 4)"
+            );
+        });
+
+        it('should not point continued-header forward hints at body locals (#273)', async () => {
+            // The reference sits on the second physical line of a
+            // ///-continued header — still the header, so the hint
+            // must name the do-file definition (line 5), not the body
+            // local (line 3).
+            const content = [
+                'program define p, ///',
+                "    rclass `x'",
+                'local x 1',
+                'end',
+                'local x 2',
+            ].join('\n');
+            const document = create_real_document_state(content);
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG
+            );
+
+            const out_of_scope_diag = the_diagnostics.find(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.range.start.line === 1
+            );
+            expect(out_of_scope_diag).toBeDefined();
+            expect(out_of_scope_diag?.message).toBe(
+                "`x' is used before it is defined (line 5)"
+            );
+        });
+
         it('should rewrite same-file global forward references', async () => {
             const content = [
                 'display $after_global',

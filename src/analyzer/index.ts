@@ -1,5 +1,8 @@
 import { Range } from 'vscode-languageserver-textdocument';
-import { find_enclosing_scope } from '../utils/scope-position';
+import {
+    find_enclosing_scope,
+    program_body_start_line,
+} from '../utils/scope-position';
 import {
     format_undefined_macro_message,
     format_undefined_variable_message,
@@ -314,6 +317,10 @@ export class SemanticAnalyzer {
     // lookups can reach the do-file scope (index 0) and the scope-
     // isolation scan without threading it through every signature.
     private current_scopes: ScopeInfo[] = [];
+    // Lines whose statement ///-continues onto the next physical line,
+    // from the in-flight analyze() call's token stream. Lets program
+    // scopes record where a continued header actually ends (#273).
+    private continued_lines = new Set<number>();
 
     /**
      * Analyze an AST and build symbol tables.
@@ -343,6 +350,14 @@ export class SemanticAnalyzer {
         this.nonexec_conditional_depth = 0;
         this.workspace_symbols = workspace_symbols; // Store workspace symbols
         this.tokens = tokens; // Keep tokens for command-level pattern checks
+        this.continued_lines = new Set<number>();
+        if (tokens) {
+            for (const my_token of tokens) {
+                if (my_token.type === 'CONTINUATION') {
+                    this.continued_lines.add(my_token.range.start.line);
+                }
+            }
+        }
 
         // Initialize symbol table
         const symbols: SymbolTable = create_empty_symbol_table();
@@ -899,12 +914,20 @@ export class SemanticAnalyzer {
 
         // Create a new scope for the program body — unconditional so that
         // each redeclaration's body gets its own scope for per-body diagnostics.
+        // A ///-continued header spans several physical lines that are
+        // all still header — walk the continuation run so body-only
+        // scope resolution excludes the whole logical header (#273).
+        let my_header_line = node.range.start.line;
+        while (this.continued_lines.has(my_header_line)) {
+            my_header_line++;
+        }
         const program_scope: ScopeInfo = {
             type: 'program',
             range: node.range,
             localMacros: new Map(),
             id: all_scopes.length,
             program_name: node.name,
+            body_start_line: my_header_line + 1,
         };
         all_scopes.push(program_scope);
 
@@ -3372,7 +3395,11 @@ export class SemanticAnalyzer {
         reference_scope: ScopeInfo,
         reference_index?: number,
         reference_line?: number,
-        reference_range?: Range
+        reference_range?: Range,
+        // Program whose header/end line the reference sits on (its
+        // body was skipped by body_only resolution); never blamed in
+        // scope-isolation hints — see the redeclared-bodies rule below.
+        header_program_name?: string
     ): LocalMacroLookupResult {
         // Positional arguments (`1', `2', ...) are always potentially
         // defined — they represent command-line arguments.
@@ -3444,10 +3471,14 @@ export class SemanticAnalyzer {
                 // reference's own program name — blaming them would
                 // read as self-contradictory ("defined only inside
                 // program foo" while inside program foo). Skip them;
-                // the plain undefined message is correct there.
+                // the plain undefined message is correct there. The
+                // same rule covers a reference on a program's own
+                // header/end line (issue #273).
                 if (
-                    reference_scope.type === 'program' &&
-                    my_scope.program_name === reference_scope.program_name
+                    my_scope.program_name === header_program_name ||
+                    (reference_scope.type === 'program' &&
+                        my_scope.program_name ===
+                            reference_scope.program_name)
                 ) {
                     continue;
                 }
@@ -3663,9 +3694,10 @@ export class SemanticAnalyzer {
      */
     private find_enclosing_scope(
         scopes: ScopeInfo[],
-        position: { line: number; character: number }
+        position: { line: number; character: number },
+        options?: { body_only?: boolean }
     ): ScopeInfo {
-        return find_enclosing_scope(scopes, position);
+        return find_enclosing_scope(scopes, position, options);
     }
 
     /**
@@ -4857,18 +4889,25 @@ export class SemanticAnalyzer {
                 continue;
             }
 
-            // Suppress undefined global macro warnings inside program
-            // BODIES only. The header (`program define ...`) and `end`
-            // lines are excluded: Stata expands macros on the header at
+            // Suppress ALL global-token checks inside program BODIES.
+            // The header (`program define ...`, including every
+            // physical line of a ///-continued header) and `end` lines
+            // are excluded: Stata expands macros on the header at
             // definition time, so an undefined global there is a real
             // warning (matches the pre-split line-exclusive ranges).
+            // Kept char-precise and innermost-only (NOT body_only): a
+            // nested header must fall through so its syntax checks
+            // (e.g. invalid macro chars) still run — only its
+            // undefined-global check is frame-suppressed, at the push
+            // site below.
             if (token.type === 'MACRO_REF_GLOBAL') {
                 const enclosing_scope =
                     this.find_enclosing_scope(scopes, token.range.start);
                 const token_line = token.range.start.line;
                 if (
                     enclosing_scope.type === 'program' &&
-                    token_line > enclosing_scope.range.start.line &&
+                    token_line >=
+                        program_body_start_line(enclosing_scope) &&
                     token_line < enclosing_scope.range.end.line
                 ) {
                     continue;
@@ -4917,17 +4956,35 @@ export class SemanticAnalyzer {
                 
                 const token_line = token.range.start.line;
                 if (macro_name) {
+                    // Header/end lines expand at definition time in the
+                    // enclosing frame, so body locals never satisfy a
+                    // reference there (issue #273) — resolve body-only.
                     const reference_scope = this.find_enclosing_scope(
+                        scopes,
+                        token.range.start,
+                        { body_only: true }
+                    );
+                    // When body_only skipped a program (the token sits
+                    // on its header/end line), that program's name must
+                    // not be blamed in scope-isolation hints — same
+                    // self-contradiction rule as redeclared bodies.
+                    const positional_scope = this.find_enclosing_scope(
                         scopes,
                         token.range.start
                     );
+                    const header_program_name =
+                        positional_scope !== reference_scope &&
+                        positional_scope.type === 'program'
+                            ? positional_scope.program_name
+                            : undefined;
                     const result = this.lookup_local_macro(
                         macro_name,
                         symbols,
                         reference_scope,
                         undefined,
                         token_line,
-                        token.range
+                        token.range,
+                        header_program_name
                     );
                     this.emit_undefined_local_diagnostic(
                         result,
@@ -4973,6 +5030,18 @@ export class SemanticAnalyzer {
                         token.range
                     )
                 ) {
+                    // A NESTED program's header/end line expands while
+                    // the outer program runs — the same caller-may-set
+                    // frame as outer body code, so the undefined-global
+                    // warning (and only it) is suppressed there.
+                    const frame_scope = this.find_enclosing_scope(
+                        scopes,
+                        token.range.start,
+                        { body_only: true }
+                    );
+                    if (frame_scope.type === 'program') {
+                        continue;
+                    }
                     diagnostics.push({
                         message: format_undefined_macro_message(
                             'global',

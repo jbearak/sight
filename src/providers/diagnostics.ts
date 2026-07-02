@@ -1023,9 +1023,13 @@ export class DiagnosticsProvider {
         // definition after the reference across both. Falls back to the
         // flat read when no scopes were provided (partial states).
         if (reference_kind === 'local' && scopes.length > 0) {
+            // body_only: a reference on a program's header/end line
+            // expands in the enclosing frame, so the hint must never
+            // name a body local (issue #273).
             const enclosing_scope = find_enclosing_scope(
                 scopes,
-                reference_position
+                reference_position,
+                { body_only: true }
             );
             const the_visible_scopes =
                 enclosing_scope.type !== 'dofile' &&
