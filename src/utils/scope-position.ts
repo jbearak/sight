@@ -42,6 +42,12 @@ export function find_enclosing_scope(
     scopes: ScopeInfo[],
     position: Position
 ): ScopeInfo {
+    if (scopes.length === 0) {
+        // Every producer pushes the do-file scope first, so an empty
+        // array is a caller bug — fail loudly rather than return an
+        // undefined that NPEs at a distance.
+        throw new Error('find_enclosing_scope: scopes must be non-empty');
+    }
     let innermost: ScopeInfo | undefined;
     for (const my_scope of scopes) {
         if (my_scope.type !== 'program') {

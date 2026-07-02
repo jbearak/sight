@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { DocumentState } from '../../src/document-store';
 import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope, CrossFileCaseMismatchSeverity } from '../../src/types';
-import { DiagnosticSeverity } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { ContextTracker } from '../../src/context-tracker';
 import { create_empty_symbol_table } from '../../src/analyzer';
 import { ScopeResolver } from '../../src/scope-resolver';
@@ -62,7 +62,7 @@ function create_document_state(content: string, version: number = 1): DocumentSt
     const context_ranges = my_context_tracker.get_all_context_ranges();
     
     // Create sample diagnostics based on content
-    const diagnostics: any[] = [];
+    const diagnostics: Diagnostic[] = [];
     
     // Check for undefined macros (anywhere in the content)
     if (content.includes('`undefined') || content.includes('$undefined')) {
@@ -107,11 +107,17 @@ function create_document_state(content: string, version: number = 1): DocumentSt
             localMacros: new Map(),
             globalMacros: new Map(),
             variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
         },
+        scopes: [],
         diagnostics,
         context_ranges,
         context_tracker: my_context_tracker,
         line_offsets: [0],
+        forward_calls: [],
+        token_line_index: new Map(),
+        ignored_lines: new Set<number>(),
     };
 }
 
